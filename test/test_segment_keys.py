@@ -176,17 +176,17 @@ def _run_checks():
     # custom-prop curves are outside the transform scope by default
     m["prop"] = 0.0
     m.keyframe_insert(data_path='["prop"]', frame=100)
-    segs = SegmentKeys.collect_segments(["Multi"], split_static=False)
+    segs = SegmentKeys.collect_segments(
+        ["Multi"], split_static=False, transform_only=True
+    )
     check(
-        "transform_only: custom-prop key not in span",
+        "transform_only=True: custom-prop key not in span",
         spans(segs) == [(0, 30)],
         f"{spans(segs)}",
     )
-    segs = SegmentKeys.collect_segments(
-        ["Multi"], split_static=False, transform_only=False
-    )
+    segs = SegmentKeys.collect_segments(["Multi"], split_static=False)
     check(
-        "transform_only=False: custom-prop key included",
+        "default (mayatk: every time curve): custom-prop key included",
         spans(segs) == [(0, 100)],
         f"{spans(segs)}",
     )

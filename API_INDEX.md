@@ -66,11 +66,11 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class BlenderScenePersistence`
   - methods: store_cls, remove_callbacks, save, load, record_changed
 - `class BlenderShotStore(ShotStore, _BlenderShotStoreInternal)`
-  - methods: active, has_animation, detect_regions, assess, publish_export_view, export_transfer, apply_transfer, transfer_out, transfer_in, merge_carrier, iter_action_fcurves, collect_transform_segments, collect_selected_key_entries
+  - methods: resolve_member, curve_key, follow_renames, edit_serial, scene_edit, active, rescale_to_fps, has_animation, detect_regions, assess, publish_export_view, export_transfer, apply_transfer, transfer_out, transfer_in, merge_carrier, discard_carrier, iter_action_fcurves, collect_transform_segments, collect_selected_key_entries
 
 ### `anim_utils/shots/shot_manifest/_shot_manifest.py` — Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
 - `class BlenderShotManifest(ShotManifest, _ShotManifestInternal)`
-  - methods: apply_behaviors, rewire_audio, reapply_object, from_csv
+  - methods: apply_behaviors, rewire_audio, from_csv
 
 ### `anim_utils/shots/shot_manifest/behaviors/_behaviors.py` — Behaviors — Blender appliers over the engine's pure keying-recipe core.
 - `class Behaviors(pythontk.core_utils.engines.shots.manifest.behaviors.Behaviors, _BehaviorsInternal)`
@@ -106,7 +106,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `anim_utils/shots/shot_sequencer/clip_motion.py` — Clip motion, resize, and key-scaling logic for the shot sequencer (Blender).
 - constants: FLOAT_ZERO_EPS
 - `class ClipMotionMixin(_ClipMotionMixinInternal)`
-  - methods: on_clip_resized, on_clips_batch_resized, on_clip_moved, on_clips_batch_moved, on_keys_moved, on_keys_batch_moved, on_keys_deleted, curves_for_attr, scale_attribute_keys
+  - methods: on_clip_resized, on_clips_batch_resized, on_clip_moved, on_clips_batch_moved, on_keys_moved, on_keys_batch_moved, on_keys_deleted, curves_for_attr, curves_for_attrs, scale_attribute_keys
 
 ### `anim_utils/shots/shot_sequencer/gap_manager.py` — Gap and range-highlight handlers for the shot sequencer controller (Blender).
 - constants: TIME_SNAP_EPS
@@ -198,7 +198,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `audio_utils/audio_clips.py` — Audio Clips — scene-wide sound-strip management over Blender's Video Sequence Editor (VSE).
 - `class AudioClipsSlots(pythontk.LoggingMixin)`
-  - methods: header_init, cmb000_init, cmb000, b001, b002, b005, b006, tb001_init, tb001, b003, b004_init, b004
+  - methods: header_init, cmb000_init, cmb000, select_track, b001, b002, b005, b006, tb001_init, tb001, b003, b004_init, b004
 
 ### `audio_utils/segments.py` — Consumer-facing audio-segment discovery for the sequencer + manifest (Blender).
 - `class AudioSegment(_AudioSegmentInternal)`
@@ -249,6 +249,10 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class TransformDiagnostics(_TransformDiagnosticsInternal)`
   - methods: get_non_orthogonal, fix_non_orthogonal_axes
 
+### `core_utils/diagnostics/uv_diag.py` — UV diagnostics -- the Blender counterpart of mayatk's
+- `class UvDiagnostics(object)`
+  - methods: is_bakeable_lightmap
+
 ### `core_utils/preview.py` — Live-preview driver for the tentacle Blender tool panels — the Blender analogue of
 - `class Preview`
   - methods: is_enabled, refresh, enable, disable, commit
@@ -259,7 +263,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `display_utils/_display_utils.py` — Display utilities — the exploded-view toggle (mirror of mayatk's
 - `class DisplayUtils(_DisplayUtilsInternal)`
-  - methods: is_exploded, explode_view, unexplode_view, unexplode_all, get_visible_geometry
+  - methods: is_exploded, explode_view, unexplode_view, unexplode_all, get_visible_geometry, set_viewport_overlay
 
 ### `display_utils/color_id.py` — Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui``.
 - `class ColorId`
@@ -382,7 +386,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/_env_utils.py` — blendertk environment / scene-library utilities — the engine behind the Reference Manager panel.
 - `class EnvUtils(_EnvUtilsInternal)`
-  - methods: find_blend_files, list_libraries, linked_blend_paths, is_blend_linked, link_blend_file, reload_library, remove_library, make_library_local, set_current_workspace, current_workspace, workspace_root, scene_artifact_path, source_images_dir, texture_search_dirs, scenes_dir, workspace_scenes_dir, list_workspace_templates, workspace_template_rules, save_workspace_template, delete_workspace_template, create_workspace, promote_workspace, find_workspaces, open_scene, new_scene, scene_has_content, scene_has_unsaved_changes, scene_settings, apply_scene_settings, format_scene_name, scene_save_path, save_scene_as, export_scene_as_obj, rename_scene_file, delete_scene_file, set_reference_display_mode, get_reference_display_mode
+  - methods: find_blend_files, list_libraries, linked_blend_paths, is_blend_linked, link_blend_file, reload_library, remove_library, make_library_local, set_current_workspace, current_workspace, workspace_root, scene_project_root, scene_artifact_path, source_images_dir, texture_search_dirs, scenes_dir, workspace_scenes_dir, list_workspace_templates, workspace_template_rules, save_workspace_template, delete_workspace_template, create_workspace, promote_workspace, find_workspaces, open_scene, new_scene, scene_has_content, scene_has_unsaved_changes, scene_settings, apply_scene_settings, format_scene_name, scene_save_path, save_scene_as, export_scene_as_obj, rename_scene_file, delete_scene_file, set_reference_display_mode, get_reference_display_mode
 
 ### `env_utils/blender_connection.py` — Launch a FRESH headless Blender to run a script / code string and capture its output — the
 - constants: RESULT_PASS
@@ -438,7 +442,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `env_utils/maya_bridge/_scene_import.py` — Import a Maya scene (.ma/.mb) into Blender via a headless-Maya round-trip
 - constants: SUPPORTED_EXTENSIONS, USD_EXTENSIONS, BAKE_SOURCE_EXTENSIONS, BAKE_SOURCE_SUFFIX, MAYA_GROUP_EMPTY_DISPLAY_SIZE, FBX_IMPORT_OPTIONS, REDUCE_KEYS_DEFAULT
 - `class MayaSceneImport(pythontk.LoggingMixin)`
-  - methods: maya_path, mayapy_path, require_mayapy, render_script, convert, import_scene, import_payload, apply_world, blender_path, require_blender, render_bake_script, bake, bake_scene, bake_source, mayapy_from_maya_exe, scene_has_complex_animation, find_scenes
+  - methods: maya_path, mayapy_path, require_mayapy, render_script, convert, import_scene, import_payload, hide_relationship_lines, apply_world, blender_path, require_blender, render_bake_script, bake, bake_scene, bake_source, mayapy_from_maya_exe, scene_has_complex_animation, find_scenes
 
 ### `env_utils/maya_bridge/maya_bridge_slots.py` — Slots for the Maya bridge panel.
 - `class MayaBridgeSlots(BlenderBridgeSlotsBase)`
@@ -467,6 +471,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `env_utils/maya_bridge/templates/_import_scene_usd.py` — Open a Maya scene headlessly (mayapy) and export it as USD for a Blender import.
 - `usd_safe_materials(cmds)`
 - `export_usd(cmds, frame_range=None)`
+- `drop_unmergeable_locator_shapes(cmds)`
 - `collect_materials(cmds)`
 - `uniquify_short_names(cmds)`
 - `collect_instance_groups(cmds)`
@@ -512,7 +517,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/scene_exporter/scene_exporter_slots.py` — Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSlots``.
 - `class SceneExporterSlots(SceneExporter)`
-  - methods: confirm, workspace, header_init, presets, cmb000_init, txt000_init, output_name_preview, txt001_init, cmb001_init, cmb002_init, cmb007_init, cmb008_init, ignore_groups_init, export_data_node_init, cmb004_init, cmb005_init, b000, b010, b012, b006, b007, b008, save_output_dir, save_output_name
+  - methods: confirm, decide_check_failure, workspace, header_init, presets, cmb000_init, txt000_init, output_name_preview, txt001_init, cmb001_init, cmb002_init, cmb007_init, cmb008_init, ignore_groups_init, export_data_node_init, cmb004_init, cmb005_init, b000, b010, b012, b006, b007, b008, save_output_dir, save_output_name
 
 ### `env_utils/scene_exporter/task_manager.py` — The Scene Exporter's task/check manager -- mirror of mayatk's ``TaskManager``.
 - `class TaskManager(TaskFactory, _SceneTasksMixin, _TextureTasksMixin, _AnimationTasksMixin, _TaskChecksMixin, _TaskDefinitionsMixin)`
@@ -577,7 +582,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `light_utils/lightmap_baker/lightmap_records.py` — The scene record a lightmap bake leaves in Blender: markers, manifest, and the files they name.
 - `class LightmapRecords(pythontk.LoggingMixin)`
-  - methods: baked_objects, commit, revert, superseding, migrate_legacy, migrate_folder_hints, export_record, refresh_export_metadata, claims, lightmap_dependencies, search_dirs, heal_lightmap_paths, normalize_lightmap_paths, relocate_lightmaps, repath_lightmaps
+  - methods: baked_objects, lightmap_info, commit, revert, project_root, superseding, migrate_legacy, migrate_folder_hints, export_record, refresh_export_metadata, claims, lightmap_dependencies, search_dirs, heal_lightmap_paths, normalize_lightmap_paths, relocate_lightmaps, repath_lightmaps, transfer_lightmaps
 
 ### `light_utils/lightmap_baker/web_export.py` — Ship a committed lightmap bake in a web (GLB) deliverable.
 - `class LightmapWebExport(pythontk.LoggingMixin)`
@@ -710,11 +715,11 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `mat_utils/render_opacity/render_effects.py` — Render Effects — Blender per-object render-effect channels for engine-ready control (mirror of
 - `class RenderEffects(pythontk.LoggingMixin)`
-  - methods: channel_records, apply_channel_records, objects_with_visibility_keys, create, key_pulse, preview_channels, objects_with_channel, channel_colors, channel_color_stops, set_channel_color, stage_export_proxies, remove_export_proxies, finish_export, remove, key_fade, sync_visibility_from_opacity, ensure_connections, prepare_for_export, visibility_tracks, export_record, refresh_export_metadata
+  - methods: channel_records, apply_channel_records, objects_with_visibility_keys, create, key_pulse, preview_channels, objects_with_channel, channel_colors, channel_color_stops, set_channel_color, stage_export_proxies, remove_export_proxies, finish_export, remove, key_fade, write_keys, scene_store, scene_recipe, apply_effect, sync_visibility_from_opacity, ensure_connections, prepare_for_export, visibility_tracks, export_record, refresh_export_metadata
 
 ### `mat_utils/render_opacity/render_effects_slots.py` — Switchboard slots for the Render Effects panel (``render_effects.ui``).
 - `class RenderEffectsSlots(pythontk.LoggingMixin)`
-  - methods: header_init, tb000_init, tb000, tb001_init, tb001
+  - methods: header_init, cmb_effect_init, cmb_effect, stk_effects_init, ui_field, focus, unfocus, b000, btn_remove, btn_webxr_init, btn_webxr
 
 ### `mat_utils/shader_templates.py` — Shader Templates tool panel — Switchboard slot wiring for the co-located
 - `class ShaderTemplatesSlots(pythontk.LoggingMixin)`
@@ -964,9 +969,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class AutoUnwrapResult`
 
 ### `uv_utils/_uv_utils.py` — UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
-- constants: DEFAULT_UV_SET, LIGHTMAP_UV_SET
+- constants: DEFAULT_UV_SET, LIGHTMAP_UV_SET, LIGHTMAP_OVERLAP_TOLERANCE
 - `class UvUtils(_UvUtilsInternal)`
-  - methods: calculate_uv_padding, move_uvs, get_uv_bounds, get_neighbor_shell_bounds, transfer_uvs_to_similar, scale_uvs, transform_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, export_uv_layout, create_lightmap_uvs, auto_unwrap, transfer_uvs, get_uv_shell_sets, get_uv_coords, set_uv_coords, get_similar_uv_shells, stack_uv_shells, straighten_uv_shells, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, gather_to_udim, orient_uv_shells, randomize_uv_shells
+  - methods: calculate_uv_padding, move_uvs, get_uv_bounds, get_uv_triangles, get_neighbor_shell_bounds, transfer_uvs_to_similar, scale_uvs, transform_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, export_uv_layout, apply_uv_layout, create_lightmap_uvs, auto_unwrap, transfer_uvs, get_uv_shell_sets, get_uv_coords, set_uv_coords, get_similar_uv_shells, stack_uv_shells, straighten_uv_shells, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, gather_to_udim, orient_uv_shells, randomize_uv_shells
 
 ### `uv_utils/rizom_bridge/_rizom_bridge.py` — RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 - constants: APP
@@ -988,7 +993,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `uv_utils/texture_transfer.py` — Transfer a mesh's textures from one UV layout to another -- no rays, no bake.
 - `class TextureTransfer(pythontk.LoggingMixin, _TextureTransferInternal)`
-  - methods: transfer, default_output_dir, output_base_dir, resolve_output_dir, assign_results, topology_matches, positions_match, auto_source_uv_set, correspondence, face_materials, material_maps, material_constant, pair_by_name
+  - methods: transfer, default_output_dir, output_base_dir, resolve_output_dir, assign_results, topology_matches, positions_match, auto_source_uv_set, correspondence, face_materials, material_maps, material_constant, pair_by_name, pair_sources, find_combined
 
 ### `xform_utils/_xform_utils.py` — Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,
 - `class XformUtils(_XformUtilsInternal)`

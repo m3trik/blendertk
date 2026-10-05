@@ -10,17 +10,18 @@ so the presentation ports 1:1).  DCC swaps versus the Maya original:
   from the shared ``pythontk`` engine, not mayatk;
 - per-object-type icons come from blendertk's ``NodeIcons`` (``Object.type`` →
   uitk named icon; see :meth:`ManifestData.try_load_blender_icons`);
-- object-name display uses a flat ``_leaf_name`` (Blender names carry no DAG path);
-- behavior re-apply routes through :meth:`BlenderShotManifest.reapply_object`
-  (the Blender ``Behaviors.apply_behavior`` applier with distributed anchors,
-  in one undo step) rather than inlining the loop here.
+- object-name display uses a flat ``_leaf_name`` (Blender names carry no DAG path).
+
+Re-applying a behavior is shared, not swapped: the engine's
+``ShotManifest.reapply_object`` (keying through the adapter's ``_apply_one``
+hook), which the presenter wraps in the store's ``scene_edit`` -- one undo step.
 
 Mixed into :class:`ShotManifestController` via MRO.
 """
 
 import pythontk as ptk
 
-from pythontk import BuilderStep, BuilderObject
+from pythontk import BuilderStep, BuilderObject, StepStatus
 
 from blendertk.anim_utils.shots.shot_manifest.behaviors import Behaviors
 
@@ -52,6 +53,22 @@ class _ManifestTableMixinInternal(object):
         harmless no-op for parity with mayatk.
         """
         return name.rsplit("|", 1)[-1] if "|" in name else name
+
+
+#: Tooltip line for an object the sheet's asset column did not list
+#: (``BuilderObject.origin``).
+_ORIGIN_NOTES = {
+    "description": "Named in the step's description -- the asset column lists none.",
+    "shot": "Auto-filled from the scene -- not listed in the sheet.",
+}
+
+#: Object statuses about a behavior (counted on the step's Behaviors cell).
+_BEHAVIOR_ISSUES = (
+    "missing_behavior",
+    "behavior_conflict",
+    "unknown_behavior",
+    "stale_behavior",
+)
 
 
 class ManifestTableMixin(_ManifestTableMixinInternal):
@@ -144,6 +161,7 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
                 colour this row from another step's result.
         """
         broken: list = []
+        stale: list = []
         status_color = None
         obj_st = ptk.StepStatus.find_object(
             getattr(self, "_last_results", None) or [], obj.name, step_id
@@ -153,9 +171,10 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
                 status_color = BEHAVIOR_STATUS_COLORS.get("error")
             else:
                 broken = list(obj_st.broken_behaviors or [])
+                stale = list(obj_st.stale_behaviors or [])
         label.setText(
             ManifestData.format_behavior_html(
-                obj.behaviors, broken=broken, status_color=status_color
+                obj.behaviors, broken=broken, status_color=status_color, stale=stale
             )
         )
         # Build a per-behavior status tooltip
@@ -164,6 +183,12 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
             lines = []
             for b in obj.behaviors:
                 display = ManifestData.fmt_behavior(b)
+                if b in stale:
+                    lines.append(
+                        f"\u21bb {display}  (keyed under an older effect "
+                        "recipe -- Build re-keys it)"
+                    )
+                    continue
                 if obj_st.status == "missing_object":
                     lines.append(f"\u2716 {display}  (object missing)")
                 elif b in broken_set:
@@ -237,38 +262,60 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
             chk.property("behavior_raw") for chk in checkboxes if chk.isChecked()
         ]
         self._color_behavior_label(obj, label, step_id=step_id)
+        # A ticked or unticked behavior is the doc changing under the last
+        # Assess: a Build would act on it (apply it, or release its keys).
+        self._behaviors_edited = True
         self._update_build_button()
 
-    def _reapply_behavior(self, step_id: str, obj: BuilderObject) -> None:
-        """Re-apply all behaviors for a single object on its built shot.
+    def _reapply_behavior(
+        self, step_id: str, obj: BuilderObject, raise_errors: bool = False
+    ) -> bool:
+        """Re-apply every behavior of one object on its paired shot, as one
+        undo step -- ``ShotManifest.reapply_object``: its previous keys out,
+        the new ones recorded as the manifest's own.
 
-        Blender realises fades via ``RenderOpacity`` (opacity/visibility keys)
-        and audio as VSE strips, wrapped in one undo step — delegated to
-        :meth:`BlenderShotManifest.reapply_object`.
+        Parameters:
+            raise_errors: Also raise why nothing was re-applied, for a caller
+                that reports it itself (Render Effects' focused Key).
+
+        Returns:
+            Whether it was re-applied.  Why not goes on the footer: no shot
+            pairs with the step yet, the scene holds no object of that name
+            (or several), or an error.
         """
         try:
-            from blendertk.anim_utils.shots._shots import BlenderShotStore
-            from blendertk.anim_utils.shots.shot_manifest._shot_manifest import (
-                BlenderShotManifest,
-            )
-
-            store = BlenderShotStore.active()
-            shot = next((s for s in store.shots if s.name == step_id), None)
-            if shot is None:
-                self._set_footer(
-                    f"Shot '{step_id}' not found in store.", color=ERROR_COLOR
-                )
-                return
-
-            BlenderShotManifest(store).reapply_object(shot, obj)
-
-            # Re-assess so the UI reflects the fixed state.  Skip the
-            # selected-keys guard — we just applied known behaviors and only
-            # need a status refresh.
-            self.assess(skip_key_check=True)
+            store = self._active_store()
+            shot = self._pairing().shots.get(step_id)
+            if store is None or shot is None:
+                problem = f"No shot pairs with '{step_id}' yet -- build first."
+            else:
+                with store.scene_edit("manifest_reapply"):
+                    applied = self._manifest(store).reapply_object(shot, obj)
+                if applied:
+                    problem = None
+                elif store.resolve_member(obj.name)[1] == "ambiguous":
+                    problem = (
+                        "Nothing re-applied: several scene objects are named "
+                        f"'{obj.name}'."
+                    )
+                else:
+                    problem = f"Nothing re-applied: '{obj.name}' is not in the scene."
+            if problem is None:
+                # Re-assess so the UI reflects the fixed state.  Skip the
+                # selected-keys guard -- we just applied known behaviors and
+                # only need a status refresh.
+                self.assess(skip_key_check=True)
+                return True
         except Exception as exc:
             self.logger.error("Apply behavior failed: %s", exc)
             self._set_footer(f"Error: {exc}", color=ERROR_COLOR)
+            if raise_errors:
+                raise
+            return False
+        self._set_footer(problem, color=ERROR_COLOR)
+        if raise_errors:
+            raise RuntimeError(problem)
+        return False
 
     # -- table population --------------------------------------------------
 
@@ -278,6 +325,7 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
         tree.clear()
         tree.setHeaderLabels(HEADERS)
         tree.setColumnCount(len(HEADERS))
+        pairing = self._pairing()
 
         _kind_cache: dict = {}
 
@@ -292,6 +340,12 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
                 [step.step_id, section, step.display_text, "", "", ""],
                 data=step,
             )
+            if pairing.how.get(step.step_id) == "order":
+                parent.setToolTip(
+                    COL_STEP,
+                    f"Paired by timeline order with shot "
+                    f"'{pairing.shots[step.step_id].name}'; Build records the pairing.",
+                )
             # Child rows: object name in Description column, behavior label
             for obj in step.objects:
                 display = (
@@ -317,6 +371,9 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
                     )
                 if display != obj.name:
                     child.setToolTip(COL_DESC, obj.name)
+                origin = _ORIGIN_NOTES.get(obj.origin)
+                if origin:
+                    child.setToolTip(COL_DESC, f"{obj.name}\n{origin}")
                 if obj.kind not in _kind_cache:
                     _kind_cache[obj.kind] = list(
                         Behaviors.list_behaviors(kind=obj.kind)
@@ -344,12 +401,44 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
                 child = parent.child(j)
                 child.setFlags(child.flags() & ~_Qt.ItemIsEditable)
 
+        # Shots no doc step pairs with: listed, never removed by a build.
+        self._add_orphan_rows(tree, self._orphan_shots(pairing))
+
         # Restore user-entered range values that survive table rebuilds
         self._restore_user_ranges(tree)
 
         self._apply_formatting(tree)
         tree.set_stretch_column(2)  # Stretch "Description" column
         tree.restore_column_state()  # Persist user header changes
+
+    def _add_orphan_rows(self, tree, shots) -> None:
+        """One italic, non-editable "not in doc" row per shot in *shots*; its
+        context menu offers the explicit Remove."""
+        from qtpy.QtCore import Qt
+        from qtpy.QtGui import QBrush, QColor
+
+        fg, _bg = PASTEL_STATUS.get("not_in_doc", (None, None))
+        tip = StepStatus.HELP["not_in_doc"]
+        for shot in shots:
+            row = tree.create_item(
+                [
+                    shot.name,
+                    "",
+                    shot.description or "",
+                    "",
+                    f"{shot.start:.0f}",
+                    f"{shot.end:.0f}",
+                ],
+                data=shot,
+            )
+            row.setFlags(row.flags() & ~Qt.ItemIsEditable)
+            font = row.font(COL_STEP)
+            font.setItalic(True)
+            for c in range(tree.columnCount()):
+                row.setFont(c, font)
+                row.setToolTip(c, tip)
+                if fg:
+                    row.setForeground(c, QBrush(QColor(fg)))
 
     # -- formatting --------------------------------------------------------
 
@@ -579,6 +668,8 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
         col_count = tree.columnCount()
         content_col = COL_DESC
         beh_col = COL_BEHAVIORS
+        # Fresh results answer for every behavior edit made before them.
+        self._behaviors_edited = False
 
         status_map = {r.step_id: r for r in results}
 
@@ -608,12 +699,26 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
                     )
                     lines.append(f"{o.name}: {broken}")
                 parent.setToolTip(0, "Unverified behaviors:\n" + "\n".join(lines))
+            elif step_status.status in StepStatus.HELP:
+                parent.setToolTip(0, StepStatus.HELP[step_status.status])
 
             if step_status.shrinkable_frames > 0:
                 existing_tip = parent.toolTip(0) or ""
                 shrink_tip = f"{step_status.shrinkable_frames:.0f}f unused"
                 parent.setToolTip(
                     0, f"{existing_tip}\n{shrink_tip}" if existing_tip else shrink_tip
+                )
+            if step_status.dropped_behaviors:
+                existing_tip = parent.toolTip(0) or ""
+                dropped = ", ".join(
+                    f"{name} \u2192 {ManifestData.fmt_behavior(b)}"
+                    for name, b in step_status.dropped_behaviors
+                )
+                dropped_tip = (
+                    f"Keys of dropped behaviors -- Build removes them: {dropped}"
+                )
+                parent.setToolTip(
+                    0, f"{existing_tip}\n{dropped_tip}" if existing_tip else dropped_tip
                 )
 
             # Recolor step icon and step text to reflect status
@@ -627,20 +732,26 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
 
             # Color parent behavior column if any child has a behavior issue
             beh_issues = [
-                o for o in step_status.objects if o.status == "missing_behavior"
+                o for o in step_status.objects if o.status in _BEHAVIOR_ISSUES
             ]
             if beh_issues:
-                b_fg, b_bg = PASTEL_STATUS["missing_behavior"]
+                only_stale = all(o.status == "stale_behavior" for o in beh_issues)
+                b_fg, b_bg = PASTEL_STATUS[
+                    "stale_behavior" if only_stale else "missing_behavior"
+                ]
                 if b_fg:
                     parent.setForeground(beh_col, QBrush(QColor(b_fg)))
                 if b_bg:
                     parent.setBackground(beh_col, QBrush(QColor(b_bg)))
-                parent.setText(
-                    beh_col,
-                    f"{len(beh_issues)} missing",
+                only_missing = all(o.status == "missing_behavior" for o in beh_issues)
+                word = (
+                    "to re-key"
+                    if only_stale
+                    else ("missing" if only_missing else "to check")
                 )
+                parent.setText(beh_col, f"{len(beh_issues)} {word}")
                 lines = [
-                    f"{o.name}  →  {', '.join(ManifestData.fmt_behavior(b) for b in (o.broken_behaviors or o.behaviors))}"
+                    f"{o.name}  →  {', '.join(ManifestData.fmt_behavior(b) for b in (o.broken_behaviors or o.stale_behaviors or o.behaviors))}"
                     for o in beh_issues
                 ]
                 parent.setToolTip(beh_col, "\n".join(lines))
@@ -700,6 +811,8 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
                             entry += f" — {desc}"
                         lines.append(entry)
                     child.setToolTip(content_col, "Unverified:\n" + "\n".join(lines))
+                elif obj_st.status in StepStatus.HELP:
+                    child.setToolTip(content_col, StepStatus.HELP[obj_st.status])
                 elif obj_st.status == "user_animated" and obj_st.key_range:
                     child.setToolTip(
                         content_col,
@@ -766,6 +879,15 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
                 no_beh = [o.name for o in r.objects if o.status == "missing_behavior"]
                 if no_beh:
                     issues.append(f"missing behaviors: {', '.join(no_beh)}")
+            elif r.status == "stale_behavior":
+                stale = [o.name for o in r.objects if o.status == "stale_behavior"]
+                if stale:
+                    issues.append(f"keyed under an older recipe: {', '.join(stale)}")
+            if r.dropped_behaviors:
+                issues.append(
+                    "dropped behaviors' keys: "
+                    + ", ".join(f"{name} {b}" for name, b in r.dropped_behaviors)
+                )
             if r.additional_objects:
                 issues.append(f"additional objects: {', '.join(r.additional_objects)}")
             if issues:

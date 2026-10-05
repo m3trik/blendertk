@@ -454,6 +454,43 @@ def export_usd(cmds, frame_range=None):
             raise
 
 
+def drop_unmergeable_locator_shapes(cmds):
+    """Delete each locator shape whose transform also parents other transforms;
+    return how many went.
+
+    ``mergeTransformAndShape`` folds a shape into its transform's prim only when the
+    transform holds nothing else. A locator transform that also parents children --
+    the production anchor pattern, ``DA1_LOC`` > ``DA1`` -- is written as an Xform
+    PLUS a childless ``DA1_LOCShape`` Xform under it, which Blender imports as a stray
+    Empty beneath every such anchor (measured: 32 of 41 locators on a production
+    module; the childless ones merged). A locator shape carries no geometry -- its
+    transform IS the locator -- so the transform alone exports exactly as a merged
+    locator does: one Xform, one Empty. Run after every collector and before the
+    export; a locked or referenced shape simply stays. This Maya session is
+    throwaway -- opened from the source, never saved -- so nothing reaches the
+    artist's file.
+    """
+    dropped = 0
+    for shape in cmds.ls(type="locator", long=True) or []:
+        parent = (cmds.listRelatives(shape, parent=True, fullPath=True) or [None])[0]
+        if not parent or not cmds.listRelatives(
+            parent, children=True, type="transform", fullPath=True
+        ):
+            continue
+        try:
+            cmds.delete(shape)
+            dropped += 1
+        except RuntimeError:  # locked or referenced -- it keeps its shape
+            pass
+    if dropped:
+        print(
+            "locators: {} shape(s) under a parenting transform folded into it.".format(
+                dropped
+            )
+        )
+    return dropped
+
+
 def _sanitize_prim_name(name):
     """Mirror of the USD prim-name rewrite (probe-verified: mayaUSDExport turns
     ``ref:nsCube`` into ``ref_nsCube``): every char outside ``[A-Za-z0-9_]``
@@ -1140,6 +1177,8 @@ def main():
     if not cmds.pluginInfo("mayaUsdPlugin", query=True, loaded=True):
         cmds.loadPlugin("mayaUsdPlugin")
     _progress(3, 5, "Writing the USD")
+    # Last edit before the write: every section above read the scene as authored.
+    drop_unmergeable_locator_shapes(cmds)
     export_usd(cmds, frame_range)
     _progress(4, 5, "Writing the manifest")
     # AFTER the export: the sidecar describes the scene the USD was written

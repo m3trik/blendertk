@@ -10,6 +10,7 @@ paste and stash.
 """
 
 from blendertk.anim_utils._anim_utils import AnimUtils
+from blendertk.anim_utils.shots._shots import BlenderShotStore
 from blendertk.anim_utils.shots.shot_sequencer.clip_motion import ClipMotionMixin
 from blendertk.core_utils._core_utils import CoreUtils
 
@@ -20,12 +21,17 @@ class KeyMenuMixin:
     # -- key context menu (mirror of mayatk; Blender-idiomatic entries) -----
 
     #: Handle types a key's context menu offers: ``(label, handle type)``.
+    #: Blender's own names (the concept diverges from Maya's tangent types);
+    #: ``FLAT`` is not a Blender type but Maya's flat tangent -- a horizontal
+    #: handle, written by :meth:`_set_key_tangents`.  Maya's step is the
+    #: Interpolation submenu's Constant.
     _TANGENT_TYPES = (
         ("Free", "FREE"),
         ("Aligned", "ALIGNED"),
         ("Vector", "VECTOR"),
         ("Automatic", "AUTO"),
         ("Auto Clamped", "AUTO_CLAMPED"),
+        ("Flat", "FLAT"),
     )
 
     #: Interpolation modes: ``(label, interpolation)``.
@@ -178,10 +184,16 @@ class KeyMenuMixin:
             ClipMotionMixin,
         )
 
-        curves = []
+        by_obj: dict = {}
         for obj, attr, _times, _sid in targets:
-            curves.extend(ClipMotionMixin.curves_for_attr(obj, attr))
-        return curves
+            by_obj.setdefault(obj, []).append(attr)
+        # Each curve once (mayatk de-dupes): two segments of one channel are
+        # one curve, and a simplify handed it twice ran an extra pass.
+        return [
+            fc
+            for obj, attrs in by_obj.items()
+            for fc in ClipMotionMixin.curves_for_attrs(obj, attrs)
+        ]
 
     @staticmethod
     def _target_span(targets: list) -> tuple:
@@ -195,19 +207,20 @@ class KeyMenuMixin:
         The bracket every key edit needs and none of them should re-state.
         ``_syncing`` is held throughout so our own writes do not re-arm the
         keyframe debounce and rebuild underneath us.
+
+        A raise keeps the restore point (mirror of mayatk's): ``scene_edit``
+        has pushed and tagged its step by then, so the keys *fn* wrote before
+        raising undo with it, and the bounds and claims have to come back with
+        them -- a dropped point left them as the failed edit made them.
         """
         if self.sequencer is None:
             return None
         was_syncing = self._syncing
         self._syncing = True
-        self._save_shot_state()
         try:
-            with CoreUtils.undo_chunk(label):
+            with self.sequencer.store.scene_edit(label):
                 result = fn()
                 self.sequencer.reconcile_system_edits()
-        except Exception:
-            self._discard_shot_state()
-            raise
         finally:
             self._syncing = was_syncing
         self._segment_cache.clear()
@@ -293,11 +306,12 @@ class KeyMenuMixin:
 
     def _snap_selected_keys(self, targets) -> None:
         """Pull the selected keys off fractional frames onto whole ones."""
+        curves = self._target_curves(targets)
         ran, n = self._key_selection_edit(
             targets,
             "Snap Keys",
-            lambda objects, span: AnimUtils.snap_keys(
-                objects, selected_only=True, time_range=span
+            lambda _objects, span: AnimUtils.snap_keys(
+                curves, selected_only=True, time_range=span
             ),
         )
         if ran:
@@ -305,25 +319,61 @@ class KeyMenuMixin:
                 f"Snapped {n or 0} key{'s' if n != 1 else ''} to whole frames"
             )
 
+    def _release_replaced(self, objects):
+        """An ``on_replace(fcurve, frames)`` for the AnimUtils key edits over
+        *objects*: a key the edit REPLACED (a moved key landing on it, the
+        Graph Editor's auto-merge) takes its claims with it -- every one, as
+        each key the shot system cuts does (``ShotSequencer._overwrite_landed``);
+        left there they passed to the key that landed on the frame."""
+        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
+            _ShotSequencerInternal,
+        )
+
+        owners: dict = {}
+        for obj in self._resolve_objects(objects):
+            for fc in BlenderShotStore.iter_action_fcurves(obj):
+                owners.setdefault(fc.as_pointer(), []).append(obj.name)
+
+        def on_replace(fc, frames):
+            ledger = self.sequencer.ledger
+            for name in owners.get(fc.as_pointer(), ()):
+                key = _ShotSequencerInternal._fc_key(name, fc)
+                for t in frames:
+                    ledger.release(key, t)
+
+        return on_replace
+
     def _invert_selected_keys(self, targets) -> None:
-        """Mirror the selected keys in time, in place."""
-        ran, _ = self._key_selection_edit(
+        """Mirror the selected keys in time, in place.
+
+        Only the SELECTED keys, over their combined range (mayatk's invert
+        prefers the Graph Editor selection): the keys around them stay put.
+        """
+        curves = self._target_curves(targets)
+        ran, n = self._key_selection_edit(
             targets,
             "Invert Keys",
-            # start_frame=None mirrors within the keys' own range rather than
-            # placing a reversed COPY somewhere.
-            lambda objects, _span: AnimUtils.invert_keys(objects, mode="time"),
+            lambda objects, _span: AnimUtils.invert_keys(
+                curves,
+                mode="time",
+                selected_only=True,
+                on_replace=self._release_replaced(objects),
+            ),
         )
         if ran:
-            n = sum(len(t) for _o, _a, t, _s in targets)
-            self._set_footer(f"Inverted {n} key{'s' if n != 1 else ''}")
+            self._set_footer(
+                f"Inverted {n} key{'s' if n != 1 else ''}" if n else "Nothing to invert"
+            )
 
     def _align_selected_keys(self, targets) -> None:
         """Line the selected keys up on the earliest one's frame."""
         ran, n = self._key_selection_edit(
             targets,
             "Align Keys",
-            lambda objects, _span: AnimUtils.align_selected_keyframes(objects),
+            lambda objects, _span: AnimUtils.align_selected_keyframes(
+                self._resolve_objects(objects),
+                on_replace=self._release_replaced(objects),
+            ),
         )
         if ran:
             self._set_footer(
@@ -446,9 +496,37 @@ class KeyMenuMixin:
         self._run_stash(jobs)
 
     def _set_key_tangents(self, targets: list, tangent: str, sides=("in", "out")):
-        """Set the handle type on the selected keys (one or both sides)."""
+        """Set the handle type on the selected keys (one or both sides).
+
+        ``FLAT`` is Maya's flat tangent: the side's handle goes horizontal
+        (its length kept), ALIGNED when both sides are flattened, FREE when
+        only one is -- a partner left ALIGNED would swing level with it.
+        Setting the OUT side also makes the outgoing segment a bezier, as a
+        Maya out-tangent type replaces a step: on a constant or linear segment
+        a handle has no effect.
+        """
 
         def apply(_obj, _attr, _time, kp):
+            if "out" in sides and kp.interpolation != "BEZIER":
+                kp.interpolation = "BEZIER"
+            if tangent == "FLAT":
+                handles = [
+                    h
+                    for side, h in (("in", "handle_left"), ("out", "handle_right"))
+                    if side in sides
+                ]
+                if len(handles) == 2:
+                    kp.handle_left_type = kp.handle_right_type = "ALIGNED"
+                else:
+                    other = (
+                        "handle_right" if handles[0] == "handle_left" else "handle_left"
+                    )
+                    setattr(kp, handles[0] + "_type", "FREE")
+                    if getattr(kp, other + "_type") == "ALIGNED":
+                        setattr(kp, other + "_type", "FREE")
+                for h in handles:
+                    setattr(kp, h, (getattr(kp, h)[0], kp.co[1]))
+                return
             if "in" in sides:
                 kp.handle_left_type = tangent
             if "out" in sides:
@@ -466,8 +544,25 @@ class KeyMenuMixin:
         self._edit_key_tangents(targets, apply, mode.lower())
 
     def _lock_key_tangents(self, targets: list, lock: bool) -> None:
-        """Break (free handles) or unify (aligned handles) the selected keys."""
-        self._set_key_tangents(targets, "ALIGNED" if lock else "FREE")
+        """Break (free handles) or unify (aligned handles) the selected keys.
+
+        Break makes both sides FREE -- Blender has no lock flag apart from
+        the handle type, so FREE is how a broken key stays broken.  Unify
+        aligns FREE and VECTOR sides and leaves AUTO / AUTO_CLAMPED alone:
+        those are unified by definition, and converting them would freeze
+        handles Blender keeps re-deriving (Maya's ``-lock true`` leaves the
+        tangent type as it is).
+        """
+        if not lock:
+            self._set_key_tangents(targets, "FREE")
+            return
+
+        def apply(_obj, _attr, _time, kp):
+            for side in ("handle_left_type", "handle_right_type"):
+                if getattr(kp, side) in ("FREE", "VECTOR"):
+                    setattr(kp, side, "ALIGNED")
+
+        self._edit_key_tangents(targets, apply, "unified")
 
     @staticmethod
     def place_dragged_handle(

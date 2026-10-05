@@ -18,9 +18,13 @@ correctly feeds the shared pythontk detection/model core:
   and ``BlenderShotStore.active()`` auto-installs the backend + reloads it;
 - ``assess`` flags a shot whose object is missing from the file;
 - the mayatk-parity lifecycle hooks: ``SceneBeforeSave`` (``save_pre``) flushes a
-  dirty store before the ``.blend`` is written, ``_on_time_unit_changed`` rescales
-  shot timings to a new ``render.fps``, the ``bpy.msgbus`` framerate watch is
-  (re)armed across file loads, and ``_schedule_flush`` is immediate headless.
+  dirty store before the ``.blend`` is written, ``_on_time_unit_changed`` records a
+  new ``render.fps`` and moves no shot or claim (Blender keys stay on their frames),
+  the ``bpy.msgbus`` framerate watch is (re)armed across file loads, and
+  ``_schedule_flush`` is immediate headless;
+- ``scene_edit`` writes the record inside its undo step, ``discard_carrier``
+  reloads the store for a dropped shot record, and ``resolve_member`` finds a
+  namespaced object by its bare name.
 
 Run headless (fresh instance — session-safety rule):
   & "C:\\Program Files\\Blender Foundation\\Blender 5.1\\blender.exe" --background \\
@@ -537,25 +541,35 @@ def _run_shots_adapter_checks():
         f"dirty={hook_store._dirty} raw={(stored() or '')[:80]}",
     )
 
-    # (b) _on_time_unit_changed: framerate change rescales shot timings
-    #     (mirror of MayaScenePersistence._on_time_unit_changed).
+    # (b) _on_time_unit_changed: a framerate change records the rate and moves
+    #     no shot.  Blender keys stay on their FRAMES when the rate changes
+    #     (Maya's keep real time, which is why the Maya store rescales), so
+    #     shots that stay with their keys stay where they are -- the key
+    #     stash's rule too.
     scene.render.fps = 24
     scene.render.fps_base = 1.0
     hook_store.scene_fps = 24.0
     hook_store.shots[0].start, hook_store.shots[0].end = 12.0, 24.0
+    fps_claim = "FpsCube|location|0"
+    hook_store.edit_ledger.record_key(fps_claim, 24.0, hook_store.shots[0].shot_id)
     scene.render.fps = 48
     hook_backend._on_time_unit_changed()
     sh = hook_store.shots[0]
     check(
-        "fps change rescales shot bounds (24 -> 48 doubles frames)",
-        abs(hook_store.scene_fps - 48.0) < 1e-6 and sh.start == 24.0 and sh.end == 48.0,
+        "fps change records the rate and leaves the shot on its frames (24 -> 48)",
+        abs(hook_store.scene_fps - 48.0) < 1e-6 and sh.start == 12.0 and sh.end == 24.0,
         f"fps={hook_store.scene_fps} {sh.start}-{sh.end}",
+    )
+    check(
+        "fps change leaves the ledger's claims on their frames too",
+        hook_store.edit_ledger.key_times(fps_claim) == [24.0],
+        f"{hook_store.edit_ledger.key_times(fps_claim)}",
     )
     hook_backend._on_time_unit_changed()  # same fps -> no-op
     check(
         "fps hook is a no-op when the framerate is unchanged",
-        sh.start == 24.0 and sh.end == 48.0,
-        f"{sh.start}-{sh.end}",
+        abs(hook_store.scene_fps - 48.0) < 1e-6 and sh.start == 12.0 and sh.end == 24.0,
+        f"fps={hook_store.scene_fps} {sh.start}-{sh.end}",
     )
     scene.render.fps = 24
 
@@ -588,6 +602,68 @@ def _run_shots_adapter_checks():
         and "Immediate" in (stored() or ""),
         f"dirty={flush_store._dirty} pending={flush_store._flush_pending}",
     )
+
+    # (e) scene_edit writes the record INSIDE its undo step (BTK-SHOTS-2).  A GUI
+    #     session defers the write to a timer that ran after the step was
+    #     pushed, so the step held the record from BEFORE the edit -- and
+    #     undoing whatever came next put that back under the store.
+    edit_shot = flush_store.define_shot("Deferred", 20, 30, objects=[])
+    deferred = []
+    flush_store._schedule_flush = lambda: deferred.append(True)  # the GUI timer
+    bpy.ops.ed.undo_push(message="before the edit")
+    with flush_store.scene_edit("Grow"):
+        flush_store.update_shot(edit_shot.shot_id, end=40.0)
+    flush_store._flush_dirty()  # the timer fires, after the step was pushed
+    bpy.context.scene.frame_current += 1
+    bpy.ops.ed.undo_push(message="unrelated")
+    bpy.ops.ed.undo()
+    scene = bpy.context.scene  # memfile undo replaced it: fetch it again
+    del flush_store._schedule_flush
+    on_record = {
+        s["name"]: (s["start"], s["end"])
+        for s in (BlenderShotStore._persistence.load() or {}).get("shots", [])
+    }
+    in_store = {s.name: (s.start, s.end) for s in flush_store.shots}
+    check(
+        "scene_edit: the record its step holds is the edit's, not the one before",
+        bool(deferred)
+        and on_record == in_store
+        and in_store["Deferred"] == (20.0, 40.0),
+        f"record={on_record} store={in_store}",
+    )
+
+    # (f) discard_carrier: another scene's dropped shot record reloads the active
+    #     store (it may hold them); a drop that carried none leaves it alone.
+    BlenderShotStore.discard_carrier([], {}, None)
+    kept_active = BlenderShotStore._active is flush_store
+    BlenderShotStore.discard_carrier([], {ptk.SceneRecords.SHOT_STORE: None}, None)
+    check(
+        "discard_carrier: reloads the active store only for a dropped shot record",
+        kept_active and BlenderShotStore._active is None,
+        f"kept={kept_active} active={BlenderShotStore._active!r}",
+    )
+
+    # (g) resolve_member: exact, else the one object whose namespace-free name
+    #     it is -- an FBX from Maya names its objects "AC:door_geo" for the
+    #     doc's "door_geo" (BTK-SHOTS-9; mirror of mayatk's).
+    for ns_name in ("AC:door_geo", "AC:twin", "BC:twin"):
+        add_keyed_cube(ns_name, [1, 2], 0.0)
+    ns_store = BlenderShotStore()
+    check(
+        "resolve_member: a namespaced object answers for its bare name",
+        ns_store.resolve_member("door_geo") == ("AC:door_geo", "found")
+        and ns_store.resolve_member("AC:door_geo") == ("AC:door_geo", "found"),
+        f"{ns_store.resolve_member('door_geo')}",
+    )
+    check(
+        "resolve_member: two answering is ambiguous, none (or a wrong namespace) missing",
+        ns_store.resolve_member("twin") == ("twin", "ambiguous")
+        and ns_store.resolve_member("CC:door_geo") == ("CC:door_geo", "missing")
+        and ns_store.resolve_member("nothing") == ("nothing", "missing"),
+        f"{ns_store.resolve_member('twin')} {ns_store.resolve_member('CC:door_geo')}",
+    )
+    for ns_name in ("AC:door_geo", "AC:twin", "BC:twin"):
+        bpy.data.objects.remove(bpy.data.objects[ns_name], do_unlink=True)
 
     # ---- hand-off transfer: export_transfer / apply_transfer ----------------
     #     (mirror of mayatk's; the codec is pythontk's ShotTransfer)
@@ -626,7 +702,7 @@ def _run_shots_adapter_checks():
     check(
         "export_transfer: the objects scope keeps the shot, drops the rest",
         scoped["store"]["shots"][0]["objects"] == ["XferMate"]
-        and scoped["ledger"] == {"steps": {}, "keys": {}},
+        and scoped["ledger"] == {"steps": {}, "keys": {}, "authored": {}},
         str(scoped),
     )
     check(

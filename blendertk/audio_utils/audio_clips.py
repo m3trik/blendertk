@@ -72,7 +72,7 @@ class AudioClipsSlots(ptk.LoggingMixin):
         self.logger.set_log_prefix("[audio_clips] ")
         try:
             self.ui.footer.setDefaultStatusText(
-                "Browse for audio files (folder icon) or select a clip to manage it."
+                "Add audio files from the clips combo's option box, or select a clip to manage it."
             )
         except Exception as e:
             self.logger.debug(f"Footer default text unavailable: {e}")
@@ -99,8 +99,9 @@ class AudioClipsSlots(ptk.LoggingMixin):
                 body="Scene-wide sound clips as native Video Sequence Editor strips — "
                 "add/remove/trim them and keep the scene frame range in sync.",
                 steps=[
-                    "Click the <b>folder icon</b> on the clips combo to browse for audio "
-                    "files. Each selected file becomes a new clip at the current frame.",
+                    "Use <b>Add Clips…</b> in the clips combo's option box (▸) to browse "
+                    "for audio files. Each selected file becomes a new clip at the "
+                    "current frame.",
                     "Select a clip in the combo.",
                     "Move the playhead to where it should start, then press "
                     "<b>Move To Current Frame</b> to reposition it.",
@@ -222,6 +223,22 @@ class AudioClipsSlots(ptk.LoggingMixin):
     def cmb000(self, index, widget):
         """Selection only informs Move/Trim/the option-box actions — no side effect."""
         self._sync_trim_spinboxes()
+
+    def select_track(self, name: str) -> bool:
+        """Show the clip *name* in the clips combo -- the Shot Manifest's "Open
+        in Audio Clips" (mirror of mayatk's ``select_track``); False when no
+        strip answers to it."""
+        cmb = self.ui.cmb000
+        index = cmb.findText(name)
+        if index < 0:
+            self._refresh_combo()
+            index = cmb.findText(name)
+        if index < 0:
+            self.ui.footer.setText(f"No clip '{name}' in this scene.")
+            return False
+        cmb.setCurrentIndex(index)
+        self.ui.footer.setText(f"Clip '{name}'.")
+        return True
 
     def _sync_trim_spinboxes(self):
         """Reflect the selected clip's current trim into ``s000``/``s001`` (a live inspector,

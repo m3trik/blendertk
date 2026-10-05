@@ -306,6 +306,71 @@ try:
         f"size={area.size} size_y={area.size_y}",
     )
 
+    # ...and that is the size it RENDERS at. Blender scales an area light by its
+    # object's scale too, so a lamp that also kept the empty's scale was scaled
+    # twice: the production office's 3.58 x 0.60 m fixture strips rendered 6.42 x
+    # 0.18 m, smearing every shadow along the strip (2026-10-01). With and without
+    # an aim (the aim path rebuilds the rotation).
+    def _rendered(obj):
+        bpy.context.view_layer.update()
+        m = obj.matrix_world
+        return obj.data.size * m.col[0].xyz.length, obj.data.size_y * m.col[
+            1
+        ].xyz.length
+
+    aimed = bpy.data.objects.new("aimedArea", None)
+    bpy.context.scene.collection.objects.link(aimed)
+    aimed.scale = (3.0, 0.5, 1.0)
+    btk.LightUtils.lights_from_records(
+        [
+            {
+                "name": "aimedArea",
+                "type": "AREA",
+                "energy": 10.0,
+                "shape": "RECTANGLE",
+                "local_size": [2.0, 2.0],
+                "aim": [0.0, 0.0, -1.0],
+            }
+        ]
+    )
+    dims = [_rendered(bpy.data.objects[n]) for n in ("areaLight", "aimedArea")]
+
+    # The ROLL about the aim rides the record as ``right`` (the sender's local X):
+    # aimed straight down from a Y-up sender with local X along its -Z, the strip's
+    # long side must lie along Blender +Y -- left to a reference axis it lay along X,
+    # 90 degrees from the production office's fixtures (2026-10-01).
+    strip = bpy.data.objects.new("stripArea", None)
+    bpy.context.scene.collection.objects.link(strip)
+    strip.scale = (3.0, 0.5, 1.0)
+    btk.LightUtils.lights_from_records(
+        [
+            {
+                "name": "stripArea",
+                "type": "AREA",
+                "energy": 10.0,
+                "shape": "RECTANGLE",
+                "local_size": [2.0, 2.0],
+                "aim": [0.0, -1.0, 0.0],
+                "right": [0.0, 0.0, -1.0],
+                "axis_up": "Y",
+            }
+        ]
+    )
+    bpy.context.view_layer.update()
+    sm = bpy.data.objects["stripArea"].matrix_world
+    check(
+        "an area light keeps the sender's roll: local X along the sent right",
+        (sm.col[0].xyz - mathutils.Vector((0.0, 1.0, 0.0))).length < 1e-4
+        and (sm.col[2].xyz - mathutils.Vector((0.0, 0.0, 1.0))).length < 1e-4,
+        f"x={tuple(round(v, 3) for v in sm.col[0].xyz)} "
+        f"z={tuple(round(v, 3) for v in sm.col[2].xyz)}",
+    )
+    check(
+        "the emitter renders at local extent x scale, scaled once",
+        all(abs(w - 6.0) < 1e-4 and abs(h - 1.0) < 1e-4 for w, h in dims),
+        f"{dims}",
+    )
+
     # A sender whose area light emits PER UNIT AREA ships radiance, not watts: the
     # emitting area is only knowable here, in the scene's own metres. Regression --
     # a sender that pre-multiplied by an area measured in ITS units (cm) put a

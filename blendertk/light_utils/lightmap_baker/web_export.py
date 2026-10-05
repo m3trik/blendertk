@@ -164,7 +164,16 @@ class LightmapWebExport(ptk.LoggingMixin):
                 scalar = float(np.percentile(lit, percentile)) if lit.size else 1.0
                 scalar = max(scalar, 1e-6)
 
-                out_rgb = cls._linear_to_srgb(np.clip(rgb / scalar, 0.0, 1.0))
+                # Quantized HERE, by the pythontk twin's stochastic rounding
+                # (``ImgUtils.quantize_8bit``): Blender's own 8-bit save rounds to
+                # nearest, which terraced smooth walls into contour bands; exact
+                # codes survive that save unchanged.
+                out_rgb = (
+                    ptk.ImgUtils.quantize_8bit(
+                        cls._linear_to_srgb(np.clip(rgb / scalar, 0.0, 1.0))
+                    )
+                    / 255.0
+                )
             finally:
                 if image is not None:
                     bpy.data.images.remove(image)

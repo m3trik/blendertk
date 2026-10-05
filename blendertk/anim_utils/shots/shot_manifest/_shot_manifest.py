@@ -13,24 +13,34 @@ scene hooks:
 - ``_measure_audio`` → the source file probed headlessly (``aud``), falling
   back to an already-placed VSE strip's path;
 - ``_audio_grow_duration`` → the Blender-bound ``Behaviors.compute_duration``;
-- ``_resolve_names_keep_missing`` → identity (Blender names are unique);
+- name resolution → the store's ``resolve_member``, which the engine's
+  ``_resolve_object`` asks (no override here);
 - ``_discover_scene_objects`` / ``_filter_to_animated`` → objects whose
   transform channels actually *vary* in a shot's range (fcurve walk, cached
   per cycle — flat keys are boundary markers, same rule as Maya);
 - assess seams (``_object_exists`` / ``_keyframe_range`` / ``_audio_exists`` /
   ``_verify_behavior``) → ``bpy.data`` / fcurve / VSE queries;
-- ``apply_behaviors`` → :meth:`Behaviors.apply_to_shots` with the Blender
-  appliers (:mod:`.behaviors`): fades dual-keyed on :class:`RenderOpacity`'s
-  ``opacity`` + stepped ``hide_render``, audio placed as VSE sound strips;
+- ``apply_behaviors`` / ``_apply_one`` → :meth:`Behaviors.apply_to_shots` /
+  :meth:`Behaviors.apply_behavior` with the Blender appliers (:mod:`.behaviors`):
+  fades dual-keyed on :class:`RenderOpacity`'s ``opacity`` + stepped
+  ``hide_render``, audio placed as VSE sound strips;
+- ``_key_samples`` / ``_delete_keys`` → a behavior's fcurve keys, named by
+  :meth:`BlenderShotStore.curve_key` -- what a build claims as its own and
+  releases;
 - ``rewire_audio`` → no-op (a VSE strip is its own playback node; Maya needs
   the compositor to materialise DG audio nodes from keyed tracks).
 
-Divergence from mayatk (by design):
-    * **``reapply_object`` is a Blender-side public name with no mayatk twin** —
-      mayatk inlines the per-object re-apply in ``table_presenter._reapply_behavior``;
-      here it lives on the adapter so the presenter stays a thin delegate.
+One divergence, kept on purpose: an audio behavior claims nothing and
+``_placed_clip_keys`` keeps the engine's ``[]``.  A clip here is one VSE strip,
+not keys -- a build re-places it (``apply_audio_clip`` moves the strip) but
+never takes one out, so a clip the doc drops keeps its strip and Assess lists
+it under no ``dropped_behaviors``.  Maya claims a clip's track keys, so a build
+there removes a dropped clip.  Claiming the strip would need a stand-in key
+whose release deletes the strip -- and the strip is where the clip's source
+path lives, which a re-apply that cannot re-create it would lose.
 """
 
+import functools
 import logging
 from typing import Dict, List, Optional, Tuple
 
@@ -121,27 +131,30 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
 
         return Behaviors.compute_duration(audio_objs, fallback=0.0)
 
-    # ---- name / scene resolution ----------------------------------------
-
-    def _resolve_names_keep_missing(self, names: List[str]) -> List[str]:
-        # Blender object names are unique and stored verbatim — identity.
-        return list(names)
-
     # ---- behavior application / audio rewire ------------------------------
 
     def apply_behaviors(self) -> Dict[str, list]:
-        """Apply detected behaviors to Blender objects (fades, audio strips).
+        """Apply detected behaviors to Blender objects (fades, highlights,
+        audio strips), each keyed from the scene's effect recipe.
 
         Lazy package import preserves the ``...behaviors.Behaviors`` mock seam.
         Guards (locked / zero-duration shots, existing keys, already-placed
-        strips) live in :meth:`Behaviors.apply_to_shots`, shared with mayatk.
+        strips) live in the engine's build loop (``Behaviors.apply_to_shots``),
+        shared with mayatk.
         """
         from blendertk.anim_utils.shots.shot_manifest.behaviors import Behaviors
 
         return Behaviors.apply_to_shots(
             self.store.sorted_shots(),
-            apply_fn=Behaviors.apply_behavior,
+            apply_fn=functools.partial(
+                Behaviors.apply_behavior, recipe=self.recipe, fps=self._resolve_fps()
+            ),
             store=self.store,
+            resolve_fn=lambda name: self._resolve_object(name)[0],
+            conflict_fn=lambda node, b, s, e: bool(self.unowned_keys(node, b, s, e)),
+            release_fn=lambda shot, name, b: self.release_authored(
+                shot.shot_id, name, b
+            ),
         )
 
     @staticmethod
@@ -160,32 +173,6 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
             ``{"created": [], "updated": [], "deleted": []}``.
         """
         return {"created": [], "updated": [], "deleted": []}
-
-    def reapply_object(self, shot, obj) -> bool:
-        """Re-key every behavior on a single *obj* over *shot*'s range.
-
-        The panel's "Apply [behaviors]" context action — the per-object
-        analogue of :meth:`apply_behaviors` (mirror of mayatk's
-        ``_reapply_behavior``): an explicit user action, so behaviors re-key
-        without the build's existing-keys guard.  Anchors are distributed
-        exactly like :meth:`Behaviors.apply_to_shots` so re-applied keys land
-        where the build placed them.  Wrapped in a single undo step.  Returns
-        whether anything was applied.
-        """
-        from blendertk.core_utils._core_utils import CoreUtils
-        from blendertk.anim_utils.shots.shot_manifest.behaviors import Behaviors
-
-        behaviors = list(getattr(obj, "behaviors", []) or [])
-        if not behaviors:
-            return False
-        total = len(behaviors)
-        with CoreUtils.undo_chunk("ShotManifest_reapply"):
-            for idx, b in enumerate(behaviors):
-                kwargs = {"source_path": getattr(obj, "source_path", "") or ""}
-                if total > 1:
-                    kwargs["anchor_override"] = idx / max(total - 1, 1)
-                Behaviors.apply_behavior(obj.name, b, shot.start, shot.end, **kwargs)
-        return True
 
     # ---- assess seams ----------------------------------------------------
 
@@ -210,7 +197,13 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
         from blendertk.anim_utils.shots.shot_manifest.behaviors import Behaviors
 
         return Behaviors.verify_behavior(
-            obj, behavior, start, end, anchor_override=anchor_override
+            obj,
+            behavior,
+            start,
+            end,
+            anchor_override=anchor_override,
+            recipe=self.recipe,
+            fps=self._resolve_fps(),
         )
 
     def _keyframe_range(self, obj_name: str) -> Optional[Tuple[float, float]]:
@@ -218,6 +211,76 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
 
     def _audio_exists(self, name: str) -> bool:
         return self._default_audio_exists(name)
+
+    # ---- behavior-key ownership seams --------------------------------------
+
+    def _key_samples(
+        self, obj: str, behavior: str, start: float, end: float
+    ) -> List[Tuple[str, float]]:
+        """Keys in ``[start, end]`` on the fcurves *behavior* keys on *obj*
+        (``Behaviors._behavior_paths``), by :meth:`BlenderShotStore.curve_key`."""
+        try:
+            import bpy
+        except ImportError:
+            return []
+        from blendertk.anim_utils.shots._shots import BlenderShotStore
+        from blendertk.anim_utils.shots.shot_manifest.behaviors import Behaviors
+
+        node = bpy.data.objects.get(obj)
+        if node is None:
+            return []
+        paths = set(Behaviors._behavior_paths(node, behavior))
+        out: List[Tuple[str, float]] = []
+        for fc in BlenderShotStore.iter_action_fcurves(node):
+            if fc.data_path not in paths:
+                continue
+            key = BlenderShotStore.curve_key(node.name, fc.data_path, fc.array_index)
+            for kp in fc.keyframe_points:
+                if start - 1e-6 <= kp.co[0] <= end + 1e-6:
+                    out.append((key, kp.co[0]))
+        return out
+
+    def _delete_keys(self, curve: str, times: List[float]) -> None:
+        try:
+            import bpy
+        except ImportError:
+            return
+        from blendertk.anim_utils.shots._shots import BlenderShotStore
+
+        obj_name, data_path, index = curve.rsplit("|", 2)
+        node = bpy.data.objects.get(obj_name)
+        if node is None:
+            return
+        for fc in BlenderShotStore.iter_action_fcurves(node):
+            if fc.data_path != data_path or str(fc.array_index) != index:
+                continue
+            doomed = [
+                kp
+                for kp in fc.keyframe_points
+                if any(abs(kp.co[0] - t) <= 1e-3 for t in times)
+            ]
+            for kp in reversed(doomed):
+                fc.keyframe_points.remove(kp)
+
+    def _is_asset_candidate(self, name: str) -> bool:
+        """An object a doc would list: not a camera, light, armature or speaker."""
+        try:
+            import bpy
+        except ImportError:
+            return True
+        node = bpy.data.objects.get(name)
+        return node is not None and node.type not in (
+            "CAMERA",
+            "LIGHT",
+            "LIGHT_PROBE",
+            "ARMATURE",
+            "SPEAKER",
+        )
+
+    def _apply_one(self, node: str, behavior: str, start: float, end: float, **kwargs):
+        from blendertk.anim_utils.shots.shot_manifest.behaviors import Behaviors
+
+        return Behaviors.apply_behavior(node, behavior, start, end, **kwargs)
 
     # ---- scene walks (fcurve acquisition) ---------------------------------
 
@@ -243,7 +306,7 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
         return [
             name
             for name in sorted(animated)
-            if name not in exclude
+            if BlenderShotStore.member_key(name) not in exclude
             and any(
                 self._curve_varies_in_range(crv, start, end) for crv in animated[name]
             )

@@ -122,8 +122,10 @@ try:
         "renamed back onto the shared layer, it counts again",
         len(btk.get_neighbor_shell_bounds(near)) == 1,
     )
-    check("get_neighbor_shell_bounds on an empty selection -> []",
-          btk.get_neighbor_shell_bounds([]) == [])
+    check(
+        "get_neighbor_shell_bounds on an empty selection -> []",
+        btk.get_neighbor_shell_bounds([]) == [],
+    )
 
     # scale_uvs: half-U about the origin -> 0..1 map becomes 0..0.5 in u, v untouched
     reset()
@@ -145,7 +147,9 @@ try:
     bmin_u, bmax_u, bmin_v, bmax_v = uv_bounds(o)
     check(
         "scale_uvs quarter about tile corner -> anchored at (2,3), half extents",
-        abs(bmin_u - 2.0) < 1e-4 and abs(bmax_u - 2.5) < 1e-4 and abs(bmax_v - 3.5) < 1e-4,
+        abs(bmin_u - 2.0) < 1e-4
+        and abs(bmax_u - 2.5) < 1e-4
+        and abs(bmax_v - 3.5) < 1e-4,
         f"u {bmin_u:.3f}..{bmax_u:.3f} v {bmin_v:.3f}..{bmax_v:.3f}",
     )
 
@@ -158,7 +162,9 @@ try:
     btk.move_uvs(src, du=3.0)  # distinctive source UVs (u 3..4)
     bpy.ops.mesh.primitive_plane_add(location=(3, 0, 0))
     twin = bpy.context.active_object  # similar (same plane) -> receives
-    linked = bpy.data.objects.new("uvsrc_linked", src.data)  # shares datablock -> skipped
+    linked = bpy.data.objects.new(
+        "uvsrc_linked", src.data
+    )  # shares datablock -> skipped
     bpy.context.collection.objects.link(linked)
     bpy.ops.mesh.primitive_ico_sphere_add(location=(9, 9, 9))  # dissimilar -> rejected
     ball = bpy.context.active_object
@@ -173,7 +179,10 @@ try:
         abs(uv_bounds(twin)[0] - 3.0) < 1e-4,
         f"twin min_u={uv_bounds(twin)[0]:.3f}",
     )
-    check("transfer_uvs_to_similar left the dissimilar mesh alone", uv_bounds(ball)[0] < 1.0)
+    check(
+        "transfer_uvs_to_similar left the dissimilar mesh alone",
+        uv_bounds(ball)[0] < 1.0,
+    )
     # explicit candidate pool (Similar in Selection scope)
     targets2 = btk.transfer_uvs_to_similar(src, [ball], tolerance=0.9)
     check("explicit pool rejects dissimilar candidate", targets2 == [], str(targets2))
@@ -455,7 +464,9 @@ try:
         f"moved={moved} stray u {min_u:.3f}..{max_u:.3f} v {min_v:.3f}..{max_v:.3f}",
     )
 
-    check("gather_to_udim on an empty selection -> None", btk.gather_to_udim([]) is None)
+    check(
+        "gather_to_udim on an empty selection -> None", btk.gather_to_udim([]) is None
+    )
 
     # A partial selection moves the WHOLE island, never a fragment of it (the Maya twin
     # had to opt into `whole_shells=True` for this; here `_target_islands` gives it).
@@ -478,7 +489,7 @@ try:
         "gather_to_udim moves the whole island from a partial selection",
         abs((after[1] - after[0]) - (before[1] - before[0])) < 1e-4
         and abs((after[3] - after[2]) - (before[3] - before[2])) < 1e-4,
-        f"extent {before[1]-before[0]:.3f} -> {after[1]-after[0]:.3f}",
+        f"extent {before[1] - before[0]:.3f} -> {after[1] - after[0]:.3f}",
     )
 
     # pin_uvs: object mode pins all; unpin clears
@@ -574,8 +585,8 @@ try:
         b = bmesh.from_edit_mesh(m)
         b.faces.ensure_lookup_table()
         u = b.loops.layers.uv.active
-        us = [l[u].uv.x for l in b.faces[fi].loops]
-        vs = [l[u].uv.y for l in b.faces[fi].loops]
+        us = [lp[u].uv.x for lp in b.faces[fi].loops]
+        vs = [lp[u].uv.y for lp in b.faces[fi].loops]
         return (max(us) - min(us)) * (max(vs) - min(vs))
 
     b_before = face_uv_area(1)
@@ -621,7 +632,7 @@ try:
         b = bmesh.new()
         b.from_mesh(obj.data)
         u = b.loops.layers.uv.active
-        r = [l[u].uv.x for f in b.faces for l in f.loops]
+        r = [lp[u].uv.x for f in b.faces for lp in f.loops]
         b.free()
         return r
 
@@ -629,7 +640,7 @@ try:
         b = bmesh.new()
         b.from_mesh(obj.data)
         u = b.loops.layers.uv.active
-        r = [l[u].uv.y for f in b.faces for l in f.loops]
+        r = [lp[u].uv.y for f in b.faces for lp in f.loops]
         b.free()
         return r
 
@@ -639,13 +650,13 @@ try:
         b = bmesh.new()
         b.from_mesh(obj.data)
         u = b.loops.layers.uv.active
-        loops = [l for f in b.faces for l in f.loops]
-        cu = sum(l[u].uv.x for l in loops) / len(loops)
-        cv = sum(l[u].uv.y for l in loops) / len(loops)
+        loops = [lp for f in b.faces for lp in f.loops]
+        cu = sum(lp[u].uv.x for lp in loops) / len(loops)
+        cv = sum(lp[u].uv.y for lp in loops) / len(loops)
         rot = _mu.Matrix.Rotation(_math.radians(deg), 2)
-        for l in loops:
-            d = rot @ (l[u].uv - _mu.Vector((cu, cv)))
-            l[u].uv = (cu + d.x, cv + d.y)
+        for lp in loops:
+            d = rot @ (lp[u].uv - _mu.Vector((cu, cv)))
+            lp[u].uv = (cu + d.x, cv + d.y)
         b.to_mesh(obj.data)
         b.free()
 
@@ -852,9 +863,10 @@ try:
     def stub_engine(obj_in, engine_key, **params):
         """Stand in for Ministry of Flat / BFF: shift every UV by a known amount."""
         obj_out = obj_in.replace(".obj", "_out.obj")
-        with open(obj_in, encoding="utf-8") as f_in, open(
-            obj_out, "w", encoding="utf-8"
-        ) as f_out:
+        with (
+            open(obj_in, encoding="utf-8") as f_in,
+            open(obj_out, "w", encoding="utf-8") as f_out,
+        ):
             for line in f_in:
                 if line.startswith("vt "):
                     _, u, v = line.split()[:3]
@@ -864,7 +876,9 @@ try:
         return obj_out
 
     _auto_unwrap._AutoUnwrapInternal._engine_unwrap = staticmethod(stub_engine)
-    _auto_unwrap._AutoUnwrapInternal._check_engine = staticmethod(lambda key: "stub.exe")
+    _auto_unwrap._AutoUnwrapInternal._check_engine = staticmethod(
+        lambda key: "stub.exe"
+    )
 
     reset()
     bpy.ops.mesh.primitive_cube_add()
@@ -877,7 +891,10 @@ try:
         bool(result) and abs(uv_bounds(target)[0] - (before[0] + 0.25)) < 1e-4,
         f"{before[0]:.3f} -> {uv_bounds(target)[0]:.3f} failed={result.failed}",
     )
-    check("auto_unwrap 'hard' selects Ministry of Flat", stub_engine.seen["engine"] == "mof")
+    check(
+        "auto_unwrap 'hard' selects Ministry of Flat",
+        stub_engine.seen["engine"] == "mof",
+    )
     check(
         "auto_unwrap forwards map_size as the MoF resolution",
         stub_engine.seen["params"].get("resolution") == 4096,
@@ -922,13 +939,17 @@ try:
 
     # per-object failure is isolated and rolled back
     def flaky(obj_in, engine_key, **params):
-        verts = sum(1 for line in open(obj_in, encoding="utf-8") if line.startswith("v "))
+        verts = sum(
+            1 for line in open(obj_in, encoding="utf-8") if line.startswith("v ")
+        )
         if verts > 8:
             raise RuntimeError("engine exploded")
         return stub_engine(obj_in, engine_key, **params)
 
     _auto_unwrap._AutoUnwrapInternal._engine_unwrap = staticmethod(flaky)
-    _auto_unwrap._AutoUnwrapInternal._check_engine = staticmethod(lambda key: "stub.exe")
+    _auto_unwrap._AutoUnwrapInternal._check_engine = staticmethod(
+        lambda key: "stub.exe"
+    )
     reset()
     bpy.ops.mesh.primitive_cube_add()
     good = bpy.context.active_object
@@ -946,7 +967,7 @@ try:
     check(
         "auto_unwrap restores the failed mesh's UVs",
         all(abs(a - b) < 1e-4 for a, b in zip(uv_bounds(doomed), doomed_before)),
-        f"{tuple(round(x,3) for x in doomed_before)} -> {tuple(round(x,3) for x in uv_bounds(doomed))}",
+        f"{tuple(round(x, 3) for x in doomed_before)} -> {tuple(round(x, 3) for x in uv_bounds(doomed))}",
     )
 
     # ---- export_uv_layout: the wire format the Maya lightmap round trip rides on.
@@ -996,11 +1017,173 @@ try:
         _UvUtils.export_uv_layout([cube], uv_set="no_such_set") == {},
     )
 
+    # ---- create_lightmap_uvs reuses a bakeable layout, as mayatk's twin does.
+    # Regenerating it on every bake replaced an artist's layout -- and, through the
+    # Maya bridge (which writes the baked layout back), the Maya scene's own lightmap
+    # set -- with a Smart UV Project one each time.
+    from blendertk.core_utils.diagnostics.uv_diag import UvDiagnostics
+
+    layer = cube.data.uv_layers[lm]
+    kept = [0.0] * (loops * 2)
+    layer.data.foreach_get("uv", kept)
+    shrunk = [v * 0.5 for v in kept]  # still clean, recognisably not smart_project's
+    layer.data.foreach_set("uv", shrunk)
+    check(
+        "lightmap: a clean layout is bakeable",
+        UvDiagnostics.is_bakeable_lightmap(cube, lm),
+    )
+    _UvUtils.create_lightmap_uvs([cube], quiet=True)
+    now = [0.0] * (loops * 2)
+    layer.data.foreach_get("uv", now)
+    check(
+        "lightmap: a bakeable layout is reused, not regenerated",
+        all(abs(a - b) < 1e-6 for a, b in zip(now, shrunk)),
+        f"max {max((abs(a - b) for a, b in zip(now, shrunk)), default=0):.3g}",
+    )
+    _UvUtils.create_lightmap_uvs([cube], quiet=True, force=True)
+    # Edit mode rebuilds the layer: a reference held across an unwrap goes stale.
+    layer = cube.data.uv_layers[lm]
+    layer.data.foreach_get("uv", now)
+    check(
+        "lightmap: force regenerates it",
+        any(abs(a - b) > 1e-3 for a, b in zip(now, shrunk)),
+    )
+    layer.data.foreach_set("uv", [0.25] * (loops * 2))  # every face on one point
+    check(
+        "lightmap: a collapsed layout is not bakeable",
+        not UvDiagnostics.is_bakeable_lightmap(cube, lm),
+    )
+    stacked = [v * 0.5 for v in kept]
+    for i in range(0, loops, 4):  # every face laid over the first face's UVs
+        stacked[i * 2 : i * 2 + 8] = stacked[0:8]
+    layer.data.foreach_set("uv", stacked)
+    check(
+        "lightmap: stacked faces are not bakeable",
+        not UvDiagnostics.is_bakeable_lightmap(cube, lm),
+    )
+    _UvUtils.create_lightmap_uvs([cube], quiet=True)
+    check(
+        "lightmap: an unbakeable layout is regenerated",
+        UvDiagnostics.is_bakeable_lightmap(cube, lm),
+    )
+
+    # ---- the UV reads behind every lightmap bake take bpy's float32 path. A
+    # float64 buffer makes foreach_get convert per element -- measured 3-4x
+    # slower on 'uv' / 'co' (Blender 5.1), three passes per bake over every mesh.
+    # A recording double around the real mesh sees each buffer's dtype.
+    import numpy as np
+
+    class _Seen:
+        """A bpy collection whose foreach_get records the buffer's dtype."""
+
+        def __init__(self, real, seen):
+            self._real, self._seen = real, seen
+
+        def __len__(self):
+            return len(self._real)
+
+        def foreach_get(self, attr, buf):
+            self._seen[attr] = buf.dtype
+            self._real.foreach_get(attr, buf)
+
+    class _SeenLayer:
+        def __init__(self, real, seen):
+            self.data = _Seen(real.data, seen)
+
+    class _SeenLayers:
+        def __init__(self, real, seen):
+            self._real, self._seen = real, seen
+
+        def __len__(self):
+            return len(self._real)
+
+        def get(self, name):
+            layer = self._real.get(name)
+            return None if layer is None else _SeenLayer(layer, self._seen)
+
+        @property
+        def active(self):
+            return _SeenLayer(self._real.active, self._seen)
+
+    class _SeenMesh:
+        def __init__(self, real, seen):
+            self._real = real
+            self.uv_layers = _SeenLayers(real.uv_layers, seen)
+            self.loop_triangles = _Seen(real.loop_triangles, seen)
+            self.vertices = _Seen(real.vertices, seen)
+            self.loops = real.loops
+
+        def calc_loop_triangles(self):
+            self._real.calc_loop_triangles()
+
+    seen = {}
+    seen_cube = type("_SeenObj", (), {"data": _SeenMesh(cube.data, seen)})()
+    tris = _UvUtils.get_uv_triangles(seen_cube, lm)
+    check(
+        "get_uv_triangles: reads the UVs through a float32 buffer",
+        seen.get("uv") == np.float32,
+        str(seen),
+    )
+    want = _UvUtils.get_uv_triangles(cube, lm)
+    check(
+        "get_uv_triangles: the same float64 triangles either way",
+        tris.dtype == np.float64 and tris.shape == want.shape and (tris == want).all(),
+        f"{tris.dtype} {tris.shape} vs {want.shape}",
+    )
+    seen.clear()
+    check(
+        "is_bakeable_lightmap: reads positions and UVs through float32 buffers",
+        _UvUtils._is_bakeable_lightmap(seen_cube, lm)
+        and seen.get("co") == np.float32
+        and seen.get("uv") == np.float32,
+        str(seen),
+    )
+
+    # ---- apply_uv_layout: the receiving half (mirror of mtk.UvUtils.apply_uv_layout).
+    # What export_uv_layout reads off one mesh replays onto another of the same
+    # topology loop for loop -- how a texture transfer hands a target its source's
+    # lightmap UVs -- and never onto another topology.
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    donor = bpy.context.object
+    donor.name = "layoutDonor"
+    _UvUtils.create_lightmap_uvs([donor], quiet=True)
+    donor_lm = _UvUtils.find_lightmap_uv_set(donor)
+    bpy.ops.mesh.primitive_cube_add()
+    twin_cube = bpy.context.object
+    twin_cube.name = "layoutTwin"
+    sent = _UvUtils.export_uv_layout([donor], uv_set=donor_lm)[donor.name]
+    applied = _UvUtils.apply_uv_layout({twin_cube.name: sent}, quiet=True)
+    check(
+        "apply: writes the layout onto a twin, as the lightmap layer",
+        applied == {twin_cube.name: donor_lm}
+        and _UvUtils.find_lightmap_uv_set(twin_cube) == donor_lm,
+        str(applied),
+    )
+    want = [0.0] * (len(donor.data.loops) * 2)
+    donor.data.uv_layers[donor_lm].data.foreach_get("uv", want)
+    got = [0.0] * (len(twin_cube.data.loops) * 2)
+    if donor_lm in twin_cube.data.uv_layers:
+        twin_cube.data.uv_layers[donor_lm].data.foreach_get("uv", got)
+    check(
+        "apply: loop for loop",
+        all(abs(x - y) < 1e-6 for x, y in zip(got, want)),
+        f"max {max((abs(x - y) for x, y in zip(got, want)), default=0):.3g}",
+    )
+    bpy.ops.mesh.primitive_uv_sphere_add()
+    sphere = bpy.context.object
+    sphere_layers = [uv.name for uv in sphere.data.uv_layers]
+    check(
+        "apply: rejects a layout from another topology",
+        _UvUtils.apply_uv_layout({sphere.name: sent}, quiet=True) == {}
+        and [uv.name for uv in sphere.data.uv_layers] == sphere_layers,
+    )
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())
 
-ok = all(l.startswith("OK") for l in lines)
+ok = all(line.startswith("OK") for line in lines)
 print("\n===UV-UTILS===")
 print("\n".join(lines))
 print(f"===RESULT: {'PASS' if ok else 'FAIL'}===")

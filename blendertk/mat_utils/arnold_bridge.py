@@ -42,6 +42,16 @@ class ArnoldBridge(ptk.LoggingMixin):
     #: Cycles and EEVEE render every material graph they hold, so none needs a bridge.
     UNTRANSLATABLE_TYPES = frozenset()
 
+    def __init__(self, ambient_occlusion: bool = True):
+        """
+        Parameters:
+            ambient_occlusion: mayatk's switch for multiplying an AO map into the
+                bridge's base colour. Kept so the same call runs here; there is
+                no bridge to apply it to.
+        """
+        super().__init__()
+        self.ambient_occlusion = bool(ambient_occlusion)
+
     @classmethod
     def unrenderable_materials(cls) -> List[str]:
         """No material needs a bridge before a Blender render: always ``[]``."""

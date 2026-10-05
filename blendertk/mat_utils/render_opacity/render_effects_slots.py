@@ -2,25 +2,34 @@
 # coding=utf-8
 """Switchboard slots for the Render Effects panel (``render_effects.ui``).
 
-Provides ``RenderEffectsSlots`` -- two key tools, one per render-effect channel:
-**Key Opacity Fade** and **Key Highlight Pulse**. Each creates its channel on the
-selection when missing and keys it; lookdev is the WebXR push, which shows
-the deliverable itself, so nothing in the scene changes for a preview.
+Provides ``RenderEffectsSlots`` -- one page per render-effect channel, chosen in
+the effect picker: **Opacity Fade** and **Highlight Pulse**. Each page is the
+whole of its tool's settings -- a **Create / Revise** selector over a
+**Settings** fold holding the fields the chosen mode writes -- and one row of
+actions under the pages serves whichever is shown: the Key button, the action
+that strips the channel again, and a **WebXR** preview that pushes the effect
+at the page's settings without writing it. There is no second surface -- no
+colour window, no separate Manage section -- because a look set in one place
+and revised in another is two editors that drift. The Key button is the only thing that keys.
 
-Each tool's option box is the whole of that tool: a **Create / Revise**
-selector, the fields the chosen mode writes, the action that strips the
-channel again, and a Preview in WebXR button that pushes the effect at those
-fields' settings without writing it. There is no second surface -- no colour window, no separate
-Manage section -- because a look set in one place and revised in another is two
-editors that drift. The tool button is the only thing that writes.
-Mirror of mayatk's ``render_effects_slots``
-(same objectNames, same widget tree, same method names); delegates all logic to
-:class:`RenderEffects`. Discovered by ``BlenderUiHandler``
-(``marking_menu.show("render_effects")``). ``__init__`` is Qt-only (no ``bpy``)
-so the panel loads under the workspace ``.venv`` -- the selection-changed
-subscription is wrapped in a try/except that no-ops without a running Blender.
+The fields that say HOW an effect is keyed -- the fade's length, the pulse's
+cadence and, in Create, its colours -- are the scene's effect recipe
+(``ptk.EffectRecipe``, the shot store's ``effect_recipe``), the one the Shot
+Manifest's build keys with. Editing one changes the recipe, never a key.
+
+The Shot Manifest opens a page FOCUSED (:meth:`RenderEffectsSlots.focus`): the
+picker hides, the header names the object and shot, and Key re-keys that
+object's behaviors where the build places them. Hiding the panel leaves focus.
+
+Mirror of mayatk's ``render_effects_slots`` (same objectNames, same widget
+tree, same method names); delegates all logic to :class:`RenderEffects`.
+Discovered by ``BlenderUiHandler`` (``marking_menu.show("render_effects")``).
+``__init__`` is Qt-only (no ``bpy``) so the panel loads under the workspace
+``.venv`` -- the selection-changed subscription is wrapped in a try/except that
+no-ops without a running Blender.
 """
 
+import html
 import logging
 
 import pythontk as ptk
@@ -28,12 +37,12 @@ import pythontk as ptk
 from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
 
-#: The two things Apply can mean. They differ in WHO is acted on, which is the
+#: The two things Key can mean. They differ in WHO is acted on, which is the
 #: part an artist has to know before pressing it: ``CREATE`` sets an effect up
 #: on the selection, making the channel where it is missing; ``REVISE`` changes
 #: an effect that is already there and reaches nothing else. A tool whose modes
 #: also differ in WHAT they write says so by hiding the fields the mode cannot
-#: use (see ``_bind_mode``), so the box always shows exactly what Apply reads.
+#: use (see ``_bind_mode``), so the page always shows exactly what Key reads.
 #: Mirror of mayatk's.
 CREATE, REVISE = "create", "revise"
 
@@ -43,36 +52,42 @@ class RenderEffectsSlots(ptk.LoggingMixin):
 
     Layout
     ------
-    - **Header**: Title bar; menu holds Last Selected Only and Delete
-      Visibility Keys.
-    - **Key**: Key Opacity Fade (``tb000``) and Key Highlight Pulse (``tb001``);
-      each option box = the tool's options plus a remove-channel action and a
-      Preview in WebXR button.
-    - **Footer**: Status messages.
+    - **Header**: Title bar; its menu holds Last Selected Only -- the one
+      option every effect's actions share. An option one effect reads lives
+      on that effect's page.
+    - **Effect picker** (``cmb_effect``): which page shows. Hidden while the
+      panel is focused on one object's effect.
+    - **Pages** (``stk_effects``): Opacity Fade and Highlight Pulse; each = the
+      tool's mode over a **Settings** fold holding the fields it writes.
+    - **Actions**: Key (``b000``), remove-channel (``btn_remove``) and
+      ``btn_webxr`` -- one row for whichever page shows.
+    - **Footer**: What Key will do; an action's report.
     """
 
-    #: Channel name per key tool (mayatk keys these by ``ChannelSpec``).
+    #: Channel name per page (mayatk keys these by ``ChannelSpec``).
     OPACITY = RenderEffects.ATTR_NAME
     HIGHLIGHT = RenderEffects.HIGHLIGHT_ATTR
 
-    #: Default seconds for each pulse gap: one cycle's own transition at the
-    #: default cadence (25% of a 2.86 s period), so the ends of the train are
-    #: shaped like every beat inside it.
-    PULSE_GAP_DEFAULT = 0.72
+    #: The pages, in picker order: ``(channel, label, page, keyer, Key text)``
+    #: -- the keyer is the method Key (``b000``) runs while the page shows.
+    PAGES = (
+        (OPACITY, "Opacity Fade", "page_fade", "_key_fade_page", "Key Opacity Fade"),
+        (
+            HIGHLIGHT,
+            "Highlight Pulse",
+            "page_pulse",
+            "_key_pulse_page",
+            "Key Highlight Pulse",
+        ),
+    )
 
-    #: Seed colours for the pulse ramp. The dim end is BLACK, which is the
-    #: look this channel had before it had two ends: the glow fades to nothing.
-    #: LINEAR light, the space the attribute, the glTF factor and the Unity
-    #: controller share; the editor shows them display-encoded, where the
-    #: bright end reads #0054DD -- the production blue, adopted 2026-09-13.
-    #: Stated as the LINEAR VALUE OF that 8-bit colour, at the 6 decimals
-    #: this tool compares colours to: the editor is 8-bit sRGB, so a seed it
-    #: cannot represent comes back changed, and Revise would rewrite an
-    #: authored colour nobody touched. It must also equal what CREATE writes
-    #: (the attribute preset's own default), or the row would show one colour
-    #: while the tool authored another. Tests hold both.
-    DEFAULT_BRIGHT = (0.0, 0.088656, 0.723055)
-    DEFAULT_DIM = (0.0, 0.0, 0.0)
+    #: The page builder per channel: a channel that gains a page gains a row.
+    BUILDERS = {"opacity": "_build_fade_page", "highlight": "_build_pulse_page"}
+
+    #: The colours a pulse seeds from when the targets agree on none: the
+    #: recipe's defaults, declared ONCE in ``ptk.EffectRecipe``.
+    DEFAULT_BRIGHT = ptk.EffectRecipe().pulse_bright
+    DEFAULT_DIM = ptk.EffectRecipe().pulse_dim
 
     #: Stand-in albedo for the fade preview. The real one is per object; what
     #: the preview is showing is the alpha riding over it. LINEAR, as a glTF
@@ -80,7 +95,7 @@ class RenderEffectsSlots(ptk.LoggingMixin):
     #: light grey).
     PREVIEW_ALBEDO = (0.57, 0.60, 0.67)
 
-    #: How each mode reads for each channel, for the line under the selector.
+    #: How each mode reads for each channel, in the footer's resting line.
     #: A table rather than branches: a channel that gains a mode gains a row.
     VERBS = {
         ("opacity", CREATE): "keys a fade on",
@@ -92,8 +107,17 @@ class RenderEffectsSlots(ptk.LoggingMixin):
     #: What Revise promises about the keys, per channel. Opacity's fade IS its
     #: keys, so revising one rewrites them; the highlight's colours are their
     #: own properties, so revising those leaves a signed-off cadence alone.
-    #: Stated because the difference is invisible until it has cost something.
     REVISE_NOTE = {"opacity": "keys are rewritten", "highlight": "keys untouched"}
+
+    #: The recipe field each page field edits: ``(field, widget, scale)`` --
+    #: the widget shows ``value * scale`` (the duty is a percent of a fraction).
+    RECIPE_FIELDS = (
+        ("fade_frames", "s000", 1),
+        ("pulse_period", "s002", 1),
+        ("pulse_duty", "s003", 100),
+        ("pulse_lead_in", "s004", 1),
+        ("pulse_lead_out", "s005", 1),
+    )
 
     def __init__(self, switchboard, log_level="WARNING"):
         super().__init__()
@@ -101,10 +125,15 @@ class RenderEffectsSlots(ptk.LoggingMixin):
         self.ui = self.sb.loaded_ui.render_effects
         self.logger.setLevel(log_level)
         self.logger.set_log_prefix("[render_effects] ")
-        self._mode_menus = {}  # channel -> its option-box menu
+        self._pages = {}  # channel -> its FormRows page
+        self._mode_combos = {}  # channel -> its Create/Revise combo
         self._mode_fields = {}  # channel -> uitk FieldVisibility
         self._mode_hooks = {}  # channel -> callable run on mode/selection
-        self._remove_actions = {}  # channel name -> option-box ActionOption
+        #: ``{"channel", "objects", "apply", "apply_text", "title"}`` while the
+        #: manifest has the panel focused on one object's effect.
+        self._focus = None
+        self._recipe = None  # uitk ModelBinding over the scene's recipe
+        self._unwatch_recipe = None
 
         # Selection-changed job: the remove actions are live only while the
         # selection carries their channel (Blender counterpart of mayatk's
@@ -120,13 +149,17 @@ class RenderEffectsSlots(ptk.LoggingMixin):
             mgr = ScriptJobManager.instance()
             self._sel_token = mgr.subscribe(
                 "SelectionChanged",
-                self._on_selection_changed,
+                self._on_scene_selection,
                 owner=self,
                 ephemeral=True,
             )
             mgr.connect_cleanup(self.ui, owner=self)
         except Exception:
             pass
+        # Focus belongs to the moment the manifest asked for it.
+        self.ui.on_hide.connect(self.unfocus)
+        self.ui.on_show.connect(self._refit)
+        self.ui.destroyed.connect(lambda *_: self._stop_watching())
 
     # ------------------------------------------------------------------
     # Header
@@ -141,26 +174,10 @@ class RenderEffectsSlots(ptk.LoggingMixin):
             setObjectName="chk_last_selected",
             setChecked=False,
             setToolTip=self.sb.tooltip.fmt(
-                body="Applies to every Key and Remove action.",
+                body="Applies to every effect's Key, WebXR and Remove.",
                 bullets=[
                     "<b>On:</b> Only the active object is processed.",
                     "<b>Off:</b> All selected objects are processed.",
-                ],
-            ),
-        )
-        widget.menu.add(
-            "QCheckBox",
-            setText="Delete Visibility Keys",
-            setObjectName="chk_delete_vis_keys",
-            setChecked=False,
-            setToolTip=self.sb.tooltip.fmt(
-                body="When Key Opacity Fade first gives an object its opacity "
-                "property:",
-                bullets=[
-                    "<b>On:</b> The object's existing render-visibility keys are "
-                    "deleted first.",
-                    "<b>Off:</b> They are kept; the fade's visibility mirror is "
-                    "keyed over them.",
                 ],
             ),
         )
@@ -173,44 +190,68 @@ class RenderEffectsSlots(ptk.LoggingMixin):
                 "with a per-object colour). Each tool creates its channel on the "
                 "selection when missing, so keying is the only step.",
                 steps=[
-                    "Select one or more objects.",
-                    "Press <b>Key Opacity Fade</b> to key a fade, or "
-                    "<b>Key Highlight Pulse</b> to key a repeating glow. Each "
-                    "option box (▸) holds everything that tool writes.",
-                    "The ⊗ action in each option box removes that channel "
+                    "Pick the effect at the top; its page holds everything that "
+                    "tool writes. Once they are set, fold <b>Settings</b>: the "
+                    "page keeps its mode, the window its Key.",
+                    "Select one or more objects and press <b>Key</b> under the "
+                    "page -- it keys that effect at the playhead.",
+                    "<b>WebXR</b>, beside it, pushes the selection with the "
+                    "effect at the page's settings -- not the objects' own keys: "
+                    "the deliverable's own GLB build, nothing in the scene "
+                    "written, and whatever the objects already carry left out.",
+                    "<b>Remove</b>, under WebXR, strips that effect's channel "
                     "(property and keys) from the selection.",
-                    "<b>Preview in WebXR</b>, at the foot of each option box, "
-                    "pushes the selection with that effect at the settings "
-                    "above it -- the box, not the objects' own keys: the "
-                    "deliverable's own GLB build, nothing in the scene written, "
-                    "and whatever the objects already carry left out.",
                 ],
                 sections=[
                     (
+                        "The scene's recipe",
+                        [
+                            "The fade's frames, the pulse's period, duty and "
+                            "leads -- and, in Create, its colours -- are the "
+                            "scene's <b>effect recipe</b>: saved with the scene, "
+                            "and what the Shot Manifest's Build keys its fades "
+                            "and highlights with.",
+                            "Editing one changes the recipe, never a key. Build "
+                            "re-keys the manifest's effects made with an older "
+                            "recipe (Assess flags them); a channel the Build "
+                            "creates takes the recipe's colours.",
+                            "A pulse's Length and End at Playhead are this "
+                            "panel's own -- they place one keying.",
+                        ],
+                    ),
+                    (
                         "Create and Revise",
                         [
-                            "Each option box opens on <b>Create</b>: the tool "
-                            "sets its effect up on the selection, making the "
-                            "channel where it is missing.",
+                            "Each page opens on <b>Create</b>: the tool sets its "
+                            "effect up on the selection, making the channel "
+                            "where it is missing.",
                             "<b>Revise</b> changes an effect that is already "
                             "there — the objects in the selection that carry "
                             "the channel, or every such object in the scene "
                             "when nothing is selected.",
-                            "The box shows only the fields the mode writes, and "
-                            "the line under the selector says what the tool "
-                            "button is about to do.",
-                            "Nothing in a box touches the scene on its own. "
-                            "The tool button is the only thing that writes.",
+                            "The page shows only the fields the mode writes, and "
+                            "the footer says what Key is about to do. After an "
+                            "action it shows that action's report until your "
+                            "next pick, page or mode.",
+                        ],
+                    ),
+                    (
+                        "From the Shot Manifest",
+                        [
+                            "Right-click an object row and choose its effect: "
+                            "the panel opens on that effect alone, named for "
+                            "the object and its shot, the object selected.",
+                            "<b>Key</b> then re-keys the object's behaviors "
+                            "where the manifest places them -- not at the "
+                            "playhead. Hiding the panel ends the focus.",
                         ],
                     ),
                     (
                         "Header menu",
                         [
                             "<b>Last Selected Only</b> — only the active object "
-                            "participates.",
-                            "<b>Delete Visibility Keys</b> — clear an object's "
-                            "render-visibility keys when it first receives the "
-                            "opacity property.",
+                            "participates, in every effect's Key, WebXR and "
+                            "Remove.",
                         ],
                     ),
                 ],
@@ -221,6 +262,278 @@ class RenderEffectsSlots(ptk.LoggingMixin):
                 ],
             )
         )
+
+    # ------------------------------------------------------------------
+    # Pages and the scene's recipe
+    # ------------------------------------------------------------------
+
+    def cmb_effect_init(self, widget):
+        """The effect picker: one entry per page."""
+        widget.clear()
+        for channel, label, *_rest in self.PAGES:
+            widget.addItem(label, channel)
+
+    def cmb_effect(self, index, widget=None):
+        """Show the picked effect's page."""
+        stack = getattr(self.ui, "stk_effects", None)
+        if stack is None or not 0 <= index < stack.count():
+            return
+        stack.setCurrentIndex(index)
+        self._fit_stack()
+        self._clear_report()
+        self._sync_actions()
+        channel = self.PAGES[index][0]
+        if channel in self._mode_combos:
+            self._sync_mode(channel, deep=True)
+
+    def stk_effects_init(self, widget):
+        """Build every page into the stack, bind the recipe, register the rows."""
+        from uitk.managers.model_binding import ModelBinding
+        from uitk.widgets.form_rows import FormRows
+
+        # Refreshed as applied FOR the user: the linked leads re-baseline
+        # rather than shove a delta into each other, and nothing persists.
+        self._recipe = ModelBinding(
+            read=self._recipe_values,
+            write=self._write_recipe,
+            applying=self.ui.state.suppress_save,
+        )
+        for channel, _label, page_name, *_rest in self.PAGES:
+            page = getattr(self.ui, page_name)
+            rows = FormRows(page)
+            page.layout().addWidget(rows)
+            self._pages[channel] = rows
+            getattr(self, self.BUILDERS[channel])(rows)
+        for field, name, scale in self.RECIPE_FIELDS:
+            spin = self.ui_field(name)
+            if spin is None:
+                continue
+            self._recipe.bind(
+                field,
+                spin,
+                getter=lambda w=spin, k=scale: float(w.value()) / k,
+                setter=lambda v, w=spin, k=scale: w.setValue(
+                    self._spin_value(w, v * k)
+                ),
+            )
+        # The rows join the window: state restore for the panel's own fields.
+        self.ui.register_children(widget)
+        self._on_recipe_changed()
+        store = self._store_cls()
+        if store is not None:
+            self._unwatch_recipe = store.watch_settings(self._on_recipe_changed)
+        self.cmb_effect(widget.currentIndex())
+
+    @staticmethod
+    def _spin_value(spin, value):
+        """*value* as *spin* can hold it: the nearest whole number in a
+        whole-number box, whose ``setValue`` truncates a float -- a 0.57 duty
+        is 56.99... percent, and showed 56."""
+        return round(value) if isinstance(spin.value(), int) else value
+
+    def ui_field(self, name):
+        """A page field by objectName, from whichever page holds it."""
+        for rows in self._pages.values():
+            widget = getattr(rows, name, None)
+            if widget is not None:
+                return widget
+        return None
+
+    @staticmethod
+    def _store_cls():
+        """This host's shot store, which holds the scene's effect recipe
+        (``RenderEffects.scene_store``; ``None`` when unavailable)."""
+        return RenderEffects.scene_store()
+
+    def _recipe_obj(self):
+        """The scene's effect recipe (the defaults when no store can be had)."""
+        return RenderEffects.scene_recipe()
+
+    def _recipe_values(self) -> dict:
+        return self._recipe_obj().to_dict()
+
+    def _write_recipe(self, field, value) -> None:
+        """Store one recipe field -- a scene setting, written on edit; it keys
+        nothing."""
+        try:
+            self._store_cls().active().update_effect_recipe(**{field: value})
+        except Exception as e:
+            self.ui.footer.setText(f"Recipe not saved: {e}")
+
+    def _on_recipe_changed(self, *_args) -> None:
+        """Re-read the recipe into every page (a panel edit, an undo, another
+        panel, a file opened)."""
+        if self._recipe is None:
+            return
+        self._recipe.refresh()
+        ramp = getattr(self, "_pulse_ramp", None)
+        if ramp is not None and self._mode(self.HIGHLIGHT) == CREATE:
+            self._show_recipe_colors(ramp)
+        self._update_cycle_readout()
+        self._sync_pulse_shape()
+        self._sync_fade_shape()
+
+    def _show_recipe_colors(self, ramp) -> None:
+        """Seed the colour row with the recipe's pulse colours (Create)."""
+        blocked = ramp.blockSignals(True)
+        try:
+            ramp.set_colors(self._recipe_obj().colors)
+            for index in range(len(ramp.editors)):
+                ramp.set_mixed(index, False)
+        finally:
+            ramp.blockSignals(blocked)
+        ramp.set_reference(None)
+
+    def _on_pulse_color_committed(self, index, _qcolor) -> None:
+        """Create: a colour the artist set is the recipe's -- what the next
+        pulse, and a channel a Build creates, is coloured with. Revise stages
+        it for Key instead (the targets' colours, not the recipe's)."""
+        if self._mode(self.HIGHLIGHT) != CREATE:
+            return
+        color = self._pulse_ramp.decided()[index]
+        if color is None:
+            return
+        self._write_recipe(("pulse_bright", "pulse_dim")[index], tuple(color))
+
+    def _stop_watching(self) -> None:
+        if self._unwatch_recipe is not None:
+            self._unwatch_recipe()
+            self._unwatch_recipe = None
+
+    def _fit_stack(self) -> None:
+        """Size the stack to the page it shows, then the window to the stack.
+
+        Mirror of mayatk's: a ``QStackedWidget`` is as tall as its TALLEST
+        page (its height-for-width asks every page and no size policy opts
+        one out), so the pages not shown hold their rows hidden.
+        """
+        stack = getattr(self.ui, "stk_effects", None)
+        if stack is None:
+            return
+        for rows in self._pages.values():
+            rows.setVisible(rows.parentWidget() is stack.currentWidget())
+        self._refit()
+
+    def _refit(self) -> None:
+        """Fit the window to its content once the layouts settle: a page, the
+        focus, and every show (mayatk's has the reasons)."""
+        from uitk.managers.window_height import WindowHeight
+
+        WindowHeight.fit_host_later(self.ui)
+
+    # ------------------------------------------------------------------
+    # Focus -- one object's effect, opened from the Shot Manifest
+    # ------------------------------------------------------------------
+
+    def focus(self, channel, objects, title="", apply=None, apply_text=""):
+        """Open on one effect for *objects*, as the manifest's row actions do.
+
+        Mirror of mayatk's: the picker hides, the header names the effect and
+        *title*, the objects are selected, and the page opens in Revise when
+        every object already carries the channel, else in Create. *apply*
+        (``() -> str``) is what Key runs instead of keying at the playhead --
+        the manifest's re-key at its placement; the highlight's Revise still
+        re-colours.
+        """
+        objects = self._resolve(objects)
+        names = [p[0] for p in self.PAGES]
+        index = names.index(channel)
+        label = self.PAGES[index][1]
+        self._focus = {
+            "channel": channel,
+            "objects": objects,
+            "apply": apply,
+            "apply_text": apply_text,
+            "title": title,
+        }
+        picker = self.ui.cmb_effect
+        picker.setCurrentIndex(index)
+        self.cmb_effect(index)
+        picker.setVisible(False)
+        self.ui.header.setText(f"{label} · {title}".upper() if title else label.upper())
+        self._select(objects)
+        carrying = self._carrying(channel, objects)
+        self._set_mode(
+            channel, REVISE if objects and len(carrying) == len(objects) else CREATE
+        )
+        self._on_selection_changed()
+
+    def unfocus(self, *_args) -> None:
+        """Back to the standalone panel: the picker, its title, the Key texts
+        and the footer's resting line."""
+        if self._focus is None:
+            return
+        self._focus = None
+        picker = getattr(self.ui, "cmb_effect", None)
+        if picker is not None:
+            picker.setVisible(True)
+        self.ui.header.setText("RENDER EFFECTS")
+        self._sync_actions()
+        # Directly, not through the selection job: a hide ends the focus, and
+        # the job skips a hidden panel, so the manifest's line outlived it.
+        shown = self._shown_channel()
+        if shown is not None:
+            self._update_apply_readout(shown)
+        self._refit()
+
+    @staticmethod
+    def _resolve(objects) -> list:
+        """*objects* as live ``bpy`` objects (names resolved; missing dropped)."""
+        try:
+            import bpy
+        except ImportError:
+            return []
+        out = []
+        for obj in objects or ():
+            node = bpy.data.objects.get(obj) if isinstance(obj, str) else obj
+            if node is not None:
+                out.append(node)
+        return out
+
+    @staticmethod
+    def _select(objects) -> None:
+        """Make *objects* the selection (the first active) -- a view of them,
+        as the manifest's Show in Outliner selects."""
+        if not objects:
+            return
+        import bpy
+
+        with CoreUtils.window_context_override():
+            layer = bpy.context.view_layer
+            for o in list(bpy.context.selected_objects):
+                o.select_set(False)
+            for o in objects:
+                if o.name in layer.objects:
+                    o.select_set(True)
+            try:
+                layer.objects.active = objects[0]
+            except (AttributeError, RuntimeError, ReferenceError):
+                pass
+
+    def _focused_apply(self, channel: str):
+        """The manifest's re-key while focused on *channel* in the mode it
+        serves (any for opacity; Create for the highlight, whose Revise
+        re-colours), else ``None``."""
+        focus = self._focus
+        if not focus or focus["channel"] != channel or focus["apply"] is None:
+            return None
+        if channel == self.HIGHLIGHT and self._mode(channel) == REVISE:
+            return None
+        return focus["apply"]
+
+    def _run_focused(self, channel: str) -> bool:
+        """Run the manifest's re-key when Key means it; True when it did."""
+        apply = self._focused_apply(channel)
+        if apply is None:
+            return False
+        try:
+            report = apply()
+        except Exception as e:
+            self.sb.message_box(f"Error: {e}")
+            return True
+        self.ui.footer.setText(report or "Re-keyed through the manifest.")
+        self._on_selection_changed()
+        return True
 
     # ------------------------------------------------------------------
     # Shared
@@ -238,68 +551,29 @@ class RenderEffectsSlots(ptk.LoggingMixin):
             return [active] if active in objects else objects[-1:]
         return objects
 
-    def _key_options(self):
-        """The header options every key tool forwards to the facade."""
-        menu = self.ui.header.menu
-        return {
-            "delete_visibility_keys": menu.chk_delete_vis_keys.isChecked(),
-        }
-
-    def _add_remove_action(self, widget, channel: str):
-        """Give a key tool's option box the action that removes its channel.
-
-        Kept apart from the option items (an action, not a setting) and
-        gated by the selection job: enabled only while the selection carries
-        the channel.
-        """
-        self._remove_actions[channel] = widget.option_box.set_action(
-            callback=lambda channel=channel: self._remove_channel(channel),
-            icon="circle_remove",
-            tooltip=self.sb.tooltip.fmt(
-                title=f"Remove {channel.title()}",
-                body=f"Strip the <b>{channel}</b> channel from the selection: "
-                "the property, its keys and any material drivers.",
-            ),
-        )
-        # Through the snapshot, which is also what keeps this build-time
-        # call working with no Blender running (the panel must still load).
-        self._remove_actions[channel].widget.setEnabled(
-            bool(self._selection_snapshot()[1].get(channel))
-        )
-
     # ------------------------------------------------------------------
-    # WebXR preview (option-box actions)
+    # The action row -- one for whichever page shows
     # ------------------------------------------------------------------
 
-    #: Seconds a fade preview holds at each end, in the option box's animated
-    #: preview and in the WebXR one alike. Mirror of mayatk's.
-    PREVIEW_HOLD_SECONDS = 0.6
+    def b000(self, widget=None):
+        """Key: the shown page's keyer (``PAGES``)."""
+        page = self._shown_page()
+        if page is not None:
+            getattr(self, page[3])()
 
-    #: The planner per channel, by method name (mirror of mayatk's table).
-    PREVIEW_PLANS = {
-        "opacity": "_fade_preview_plan",
-        "highlight": "_pulse_preview_plan",
-    }
+    def btn_remove(self, widget=None):
+        """Strip the shown page's channel from the selection."""
+        channel = self._shown_channel()
+        if channel is not None:
+            self._remove_channel(channel)
 
-    def _add_webxr_preview(self, widget, channel: str):
-        """Give a key tool's option box its **Preview in WebXR** button, LAST.
-
-        Mirror of mayatk's: a button inside the box rather than an icon action
-        beside the remove one, because the remove action acts on what the
-        objects carry and an eye next to it read as "show me the object's
-        effect" -- this shows the BOX, whatever the objects are keyed with.
-        Reads the box and writes nothing; named in no mode's field list, so it
-        shows in both.
-        """
-        button = widget.option_box.menu.add(
-            "QPushButton",
-            setText="Preview in WebXR",
-            setObjectName="btn_preview",
-            setToolTip=self.sb.tooltip.fmt(
+    def btn_webxr_init(self, widget):
+        widget.setToolTip(
+            self.sb.tooltip.fmt(
                 title="Preview in WebXR",
-                body=f"Push the selection to the WebXR preview with this "
-                f"<b>{channel}</b> effect at the settings above -- the box "
-                "as it stands, not the objects' own keys.",
+                body="Push the selection to the WebXR preview with this page's "
+                "effect at the settings above -- the page as it stands, not the "
+                "objects' own keys.",
                 bullets=[
                     "Nothing in the scene is written -- no property, key or "
                     "colour. The effect exists only in the pushed GLB.",
@@ -311,46 +585,73 @@ class RenderEffectsSlots(ptk.LoggingMixin):
                     "first frame (End at Playhead does not apply).",
                     "A field the mode hides keeps its last value for the preview.",
                 ],
-            ),
+            )
         )
-        button.clicked.connect(lambda *_, channel=channel: self._preview_webxr(channel))
 
-    @staticmethod
-    def _pulse_cadence(menu, fps: float) -> dict:
-        """The pulse box's cadence as ``key_pulse`` / ``RampKeys.pulse`` kwargs.
+    def btn_webxr(self, widget=None):
+        """Preview the shown page's effect in WebXR."""
+        channel = self._shown_channel()
+        if channel is not None:
+            self._preview_webxr(channel)
 
-        Mirror of mayatk's: one seconds-to-frames conversion, shared by the key
-        tool and its preview so the two cannot mean different pulses.
-        """
-        return {
-            "period": menu.s002.value() * fps,
-            "bright_fraction": menu.s003.value() / 100.0,
-            "lead_in": menu.s004.value() * fps,
-            "lead_out": menu.s005.value() * fps,
-        }
+    def _sync_actions(self, snapshot=None) -> None:
+        """Point the action row at the page on show (mirror of mayatk's):
+        Key's text, and Remove's channel -- live only while the selection
+        carries it. The snapshot is also what keeps a build-time call working
+        with no Blender running."""
+        page = self._shown_page()
+        if page is None:
+            return
+        channel, _label, _page, _keyer, key_text = page
+        # The manifest's text only while Key runs the manifest's re-key: a
+        # focused highlight's Revise re-colours, as the page's own Key does.
+        if self._focused_apply(channel) is not None and self._focus["apply_text"]:
+            key_text = self._focus["apply_text"]
+        self.ui.b000.setText(key_text)
+        carried = (snapshot if snapshot is not None else self._selection_snapshot())[1]
+        remove = self.ui.btn_remove
+        remove.setEnabled(bool(carried.get(channel)))
+        remove.setToolTip(
+            self.sb.tooltip.fmt(
+                title=f"Remove {channel.title()}",
+                body=f"Strip the <b>{channel}</b> channel from the selection: "
+                "the property, its keys and any material drivers.",
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # WebXR preview
+    # ------------------------------------------------------------------
+
+    #: Seconds a fade preview holds at each end, in the page's animated
+    #: preview and in the WebXR one alike. Mirror of mayatk's.
+    PREVIEW_HOLD_SECONDS = 0.6
+
+    #: The planner per channel, by method name (mirror of mayatk's table).
+    PREVIEW_PLANS = {
+        "opacity": "_fade_preview_plan",
+        "highlight": "_pulse_preview_plan",
+    }
 
     def _fade_preview_plan(self, fps: float):
-        """``(keys, None)``: the fade as the box stands, framed by its holds."""
-        menu = self._fade_menu
+        """``(keys, None)``: the fade as the page stands, framed by its holds."""
         keys = ptk.RampKeys.fade_loop(
-            menu.s000.value(),
+            self._recipe_obj().fade_frames,
             hold=self.PREVIEW_HOLD_SECONDS * fps,
-            direction=menu.cmb_direction.currentData(),
+            direction=self.ui_field("cmb_direction").currentData(),
         )
         return keys, None
 
     def _pulse_preview_plan(self, fps: float):
-        """``(keys, (bright, dim))``: the pulse as the box stands, from frame 0.
+        """``(keys, (bright, dim))``: the pulse as the page stands, from frame 0.
 
-        An undecided end (Revise, targets disagreeing) previews as the seed --
-        the same default Create would key.
+        An undecided end (Revise, targets disagreeing) previews as the
+        recipe's -- what Create would key.
         """
-        menu = self._pulse_menu
-        keys = ptk.RampKeys.pulse(
-            0.0, menu.s001.value() * fps, **self._pulse_cadence(menu, fps)
-        )
+        recipe = self._recipe_obj()
+        keys = recipe.plan("pulse", 0.0, self.ui_field("s001").value() * fps, fps)
         bright, dim = self._pulse_ramp.decided()
-        return keys, (bright or self.DEFAULT_BRIGHT, dim or self.DEFAULT_DIM)
+        return keys, (bright or recipe.pulse_bright, dim or recipe.pulse_dim)
 
     def _preview_webxr(self, channel: str):
         """Push the selection to the WebXR preview with *channel*'s effect as set.
@@ -394,7 +695,7 @@ class RenderEffectsSlots(ptk.LoggingMixin):
             result.get("data_export") or ()
         ):
             # Mirror of mayatk's: published, but what it published is the
-            # scene, not the box -- a bridge that never learned the overlay
+            # scene, not the page -- a bridge that never learned the overlay
             # knob sweeps ``data_export`` into the export bag and builds as if
             # nothing was asked, with no error anywhere.
             self.ui.footer.setText(
@@ -423,14 +724,9 @@ class RenderEffectsSlots(ptk.LoggingMixin):
 
         Every consumer on the selection-changed path asks the same question,
         and asking it separately made picking objects cost a scene read and a
-        per-object query for each of them: two remove actions plus two Apply
-        readouts, four times over.
-
-        It reports the EFFECTIVE selection, which is what "Last Selected Only"
-        narrows and what every action here operates on. The remove action used
-        to be gated on the raw selection instead, so picking an object that
-        carries the channel and then one that does not left the action live
-        while the thing it would act on had nothing to remove.
+        per-object query for each of them. It reports the EFFECTIVE selection,
+        which is what "Last Selected Only" narrows and what every action here
+        operates on.
         """
         try:
             selected = self._get_selected()
@@ -445,25 +741,20 @@ class RenderEffectsSlots(ptk.LoggingMixin):
     # Create / Revise
     # ------------------------------------------------------------------
 
-    def _add_mode(self, widget, channel: str):
-        """Open an option box with its mode selector and an Apply readout.
+    def _add_mode(self, rows, channel: str):
+        """Open a page with its mode selector.
 
-        Called FIRST in a tool's init so it lands above the fields it gates.
-        The readout under it is the whole reason the divide reads as one tool
-        rather than two: the tool button's label cannot say who it is about to
-        act on, and that -- not which fields are on screen -- is what separates
-        setting an effect up from changing one that exists. Mirror of mayatk's.
+        Called FIRST in a page's build so it lands above the fields it gates.
+        Mirror of mayatk's: what the mode means for Key is the footer's
+        resting line (:meth:`_update_apply_readout`).
         """
-        from qtpy import QtCore
         from uitk.managers.field_visibility import FieldVisibility
 
-        menu = widget.option_box.menu
-        self._mode_menus[channel] = menu
-        cmb = menu.add(
+        cmb = rows.add(
             "QComboBox",
-            setObjectName="cmb_mode",
+            setObjectName=f"cmb_mode_{channel}",
             setToolTip=self.sb.tooltip.fmt(
-                title="What the tool button does",
+                title="What the Key button does",
                 bullets=[
                     "<b>Create:</b> set this effect up on the selection, "
                     "making the channel on objects that lack it.",
@@ -471,57 +762,68 @@ class RenderEffectsSlots(ptk.LoggingMixin):
                     f"{self.REVISE_NOTE.get(channel, '')}. With nothing "
                     f"selected this reaches every {channel} object in the "
                     "scene, after confirming.",
-                    "The box shows only what the mode writes.",
+                    "The page shows only what the mode writes.",
                 ],
             ),
         )
         for text, data in (("Create", CREATE), ("Revise", REVISE)):
             cmb.addItem(text, data)
-        menu.add(
-            "QLabel",
-            setObjectName="lbl_apply",
-            setAlignment=QtCore.Qt.AlignCenter,
-            setWordWrap=True,
-            setToolTip="What this tool's button is about to do, and to how many.",
-        )
+        # Every page opens on Create, as the help says.
+        cmb.restore_state = False
+        self._mode_combos[channel] = cmb
         # The combo drives the layout directly; `on_change` is the mode
-        # switch, which is one of the moments the tool may re-read the
-        # scene (see ``_sync_mode``).
+        # switch, which ends the last report and is one of the moments the
+        # tool may re-read the scene (see ``_sync_mode``).
         self._mode_fields[channel] = FieldVisibility(
-            on_change=lambda _name, c=channel: self._sync_mode(c, deep=True),
+            on_change=lambda _name, c=channel: self._on_mode_changed(c),
         )
         return cmb
+
+    def _add_settings(self, rows, channel: str):
+        """Fold the rest of a page under its mode selector; returns the fold.
+
+        Called right after :meth:`_add_mode`. The fields are set once and then
+        keyed with for a while, and folded the page is its mode and the window
+        its Key. The mode stays out: it is what changes WHO Key acts on. Each
+        page folds on its own and keeps the state per window.
+        """
+        settings = rows.add_section("Settings", setObjectName=f"grp_settings_{channel}")
+        # A fold changes what the window holds, as a page or a mode does.
+        settings.parentWidget().toggled.connect(lambda *_: self._refit())
+        return settings
+
+    def _on_mode_changed(self, channel) -> None:
+        self._clear_report()
+        self._sync_mode(channel, deep=True)
+        self._sync_actions()  # Key's text is the mode's (a focus serves one)
 
     def _bind_mode(self, channel: str, fields=None, on_sync=None):
         """Declare what each mode writes, then show the opening one.
 
         Parameters:
-            fields: ``{mode: (option-box widget name, ...)}``, resolved
-                against the option box. Anything named in no list is always
-                shown. ``None`` -- the usual case -- means the modes write the
-                same fields and differ only in their target, which is true of
-                any channel whose effect IS its keys.
+            fields: ``{mode: (page widget name, ...)}``, resolved against the
+                page. Anything named in no list is always shown. ``None`` --
+                the usual case -- means the modes write the same fields and
+                differ only in their target.
             on_sync: Run whenever the mode or the selection changes, for a
-                tool that has to re-read the scene (seeding a revision from
-                what is authored). Takes *deep* and *snapshot*, both as
-                :meth:`_sync_mode` documents them. A hook rather than a branch here, so this
-                helper never learns which channel it is serving.
+                tool that has to re-read the scene. Takes *deep* and
+                *snapshot*, both as :meth:`_sync_mode` documents them.
         """
         if on_sync is not None:
             self._mode_hooks[channel] = on_sync
-        visibility, menu = self._mode_fields[channel], self._mode_menus[channel]
+        visibility, rows = self._mode_fields[channel], self._pages[channel]
         for name in set().union(*fields.values()) if fields else ():
-            field = getattr(menu, name, None)
+            field = getattr(rows, name, None)
             if field is not None:
                 visibility.register(name, field)
         for mode in (CREATE, REVISE):
             visibility.define(mode, (fields or {}).get(mode, ()))
         # Binding applies the opening entry, which both shows the right fields
         # and takes the tool through its first `_sync_mode`.
-        visibility.bind(menu.cmb_mode)
+        visibility.bind(self._mode_combos[channel])
 
     def _mode(self, channel: str) -> str:
-        """The mode *channel*'s option box is set to (``CREATE`` before build).
+        """The mode *channel*'s page is set to (``CREATE`` before it builds).
 
         The layout IS the mode: asking the combo separately would give two
         readers that disagree the moment anything sets the mode in code.
@@ -529,68 +831,88 @@ class RenderEffectsSlots(ptk.LoggingMixin):
         visibility = self._mode_fields.get(channel)
         return (visibility.mode if visibility is not None else None) or CREATE
 
+    def _set_mode(self, channel: str, mode: str) -> None:
+        """Switch *channel*'s page to *mode* (the combo drives the layout)."""
+        cmb = self._mode_combos.get(channel)
+        if cmb is None:
+            return
+        index = cmb.findData(mode)
+        if index >= 0:
+            cmb.setCurrentIndex(index)
+
     def _sync_mode(self, channel: str, deep: bool = False, snapshot=None):
-        """Re-read the scene for *channel*'s box: its hook, then the readout.
+        """Re-read the scene for *channel*'s page: its hook, then the readout.
 
         *deep* marks the infrequent moments -- a mode switch, a write that just
         landed -- where the hook may go past the selection and scan the scene.
-        Off on the selection-changed path, which fires often enough that a scan
-        there would make picking objects cost a pass over every one of them.
         """
         hook = self._mode_hooks.get(channel)
         if hook is not None:
             hook(deep, snapshot)
         self._update_apply_readout(channel, snapshot)
 
+    def _shown_page(self):
+        """The ``PAGES`` row of the page the stack shows, or ``None``."""
+        stack = getattr(self.ui, "stk_effects", None)
+        index = stack.currentIndex() if stack is not None else -1
+        return self.PAGES[index] if 0 <= index < len(self.PAGES) else None
+
+    def _shown_channel(self):
+        """The channel of the page the stack shows, or ``None``."""
+        page = self._shown_page()
+        return page[0] if page is not None else None
+
     def _update_apply_readout(self, channel: str, snapshot=None):
-        """State what Apply is about to do, and to how many objects.
+        """Rest the footer on what Key is about to do, and to how many objects.
 
-        Counts the SELECTION rather than the scene: this runs on every
-        selection change, and a scene-wide scan there would make picking
-        objects cost a property lookup per object. With nothing selected the
-        scope is named without a number, and Apply counts it once -- in the
-        confirmation, which is where the number actually matters.
-
+        Mirror of mayatk's: only the page on show writes it, and an action's
+        report stands over it until :meth:`_clear_report`. Counts the
+        SELECTION rather than the scene: this runs on every selection change.
         *snapshot* is a :meth:`_selection_snapshot` pair, passed by the caller
-        that already took one so this does not read the selection again.
+        that already took one.
         """
-        menu = self._mode_menus.get(channel)
-        label = getattr(menu, "lbl_apply", None) if menu is not None else None
-        if label is None:
+        if channel != self._shown_channel():
             return
+        self.ui.footer.setDefaultStatusText(self._apply_readout(channel, snapshot))
+
+    def _apply_readout(self, channel: str, snapshot=None) -> str:
+        """The footer's resting line for *channel*: one short line, its
+        counts in bold (mayatk's has the reasons)."""
+        if self._focused_apply(channel) is not None:
+            title = html.escape(self._focus["title"] or "the object")
+            return f"Re-keys <b>{title}</b> where the Shot Manifest places it"
         mode = self._mode(channel)
-        verb = self.VERBS.get((channel, mode), "applies to")
+        verb = self.VERBS.get((channel, mode), "applies to").capitalize()
         selected, carried = (
             snapshot if snapshot is not None else (self._get_selected(), None)
         )
         if mode == CREATE:
-            label.setText(
-                f"{verb.capitalize()} {len(selected)} selected object(s)."
+            return (
+                f"{verb} <b>{len(selected)}</b> selected"
                 if selected
-                else "Needs a selection."
+                else "Needs a selection"
             )
-            return
-        note = self.REVISE_NOTE.get(channel, "")
         if not selected:
-            label.setText(
-                f"{verb.capitalize()} every object in the scene that carries {channel}."
-            )
-            return
-        # Only Revise needs this, so a caller without a snapshot pays for the
-        # lookup in the one mode that reads it.
+            return f"{verb} <b>every</b> {channel} object in the scene"
         carrying = (
             carried.get(channel, ())
             if carried is not None
             else self._carrying(channel, selected)
         )
-        label.setText(
-            f"{verb.capitalize()} {len(carrying)} of {len(selected)} selected ({note})."
+        return (
+            f"{verb} <b>{len(carrying)} of {len(selected)}</b> selected"
             if carrying
-            else f"None of the {len(selected)} selected carry {channel}."
+            else f"None of the <b>{len(selected)}</b> selected carry {channel}"
         )
 
+    def _clear_report(self) -> None:
+        """Let the footer fall back to its resting line (mayatk's has why)."""
+        footer = getattr(self.ui, "footer", None)
+        if footer is not None and footer.statusText():
+            footer.setText("")
+
     def _targets(self, channel: str):
-        """The objects Apply acts on in the current mode, or ``None`` to stop.
+        """The objects Key acts on in the current mode, or ``None`` to stop.
 
         ``None`` means the artist has already been told why, or declined the
         scene-wide confirmation, so a caller returns without a second message.
@@ -656,26 +978,31 @@ class RenderEffectsSlots(ptk.LoggingMixin):
         return ScriptJobManager.instance().suppressed(self._sel_token)
 
     # ------------------------------------------------------------------
-    # Key: opacity fade
+    # Page: opacity fade
     # ------------------------------------------------------------------
 
-    def tb000_init(self, widget):
-        """Key Opacity Fade Init — configure option-box menu."""
+    def _build_fade_page(self, rows):
+        """The Opacity Fade page (mirror of mayatk's)."""
         from uitk.widgets.editors.color_editor import FadeWaveform, RampPreview
 
         GLTF = ptk.GlbFades.CHANNELS
-        widget.option_box.menu.setTitle("Key Opacity Fade")
-        self._add_mode(widget, self.OPACITY)
-        widget.option_box.menu.add(
+        self._add_mode(rows, self.OPACITY)
+        settings = self._add_settings(rows, self.OPACITY)
+        settings.add(
             "QSpinBox",
             setPrefix="Frames: ",
             setObjectName="s000",
             setMinimum=1,
             setMaximum=1000,
-            setValue=15,
-            setToolTip="Number of frames over which the fade occurs.",
+            setToolTip=self.sb.tooltip.fmt(
+                body="Number of frames over which the fade occurs.",
+                bullets=[
+                    "The scene's effect recipe: the Shot Manifest's fades are "
+                    "this long too.",
+                ],
+            ),
         )
-        widget.option_box.menu.add(
+        settings.add(
             "QCheckBox",
             setText="End at Playhead",
             setObjectName="chk000",
@@ -687,7 +1014,7 @@ class RenderEffectsSlots(ptk.LoggingMixin):
                 ],
             ),
         )
-        cmb = widget.option_box.menu.add(
+        cmb = settings.add(
             "QComboBox",
             setObjectName="cmb_direction",
             setToolTip=self.sb.tooltip.fmt(
@@ -709,13 +1036,26 @@ class RenderEffectsSlots(ptk.LoggingMixin):
             ("Auto", "auto"),
         ]:
             cmb.addItem(text, data)
-        # Mirror of mayatk's. The fade has no colour to choose, so what its
-        # preview shows is the only thing there is to get wrong: how long it
-        # takes and which way it goes. `values` is the exporter's own function
-        # -- alpha on the fourth lane of baseColorFactor -- so the preview
-        # cannot drift from what ships, and its four components are what tell
-        # the widget to draw a transparency board rather than an opaque fill.
-        self._fade_menu = widget.option_box.menu
+        settings.add(
+            "QCheckBox",
+            setText="Delete Visibility Keys",
+            setObjectName="chk_delete_vis_keys",
+            setChecked=False,
+            setToolTip=self.sb.tooltip.fmt(
+                body="When Key first gives an object its opacity property:",
+                bullets=[
+                    "<b>On:</b> The object's existing render-visibility keys are "
+                    "deleted first.",
+                    "<b>Off:</b> They are kept; the fade's visibility mirror is "
+                    "keyed over them.",
+                    "Create only: Revise reaches objects that already carry "
+                    "the property.",
+                ],
+            ),
+        )
+        # Mirror of mayatk's. `values` is the exporter's own function -- alpha
+        # on the fourth lane of baseColorFactor -- so the preview cannot drift
+        # from what ships.
         preview = RampPreview(
             waveform=FadeWaveform(hold=self.PREVIEW_HOLD_SECONDS),
             values=GLTF[self.OPACITY].values,
@@ -725,7 +1065,7 @@ class RenderEffectsSlots(ptk.LoggingMixin):
         # A stand-in albedo: the real one is per object, and what is being
         # previewed is the ALPHA.
         preview.set_base(self.PREVIEW_ALBEDO)
-        widget.option_box.menu.add(
+        settings.add(
             preview,
             setToolTip=self.sb.tooltip.fmt(
                 body="What the fade does to the object, at the length set above.",
@@ -738,58 +1078,57 @@ class RenderEffectsSlots(ptk.LoggingMixin):
                     "first value backwards and its last forwards, so the "
                     "object really does sit there.",
                     "<b>Auto</b> ramps both ways, because the direction is "
-                    "resolved per object from its last key when you apply.",
+                    "resolved per object from its last key when you key.",
                 ],
             ),
         )
         self._fade_preview = preview
-        widget.option_box.menu.s000.valueChanged.connect(
+        rows.s000.valueChanged.connect(lambda *_: self._sync_fade_shape())
+        rows.cmb_direction.currentIndexChanged.connect(
             lambda *_: self._sync_fade_shape()
         )
-        widget.option_box.menu.cmb_direction.currentIndexChanged.connect(
-            lambda *_: self._sync_fade_shape()
+        # A fade IS its keys: Revise hides only Delete Visibility Keys, which
+        # acts when Key GIVES an object the property -- something Revise never
+        # does (mayatk's has the rest).
+        self._bind_mode(
+            self.OPACITY, fields={CREATE: ("chk_delete_vis_keys",), REVISE: ()}
         )
-        self._sync_fade_shape()
-        self._add_remove_action(widget, self.OPACITY)
-        self._add_webxr_preview(widget, self.OPACITY)
-        # No field gating: a fade IS its keys, so there is no part of it that
-        # can be restated without re-keying and nothing for Revise to hide.
-        # The mode still earns its place -- it narrows Apply to objects that
-        # already fade, which is the whole of "change this, do not spread it".
-        self._bind_mode(self.OPACITY)
 
     def _sync_fade_shape(self):
-        """Run the fade preview at the length and direction the box is set to.
+        """Run the fade preview at the recipe's length and the page's direction.
 
-        Seconds, from the frames the box asks for: the preview animates in real
-        time and the field is frames, so the rate is the one conversion. It
-        declines rather than raises -- a preview must never be what stops an
-        option box from building.
+        It declines rather than raises -- a preview must never be what stops a
+        page from building.
         """
         preview = getattr(self, "_fade_preview", None)
-        menu = getattr(self, "_fade_menu", None)
-        if preview is None or menu is None:
+        direction = self.ui_field("cmb_direction")
+        if preview is None or direction is None:
             return
         try:
             fps = RenderEffects._scene_fps() or 30.0
             preview.set_shape(
-                duration=float(menu.s000.value()) / fps,
-                direction=menu.cmb_direction.currentData(),
+                duration=float(self._recipe_obj().fade_frames) / fps,
+                direction=direction.currentData(),
             )
-        except (TypeError, ValueError, AttributeError, ZeroDivisionError):
+        except Exception:  # no running Blender, or a field mid-rebuild
             return
 
+    def _key_fade_page(self):
+        """Key Opacity Fade -- or, focused from the manifest, re-key there."""
+        if self._run_focused(self.OPACITY):
+            return
+        self._key_opacity_fade()
+
     @CoreUtils.undoable
-    def tb000(self, widget):
-        """Key Opacity Fade — key a fade on the opacity property (created if missing)."""
+    def _key_opacity_fade(self):
+        """Key a fade on the opacity property (created if missing)."""
         objects = self._targets(self.OPACITY)
         if not objects:
             return
 
-        frames = widget.option_box.menu.s000.value()
-        ends_at_cursor = widget.option_box.menu.chk000.isChecked()
-        direction_mode = widget.option_box.menu.cmb_direction.currentData()
-        start, end = self._key_range(frames, ends_at_cursor)
+        ends_at_cursor = self.ui_field("chk000").isChecked()
+        direction_mode = self.ui_field("cmb_direction").currentData()
+        start, end = self._key_range(self._recipe_obj().fade_frames, ends_at_cursor)
 
         # Suppress the SelectionChanged callback while we modify the scene
         # (props/drivers/keys) to prevent reentrant depsgraph evaluation.
@@ -801,7 +1140,9 @@ class RenderEffectsSlots(ptk.LoggingMixin):
                     end=end,
                     direction=direction_mode,
                     channel=self.OPACITY,
-                    **self._key_options(),
+                    delete_visibility_keys=self.ui_field(
+                        "chk_delete_vis_keys"
+                    ).isChecked(),
                 )
         except Exception as e:
             self.sb.message_box(f"Error: {e}")
@@ -815,21 +1156,18 @@ class RenderEffectsSlots(ptk.LoggingMixin):
         self._on_selection_changed()
 
     # ------------------------------------------------------------------
-    # Key: highlight pulse
+    # Page: highlight pulse
     # ------------------------------------------------------------------
 
-    def tb001_init(self, widget):
-        """Key Highlight Pulse Init — configure option-box menu."""
+    def _build_pulse_page(self, rows):
+        """The Highlight Pulse page (mirror of mayatk's)."""
         from qtpy import QtCore
         from uitk.widgets.editors.color_editor import ColorRampEditor
 
         GLTF = ptk.GlbFades.CHANNELS
-        widget.option_box.menu.setTitle("Key Highlight Pulse")
-        self._add_mode(widget, self.HIGHLIGHT)
-        # SECONDS, like every other field in this box (mirrors mayatk): the
-        # panel used to ask for a duration in frames next to a period and two
-        # leads in seconds, so reading it meant converting in your head.
-        widget.option_box.menu.add(
+        self._add_mode(rows, self.HIGHLIGHT)
+        settings = self._add_settings(rows, self.HIGHLIGHT)
+        settings.add(
             "QDoubleSpinBox",
             setPrefix="Length: ",
             setSuffix=" s",
@@ -839,56 +1177,61 @@ class RenderEffectsSlots(ptk.LoggingMixin):
             setSingleStep=0.5,
             setDecimals=2,
             setValue=4.0,
-            setToolTip="How long the pulse runs, in seconds.",
+            setToolTip=self.sb.tooltip.fmt(
+                body="How long the pulse runs, in seconds.",
+                bullets=[
+                    "This keying's own: a Shot Manifest highlight spans its shot."
+                ],
+            ),
         )
-        widget.option_box.menu.add(
+        settings.add(
             "QDoubleSpinBox",
             setPrefix="Period: ",
             setSuffix=" s",
             setObjectName="s002",
-            setMinimum=0.1,
+            setMinimum=ptk.EffectRecipe.LIMITS["pulse_period"][0],
             setMaximum=60.0,
             setSingleStep=0.1,
             setDecimals=2,
-            setValue=2.86,
-            setToolTip="One bright/dim cycle, in seconds (2.86 s measured on the WebXR reference).",
+            setToolTip=self.sb.tooltip.fmt(
+                body="One bright/dim cycle, in seconds (2.86 s measured on the "
+                "WebXR reference).",
+                bullets=["The scene's effect recipe -- the manifest keys it too."],
+            ),
         )
-        # "Duty", not "Bright": it is a share of TIME, and the box now also
+        # "Duty", not "Bright": it is a share of TIME, and the page also
         # carries two colours, one of which is literally called Bright.
-        widget.option_box.menu.add(
+        settings.add(
             "QSpinBox",
             setPrefix="Duty: ",
             setSuffix=" %",
             setObjectName="s003",
             setMinimum=1,
             setMaximum=99,
-            setValue=59,
-            setToolTip="Share of each cycle spent at the bright end "
-            "(59% measured on the WebXR reference).",
+            setToolTip=self.sb.tooltip.fmt(
+                body="Share of each cycle spent at the bright end "
+                "(59% measured on the WebXR reference).",
+                bullets=["The scene's effect recipe -- the manifest keys it too."],
+            ),
         )
-        self._cycle_readout = widget.option_box.menu.add(
+        self._cycle_readout = settings.add(
             "QLabel",
             setObjectName="lbl_cycles",
             setAlignment=QtCore.Qt.AlignCenter,
             setToolTip=self.sb.tooltip.fmt(
-                body="How many whole cycles the length gives you.",
+                body="How many cycles the train holds: the length less the "
+                "lead-in and lead-out.",
                 bullets=[
-                    "A length that is not a whole multiple of the period ends "
-                    "MID-CYCLE: the train is cut and the tail holds whatever "
-                    "value it was interrupted at.",
+                    "A train that is not a whole multiple of the period ends "
+                    "MID-CYCLE: it is cut and the tail holds whatever value it "
+                    "was interrupted at.",
                     "Nothing is wrong with that -- it is just invisible "
                     "without a number, so here is the number.",
                 ],
             ),
         )
-        self._pulse_menu = widget.option_box.menu
-        for name in ("s001", "s002"):
-            getattr(self._pulse_menu, name).valueChanged.connect(
-                lambda *_: self._update_cycle_readout()
-            )
-        self._update_cycle_readout()
         gaps = [
-            widget.option_box.menu.add(
+            settings.add(
                 "QDoubleSpinBox",
                 setPrefix=prefix,
                 setSuffix=" s",
@@ -897,7 +1240,6 @@ class RenderEffectsSlots(ptk.LoggingMixin):
                 setMaximum=60.0,
                 setSingleStep=0.1,
                 setDecimals=2,
-                setValue=self.PULSE_GAP_DEFAULT,
                 setToolTip=self.sb.tooltip.fmt(
                     body=tip,
                     bullets=[
@@ -909,6 +1251,7 @@ class RenderEffectsSlots(ptk.LoggingMixin):
                         "ends read like every beat in between.",
                         "<b>0</b> cuts as hard as the frame grid allows -- one frame.",
                         "Unlock a field to set the two ends apart.",
+                        "The scene's effect recipe -- the manifest keys it too.",
                     ],
                 ),
             )
@@ -923,7 +1266,11 @@ class RenderEffectsSlots(ptk.LoggingMixin):
         ]
         # One look, two ends: they move together unless the artist unlocks one.
         self.sb.link_spinboxes(self.ui, gaps, initial=True)
-        widget.option_box.menu.add(
+        for name in ("s001", "s002", "s004", "s005"):
+            getattr(rows, name).valueChanged.connect(
+                lambda *_: self._update_cycle_readout()
+            )
+        settings.add(
             "QCheckBox",
             setText="End at Playhead",
             setObjectName="chk001",
@@ -935,66 +1282,59 @@ class RenderEffectsSlots(ptk.LoggingMixin):
                 ],
             ),
         )
-        # Both ends of the ramp, in the box, rather than a button to a modal:
-        # the artist is choosing the RELATIONSHIP between them, and one at a
-        # time hides it. The preview rides along, so this row is the whole
-        # colour editor in both modes -- it used to be a compact row here and a
-        # fuller window elsewhere, which meant the tool had two colour sections
-        # that did not agree on what they could show. Mirror of mayatk's.
+        # Both ends of the ramp, on the page: the artist is choosing the
+        # RELATIONSHIP between them, and one at a time hides it. Mirror of
+        # mayatk's.
         ramp = ColorRampEditor(
             labels=("Bright", "Dim"),
-            colors=(self.DEFAULT_BRIGHT, self.DEFAULT_DIM),
+            colors=self._recipe_obj().colors,
             advanced=("rgb",),
             preview=True,
             # The exporter's own function, so the preview and the deliverable
             # cannot disagree: additive over the material's emissive, clamped.
             values=GLTF[self.HIGHLIGHT].values,
-            # The colours are LINEAR (the attribute's and the factor's space);
-            # the swatches and previews show them encoded, as the page does --
-            # shown raw, the page read much brighter than the box (2026-09-13).
+            # The colours are LINEAR (the property's and the factor's space);
+            # the swatches and previews show them encoded, as the page does.
             linear=True,
             # Light added over the object: a dim end at nothing shows the
             # board, not a black surface.
             additive=True,
         )
         ramp.setObjectName("pulse_colors")
-        # Nothing is connected to the ramp's commit signals. The box stages a
-        # value; the tool button writes it. An editor that wrote as it was
-        # dragged is what made setting a look and changing one feel like two
-        # different acts, and it also wrote to whatever happened to be selected
-        # while the artist was only picking a colour for the NEXT pulse.
-        widget.option_box.menu.add(
+        # Create: a committed colour is the recipe's. Revise: staged for Key,
+        # written to the targets only. Never written while dragged.
+        ramp.stopCommitted.connect(self._on_pulse_color_committed)
+        settings.add(
             ramp,
             setToolTip=self.sb.tooltip.fmt(
                 body="The two colours the pulse rides between.",
                 bullets=[
                     "<b>Bright</b> is what the object reads at intensity 1, "
                     "<b>Dim</b> at 0.",
+                    "In <b>Create</b> they are the scene's effect recipe: what "
+                    "the next pulse is keyed with, and what a channel the Shot "
+                    "Manifest's Build creates is coloured with.",
+                    "In <b>Revise</b> they are the targets' own colours, written "
+                    "to them by Key -- the look being replaced is shown beside "
+                    "it, whenever the targets agree on one.",
                     "A dim end at nothing -- the board showing through -- is "
                     "the classic look: the glow fades away.",
-                    "Colours are linear light, as the attribute and the GLB "
+                    "Colours are linear light, as the property and the GLB "
                     "factor are; the swatches show them display-encoded, which "
-                    "is how the page shows them (it also tone-maps, and adds "
-                    "the glow over the lit object).",
+                    "is how the page shows them.",
                     "The preview runs the EXPORTER's own arithmetic at the "
                     "cadence set above, so it is the deliverable's value "
                     "rather than a lookalike.",
-                    "In <b>Revise</b> the look being replaced is shown beside "
-                    "it, whenever the targets agree on one.",
                 ],
             ),
         )
         self._pulse_ramp = ramp
         for name in ("s002", "s003"):
-            getattr(self._pulse_menu, name).valueChanged.connect(
+            getattr(rows, name).valueChanged.connect(
                 lambda *_: self._sync_pulse_shape()
             )
-        self._sync_pulse_shape()
-        self._add_remove_action(widget, self.HIGHLIGHT)
-        self._add_webxr_preview(widget, self.HIGHLIGHT)
-        # Revise shows the colours alone: the cadence lives in keys, so a box
-        # offering to re-time a signed-off pulse under the word "revise" would
-        # be offering to re-key it. Re-timing IS re-keying, and that is Create.
+        # Revise shows the colours alone: re-timing IS re-keying, and that is
+        # Create.
         self._bind_mode(
             self.HIGHLIGHT,
             fields={
@@ -1014,22 +1354,20 @@ class RenderEffectsSlots(ptk.LoggingMixin):
         )
 
     def _update_cycle_readout(self):
-        """Restate how many whole cycles the current length buys.
+        """Restate how many cycles the train between the leads holds
+        (``EffectRecipe.pulse_cycles``), in seconds like the fields.
 
         The readout is an aid, so it declines rather than raises when it cannot
-        read the fields: a cosmetic label must never be what stops an option
-        box from finishing its build.
+        read the fields.
         """
         readout = getattr(self, "_cycle_readout", None)
-        menu = getattr(self, "_pulse_menu", None)
-        if readout is None or menu is None:
+        length = self.ui_field("s001")
+        if readout is None or length is None:
             return
         try:
-            length = float(menu.s001.value())
-            period = float(menu.s002.value())
-        except (TypeError, ValueError):
+            cycles = self._recipe_obj().pulse_cycles(float(length.value()))
+        except (TypeError, ValueError, AttributeError):
             return
-        cycles = (length / period) if period > 0 else 0.0
         tail = "" if abs(cycles - int(cycles)) < 0.01 else " (last one is cut)"
         readout.setText(f"≈ {cycles:.1f} cycles{tail}")
 
@@ -1038,8 +1376,7 @@ class RenderEffectsSlots(ptk.LoggingMixin):
         """One undo step for the whole re-colour, however many ends it spans.
 
         *colors* is ``(bright, dim)``; an entry of ``None`` leaves that end
-        alone, which is what lets a revision touch one end without restating
-        the other.
+        alone.
         """
         written = []
         for stop, color in zip(("hi", "lo"), colors):
@@ -1056,10 +1393,8 @@ class RenderEffectsSlots(ptk.LoggingMixin):
     def _authored_stops(self, objects):
         """``((bright, dim), mixed_flags)`` across *objects*.
 
-        Mirror of mayatk's reader. Where the objects DISAGREE the end is
-        reported mixed rather than silently taking the first one's colour --
-        the old reader took ``next(iter(...))``, so a multi-object edit showed
-        one object's colour and the first drag wrote it to all of them.
+        Mirror of mayatk's reader: where the objects DISAGREE the end is
+        reported mixed rather than silently taking the first one's colour.
         """
         authored = (
             RenderEffects.channel_color_stops(objects, channel=self.HIGHLIGHT)
@@ -1082,66 +1417,33 @@ class RenderEffectsSlots(ptk.LoggingMixin):
         return tuple(seeds), tuple(mixed)
 
     def _sync_pulse_shape(self):
-        """Run the preview at the cadence the box is set to.
-
-        The preview is only worth having because it is the deliverable's own
-        arithmetic; letting it animate at some other tempo than the one being
-        keyed would give that away for nothing.
-        """
+        """Run the preview at the cadence the recipe is set to."""
         ramp = getattr(self, "_pulse_ramp", None)
-        menu = getattr(self, "_pulse_menu", None)
-        if ramp is None or menu is None:
+        if ramp is None:
             return
+        recipe = self._recipe_obj()
         try:
-            ramp.set_shape(
-                period=float(menu.s002.value()), duty=float(menu.s003.value()) / 100.0
-            )
+            ramp.set_shape(period=recipe.pulse_period, duty=recipe.pulse_duty)
         except (TypeError, ValueError, AttributeError):
             return
 
     def _sync_highlight_mode(self, deep: bool = False, snapshot=None):
-        """Point the colour row at whatever Revise is about to act on.
+        """Point the colour row at whatever Key is about to write.
 
-        Seeding from the authored value is what makes Revise a revision rather
-        than a guess, and the same read decides the before/after: an end the
-        targets DISAGREE on reads mixed, so it is neither held up as the
-        current look nor written by Apply.
-
-        Create does not reseed. Those colours are what the next pulse will be
-        keyed with, and an artist who picked one must not have it replaced
-        because they clicked an object.
+        Create shows the recipe's colours; Revise seeds from the targets'
+        authored colours, an end they DISAGREE on reading mixed. Mirror of
+        mayatk's.
         """
         ramp = getattr(self, "_pulse_ramp", None)
         if ramp is None:
             return
         if self._mode(self.HIGHLIGHT) == CREATE:
-            # An end can arrive here mixed, from a revision that spanned
-            # objects that disagreed. Mixed means "undecided", and Create has
-            # to write something, so the default stands in -- setting it is
-            # also what clears the flag.
-            mixed = [editor.model.mixed for editor in ramp.editors]
-            if any(mixed):
-                # Through set_colors, which speaks the channel's space; only
-                # when an end IS mixed, so the selection path never reseeds.
-                ramp.set_colors(
-                    tuple(
-                        fallback if is_mixed else None
-                        for is_mixed, fallback in zip(
-                            mixed, (self.DEFAULT_BRIGHT, self.DEFAULT_DIM)
-                        )
-                    )
-                )
-            ramp.set_reference(None)
+            self._show_recipe_colors(ramp)
             return
 
         selected, carried = (
             snapshot if snapshot is not None else (self._get_selected(), None)
         )
-        # With nothing selected the scope is the whole scene. That is too
-        # expensive to read on every selection change, but reading it on the
-        # switch INTO Revise costs one pass and closes a real hole: the row
-        # would otherwise show colours nobody read off these objects, and
-        # Apply would write them over every one of them.
         if selected:
             targets = (
                 carried.get(self.HIGHLIGHT, ())
@@ -1156,32 +1458,37 @@ class RenderEffectsSlots(ptk.LoggingMixin):
             ramp.set_reference(None)
             return
         (bright, dim), mixed = self._authored_stops(targets)
-        ramp.set_colors((bright, dim))
-        for index, is_mixed in enumerate(mixed):
-            ramp.set_mixed(index, is_mixed)
+        blocked = ramp.blockSignals(True)
+        try:
+            ramp.set_colors((bright, dim))
+            for index, is_mixed in enumerate(mixed):
+                ramp.set_mixed(index, is_mixed)
+        finally:
+            ramp.blockSignals(blocked)
         ramp.set_reference(None if any(mixed) else (bright, dim))
 
-    def tb001(self, widget):
-        """Key Highlight Pulse — Create keys the glow, Revise re-colours it.
+    def _key_pulse_page(self):
+        """Key Highlight Pulse — Create keys the glow, Revise re-colours it;
+        focused from the manifest, Create re-keys there.
 
-        Undecorated on purpose: each branch opens its OWN undo step, so what is
-        pushed is the thing that happened rather than the tool that did it.
+        Each branch opens its OWN undo step, so what is pushed is the thing that
+        happened rather than the tool that did it.
         """
+        if self._run_focused(self.HIGHLIGHT):
+            return
         objects = self._targets(self.HIGHLIGHT)
         if not objects:
             return
         if self._mode(self.HIGHLIGHT) == REVISE:
             self._revise_highlight(objects)
             return
-        self._key_highlight_pulse(widget, objects)
+        self._key_highlight_pulse(objects)
 
     def _revise_highlight(self, objects):
         """Restate the colours on *objects*, leaving their pulse keys alone."""
         colors = self._pulse_ramp.decided()
         if not any(color is not None for color in colors):
             # Every end still reads mixed, so the artist has decided nothing.
-            # Writing here would flatten a disagreement into whichever value
-            # the row happened to be showing.
             self.sb.message_box(
                 "<strong>Nothing decided</strong>.<br>These objects disagree on "
                 "both ends. Set an end to state what it should become."
@@ -1201,15 +1508,12 @@ class RenderEffectsSlots(ptk.LoggingMixin):
         self._sync_mode(self.HIGHLIGHT, deep=True)
 
     @CoreUtils.undoable
-    def _key_highlight_pulse(self, widget, objects):
-        """Key the glow on *objects*, creating the property where it is missing."""
-        menu = widget.option_box.menu
-        length_seconds = menu.s001.value()
-        period_seconds = menu.s002.value()
-        ends_at_cursor = menu.chk001.isChecked()
-
-        # Every field in the box is seconds; the writer takes frames -- one
-        # conversion, shared with the WebXR preview (``_pulse_cadence``).
+    def _key_highlight_pulse(self, objects):
+        """Key the glow on *objects* from the scene's recipe, creating the
+        property where it is missing."""
+        recipe = self._recipe_obj()
+        length_seconds = self.ui_field("s001").value()
+        ends_at_cursor = self.ui_field("chk001").isChecked()
         fps = RenderEffects._scene_fps()
         start, end = self._key_range(length_seconds * fps, ends_at_cursor)
         bright, dim = self._pulse_ramp.decided()
@@ -1222,8 +1526,7 @@ class RenderEffectsSlots(ptk.LoggingMixin):
                     color=bright,
                     dim_color=dim,
                     channel=self.HIGHLIGHT,
-                    **self._pulse_cadence(menu, fps),
-                    **self._key_options(),
+                    recipe=recipe,
                 )
         except Exception as e:
             self.sb.message_box(f"Error: {e}")
@@ -1231,13 +1534,13 @@ class RenderEffectsSlots(ptk.LoggingMixin):
 
         self.ui.footer.setText(
             f"Highlight pulse: {len(keyed)} object(s), frames "
-            f"{int(start)}–{int(end)} @ {period_seconds:.2f} s "
-            f"({length_seconds / period_seconds:.1f} cycles)"
+            f"{int(start)}–{int(end)} @ {recipe.pulse_period:.2f} s "
+            f"({recipe.pulse_cycles(length_seconds):.1f} cycles)"
         )
         self._on_selection_changed()
 
     # ------------------------------------------------------------------
-    # Remove (option-box actions)
+    # Remove
     # ------------------------------------------------------------------
 
     @CoreUtils.undoable
@@ -1265,11 +1568,21 @@ class RenderEffectsSlots(ptk.LoggingMixin):
         self._on_selection_changed()
 
     # ------------------------------------------------------------------
-    # Selection job — gate the remove actions
+    # Selection job — gate the action row
     # ------------------------------------------------------------------
 
+    def _on_scene_selection(self):
+        """The selection job: a pick ends the last report, then the panel
+        re-reads (mirror of mayatk's)."""
+        try:
+            if self.ui.isVisible():
+                self._clear_report()
+        except RuntimeError:
+            return  # Deleted C++ object
+        self._on_selection_changed()
+
     def _on_selection_changed(self):
-        """Re-read the selection: the remove actions, and every mode readout.
+        """Re-read the selection: the action row, and every mode readout.
 
         Both live on the same signal because both answer the same question --
         what does the selection already carry -- and asking it twice per change
@@ -1284,11 +1597,9 @@ class RenderEffectsSlots(ptk.LoggingMixin):
             if not self.ui or not self.ui.isVisible():
                 return
             snapshot = self._selection_snapshot()
-            carried = snapshot[1]
-            for channel, action in self._remove_actions.items():
-                action.widget.setEnabled(bool(carried.get(channel)))
+            self._sync_actions(snapshot)
             for channel in (self.OPACITY, self.HIGHLIGHT):
-                if channel in self._mode_menus:
+                if channel in self._mode_combos:
                     self._sync_mode(channel, snapshot=snapshot)
         except RuntimeError:
             pass  # Deleted C++ object — swallow to prevent crash

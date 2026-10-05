@@ -989,6 +989,21 @@ try:
         n_mix == 1,
         f"mix_nodes={n_mix}",
     )
+    # A path-traced bake traces the occlusion an AO map approximates: the bridge's
+    # lightmap template builds without the multiply (ambient_occlusion=False), loose
+    # or packed, or every bounce darkens twice (production office ceilings: 0.77x
+    # Arnold with it, 0.95x without). Mirror of mayatk's ArnoldBridge(ambient_occlusion=).
+    for ao_files in ([gs_png("BaseColor"), gs_png("AO")], pfiles):
+        nao = btk.create_pbr_material(ao_files, name="GSNoAO", ambient_occlusion=False)
+        check(
+            f"ambient_occlusion=False leaves AO unwired ({len(ao_files)} maps)",
+            not any(n.type == "MIX_RGB" for n in nao.node_tree.nodes)
+            and not any(
+                n.type == "TEX_IMAGE" and "_AO" in n.image.name
+                for n in nao.node_tree.nodes
+            ),
+            f"{[n.bl_idname for n in nao.node_tree.nodes]}",
+        )
 
     # Batch: a set of files spanning two texture sets -> two materials
     def gs_set_png(setname, mapname):
@@ -1389,6 +1404,48 @@ try:
     check(
         "align_selected_keyframes none selected -> 0",
         btk.align_selected_keyframes(a) == 0,
+    )
+
+    # on_replace: the frames of the keys a moved key REPLACED, per fcurve --
+    # what the shot system releases its claims on (BTK-SHOTS-3).
+    bpy.ops.mesh.primitive_cube_add()
+    rep = bpy.context.active_object
+    key_obj(rep, (0, 3, 7, 10))
+    rep_fc = btk.get_fcurves(rep)[0]
+
+    def _select(times):
+        for k in rep_fc.keyframe_points:
+            k.select_control_point = any(abs(k.co.x - t) < 1e-3 for t in times)
+
+    replaced = []
+
+    def _on_replace(fc, frames):
+        replaced.append((fc == rep_fc, list(frames)))
+
+    _select([3])
+    try:
+        btk.align_selected_keyframes(rep, target_frame=7, on_replace=_on_replace)
+    except TypeError as exc:  # no on_replace parameter
+        replaced.append(repr(exc))
+    check(
+        "align_selected_keyframes on_replace names the key it landed on",
+        key_times(rep) == [0.0, 7.0, 10.0] and replaced == [(True, [7.0])],
+        f"{key_times(rep)} {replaced}",
+    )
+    replaced.clear()
+    bpy.ops.mesh.primitive_cube_add()
+    rep = bpy.context.active_object
+    key_obj(rep, (0, 3, 7, 10))
+    rep_fc = btk.get_fcurves(rep)[0]
+    _select([0, 3, 10])  # mirrored over [0, 10]: 3 lands on the unselected 7
+    try:
+        btk.invert_keys(rep, mode="time", selected_only=True, on_replace=_on_replace)
+    except TypeError as exc:  # no on_replace parameter
+        replaced.append(repr(exc))
+    check(
+        "invert_keys(selected_only) on_replace names the key a mirrored one replaced",
+        key_times(rep) == [0.0, 7.0, 10.0] and replaced == [(True, [7.0])],
+        f"{key_times(rep)} {replaced}",
     )
 
     # intermediate keys: a = 60,70 -> sampled key on every frame between (61..69)

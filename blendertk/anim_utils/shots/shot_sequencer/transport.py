@@ -82,14 +82,22 @@ class TransportMixin:
     """The playhead, audible scrubbing and the transport button row."""
 
     def on_playhead_moved(self, frame: float) -> None:
-        """Widget playhead drag → set the scene frame (scrub audio via Blender)."""
+        """Widget playhead drag → set the scene frame (scrub audio via Blender).
+
+        Sub-frames are kept, as mayatk's ``currentTime`` takes the float: with a
+        fractional snap the playhead would otherwise sit up to half a frame
+        off the time it shows.
+        """
+        import math
+
         scene = self._scene()
         if scene is None:
             return
         self._syncing_playhead = True
         try:
             self._ensure_sound_on_timeline()
-            scene.frame_set(int(round(frame)))
+            whole = math.floor(frame + 1e-6)
+            scene.frame_set(int(whole), subframe=max(0.0, float(frame) - whole))
         finally:
             self._syncing_playhead = False
 
@@ -188,4 +196,4 @@ class TransportMixin:
         scene = self._scene()
         if scene is None:
             return 1.0, 120.0
-        return float(scene.frame_start), float(scene.frame_end)
+        return self._scene_playback_range(scene)

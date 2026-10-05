@@ -2565,6 +2565,27 @@ def _run_sequencer_checks():
         interp_at(obs["ledA"], 10) == "CONSTANT",
     )
 
+    # -- a key a sparse move OVERWRITES takes every claim with it (BTK-SHOTS-3)
+    # ``_overwrite_landed`` released only the sample claim: the replaced key's
+    # step and a behavior's authored claim stayed on the frame, and ``remap``
+    # handed them to the animator's key that landed there -- whose next Build
+    # ``release_authored`` then deleted.
+    st, sq, obs = fresh({"owA": {0: 0, 10: 5, 20: 9}})
+    ow_fc = fc_of(obs["owA"])
+    ow_key = _SSI._fc_key("owA", ow_fc)
+    sq.ledger.record_authored(ow_key, 10.0, 0, "fade_in", "owA", "stamp")
+    sq.ledger.record_step(ow_key, 10.0, "BEZIER", "BEZIER")
+    ShotSequencer.move_curve_keys(
+        ow_fc, [0.0, 20.0], 10.0, ledger=sq.ledger, ledger_key=ow_key
+    )
+    check(
+        "sparse move: the overwritten key's authored and step claims go with it",
+        times_of(obs["owA"]) == [10.0, 30.0]
+        and not sq.ledger.owns_authored(ow_key, 10.0)
+        and not sq.ledger.owns_step(ow_key, 10.0),
+        f"{times_of(obs['owA'])} {sq.ledger.to_dict()}",
+    )
+
     # -- the system's own bound samples are never a member's marks ---------
     # Mirror of mayatk's TestEdgeCaseSegmentDetection (2026-09-07): a flat
     # member whose only keys in the shot are its two bound samples draws
@@ -3887,6 +3908,1033 @@ def _run_sequencer_checks():
         "trim leading: a flat key on the first shot's start gives way too",
         (head, tail) == (20, 0) and times_of(obs["fstA"]) == [20, 40],
         f"{(head, tail)} A={times_of(obs['fstA'])}",
+    )
+
+    # -- widget sync parity with mayatk (2026-10-04) ----------------------------
+    # Expected values are mayatk's own output on the identical scene, measured
+    # side by side (fresh mayapy + fresh headless Blender, same keys).
+    from blendertk.anim_utils.shots.shot_sequencer.segment_collector import (
+        SegmentCollector as _SC,
+    )
+
+    class _SyncWidget:
+        """Records what the controller's widget sync hands the widget."""
+
+        def __init__(self):
+            self.clips = []
+            self.attribute_colors = {}
+            self.bg_rows = []
+
+        def add_clip(self, track_id=None, start=None, duration=None, **kw):
+            self.clips.append(dict(track_id=track_id, start=start, dur=duration, **kw))
+            return len(self.clips) - 1
+
+        def set_bg_curve_preview(self, track_id, sub_row, preview, **kw):
+            self.bg_rows.append(sub_row)
+
+    def sync_ctl(seq, widget):
+        import logging
+
+        ctl = _Ctrl.__new__(_Ctrl)
+        ctl.sequencer = seq
+        ctl.ui = None
+        ctl._get_sequencer_widget = lambda: widget
+        ctl.logger = logging.getLogger("test.widget_sync")
+        ctl._sub_row_cache = {}
+        ctl._segment_cache = {}
+        ctl._shifted_out_keys = {}
+        ctl._shot_display_mode = "current"
+        ctl._track_order_scope = "shot"
+        ctl._cmb_mode = "shots"
+        ctl._show_internal_holds = False
+        return ctl
+
+    def build_main_row(seq, widget, ctl, shot):
+        segs, objs = _SC.collect_segments(
+            seq, shot, [shot], ctl._segment_cache, ctl._shifted_out_keys, ctl.logger
+        )
+        track_ids = {o: i for i, o in enumerate(sorted(objs))}
+        ctl._build_clips(widget, shot, [shot], segs, track_ids)
+        return track_ids, objs
+
+    st, sq, obs = fresh({"wsFlat": {0: 1, 10: 1}, "wsMove": {0: 0, 10: 3}})
+    vis = obs["wsVis"] = bpy.data.objects.new("wsVis", None)
+    bpy.context.scene.collection.objects.link(vis)
+    for f, hidden in ((0, False), (6, True), (12, False)):
+        vis.hide_render = hidden
+        vis.keyframe_insert("hide_render", frame=f)
+    flag = bpy.data.objects.new("wsFlag", None)
+    bpy.context.scene.collection.objects.link(flag)
+    for f, v in ((0, 0.0), (10, 1.0)):
+        flag["flag"] = v
+        flag.keyframe_insert('["flag"]', frame=f)
+    for f, x in ((12, 0.0), (20, 1.0)):
+        flag.location.x = x
+        flag.keyframe_insert("location", index=0, frame=f)
+    ws_shot = sq.define_shot("WS", 0, 24, objects=["wsFlat", "wsMove", "wsFlag"])
+    st.set_active_shot(ws_shot.shot_id)
+
+    check(
+        "content: a visibility-keyed object is shot content (mayatk CONTENT_ATTRS)",
+        "wsVis" in sq._find_keyed_transforms(0, 24),
+        f"{sq._find_keyed_transforms(0, 24)}",
+    )
+    check(
+        "labels: hide_render reads as mayatk's 'visibility' channel",
+        _SC.label_for("hide_render") == "visibility",
+        _SC.label_for("hide_render"),
+    )
+
+    st.update_shot(ws_shot.shot_id, objects=["wsFlat", "wsMove", "wsFlag", "wsVis"])
+    ws_widget = _SyncWidget()
+    ws_ctl = sync_ctl(sq, ws_widget)
+    tids, _objs = build_main_row(sq, ws_widget, ws_ctl, sq.shot_by_id(ws_shot.shot_id))
+    by_obj = {}
+    for c in ws_widget.clips:
+        by_obj.setdefault(c.get("obj"), []).append(c)
+    flat_clips = sorted(
+        (c["start"], c["dur"], bool(c.get("is_stepped")), c.get("stepped_key_time"))
+        for c in by_obj.get("wsFlat", [])
+    )
+    check(
+        "main row: a hold-only object shows its keys as stepped point clips",
+        flat_clips == [(0.0, 0.0, True, 0.0), (10.0, 0.0, True, 10.0)],
+        f"{flat_clips}",
+    )
+    flag_clips = [
+        (c["start"], c["dur"], sorted(c.get("attributes") or []))
+        for c in by_obj.get("wsFlag", [])
+    ]
+    check(
+        "main row: a custom-property channel joins the object's clip",
+        flag_clips == [(0.0, 20.0, ["flag", "translateX"])],
+        f"{flag_clips}",
+    )
+    vis_clips = [
+        (c["start"], c["dur"], c.get("attributes")) for c in by_obj.get("wsVis", [])
+    ]
+    check(
+        "main row: a visibility-only object gets a visibility clip",
+        vis_clips == [(0.0, 12.0, ["visibility"])],
+        f"{vis_clips}",
+    )
+
+    def rows_of(name):
+        ws_ctl._sub_row_cache = {}
+        return {
+            attr: [(s[0], s[1], bool(s[4].get("is_hold"))) for s in segs]
+            for attr, segs in ws_ctl._provide_sub_rows(tids.get(name, 0), name)
+        }
+
+    check(
+        "sub-rows: a keyed custom property gets its own row",
+        rows_of("wsFlag")
+        == {"flag": [(0.0, 10.0, False)], "translateX": [(12.0, 8.0, False)]},
+        f"{rows_of('wsFlag')}",
+    )
+    check(
+        "sub-rows: hide_render expands as a 'visibility' row",
+        rows_of("wsVis") == {"visibility": [(0.0, 12.0, False)]},
+        f"{rows_of('wsVis')}",
+    )
+
+    # -- key menu edits (mayatk parity, 2026-10-04) ------------------------------
+    def keyed_x(name, pairs):
+        ob = bpy.data.objects.new(name, None)
+        bpy.context.scene.collection.objects.link(ob)
+        for f, v in pairs:
+            ob.location.x = v
+            ob.keyframe_insert("location", index=0, frame=f)
+        return ob
+
+    def pts(ob):
+        return sorted(
+            (round(kp.co[0], 3), round(kp.co[1], 3)) for kp in fc_of(ob).keyframe_points
+        )
+
+    km_footers = []
+
+    class _KmWidget:
+        @staticmethod
+        def select_keys(_wanted):
+            return 0
+
+    class _KeyHost(_Ctrl):
+        def __init__(self, seq):  # bypass the panel's __init__
+            self._segment_cache = {}
+            self._sub_row_cache = {}
+            self._audio_segments_cache = None
+            self._syncing = False
+            self._copied_keys = {}
+            self.sequencer = seq
+
+        def _get_sequencer_widget(self):
+            return _KmWidget()
+
+        def _save_shot_state(self):
+            pass
+
+        def _discard_shot_state(self):
+            pass
+
+        def _set_footer(self, text, **kw):
+            km_footers.append(text)
+
+        def _sync_to_widget(self, **kw):
+            pass
+
+        def _current_time(self):
+            return float(bpy.context.scene.frame_current)
+
+    st, sq, obs = fresh({})
+    kh = _KeyHost(sq)
+
+    snap = keyed_x("kmSnap", [(10.4, 0.0), (20.6, 1.0)])
+    kh._snap_selected_keys([("kmSnap", "translateX", [10.4, 20.6], None)])
+    check(
+        "key menu: Snap Fractional Keys moves the selected keys to whole frames",
+        [t for t, _v in pts(snap)] == [10.0, 21.0],
+        f"{pts(snap)} footer={km_footers[-1:]}",
+    )
+
+    inv = keyed_x("kmInv", [(0, 0.0), (10, 1.0), (20, 4.0), (30, 9.0)])
+    fc_of(inv).keyframe_points[1].interpolation = "CONSTANT"  # 10 -> 20 held
+    kh._invert_selected_keys([("kmInv", "translateX", [10.0, 20.0], None)])
+    check(
+        "key menu: Invert Keys mirrors only the selected keys, in place",
+        pts(inv) == [(0.0, 0.0), (10.0, 4.0), (20.0, 1.0), (30.0, 9.0)],
+        f"{pts(inv)}",
+    )
+    check(
+        "key menu: Invert Keys re-homes a hold to the key now opening its segment",
+        interp_at(inv, 10) == "CONSTANT",
+        f"@10={interp_at(inv, 10)} @20={interp_at(inv, 20)}",
+    )
+
+    al_a = keyed_x("kmAlA", [(10, 0.0), (15, 1.0), (40, 2.0)])
+    al_b = keyed_x("kmAlB", [(20, 0.0), (30, 1.0), (50, 2.0)])
+    kh._align_selected_keys(
+        [
+            ("kmAlA", "translateX", [10.0, 15.0], None),
+            ("kmAlB", "translateX", [20.0, 30.0], None),
+        ]
+    )
+    check(
+        "key menu: Align Keys shifts each object's block to one start, spacing kept",
+        [t for t, _v in pts(al_a)] == [10.0, 15.0, 40.0]
+        and [t for t, _v in pts(al_b)] == [10.0, 20.0, 50.0],
+        f"A={pts(al_a)} B={pts(al_b)}",
+    )
+
+    # A key Align / Invert lands on takes its claims with it (BTK-SHOTS-3):
+    # left on the frame, a behavior's authored claim passed to the key that
+    # landed there, which the next Build then deleted as its own.
+    al_c = keyed_x("kmAlC", [(10, 0.0), (30, 1.0)])
+    al_d = keyed_x("kmAlD", [(10, 7.0), (20, 0.0), (40, 1.0)])
+    d_key = _SSI._fc_key("kmAlD", fc_of(al_d))
+    kh.sequencer.ledger.record_authored(d_key, 10.0, 0, "fade_in", "kmAlD")
+    kh._align_selected_keys(
+        [
+            ("kmAlC", "translateX", [10.0], None),
+            ("kmAlD", "translateX", [20.0, 40.0], None),
+        ]
+    )
+    check(
+        "key menu: Align Keys releases the claims of a key it lands on",
+        pts(al_d) == [(10.0, 0.0), (30.0, 1.0)]
+        and pts(al_c) == [(10.0, 0.0), (30.0, 1.0)]
+        and not kh.sequencer.ledger.owns_authored(d_key, 10.0),
+        f"{pts(al_d)} {kh.sequencer.ledger.to_dict()}",
+    )
+    inv_o = keyed_x("kmInvO", [(0, 0.0), (3, 1.0), (7, 4.0), (10, 9.0)])
+    o_key = _SSI._fc_key("kmInvO", fc_of(inv_o))
+    kh.sequencer.ledger.record_authored(o_key, 7.0, 0, "fade_in", "kmInvO")
+    kh._invert_selected_keys([("kmInvO", "translateX", [0.0, 3.0, 10.0], None)])
+    check(
+        "key menu: Invert Keys releases the claims of a key it lands on",
+        pts(inv_o) == [(0.0, 9.0), (7.0, 1.0), (10.0, 0.0)]
+        and not kh.sequencer.ledger.owns_authored(o_key, 7.0),
+        f"{pts(inv_o)} {kh.sequencer.ledger.to_dict()}",
+    )
+
+    thin = keyed_x("kmThin", [(0, 0.0), (10, 1.0), (20, 3.0), (30, 2.0), (40, 0.0)])
+    kh._thin_selected_keys([("kmThin", "translateX", [10.0, 20.0, 30.0], None)])
+    check(
+        "key menu: Remove Intermediate Keys keeps the selection's own end keys",
+        [t for t, _v in pts(thin)] == [0.0, 10.0, 30.0, 40.0],
+        f"{pts(thin)}",
+    )
+
+    flat = keyed_x("kmFlat", [(0, 0.0), (10, 5.0), (20, 0.0)])
+    kp_mid = fc_of(flat).keyframe_points[0]
+    for kp in fc_of(flat).keyframe_points:
+        kp.handle_left_type = kp.handle_right_type = "AUTO"
+    fc_of(flat).keyframe_points[2].co = (20.0, 9.0)
+    fc_of(flat).update()
+    kh._set_key_tangents([("kmFlat", "translateX", [10.0], None)], "FLAT")
+    kp_mid = next(k for k in fc_of(flat).keyframe_points if abs(k.co[0] - 10) < 1e-3)
+    check(
+        "key menu: Flat tangent levels both handles on the key's value",
+        abs(kp_mid.handle_left[1] - 5.0) < 1e-4
+        and abs(kp_mid.handle_right[1] - 5.0) < 1e-4
+        and kp_mid.handle_left[0] < 10.0 < kp_mid.handle_right[0],
+        f"hl={tuple(kp_mid.handle_left)} hr={tuple(kp_mid.handle_right)}",
+    )
+
+    # One side: that handle goes level and FREE, and an ALIGNED partner is
+    # freed where it sits -- left aligned, it would swing level with it.
+    one = keyed_x("kmFlatOut", [(0, 0.0), (10, 5.0), (20, 9.0)])
+    for kp in fc_of(one).keyframe_points:
+        kp.handle_left_type = kp.handle_right_type = "ALIGNED"
+        kp.interpolation = "LINEAR"
+    fc_of(one).update()
+    kp_one = next(k for k in fc_of(one).keyframe_points if abs(k.co[0] - 10) < 1e-3)
+    one_left = tuple(round(v, 4) for v in kp_one.handle_left)
+    kh._set_key_tangents([("kmFlatOut", "translateX", [10.0], None)], "FLAT", ("out",))
+    kp_one = next(k for k in fc_of(one).keyframe_points if abs(k.co[0] - 10) < 1e-3)
+    check(
+        "key menu: a one-sided Flat levels that handle alone, the partner freed in place",
+        abs(kp_one.handle_right[1] - 5.0) < 1e-4
+        and kp_one.handle_right[0] > 10.0
+        and (kp_one.handle_left_type, kp_one.handle_right_type) == ("FREE", "FREE")
+        and tuple(round(v, 4) for v in kp_one.handle_left) == one_left
+        and kp_one.interpolation == "BEZIER",
+        f"hl={tuple(kp_one.handle_left)} (was {one_left}) hr={tuple(kp_one.handle_right)} "
+        f"types={kp_one.handle_left_type}/{kp_one.handle_right_type} {kp_one.interpolation}",
+    )
+
+    uni = keyed_x("kmUni", [(0, 0.0), (10, 5.0), (20, 0.0)])
+    pts_u = fc_of(uni).keyframe_points
+    pts_u[0].handle_left_type = pts_u[0].handle_right_type = "FREE"
+    pts_u[1].handle_left_type = pts_u[1].handle_right_type = "AUTO_CLAMPED"
+    kh._lock_key_tangents([("kmUni", "translateX", [0.0, 10.0], None)], True)
+    pts_u = fc_of(uni).keyframe_points
+    check(
+        "key menu: Unify aligns free handles and leaves auto handles auto",
+        (pts_u[0].handle_left_type, pts_u[0].handle_right_type)
+        == ("ALIGNED", "ALIGNED")
+        and (pts_u[1].handle_left_type, pts_u[1].handle_right_type)
+        == ("AUTO_CLAMPED", "AUTO_CLAMPED"),
+        f"{[(k.handle_left_type, k.handle_right_type) for k in pts_u]}",
+    )
+
+    cp = keyed_x("kmCopy", [(0, 0.0), (10, 5.0), (20, 0.0)])
+    src_kp = fc_of(cp).keyframe_points[1]
+    src_kp.interpolation = "CONSTANT"
+    src_kp.handle_left_type = src_kp.handle_right_type = "FREE"
+    src_kp.handle_right = (13.0, 7.0)
+    fc_of(cp).update()
+    kh._copy_selected_keys([("kmCopy", "translateX", [10.0], None)])
+    bpy.context.scene.frame_set(30)
+    kh._paste_selected_keys([("kmCopy", "translateX", [10.0], None)])
+    pasted = next(
+        (k for k in fc_of(cp).keyframe_points if abs(k.co[0] - 30) < 1e-3), None
+    )
+    check(
+        "key menu: pasted keys keep their interpolation and handles (tangent detail)",
+        pasted is not None
+        and pasted.interpolation == "CONSTANT"
+        and pasted.handle_right_type == "FREE"
+        and (round(pasted.handle_right[0], 3), round(pasted.handle_right[1], 3))
+        == (33.0, 7.0),
+        f"{pasted and (pasted.interpolation, pasted.handle_right_type, tuple(pasted.handle_right))}",
+    )
+
+    # -- key selection mirror: scene-wide clear + channel scope -----------------
+    other = keyed_x("ksOther", [(0, 0.0), (10, 1.0)])
+    for kp in fc_of(other).keyframe_points:
+        kp.select_control_point = True
+    mine = keyed_x("ksMine", [(0, 0.0), (10, 1.0), (20, 2.0)])
+    for f in (0, 20):
+        mine.location.y = f * 0.1
+        mine.keyframe_insert("location", index=1, frame=f)
+    mine_y = next(
+        fc
+        for fc in BlenderShotStore.iter_action_fcurves(mine)
+        if fc.data_path == "location" and fc.array_index == 1
+    )
+    # New fcurves start SELECTED in Blender: clear the flags so the check
+    # below measures the mirror, not the default.
+    fc_of(mine).select = False
+    mine_y.select = True
+
+    class _KsClip:
+        data = {"obj": "ksMine", "attr_name": "translateX", "shot_id": None}
+
+    class _KsWidget:
+        @staticmethod
+        def get_clip(_cid):
+            return _KsClip()
+
+    ks = _KeyHost(sq)
+    ks._get_sequencer_widget = lambda: _KsWidget()
+    ks.on_key_selection_changed([{"clip_id": 1, "times": [10.0]}])
+    check(
+        "key selection: keys selected on OTHER objects are cleared (selectKey clear)",
+        not any(kp.select_control_point for kp in fc_of(other).keyframe_points),
+    )
+    check(
+        "key selection: the picked keys' channel becomes the channel selection",
+        fc_of(mine).select
+        and not mine_y.select
+        and [kp.select_control_point for kp in fc_of(mine).keyframe_points]
+        == [False, True, False],
+        f"x={fc_of(mine).select} y={mine_y.select}",
+    )
+
+    from blendertk.core_utils._core_utils import CoreUtils as _CU
+
+    with _CU.window_context_override():
+        for o in list(bpy.context.selected_objects):
+            o.select_set(False)
+        mine.select_set(True)
+    ks._select_and_show(["no such object"])
+    with _CU.window_context_override():
+        still = [o.name for o in bpy.context.selected_objects]
+    check(
+        "selection: a click with nothing to select keeps the scene selection",
+        still == ["ksMine"],
+        f"{still}",
+    )
+
+    # -- a whole-shot move clears its landing zone (mayatk's move_curve_keys) ----
+    st, sq, obs = fresh({"lzA": {0: 0, 10: 4, 20: 9, 30: 1, 40: 6}})
+    sq.define_shot("L1", 0, 10, objects=["lzA"])
+    lz2 = sq.define_shot("L2", 30, 40, objects=["lzA"])
+    sq.slide_shot(lz2.shot_id, 15.0, direction=None)
+    landed = times_of(obs["lzA"])
+    check(
+        "slide: a shared curve's gap key is not left interleaved in the landing zone",
+        15.0 in landed and 25.0 in landed and not any(15.0 < t < 25.0 for t in landed),
+        f"{landed}",
+    )
+
+    # -- a sparse move onto occupied frames overwrites, never stacks ------------
+    st, sq, obs = fresh({"ovA": {0: 1, 10: 2, 20: 3, 30: 4}})
+    ShotSequencer.move_curve_keys(fc_of(obs["ovA"]), [0.0, 20.0], 10.0)
+    ov = sorted(
+        (round(kp.co[0], 3), round(kp.co[1], 3))
+        for kp in fc_of(obs["ovA"]).keyframe_points
+    )
+    check(
+        "sparse move: a key landing on a stationary key replaces it (setKeyframe)",
+        ov == [(10.0, 1.0), (30.0, 3.0)],
+        f"{ov}",
+    )
+
+    # -- redundancy: a neighbour whose derived handle would re-derive holds ----
+    st, sq, obs = fresh({"rdA": {-10: 0, 0: 5, 10: 5, 20: 5}})
+    rd_fc = fc_of(obs["rdA"])
+    for kp in rd_fc.keyframe_points:
+        kp.handle_left_type = kp.handle_right_type = "AUTO"
+    rd_fc.keyframe_points[1].interpolation = "CONSTANT"  # 0 -> 10 steps
+    rd_fc.update()
+    rd_hl = rd_fc.keyframe_points[1]
+    check(
+        "redundancy: a step passes the span test, but a sloped AUTO neighbour keeps the key",
+        abs(rd_hl.handle_left[1] - rd_hl.co[1]) > 1e-3
+        and not ShotSequencer._sample_is_redundant(rd_fc, 2),
+        f"hl={tuple(rd_hl.handle_left)}",
+    )
+
+    # -- an eased segment previews as the curve plays, not a straight line -----
+    st, sq, obs = fresh({"ezA": {0: 0, 20: 10}})
+    ez_fc = fc_of(obs["ezA"])
+    ez_fc.keyframe_points[0].interpolation = "BACK"  # overshoots past 10
+    ez_fc.update()
+    ez_prev = _SC.build_curve_preview(ez_fc, 0, 20)
+    ez_seg = (ez_prev or {}).get("segments", [{}])[0]
+    ez_samples = ez_seg.get("samples") or []
+    check(
+        "curve preview: an eased (BACK) segment is drawn through samples of the curve",
+        len(ez_samples) >= 8
+        and all(abs(v - ez_fc.evaluate(t)) < 1e-4 for t, v in ez_samples)
+        and ez_prev["val_max"] > 10.0,
+        f"{len(ez_samples)} samples, val_max={ez_prev and ez_prev.get('val_max')}",
+    )
+
+    # -- respace retimes gap content and leaves every shot playing as it did ----
+    # BACKLOG 2026-08-29 (blendertk): mayatk's pin + gap retime.  Keys sit
+    # BETWEEN the bounds, so the pin has to split segments, and AUTO handles,
+    # which re-derive from neighbours, are the hard case.
+    for rt_handle in ("AUTO", "AUTO_CLAMPED"):
+        st, sq, obs = fresh(
+            {
+                "rtA": {
+                    -5: 1.0,
+                    7: 4.0,
+                    16: 2.5,
+                    29: 9.0,
+                    44: 1.0,
+                    52: 6.0,
+                    63: 3.0,
+                    71: 8.0,
+                    86: 0.0,
+                    93: 5.0,
+                    104: 2.0,
+                }
+            }
+        )
+        rt_fc = fc_of(obs["rtA"])
+        for kp in rt_fc.keyframe_points:
+            kp.handle_left_type = kp.handle_right_type = rt_handle
+        rt_fc.update()
+        for nm, a, b in (("RA", 0, 20), ("RB", 40, 60), ("RC", 80, 100)):
+            sq.define_shot(nm, a, b, objects=["rtA"])
+        rt_before = {
+            sh.name: [rt_fc.evaluate(sh.start + i) for i in range(21)]
+            for sh in sq.sorted_shots()
+        }
+        sq.respace(gap=5.0, start_frame=0)
+        rt_fc = fc_of(obs["rtA"])
+        rt_worst = max(
+            abs(rt_fc.evaluate(sh.start + i) - rt_before[sh.name][i])
+            for sh in sq.sorted_shots()
+            for i in range(21)
+        )
+        rt_starts = [sh.start for sh in sq.sorted_shots()]
+        check(
+            f"respace ({rt_handle}): every shot plays exactly as before its gaps changed",
+            rt_starts == [0.0, 25.0, 50.0] and rt_worst < 1e-4,
+            f"starts={rt_starts} worst={rt_worst:.5f}",
+        )
+        check(
+            f"respace ({rt_handle}): a gap key is retimed into the narrower gap",
+            any(abs(kp.co[0] - 22.25) < 1e-3 for kp in rt_fc.keyframe_points),
+            f"{[round(kp.co[0], 3) for kp in rt_fc.keyframe_points]}",
+        )
+
+    # -- a key a hair off a bound never absorbs the bound's pin (BTK-SHOTS-7) ----
+    # ``keyframe_points.insert`` REPLACES a key within 0.01 frame, so a pin for
+    # B's start at 40 landed on the animator's key at 39.995 (the split's
+    # handles written onto it, its value overwritten, the pin's claim left on a
+    # frame no key held): B's first frames played 2.1 off.  Blender holds no
+    # second key that close (``FCurve.update()`` merges them), so the key IS
+    # the bound's, put exactly on it: the curve moves by no more than that
+    # sub-frame shift.  Each side of a bound: in the gap before B's start,
+    # inside B, and in the gap after A's end.
+    for near in (39.995, 40.004, 20.003):
+        st, sq, obs = fresh(
+            {
+                "nbA": {
+                    -5: 1.0,
+                    7: 4.0,
+                    16: 2.5,
+                    29: 9.0,
+                    near: 3.3,
+                    44: 1.0,
+                    52: 6.0,
+                    63: 3.0,
+                    71: 8.0,
+                    86: 0.0,
+                    93: 5.0,
+                    104: 2.0,
+                }
+            }
+        )
+        nb_fc = fc_of(obs["nbA"])
+        for kp in nb_fc.keyframe_points:
+            kp.handle_left_type = kp.handle_right_type = "AUTO_CLAMPED"
+        nb_fc.update()
+        for nm, a, b in (("NA", 0, 20), ("NB", 40, 60), ("NC", 80, 100)):
+            sq.define_shot(nm, a, b, objects=["nbA"])
+        nb_before = {
+            sh.name: [nb_fc.evaluate(sh.start + i) for i in range(21)]
+            for sh in sq.sorted_shots()
+        }
+        sq.respace(gap=5.0, start_frame=0)
+        nb_fc = fc_of(obs["nbA"])
+        nb_worst = max(
+            abs(nb_fc.evaluate(sh.start + i) - nb_before[sh.name][i])
+            for sh in sq.sorted_shots()
+            for i in range(21)
+        )
+        nb_key = _SSI._fc_key("nbA", nb_fc)
+        nb_orphans = [
+            t
+            for t in sq.ledger.key_times(nb_key)
+            if _SSI._key_index_at(nb_fc, t) is None
+        ]
+        nb_bounds = {b for sh in sq.sorted_shots() for b in (sh.start, sh.end)}
+        nb_on = any(
+            abs(kp.co[0] - b) < 1e-4 and abs(kp.co[1] - 3.3) < 1e-4
+            for kp in nb_fc.keyframe_points
+            for b in nb_bounds
+        )
+        check(
+            f"respace: a key {near:g} off a bound is put on it, every shot plays on",
+            nb_worst < 0.01 and nb_on and not nb_orphans,
+            f"worst={nb_worst:.5f} on_bound={nb_on} orphan claims={nb_orphans} "
+            f"keys={[round(kp.co[0], 4) for kp in nb_fc.keyframe_points]}",
+        )
+
+    # -- a renamed member is followed, never dropped (mayatk reconcile) --------
+    st, sq, obs = fresh({"rnOld": {0: 0, 10: 5}, "rnKeep": {0: 1, 10: 2}})
+    rn_shot = sq.define_shot("RN", 0, 10, objects=["rnKeep", "rnOld"])
+    rn_key = _SSI._fc_key("rnOld", fc_of(obs["rnOld"]))
+    sq.ledger.record_key(rn_key, 10.0, rn_shot.shot_id, "end")
+    st.set_object_hidden("rnOld", True)
+    obs["rnOld"].name = "rnNew"
+    changed = sq.reconcile_all_shots()
+    check(
+        "reconcile: a renamed member is re-pointed through its action slot",
+        changed and sq.shot_by_id(rn_shot.shot_id).objects == ["rnKeep", "rnNew"],
+        f"{changed} {sq.shot_by_id(rn_shot.shot_id).objects}",
+    )
+    check(
+        "reconcile: the claims and the hidden flag follow the rename",
+        sq.ledger.key_records(_SSI._fc_key("rnNew", fc_of(obs["rnOld"])))
+        == [(10.0, rn_shot.shot_id, "end")]
+        and not sq.ledger.key_records(rn_key)
+        and st.is_object_hidden("rnNew")
+        and not st.is_object_hidden("rnOld"),
+        f"{sq.ledger.key_records(rn_key)} hidden={st.hidden_objects}",
+    )
+    sq.store.update_shot(rn_shot.shot_id, objects=["rnKeep", "rnNew", "rnGone"])
+    check(
+        "reconcile: a name nothing answers for is kept as stored",
+        not sq.reconcile_all_shots()
+        and "rnGone" in sq.shot_by_id(rn_shot.shot_id).objects,
+    )
+
+    # -- the STORE follows renames, for every name it holds (BTK-SHOTS-1/5) ----
+    # The follow covered shot members only, on the panel's rebuild, and read
+    # the old name off the action slot alone; the passes that forget a claim
+    # whose key no longer resolves dropped every other renamed claim.
+
+    # A renamed NON-member's claimed hold: a fresh sequencer's respace closes
+    # the gap and releases it (forgotten, the key stayed CONSTANT for good).
+    st, sq, obs = fresh(
+        {"rfMem": {0: 0, 10: 5, 25: 5, 30: 9}, "rfOther": {0: 0, 10: 5, 25: 5, 30: 2}}
+    )
+    sq.define_shot("RA", 0, 10, objects=["rfMem"])
+    sq.define_shot("RB", 20, 30, objects=["rfMem"])
+    sq._enforce_gap_holds()
+    rf_key = _SSI._fc_key("rfOther", fc_of(obs["rfOther"]))
+    rf_held = (
+        sq.ledger.owns_step(rf_key, 10.0)
+        and interp_at(obs["rfOther"], 10) == "CONSTANT"
+    )
+    obs["rfOther"].name = "rfRenamed"
+    ShotSequencer(store=st).respace(gap=0.0, start_frame=0.0)
+    check(
+        "rename follow: a renamed non-member's hold is released when its gap closes",
+        rf_held
+        and interp_at(obs["rfOther"], 10) != "CONSTANT"
+        and st.edit_ledger.step_count == 0,
+        f"held={rf_held} @10={interp_at(obs['rfOther'], 10)} "
+        f"{st.edit_ledger.to_dict()}",
+    )
+
+    # A renamed BONE: Blender rewrites its channels' paths; the claims follow.
+    st, sq, obs = fresh({})
+    bpy.ops.object.armature_add()
+    rf_rig = bpy.context.active_object
+    rf_rig.name = "rfRig"
+    rf_bone = rf_rig.data.bones[0].name
+    for f, v in ((0, 0.0), (10, 5.0), (25, 5.0), (30, 9.0)):
+        rf_rig.pose.bones[rf_bone].location.x = v
+        rf_rig.keyframe_insert(f'pose.bones["{rf_bone}"].location', index=0, frame=f)
+    sq.define_shot("BA", 0, 10, objects=["rfRig"])
+    sq.define_shot("BB", 20, 30, objects=["rfRig"])
+    with st.scene_edit("Hold Gaps"):  # as the panel brackets it
+        sq._enforce_gap_holds()
+    bone_held = sq.ledger.owns_step(f'rfRig|pose.bones["{rf_bone}"].location|0', 10.0)
+    rf_rig.data.bones[rf_bone].name = "rfBone_L"
+    ShotSequencer(store=st).respace(gap=0.0, start_frame=0.0)
+    bone_fc = next(
+        fc
+        for fc in BlenderShotStore.iter_action_fcurves(rf_rig)
+        if fc.data_path == 'pose.bones["rfBone_L"].location' and fc.array_index == 0
+    )
+    bone_at_10 = next(
+        (
+            kp.interpolation
+            for kp in bone_fc.keyframe_points
+            if abs(kp.co[0] - 10) < 1e-3
+        ),
+        None,
+    )
+    check(
+        "rename follow: a renamed bone's hold is released when its gap closes",
+        bone_held and bone_at_10 != "CONSTANT" and st.edit_ledger.step_count == 0,
+        f"held={bone_held} @10={bone_at_10} {st.edit_ledger.to_dict()}",
+    )
+
+    # Renamed under a name no action slot records: keyed as rfCube (its slot
+    # reads rfCube), renamed rfDoor, built into a shot, renamed rfDoor_main.
+    st, sq, obs = fresh({"rfCube": {0: 0, 10: 5}})
+    obs["rfCube"].name = "rfDoor"
+    with st.scene_edit("Build"):
+        door_shot = sq.define_shot("RD", 0, 10, objects=["rfDoor"])
+    obs["rfCube"].name = "rfDoor_main"
+    check(
+        "rename follow: a rename no action slot records is followed",
+        ShotSequencer(store=st).reconcile_all_shots()
+        and st.shot_by_id(door_shot.shot_id).objects == ["rfDoor_main"],
+        f"{st.shot_by_id(door_shot.shot_id).objects}",
+    )
+
+    # A Shift+D copy's action keeps the source's slot name: two objects
+    # answered for it, and the slot rule could not say which was renamed.
+    st, sq, obs = fresh({"rfSrc": {0: 0, 10: 5}})
+    with st.scene_edit("Build"):
+        src_shot = sq.define_shot("RS", 0, 10, objects=["rfSrc"])
+    bpy.ops.object.select_all(action="DESELECT")
+    obs["rfSrc"].select_set(True)
+    bpy.context.view_layer.objects.active = obs["rfSrc"]
+    bpy.ops.object.duplicate()
+    rf_copy = bpy.context.active_object.name
+    obs["rfSrc"].name = "rfSrcRenamed"
+    check(
+        "rename follow: a Shift+D copy sharing the slot's name never blocks it",
+        ShotSequencer(store=st).reconcile_all_shots()
+        and st.shot_by_id(src_shot.shot_id).objects == ["rfSrcRenamed"]
+        and rf_copy not in ("rfSrc", "rfSrcRenamed"),
+        f"{st.shot_by_id(src_shot.shot_id).objects} copy={rf_copy}",
+    )
+
+    # An object name holding "|" (BTK-SHOTS-11): a ledger key is split from
+    # the right (``<object>|<data_path>|<index>``), never at the first bar.
+    st, sq, obs = fresh({"rf|Pipe": {0: 0, 10: 5}})
+    pipe_shot = sq.define_shot("RP", 0, 10, objects=["rf|Pipe"])
+    pipe_fc = fc_of(obs["rf|Pipe"])
+    sq.ledger.record_key(
+        _SSI._fc_key("rf|Pipe", pipe_fc), 10.0, pipe_shot.shot_id, "end"
+    )
+    obs["rf|Pipe"].name = "rf|PipeRenamed"
+    sq.reconcile_all_shots()
+    check(
+        "rename follow: an object name holding '|' re-keys its claims too",
+        st.shot_by_id(pipe_shot.shot_id).objects == ["rf|PipeRenamed"]
+        and sq.ledger.key_records(_SSI._fc_key("rf|PipeRenamed", pipe_fc))
+        == [(10.0, pipe_shot.shot_id, "end")],
+        f"{st.shot_by_id(pipe_shot.shot_id).objects} {sq.ledger.to_dict()}",
+    )
+
+    # An undo's restore point brings back a name from renames ago: every name
+    # the object bore this session leads to it, not only the last one seen.
+    st, sq, obs = fresh({"rfZero": {0: 0, 10: 5}})
+    obs["rfZero"].name = "rfFirst"
+    hist_shot = sq.define_shot("RH", 0, 10, objects=["rfFirst"])
+    with st.scene_edit("Edit"):  # its restore point names rfFirst
+        st.update_shot(hist_shot.shot_id, end=12.0)
+    for later in ("rfSecond", "rfThird"):
+        obs["rfZero"].name = later
+        sq.reconcile_all_shots()
+    st.restore_boundary_snapshot()
+    hist_restored = list(st.shot_by_id(hist_shot.shot_id).objects)
+    check(
+        "rename follow: a name a restore point brings back is followed again",
+        hist_restored == ["rfFirst"]
+        and sq.reconcile_all_shots()
+        and st.shot_by_id(hist_shot.shot_id).objects == ["rfThird"],
+        f"restored={hist_restored} now={st.shot_by_id(hist_shot.shot_id).objects}",
+    )
+
+    # -- undo pairing: only OUR step consumes a restore point (2026-10-04) --------
+    st, sq, obs = fresh({"unA": {0: 0, 10: 5}})
+    un_shot = sq.define_shot("U", 0, 10, objects=["unA"])
+
+    class _UndoHost(_Ctrl):
+        def __init__(self, seq):  # bypass the panel's __init__
+            import logging
+
+            self._segment_cache = {}
+            self._sub_row_cache = {}
+            self._audio_segments_cache = None
+            self._syncing = False
+            self._handlers = []
+            self.sequencer = seq
+            self.logger = logging.getLogger("test.undo_host")
+
+        def _on_depsgraph_update(self, *_a):  # no Qt debounce here
+            pass
+
+        def _sync_to_widget(self, **kw):
+            pass
+
+        def _sync_combobox(self):
+            pass
+
+        def _get_sequencer_widget(self):
+            return None
+
+    uh = _UndoHost(sq)
+    uh._register_scene_callbacks()
+    try:
+        bpy.ops.ed.undo_push(message="baseline")
+        serial0 = BlenderShotStore.edit_serial()
+        with st.scene_edit("Probe Edit"):
+            st.update_shot(un_shot.shot_id, end=20.0)
+        tag = st.peek_boundary_tag()
+        check(
+            "scene_edit: stamps a fresh serial inside its step and tags the point with it",
+            isinstance(tag, tuple)
+            and tag[0] is True
+            and tag[1] == BlenderShotStore.edit_serial()
+            and tag[1] != serial0,
+            f"tag={tag} serial={BlenderShotStore.edit_serial()} before={serial0}",
+        )
+        depth = len(st._boundary_undo)
+        with st.scene_edit("No-op") as edit:
+            edit.cancel()
+        check(
+            "scene_edit: a cancelled edit leaves no restore point and no serial stamp",
+            len(st._boundary_undo) == depth
+            and BlenderShotStore.edit_serial() == tag[1],
+            f"depth {depth}->{len(st._boundary_undo)}",
+        )
+
+        # An unrelated step on top: a native undo must take only that step.
+        obs["unA"].location.z = 3.0
+        bpy.ops.ed.undo_push(message="unrelated")
+        bpy.ops.ed.undo()
+        st_u = sq.shot_by_id(un_shot.shot_id)
+        check(
+            "native undo of an UNRELATED step leaves the shot bounds alone",
+            st_u.end == 20.0 and st.has_boundary_snapshot(),
+            f"end={st_u.end}",
+        )
+        bpy.ops.ed.undo()
+        check(
+            "native undo of OUR step restores the bounds",
+            sq.shot_by_id(un_shot.shot_id).end == 10.0,
+            f"end={sq.shot_by_id(un_shot.shot_id).end}",
+        )
+        bpy.ops.ed.redo()
+        check(
+            "native redo of OUR step re-applies the bounds",
+            sq.shot_by_id(un_shot.shot_id).end == 20.0,
+            f"end={sq.shot_by_id(un_shot.shot_id).end}",
+        )
+
+        # The panel's undo with an unrelated step on top: same contract.
+        # (Memfile undo replaced the object: fetch it again, never reuse it.)
+        bpy.data.objects["unA"].location.z = 7.0
+        bpy.ops.ed.undo_push(message="unrelated 2")
+        uh.on_undo()
+        check(
+            "panel undo: an unrelated step on top is undone alone, bounds kept",
+            sq.shot_by_id(un_shot.shot_id).end == 20.0,
+            f"end={sq.shot_by_id(un_shot.shot_id).end}",
+        )
+        uh.on_undo()
+        check(
+            "panel undo: then our step, bounds restored",
+            sq.shot_by_id(un_shot.shot_id).end == 10.0,
+            f"end={sq.shot_by_id(un_shot.shot_id).end}",
+        )
+
+        # One-click New Shot is its own undo step, paired with its point.
+        n_before = len(sq.sorted_shots())
+        uh._create_shot_one_click = _Ctrl._create_shot_one_click.__get__(uh)
+        uh.ui = None
+        uh.select_shot = lambda *_a, **_k: None
+        uh._set_footer = lambda *_a, **_k: None
+        uh._create_shot_one_click()
+        made = len(sq.sorted_shots())
+        bpy.ops.ed.undo()
+        check(
+            "one-click New Shot: a native undo removes exactly the new shot",
+            made == n_before + 1 and len(sq.sorted_shots()) == n_before,
+            f"{n_before} -> {made} -> {len(sq.sorted_shots())}",
+        )
+    finally:
+        uh._unregister_scene_callbacks()
+
+    # -- an Undo History jump restores EVERY edit it crossed (BTK-SHOTS-6) -----
+    # Blender fires undo_pre / undo_post ONCE for a jump over several steps:
+    # restoring only the newest point left the earlier edits' bounds behind,
+    # and a redo jump re-applied nothing.
+    bpy.ops.wm.read_factory_settings(use_empty=True)  # an empty undo history
+    BlenderShotStore.clear_active()
+    st = BlenderShotStore()
+    BlenderShotStore.set_active(st)
+    # No operator, so no undo step: the history holds exactly what is pushed.
+    jump_obj = bpy.data.objects.new("jumpA", None)
+    bpy.context.scene.collection.objects.link(jump_obj)
+    sq = ShotSequencer(store=st)
+    jump_shot = sq.define_shot("J", 0, 10, objects=["jumpA"])
+    uh = _UndoHost(sq)
+    uh._register_scene_callbacks()
+    try:
+        bpy.ops.ed.undo_push(message="baseline")  # history item 0
+        for jump_end in (20.0, 30.0):  # items 1 and 2
+            with st.scene_edit("Jump Edit"):
+                st.update_shot(jump_shot.shot_id, end=jump_end)
+        bpy.ops.ed.undo_history(item=0)
+        jump_back = sq.shot_by_id(jump_shot.shot_id).end
+        bpy.ops.ed.undo_history(item=2)
+        jump_fwd = sq.shot_by_id(jump_shot.shot_id).end
+        check(
+            "undo history: a jump over two edits restores both, and redoes both",
+            jump_back == 10.0 and jump_fwd == 30.0,
+            f"back={jump_back} forward={jump_fwd}",
+        )
+    finally:
+        uh._unregister_scene_callbacks()
+
+    # -- a key edit that raises keeps its restore point (BTK-SHOTS-8) ----------
+    # ``scene_edit`` has pushed and tagged its step by then: dropped, the point
+    # left an undo of that step reverting the keys but not the bounds.
+    st, sq, obs = fresh({"kseA": {0: 0, 10: 5}})
+    kse_shot = sq.define_shot("KS", 0, 10, objects=["kseA"])
+    kse_host = _UndoHost(sq)
+    kse_depth = len(st._boundary_undo)
+
+    def _kse_boom():
+        st.update_shot(kse_shot.shot_id, end=20.0)  # wrote, then failed
+        raise RuntimeError("boom")
+
+    try:
+        kse_host._key_scene_edit("Boom", _kse_boom)
+        kse_raised = None
+    except RuntimeError as exc:
+        kse_raised = exc
+    kse_kept = len(st._boundary_undo) == kse_depth + 1 and isinstance(
+        st.peek_boundary_tag(), tuple
+    )
+    st.restore_boundary_snapshot()
+    check(
+        "key edit: a raise keeps the restore point its pushed step pairs with",
+        kse_raised is not None
+        and kse_kept
+        and sq.shot_by_id(kse_shot.shot_id).end == 10.0,
+        f"raised={kse_raised!r} kept={kse_kept} end={sq.shot_by_id(kse_shot.shot_id).end}",
+    )
+
+    # -- a rename / a strip edit rebuilds, never runs the keying epilogue -------
+    # (BTK-SHOTS-4) The keyframe debounce's epilogue adds keyed objects to the
+    # active shot and falls back to the SELECTION when nothing was keyed --
+    # which a rename and a Sequencer strip edit never are.
+    import types
+
+    import pythontk as ptk
+
+    from blendertk.audio_utils._audio_utils import AudioUtils as _AU
+
+    def _selected_nonmember_scene():
+        """A shot holding reMem, active, with reSel -- keyed, not a member --
+        selected: what the keying epilogue's selection fallback would add."""
+        st, sq, obs = fresh({"reMem": {0: 0, 10: 5}, "reSel": {0: 1, 10: 3}})
+        shot = sq.define_shot("RE", 0, 10, objects=["reMem"])
+        st.set_active_shot(shot.shot_id)
+        for ob in bpy.context.scene.objects:
+            ob.select_set(ob.name == "reSel")
+        return sq, obs, shot
+
+    class _RebuildHost(_UndoHost):
+        def __init__(self, seq):
+            super().__init__(seq)
+            self.armed = []
+            self.ui = None
+            self._cmb_mode = "shots"
+            self._edited_objects = set()
+            self._reconcile_needed = False
+            self._extend_to_keys = False
+
+        def _arm_keyframe_debounce(self):
+            self.armed.append("_on_keyframe_debounce_fire")
+
+        def _arm_rebuild_debounce(self):
+            self.armed.append("_on_rebuild_debounce_fire")
+
+        def fire(self):
+            """Run what the armed timers would, once each."""
+            fired, self.armed = list(self.armed), []
+            for name in fired:
+                getattr(self, name)()
+            return fired
+
+    _on_depsgraph = _Ctrl._on_depsgraph_update  # _UndoHost stubs it out
+
+    sq, obs, re_shot = _selected_nonmember_scene()
+    re_host = _RebuildHost(sq)
+    obs["reMem"].name = "reMemRenamed"
+    re_host._on_object_renamed()
+    re_fired = re_host.fire()
+    check(
+        "rename: a plain rebuild, and the selection joins no shot",
+        re_fired == ["_on_rebuild_debounce_fire"]
+        and re_host._reconcile_needed
+        and "reSel" not in sq.shot_by_id(re_shot.shot_id).objects,
+        f"fired={re_fired} members={sq.shot_by_id(re_shot.shot_id).objects}",
+    )
+
+    # The Sequencer's strips: an edit there is seen (and the baseline is not).
+    sq, obs, re_shot = _selected_nonmember_scene()
+    with ptk.TempArtifacts(prefix="btk_seq_strip_") as strip_tmp:
+        import wave
+
+        strip_wav = str(strip_tmp.path(".wav"))
+        with wave.open(strip_wav, "wb") as fh:  # a tenth of a second of silence
+            fh.setnchannels(1)
+            fh.setsampwidth(2)
+            fh.setframerate(44100)
+            fh.writeframes(b"\x00\x00" * 4410)
+        strip_host = _RebuildHost(sq)
+        strip_host._note_sound_strips()
+        strip_baseline = strip_host._sound_strips_changed()
+        _AU.add_clip(strip_wav, frame_start=5, name="reStrip")
+        fake_dg = types.SimpleNamespace(
+            updates=[types.SimpleNamespace(id=bpy.context.scene)]
+        )
+        _on_depsgraph(strip_host, bpy.context.scene, fake_dg)
+        strip_fired = strip_host.fire()
+        strip_again = strip_host._sound_strips_changed()
+        _AU.remove_all_clips()
+    check(
+        "strip watch: an external strip edit is one change, the baseline none",
+        strip_baseline is False and strip_again is False,
+        f"baseline={strip_baseline} again={strip_again}",
+    )
+    check(
+        "strip edit: a plain rebuild, and the selection joins no shot",
+        strip_fired == ["_on_rebuild_debounce_fire"]
+        and "reSel" not in sq.shot_by_id(re_shot.shot_id).objects,
+        f"fired={strip_fired} members={sq.shot_by_id(re_shot.shot_id).objects}",
+    )
+
+    # Past the banked-object cap the burst is a bake / import: the keying
+    # epilogue scans the selection instead (mirror of mayatk's curve cap).
+    sq, obs, re_shot = _selected_nonmember_scene()
+    cap_host = _RebuildHost(sq)
+    cap_host._edited_objects = {
+        f"ghost{i}" for i in range(cap_host._EDITED_OBJECT_CAP + 1)
+    }
+    cap_added = cap_host._auto_add_keyed_objects(re_shot.shot_id)
+    check(
+        "keying epilogue: past the banked cap it falls back to the selection",
+        cap_added
+        and "reSel" in sq.shot_by_id(re_shot.shot_id).objects
+        and not cap_host._edited_objects,
+        f"added={cap_added} members={sq.shot_by_id(re_shot.shot_id).objects}",
+    )
+
+    # -- the view's playback range is the PREVIEW range, never the render range --
+    pr_st, pr_sq, _pr_obs = fresh({})
+    pr_a = pr_sq.define_shot("PA", 10, 40)
+    pr_sq.define_shot("PB", 50, 90)
+    pr_scene = bpy.context.scene
+    pr_render = (pr_scene.frame_start, pr_scene.frame_end)
+    pr_host = _RebuildHost(pr_sq)
+    pr_host._shot_display_mode = "adjacent"
+    ranges = {}
+    for mode in ("locked", "follows_view"):
+        pr_host._playback_range_mode = mode
+        pr_host._apply_view_playback_range(pr_a)
+        ranges[mode] = (
+            pr_scene.use_preview_range,
+            pr_scene.frame_preview_start,
+            pr_scene.frame_preview_end,
+        )
+    check(
+        "playback range: locked spans the shot, follows-view the visible shots, "
+        "both on the preview range",
+        ranges == {"locked": (True, 10, 40), "follows_view": (True, 10, 90)}
+        and (pr_scene.frame_start, pr_scene.frame_end) == pr_render,
+        f"{ranges} render={(pr_scene.frame_start, pr_scene.frame_end)} was {pr_render}",
     )
 
     BlenderShotStore.clear_active()

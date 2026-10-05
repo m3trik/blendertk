@@ -967,7 +967,23 @@ class MayaSceneImport(ptk.LoggingMixin):
             best_effort=True,
         )
         plan.run(progress=progress, done_label="Imported")
+        self.hide_relationship_lines()
         return imported
+
+    @staticmethod
+    def hide_relationship_lines() -> int:
+        """Turn off the viewports' Relationship Lines overlay; returns how many changed.
+
+        A Maya scene is a deep DAG -- the production module this was measured on
+        parents ~1,600 of its 1,635 objects up to 8 levels deep -- and Blender draws a
+        dashed line from every parented object's origin to its parent's: a screen of
+        lines Maya never shows. The overlay has no per-object switch, so a converted
+        scene turns it off wherever it lands (an import, the bake a link or an open
+        reads, the scene opened); Overlays > Relationship Lines brings it back.
+        """
+        from blendertk.display_utils._display_utils import DisplayUtils
+
+        return DisplayUtils.set_viewport_overlay(show_relationship_lines=False)
 
     @staticmethod
     def _stage_progress(
@@ -2210,7 +2226,11 @@ class MayaSceneImport(ptk.LoggingMixin):
             )
 
     def _apply_texture_manifest(
-        self, manifest_path: str, imported: List[Any], object_fallback: bool = True
+        self,
+        manifest_path: str,
+        imported: List[Any],
+        object_fallback: bool = True,
+        ambient_occlusion: bool = True,
     ) -> None:
         """Rebuild translated materials natively from the conversion's sidecar.
 
@@ -2231,6 +2251,10 @@ class MayaSceneImport(ptk.LoggingMixin):
         route's rescue for a material the importer renamed. Off for a carrier
         whose bindings are already exact (USD: by prim path), where a short
         name is ambiguous across hierarchies.
+
+        *ambient_occlusion*: forwarded to ``create_pbr_material``; ``False``
+        builds without the AO multiply, for a path-traced bake (mayatk's bridge
+        bake template).
         """
         import json
 
@@ -2275,7 +2299,9 @@ class MayaSceneImport(ptk.LoggingMixin):
                         )
                     continue
                 plan = self._plan_with_slot_fallback(files, entry.get("slots"), name)
-                material = MatUtils.create_pbr_material(files, name=name, plan=plan)
+                material = MatUtils.create_pbr_material(
+                    files, name=name, plan=plan, ambient_occlusion=ambient_occlusion
+                )
                 if material is None:  # nothing classified -- keep the FBX phong
                     self.logger.warning(
                         f"{name}: no texture classified by filename and no "

@@ -92,11 +92,27 @@ class _SegmentKeysInternal(object):
     def _filter_curves_by_channel_box(
         curves: List[Any], channel_box_attrs: Optional[List[str]]
     ) -> List[Any]:
-        """Keep only curves whose channel matches one of *channel_box_attrs*."""
+        """Keep only curves whose channel matches one of *channel_box_attrs*.
+
+        A name that is some curve's exact label selects exactly those curves --
+        Maya's channel-box filter names attributes, and a sub-row asks for one
+        channel by its label.  Only a name no label matches falls back to the
+        looser :meth:`_matches` (a ``translate`` base, a raw ``data_path``, the
+        ``visibility`` alias), so ``visibility`` never also drags
+        ``hide_viewport`` and ``flag`` never drags a ``["flagpole"]`` sibling.
+        """
         if not channel_box_attrs or not curves:
             return list(curves)
         names = {a.lower() for a in channel_box_attrs}
-        return [fc for fc in curves if _SegmentKeysInternal._matches(fc, names)]
+        labels = {id(fc): _SegmentKeysInternal._label(fc).lower() for fc in curves}
+        exact = names & set(labels.values())
+        loose = names - exact
+        return [
+            fc
+            for fc in curves
+            if labels[id(fc)] in exact
+            or (loose and _SegmentKeysInternal._matches(fc, loose))
+        ]
 
     @staticmethod
     def _is_visibility_fcurve(fc) -> bool:
@@ -216,7 +232,7 @@ class SegmentKeys(_SegmentKeysInternal):
         exclude_next_start: bool = True,
         motion_only: bool = False,
         motion_rate: float = 1e-3,
-        transform_only: bool = True,
+        transform_only: bool = False,
     ) -> List[Dict[str, Any]]:
         """Collect animation segments from *objects* (names in ``bpy.data.objects``).
 
@@ -235,9 +251,13 @@ class SegmentKeys(_SegmentKeysInternal):
             motion_only: Rate-normalised motion classification (see
                 :meth:`_get_active_animation_segments`).
             motion_rate: Per-frame rate threshold for *motion_only*.
-            transform_only: Only content channels (location/rotation/scale and
-                the render-effect properties) — the sequencer's scope;
-                ``False`` takes every fcurve.
+            transform_only: Only content channels (transforms, visibility and
+                the render-effect properties).  Default ``False`` takes every
+                fcurve on the object's action, as mayatk takes every
+                time-based animCurve on the node -- custom properties
+                included, so the sequencer's object rows and sub-rows show
+                them as Maya's do (drivers live outside the action, the twin
+                of the unitless curves Maya filters out).
 
         Returns:
             List of segment dicts (see module docstring).

@@ -3,14 +3,14 @@
 """Gap and range-highlight handlers for the shot sequencer controller (Blender).
 
 Blender mirror of mayatk's ``shot_sequencer.gap_manager`` — :class:`GapManagerMixin`
-handles gap resize/move/lock and range-highlight interactions.  The only DCC swap
-is the undo bracket (``CoreUtils.undo_chunk`` → ``btk.undo_chunk``); every edit is
-expressed through the DCC-agnostic ``ShotSequencer`` + ``BlenderShotStore`` surface.
+handles gap resize/move/lock and range-highlight interactions.  Every edit
+brackets through ``BlenderShotStore.scene_edit`` (one named undo step, paired with
+its restore point, as mayatk's ``ShotStore.scene_edit``) and is expressed through
+the DCC-agnostic ``ShotSequencer`` + ``BlenderShotStore`` surface.
 """
 
 from __future__ import annotations
 
-from blendertk.core_utils._core_utils import CoreUtils
 
 # Threshold for detecting meaningful time deltas (frame-level tolerance).
 TIME_SNAP_EPS = 1e-3
@@ -21,8 +21,9 @@ __all__ = ["GapManagerMixin"]
 class GapManagerMixin:
     """Mixin supplying gap-overlay and range-highlight handlers.
 
-    Expects the host controller to provide ``sequencer``, ``active_shot_id``,
-    ``_save_shot_state()`` / ``_sync_to_widget()`` / ``_sync_combobox()``,
+    Expects the host controller to provide ``sequencer`` (edits bracket through
+    ``sequencer.store.scene_edit()``), ``active_shot_id``,
+    ``_sync_to_widget()`` / ``_sync_combobox()``,
     ``_get_sequencer_widget()``, ``_syncing``, ``_segment_cache`` / ``_sub_row_cache``,
     ``_set_footer()`` (a refused drag is an answer, not a silent no-op),
     ``_neighbour_shots()``, and ``logger``.
@@ -60,7 +61,6 @@ class GapManagerMixin:
         ds = start - shot.start
         de = end - shot.end
 
-        self._save_shot_state()
         # Both edges moved by the same amount → translate the entire shot.
         # NOTE: the band's body drag carries no modifier -- it is grabbed on
         # the RULER's shot band, since the highlight's own body has to pass
@@ -69,7 +69,7 @@ class GapManagerMixin:
         if abs(ds - de) < TIME_SNAP_EPS and abs(ds) > TIME_SNAP_EPS:
             self._syncing = True
             try:
-                with CoreUtils.undo_chunk():
+                with self.sequencer.store.scene_edit("Move Shot"):
                     self.sequencer.move_shot(self.active_shot_id, start)
             finally:
                 self._syncing = False
@@ -80,7 +80,7 @@ class GapManagerMixin:
         # else, a plain drag moves the bound and ripples the neighbours.
         self._syncing = True
         try:
-            with CoreUtils.undo_chunk():
+            with self.sequencer.store.scene_edit("Resize Shot"):
                 if shift_held:
                     self.sequencer.resize_shot(self.active_shot_id, start, end)
                 elif ctrl_held:
@@ -254,10 +254,9 @@ class GapManagerMixin:
         # border does (the bound alone, keys stay), never a slide.
         is_head_cap = self._neighbour_shots(target.shot_id)["merge_prev"] is None
 
-        self._save_shot_state()
         self._syncing = True
         try:
-            with CoreUtils.undo_chunk():
+            with self.sequencer.store.scene_edit("Resize Gap"):
                 if ctrl_held or shift_held:
                     if self._set_shot_edge(
                         target, new_start=new_next_start, scale=shift_held
@@ -311,10 +310,9 @@ class GapManagerMixin:
         # border -- it used to slide the whole shot (mirror of mayatk).
         is_tail_cap = self._neighbour_shots(target.shot_id)["merge_next"] is None
 
-        self._save_shot_state()
         self._syncing = True
         try:
-            with CoreUtils.undo_chunk():
+            with self.sequencer.store.scene_edit("Resize Gap"):
                 if ctrl_held or shift_held:
                     if self._set_shot_edge(
                         target, new_end=new_prev_end, scale=shift_held
@@ -350,10 +348,9 @@ class GapManagerMixin:
         shift_held = getattr(widget, "shift_held_at_press", False)
         active_id = self.active_shot_id
 
-        self._save_shot_state()
         self._syncing = True
         try:
-            with CoreUtils.undo_chunk():
+            with self.sequencer.store.scene_edit("Move Gap"):
                 left_is_active = (
                     left_shot is not None
                     and active_id is not None

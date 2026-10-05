@@ -24,6 +24,10 @@ Mapping (Maya → Blender), all backed by :mod:`blendertk.EnvUtils`:
     suffix / folder-structure; optionally hide the suffix / extension in the displayed name.
   * **Workspace history** → the last workspace chosen per root directory is remembered (QSettings).
 
+As in Maya, the table's **selection is the reference set**: clicking a file's row links it, clicking
+it again removes the library (foreign and current-scene rows are non-selectable; their link icon
+toggles them), and the row context menu acts on the right-clicked row, never the selection.
+
 The three action-icon columns mirror Maya's: click the **link** icon to link/unlink a file, the
 **open** icon to open the scene (a foreign scene is baked and opened as a new file; the current
 scene is highlighted + italicized), and the tri-state **display** icon to cycle Normal → Reference
@@ -122,6 +126,12 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         )
         self._notes = dict(self.ui.settings.value("reference_notes") or {})
         self._suppress_note_save = False  # guard programmatic table edits
+        self._listing = None  # (files shown, files hidden by the filter) for the footer
+        # Guard programmatic selection changes (a rebuild's clear(), the reference->selection
+        # sync) so they never read as the user's selection -> reference edit.
+        self._syncing_selection = False
+        # The right-clicked row the context-menu actions act on (mirror of mayatk's).
+        self._context_menu_row = None
         self._setup_footer_actions()
 
     def _setup_footer_actions(self):
@@ -813,6 +823,12 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         created yet — a native crash on Qt 6.5). Here the columns arrive later via
         ``TableWidget.add`` and ``TableActions._reapply`` re-applies the sizing then.
         """
+        # Selection IS the reference set (mirror of mayatk): a click toggles one row's
+        # selection -- and so its link -- without dropping the others. Idempotent, so set
+        # every init: a widget built before this rule existed must pick it up too.
+        QAbstractItemView = self.sb.QtWidgets.QAbstractItemView
+        widget.setSelectionBehavior(QAbstractItemView.SelectRows)
+        widget.setSelectionMode(QAbstractItemView.MultiSelection)
         if not widget.is_initialized:
             widget.is_initialized = True
             widget.refresh_on_show = True
@@ -825,7 +841,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
                 "QPushButton",
                 setText="Open",
                 setObjectName="row_open",
-                setToolTip="Open the selected file (a foreign scene is baked, then opened as a new\n"
+                setToolTip="Open this file (a foreign scene is baked, then opened as a new\n"
                 "file) — reads it back from disk when it is already the open scene (the action\n"
                 "reads 'Reopen' then).",
             )
@@ -833,19 +849,19 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
                 "QPushButton",
                 setText="Rename",
                 setObjectName="row_rename",
-                setToolTip="Rename the selected .blend on disk.",
+                setToolTip="Rename this .blend on disk.",
             )
             widget.menu.add(
                 "QPushButton",
                 setText="Delete",
                 setObjectName="row_delete",
-                setToolTip="Delete the selected .blend from disk.",
+                setToolTip="Delete this .blend from disk.",
             )
             widget.menu.add(
                 "QPushButton",
                 setText="Reference / Unreference",
                 setObjectName="row_toggle_reference",
-                setToolTip="Toggle the reference (linked library) state of the selected file.",
+                setToolTip="Toggle the reference (linked library) state of this file.",
             )
             widget.menu.add(
                 "QPushButton",
@@ -858,7 +874,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
                 "QPushButton",
                 setText="Open File Location",
                 setObjectName="row_location",
-                setToolTip="Reveal the selected file in the OS file manager.",
+                setToolTip="Reveal this file in the OS file manager.",
             )
             widget.menu.add(
                 "QPushButton",
@@ -916,7 +932,10 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         )
         self._rewire_signal(widget, widget.itemChanged, self._on_item_changed, "chg")
         self._rewire_signal(
-            widget, widget.customContextMenuRequested, self._label_open_action, "ctx"
+            widget, widget.itemSelectionChanged, self._on_selection_changed, "sel"
+        )
+        self._rewire_signal(
+            widget, widget.customContextMenuRequested, self._capture_context_row, "ctx"
         )
 
         for obj_name, handler in (
@@ -931,14 +950,15 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             widget.register_menu_action(obj_name, (lambda h: lambda *_: h())(handler))
 
     def _label_open_action(self, *_):
-        """Read the context menu's Open action as 'Reopen' when the selected file is the open one.
+        """Read the context menu's Open action as 'Reopen' when the right-clicked file is the
+        open one.
 
         Opening the file you are already in is a reload-from-disk, not an open; saying so is the
         only signal that the click will discard whatever is unsaved (the prompt then asks about).
-        Wired to ``customContextMenuRequested``, which fires in the same event-loop tick as the
-        table's own ``menu.show()`` — ``show()`` only schedules the paint, so the relabel lands
-        before the popup is drawn whichever slot Qt calls first. The menu's width is set by its
-        longest entry ('Reference / Unreference'), so 'Reopen' never needs a re-layout.
+        Runs from :meth:`_capture_context_row` (``customContextMenuRequested``), which fires in
+        the same event-loop tick as the table's own ``menu.show()`` — ``show()`` only schedules
+        the paint, so the relabel lands before the popup is drawn whichever slot Qt calls
+        first. The menu's width is set by its longest entry ('Reference / Unreference'), so 'Reopen' never needs a re-layout.
 
         Guarded on ``has_menu``, not ``getattr(table, "menu", None)``: uitk's ``MenuMixin``
         builds the menu lazily on first ``.menu`` access, so the convenient getattr would
@@ -950,7 +970,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         btn = getattr(table.menu, "row_open", None)
         if btn is None:
             return
-        paths = self._selected_paths()
+        paths = self._context_paths()
         btn.setText("Reopen" if paths and self._is_current(paths[0]) else "Open")
 
     def _setup_action_columns(self, widget):
@@ -1422,24 +1442,12 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             files
         )  # pre-filter, for the "hidden by filter" empty-state message
         files = self._apply_file_filters(files, workspace, opt)
-        # Live reference state needs bpy; degrade gracefully under the .venv (no live status).
-        # One list_libraries() pass — `linked` is derived from it so the two can't disagree.
-        libs_by_path = {}
-        if self._has_bpy():
-            for r in btk.list_libraries():
-                ap = r.get("abspath")
-                if not ap:
-                    continue
-                libs_by_path[self._path_key(ap)] = r["library"]
-                # A foreign row links its BAKE, so also key the library by the source
-                # scene the user sees — otherwise the row reads as unreferenced.
-                source = self._bake_source(ap)
-                if source:
-                    libs_by_path[self._path_key(source)] = r["library"]
-        linked = set(libs_by_path)
+        libs_by_path = self._linked_libraries_by_path()
         current = self._current_scene_path()
 
         self._suppress_note_save = True
+        # The rebuild's clear() drops the selection: it must not read as "unlink everything".
+        self._syncing_selection = True
         widget.setUpdatesEnabled(False)
         widget.clear()
         qt = self.sb.QtCore.Qt
@@ -1481,33 +1489,18 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
 
             if placeholder is None:
                 for row, path in enumerate(files):
-                    key = self._path_key(path)
                     name_item = widget.item(row, self.COL_NAME)
                     note_item = widget.item(row, self.COL_NOTES)
 
-                    is_linked = key in linked
                     # Currentness matches the Open toggle exactly (native file, or a foreign row's
                     # open scratch bake). Reuse the single `current` snapshot — no per-row bpy read.
                     is_current = self._is_current(path, current)
-                    widget.actions.set(
-                        row, self.COL_REF, "referenced" if is_linked else "unreferenced"
-                    )
                     # A foreign row's Open bakes the scene and opens it as a new file (see
                     # _open_foreign_as_new), so it carries the same visible/clickable Open states
                     # as a native row — including the 'current' highlight when its scratch is open.
                     widget.actions.set(
                         row, self.COL_OPEN, "current" if is_current else "default"
                     )
-                    if is_linked:
-                        lib = libs_by_path.get(key)
-                        mode = (
-                            btk.get_reference_display_mode(lib)
-                            if lib is not None
-                            else "off"
-                        )
-                        widget.actions.set(row, self.COL_DISPLAY, mode)
-                    else:
-                        widget.actions.set(row, self.COL_DISPLAY, "unavailable")
 
                     if name_item:
                         name_item.setFlags(name_item.flags() & ~qt.ItemIsEditable)
@@ -1522,10 +1515,17 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
                             font.setItalic(True)
                             name_item.setFont(font)
                             name_item.setFlags(name_item.flags() & ~qt.ItemIsSelectable)
+                        elif self._is_foreign(path):
+                            # A foreign row links its BAKE, never its own path, so it stays
+                            # out of the selection -> reference sync (mirror of mayatk); its
+                            # link icon toggles it.
+                            name_item.setFlags(name_item.flags() & ~qt.ItemIsSelectable)
                     if note_item and path:
                         note_item.setData(
                             qt.UserRole, path
                         )  # carry the path for note edits
+                # After the flags above: the sync selects only rows left selectable.
+                self._sync_reference_state(widget, libs_by_path)
 
             header = widget.horizontalHeader()
             header.setStretchLastSection(False)
@@ -1545,18 +1545,31 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         finally:
             widget.setUpdatesEnabled(True)
             self._suppress_note_save = False
+            self._syncing_selection = False
 
         self._apply_notes_column_visibility()
 
-        n_linked = len(linked)
-        if workspace:
-            hidden = raw_count - len(files)
-            msg = f"{len(files)} file(s); {n_linked} linked."
-            if hidden > 0:
-                msg += f" ({hidden} hidden by filter)"
-            self.ui.footer.setText(msg)
-        else:
-            self.ui.footer.setText("Set a root directory.")
+        self._listing = (len(files), raw_count - len(files)) if workspace else None
+        self._update_footer(libs_by_path)
+
+    def _update_footer(self, libs_by_path):
+        """The footer's listing summary -- files shown, libraries linked, files the filter
+        hid -- from the last populate's counts and the live *libs_by_path*. Re-run after a
+        selection link / unlink, which changes the count without a rebuild."""
+        footer = getattr(self.ui, "footer", None)
+        if footer is None:
+            return
+        listing = getattr(self, "_listing", None)
+        if listing is None:
+            footer.setText("Set a root directory.")
+            return
+        shown, hidden = listing
+        # Distinct libraries: a bake-backed one is keyed twice (bake + source).
+        n_linked = len({lib.name for lib in libs_by_path.values()})
+        msg = f"{shown} file(s); {n_linked} linked."
+        if hidden > 0:
+            msg += f" ({hidden} hidden by filter)"
+        footer.setText(msg)
 
     def _current_scene_path(self):
         """Normalized path of the currently-open .blend (or '' — needs bpy)."""
@@ -1799,20 +1812,124 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             self._notes.pop(key, None)
         self.ui.settings.setValue("reference_notes", self._notes)
 
-    # ------------------------------------------------------------------ selection helpers
-    def _selected_paths(self):
-        """Absolute .blend paths behind the selected (or current) rows."""
+    # ------------------------------------------------------------------ selection = references
+    def _on_selection_changed(self):
+        """The table's selection IS the scene's reference set (mirror of mayatk's
+        ``handle_item_selection``): selecting a row links its .blend, deselecting it removes
+        that library.
+
+        Diffed per file path, over the rows the table lists: a library whose file is not a
+        row here (another workspace, a filtered-out file, Hierarchy Sync's sandbox) is
+        never touched by a click on an unrelated row. Foreign and current-scene rows are
+        non-selectable, so they never enter the diff -- a foreign row links its BAKE, whose
+        path is no row's, and its link icon toggles it.
+        """
+        if self._syncing_selection or not self._has_bpy():
+            return
         table = self.ui.tbl000
-        rows = {idx.row() for idx in table.selectedIndexes()}
-        if not rows and table.currentRow() >= 0:
-            rows = {table.currentRow()}
-        paths = []
-        for r in sorted(rows):
-            item = table.item(r, 0)
-            path = item.data(self.sb.QtCore.Qt.UserRole) if item else None
-            if path and path not in paths:
-                paths.append(path)
-        return paths
+        qt = self.sb.QtCore.Qt
+        rows, selected = set(), {}
+        for row in range(table.rowCount()):
+            item = table.item(row, self.COL_NAME)
+            path = item.data(qt.UserRole) if item else None
+            if not path:
+                continue
+            key = self._path_key(path)
+            rows.add(key)
+            if item.isSelected() and item.flags() & qt.ItemIsSelectable:
+                selected[key] = path
+        # By the library's OWN file only -- not _linked_libraries_by_path, which also keys a
+        # bake by its source row: a foreign row is never selected, so that key would read
+        # as "deselected" and unlink every foreign reference on any click.
+        linked = {}
+        for rec in btk.list_libraries():
+            if rec["abspath"]:
+                linked[self._path_key(rec["abspath"])] = rec["library"]
+
+        for key in rows - set(selected):
+            if key in linked:
+                btk.remove_library(linked[key])
+        for key, path in selected.items():
+            if key in linked:
+                continue
+            try:
+                btk.link_blend_file(path, link=True)
+            except (RuntimeError, OSError) as e:
+                self.sb.message_box(str(e))
+        # Re-read: a failed link must not stay selected; the icons and the count follow.
+        self._update_footer(self._sync_reference_state(table))
+
+    def _linked_libraries_by_path(self):
+        """``{path key: library}`` for every linked library -- keyed by its file, and a
+        bake-backed one ALSO by the foreign scene it was baked from (the row the user sees).
+        Empty without bpy (the .venv lists files with no live state)."""
+        libs = {}
+        if not self._has_bpy():
+            return libs
+        for rec in btk.list_libraries():
+            abspath = rec.get("abspath")
+            if not abspath:
+                continue
+            libs[self._path_key(abspath)] = rec["library"]
+            source = self._bake_source(abspath)
+            if source:
+                libs[self._path_key(source)] = rec["library"]
+        return libs
+
+    def _sync_reference_state(self, widget, libs_by_path=None):
+        """Mirror the live libraries onto every row: the link icon, the display-mode icon,
+        and -- selection being the reference set -- the selection itself (selectable rows
+        only). Programmatic, so the selection -> reference handler ignores it. Returns the
+        ``{path key: library}`` map it applied."""
+        if libs_by_path is None:
+            libs_by_path = self._linked_libraries_by_path()
+        qt = self.sb.QtCore.Qt
+        was_syncing, self._syncing_selection = self._syncing_selection, True
+        try:
+            for row in range(widget.rowCount()):
+                item = widget.item(row, self.COL_NAME)
+                path = item.data(qt.UserRole) if item else None
+                if not path:
+                    continue
+                lib = libs_by_path.get(self._path_key(path))
+                widget.actions.set(
+                    row,
+                    self.COL_REF,
+                    "unreferenced" if lib is None else "referenced",
+                )
+                widget.actions.set(
+                    row,
+                    self.COL_DISPLAY,
+                    (
+                        "unavailable"
+                        if lib is None
+                        else btk.get_reference_display_mode(lib)
+                    ),
+                )
+                if item.flags() & qt.ItemIsSelectable:
+                    item.setSelected(lib is not None)
+        finally:
+            self._syncing_selection = was_syncing
+        return libs_by_path
+
+    # ------------------------------------------------------------------ context-menu row
+    def _capture_context_row(self, pos):
+        """Store the right-clicked row so the context-menu actions act on IT, not on the
+        selection (which is the reference set); then label its Open action. Mirror of
+        mayatk's ``_capture_context_row``."""
+        idx = self.ui.tbl000.indexAt(pos)
+        self._context_menu_row = idx.row() if idx.isValid() else None
+        self._label_open_action()
+
+    def _context_paths(self):
+        """The file behind the right-clicked row, as a one-item list ([] when none)."""
+        table = self.ui.tbl000
+        row = self._context_menu_row
+        if row is None or not 0 <= row < table.rowCount():
+            return []
+        item = table.item(row, self.COL_NAME)
+        path = item.data(self.sb.QtCore.Qt.UserRole) if item else None
+        return [path] if path else []
 
     def _library_for_path(self, path):
         """The linked library datablock whose file is ``path`` (or None).
@@ -1820,17 +1937,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         A foreign row's library is the file's *bake*, not the row's own path, so each
         candidate is also matched through its bake sidecar (see ``bake_source``).
         """
-        target = self._path_key(path)
-        for rec in btk.list_libraries():
-            abspath = rec["abspath"]
-            if not abspath:
-                continue
-            if self._path_key(abspath) == target:
-                return rec["library"]
-            source = self._bake_source(abspath)
-            if source and self._path_key(source) == target:
-                return rec["library"]
-        return None
+        return self._linked_libraries_by_path().get(self._path_key(path))
 
     @staticmethod
     def _bake_source(linked_path):
@@ -1841,17 +1948,17 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             return None
         return MayaSceneImport.bake_source(linked_path)
 
-    def _selected_libraries(self):
+    def _context_libraries(self):
         return [
             lib
-            for lib in map(self._library_for_path, self._selected_paths())
+            for lib in map(self._library_for_path, self._context_paths())
             if lib is not None
         ]
 
     # ------------------------------------------------------------------ scene file ops
     def open_selected(self):
-        """Open the selected .blend (replaces the current file; confirms if unsaved)."""
-        paths = self._selected_paths()
+        """Open the right-clicked row's file (replaces the current file; confirms if unsaved)."""
+        paths = self._context_paths()
         if not paths:
             self.sb.message_box("Select a file in the list first.")
             return
@@ -2009,6 +2116,8 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         if btk.open_scene(scratch):
             self._discard_stale_scratches()
             self._pin_workspace_for(path)
+            # After the open: the file's own UI (and UiState's re-apply) just loaded.
+            MayaSceneImport.hide_relationship_lines()
             self.sb.message_box(
                 f"Opened <hl>{os.path.basename(path)}</hl> as a new scene "
                 f"(<hl>{os.path.basename(scratch)}</hl>, baked from the foreign source — "
@@ -2055,8 +2164,8 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         self._refresh()
 
     def rename_selected(self):
-        """Rename the selected .blend on disk."""
-        paths = self._selected_paths()
+        """Rename the right-clicked row's .blend on disk."""
+        paths = self._context_paths()
         if not paths:
             self.sb.message_box("Select a file to rename.")
             return
@@ -2128,10 +2237,10 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         return f"Move {len(names)} file(s) to the {trash}?<br>{listed}"
 
     def delete_selected(self):
-        """Delete the selected .blend file(s) (confirmed): to the trash, or -- a drive
+        """Delete the right-clicked row's .blend (confirmed): to the trash, or -- a drive
         with none, confirmed as permanent -- for good. A trash that refuses one after
         all asks again, as permanent, before anything is lost (mirror of mayatk's)."""
-        paths = [p for p in self._selected_paths() if os.path.isfile(p)]
+        paths = [p for p in self._context_paths() if os.path.isfile(p)]
         if not paths:
             self.sb.message_box("Select a file to delete.")
             return
@@ -2167,8 +2276,8 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         self._refresh()
 
     def open_location_selected(self):
-        """Reveal the selected .blend in the OS file manager (any row)."""
-        paths = self._selected_paths()
+        """Reveal the right-clicked row's file in the OS file manager."""
+        paths = self._context_paths()
         if not paths:
             self.sb.message_box("Select a file in the list first.")
             return
@@ -2178,8 +2287,8 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             self.sb.message_box(str(e))
 
     def copy_path_selected(self):
-        """Copy the selected file's full path to the clipboard (mirror of mayatk)."""
-        paths = self._selected_paths()
+        """Copy the right-clicked row's full path to the clipboard (mirror of mayatk)."""
+        paths = self._context_paths()
         if not paths:
             self.sb.message_box("Select a file in the list first.")
             return
@@ -2315,52 +2424,36 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
                 self.logger.warning(f"Foreign scene bake failed for {path}: {e}")
                 self._error_box("Reference failed for", name, e)
                 return False
+        if linked:
+            # A Maya DAG draws a dashed parent line per object (see the engine's note).
+            MayaSceneImport.hide_relationship_lines()
         return bool(linked)
 
     # ------------------------------------------------------------------ reference ops
     def toggle_reference_selected(self):
-        """Reference / Unreference the selected row(s) — the row-menu twin of the link icon
-        (Maya's 'Reference / Unreference').
-
-        Each selected file is toggled independently: an already-linked one has its library
-        removed; a native file is linked; a foreign (Maya / FBX / USD) file is baked and its bake
-        linked (through the same path the link icon uses).
+        """Reference / Unreference the right-clicked row — the row-menu twin of the link icon
+        (Maya's 'Reference / Unreference'), so it runs the icon's own toggle
+        (:meth:`_toggle_reference_at_row`): an already-linked file has its library removed;
+        a native file is linked (closing it first when it is the open scene); a foreign
+        (Maya / FBX / USD) file is baked and its bake linked.
         """
-        paths = self._selected_paths()
-        if not paths:
+        if not self._context_paths():
             self.sb.message_box("Select a file in the list first.")
             return
-        foreign_to_ref, changed = [], False
-        for path in paths:
-            lib = self._library_for_path(path)
-            if lib is not None:
-                if btk.remove_library(lib):
-                    changed = True
-            elif self._is_foreign(path):
-                foreign_to_ref.append(path)
-            else:
-                try:
-                    btk.link_blend_file(path, link=True)
-                    changed = True
-                except (RuntimeError, OSError) as e:
-                    self.sb.message_box(str(e))
-        if foreign_to_ref and self._reference_foreign_paths(foreign_to_ref):
-            changed = True
-        if changed:
-            self._refresh()
+        self._toggle_reference_at_row(self._context_menu_row, self.COL_REF)
 
     def unlink_import_selected(self):
-        """Unlink and Import the selected row(s) — Maya's 'Unlink and Import', covering both cases.
+        """Unlink and Import the right-clicked row — Maya's 'Unlink and Import', covering both cases.
 
         An already-linked reference has its data made local (unlink + import); a not-yet-linked
         foreign (Maya / FBX / USD) row is converted and its contents imported as local data (the old
         'Import (convert)' behaviour, folded in here for parity with the Maya panel).
         """
-        paths = self._selected_paths()
+        paths = self._context_paths()
         if not paths:
             self.sb.message_box("Select a file in the list first.")
             return
-        libs = self._selected_libraries()
+        libs = self._context_libraries()
         foreign = [
             p
             for p in paths

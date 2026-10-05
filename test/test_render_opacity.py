@@ -258,6 +258,29 @@ try:
         RenderEffects.ATTR_NAME in c and fcurve(c, "hide_render") is None,
     )
 
+    # ============================ CREATE is per channel ============================
+    # Mirror of mayatk: create(channel="highlight") resets the highlight channel
+    # only, and the visibility-key guard belongs to the presence channel -- a
+    # fading object keeps its opacity keys and their render-visibility mirror.
+    reset()
+    c = cube("Both")
+    RenderEffects.create([c])
+    RenderEffects.key_fade([c], start=1, end=10, direction="in")
+    raised = None
+    try:
+        RenderEffects.create([c], channel=RenderEffects.HIGHLIGHT_ATTR)
+    except RuntimeError as exc:
+        raised = exc
+    check(
+        "create(highlight) leaves a fading object's opacity channel alone",
+        raised is None
+        and RenderEffects.ATTR_NAME in c
+        and fcurve(c, f'["{RenderEffects.ATTR_NAME}"]') is not None
+        and fcurve(c, "hide_render") is not None
+        and RenderEffects.HIGHLIGHT_ATTR in c,
+        detail=repr(raised),
+    )
+
     # ============================ REMOVE ============================
     reset()
     c = cube("Rem")
@@ -353,11 +376,14 @@ try:
         published.get("fps") == 30.0,
         detail=repr(published.get("fps")),
     )
-    # The take's window opens at 7; its first authored key is at 8, and that is
-    # the frame the converter places at the clip's zero.
+    # The take's window opens at 7 and its first authored key is at 8, but
+    # Blender's split bakes every frame of the window, so the converter places
+    # frame 7 at the clip's zero (measured 2026-10-04: ShotB 21-40 opened at
+    # 21, not at its first key 30, and a gate placed against 30 lost the
+    # shot's visible run). mayatk's split keeps a take to its authored keys.
     check(
-        "clip_span reports the take's first authored frame, not its start",
-        published.get("clip_span", {}).get("Shot_1") == [8.0, 23.0],
+        "clip_span reports the take's window: Blender bakes every frame of it",
+        published.get("clip_span", {}).get("Shot_1") == [7.0, 100.0],
         detail=repr(published.get("clip_span")),
     )
 
@@ -798,6 +824,25 @@ try:
     check("legacy driver present before remove", len(_emission_drivers(box)) == 1)
     RenderEffects.remove([box], channel="highlight")
     check("remove() heals the retired preview's driver", not _emission_drivers(box))
+
+    # key_pulse keys the channel it is given (mirror of mayatk): a pulse on the
+    # opacity channel is a blink keyed on ["opacity"]; it leaves no highlight,
+    # and a colour for a channel with no colour ramp is skipped, not raised.
+    reset()
+    blink = cube("Blink")
+    RenderEffects.key_pulse(
+        [blink],
+        start=0,
+        end=100,
+        period=50,
+        channel=RenderEffects.ATTR_NAME,
+        color=(1.0, 0.0, 0.0),
+    )
+    check(
+        "key_pulse(channel='opacity') keys the opacity channel, not the highlight",
+        RenderEffects._fcurve(blink, f'["{RenderEffects.ATTR_NAME}"]') is not None
+        and RenderEffects.HIGHLIGHT_ATTR not in blink,
+    )
     reset()
     box = cube("Vis")
     box.hide_render = True
@@ -1022,9 +1067,12 @@ try:
     pslot.sb, pslot.ui = MagicMock(), MagicMock()
     pslot._get_selected = lambda: [p]
     pslot._suppressed = contextlib.nullcontext
-    pslot._fade_menu = MagicMock()
-    pslot._fade_menu.s000.value.return_value = 15
-    pslot._fade_menu.cmb_direction.currentData.return_value = "in"
+    # The page's own direction field; the length is the scene's recipe (15).
+    from types import SimpleNamespace as _NS
+
+    _direction = MagicMock()
+    _direction.currentData.return_value = "in"
+    pslot._pages = {"opacity": _NS(cmb_direction=_direction)}
     with patch(
         "blendertk.env_utils.webxr_preview.WebXrPreview.push",
         return_value={
@@ -1139,13 +1187,18 @@ try:
         def set_reference(self, stops):
             self.reference = stops
 
+        def blockSignals(self, _block):
+            return False
+
     slot.ui = type(
         "_Ui", (), {"footer": type("_F", (), {"setText": lambda s, t: None})()}
     )()
     slot.sb = type("_Sb", (), {"message_box": lambda s, *a, **k: None})()
-    slot._mode_menus = {}
+    slot._mode_combos = {}
     slot._mode_fields = {}
     slot._mode_hooks = {}
+    slot._pages = {}
+    slot._focus = None
     slot._get_selected = lambda: [c]
     slot._mode = lambda channel: _res.REVISE
     slot._pulse_ramp = _Ramp(((0.0, 0.0, 1.0), None))
@@ -1256,14 +1309,16 @@ try:
         detail=f"{slot._pulse_ramp.seeded}",
     )
 
-    # Create must not reseed: those colours are what the next pulse will be
-    # keyed with, and clicking an object must not replace the artist's pick.
+    # Create keys with the scene's recipe, so the row shows ITS colours --
+    # not the clicked object's.
+    slot._mode = lambda channel: _res.CREATE
     slot._pulse_ramp = _Ramp((None, None))
     slot._pulse_ramp.editors = ()
     slot._sync_highlight_mode()
     check(
-        "Create leaves the staged colours alone",
-        slot._pulse_ramp.seeded is None and slot._pulse_ramp.reference is None,
+        "Create shows the scene recipe's colours",
+        slot._pulse_ramp.seeded == RenderEffects.scene_recipe().colors
+        and slot._pulse_ramp.reference is None,
         detail=f"{slot._pulse_ramp.seeded} {slot._pulse_ramp.reference}",
     )
 
@@ -1284,13 +1339,16 @@ try:
         def setText(self, t):
             self.text = t
 
+    # The length is the page's own; the cadence is the scene's recipe.
+    _store = RenderEffects.scene_store().active()
+    _recipe_before = _store.effect_recipe
     slot._cycle_readout = _Label()
-    slot._pulse_menu = _Menu()
-    slot._pulse_menu.s001 = _Spin(4.0)
-    slot._pulse_menu.s002 = _Spin(2.0)
+    slot._pages = {"highlight": _Menu()}
+    slot._pages["highlight"].s001 = _Spin(4.0)
+    _store.update_effect_recipe(pulse_period=2.0, pulse_lead_in=0.0, pulse_lead_out=0.0)
     slot._update_cycle_readout()
     whole = slot._cycle_readout.text
-    slot._pulse_menu.s001 = _Spin(5.0)
+    slot._pages["highlight"].s001 = _Spin(5.0)
     slot._update_cycle_readout()
     partial = slot._cycle_readout.text
     check(
@@ -1298,6 +1356,136 @@ try:
         "cut" not in whole and "cut" in partial,
         detail=f"{whole!r} / {partial!r}",
     )
+    # The leads come out of the length: 5 s less two 0.5 s leads is a train of
+    # exactly two 2 s cycles.
+    _store.update_effect_recipe(pulse_lead_in=0.5, pulse_lead_out=0.5)
+    slot._update_cycle_readout()
+    check(
+        "the cycle readout counts the train between the leads",
+        "cut" not in slot._cycle_readout.text,
+        detail=repr(slot._cycle_readout.text),
+    )
+    _store.effect_recipe = _recipe_before
+
+    # ---- the action row while focused (mirror of mayatk's panel tests) ------
+    # Key's text is the manifest's only while Key runs the manifest's re-key: a
+    # focused highlight's Revise re-colours, yet it kept "Apply to ..." -- a
+    # mode switch never re-labelled it.
+    kslot = _res.RenderEffectsSlots.__new__(_res.RenderEffectsSlots)
+    kslot.sb, kslot.ui = MagicMock(), MagicMock()
+    kslot.ui.stk_effects.currentIndex.return_value = 1  # the Highlight page
+    _key_texts = []
+    kslot.ui.b000.setText.side_effect = _key_texts.append
+    kslot._focus = {
+        "channel": "highlight",
+        "objects": [],
+        "apply": lambda: "",
+        "apply_text": "Apply to 'Lid' in S01",
+        "title": "Lid · S01",
+    }
+    kslot._selection_snapshot = lambda: ([], {})
+    kslot._clear_report = lambda: None
+    kslot._sync_mode = lambda channel, deep=False, snapshot=None: None
+    _modes = {"highlight": _res.CREATE}
+    kslot._mode = lambda channel: _modes[channel]
+    kslot._on_mode_changed("highlight")
+    _modes["highlight"] = _res.REVISE
+    kslot._on_mode_changed("highlight")
+    check(
+        "a focused highlight's Key says what each mode does",
+        _key_texts == ["Apply to 'Lid' in S01", "Key Highlight Pulse"],
+        detail=f"{_key_texts}",
+    )
+    # A whole-number box truncated a float: a 0.57 duty is 56.99... percent.
+    check(
+        "a whole-number box takes the nearest whole number; a decimal one, as is",
+        kslot._spin_value(_Spin(59), 0.57 * 100) == 57
+        and kslot._spin_value(_Spin(15), 12.6) == 13
+        and kslot._spin_value(_Spin(2.86), 2.5) == 2.5,
+        detail=f"{kslot._spin_value(_Spin(59), 0.57 * 100)}",
+    )
+
+    # ---- apply_effect: the Shot Manifest's writer (mirror of mayatk's) -------
+    # One plan, one writer, nothing deleted; the recipe's colours only on a
+    # channel it creates.
+    bpy.context.scene.render.fps = 24
+    bpy.context.scene.render.fps_base = 1.0
+    reset()
+    fx = cube("FxBox")
+    _op_path = f'["{RenderEffects.ATTR_NAME}"]'
+    _hl_path = f'["{RenderEffects.HIGHLIGHT_ATTR}"]'
+    _hi, _lo = RenderEffects.HIGHLIGHT_COLOR_STOPS.keys
+
+    def _pts(obj, path):
+        fc = RenderEffects._fcurve(obj, path)
+        return sorted((k.co[0], k.co[1]) for k in fc.keyframe_points) if fc else []
+
+    def _rgb(obj, prop):
+        return [round(c, 6) for c in list(obj[prop])[:3]]
+
+    _fade = _ptk.EffectRecipe(fade_frames=12)
+    written = RenderEffects.apply_effect(fx, "fade_in", 10, 100, _fade, fps=24)
+    RenderEffects.apply_effect(fx, "fade_out", 10, 100, _fade, fps=24)
+    check(
+        "apply_effect: a fade is the recipe's length where it is placed",
+        _pts(fx, _op_path) == [(10.0, 0.0), (22.0, 1.0), (88.0, 1.0), (100.0, 0.0)],
+        detail=f"{_pts(fx, _op_path)}",
+    )
+    check(
+        "apply_effect: returns every key it wrote, the hide_render mirror included",
+        sorted(t for _c, t in written) == [10.0, 10.0, 22.0, 22.0]
+        and len({c for c, _t in written}) == 2,
+        detail=f"{written}",
+    )
+    _pulse = _ptk.EffectRecipe(
+        pulse_period=2.0, pulse_duty=0.5, pulse_bright=(1, 0, 0), pulse_dim=(0, 0, 0.5)
+    )
+    RenderEffects.apply_effect(fx, "pulse", 0, 240, _pulse, fps=24)
+    check(
+        "apply_effect: a pulse keys the recipe's plan over the range",
+        _pts(fx, _hl_path) == _pulse.plan("pulse", 0, 240, 24),
+        detail=f"{_pts(fx, _hl_path)[:4]}",
+    )
+    check(
+        "apply_effect: a channel it creates takes the recipe's colours",
+        _rgb(fx, _hi) == [1.0, 0.0, 0.0] and _rgb(fx, _lo) == [0.0, 0.0, 0.5],
+        detail=f"{_rgb(fx, _hi)} {_rgb(fx, _lo)}",
+    )
+    RenderEffects.set_channel_color([fx], (0.0, 1.0, 0.0))
+    fx[RenderEffects.HIGHLIGHT_ATTR] = 0.5
+    fx.keyframe_insert(data_path=_hl_path, frame=500)  # the animator's
+    RenderEffects.apply_effect(fx, "pulse", 0, 240, _pulse, fps=24)
+    check(
+        "apply_effect: an existing channel keeps its colours",
+        _rgb(fx, _hi) == [0.0, 1.0, 0.0],
+        detail=f"{_rgb(fx, _hi)}",
+    )
+    check(
+        "apply_effect: deletes nothing (the animator's key stays)",
+        (500.0, 0.5) in _pts(fx, _hl_path),
+        detail=f"{_pts(fx, _hl_path)[-3:]}",
+    )
+    try:
+        RenderEffects.apply_effect(fx, "clip", 0, 10)
+        _raised = False
+    except ValueError:
+        _raised = True
+    check("apply_effect: an effect without a channel says so", _raised)
+
+    # The panel's Key and the manifest's build key one recipe: the scene's.
+    _store = RenderEffects.scene_store().active()
+    _recipe_before = _store.effect_recipe
+    _store.update_effect_recipe(fade_frames=8, pulse_period=2.0, pulse_duty=0.5)
+    hand = cube("HandBox")
+    RenderEffects.key_fade([hand], start=20)
+    RenderEffects.key_pulse([hand], start=0, end=240)
+    check(
+        "the hand tools key with the scene recipe",
+        _pts(hand, _op_path) == [(20.0, 0.0), (28.0, 1.0)]
+        and _pts(hand, _hl_path) == _store.effect_recipe.plan("pulse", 0, 240, 24),
+        detail=f"{_pts(hand, _op_path)} {_pts(hand, _hl_path)[:4]}",
+    )
+    _store.effect_recipe = _recipe_before
 
 except Exception as e:
     traceback.print_exc()

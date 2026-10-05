@@ -95,9 +95,8 @@ class TaskManager(
         """Run *tasks*, first adopting the two modes derived from them.
 
         Read off the FULL dict here rather than in
-        ``_execute_tasks_and_checks``: an override that resumes the tasks a
-        failed check stopped hands that method a subset, from which
-        ``optimize_keys_level`` would come back False (see
+        ``_execute_tasks_and_checks``, which a caller may hand a subset: from
+        one without it, ``optimize_keys_level`` would come back False (see
         ``ptk.ExportRun.with_tasks``). Mirror of mayatk's.
         """
         self.run = self.run.with_tasks(tasks)

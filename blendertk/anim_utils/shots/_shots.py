@@ -54,6 +54,11 @@ Divergence from mayatk (by design):
       (Blender only publishes RNA edits from the UI / operators); the hook is
       public as :meth:`BlenderScenePersistence._on_time_unit_changed` for
       callers that change the framerate from script.
+    * **A frame-rate change records the rate and moves nothing.** Blender
+      keys stay on their FRAMES when the rate changes (Maya's keep real time,
+      so the Maya store rescales); the shots and the ledger's claims stay with
+      the keys they bound -- :meth:`BlenderShotStore.rescale_to_fps`, the key
+      stash's rule too.
     * **Deferred flush uses ``bpy.app.timers``** in a GUI session (one
       coalesced write per burst of mutations, mirror of ``cmds.evalDeferred``).
       In ``--background`` the timer loop never runs, so the flush is immediate.
@@ -64,7 +69,9 @@ Divergence from mayatk (by design):
       no-ops are the Blender twins of Maya's session-hook install/remove.
 """
 
+import contextlib
 import logging
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import pythontk as ptk
@@ -72,7 +79,7 @@ import pythontk as ptk
 from pythontk import ShotStore, ShotTransfer
 
 from blendertk.anim_utils.shots._detection import Detection
-from blendertk.anim_utils._anim_utils import AnimUtils
+from blendertk.anim_utils._anim_utils import AnimUtils, _VISIBILITY_PATHS
 from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
 
 _log = logging.getLogger(__name__)
@@ -89,6 +96,10 @@ _TRANSFORM_CHANNELS: Tuple[str, ...] = (
     "rotation_axis_angle",
     "scale",
 )
+
+#: A pose-bone channel's path: ``pose.bones["<name>"]`` (the name escaped as
+#: ``bpy.utils.escape_identifier`` writes it), then the rest of the path.
+_BONE_PATH = re.compile(r'^pose\.bones\["((?:[^"\\]|\\.)*)"\]')
 
 __all__ = ["BlenderShotStore", "BlenderScenePersistence", "Detection"]
 
@@ -117,7 +128,9 @@ class BlenderScenePersistence:
       before the ``.blend`` is written (the deferred-flush timer may not have
       fired yet).
     * ``RenderSettings.fps`` / ``fps_base`` (``bpy.msgbus``) →
-      :meth:`_on_time_unit_changed` rescales shot timings to the new framerate.
+      :meth:`_on_time_unit_changed` hands the new framerate to the store's
+      ``rescale_to_fps`` (which, for the shot store, records it and moves
+      nothing: Blender keys stay on their frames).
 
     The manager's master handlers are ``@persistent``, so the subscriptions
     survive File ▸ New/Open; the msgbus subscription does not and is renewed
@@ -137,7 +150,7 @@ class BlenderScenePersistence:
         Parameters:
             attr_name: The private record's key (default ``shot_store``).
             store_cls: The active-store class this backend serves — invalidated
-                on file load, flushed before save, rescaled on a frame-rate
+                on file load, flushed before save, told of a frame-rate
                 change.  Defaults to :class:`BlenderShotStore`; the key stash
                 passes its own class so both stores ride the scene on separate
                 channels without reacting to each other's events (mirror of
@@ -245,12 +258,14 @@ class BlenderScenePersistence:
         self._install_fps_watch()
 
     def _on_time_unit_changed(self, *args) -> None:
-        """Rescale shot timings when the scene framerate changes (mirror of mayatk).
+        """Hand a scene framerate change to the store's ``rescale_to_fps``
+        (mirror of mayatk's hook; what the store does with it is its own:
+        :meth:`BlenderShotStore.rescale_to_fps` records the rate only).
 
         No ``isReadingFile`` guard is needed: the msgbus watch is cleared at
         the start of a file load and only re-armed after the ``SceneOpened``
-        invalidation, so the OLD scene's store can never be rescaled onto the
-        NEW scene's carrier.
+        invalidation, so the OLD scene's store can never be told of the NEW
+        scene's rate.
         """
         store = self.store_cls._active
         if store is None or store.is_empty():
@@ -357,16 +372,25 @@ class _BlenderShotStoreInternal(object):
     @staticmethod
     def _is_transform_path(data_path: str) -> bool:
         """True if *data_path* is shot content: an object/bone transform
-        channel, or a render-effect property (``RenderEffects.PROP_PATHS`` --
-        deliverable animation, so a pulse keyed inside a shot is that shot's
-        content and travels with it; any other custom property, a marker such
-        as ``["audio_trigger"]``, never makes an object look animated).
+        channel, an object's visibility (``hide_viewport`` / ``hide_render``,
+        Maya's ``visibility``), or a render-effect property
+        (``RenderEffects.PROP_PATHS`` -- deliverable animation, so a pulse
+        keyed inside a shot is that shot's content and travels with it; any
+        other custom property, a marker such as ``["audio_trigger"]``, never
+        makes an object look animated).
 
-        The one predicate membership, detection, the tracks and the movers'
-        content walk share (mayatk: ``Detection.first_standard_destination``
-        over ``CONTENT_ATTRS``).
+        The one predicate membership, detection and the movers' content walk
+        share (mayatk: ``Detection.first_standard_destination`` over
+        ``CONTENT_ATTRS``, which is ``TRANSFORM_CHANNELS`` -- visibility
+        included -- plus the render-effect attributes).  What the sequencer
+        DRAWS is wider: every keyed channel, as Maya lists every animCurve on
+        the node.
         """
-        if data_path in _TRANSFORM_CHANNELS or data_path in RenderEffects.PROP_PATHS:
+        if (
+            data_path in _TRANSFORM_CHANNELS
+            or data_path in _VISIBILITY_PATHS
+            or data_path in RenderEffects.PROP_PATHS
+        ):
             return True
         return any(data_path.endswith("." + c) for c in _TRANSFORM_CHANNELS)
 
@@ -455,6 +479,155 @@ class _BlenderShotStoreInternal(object):
             return None
         return bpy.context.scene
 
+    # ---- rename follow (:meth:`BlenderShotStore.follow_renames`) -----------
+
+    @staticmethod
+    def _scene_names() -> Tuple[Dict[int, str], Dict[int, Tuple[str, ...]]]:
+        """``({session_uid: name}, {session_uid: bone names})`` for every object
+        in the file -- bones for armatures, in list order -- or two empty maps
+        outside Blender.  ``ID.session_uid`` is what a rename keeps, through
+        undo too, and Blender never hands one out twice in a session (a file
+        load gives every ID a new one), so it is the identity a rename is
+        followed by."""
+        try:
+            import bpy
+
+            objects = list(bpy.data.objects)
+        except Exception:  # no bpy, or bpy.data restricted (add-on register)
+            return {}, {}
+        names: Dict[int, str] = {}
+        bones: Dict[int, Tuple[str, ...]] = {}
+        for obj in objects:
+            uid = obj.session_uid
+            names[uid] = obj.name
+            if obj.type == "ARMATURE" and obj.data is not None:
+                bones[uid] = tuple(b.name for b in obj.data.bones)
+        return names, bones
+
+    @staticmethod
+    def _remember_names(seen_names: dict, seen_bones: dict, names, bones) -> None:
+        """Fold the file's current *names* / *bones* (:meth:`_scene_names`)
+        into the history maps, in place: *seen_names* ``{name: session_uid}``
+        -- each name's latest bearer -- and *seen_bones* ``{(armature uid,
+        bone name): list index}``.  A history, not the last look: a restore
+        point an undo puts back can name an object as it was called several
+        renames ago."""
+        for uid, name in names.items():
+            seen_names[name] = uid
+        for uid, bone_names in bones.items():
+            for i, bone in enumerate(bone_names):
+                seen_bones[(uid, bone)] = i
+
+    @staticmethod
+    def _uid_renames(stale, seen_names: dict, names: Dict[int, str]) -> dict:
+        """``{old: new}`` for each *stale* name whose latest bearer this
+        session (*seen_names*) is still in the file, under another name."""
+        out = {}
+        for old in stale:
+            new = names.get(seen_names.get(old))
+            if new is not None and new != old:
+                out[old] = new
+        return out
+
+    @staticmethod
+    def _slot_renames(stale) -> dict:
+        """``{old name: new name}`` for the *stale* names an action slot answers for.
+
+        Blender names an object's action slot after the object when it is
+        first keyed (``OB<name>``; legacy actions: ``<name>Action``) and a
+        rename leaves both as they were -- the twin of the anim curves Maya
+        named after the old node, and the evidence for a rename this session
+        never saw.  Exactly one object must answer: a slot two objects share
+        (a linked duplicate, or a Shift+D copy of the action) cannot say which
+        one was renamed.  One scan of the objects for every stale name.
+        """
+        import bpy
+
+        claims: dict = {}
+        for obj in bpy.data.objects:
+            ad = obj.animation_data
+            if ad is None or ad.action is None:
+                continue
+            slot = getattr(ad, "action_slot", None)
+            if slot is not None:
+                old = slot.name_display
+            elif ad.action.name.endswith("Action"):
+                old = ad.action.name[: -len("Action")]
+            else:
+                continue
+            if old in stale and obj.name != old:
+                claims.setdefault(old, []).append(obj.name)
+        return {old: hits[0] for old, hits in claims.items() if len(hits) == 1}
+
+    @staticmethod
+    def _bone_rename(seen_bones: dict, bones: dict, uid, old: str) -> Optional[str]:
+        """The name armature *uid*'s bone *old* bears now, or ``None``.
+
+        Read off its place in the bone list, which a rename keeps: the bone
+        now where *old* was last seen, when *old* itself is gone -- and only
+        a name never seen elsewhere in the list, so a bone that merely moved
+        up into the place is not read as the renamed one.
+        """
+        i = seen_bones.get((uid, old))
+        now = bones.get(uid) or ()
+        if i is None or i >= len(now) or old in now:
+            return None
+        new = now[i]
+        return new if seen_bones.get((uid, new), i) == i else None
+
+    @staticmethod
+    def _path_bone(data_path: str) -> Optional[Tuple[str, str]]:
+        """``(bone name, rest of the path)`` for a pose-bone channel, else ``None``."""
+        m = _BONE_PATH.match(data_path)
+        if m is None:
+            return None
+        return re.sub(r"\\(.)", r"\1", m.group(1)), data_path[m.end() :]
+
+    @staticmethod
+    def _bone_gone(obj, data_path: str) -> bool:
+        """True when *data_path* names a pose bone *obj* no longer has."""
+        parsed = _BlenderShotStoreInternal._path_bone(data_path)
+        if parsed is None:
+            return False
+        pose = getattr(obj, "pose", None)
+        return pose is None or pose.bones.get(parsed[0]) is None
+
+    @staticmethod
+    def _has_fcurve(obj_name: str, data_path: str, index: int) -> bool:
+        """Whether *obj_name* is driven by an fcurve on ``data_path[index]``."""
+        import bpy
+
+        obj = bpy.data.objects.get(obj_name)
+        return obj is not None and any(
+            fc.data_path == data_path and fc.array_index == index
+            for fc in BlenderShotStore.iter_action_fcurves(obj)
+        )
+
+    @staticmethod
+    def _renamed_curve_key(key: str, renames: dict, bone_rename) -> str:
+        """Ledger *key* (``<object>|<data_path>|<index>``) under its object's
+        new name (*renames*) and, for a renamed bone's channel, the path
+        Blender rewrote it to (``bone_rename(object, bone) -> new or None``)
+        -- taken only when the old path drives nothing and the new one does,
+        so a bone deleted and another added is never read as one."""
+        try:
+            obj_name, data_path, index = key.rsplit("|", 2)
+        except ValueError:
+            return key
+        obj_name = renames.get(obj_name, obj_name)
+        parsed = _BlenderShotStoreInternal._path_bone(data_path)
+        new_bone = bone_rename(obj_name, parsed[0]) if parsed is not None else None
+        if new_bone is not None and index.isdigit():
+            import bpy
+
+            i = int(index)
+            moved = f'pose.bones["{bpy.utils.escape_identifier(new_bone)}"]{parsed[1]}'
+            if not _BlenderShotStoreInternal._has_fcurve(
+                obj_name, data_path, i
+            ) and _BlenderShotStoreInternal._has_fcurve(obj_name, moved, i):
+                data_path = moved
+        return f"{obj_name}|{data_path}|{index}"
+
 
 class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
     """:class:`pythontk.ShotStore` with the scene hooks bound to Blender.
@@ -468,6 +641,222 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
 
     #: A deferred flush is already queued on ``bpy.app.timers`` (coalescing flag).
     _flush_pending: bool = False
+
+    def __init__(self, shots=None):
+        super().__init__(shots)
+        # Every name an object (and an armature's bone) has borne while this
+        # store held the file -- what :meth:`follow_renames` reads a rename
+        # off; seeded with the names as they are now.
+        self._seen_names: Dict[str, int] = {}
+        self._seen_bones: Dict[Tuple[int, str], int] = {}
+        self._remember_names(self._seen_names, self._seen_bones, *self._scene_names())
+
+    def resolve_member(self, name: str) -> Tuple[str, str]:
+        """Resolve a doc object *name* to one scene object.
+
+        Exact first; then, for a name written without a namespace, the object
+        whose :meth:`~pythontk.ShotStore.member_key` it is -- an FBX from Maya
+        names its objects ``AC:door_geo`` for the doc's ``door_geo`` (mirror
+        of mayatk's).  Returns ``(object name, "found")``, or ``(name,
+        "missing")`` / ``(name, "ambiguous")``: several objects answering to
+        it is a finding, never a silent pick.
+        """
+        try:
+            import bpy
+        except ImportError:
+            return str(name), "found"
+        name = str(name)
+        if name in bpy.data.objects:
+            return name, "found"
+        hits = []
+        if ":" not in name:
+            hits = [o.name for o in bpy.data.objects if self.member_key(o.name) == name]
+        if len(hits) == 1:
+            return hits[0], "found"
+        return name, ("ambiguous" if hits else "missing")
+
+    @staticmethod
+    def curve_key(obj_name: str, data_path: str, index: int = 0) -> str:
+        """Stable ledger key for an fcurve: owner plus channel identity.
+
+        Maya claims are keyed by anim-curve NODE name; a Blender fcurve has no
+        name, so this stands in -- the one spelling the sequencer and the
+        manifest's behavior keys share.
+        """
+        return f"{obj_name}|{data_path}|{index}"
+
+    def follow_renames(self) -> bool:
+        """Re-point everything this store names an object by at its new name.
+
+        Blender keys what the shot system stores by object NAME -- shot
+        members, the hidden / pinned / locked sets and the edit ledger's
+        claims (:meth:`curve_key`) -- so a rename leaves them naming an object
+        that is no longer there, and the passes that forget a claim they
+        cannot resolve (the sequencer's gap-hold and boundary-sample
+        reconciles) dropped it with the rename: the hold the system wrote read
+        as the animator's from then on.  The store's half of mayatk's
+        stale-path reconcile, run before every shot edit (:meth:`scene_edit`),
+        by the sequencer's rebuild and content moves, by the passes that
+        forget, and by :meth:`export_transfer` -- whoever renamed the object,
+        panel open or not.
+
+        A rename is read off ``ID.session_uid``, which a rename keeps (through
+        undo too), against every name the store has seen an object bear --
+        when it was made and at every pass since -- so any rename is followed
+        under any name, a Shift+D copy beside it included, and so is a name a
+        restore point brings back from several renames ago.  A name the store
+        held before it saw the object falls back to the action slot
+        (:meth:`_slot_renames`), which still knows the object's first name in
+        a later session.  A renamed BONE re-keys the claims on its channels:
+        Blender rewrites the fcurve's path (``pose.bones["Arm"]`` to
+        ``pose.bones["Arm_L"]``), and the ledger key follows it.
+
+        A name nothing answers for is kept as stored: renamed and deleted look
+        the same from a name, dropping membership is irreversible, and
+        ``assess`` surfaces deletions.
+
+        Returns:
+            ``True`` if anything was re-pointed.
+        """
+        try:
+            import bpy  # noqa: F401
+        except ImportError:
+            return False
+        names, bones = self._scene_names()
+        if not names:
+            return False  # no object in the file (or none readable) to follow to
+        ledger = self.edit_ledger
+        referenced = {o for shot in self.shots for o in shot.objects}
+        referenced |= {k.rsplit("|", 2)[0] for k in ledger.curves if k.count("|") >= 2}
+        for attr in ("hidden_objects", "pinned_objects", "locked_objects"):
+            referenced |= set(getattr(self, attr, None) or ())
+        stale = referenced - set(names.values())
+        renames = self._uid_renames(stale, self._seen_names, names)
+        rest = stale - set(renames)
+        if rest:
+            # Never an object the session already followed under another name.
+            taken = set(renames.values())
+            renames.update(
+                (old, new)
+                for old, new in self._slot_renames(rest).items()
+                if new not in taken
+            )
+        uids = {name: uid for uid, name in names.items()}
+        live_bones = {uid: set(bone_names) for uid, bone_names in bones.items()}
+
+        def bone_rename(obj_name, bone):
+            uid = uids.get(obj_name)
+            if uid is None or bone in live_bones.get(uid, ()):
+                return None  # not an object in the file, or the bone is there
+            return self._bone_rename(self._seen_bones, bones, uid, bone)
+
+        rekeyed = {}
+        for key in ledger.curves:
+            new = self._renamed_curve_key(key, renames, bone_rename)
+            if new != key:
+                rekeyed[key] = new
+        # The history takes the names as they are now only after it was read.
+        self._remember_names(self._seen_names, self._seen_bones, names, bones)
+        if not renames and not rekeyed:
+            return False
+        with self.batch_update():
+            for shot in self.shots:
+                objects = sorted({renames.get(o, o) for o in shot.objects})
+                if objects != sorted(shot.objects):
+                    self.update_shot(shot.shot_id, objects=objects)
+            for attr in ("hidden_objects", "pinned_objects", "locked_objects"):
+                held = getattr(self, attr, None)
+                if held and held & set(renames):
+                    setattr(self, attr, {renames.get(n, n) for n in held})
+            for old in sorted(rekeyed):
+                ledger.rename_curve(old, rekeyed[old])
+            self.mark_dirty()
+        return True
+
+    #: Scene ID property every shot edit stamps INSIDE its undo step.  Maya
+    #: pairs a restore point with its edit by the undo chunk's name; Blender's
+    #: undo has no step names Python can read, but memfile undo restores an
+    #: ID property -- so this value moves exactly when one of OUR steps is
+    #: undone or redone, and never for anybody else's.  Leading underscore:
+    #: kept out of the Custom Properties panel.
+    EDIT_SERIAL_PROP = "_btk_shot_edit_serial"
+    #: Highest serial handed out this session.  A stamp is one past the larger
+    #: of this and the scene's own, so an undo (which winds the scene value
+    #: back) never lets a new edit reuse a serial a redo point still names.
+    _serial_floor = 0
+
+    @classmethod
+    def edit_serial(cls) -> int:
+        """The current scene's edit serial (0 before any shot edit, or no bpy)."""
+        try:
+            import bpy
+        except ImportError:
+            return 0
+        scene = bpy.context.scene
+        return int(scene.get(cls.EDIT_SERIAL_PROP, 0)) if scene is not None else 0
+
+    @classmethod
+    def _stamp_edit_serial(cls) -> int:
+        """Write a fresh serial into the current scene and return it."""
+        try:
+            import bpy
+        except ImportError:
+            return 0
+        scene = bpy.context.scene
+        if scene is None:
+            return 0
+        n = max(cls._serial_floor, int(scene.get(cls.EDIT_SERIAL_PROP, 0))) + 1
+        BlenderShotStore._serial_floor = n
+        scene[cls.EDIT_SERIAL_PROP] = n
+        return n
+
+    @contextlib.contextmanager
+    def scene_edit(self, label: str = "edit", snapshot: bool = True):
+        """Run a shot edit as one undo step with a boundary restore point.
+
+        Mirror of mayatk's ``ShotStore.scene_edit``: a restore point (the
+        full shot records and edit ledger) is pushed before the body, which
+        runs inside :meth:`CoreUtils.undo_chunk` named *label*, and the point
+        is tagged ``(paired, marker)`` as mayatk's is.  The marker is the
+        :attr:`EDIT_SERIAL_PROP` value stamped inside the step (mayatk's is
+        the chunk name), which is how the undo/redo handlers tell OUR step
+        from anybody else's (``_native_event_is_ours``).
+
+        Yields a handle: ``cancel()`` declares the edit a no-op, which drops
+        the restore point and pushes no undo step -- the twin of Maya
+        discarding an empty chunk, which Blender does not do on its own.
+        Pass ``snapshot=False`` for an edit that must not record a restore
+        point (it then only supplies the named step).
+
+        Renames made since the last pass are followed first
+        (:meth:`follow_renames`), so the edit and its restore point name every
+        object as the scene does now; and the store's record is written
+        INSIDE the step (a GUI session defers that write to a timer that ran
+        after the push, so the step held the record from before the edit and
+        undoing whatever came next put it back).
+        """
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        self.follow_renames()
+        if snapshot:
+            self.push_boundary_snapshot()
+        marker = chunk = None
+        try:
+            with CoreUtils.undo_chunk(label) as chunk:
+                try:
+                    yield chunk
+                finally:
+                    # Inside the step, and even when the body raised: a refused
+                    # drag may already have rippled (mayatk tags in its finally).
+                    self._flush_dirty()
+                    if snapshot and not chunk.cancelled:
+                        marker = self._stamp_edit_serial()
+        finally:
+            if snapshot and chunk is not None:
+                if chunk.cancelled:
+                    self.discard_boundary_snapshot()
+                elif marker is not None:
+                    self.tag_boundary_snapshot((True, marker))
 
     @classmethod
     def active(cls) -> "BlenderShotStore":
@@ -486,6 +875,17 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
     def _scene_fps(self) -> float:
         """Effective scene framerate: ``render.fps / render.fps_base``."""
         return _BlenderShotStoreInternal._get_scene_fps()
+
+    def rescale_to_fps(self, new_fps: float) -> None:
+        """Record the new rate only: Blender keys stay on their frames when the
+        frame rate changes, so the shots and the ledger's claims stay with them
+        (the key stash's rule; the Maya twin's keys keep real time, so mayatk
+        rescales the shots to follow them -- either way, shots stay with their
+        keys)."""
+        if abs(float(new_fps) - self.scene_fps) < 0.01:
+            return
+        self.scene_fps = float(new_fps)
+        self.mark_dirty()
 
     def _schedule_flush(self) -> None:
         """Coalesce rapid mutations into a single deferred write (mirror of mayatk).
@@ -766,8 +1166,12 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
             names = [
                 o if isinstance(o, str) else getattr(o, "name", "") for o in objects
             ]
+        store = cls.active()
+        # Shipped under the names the carrier writes: a stale one would land
+        # its memberships and claims on nothing (:meth:`follow_renames`).
+        store.follow_renames()
         return ShotTransfer.encode(
-            cls.active().to_dict(),
+            store.to_dict(),
             spell=spell or str,
             curve_ref=cls._curve_ref,
             objects=names,
@@ -922,6 +1326,15 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
         store from it, as a file open does.  Mirror of mayatk's."""
         if ptk.SceneRecords.SHOT_STORE in other:
             cls.invalidate()
+
+    @classmethod
+    def discard_carrier(cls, carriers, other, ctx) -> None:
+        """Another scene's shots were dropped with their carrier: the same
+        reload (:meth:`merge_carrier`) -- the active store may hold them, as
+        a carrier the import adopted was this scene's own until then.  Mirror
+        of mayatk's; the scene-records dispatcher calls it on a discarded
+        import, and without it the active store kept the dropped shots."""
+        cls.merge_carrier(carriers, other, ctx)
 
     # ---- scene acquisition (5.1 slotted-action API) -----------------------
 

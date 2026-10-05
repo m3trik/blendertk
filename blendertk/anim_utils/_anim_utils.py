@@ -296,20 +296,166 @@ class _AnimUtilsInternal(object):
         if target_time is not None:
             earliest = min(x for pts in keys_by_path.values() for x, _v in pts)
             offset = target_time - earliest
+        tangents = buffer.get("tangents") or {}
+        extrapolation = buffer.get("extrapolation") or {}
         pasted = []
         for o in ptk.make_iterable(objects):
             touched = False
-            for (data_path, array_index), pts in keys_by_path.items():
+            for path, pts in keys_by_path.items():
+                data_path, array_index = path
+                written = []
                 for x, y in pts:
                     if not _AnimUtilsInternal._set_path_value(
                         o, data_path, array_index, y
                     ):
                         continue
                     o.keyframe_insert(data_path, index=array_index, frame=x + offset)
+                    written.append(x + offset)
                     touched = True
+                if written and (path in tangents or path in extrapolation):
+                    _AnimUtilsInternal._restore_pasted_tangents(
+                        o,
+                        path,
+                        written,
+                        tangents.get(path) or [],
+                        extrapolation.get(path),
+                    )
             if touched:
                 pasted.append(o)
         return pasted
+
+    @staticmethod
+    def _restore_pasted_tangents(obj, path, frames, details, extrapolation):
+        """Give the keys :meth:`_paste_selected_keys` just wrote on *obj* the shape
+        they were copied with: interpolation, easing, handle types and the handle
+        offsets from their key, plus the curve's extrapolation (mayatk's paste of a
+        ``tangent_detail`` copy restores the same)."""
+        data_path, array_index = path
+        fc = next(
+            (
+                c
+                for c in AnimUtils.get_fcurves([obj])
+                if c.data_path == data_path and c.array_index == array_index
+            ),
+            None,
+        )
+        if fc is None:
+            return
+        if extrapolation:
+            fc.extrapolation = extrapolation
+        for frame, detail in zip(frames, details):
+            k = next(
+                (p for p in fc.keyframe_points if abs(p.co.x - frame) < 1e-4), None
+            )
+            if k is None:
+                continue
+            k.interpolation = detail["interpolation"]
+            k.easing = detail["easing"]
+            k.handle_left_type = detail["handle_left_type"]
+            k.handle_right_type = detail["handle_right_type"]
+            k.handle_left = (
+                k.co.x + detail["handle_left"][0],
+                k.co.y + detail["handle_left"][1],
+            )
+            k.handle_right = (
+                k.co.x + detail["handle_right"][0],
+                k.co.y + detail["handle_right"][1],
+            )
+        fc.update()
+
+    @staticmethod
+    def _invert_selected(
+        fcurves, do_time, do_value, value_pivot, on_replace=None
+    ) -> int:
+        """Body of ``AnimUtils.invert_keys(selected_only=True)``: mirror the selected
+        points of *fcurves* in place over the selection's combined ``[min, max]``
+        (*on_replace*: see ``invert_keys``)."""
+        picked = []
+        for fc in fcurves:
+            pts = sorted(
+                (k for k in fc.keyframe_points if k.select_control_point),
+                key=lambda k: k.co.x,
+            )
+            if pts:
+                picked.append((fc, pts))
+        if not picked:
+            return 0
+        times = [k.co.x for _fc, pts in picked for k in pts]
+        span = min(times) + max(times)  # t' = span - t
+        n = 0
+        for fc, pts in picked:
+            snap = [
+                (
+                    k.co.x,
+                    k.co.y,
+                    k.interpolation,
+                    k.easing,
+                    k.handle_left_type,
+                    k.handle_right_type,
+                    tuple(k.handle_left),
+                    tuple(k.handle_right),
+                )
+                for k in pts
+            ]
+            if do_time and len(snap) > 1:
+                # A segment's interpolation lives on the key BEFORE it; after
+                # the flip that segment starts at the key that used to end it,
+                # so the run's modes rotate one place (the last key's outgoing
+                # mode passes to the key now standing where it stood).
+                modes = [(row[2], row[3]) for row in snap]
+                modes = [modes[-1]] + modes[:-1]
+            else:
+                modes = [(row[2], row[3]) for row in snap]
+            for k, row, (interp, easing) in zip(pts, snap, modes):
+                x, y, _i, _e, hlt, hrt, hl, hr = row
+                if do_time:
+                    hl, hr = (span - hr[0], hr[1]), (span - hl[0], hl[1])
+                    hlt, hrt = hrt, hlt
+                    x = span - x
+                if do_value:
+                    y = 2.0 * value_pivot - y
+                    hl = (hl[0], 2.0 * value_pivot - hl[1])
+                    hr = (hr[0], 2.0 * value_pivot - hr[1])
+                k.co = (x, y)
+                k.interpolation = interp
+                k.easing = easing
+                k.handle_left_type, k.handle_right_type = hlt, hrt
+                k.handle_left, k.handle_right = hl, hr
+            n += len(pts)
+            replaced = _AnimUtilsInternal._merge_onto_moved(fc, pts)
+            fc.update()
+            if replaced and on_replace is not None:
+                on_replace(fc, replaced)
+        return n
+
+    @staticmethod
+    def _merge_onto_moved(fc, moved, eps=1e-4) -> list:
+        """Remove the points of *fc* NOT in *moved* that share a frame with one in it.
+
+        The Graph Editor's auto-merge, and Maya's ``setKeyframe`` overwrite: a key
+        moved onto an occupied frame replaces the one that was there instead of
+        stacking two points on one frame.  Removed last-first: a removal shifts
+        the points after it, so a reference to a later point would go stale.
+        Returns the frames of the points removed (a caller with claims on
+        them releases those).
+        """
+        landing = sorted(k.co.x for k in moved)
+        if not landing:
+            return []
+        import bisect
+
+        ptrs = {k.as_pointer() for k in moved}
+        doomed = []
+        for k in fc.keyframe_points:
+            if k.as_pointer() in ptrs:
+                continue
+            i = bisect.bisect_left(landing, k.co.x - eps)
+            if i < len(landing) and abs(landing[i] - k.co.x) <= eps:
+                doomed.append(k)
+        frames = [float(k.co.x) for k in doomed]
+        for k in reversed(doomed):
+            fc.keyframe_points.remove(k, fast=True)
+        return frames
 
     @staticmethod
     def _remove_fcurve(action, slot, fc):
@@ -1175,33 +1321,67 @@ class AnimUtils(_AnimUtilsInternal):
         return moved
 
     @staticmethod
-    def align_selected_keyframes(objects, target_frame=None, use_earliest=True):
-        """Move the SELECTED keyframes (``select_control_point``, e.g. picked in the Dope Sheet /
-        Graph Editor) to one frame — mirror of ``mtk.align_selected_keyframes``. Auto target =
-        the earliest (or latest) selected frame. Returns the number of keys moved (0 = none
-        selected)."""
-        selected = [
-            (fc, k)
-            for fc in _AnimUtilsInternal._fcurves(objects)
-            for k in fc.keyframe_points
-            if k.select_control_point
+    def align_selected_keyframes(
+        objects, target_frame=None, use_earliest=True, on_replace=None
+    ):
+        """Shift each object's SELECTED keyframes (``select_control_point``, e.g. picked in
+        the Dope Sheet / Graph Editor) so every object's selection starts on one frame --
+        mirror of ``mtk.align_selected_keyframes``.
+
+        Each object's selection moves as ONE block, keeping its spacing, and keys that are
+        not selected stay put (a key the block lands on is replaced, as the Graph Editor's
+        auto-merge does).  The auto target is the earliest (or, ``use_earliest=False``, the
+        latest) per-object selection START; *target_frame* overrides it.  An fcurve passed
+        in aligns with the other curves of its own action.  *on_replace* is called as
+        ``on_replace(fcurve, frames)`` with the frames of the keys a moved key replaced,
+        for a caller holding something on them (the shot system's claims).
+
+        Returns the number of keys moved (0 = nothing selected, or already aligned).
+        """
+        objs, curves = [], []
+        for o in ptk.make_iterable(objects):
+            (curves if _AnimUtilsInternal._is_fcurve(o) else objs).append(o)
+        groups = [
+            _AnimUtilsInternal._slot_fcurves(action, slot)
+            for _o, action, slot in _AnimUtilsInternal._owned_actions(objs)
         ]
-        if not selected:
+        by_action = {}
+        for fc in curves:
+            by_action.setdefault(fc.id_data.as_pointer(), []).append(fc)
+        groups.extend(by_action.values())
+
+        blocks = []  # [(start, [(fc, [selected points])])]
+        for fcurves in groups:
+            picked = []
+            for fc in fcurves:
+                pts = [k for k in fc.keyframe_points if k.select_control_point]
+                if pts:
+                    picked.append((fc, pts))
+            if picked:
+                start = min(k.co.x for _fc, pts in picked for k in pts)
+                blocks.append((start, picked))
+        if not blocks:
             return 0
-        frames = [k.co.x for _fc, k in selected]
-        target = (
-            target_frame
-            if target_frame is not None
-            else (min(frames) if use_earliest else max(frames))
-        )
-        for fc, k in selected:
-            delta = target - k.co.x
-            k.co.x = target
-            k.handle_left.x += delta
-            k.handle_right.x += delta
-        for fc, _k in selected:
-            fc.update()
-        return len(selected)
+        if target_frame is None:
+            starts = [start for start, _picked in blocks]
+            target_frame = min(starts) if use_earliest else max(starts)
+
+        moved = 0
+        for start, picked in blocks:
+            delta = target_frame - start
+            if abs(delta) < 1e-6:
+                continue
+            for fc, pts in picked:
+                for k in pts:
+                    k.co.x += delta
+                    k.handle_left.x += delta
+                    k.handle_right.x += delta
+                moved += len(pts)
+                replaced = _AnimUtilsInternal._merge_onto_moved(fc, pts)
+                fc.update()
+                if replaced and on_replace is not None:
+                    on_replace(fc, replaced)
+        return moved
 
     @staticmethod
     def set_visibility_keys(
@@ -1331,7 +1511,10 @@ class AnimUtils(_AnimUtilsInternal):
         """Remove every key strictly between each fcurve's first and last (keeps only the
         endpoints) — mirror of ``mtk.remove_intermediate_keys``. Returns keys removed.
 
-        * ``time_range`` — a ``(start, end)`` window; only interior keys inside it are removed.
+        * ``time_range`` — a ``(start, end)`` window; only interior keys STRICTLY inside it are
+          removed, so a key sitting on either end survives, as mayatk cuts
+          ``(start + 0.001, end - 0.001)``.  The shot sequencer hands the key selection's own
+          span here, and the selection's first and last keys are the ones it keeps.
         * ``ignore_visibility`` — skip ``hide_viewport``/``hide_render`` curves.
         """
         removed = 0
@@ -1345,7 +1528,10 @@ class AnimUtils(_AnimUtilsInternal):
             # (index 0 and the last) are never touched.
             for i in range(len(pts) - 2, 0, -1):
                 x = pts[i].co.x
-                if time_range is None or time_range[0] <= x <= time_range[1]:
+                if (
+                    time_range is None
+                    or time_range[0] + 1e-3 < x < time_range[1] - 1e-3
+                ):
                     pts.remove(pts[i], fast=True)
                     removed += 1
             fc.update()
@@ -1394,6 +1580,8 @@ class AnimUtils(_AnimUtilsInternal):
         start_frame=None,
         relative=True,
         delete_original=False,
+        selected_only=False,
+        on_replace=None,
     ):
         """Mirror keys to reverse motion — Blender analogue of Maya's invert (modes mirror its X/Y/both
         time/value/both, plus the reversed-copy semantics of Maya's ``time``/``relative``/
@@ -1407,9 +1595,27 @@ class AnimUtils(_AnimUtilsInternal):
         ``delete_original`` is set (a source key that lands on the same frame+value as a copy key is
         never removed — the copy already occupies that point). ``mode`` picks what gets mirrored:
         ``'time'`` (frames), ``'value'`` (about ``value_pivot``), or ``'both'``. Pure
-        ``keyframe_points`` math → headless-safe."""
+        ``keyframe_points`` math → headless-safe.
+
+        ``selected_only`` mirrors only the keyframe points selected in the Dope Sheet / Graph
+        Editor, in place, over the combined range of every selected key -- mayatk's
+        invert-with-a-selection: ``t' = min + max - t``, the unselected keys stay put, a key
+        landing on one replaces it, and on a time flip each segment's interpolation is
+        re-homed to the key that now precedes it (a ``CONSTANT`` hold stays a hold of the
+        same span).  *objects* may then be fcurves (the channels to read).  Returns the
+        number of keys mirrored; ``start_frame`` / ``relative`` / ``delete_original`` do not
+        apply, and *on_replace* is called as ``on_replace(fcurve, frames)`` with the frames
+        of the unselected keys a mirrored one replaced (as ``align_selected_keyframes``)."""
         do_time = mode in ("time", "both")
         do_value = mode in ("value", "both")
+        if selected_only:
+            return _AnimUtilsInternal._invert_selected(
+                _AnimUtilsInternal._fcurves(objects),
+                do_time,
+                do_value,
+                value_pivot,
+                on_replace,
+            )
         for action, slot in _AnimUtilsInternal._actions(objects):
             fcurves = _AnimUtilsInternal._slot_fcurves(action, slot)
             rng = _AnimUtilsInternal._key_range(fcurves)
@@ -1538,8 +1744,12 @@ class AnimUtils(_AnimUtilsInternal):
             for k in fc.keyframe_points:
                 if selected_only and not k.select_control_point:
                     continue
+                # Inclusive with a slop: ``co.x`` is float32, so a fractional
+                # key read back (10.4 -> 10.3999996) falls just outside a range
+                # built from the frame it was keyed on -- exactly the keys a
+                # snap exists for.
                 if time_range is not None and not (
-                    time_range[0] <= k.co.x <= time_range[1]
+                    time_range[0] - 1e-3 <= k.co.x <= time_range[1] + 1e-3
                 ):
                     continue
                 r = ptk.MathUtils.round_value(k.co.x, mode=method)
@@ -1689,16 +1899,42 @@ class AnimUtils(_AnimUtilsInternal):
             )
 
         if mode == "selected":
-            keys = {}
+            keys, tangents, extrapolation = {}, {}, {}
             for fc in AnimUtils.get_fcurves([source]):
-                pts = [
-                    (k.co.x, k.co.y)
-                    for k in fc.keyframe_points
-                    if k.select_control_point
+                sel = [k for k in fc.keyframe_points if k.select_control_point]
+                if not sel:
+                    continue
+                path = (fc.data_path, fc.array_index)
+                keys[path] = [(k.co.x, k.co.y) for k in sel]
+                # mayatk copies with ``tangent_detail``: the shape travels with
+                # the keys.  Kept beside the (frame, value) pairs, which stay
+                # the buffer's documented shape.
+                tangents[path] = [
+                    {
+                        "interpolation": k.interpolation,
+                        "easing": k.easing,
+                        "handle_left_type": k.handle_left_type,
+                        "handle_right_type": k.handle_right_type,
+                        "handle_left": (
+                            k.handle_left.x - k.co.x,
+                            k.handle_left.y - k.co.y,
+                        ),
+                        "handle_right": (
+                            k.handle_right.x - k.co.x,
+                            k.handle_right.y - k.co.y,
+                        ),
+                    }
+                    for k in sel
                 ]
-                if pts:
-                    keys[(fc.data_path, fc.array_index)] = pts
-            return {"mode": "selected", "keys": keys} if keys else None
+                extrapolation[path] = fc.extrapolation
+            if not keys:
+                return None
+            return {
+                "mode": "selected",
+                "keys": keys,
+                "tangents": tangents,
+                "extrapolation": extrapolation,
+            }
 
         raise ValueError(f"Unknown copy_keys mode: {mode!r}")
 
@@ -1913,7 +2149,8 @@ class AnimUtils(_AnimUtilsInternal):
             if selected_only and not key.select_control_point:
                 return False
             if time_range is not None:
-                return time_range[0] <= key.co.x <= time_range[1]
+                # Slop for float32 ``co.x`` (see :meth:`snap_keys`).
+                return time_range[0] - 1e-3 <= key.co.x <= time_range[1] + 1e-3
             return True
 
         scoped = time_range is not None or selected_only
@@ -1973,7 +2210,8 @@ class AnimUtils(_AnimUtilsInternal):
             if selected_only and not key.select_control_point:
                 return False
             if time_range is not None:
-                return time_range[0] <= key.co.x <= time_range[1]
+                # Slop for float32 ``co.x`` (see :meth:`snap_keys`).
+                return time_range[0] - 1e-3 <= key.co.x <= time_range[1] + 1e-3
             return True
 
         def protected(fc):

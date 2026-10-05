@@ -265,17 +265,28 @@ class EnvUtils(_EnvUtilsInternal):
 
     @staticmethod
     def remove_library(library):
-        """Remove a library and everything linked from it (datablock or name). Returns True on success."""
+        """Remove a library and everything linked from it (datablock or name). Returns True on success.
+
+        The local collection-instance Empties that instance its collections go with it (the
+        ones :meth:`link_blend_file` creates): they belong to this file, so removing the
+        library alone left each one behind instancing nothing -- one more per Reference
+        Manager row click, now that the row selection is the reference set.
+        """
         import bpy
 
         lib = bpy.data.libraries.get(library) if isinstance(library, str) else library
         if lib is None:
             return False
         try:
+            instancers = [
+                o for o in _EnvUtilsInternal._library_objects(lib) if o.library is None
+            ]
             bpy.data.libraries.remove(lib, do_unlink=True)
-            return True
         except (RuntimeError, ReferenceError):
-            return False
+            return False  # still linked: its instancers still show it
+        for o in instancers:
+            bpy.data.objects.remove(o, do_unlink=True)
+        return True
 
     #: What a make-local does with a library's scene data (see make_library_local).
     SCENE_DATA_MODES = ("merge", "discard")
@@ -455,6 +466,33 @@ class EnvUtils(_EnvUtilsInternal):
         reports."""
         ws = EnvUtils.current_workspace(path)
         return ws.root if ws else ""
+
+    @staticmethod
+    def scene_project_root():
+        """The project the open file's files belong to; ``None`` without one.
+
+        Mirror of mayatk's, named by this workspace tool (:meth:`current_workspace`:
+        the session pin, else the nearest ``workspace.mel`` above the .blend, else
+        the .blend's own folder) -- a .blend rarely sits in a marked project, so the
+        workspace a user pins is what names one. A pin that does not hold the saved
+        file belongs to another project, and the file's own
+        (``DataNodes.project_root``) stands instead: a pin left on that project must
+        not open its folders to this file. The boundary a tool keeps when it writes,
+        renames or retires files (a lightmap bake).
+        """
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        root = EnvUtils.workspace_root()
+        scene = DataNodes.scene_path()
+        if (
+            root
+            and scene
+            and not ptk.FileUtils.is_under(
+                os.path.abspath(scene), os.path.abspath(root)
+            )
+        ):
+            root = DataNodes.project_root()
+        return os.path.abspath(root) if root else None
 
     @staticmethod
     def scene_artifact_path(suffix: str) -> str:

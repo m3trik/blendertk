@@ -2380,7 +2380,12 @@ class MatUtils(_MatUtilsInternal):
 
     @staticmethod
     def create_pbr_material(
-        textures, name=None, normal_direction="OpenGL", config=None, plan=None
+        textures,
+        name=None,
+        normal_direction="OpenGL",
+        config=None,
+        plan=None,
+        ambient_occlusion=True,
     ):
         """Build a Principled-BSDF material from a set of PBR texture files — Blender mirror of mayatk's
         ``GameShader.create_network`` (the auto-wire-a-shader-from-textures tool, distinct from the
@@ -2419,6 +2424,10 @@ class MatUtils(_MatUtilsInternal):
                 reuse it instead of resolving twice — channel extraction writes files, so
                 resolving twice would redo that work. A ``"wired"`` set of the map types
                 actually connected is written back into it for the caller's report.
+            ambient_occlusion: multiply an AO map (or a packed mask's AO channel) into Base
+                Color (default). ``False`` leaves it unwired, for a PATH-TRACED bake: the
+                bake traces the occlusion the map approximates, so AO-darkened albedo
+                bounces it twice (mirror of mayatk's ``ArnoldBridge(ambient_occlusion=)``).
 
         Returns:
             the created material, or None if no texture classified.
@@ -2486,7 +2495,7 @@ class MatUtils(_MatUtilsInternal):
             registry's precedence rules let ORM and MSAO coexist: different channel layouts,
             neither supersedes the other).
             """
-            if state.get("ao_applied"):
+            if state.get("ao_applied") or not ambient_occlusion:
                 return
             state["ao_applied"] = True
             mix = nt.nodes.new("ShaderNodeMixRGB")
@@ -2658,7 +2667,7 @@ class MatUtils(_MatUtilsInternal):
                 strength.default_value = 1.0
 
         # --- Ambient Occlusion (standalone) → multiply Base Color ----------------
-        if "Ambient_Occlusion" in by_type:
+        if "Ambient_Occlusion" in by_type and ambient_occlusion:
             _multiply_into_base(
                 _img(by_type["Ambient_Occlusion"], non_color=True).outputs["Color"]
             )

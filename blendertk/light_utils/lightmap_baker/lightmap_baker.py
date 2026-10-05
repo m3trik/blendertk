@@ -3,16 +3,19 @@
 """High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 
 Blender counterpart of mayatk's ``LightmapBaker``. Where the Maya workflow had to
-orchestrate Arnold RTT, an alpha-mask seam dilation and a white-card material swap,
-**Blender ships the whole bake natively in Cycles** — so this is a much thinner adapter
-over ``bpy.ops.object.bake``:
+orchestrate Arnold RTT and an alpha-mask seam dilation, **Blender ships the bake
+natively in Cycles** — so this is a much thinner adapter over ``bpy.ops.object.bake``:
 
 * :func:`UvUtils.create_lightmap_uvs` -- packed, non-overlapping lightmap UV (UV2).
 * ``bpy.ops.object.bake`` -- Cycles bakes straight into an image-texture node:
     * **Lighting only** = ``type='DIFFUSE'`` with ``pass_filter={'DIRECT','INDIRECT'}``
-      (no ``'COLOR'``) — the *native* white-card irradiance, no material swap.
+      (no ``'COLOR'``), each target rendered through a white card (:meth:`_white_card`,
+      handed to ``TextureBaker.bake(shader=)``) as mayatk's is, so the map is the
+      GEOMETRY's irradiance: dividing the colour out of the target's own material lost
+      a metal's light and aliased its normal map into the lightmap.
       (There is no albedo-fused level: ``COMBINED`` is not lightmapping.)
-* ``scene.render.bake.margin`` -- native gutter/seam padding (no ``dilate_image`` needed).
+* ``scene.render.bake.margin`` -- native gutter/seam padding, only a few texels wide:
+  :meth:`_heal_dead_texels` and the atlas assembly fill the rest.
 * ``ptk.SceneRecords.LIGHTMAPS`` -- the export manifest record (a custom prop on the
   ``data_export`` Empty through ``DataNodes``, rides the FBX; no sidecar file). Informational
   -- the mesh's UV2 samples the map in any engine; unitytk's optional editor helper reads it
@@ -45,6 +48,7 @@ Both ``cmb002`` packing modes are live: "Atlas by Material" (per-material consol
 """
 
 import contextlib
+import math
 import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -82,6 +86,9 @@ class LightmapBakeResult:
             ``None``.
         verdict: A warning about the finished maps' level (an unlit or a
             blown-out bake), as a sentence, or ``None``.
+        probe: The reflection probe the bake captured of the room it lit, or
+            ``None``. Always ``None`` here for now: Cycles does not capture
+            one yet (mayatk's Arnold bake does, ``LightmapBaker.bake_probe``).
     """
 
     maps: Dict[str, str] = field(default_factory=dict)
@@ -92,6 +99,7 @@ class LightmapBakeResult:
     retired: List[str] = field(default_factory=list)
     refused: Optional[str] = None
     verdict: Optional[str] = None
+    probe: Optional[str] = None
 
     def __bool__(self) -> bool:
         return bool(self.maps)
@@ -154,12 +162,20 @@ class LightmapBaker(ptk.LoggingMixin):
     _DEAD_TEXEL_ABS: float = 1e-4
     _DEAD_TEXEL_FRACTION: float = 0.01
 
+    # An atlas tile is cropped to its lightmap island's bounds when either axis
+    # covers less than this (``ptk.ImgUtils.crop_to_uv_bbox``; twin of mayatk
+    # LightmapBaker._CROP_MAX_COVERAGE). A generated unwrap spans the whole
+    # square and is never cropped; a REUSED one need not -- the production
+    # walls' Maya set spans u 0..1/3, which uncropped left two thirds of every
+    # wall cell to the margin fill.
+    _CROP_MAX_COVERAGE: float = 0.85
+
     def __init__(
         self,
         resolution: int = 1024,
-        samples: int = 64,
+        samples: int = 1024,
         denoise: bool = True,
-        device: Optional[str] = None,
+        device: Optional[str] = "AUTO",
         bounces: int = 4,
         include_environment: bool = True,
         adaptive: bool = True,
@@ -221,6 +237,9 @@ class LightmapBaker(ptk.LoggingMixin):
 
     @property
     def device(self) -> Optional[str]:
+        """``"AUTO"`` (the default; the panel's), ``"GPU"``, ``"CPU"``, or ``None``
+        for the scene's own -- mirror of mayatk's, whose scene-own default baked a
+        CPU-saved production room at 48 minutes for 9 of 49 objects."""
         return self._texture_baker.device
 
     @device.setter
@@ -303,24 +322,22 @@ class LightmapBaker(ptk.LoggingMixin):
         saved from the panel adds). ``overrides`` win over the preset (e.g.
         ``from_preset("mobile", resolution=1536)``); extra preset keys
         (``description``, the panel's ``packing``) are ignored.
-        Built-ins (Cycles samples, denoised): ``preview`` (256/64), ``mobile`` (1024/256),
-        ``desktop`` (2048/512), ``hero`` (4096/1024). The tiers name an ATLAS size, and an
-        atlas is shared by a whole material group -- a 40-piece room on one material gets
-        1/40th of it each, which is why an environment needs a tier above its per-object
-        intuition.
+        Built-ins (denoised): ``preview``, ``mobile``, ``desktop`` and ``hero``, whose
+        dials are the ``presets/*.json`` beside this module -- read them there, not from
+        a copy here. The tiers name an ATLAS size, and an atlas is shared by a whole
+        material group -- a 40-piece room on one material gets 1/40th of it each, which
+        is why an environment needs a tier above its per-object intuition.
 
         ``bounces`` rides the tier for the same reason mayatk's ``gi_depth`` does: in a
         closed room it is the biggest quality-per-second lever, and a preset that named
         only resolution and samples would leave the bake at whatever the scene last
-        rendered with. The tiers are NOT mayatk's Arnold depths, though -- measured on
-        one production room, Cycles at 4 bounces already sits at 0.76x an Arnold
-        ``gi_depth`` 2 bake of the same scene, so the two renderers' depth numbers are
-        not interchangeable and the level difference is method (Arnold bakes through a
-        white card) rather than bounce count. Every tier but ``preview`` therefore
-        keeps Cycles' own default of 4: pinning is here to make a bake REPRODUCIBLE,
-        not to restyle one that was already being produced at the factory default,
-        and ``mobile`` is the default tier on both the panel and the Maya bridge.
-        Only ``preview``, which advertises speed, trades bounces for it. A retired
+        rendered with. Each tier bakes mayatk's depth for the tier of the same name:
+        both renderers count bounces alike -- a calibration room on one lambert agreed
+        with Arnold and the analytic value to 2% -- and the gap once measured on a
+        production room was the scene (no white card then, :meth:`_white_card` now, and
+        mis-crossed area lights), not the depth. The samples are Cycles paths, matched
+        to the Arnold tier's shadow noise rather than copied from its AA count.
+        ``mobile`` is the default tier on both the panel and the Maya bridge. A retired
         tier name (``quest``) still resolves, with a notice.
         """
         store = cls.preset_store()
@@ -716,10 +733,12 @@ class LightmapBaker(ptk.LoggingMixin):
     ) -> Dict[str, str]:
         """Bake a **lighting-only** irradiance lightmap per object -- THE bake.
 
-        Cycles ``type='DIFFUSE'`` with ``pass_filter={'DIRECT','INDIRECT'}`` (no ``'COLOR'``)
-        — the native white-card irradiance, so albedo stays on its own UV/texture and the
-        lightmap holds lighting only, to be combined ``albedo x lightmap`` by the engine.
-        Unlike Maya this needs **no material swap** (Cycles excludes the color pass directly).
+        Cycles ``type='DIFFUSE'`` with ``pass_filter={'DIRECT','INDIRECT'}`` (no ``'COLOR'``),
+        each target rendered through mayatk's white card (:meth:`_white_card`), so albedo
+        stays on its own UV/texture and the lightmap holds the geometry's lighting only, to
+        be combined ``albedo x lightmap`` by the engine. The card is object-linked for the
+        target's own bake (``TextureBaker.bake(shader=)``): the neighbours bounce light off
+        their real materials, and every slot comes back after.
         Pairs with :meth:`commit_lightmap`. Returns ``{object_name: exr_path}``.
 
         The objects go through :meth:`bake_targets`, so a member of the file's
@@ -827,12 +846,13 @@ class LightmapBaker(ptk.LoggingMixin):
         if create_uvs:
             UvUtils.create_lightmap_uvs(meshes, uv_set=uv_set, quiet=True)
 
-        with self._muted_environment():
+        with self._muted_environment(), self._white_card() as card:
             result = self._texture_baker.bake(
                 meshes,
                 bake_type="DIFFUSE",
                 pass_filter={"DIRECT", "INDIRECT"},
-                use_pass_color=False,  # lighting-only excludes albedo (native white-card)
+                use_pass_color=False,  # lighting-only excludes albedo
+                shader=card,
                 output_dir=(
                     output_dir or TextureBaker.default_output_dir("baked_lighting")
                 ),
@@ -934,6 +954,7 @@ class LightmapBaker(ptk.LoggingMixin):
         # Read BEFORE the bake, as mayatk's is (there a target wears the white card
         # while it bakes, and its textures cannot be read off it).
         homes = self._texture_homes(planned) if self.beside_textures else None
+        cells = self.plan_sizes(plan)
         with ptk.TempArtifacts("lightmap_bake", policy="scoped") as tmp:
             # The bake core, not bake_separated: these are tiles for the pack, which
             # Beside Material Textures must not scatter into texture folders.
@@ -942,7 +963,10 @@ class LightmapBaker(ptk.LoggingMixin):
                 output_dir=tmp.dir_path(),
                 prefix=prefix,
                 suffix=suffix,
-                size=self.plan_sizes(plan),
+                # Resolved per object AT BAKE TIME, after the lightmap UVs exist:
+                # the island the tile is cropped to decides how far it renders
+                # above its cell.
+                size=lambda obj: self._tile_size(obj, cells.get(obj.name)),
                 # The tiles are intermediates: the assembly masks them with the
                 # SAME dead-texel rule (``_signal_mask``) while compositing, so
                 # healing each one first is a load/save round trip per object for
@@ -1028,10 +1052,12 @@ class LightmapBaker(ptk.LoggingMixin):
     ) -> Dict[str, Tuple[int, int]]:
         """``{object_name: (width, height)}`` — the pixel footprint each object occupies.
 
-        The bake size that makes an :meth:`atlas_plan` exact: assembling the atlas resizes
-        each tile into these dimensions anyway, so producing them at any other size is work
-        thrown away. Derived through ``ptk.ImgUtils.atlas_pixel_rects``, the same rounding
-        SSoT :meth:`_assemble_atlas_exr` places with, so a tile never needs rescaling.
+        The cell each tile is fitted into: assembling the atlas resizes each tile's island
+        into these dimensions, so :meth:`bake_atlas` renders a full-coverage island at
+        exactly this size and a partial one only as far above it as its crop takes
+        (:meth:`_tile_size`). Derived through ``ptk.ImgUtils.atlas_pixel_rects``, the same
+        rounding SSoT :meth:`_assemble_atlas_exr` places with, so a full-coverage tile
+        never needs rescaling.
         """
         sizes: Dict[str, Tuple[int, int]] = {}
         for entries in plan.values():
@@ -1041,6 +1067,49 @@ class LightmapBaker(ptk.LoggingMixin):
             for (name, _rect), (row0, row1, col0, col1) in zip(entries, pixel_rects):
                 sizes[name] = (max(1, col1 - col0), max(1, row1 - row0))
         return sizes
+
+    def _tile_size(
+        self, obj, cell: Optional[Tuple[int, int]]
+    ) -> Optional[Tuple[int, int]]:
+        """The bake size that lands *obj*'s island at its *cell*'s density, or ``None``.
+
+        The cell over the island's coverage (:meth:`_pack_group` crops the tile
+        to the island and fits THAT to the cell), capped at :attr:`resolution`.
+        ``None`` -- no plan for *obj* -- bakes the full square.
+        """
+        if cell is None:
+            return None
+        eu, ev = ptk.ImgUtils.uv_crop_extent(
+            self._lightmap_uv_bbox(obj), self._CROP_MAX_COVERAGE
+        )
+        res = int(self.resolution)
+        return (
+            min(res, int(math.ceil(cell[0] / eu))),
+            min(res, int(math.ceil(cell[1] / ev))),
+        )
+
+    @staticmethod
+    def _lightmap_uv_bbox(obj) -> Optional[Tuple[float, float, float, float]]:
+        """``(u0, v0, u1, v1)`` of *obj*'s lightmap-layer triangles, or ``None``.
+
+        The layer the bake renders through (:meth:`_bake`'s resolution), so the
+        crop and the bake can never describe different layouts. ``None`` -- no
+        object, layer or faces -- means "don't crop".
+        """
+        import bpy
+
+        if isinstance(obj, str):
+            obj = bpy.data.objects.get(obj)
+        if obj is None:
+            return None
+        tris = UvUtils.get_uv_triangles(
+            obj, UvUtils.find_lightmap_uv_set(obj) or LIGHTMAP_UV_SET
+        )
+        if not len(tris):
+            return None
+        flat = tris.reshape(-1, 2)
+        (u0, v0), (u1, v1) = flat.min(axis=0), flat.max(axis=0)
+        return (float(u0), float(v0), float(u1), float(v1))
 
     def _atlas_gutter(self) -> int:
         """Bleed margin (px) freed around each rect, scaled to the atlas resolution."""
@@ -1228,25 +1297,28 @@ class LightmapBaker(ptk.LoggingMixin):
             owners=[n for _src, _so, n in placements],
         )
 
-        self._assemble_atlas_exr(
-            atlas_path, [(p, so) for p, so, _ in placements], self._atlas_gutter()
+        published = self._assemble_atlas_exr(
+            atlas_path,
+            [(p, so, self._lightmap_uv_bbox(n)) for p, so, n in placements],
+            self._atlas_gutter(),
         )
 
-        for src, so, n in placements:
+        for (src, _so, n), (rect, bounds) in zip(placements, published):
             # The rect is the deliverable, not a UV edit: the object's shared [0,1]
             # unwrap stays untouched and the engine applies the rect per instance
             # (Unity lightmapScaleOffset / glTF KHR_texture_transform). Published
             # aimed at border-texel CENTERS (twin of mayatk _pack_group): a rect
             # edge on a texel boundary splits every tap along a shared 3D edge
             # onto the neighboring cell's gutter, up to half its weight on
-            # another object's lighting. Placement above used the plan's cell
-            # unchanged.
-            # (Full-span bbox: blendertk islands cover their whole unwrap; the
-            # island-bbox refinement rides the backlogged crop fold.)
+            # another object's lighting. Aimed at the BOUNDS the crop mapped onto
+            # the cell, never the island bbox (whose sub-texel overhang past the
+            # crop would aim outside the cell); placement used the plan's cell.
             out[n] = (
                 atlas_path,
                 list(
-                    ptk.ImgUtils.inset_rects_to_texel_centers([so], self.resolution)[0]
+                    ptk.ImgUtils.inset_rects_to_texel_centers(
+                        [rect], self.resolution, bboxes=[bounds]
+                    )[0]
                 ),
             )
             try:  # drop the now-consolidated per-object map
@@ -1319,10 +1391,11 @@ class LightmapBaker(ptk.LoggingMixin):
     def _move_into_place(source: str, destination: str) -> None:
         """Move *source* onto *destination*, never deleting what is there first.
 
-        ``ptk.FileUtils.move_file`` stages it beside the destination and swaps it
-        in, so a failure leaves the destination's old file as it was -- the object
-        keeps its map -- and a swap that fails puts the source back, for the
-        caller's next name. Mirror of mayatk's.
+        ``ptk.FileUtils.move_file`` replaces it in one rename (across volumes it
+        stages the source beside it and swaps it in), so a failure leaves the
+        destination's old file as it was -- the object keeps its map -- and a
+        swap that fails puts the source back, for the caller's next name.
+        Mirror of mayatk's.
 
         Raises:
             OSError: The move or the swap failed; *destination* is untouched.
@@ -1341,22 +1414,31 @@ class LightmapBaker(ptk.LoggingMixin):
         resolves nowhere (another drive, a moved library) must not have a bake
         create it, a packed image has no folder at all, and a ``//`` path in a
         .blend never saved resolves against Blender's working directory, which is
-        no texture folder. An object without one is left out, and its map takes
-        the bake's ``output_dir``. Mirror of mayatk's.
+        no texture folder. And only one inside the file's project
+        (``LightmapRecords.project_root``): a texture library two projects share
+        took both projects' lightmaps under one name, each bake replacing the
+        other's (mayatk measured it, 2026-10-03). An object without one is left
+        out, and its map takes the bake's ``output_dir``. Mirror of mayatk's.
         """
         import bpy
 
+        project = LightmapRecords.project_root() or ""
         names = [getattr(o, "name", o) for o in objects]
         homes: Dict[str, str] = {}
         for name in names:
             found = TextureBaker.texture_set(bpy.data.objects.get(name))
             folder = found[1] if found else ""
-            if folder and os.path.isabs(folder) and os.path.isdir(folder):
+            if (
+                folder
+                and os.path.isabs(folder)
+                and os.path.isdir(folder)
+                and ptk.FileUtils.is_under(os.path.abspath(folder), project)
+            ):
                 homes[name] = folder
         if len(homes) != len(names):
             self.logger.info(
                 "Beside textures: %d of %d object(s) have no texture folder on "
-                "disk; their maps go to the output folder.",
+                "disk inside the project; their maps go to the output folder.",
                 len(names) - len(homes),
                 len(names),
             )
@@ -1508,9 +1590,11 @@ class LightmapBaker(ptk.LoggingMixin):
           median, the same rule :meth:`_assemble_atlas_exr` applies per tile, so a
           per-object map and an atlased one agree about what counts as signal.
 
-        A fully-dark map is left alone (a black bake is a faithful render of an
+        A fully-dark map is left unfilled (a black bake is a faithful render of an
         unlit scene; the panel guard warns), as is a map with nothing to heal.
-        Idempotent: a healed map has no dead texels left to find.
+        Either way the map is rewritten as the delivered EXR
+        (:meth:`_write_lightmap_exr`), so every deliverable leaves here sanitized
+        and half-float. Idempotent: a healed map has no dead texels left to find.
         """
         import bpy
         import numpy as np
@@ -1518,61 +1602,120 @@ class LightmapBaker(ptk.LoggingMixin):
         img = None
         try:
             img = bpy.data.images.load(path)
-            # Colorspace BEFORE any pixel write: assigned later, the save goes
-            # through a view transform and a float EXR can come out black.
-            img.colorspace_settings.name = "Non-Color"
+            img.colorspace_settings.name = "Non-Color"  # read the raw linear data
             buf = np.empty(len(img.pixels), dtype=np.float32)
             img.pixels.foreach_get(buf)
             px = buf.reshape(img.size[1], img.size[0], img.channels)
             rgb = px[..., :3]
             valid = self._signal_mask(rgb)
-            if valid is None or valid.all() or not valid.any():
-                return
-            px[..., :3] = ptk.ImgUtils.fill_empty_texels(rgb, mask=valid)
-            img.pixels.foreach_set(px.reshape(-1))
-            img.filepath_raw = path
-            img.file_format = "OPEN_EXR"
-            img.save()
+            if valid is not None and valid.any() and not valid.all():
+                px[..., :3] = ptk.ImgUtils.fill_empty_texels(rgb, mask=valid)
+            self._write_lightmap_exr(path, px)
         except Exception as e:  # never lose a finished bake to a heal
             self.logger.warning("Dead-texel heal skipped for %s: %s", path, e)
         finally:
             if img is not None:
                 bpy.data.images.remove(img)
 
-    def _assemble_atlas_exr(self, atlas_path, placements, gutter) -> None:
-        """Composite each ``(source_exr, inset_rect)`` into one shared EXR at ``self.resolution``
-        via bpy image I/O (no cv2): load + native-scale each source into its pixel rect, paste
-        into a float atlas buffer, dilate content into the freed gutter, and save as OPEN_EXR.
-        The pixel-rect mapping (incl. the UV bottom-up vs image top-down flip) comes from
-        ``ptk.ImgUtils.atlas_pixel_rects`` — the same SSoT mayatk's cv2 assembler uses, so UV
-        placement matches Unity's ``lightmapScaleOffset``."""
+    #: How a delivered lightmap is written: what mayatk's twin writes (half
+    #: float, lossless ZIP). ``Image.save()`` cannot be told either -- it wrote
+    #: uncompressed 32-bit, 16.8 MB per 1024 atlas against Arnold's ~2 MB for
+    #: the same production room (2026-10-01). Applied in this order and put
+    #: back in it: ``media_type`` leads because Blender 5.x offers only the
+    #: ``file_format`` values its media type allows, so a scene saved with
+    #: Video or Multi-Layer EXR output refused ``OPEN_EXR`` and no map was
+    #: written. 4.x has no ``media_type``; a key the build lacks is skipped.
+    _EXR_SETTINGS: Dict[str, str] = {
+        "media_type": "IMAGE",
+        "file_format": "OPEN_EXR",
+        "color_depth": "16",
+        "exr_codec": "ZIP",
+        "color_mode": "RGBA",
+    }
+
+    @classmethod
+    def _write_lightmap_exr(cls, path: str, pixels) -> None:
+        """Write *pixels* (bottom-up ``(h, w, channels)`` float) as a delivered lightmap.
+
+        The twin of mayatk's writer: non-finite RGB to 0, clamped to
+        ``[0, 65504]`` (the half-float ceiling -- one NaN/Inf ray would otherwise
+        ride into the engine's import as a garbage texel), saved half-float ZIP.
+        ``save_render`` is the bpy route that honours a bit depth and codec; on
+        a ``Non-Color`` float image it writes the linear values untouched (probed
+        under AgX: max relative error 5e-4, half precision). The scene's own
+        output settings are restored.
+        """
         import bpy
         import numpy as np
 
+        height, width, channels = pixels.shape
+        rgba = np.ones((height, width, 4), dtype=np.float32)
+        rgba[..., : min(channels, 4)] = pixels[..., :4]
+        ceiling = cls.HALF_FLOAT_MAX
+        rgba[..., :3] = np.clip(
+            np.nan_to_num(rgba[..., :3], nan=0.0, posinf=ceiling, neginf=0.0),
+            0.0,
+            ceiling,
+        )
+        scene = bpy.context.scene
+        settings = scene.render.image_settings
+        pinned = {k: v for k, v in cls._EXR_SETTINGS.items() if hasattr(settings, k)}
+        prior = {key: getattr(settings, key) for key in pinned}
+        img = bpy.data.images.new(
+            os.path.basename(path), width, height, alpha=True, float_buffer=True
+        )
+        try:
+            # Colorspace BEFORE the pixel write: assigned later, the buffer is
+            # discarded or the save goes through a view transform.
+            img.colorspace_settings.name = "Non-Color"
+            img.pixels.foreach_set(rgba.reshape(-1))
+            for key, value in pinned.items():
+                setattr(settings, key, value)
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            img.save_render(path, scene=scene)
+        finally:
+            for key, value in prior.items():
+                setattr(settings, key, value)
+            bpy.data.images.remove(img)
+
+    def _assemble_atlas_exr(
+        self, atlas_path, placements, gutter
+    ) -> List[Tuple[List[float], Tuple[float, float, float, float]]]:
+        """Composite each ``(source_exr, cell, island_bbox)`` into one shared EXR at
+        ``self.resolution`` via bpy image I/O (no cv2): load each source, crop it to its
+        island (``ptk.ImgUtils.crop_to_uv_bbox``; a ``None`` bbox takes no crop), scale it
+        into its cell's pixel rect, paste into a float atlas buffer, dilate content into the
+        freed gutter, and save as OPEN_EXR. The pixel-rect mapping (incl. the UV bottom-up
+        vs image top-down flip) comes from ``ptk.ImgUtils.atlas_pixel_rects`` — the same
+        SSoT mayatk's cv2 assembler uses, so UV placement matches Unity's
+        ``lightmapScaleOffset``.
+
+        Returns ``[(rect, bounds), ...]`` per placement: the crop-folded rect to publish
+        and the uv range mapped onto the full cell (see ``crop_to_uv_bbox``)."""
+        import numpy as np
+
         res = self.resolution
-        pix_rects = ptk.ImgUtils.atlas_pixel_rects([so for _, so in placements], res)
+        pix_rects = ptk.ImgUtils.atlas_pixel_rects([so for _, so, _ in placements], res)
         atlas = np.zeros((res, res, 4), dtype=np.float32)
         atlas[..., 3] = 1.0
         mask = np.zeros((res, res), dtype=bool)
+        published = []
 
-        for (src, _so), (row0, row1, col0, col1) in zip(placements, pix_rects):
+        for (src, cell, bbox), (row0, row1, col0, col1) in zip(placements, pix_rects):
             w = max(1, col1 - col0)
             h = max(1, row1 - row0)
-            img = None
-            try:
-                img = bpy.data.images.load(src)
-                if tuple(img.size) != (w, h):
-                    img.scale(w, h)
-                buf = np.empty(len(img.pixels), dtype=np.float32)
-                img.pixels.foreach_get(buf)
-                tile = buf.reshape(img.size[1], img.size[0], img.channels)
-                tile = np.flipud(
-                    tile
-                )  # bpy pixels are bottom-up; atlas rows are top-down
-                rgb = tile[..., :3]
-            finally:
-                if img is not None:
-                    bpy.data.images.remove(img)
+            tile, rect, bounds = ptk.ImgUtils.crop_to_uv_bbox(
+                self._read_exr_top_down(src), bbox, cell, self._CROP_MAX_COVERAGE
+            )
+            published.append((rect, bounds))
+            # Edges on border-texel centers: the mapping the rect is published
+            # with (inset_rects_to_texel_centers, below in _pack_group). Scaled
+            # edge to edge, every edge sample read the tile half a texel in --
+            # a step on every 3D edge two cells share (twin of mayatk
+            # _finish_tile).
+            rgb, _covered = ptk.ImgUtils.resize_into_cell(
+                tile[..., :3], (w, h), edge_centers=True
+            )
             r0, r1 = max(row0, 0), min(row1, res)
             c0, c1 = max(col0, 0), min(col1, res)
             tile_rgb = rgb[: r1 - r0, : c1 - c0, :]
@@ -1601,37 +1744,26 @@ class LightmapBaker(ptk.LoggingMixin):
         # averaged into rect content by every coarser mip level the engine
         # generates -- a black background reads as a dark halo on each tile
         # at distance/grazing angles.
-        rgb = ptk.ImgUtils.fill_empty_texels(rgb, mask=mask | (rgb > 0).any(axis=-1))
-        # Sanitize before write (parity with mayatk ``_write_lightmap_exr``):
-        # one NaN/Inf ray would otherwise ride into the engine's half-float
-        # import as a garbage texel.
-        atlas[..., :3] = np.clip(
-            np.nan_to_num(rgb, nan=0.0, posinf=65504.0, neginf=0.0), 0.0, 65504.0
+        atlas[..., :3] = ptk.ImgUtils.fill_empty_texels(
+            rgb, mask=mask | (rgb > 0).any(axis=-1)
         )
+        self._write_lightmap_exr(atlas_path, np.flipud(atlas))  # back to bottom-up
+        return published
 
-        out = bpy.data.images.new(
-            os.path.basename(atlas_path),
-            width=res,
-            height=res,
-            float_buffer=True,
-            alpha=True,
-        )
+    @staticmethod
+    def _read_exr_top_down(path):
+        """*path*'s pixels as a float ``(H, W, C)`` array, row 0 at the TOP."""
+        import bpy
+        import numpy as np
+
+        img = bpy.data.images.load(path)
         try:
-            # Colorspace BEFORE the pixel write, and explicitly: an unset
-            # colorspace lets Blender's default view transform touch the save
-            # (the one write in this package that skipped it -- web_export's
-            # docstring and the test fixture both call this out as the
-            # black-map/double-transform gotcha).
-            out.colorspace_settings.name = "Non-Color"
-            flat = np.ascontiguousarray(np.flipud(atlas)).reshape(
-                -1
-            )  # top-down -> bottom-up
-            out.pixels.foreach_set(flat)
-            out.filepath_raw = atlas_path
-            out.file_format = "OPEN_EXR"
-            out.save()
+            buf = np.empty(len(img.pixels), dtype=np.float32)
+            img.pixels.foreach_get(buf)
+            # bpy pixels are bottom-up; atlas rows (and crop rows) are top-down
+            return np.flipud(buf.reshape(img.size[1], img.size[0], img.channels))
         finally:
-            bpy.data.images.remove(out)
+            bpy.data.images.remove(img)
 
     @staticmethod
     def _primary_material(obj) -> Optional[str]:
@@ -1750,12 +1882,9 @@ class LightmapBaker(ptk.LoggingMixin):
                 img = bpy.data.images.load(path)
                 buf = np.empty(len(img.pixels), dtype=np.float32)
                 img.pixels.foreach_get(buf)
-                px = buf.reshape(-1, img.channels)
-                px[:, : min(3, img.channels)] *= float(intensity)
-                img.pixels.foreach_set(buf)
-                img.filepath_raw = path
-                img.file_format = "OPEN_EXR"
-                img.save()
+                px = buf.reshape(img.size[1], img.size[0], img.channels)
+                px[..., : min(3, img.channels)] *= float(intensity)
+                self._write_lightmap_exr(path, px)
             except Exception as e:
                 self.logger.warning(
                     "Intensity %.3f NOT applied to %s: %s",
@@ -1999,6 +2128,36 @@ class LightmapBaker(ptk.LoggingMixin):
             return None
         path = max(levels, key=lambda p: levels[p][0])
         return (path, *levels[path])
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _white_card():
+        """A white Lambert (Kd 1, no bump) each target is baked through; removed after.
+
+        mayatk's card, for the same answer: lighting-only irradiance off the
+        GEOMETRY. Baked through its own material instead -- the pass colour
+        divided out -- a target's map took its normal map (floor grout and
+        ceiling-tile patterns aliased into a shared atlas) and a metal baked
+        near black (no diffuse lobe to divide by): measured on the production
+        office (2026-10-01), the lockers 0.25-0.41x and the whole room 0.78x of
+        the Arnold bake, while a calibration room on one lambert agreed with
+        Arnold and the analytic value to 2%.
+        """
+        import bpy
+
+        card = bpy.data.materials.new("lm_whitecard")
+        card.use_nodes = True
+        tree = card.node_tree
+        tree.nodes.clear()
+        bsdf = tree.nodes.new("ShaderNodeBsdfDiffuse")
+        bsdf.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+        bsdf.inputs["Roughness"].default_value = 0.0  # Lambert, as Arnold's card
+        output = tree.nodes.new("ShaderNodeOutputMaterial")
+        tree.links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
+        try:
+            yield card
+        finally:
+            bpy.data.materials.remove(card)
 
     @contextlib.contextmanager
     def _muted_environment(self):

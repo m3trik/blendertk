@@ -374,38 +374,11 @@ class SceneExporter(ptk.SceneExporterBase):
         self._progress_begin(progress_callback, tasks, phases=2 + int(run.create_glb))
         try:
             self._progress_note("Preparing export…")
-            if tasks:
-                try:
-                    checks_passed = self.task_manager.run_tasks(tasks)
-                except Exception as e:
-                    # A raising task stops the run before its write, as a failed
-                    # check does: the staged edits unwind in the finally below,
-                    # and what the tasks kept is named before the error goes on.
-                    # Mirror of mayatk.
-                    self._warn_stopped_before_write(f"Export stopped by an error: {e}.")
-                    raise
-                if not checks_passed:
-                    # Offer the escape hatch HERE, while the staged scene the
-                    # write needs is still standing, rather than leaving the
-                    # user to arm Override Checks and pay for the whole
-                    # pipeline a second time (see confirm_check_override).
-                    if self.confirm_check_override():
-                        self._overridden_checks = list(
-                            getattr(self.task_manager, "_last_failed_checks", ()) or ()
-                        )
-                        self.logger.warning(
-                            "Checks overridden — writing the file despite "
-                            f"{len(self._overridden_checks)} failed check(s): "
-                            f"{', '.join(self._overridden_checks)}."
-                        )
-                        self._resume_skipped_tasks(tasks)
-                    else:
-                        # The staged edits unwind in the finally below; what the
-                        # tasks kept is named.
-                        self._warn_stopped_before_write(
-                            "Export blocked by failed checks."
-                        )
-                        return False
+            # Each failed check is decided where it fails (mirror of mayatk:
+            # SceneExporterBase._run_task_pipeline); a stop returns here and
+            # the staged edits unwind in the finally below.
+            if tasks and not self._run_task_pipeline(tasks):
+                return False
 
             if export_visible:
                 # "visible"/"all": the task pipeline's object set is authoritative.
@@ -537,6 +510,7 @@ class SceneExporter(ptk.SceneExporterBase):
                 # so the carrier repair (which needs the export set) runs first.
                 fbx_options = self._resolved_fbx_options()
                 self._force_carrier_readability(export_objects, fbx_options)
+                self._force_glb_requirements(fbx_options, run)
                 if run.drop_rig_apparatus:
                     # Exclude Rig Helpers: a Blender rig's apparatus is its
                     # control and mechanism bones, which the exporter's own
@@ -580,24 +554,17 @@ class SceneExporter(ptk.SceneExporterBase):
             c_cnt = getattr(tm, "_last_check_count", 0)
             overridden = self._overridden_checks
             f_cnt = len(overridden)
-            # Checks the failed one's abort dropped never ran; an override
-            # resumes the tasks, not them, so they are not "passed".
-            n_cnt = len(getattr(tm, "_last_skipped_checks", ()) or ())
             if t_cnt or c_cnt:
                 export_info_lines.append("")
                 export_info_lines.append(f"Tasks Executed: {t_cnt}")
                 if c_cnt:
                     # Never "N/N" after an override: the deliverable shipped
                     # WITH known failures and the banner is the record of it.
-                    export_info_lines.append(
-                        f"Checks Passed: {c_cnt - f_cnt - n_cnt}/{c_cnt}"
-                    )
+                    export_info_lines.append(f"Checks Passed: {c_cnt - f_cnt}/{c_cnt}")
                     if f_cnt:
                         export_info_lines.append(
                             f"Checks Overridden: {', '.join(overridden)}"
                         )
-                    if n_cnt:
-                        export_info_lines.append(f"Checks Not Run: {n_cnt}")
 
             self.logger.log_box("EXPORT SUCCESSFUL", export_info_lines, level="SUCCESS")
 
@@ -1061,6 +1028,34 @@ class SceneExporter(ptk.SceneExporterBase):
             self.logger.warning(
                 "The active FBX preset would ship an unreadable data_export "
                 "carrier — forced " + ", ".join(repaired) + "."
+            )
+
+    #: What a GLB deliverable cannot ship without, whatever the preset says. Mirror of
+    #: mayatk's ``_GLB_REQUIRED_FBX_OPTIONS`` (tangents half): with no tangent layer the
+    #: GLB carries no TANGENT and every viewer invents its own normal-map basis -- three.js
+    #: a screen-space one -- which is how a production assembly's baked specular went soft.
+    _GLB_REQUIRED_FBX_OPTIONS = {"use_tspace": True}
+
+    def _force_glb_requirements(self, fbx_options: dict, run) -> None:
+        """Force :attr:`_GLB_REQUIRED_FBX_OPTIONS` when *run* writes a GLB.
+
+        Same rule as :meth:`_force_carrier_readability`: a preset owns content choices,
+        never what the deliverable needs to be correct. An FBX-only run keeps the
+        preset's value. Mutates *fbx_options* in place and logs any repair."""
+        if not getattr(run, "create_glb", False):
+            return
+        repaired = [
+            key
+            for key, value in self._GLB_REQUIRED_FBX_OPTIONS.items()
+            if fbx_options.get(key) != value
+        ]
+        fbx_options.update(self._GLB_REQUIRED_FBX_OPTIONS)
+        if repaired:
+            self.logger.info(
+                "FBX preset overridden for the GLB: "
+                + ", ".join(repaired)
+                + " turned on -- a GLB needs its tangents shipped; the preset's "
+                "other settings stand."
             )
 
     def _force_scene_range_take(self, fbx_options: dict) -> None:

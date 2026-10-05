@@ -5,16 +5,16 @@
 Blender port of mayatk's ``anim_utils.shots.shots_slots`` (same widget objectNames
 and controller structure). Provides a single source of truth for shot-level settings
 (detection threshold, generation mode, gap) that both the Shot Manifest and Shot
-Sequencer consume via :class:`BlenderShotStore`. Swaps three mayatk touch-points for
-their Blender equivalents: ``CoreUtils.undo_chunk`` → ``btk.undo_chunk``, the store
-class → ``BlenderShotStore``, and the sequencer import path; the store-event dataclasses
+Sequencer consume via :class:`BlenderShotStore`. Swaps two mayatk touch-points for
+their Blender equivalents: the store class → ``BlenderShotStore`` (whose
+``scene_edit`` is the undo bracket here too), and the sequencer import path; the
+store-event dataclasses
 are shared upstream (``pythontk.core_utils.engines.shots``). ``fmt`` (Qt-only) is
 deferred into ``header_init`` so the module imports headless.
 """
 
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.anim_utils.shots._shots import BlenderShotStore
 from pythontk import (
     StoreEvent,
@@ -39,7 +39,10 @@ class ShotsController(ptk.LoggingMixin):
         self._store_listener_bound = False
         self._refreshing_editor = False
 
-        # Shot editor widgets get their values from the store, not QSettings.
+        # Widgets the store owns get their values from it, not QSettings: a
+        # restore lands after the store sync and goes through the slot that
+        # writes the store, so a QSettings copy overwrote this scene's setting
+        # with the last one set in any scene.
         for name in (
             "cmb_shot_select",
             "txt_shot_name",
@@ -50,6 +53,8 @@ class ShotsController(ptk.LoggingMixin):
             "spn_shift_all",
             "spn_space",
             "spn_gap",
+            "spn_detection",
+            "cmb_detection_mode",
             "spn_initial_length",
             "cmb_fit_mode",
             "chk_snap_whole_frames",
@@ -237,16 +242,18 @@ class ShotsController(ptk.LoggingMixin):
         scene keys ride the native undo queue, shot bounds do not, and the
         sequencer panel's undo restores from this ledger.
 
-        :class:`ShotBoundaryConflict` means the operation declined BEFORE
-        writing anything: the shots would have had to share a sample whose two
-        poses disagree, which one frame cannot hold. Since nothing changed, the
-        restore point is discarded rather than left for an undo to "restore"
-        the state it is already in.
+        :class:`ShotBoundaryConflict` means the operation was declined: the
+        shots would have had to share a sample whose two poses disagree, which
+        one frame cannot hold. The restore point stays with the step
+        ``scene_edit`` pushed: a multi-stage edit can write before it is
+        declined (a "both" Add Space slides the head before the tail ripple
+        refuses), and undoing that step must put the bounds and claims back
+        with the keys -- where nothing changed, restoring it changes nothing.
 
-        Behaviour mirrors mayatk's ``_boundary_edit``. The bracket differs
-        because this store has no ``scene_edit`` -- that is Maya's *named* undo
-        chunk, and Blender exposes no equivalent naming; ``CoreUtils.undo_chunk``
-        is the local mirror (a no-op headless).
+        Behaviour mirrors mayatk's ``_boundary_edit``, through the same
+        ``store.scene_edit`` bracket: one named undo step whose restore point is
+        tagged with the edit serial, so the sequencer's undo handlers can tell
+        this edit's step from anybody else's.
 
         Parameters:
             store: The active shot store.
@@ -260,14 +267,13 @@ class ShotsController(ptk.LoggingMixin):
         """
         from pythontk import ShotBoundaryConflict
 
-        store.push_boundary_snapshot()
         try:
-            with CoreUtils.undo_chunk(label):
+            with store.scene_edit(label):
                 fn(*args, **kwargs)
         except ShotBoundaryConflict as exc:
-            # Declined before writing anything, so the restore point goes too
-            # (mirrors mayatk): a refusal is an answer, not a crash.
-            store.discard_boundary_snapshot()
+            # A refusal is an answer, not a crash. The restore point stays with
+            # the step scene_edit pushed: a multi-stage edit can write before
+            # it is declined.
             self.logger.warning(str(exc))
             self._set_footer(str(exc))
             return False

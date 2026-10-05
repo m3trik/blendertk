@@ -136,3 +136,33 @@ class DisplayUtils(_DisplayUtilsInternal):
         vl = CoreUtils._active_view_layer()
         pool = objects if objects is not None else vl.objects
         return [o for o in pool if o.type == "MESH" and o.visible_get(view_layer=vl)]
+
+    @staticmethod
+    def set_viewport_overlay(**flags):
+        """Set ``View3DOverlay`` properties on every 3D viewport of the file -- each
+        workspace's screens, not only the visible ones -- e.g.
+        ``set_viewport_overlay(show_relationship_lines=False)``. Returns how many
+        viewports changed.
+
+        Overlays are per-viewport state with no per-object switch, so hiding one for
+        some content means hiding it in the viewport. A flag the running Blender
+        doesn't know raises ``AttributeError`` (a typo must not silently no-op).
+        """
+        import bpy
+
+        changed = 0
+        for screen in bpy.data.screens:
+            for area in screen.areas:
+                if area.type != "VIEW_3D":
+                    continue
+                for space in area.spaces:
+                    overlay = getattr(space, "overlay", None)
+                    if overlay is None:
+                        continue
+                    diff = {k: v for k, v in flags.items() if getattr(overlay, k) != v}
+                    for key, value in diff.items():
+                        setattr(overlay, key, value)
+                    changed += bool(diff)
+        if changed:
+            CoreUtils.tag_redraw("VIEW_3D")
+        return changed

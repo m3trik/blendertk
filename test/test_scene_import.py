@@ -4090,6 +4090,101 @@ try:
     stub = _StubCmds(["|a|one", "|b|two"])
     check("a scene with unique names is untouched", uniquify(stub) == 0)
 
+    # ---- USD route: a locator that parents children leaves no stray Empty -----
+    # mergeTransformAndShape folds a shape into its transform only when the
+    # transform holds nothing else, so every `*_LOC` anchor with children arrived
+    # with a childless `*_LOCShape` Empty under it (32 on the production module).
+    # Lifted out of the template and run against a stub Maya, like the pass above.
+    _drop = [
+        n
+        for n in _ast_uniq.parse(_usd_src).body
+        if isinstance(n, _ast_uniq.FunctionDef)
+        and n.name == "drop_unmergeable_locator_shapes"
+    ]
+    check("the USD template defines drop_unmergeable_locator_shapes", len(_drop) == 1)
+    check(
+        "USD route: locator shapes fold after every collector, right before the write",
+        -1
+        < _usd_src.find("machinery = {} if RIG_MODE")
+        < _usd_src.find("    drop_unmergeable_locator_shapes(cmds)")
+        < _usd_src.find("    export_usd(cmds, frame_range)"),
+    )
+    _ns = {}
+    exec(compile(_ast_uniq.Module(body=_drop, type_ignores=[]), "tpl", "exec"), _ns)
+    drop_locs = _ns["drop_unmergeable_locator_shapes"]
+
+    class _LocCmds:
+        """``ls(type="locator")`` / ``listRelatives`` / ``delete`` over a fake DAG."""
+
+        def __init__(self, shapes, children, locked=()):
+            self.shapes, self.children, self.locked = shapes, children, set(locked)
+            self.deleted = []
+
+        def ls(self, type=None, long=False):
+            return list(self.shapes)
+
+        def listRelatives(self, node, parent=False, children=False, **_kw):
+            if parent:
+                return [node.rsplit("|", 1)[0]]
+            return list(self.children.get(node, []))
+
+        def delete(self, node):
+            if node in self.locked:
+                raise RuntimeError("locked node")
+            self.deleted.append(node)
+
+    stub = _LocCmds(
+        [
+            "|g|DA1_LOC|DA1_LOCShape",  # anchors a child: unmergeable
+            "|data_export|data_exportShape",  # childless: mayaUSD merges it
+            "|g|LOCK_LOC|LOCK_LOCShape",  # anchors a child, but locked
+        ],
+        {"|g|DA1_LOC": ["|g|DA1_LOC|DA1"], "|g|LOCK_LOC": ["|g|LOCK_LOC|x"]},
+        locked=["|g|LOCK_LOC|LOCK_LOCShape"],
+    )
+    check(
+        "only a locator shape under a parenting transform is folded (locked stays)",
+        drop_locs(stub) == 1 and stub.deleted == ["|g|DA1_LOC|DA1_LOCShape"],
+        str(stub.deleted),
+    )
+
+    # ---- a converted scene turns the Relationship Lines overlay off ---------
+    # A Maya DAG draws a dashed parent line per object; the overlay has no
+    # per-object switch, so the import turns it off on every 3D viewport.
+    import bpy
+
+    bpy.ops.wm.read_factory_settings()  # the factory UI: real 3D viewports
+    _overlays = [
+        sp.overlay
+        for scr in bpy.data.screens
+        for ar in scr.areas
+        if ar.type == "VIEW_3D"
+        for sp in ar.spaces
+        if getattr(sp, "overlay", None) is not None
+    ]
+    for _ov in _overlays:
+        _ov.show_relationship_lines = True
+    _changed = MayaSceneImport.hide_relationship_lines()
+    check(
+        "hide_relationship_lines turns the overlay off on every 3D viewport",
+        _overlays
+        and _changed == len(_overlays)
+        and not any(o.show_relationship_lines for o in _overlays),
+        f"changed={_changed} of {len(_overlays)}",
+    )
+    check(
+        "hide_relationship_lines is a no-op once off",
+        MayaSceneImport.hide_relationship_lines() == 0,
+    )
+    try:
+        from blendertk.display_utils._display_utils import DisplayUtils
+
+        DisplayUtils.set_viewport_overlay(show_relationship_linez=False)
+        check("an unknown overlay flag raises, never no-ops", False)
+    except AttributeError:
+        check("an unknown overlay flag raises, never no-ops", True)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
     # ---- the two PULL templates are a drift-guarded duplicate ----------------
     # Same treatment mayatk's pair gets (`test_scene_import.py::
     # TestConversionTemplateDrift`). They are dependency-free mayapy scripts, so the

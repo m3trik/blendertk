@@ -30,9 +30,21 @@ baker. The engine surface imports without ``bpy`` (deferred into the calls).
 import contextlib
 import json
 import os
-from typing import Any, Dict, FrozenSet, Iterator, List, Optional, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    FrozenSet,
+    Iterator,
+    List,
+    Optional,
+    Tuple,
+)
 
 import pythontk as ptk
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 class LightmapRecords(ptk.LoggingMixin):
@@ -289,6 +301,29 @@ class LightmapRecords(ptk.LoggingMixin):
         """
         return [obj.name for obj in cls._marked_objects(objects)]
 
+    @classmethod
+    def lightmap_info(cls, obj) -> Dict[str, Any]:
+        """*obj*'s committed lightmap -- its marker plus where the map is NOW.
+
+        The marker's own keys (``map``, ``uv_set``, ``intensity``,
+        ``scaleOffset`` -- the identity for a marker that predates it --
+        ``mode``) plus ``path``: the map resolved on disk by
+        :meth:`lightmap_dependencies`' rules, ``None`` when it is nowhere.
+        ``{}`` when *obj* (a name or an object) carries no marker. Mirror of
+        mayatk's: what :meth:`transfer_lightmaps` reads instead of
+        parsing the marker itself.
+        """
+        found = cls._object(obj)
+        info = dict(cls._marker_info(found)) if found is not None else {}
+        if not info.get("map"):
+            return {}
+        info.setdefault("scaleOffset", list(cls.IDENTITY_SCALE_OFFSET))
+        info["path"] = next(
+            (d["path"] for d in cls._resolve([found]) if found.name in d["owners"]),
+            None,
+        )
+        return info
+
     # ------------------------------------------------------------------
     # Commit / revert
     # ------------------------------------------------------------------
@@ -299,6 +334,7 @@ class LightmapRecords(ptk.LoggingMixin):
         mapping: Dict[str, str],
         scale_offsets: Optional[Dict[str, List[float]]] = None,
         intensity: float = 1.0,
+        written: bool = True,
     ) -> Dict[str, str]:
         """Record a lighting-only bake (changes nothing about the material/UVs).
 
@@ -316,6 +352,11 @@ class LightmapRecords(ptk.LoggingMixin):
                 Absent entries are the identity (a map of its own).
             intensity: Recorded in the marker, informationally: the multiplier
                 the maps' texels already carry.
+            written: Whether THIS file wrote the maps (a bake). ``False`` binds
+                objects to maps that already exist -- a lightmap carried to
+                another object -- and leaves the writer record alone, so a
+                later re-bake never sets aside a file another file still
+                reads (:meth:`superseding`).
 
         Returns:
             ``{object name: lightmap path}`` for each object recorded (a name
@@ -361,11 +402,12 @@ class LightmapRecords(ptk.LoggingMixin):
             cls._save_folder_hints(hints)
             # ...and that THIS file wrote them: what lets a later re-bake
             # delete them once superseded (:meth:`superseding`).
-            from blendertk.node_utils.data_nodes import DataNodes
+            if written:
+                from blendertk.node_utils.data_nodes import DataNodes
 
-            writers = cls._writers()
-            writers.update(dict.fromkeys(folders, DataNodes.writer_stamp()))
-            cls._save_writers(writers)
+                writers = cls._writers()
+                writers.update(dict.fromkeys(folders, DataNodes.writer_stamp()))
+                cls._save_writers(writers)
             cls._publish()
         return recorded
 
@@ -402,6 +444,19 @@ class LightmapRecords(ptk.LoggingMixin):
             cls._publish()
         return cleared
 
+    @staticmethod
+    def project_root() -> Optional[str]:
+        """The project this file's lightmaps belong to; ``None`` without one
+        (``EnvUtils.scene_project_root``: the workspace blendertk's workspace
+        tool names, the .blend's own project when a pin does not hold it).
+        Mirror of mayatk's. A bake writes no map outside it
+        (``LightmapBaker.beside_textures``) and sets none aside there
+        (:meth:`superseding`).
+        """
+        from blendertk.env_utils._env_utils import EnvUtils
+
+        return EnvUtils.scene_project_root()
+
     @classmethod
     @contextlib.contextmanager
     def superseding(cls, objects) -> Iterator[List[str]]:
@@ -418,8 +473,11 @@ class LightmapRecords(ptk.LoggingMixin):
 
         Only this file's own maps are candidates: recorded in its folder record
         AND written by it (``DataNodes.written_here``) -- never a map another .blend
-        still reads, nor one committed before writers were recorded -- and
-        never one a LINKED object reads, which its library may name too.
+        still reads, nor one committed before writers were recorded -- never
+        one a LINKED object reads, which its library may name too, and never
+        one outside the file's project (:meth:`project_root`): a folder two
+        projects share is the other one's too, and no file of this project can
+        see that one's reads (mayatk measured the loss, 2026-10-03).
 
         Parameters:
             objects: The objects (names) the block commits new maps for.
@@ -428,7 +486,12 @@ class LightmapRecords(ptk.LoggingMixin):
             A list, filled with the set-aside paths on exit.
         """
         retired: List[str] = []
-        before = cls._written_reads(objects)
+        root = cls.project_root()
+        before = [
+            p
+            for p in cls._written_reads(objects)
+            if root and ptk.FileUtils.is_under(os.path.abspath(p), root)
+        ]
         yield retired
         if not before:
             return
@@ -1096,3 +1159,204 @@ class LightmapRecords(ptk.LoggingMixin):
         if count:
             cls._publish()
         return count
+
+    # --------------------------------------------------------- transfer
+    @classmethod
+    def transfer_lightmaps(
+        cls,
+        targets,
+        source,
+        *,
+        output_dir: Optional[str] = None,
+        output_name: Optional[str] = None,
+        size: Optional[int] = None,
+        supersample: int = 2,
+        padding: int = -1,
+    ) -> Dict[str, Dict[str, str]]:
+        """Carry each source mesh's committed lightmap onto its paired target.
+
+        Same contract as :meth:`mayatk.LightmapRecords.transfer_lightmaps` --
+        *targets* / *source* are Blender objects (or names), paired as
+        :meth:`TextureTransfer.transfer` pairs them. Per pair: a target whose
+        lightmap UV map IS the source's is **rebound** to the same map and atlas rect (nothing
+        written); otherwise the source's texels are **resampled** into the
+        target's lightmap layout (:meth:`pythontk.UvTransfer.resample_lightmaps`)
+        and written as a half-float EXR, ``<output_name>_Lightmap.exr``
+        (several targets append each one's name). Either way the target is
+        committed (:meth:`commit`) with the source's
+        intensity. A target with no lightmap UV map is GIVEN the source's (the
+        pair shares topology: :meth:`UvUtils.export_uv_layout` ->
+        :meth:`UvUtils.apply_uv_layout`), and is then rebound -- mirror of
+        mayatk. A source with no lightmap is skipped quietly; a missing map or
+        source lightmap UV map, with a warning.
+
+        Returns:
+            ``{target name: {"path": lightmap path, "how": "rebound" |
+            "resampled"}}``.
+
+        Raises:
+            ValueError: No targets or sources, or a pair whose topology differs.
+        """
+        try:
+            import numpy  # noqa: F401 -- the resample's array math
+        except ImportError:
+            raise RuntimeError("numpy is required") from None
+        from blendertk.uv_utils._uv_utils import UvUtils
+        from blendertk.uv_utils.texture_transfer import TextureTransfer
+
+        targets = [TextureTransfer._mesh(t) for t in ptk.make_iterable(targets)]
+        sources = (
+            [TextureTransfer._mesh(s) for s in ptk.make_iterable(source)]
+            if source is not None
+            else []
+        )
+        if not targets:
+            raise ValueError("no target meshes")
+        if not sources:
+            raise ValueError("a lightmap travels between meshes: name the source(s)")
+        if len(sources) > len(targets):
+            # Mirror of mayatk: each source's lightmap is its own object's
+            # lighting, bound per object -- several cannot become one.
+            raise ValueError(
+                "a lightmap travels one mesh to one mesh; a target joined "
+                "from several sources needs its own (Lightmap Baker)"
+            )
+
+        # ---- plan: what each pair carries, before anything is written ----
+        checked: List[Tuple[Any, Any, Dict[str, Any], str, Optional[str]]] = []
+        for tgt, src in TextureTransfer.pair_sources(targets, sources).items():
+            info = cls.lightmap_info(src)
+            if not info:
+                continue
+            if not info.get("path"):
+                cls.logger.warning(
+                    f"{tgt.name}: the source's lightmap {info['map']!r} is not "
+                    "on disk; skipped. Repair its path first."
+                )
+                continue
+            ok, why = TextureTransfer.topology_matches(tgt, src)
+            if not ok:
+                raise ValueError(f"{tgt.name} / {src.name}: topology differs ({why})")
+            if not TextureTransfer.positions_match(tgt, src):
+                # Mirror of mayatk: carried anyway, but the lighting is the
+                # source's place's.
+                cls.logger.warning(
+                    f"{tgt.name}: target and source stand in different places; "
+                    "it now carries the lighting baked where the source stands."
+                )
+            s_set = info.get("uv_set")
+            # An old marker may name no set at all; bpy's ``in`` rejects None.
+            if not s_set or s_set not in src.data.uv_layers:
+                s_set = UvUtils.find_lightmap_uv_set(src)
+            if not s_set:
+                cls.logger.warning(
+                    f"{tgt.name}: the source's lightmap UV map is gone; skipped. "
+                    "Re-bake the source first (Lightmap Baker)."
+                )
+                continue
+            checked.append((tgt, src, info, s_set, UvUtils.find_lightmap_uv_set(tgt)))
+
+        # ---- a target without lightmap UVs takes the source's layout ------
+        # Mirror of mayatk: only once every pair has passed its checks.
+        plan: List[Dict[str, Any]] = []
+        for tgt, src, info, s_set, t_set in checked:
+            if not t_set:
+                layout = UvUtils.export_uv_layout([src], uv_set=s_set).get(src.name)
+                t_set = (
+                    UvUtils.apply_uv_layout({tgt.name: layout}, quiet=True).get(
+                        tgt.name
+                    )
+                    if layout
+                    else None
+                )
+                if not t_set:
+                    cls.logger.warning(
+                        f"{tgt.name}: could not be given the source's lightmap "
+                        "UVs; skipped."
+                    )
+                    continue
+                cls.logger.info(
+                    f"{tgt.name}: no lightmap UV map -- given the source's "
+                    f"({s_set} -> {t_set})."
+                )
+            corr = TextureTransfer.correspondence(
+                tgt, src, source_uv_set=s_set, target_uv_set=t_set
+            )
+            plan.append(
+                {
+                    "owner": tgt.name,
+                    "name": tgt.name,
+                    "path": info["path"],
+                    "scale_offset": info["scaleOffset"],
+                    "intensity": float(info.get("intensity", 1.0)),
+                    "src": corr["src_tris"],
+                    "dst": corr["dst_tris"],
+                }
+            )
+
+        # ---- resample the pairs whose layouts differ (pythontk) -----------
+        # Mirror of mayatk: resolved only when something is written.
+        resample = [
+            j for j in plan if not ptk.UvTransfer.layouts_match(j["src"], j["dst"])
+        ]
+        written: Dict[str, str] = {}
+        if resample:
+            # The remap's masks and padding go through pythontk's image utils.
+            from blendertk.core_utils._core_utils import CoreUtils
+
+            CoreUtils.ensure_image_deps()
+            written = ptk.UvTransfer.resample_lightmaps(
+                resample,
+                output_dir=TextureTransfer.resolve_output_dir(output_dir),
+                read=cls._read_lightmap,
+                write=cls._write_lightmap,
+                output_name=output_name,
+                claims=cls.claims(),
+                size=size,
+                supersample=supersample,
+                padding=padding,
+                log=cls.logger.info,
+            )
+
+        # ---- bind: one commit per (intensity, written) group ---------------
+        groups: Dict[Tuple[float, bool], Tuple[Dict[str, str], Dict[str, Any]]] = {}
+        for job in plan:
+            name, fresh = job["owner"], job["owner"] in written
+            mapping, rects = groups.setdefault((job["intensity"], fresh), ({}, {}))
+            mapping[name] = written[name] if fresh else job["path"]
+            if not fresh:
+                rects[name] = job["scale_offset"]
+        results: Dict[str, Dict[str, str]] = {}
+        for (intensity, fresh), (mapping, rects) in groups.items():
+            recorded = cls.commit(mapping, rects, intensity=intensity, written=fresh)
+            for name, path in recorded.items():
+                results[name] = {
+                    "path": path,
+                    "how": "resampled" if fresh else "rebound",
+                }
+        return results
+
+    # ----------------------------------------------------- lightmap IO
+    @staticmethod
+    def _read_lightmap(path: str) -> "np.ndarray":
+        """*path*'s texels as top-down float RGB, read through Blender (which
+        ships no cv2) the way the Lightmap Baker reads one."""
+        import numpy as np
+
+        from blendertk.light_utils.lightmap_baker.lightmap_baker import (
+            LightmapBaker,
+        )
+
+        img = np.asarray(LightmapBaker._read_exr_top_down(path), dtype=np.float32)
+        return img[..., :3] if img.shape[2] >= 3 else np.repeat(img[..., :1], 3, 2)
+
+    @staticmethod
+    def _write_lightmap(path: str, image: "np.ndarray") -> None:
+        """Write *image* (top-down float) the way the Lightmap Baker writes one."""
+        import numpy as np
+
+        from blendertk.light_utils.lightmap_baker.lightmap_baker import (
+            LightmapBaker,
+        )
+
+        LightmapBaker._write_lightmap_exr(path, np.flipud(image))  # bpy: bottom-up

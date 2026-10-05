@@ -66,7 +66,7 @@ try:
     baker = LightmapBaker.from_preset("mobile")
     check(
         "from_preset reads the dials",
-        baker.resolution == 1024 and baker.samples == 256,
+        baker.resolution == 1024 and baker.samples == 1024,
         f"{baker.resolution}/{baker.samples}",
     )
     # "quest" was renamed "mobile" (mirrors mayatk): a script naming the old tier
@@ -76,7 +76,7 @@ try:
         old = LightmapBaker.from_preset("quest")
     check(
         "the renamed quest tier still builds mobile, with a notice",
-        (old.resolution, old.samples, old.bounces) == (1024, 256, 4)
+        (old.resolution, old.samples, old.bounces) == (1024, 1024, 4)
         and any(
             issubclass(w.category, DeprecationWarning) and "mobile" in str(w.message)
             for w in caught
@@ -115,16 +115,16 @@ try:
         tiers["preview"] <= tiers["mobile"] <= tiers["desktop"],
         f"{tiers}",
     )
-    # The production tiers keep CYCLES' own default depth (4), deliberately: pinning
-    # exists to make a bake reproducible, not to restyle it, so it must not silently
-    # darken results that were already being produced at the factory default. Only
-    # preview trades bounces for speed. NOT copied from mayatk's Arnold gi_depth --
-    # measured, Cycles at 4 bounces already sits at 0.76x an Arnold gi_depth-2 bake of
-    # the same scene, so the two renderers' depth numbers are not interchangeable and
-    # the residual is method (Arnold bakes through a white card), not bounce count.
+    # The SAME depth as mayatk's tier of the same name: both engines count bounces
+    # alike -- a grey calibration room baked by Cycles and by Arnold agreed with each
+    # other and the analytic value to 2% at 0 and at 2 bounces (2026-10-01). The
+    # 0.76x once measured against an Arnold depth-2 bake was the scene, not the
+    # depth: the target's own material (no white card) and area lights crossing
+    # double-scaled and turned 90 degrees. Four is the default: 95% of a grey room's
+    # converged light.
     check(
-        "every tier but preview keeps Cycles' own default depth",
-        tiers["mobile"] == tiers["desktop"] == tiers["hero"] == 4,
+        "every tier bakes mayatk's depth for that tier",
+        tiers == {"preview": 2, "mobile": 4, "desktop": 6, "hero": 8},
         f"{tiers}",
     )
     check(
@@ -141,13 +141,15 @@ try:
         LightmapBaker(bounces=7)._texture_baker.bounces == 7,
     )
     # The BARE constructor is the one path that never sees a tier (a scripted
-    # caller, the panel's revert-only instance). It must sit on Cycles' own default,
-    # not preview's: pinning is here to make a bake reproducible, and a lower
-    # default would silently darken every bake that never named a tier.
+    # caller, the panel's revert-only instance): it bakes the default tier's dials,
+    # as mayatk's does, so a script that names no tier gets what the panel would.
+    bare, mobile = LightmapBaker(), LightmapBaker.from_preset("mobile")
     check(
-        "the bare constructor keeps Cycles' own default depth",
-        LightmapBaker().bounces == 4 and TextureBaker().bounces == 4,
-        f"{LightmapBaker().bounces} / {TextureBaker().bounces}",
+        "the bare constructor bakes the default (mobile) tier",
+        (bare.resolution, bare.samples, bare.bounces)
+        == (mobile.resolution, mobile.samples, mobile.bounces)
+        and TextureBaker().bounces == 4,
+        f"{(bare.resolution, bare.samples, bare.bounces)}",
     )
 
     # The bake must PIN the depth and hand the scene back exactly as it was --
@@ -642,6 +644,189 @@ try:
         ),
         f"{[so for _p, so in packed_dead.values()]}",
     )
+
+    # --- a partial-coverage island is cropped into its cell ----------------
+    # Twin of mayatk (test_cropped_islands_sample_disjoint_atlas_regions):
+    # create_lightmap_uvs REUSES a bakeable layout, and a Maya scene's own set
+    # need not fill 0-1 -- the production walls span u 0..1/3. Uncropped, two
+    # thirds of every wall cell held the bake's margin fill (the smeared
+    # tiles of the 2026-10-01 production room bake) and the island got a third of
+    # its texels. The tile is cropped to the island, the crop folded into the
+    # published rect, and the bake sized so the island lands at cell density.
+    partials = []
+    for src in (a, b):
+        dup = src.copy()
+        dup.data = src.data.copy()
+        dup.name = "Partial" + src.name
+        bpy.context.collection.objects.link(dup)
+        layer = dup.data.uv_layers[btk.find_lightmap_uv_set(dup)]
+        uv = np.empty(len(layer.data) * 2, np.float32)
+        layer.data.foreach_get("uv", uv)
+        uv[0::2] *= 1.0 / 3.0  # squeeze the islands into u 0..1/3
+        layer.data.foreach_set("uv", uv)
+        partials.append(dup)
+
+    def _exr_partial(name, value):
+        path = os.path.join(tmp_dir, name)
+        img = bpy.data.images.new(name, 24, 24, float_buffer=True)
+        img.colorspace_settings.name = "Non-Color"
+        buf = np.full((24, 24, 4), 9.0, np.float32)  # margin fill: extreme
+        buf[:, :8, :3] = value  # the island's third of the map
+        buf[..., 3] = 1.0
+        img.pixels.foreach_set(buf.reshape(-1))
+        img.filepath_raw = path
+        img.file_format = "OPEN_EXR"
+        img.save()
+        bpy.data.images.remove(img)
+        return path
+
+    packed_partial = atlas_baker.pack_atlas(
+        {
+            partials[0].name: _exr_partial("partialA.exr", 1.0),
+            partials[1].name: _exr_partial("partialB.exr", 0.5),
+        },
+        output_dir=tmp_dir,
+        suffix="_PartialLM",
+    )
+    ppath = next(iter(p for p, _so in packed_partial.values()))
+    pimg = bpy.data.images.load(ppath)
+    pbuf = np.empty(len(pimg.pixels), np.float32)
+    pimg.pixels.foreach_get(pbuf)
+    bpy.data.images.remove(pimg)
+    check(
+        "atlas: a partial island's margin fill never reaches its cell",
+        float(pbuf.reshape(-1, 4)[:, :3].max()) <= 1.0 + 1e-3,
+        f"max {float(pbuf.reshape(-1, 4)[:, :3].max()):.3f}",
+    )
+    res_px = atlas_baker.resolution
+    edges = []
+    for obj in partials:
+        _p, (sx, sy, ox, oy) = packed_partial[obj.name]
+        tris = btk.UvUtils.get_uv_triangles(obj, btk.find_lightmap_uv_set(obj))
+        u0, u1 = float(tris[..., 0].min()), float(tris[..., 0].max())
+        edges += [(ox + sx * u0) * res_px, (ox + sx * u1) * res_px]
+    check(
+        "atlas: a cropped island's u edges sample border-texel centers",
+        all(abs(e % 1.0 - 0.5) < 1e-3 for e in edges),
+        f"{edges}",
+    )
+    tw, th = atlas_baker._tile_size(partials[0], (10, 10))
+    check(
+        "atlas: a partial island bakes above its cell by its crop",
+        28 <= tw <= 31 and th <= 11,
+        f"{(tw, th)}",
+    )
+    for dup in partials:
+        bpy.data.objects.remove(dup, do_unlink=True)
+
+    # --- delivered maps are written like mayatk's: half float, ZIP ---------
+    # Image.save() wrote uncompressed 32-bit -- 16.8 MB per 1024 atlas on the
+    # production office against Arnold's ~2 MB -- and the per-object writes
+    # (heal, intensity) skipped the NaN/clamp sanitize the atlas had.
+    def _exr_header(path):
+        """``(pixel types of the channels, compression id)`` from the EXR header."""
+        import struct
+
+        with open(path, "rb") as f:
+            data = f.read(4096)
+        pos, types, compression = 8, [], None
+        while data[pos] != 0:
+            end = data.index(b"\0", pos)
+            name = data[pos:end]
+            tend = data.index(b"\0", end + 1)
+            (size,) = struct.unpack("<i", data[tend + 1 : tend + 5])
+            value = data[tend + 5 : tend + 5 + size]
+            if name == b"channels":
+                p = 0
+                while value[p] != 0:
+                    p = value.index(b"\0", p) + 1
+                    types.append(struct.unpack("<i", value[p : p + 4])[0])
+                    p += 16
+            elif name == b"compression":
+                compression = value[0]
+            pos = tend + 5 + size
+        return types, compression
+
+    HALF, ZIP = 1, 3
+    types, compression = _exr_header(dpath)
+    check(
+        "atlas: written half-float + ZIP, like mayatk's maps",
+        types and set(types) == {HALF} and compression == ZIP,
+        f"pixel types={types} compression={compression}",
+    )
+
+    nan_map = _exr_dead("nanSolo.exr", 0.9, 0)
+    nimg = bpy.data.images.load(nan_map)
+    nimg.colorspace_settings.name = "Non-Color"
+    nbuf = np.empty(len(nimg.pixels), np.float32)
+    nimg.pixels.foreach_get(nbuf)
+    nbuf.reshape(16, 16, 4)[3, 5, :3] = (np.nan, np.inf, -1.0)
+    nimg.pixels.foreach_set(nbuf)
+    nimg.save()
+    bpy.data.images.remove(nimg)
+    atlas_baker._heal_dead_texels(nan_map)
+    nimg = bpy.data.images.load(nan_map)
+    nimg.colorspace_settings.name = "Non-Color"
+    nbuf = np.empty(len(nimg.pixels), np.float32)
+    nimg.pixels.foreach_get(nbuf)
+    bpy.data.images.remove(nimg)
+    nrgb = nbuf.reshape(16, 16, 4)[..., :3]
+    types, compression = _exr_header(nan_map)
+    check(
+        "per-object map: sanitized (finite, in [0, 65504]) and half-float + ZIP",
+        bool(np.isfinite(nrgb).all())
+        and float(nrgb.min()) >= 0.0
+        and float(nrgb.max()) <= 65504.0
+        and set(types) == {HALF}
+        and compression == ZIP,
+        f"finite={bool(np.isfinite(nrgb).all())} min={float(np.nanmin(nrgb))} "
+        f"types={types} compression={compression}",
+    )
+
+    # A scene saved with Video (or Multi-Layer EXR) output. Blender 5.x gates
+    # file_format by media_type, so pinning OPEN_EXR alone raised: the atlas fell
+    # back to its unhealed tiles, every heal and intensity write was skipped, and
+    # the denoise kept the raw bake. 4.x has no media_type.
+    out_settings = bpy.context.scene.render.image_settings
+    if hasattr(out_settings, "media_type"):
+        video_maps = {
+            a.name: _exr_dead("videoA.exr", 1.5, 8),
+            b.name: _exr_dead("videoB.exr", 0.8, 0),
+        }
+        video_raw = _exr_dead("videoRaw.exr", 0.9, 4)
+        out_prior = (out_settings.media_type, out_settings.file_format)
+        out_settings.media_type, out_settings.file_format = "VIDEO", "FFMPEG"
+        try:
+            packed_video = atlas_baker.pack_atlas(
+                video_maps, output_dir=tmp_dir, suffix="_VideoLM"
+            )
+            video_atlas = {p for p, _so in packed_video.values()}
+            types, compression = (
+                _exr_header(next(iter(video_atlas)))
+                if len(video_atlas) == 1
+                else ([], None)
+            )
+            check(
+                "video output scene: the atlas still assembles, half-float + ZIP",
+                len(video_atlas) == 1 and set(types) == {HALF} and compression == ZIP,
+                f"maps={len(video_atlas)} types={types} compression={compression}",
+            )
+            denoised = TextureBaker.denoise_images([video_raw])
+            check(
+                "video output scene: the denoise still runs",
+                set(denoised) == {video_raw},
+                f"{denoised}",
+            )
+            check(
+                "video output scene: its output settings come back unchanged",
+                (out_settings.media_type, out_settings.file_format)
+                == ("VIDEO", "FFMPEG"),
+                f"{out_settings.media_type} / {out_settings.file_format}",
+            )
+        finally:
+            out_settings.media_type, out_settings.file_format = out_prior
+    else:
+        lines.append("OK   (skipped) video output scene: no media_type before 5.0")
 
     solo_dead = atlas_baker.pack_atlas(
         {cube.name: _exr_dead("deadSolo.exr", 1.2, 4)},
@@ -1490,6 +1675,52 @@ try:
         f"{wf}",
     )
 
+    # --- the white card: a target bakes its GEOMETRY's light, as Arnold's does ---
+    # Baked through its own material (pass colour divided out), a metal had no
+    # diffuse lobe and came back near black, and a normal-mapped target took the
+    # map's detail. Two planes in the same sun light, one fully metallic: the same
+    # level, the card gone afterwards and each object's own slots back as they were.
+    def _plane(name, x, metallic):
+        bpy.ops.mesh.primitive_plane_add(size=2, location=(x, 0, 0))
+        obj = bpy.context.active_object
+        obj.name = name
+        pm = bpy.data.materials.new(f"{name}_mat")
+        pm.use_nodes = True
+        pm.node_tree.nodes["Principled BSDF"].inputs[
+            "Metallic"
+        ].default_value = metallic
+        obj.data.materials.append(pm)
+        return obj, pm
+
+    card_metal, metal_mat = _plane("card_metal", 200, 1.0)
+    card_plain, _plain_mat = _plane("card_plain", 210, 0.0)
+    card_maps = LightmapBaker.from_preset(
+        "preview", resolution=32, samples=16, denoise=False, device="CPU"
+    ).bake_separated([card_metal, card_plain], output_dir=os.path.join(tmp_dir, "card"))
+
+    def _mean(path):
+        cimg = bpy.data.images.load(path)
+        cbuf = np.empty(len(cimg.pixels), np.float32)
+        cimg.pixels.foreach_get(cbuf)
+        bpy.data.images.remove(cimg)
+        return float(cbuf.reshape(-1, 4)[:, :3].mean())
+
+    metal_level = _mean(card_maps[card_metal.name])
+    plain_level = _mean(card_maps[card_plain.name])
+    check(
+        "white card: a metal bakes the light it receives, not black",
+        plain_level > 0 and abs(metal_level / plain_level - 1.0) < 0.05,
+        f"metal={metal_level:.4f} plain={plain_level:.4f}",
+    )
+    check(
+        "white card: gone after the bake, the target's own slot back",
+        "lm_whitecard" not in bpy.data.materials
+        and card_metal.material_slots[0].link == "DATA"
+        and card_metal.material_slots[0].material is metal_mat,
+        f"{[m.name for m in bpy.data.materials if 'whitecard' in m.name]} "
+        f"{card_metal.material_slots[0].link} {card_metal.material_slots[0].material}",
+    )
+
     # Every light hidden from the render, and no world the bake keeps: refused
     # before a ray is spent (mayatk's rule; its skydome is the world here).
     wf_sun.hide_render = True
@@ -2069,6 +2300,9 @@ try:
         device="CPU",
         beside_textures=True,
     )
+    # The bake's project: maps land beside textures only inside it (mirror of
+    # mayatk's TestBesideTextures, which opens a workspace on its root).
+    btk.EnvUtils.set_current_workspace(par_dir)
     sep = beside.bake_separated([bs_crate, bs_gone, bs_plain], output_dir=bs_out)
 
     def _folder_of(path):
@@ -2095,6 +2329,19 @@ try:
         os.listdir(crate_dir) == [os.path.basename(sep.get("bs_crate", "?"))],
         f"{os.listdir(crate_dir)}",
     )
+    # Another project's (or Downloads') texture folder is not this bake's to
+    # write: a library two projects share took both projects' lightmaps under
+    # one name, each bake replacing the other's (mayatk, 2026-10-03).
+    library = os.path.join(tmp_dir, "lm_library")
+    os.makedirs(library, exist_ok=True)
+    bs_shared, _ = _textured("bs_shared", (92, 8, 0), library, "Office_Wall_01")
+    out_lib = beside.bake_separated([bs_shared], output_dir=bs_out)
+    check(
+        "beside textures: a texture folder outside the project is never written to",
+        _folder_of(out_lib.get("bs_shared", "")) == os.path.normcase(bs_out)
+        and os.listdir(library) == [],
+        f"{out_lib} {os.listdir(library)}",
+    )
     shelf_a, shelf_mat = _textured(
         "bs_shelf_a", (84, 8, 0), shelf_dir, "Shelf_Metal_01"
     )
@@ -2113,6 +2360,7 @@ try:
         f"{packed}",
     )
     check("...and nothing fell back to output_dir", not os.path.exists(atlas_out))
+    btk.EnvUtils.set_current_workspace(None)
     # A file in a shared texture folder that no marker in this file claims is
     # another file's map: replacing it would hand that file this one's lighting.
     # Once a marker claims it for the very objects being placed, it is theirs.
@@ -2184,6 +2432,7 @@ try:
     # never onto another file's, and one whose every move fails is left out --
     # the bake reports it unbaked -- with the old map intact and nothing staged
     # left behind. Mirror of mayatk's.
+    import errno
     from unittest import mock
 
     def _written(path, data):
@@ -2222,8 +2471,19 @@ try:
     os.makedirs(fail_dir, exist_ok=True)
     own_fail = _written(os.path.join(fail_dir, "Fail_Lightmap.exr"), b"old")
     fail_src = _written(os.path.join(work, "Fail_Lightmap.exr"), b"new")
-    with mock.patch.object(
-        shutil, "move", side_effect=OSError(28, "No space left on device")
+    # Every move fails at both layers FileUtils.move_file uses: the replace
+    # over an existing map (refused as cross-volume, so the overwrite is
+    # staged -- the one path a full disk can fail) and the move into the
+    # stage or onto a free name.
+    with (
+        mock.patch.object(
+            ptk.FileUtils,
+            "replace_file",
+            side_effect=OSError(errno.EXDEV, "Cross-device link"),
+        ),
+        mock.patch.object(
+            shutil, "move", side_effect=OSError(28, "No space left on device")
+        ),
     ):
         unplaced = beside._place_unpacked(
             {"fail_obj": (fail_src, None)},
@@ -2309,7 +2569,7 @@ try:
     )
     check(
         "...never the device (one machine's hardware), and overrides still win",
-        saved.device is None
+        saved.device == LightmapBaker().device
         and (overridden.denoise, overridden.adaptive, overridden.device)
         == (True, True, "GPU"),
     )
@@ -2638,7 +2898,7 @@ try:
         check(
             "a shipped tier moves the dials, bounces included, and leaves the switches",
             (kept_values["resolution"], kept_values["samples"], kept_values["bounces"])
-            == (2048, 512, 4)
+            == (2048, 2048, 6)
             and (
                 kept_values["include_environment"],
                 kept_values["adaptive"],
@@ -3162,6 +3422,9 @@ try:
         return path
 
     sup_dir = os.path.join(tmp_dir, "superseded")
+    # The file's project: only a map inside it is ever set aside (mirror of
+    # mayatk's TestSupersededMaps, which opens a workspace on its root).
+    btk.EnvUtils.set_current_workspace(sup_dir)
     bpy.ops.object.light_add(type="SUN", location=(0, 0, 6))
     bpy.ops.mesh.primitive_cube_add()
     sup_cube = bpy.context.active_object
@@ -3215,6 +3478,22 @@ try:
         os.path.isfile(os.path.join(_bin, os.path.basename(_was)))
         and [_norm(p) for p in third.retired] == [_norm(_was)],
         f"{third.retired}",
+    )
+
+    # A map the file once wrote OUTSIDE its project -- beside a texture
+    # library another project shares -- sits in that project's folder too,
+    # whose files may read it and this one cannot see: a soldering assembly's
+    # re-bake sent another project's room lightmap to the Recycle Bin (mayatk,
+    # 2026-10-03). Only a map inside the file's project is set aside.
+    outside_dir = os.path.join(tmp_dir, "sup_outside")
+    _far = sup_baker.bake(
+        [sup_cube], packing="per_object", output_dir=outside_dir, suffix="_Far"
+    ).maps.get(sup_cube.name, "")
+    _back = sup_baker.bake([sup_cube], packing="per_object", output_dir=sup_dir)
+    check(
+        "a map outside the project is never set aside",
+        os.path.isfile(_far) and _back.retired == [],
+        f"{_far} {_back.retired}",
     )
 
     bpy.ops.mesh.primitive_cube_add(location=(4, 0, 0))
@@ -3319,7 +3598,30 @@ try:
         "a block that raises moves nothing",
         os.path.isfile(os.path.join(sup_dir, raised)),
     )
+    # The boundary is the workspace blendertk's workspace tool names (decided
+    # 2026-10-04): the pin -- here sup_dir, which holds this file -- else the
+    # nearest workspace.mel, else the .blend's own folder. A pin that does not
+    # hold the saved file is another project's: the file's own stands.
+    check(
+        "the project is the pinned workspace that holds the file",
+        _norm(LightmapRecords.project_root() or "") == _norm(sup_dir),
+        f"{LightmapRecords.project_root()}",
+    )
+    elsewhere = os.path.join(tmp_dir, "sup_elsewhere")
+    os.makedirs(elsewhere, exist_ok=True)
+    btk.EnvUtils.set_current_workspace(elsewhere)
+    check(
+        "...a pin that does not hold it falls back to the file's own project",
+        _norm(LightmapRecords.project_root() or "") == _norm(sup_dir),
+        f"{LightmapRecords.project_root()}",
+    )
+    btk.EnvUtils.set_current_workspace(None)
     bpy.ops.wm.read_factory_settings(use_empty=True)
+    check(
+        "...and an unsaved file with no pin has none",
+        LightmapRecords.project_root() is None,
+        f"{LightmapRecords.project_root()}",
+    )
 
     # --- a LINKED library's maps resolve by ITS folder record (2026-09-23) -----
     # Mirror of mayatk's referenced-module record: a library baked in its own

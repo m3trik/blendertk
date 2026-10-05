@@ -50,10 +50,10 @@ _SLOTS = "blendertk.anim_utils.shots.shot_manifest.shot_manifest_slots"
 def _make_stub_controller():
     """A stub carrying only the collaborators ``_load_csv`` touches."""
     ctrl = types.SimpleNamespace()
-    ctrl._sync_csv_widgets = MagicMock()
     ctrl._set_footer = MagicMock()
     ctrl._load_data = MagicMock()
     ctrl._refresh_ranges = MagicMock()
+    ctrl._fill_missing_assets = MagicMock()
     ctrl._recent_csv_option = MagicMock()
     ctrl._active_mapping = None
     ctrl._column_map = ColumnMap()
@@ -69,6 +69,9 @@ def _make_stub_controller():
     )
     ctrl._mark_csv_invalid = lambda reason: ShotManifestController._mark_csv_invalid(
         ctrl, reason
+    )
+    ctrl._drop_excluded = lambda steps: ShotManifestController._drop_excluded(
+        ctrl, steps
     )
     return ctrl
 
@@ -95,9 +98,9 @@ class LoadCsvUrlSourceTest(unittest.TestCase):
         ctrl = _make_stub_controller()
         err = ptk.RemoteFile.Error("Can't fetch https://x: HTTP 404 Not Found.")
         with patch(f"{_SLOTS}.ManifestModel.parse_csv", side_effect=err):
-            ShotManifestController._load_csv(ctrl, self._URL)
+            ok = ShotManifestController._load_csv(ctrl, self._URL)
 
-        ctrl._sync_csv_widgets.assert_called_once_with(True)
+        self.assertFalse(ok)
         ctrl._load_data.assert_not_called()
         ctrl.ui.txt_csv_path.set_action_color.assert_called_with("invalid")
         msg = ctrl._set_footer.call_args.args[0].lower()
