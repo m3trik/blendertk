@@ -724,6 +724,164 @@ try:
         stripped = [repr(e)]
     check("assigning one layout never strips another", not stripped, str(stripped))
 
+    # ------------------------------------------------ one name, one owner
+    # Mirror of mayatk: a material holding the output's name is replaced only
+    # when it is this output's own previous result -- stamped, and worn by
+    # nothing outside the run's targets. Anything else keeps the name, and the
+    # output, material AND maps, is named beside it.
+    def seat(chair, rgb):
+        """A plane wearing a flat *rgb* map, with a rotated ``map2``: two
+        chairs' seats, which tentacle's blank Output Name derives ``seat``
+        for."""
+        tex = os.path.join(tmp, f"{chair}_src.png").replace("\\", "/")
+        Image.new("RGB", (16, 16), rgb).save(tex)
+        o = plane(f"{chair}_seat")
+        o.data.materials.append(material(f"{chair}Mat", texture=tex))
+        rotate_uv_copy(o, "map2", 90)
+        return o
+
+    def mirror_u(o):
+        layer = o.data.uv_layers.active
+        buf = np.empty(len(o.data.loops) * 2, np.float32)
+        layer.uv.foreach_get("vector", buf)
+        uv = buf.reshape(-1, 2)
+        uv[:, 0] = 1.0 - uv[:, 0]
+        layer.uv.foreach_set("vector", uv.ravel())
+
+    reset()
+    seat_kwargs = dict(
+        source_uv_set="UVMap",
+        target_uv_set="map2",
+        size=16,
+        supersample=1,
+        padding=0,
+        output_dir=out_dir,
+        output_name="seat",
+        assign=True,
+    )
+    chair_a, chair_b = seat("chairA", (255, 0, 0)), seat("chairB", (0, 0, 255))
+    worn = []
+    try:
+        for _run in range(2):  # the second round: each re-run replaces its own
+            TextureTransfer().transfer(chair_a, **seat_kwargs)
+            TextureTransfer().transfer(chair_b, **seat_kwargs)
+            worn.append((used_materials(chair_a), used_materials(chair_b)))
+    except ValueError as e:  # chairA left wearing nothing has nothing to read
+        worn.append(repr(e))
+    check(
+        "a name another object wears is never taken from it",
+        worn == [({"seat"}, {"seat_1"})] * 2,
+        str(worn),
+    )
+    red_p = os.path.join(out_dir, "seat_BaseColor.png")
+    blue_p = os.path.join(out_dir, "seat_1_BaseColor.png")
+    both = os.path.isfile(red_p) and os.path.isfile(blue_p)
+    red = load(red_p) if both else None
+    blue = load(blue_p) if both else None
+    check(
+        "... nor are its maps written over",
+        both
+        and red[..., 0].mean() > 200
+        and red[..., 2].mean() < 50
+        and blue[..., 2].mean() > 200
+        and blue[..., 0].mean() < 50,
+        f"{red_p} / {blue_p}",
+    )
+
+    reset()
+    o = plane("ownPlane")
+    o.data.materials.append(material("seat", texture=checker_path))
+    rotate_uv_copy(o, "map2", 90)
+    TextureTransfer().transfer(
+        o,
+        source_uv_set="UVMap",
+        target_uv_set="map2",
+        size=16,
+        supersample=1,
+        padding=0,
+        output_dir=out_dir,
+        output_name="seat",
+        assign=True,
+    )
+    from blendertk.mat_utils.mat_manifest import MatManifest
+
+    own = bpy.data.materials.get("seat")
+    own_map = MatManifest._process_material(own).get("baseColor", "") if own else ""
+    check(
+        "a same-mesh run never replaces the material it reads",
+        own_map.endswith("src_checker.png") and used_materials(o) == {"seat_1"},
+        f"{own_map} / {used_materials(o)}",
+    )
+
+    reset()
+    o = plane("collidePlane")
+    o.data.materials.append(material("collideMat", texture=checker_path))
+    rotate_uv_copy(o, "map2", 90)
+    bystander = plane("bystander")
+    bystander.data.materials.append(material("hero_atlas"))
+    res = TextureTransfer().transfer(
+        o,
+        source_uv_set="UVMap",
+        target_uv_set="map2",
+        size=16,
+        supersample=1,
+        padding=0,
+        output_dir=out_dir,
+        output_name="hero_atlas",
+        assign=True,
+    )
+    written = os.path.basename(next(iter(res.values()))["baseColor"])
+    check(
+        "an output name a bystander wears is named beside it",
+        used_materials(bystander) == {"hero_atlas"}
+        and used_materials(o) == {"hero_atlas_1"}
+        and written == "hero_atlas_1_BaseColor.png",
+        f"{used_materials(bystander)} {used_materials(o)} {written}",
+    )
+
+    reset()
+    kept_dir = os.path.join(tmp, "kept_out").replace("\\", "/")
+    os.makedirs(kept_dir, exist_ok=True)
+    held = os.path.join(kept_dir, "hero_BaseColor.png").replace("\\", "/")
+    Image.fromarray(checker()).save(held)
+    before = load(held)
+    s = plane("keptSrc")
+    s.data.materials.append(material("keptSrcMat", texture=held))
+    t = twin(s, "keptTgt")
+    t.data.materials.append(material("keptTgtMat"))
+    mirror_u(t)  # another layout, so a write over the source would show
+    res = TextureTransfer().transfer(
+        t,
+        s,
+        size=64,
+        supersample=1,
+        padding=0,
+        output_dir=kept_dir,
+        output_name="hero",
+        assign=True,
+    )
+    written = os.path.basename(next(iter(res.values()))["baseColor"])
+    check(
+        "a map a kept material reads is never written over",
+        bool(np.array_equal(load(held), before))
+        and written == "hero_1_BaseColor.png"
+        and used_materials(t) == {"hero_1"},
+        f"{written} {used_materials(t)}",
+    )
+
+    reset()
+    emit = material("emitMat")
+    unweighted = TextureTransfer.material_constant(emit, "emission")
+    emit_bsdf = next(n for n in emit.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+    emit_bsdf.inputs["Emission Color"].default_value = (1.0, 0.5, 0.0, 1.0)
+    emit_bsdf.inputs["Emission Strength"].default_value = 2.0
+    weighted = TextureTransfer.material_constant(emit, "emission")
+    check(
+        "an emission is its colour times its strength (0 by default)",
+        unweighted == (0.0, 0.0, 0.0) and weighted == (2.0, 1.0, 0.0),
+        f"{unweighted} / {weighted}",
+    )
+
     # ------------------------------------------------------- assign_from
     # Mirror of mayatk: "source" copies the SOURCE's material (the look being
     # transferred, with every node no channel owns), and a material a source

@@ -28,8 +28,11 @@ DCC swaps versus the Maya original (by design, not gaps):
       ``"<object>|<data_path>|<array_index>"`` (:meth:`_fc_key`).
     * **Reorder** goes through the pure ``plan_reorder`` + park/land apply
       (Maya hand-rolls the park loop; same result).
-    * **No DAG-path reconciliation** — Blender object names are flat and
-      unique, so :meth:`reconcile_all_shots` has nothing to re-resolve.
+    * **Renames, not DAG paths, are reconciled.**  Blender object names are
+      flat and unique, so there is no path to re-resolve -- but a rename
+      leaves the store naming an object that is gone, members and ledger
+      claims alike, which :meth:`reconcile_all_shots` follows through
+      ``BlenderShotStore.follow_renames``.
     * **Undo pairing by serial, not by name.** mayatk tags each boundary
       restore point with the undo chunk its edit landed under and checks that
       name before an undo consumes the point.  Blender's undo exposes no step
@@ -80,6 +83,12 @@ _DERIVED_HANDLES = ("AUTO", "AUTO_CLAMPED")
 # Handle types whose position Blender keeps as authored (VECTOR is re-derived
 # from the neighbours on every update, like an auto handle).
 _POSITIONED_HANDLES = ("FREE", "ALIGNED")
+
+# Blender holds no two keys of an fcurve closer than this (frames): an insert
+# within it REPLACES the key there -- writing the new value onto it, at ITS
+# time -- and ``FCurve.update()`` merges two that close into one (measured on
+# 5.1).  A key that near a frame is, to Blender, on it.
+_KEY_MERGE = 0.01
 
 # A handle offset that moved by less than this (frames / value units) did not
 # really move: freezing it would only convert its type.
@@ -139,8 +148,9 @@ class _ShotSequencerInternal(object):
 
         Maya claims are keyed by animCurve NODE name; a Blender fcurve is not
         a node and has no name, so its owner plus channel identity stands in.
-        Same shape, same uniqueness, and it survives everything except a
-        rename of the object (which drops the claim, not the animation).
+        Same shape, same uniqueness; a rename of the object (or of a bone,
+        which rewrites the path) is followed by re-keying the claims
+        (``BlenderShotStore.follow_renames``).
         """
         from blendertk.anim_utils.shots._shots import BlenderShotStore
 
@@ -406,83 +416,49 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         ]
 
     def reconcile_all_shots(self) -> bool:
-        """Follow members renamed since they were stored, NEVER dropping one.
+        """Follow objects renamed since they were stored, NEVER dropping one.
 
         Mirror of mayatk's: Blender names are flat, so there are no DAG paths
-        to re-resolve, but a RENAME leaves a shot naming an object that is no
-        longer there.  mayatk follows it through the anim curves Maya named
-        after the old node; the Blender twin is the action slot, named
-        ``OB<name>`` when the object was first keyed and left as it is by a
-        rename (:meth:`_renamed_target`) -- so this works across sessions,
-        not only for renames it saw happen.
-
-        A name that resolves to nothing is kept as stored (renamed and deleted
-        look the same from a name, and dropping membership is irreversible;
-        ``assess`` surfaces deletions).  Everything the store and the ledger
-        key by object name follows the rename too: the hidden / pinned /
-        locked sets, and the edit claims (``<object>|<path>|<index>``).
+        to re-resolve, but a RENAME leaves the store naming an object that is
+        no longer there -- members, the hidden / pinned / locked sets and the
+        edit claims (``<object>|<path>|<index>``) alike.  The store follows it
+        (``BlenderShotStore.follow_renames``: by ``session_uid``, and across
+        sessions through the action slot); a name that resolves to nothing is
+        kept as stored (``assess`` surfaces deletions).
 
         Returns ``True`` if anything was re-pointed.
+        """
+        return self._follow_store_renames()
+
+    def _follow_store_renames(self) -> bool:
+        """``store.follow_renames()``, for a store that has one (a bare
+        ``pythontk.ShotStore`` names nothing in a scene)."""
+        follow = getattr(self.store, "follow_renames", None)
+        return bool(follow()) if follow is not None else False
+
+    def _follow_unresolved_claims(self, keys) -> bool:
+        """Follow renames when a claim among *keys* names an owner that is gone.
+
+        The passes that FORGET a claim they cannot resolve
+        (:meth:`_release_gap_holds`, :meth:`_reconcile_boundary_keys`) call
+        this first, so a renamed object's (or bone's) claims are re-keyed
+        instead of lost.  Only a name test per key -- the object, and a pose
+        bone's channel's bone -- so a pass with nothing renamed pays nothing
+        more.  Returns ``True`` if anything was re-pointed.
         """
         try:
             import bpy
         except ImportError:
             return False
-        existing = set(bpy.data.objects.keys())
-        stale = {o for shot in self.store.shots for o in shot.objects} - existing
-        if not stale:
-            return False
-        renames = self._renamed_targets(stale)
-        if not renames:
-            return False
-        store = self.store
-        with store.batch_update():
-            for shot in store.shots:
-                objects = sorted({renames.get(o, o) for o in shot.objects})
-                if objects != sorted(shot.objects):
-                    store.update_shot(shot.shot_id, objects=objects)
-            for attr in ("hidden_objects", "pinned_objects", "locked_objects"):
-                names = getattr(store, attr, None)
-                if names and names & set(renames):
-                    setattr(store, attr, {renames.get(n, n) for n in names})
-            ledger = self.ledger
-            for key in sorted(ledger.curves):
-                obj_name, sep, rest = key.partition("|")
-                if sep and obj_name in renames:
-                    ledger.rename_curve(key, f"{renames[obj_name]}|{rest}")
-            store.mark_dirty()
-        return True
-
-    @staticmethod
-    def _renamed_targets(stale) -> dict:
-        """``{old name: new name}`` for the *stale* names an object answers for.
-
-        Blender names an object's action slot after the object when it is
-        first keyed (``OB<name>``; legacy actions: ``<name>Action``) and a
-        rename leaves both as they were -- the twin of the anim curves Maya
-        named after the old node.  Exactly one object must answer: a slot two
-        objects share (a linked duplicate) cannot say which one was renamed.
-        One scan of the objects for every stale name: this runs on each
-        keying burst's rebuild, and a deleted member stays stale for good
-        (mayatk memoises its curve scan per pass for the same reason).
-        """
-        import bpy
-
-        claims: dict = {}
-        for obj in bpy.data.objects:
-            ad = obj.animation_data
-            if ad is None or ad.action is None:
+        for key in keys:
+            try:
+                obj_name, data_path, _index = key.rsplit("|", 2)
+            except ValueError:
                 continue
-            slot = getattr(ad, "action_slot", None)
-            if slot is not None:
-                old = slot.name_display
-            elif ad.action.name.endswith("Action"):
-                old = ad.action.name[: -len("Action")]
-            else:
-                continue
-            if old in stale and obj.name != old:
-                claims.setdefault(old, []).append(obj.name)
-        return {old: hits[0] for old, hits in claims.items() if len(hits) == 1}
+            obj = bpy.data.objects.get(obj_name)
+            if obj is None or BlenderShotStore._bone_gone(obj, data_path):
+                return self._follow_store_renames()
+        return False
 
     # ---- per-object segment collection (timeline track data) -------------
 
@@ -1073,7 +1049,9 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         split left the following shot's second key with a left handle 4.30
         long instead of 6.67, and the shot played 0.431 off. The shot system
         inserts a pose, not a subdivision (Maya's ``setKeyframe`` leaves a
-        fixed tangent alone too), so those handles are put back.
+        fixed tangent alone too), so those handles are put back.  Callers
+        never insert within :data:`_KEY_MERGE` of a key: Blender would write
+        the pose onto THAT key instead.
 
         Returns the new keyframe point.
         """
@@ -1145,6 +1123,10 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         def _noop():
             return None
 
+        # The first scene hook of every whole-shot move (the plan writer's and
+        # ``_move_shot_content``'s): the claims it reads -- and the moves after
+        # it remap -- are keyed by object name, so a rename is followed first.
+        self._follow_store_renames()
         windows = ShotPlanner.move_windows(plan)
         if not windows:
             return _noop
@@ -1269,7 +1251,11 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
                 claim,
             ) in captures:
                 keyed = self._key_at(fc, frame) is not None  # already landed
-                if not keyed:
+                # A key a hair off the frame, inside Blender's merge distance,
+                # would TAKE the insert: the pose written onto it, at its own
+                # time.  Left as it is, as a refused re-key is -- and so is
+                # the carried sample, which is cut only once a key holds it.
+                if not keyed and self._key_at(fc, frame, _KEY_MERGE) is None:
                     try:
                         kp = self._insert_in_place(fc, frame, value)
                         kp.interpolation = interp
@@ -1394,7 +1380,15 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
                 # or scales whole inside one gap -- nothing re-derives, so it
                 # keeps its auto handles.
                 continue
-            pinned.extend((name, fc, t) for t in self._insert_shape_keys(fc, bounds))
+            pinned.extend(
+                (name, fc, t)
+                for t in self._insert_shape_keys(
+                    fc,
+                    bounds,
+                    ledger=self.ledger,
+                    ledger_key=_ShotSequencerInternal._fc_key(name, fc),
+                )
+            )
         return pinned
 
     @staticmethod
@@ -1436,7 +1430,9 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
     _SPLITTABLE = ("BEZIER", "LINEAR")
 
     @classmethod
-    def _insert_shape_keys(cls, fc, times, tol: float = 1e-4) -> list:
+    def _insert_shape_keys(
+        cls, fc, times, tol: float = 1e-4, ledger=None, ledger_key: str = ""
+    ) -> list:
         """Insert keys at *times* WITHOUT changing what *fc* evaluates to.
 
         The twin of mayatk's ``AnimUtils.insert_keys`` (Maya's ``setKeyframe
@@ -1452,6 +1448,18 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         following the retimed key beside it), and a bezier segment is then
         split exactly (:meth:`_split_segment`).
 
+        A key within :data:`_SLOP` of a time already sits on it, as every
+        window reads a bound.  One a little further off but inside Blender's
+        merge distance (:data:`_KEY_MERGE`) cannot have a key beside it -- an
+        insert wrote the pin onto it: the split's handles, the curve's value
+        at the bound, and a claim on a frame no key held -- and to Blender it
+        IS on the bound, so it is put there exactly (its handles travel with
+        it).  That moves the curve by no more than that sub-frame shift, where
+        leaving it off the bound left the segment it opens to the gap retime
+        beside it (measured: a key 0.005 before a bound played its shot's
+        first frames 2.1 off).  It stays the animator's key, unclaimed; a
+        claim it carries in *ledger* (under *ledger_key*) moves with it.
+
         Returns the frames inserted at.
         """
         if len(fc.keyframe_points) < 2:
@@ -1461,11 +1469,23 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         first, last = times_now[0], times_now[-1]
         kps = fc.keyframe_points
         inserted: list = []
+        snapped = False
         for t in sorted({float(x) for x in times}):
             if not first + tol < t < last - tol:
                 continue
             times_now = AnimUtils.key_times(fc)
-            if any(abs(t - k) <= tol for k in times_now):
+            i0, i1 = AnimUtils.window_indices(times_now, t - _KEY_MERGE, t + _KEY_MERGE)
+            if i1 > i0:
+                near = min(range(i0, i1), key=lambda j: abs(times_now[j] - t))
+                if abs(times_now[near] - t) > _SLOP:
+                    kp = kps[near]
+                    d = t - kp.co[0]
+                    kp.co[0] = t
+                    kp.handle_left[0] += d
+                    kp.handle_right[0] += d
+                    snapped = True
+                    if ledger is not None and ledger_key:
+                        ledger.remap(ledger_key, [(times_now[near], t)])
                 continue
             i = max(j for j, k in enumerate(times_now) if k < t)
             a, b = kps[i], kps[i + 1]
@@ -1473,7 +1493,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
                 continue
             if cls._split_segment(fc, i, t, tol):
                 inserted.append(t)
-        if inserted:
+        if inserted or snapped:
             fc.update()
         return inserted
 
@@ -1872,12 +1892,16 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         mayatk's sparse move recreates each key with ``setKeyframe``, which
         OVERWRITES a key already on the frame (the Graph Editor's behaviour);
         a direct ``co`` write here would otherwise leave two points on one
-        frame.  The replaced key's claims go with it.  Returns the count.
+        frame.  The replaced key's claims go with it -- ALL of them, as with
+        every key the system cuts: its step and a behavior's authored claim
+        too, which ``remap`` would otherwise hand to the key that landed there
+        (the next Build's ``release_authored`` then deleted the animator's
+        key).  Returns the count.
         """
         removed = AnimUtils._merge_onto_moved(crv, moved, eps=_SLOP)
         if ledger is not None and ledger_key:
             for t in removed:
-                ledger.release_key(ledger_key, t)
+                ledger.release(ledger_key, t)
         return len(removed)
 
     @classmethod
@@ -2165,10 +2189,13 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
 
         The CLAIM goes whatever the scene says, so a curve that has since been
         deleted or re-interpolated by hand cannot leave a permanent entry
-        behind.  The WRITE is only taken back where the key is still there and
-        still ``CONSTANT`` — an animator who changed it since owns it now.
+        behind -- once a rename is ruled out: a renamed owner's claims are
+        re-keyed first (:meth:`_follow_unresolved_claims`), not forgotten.
+        The WRITE is only taken back where the key is still there and still
+        ``CONSTANT`` — an animator who changed it since owns it now.
         """
         led = self.ledger
+        self._follow_unresolved_claims(led.stepped_curves())
         restored = 0
         for key in led.stepped_curves():
             fc = _ShotSequencerInternal._fcurve_for_key(key)
@@ -2347,6 +2374,10 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         if _ShotSequencerInternal._scene() is None:
             return 0, 0
         led = self.ledger
+        if bounds is None:
+            # This pass forgets a claim it cannot resolve: a renamed owner's
+            # are re-keyed first (:meth:`_follow_unresolved_claims`).
+            self._follow_unresolved_claims(led.keyed_curves())
         moved = removed = 0
         for key in led.keyed_curves():
             records = [

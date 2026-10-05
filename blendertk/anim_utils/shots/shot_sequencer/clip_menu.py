@@ -372,8 +372,8 @@ class ClipMenuMixin:
         if not jobs or self.sequencer is None:
             return
         shots = {sid for *_scope, sid in jobs if sid is not None}
-        try:
-            with self.sequencer.store.scene_edit("Store Keys") as edit:
+        with self.sequencer.store.scene_edit("Store Keys") as edit:
+            try:
                 clip_rec = KeyStash.active().stash(
                     targets=[
                         (obj, fcurves, start, end)
@@ -381,14 +381,15 @@ class ClipMenuMixin:
                     ],
                     source_shot_id=shots.pop() if len(shots) == 1 else None,
                 )
-                stored = clip_rec.key_count if clip_rec is not None else 0
-                if not stored:
-                    edit.cancel()  # nothing happened -- keep the ledger clean
-        except Exception:
-            # One call for the whole gesture, so a raise means nothing landed
-            # and the restore point would "restore" the state we are in.
-            self._discard_shot_state()
-            raise
+            except Exception:
+                # One call for the whole gesture, so a raise means nothing
+                # landed: no step, and no restore point "restoring" the state
+                # we are in.
+                edit.cancel()
+                raise
+            stored = clip_rec.key_count if clip_rec is not None else 0
+            if not stored:
+                edit.cancel()  # nothing happened -- keep the ledger clean
         if not stored:
             self._set_footer("No keys to store")
             return

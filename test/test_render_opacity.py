@@ -1367,6 +1367,44 @@ try:
     )
     _store.effect_recipe = _recipe_before
 
+    # ---- the action row while focused (mirror of mayatk's panel tests) ------
+    # Key's text is the manifest's only while Key runs the manifest's re-key: a
+    # focused highlight's Revise re-colours, yet it kept "Apply to ..." -- a
+    # mode switch never re-labelled it.
+    kslot = _res.RenderEffectsSlots.__new__(_res.RenderEffectsSlots)
+    kslot.sb, kslot.ui = MagicMock(), MagicMock()
+    kslot.ui.stk_effects.currentIndex.return_value = 1  # the Highlight page
+    _key_texts = []
+    kslot.ui.b000.setText.side_effect = _key_texts.append
+    kslot._focus = {
+        "channel": "highlight",
+        "objects": [],
+        "apply": lambda: "",
+        "apply_text": "Apply to 'Lid' in S01",
+        "title": "Lid · S01",
+    }
+    kslot._selection_snapshot = lambda: ([], {})
+    kslot._clear_report = lambda: None
+    kslot._sync_mode = lambda channel, deep=False, snapshot=None: None
+    _modes = {"highlight": _res.CREATE}
+    kslot._mode = lambda channel: _modes[channel]
+    kslot._on_mode_changed("highlight")
+    _modes["highlight"] = _res.REVISE
+    kslot._on_mode_changed("highlight")
+    check(
+        "a focused highlight's Key says what each mode does",
+        _key_texts == ["Apply to 'Lid' in S01", "Key Highlight Pulse"],
+        detail=f"{_key_texts}",
+    )
+    # A whole-number box truncated a float: a 0.57 duty is 56.99... percent.
+    check(
+        "a whole-number box takes the nearest whole number; a decimal one, as is",
+        kslot._spin_value(_Spin(59), 0.57 * 100) == 57
+        and kslot._spin_value(_Spin(15), 12.6) == 13
+        and kslot._spin_value(_Spin(2.86), 2.5) == 2.5,
+        detail=f"{kslot._spin_value(_Spin(59), 0.57 * 100)}",
+    )
+
     # ---- apply_effect: the Shot Manifest's writer (mirror of mayatk's) -------
     # One plan, one writer, nothing deleted; the recipe's colours only on a
     # channel it creates.

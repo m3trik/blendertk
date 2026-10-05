@@ -105,6 +105,16 @@ try:
     check("reload_library succeeds", btk.reload_library(rec["library"]))
     check("remove_library succeeds", btk.remove_library(rec["library"]))
     check("is_blend_linked False after remove", not btk.is_blend_linked(lib_path))
+    # ...and takes the collection-instance Empty link_blend_file made with it: the Empty
+    # is LOCAL, so removing the library alone left it behind instancing nothing.
+    check(
+        "remove_library leaves no collection instance pointing at nothing",
+        not any(
+            o.instance_type == "COLLECTION" and o.instance_collection is None
+            for o in bpy.data.objects
+        ),
+        str([o.name for o in bpy.data.objects]),
+    )
 
     # 7. append (link=False) brings a LOCAL copy in (datablock.library is None — unlike link,
     #    a lingering 0-user library datablock may persist until orphan purge, so the meaningful
@@ -746,6 +756,15 @@ try:
     check(
         "panel: a library no row lists survives a selection change",
         btk.is_blend_linked(other_lib),
+    )
+    # Selection IS the reference set, so every row click links and every deselect
+    # removes: a removal that left its collection-instance Empty behind piled one up
+    # per click. The unlisted library's own Empty stays.
+    instancers = [o for o in bpy.data.objects if o.instance_type == "COLLECTION"]
+    check(
+        "panel: deselecting takes the row's collection instance with it, no other",
+        len(instancers) == 1 and instancers[0].instance_collection is not None,
+        str([(o.name, o.instance_collection) for o in instancers]),
     )
     s._syncing_selection = True  # a rebuild's clear() must never read as "unlink"
     rows[0].selected = True

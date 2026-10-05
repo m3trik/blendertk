@@ -122,7 +122,13 @@ class TestBoundaryEditRefusesInsteadOfCrashing(unittest.TestCase):
         ok = ctl._boundary_edit(store, "reorder", _refuse)
         self.assertFalse(ok, "a refused edit must report False, not raise")
 
-    def test_a_refusal_discards_the_restore_point(self):
+    def test_a_refusal_keeps_the_restore_point_its_step_pairs_with(self):
+        """A refused edit can have written first (a "both" Add Space slides
+        the head before the tail ripple refuses), and ``scene_edit`` pushed
+        its undo step and tagged this point to it either way: undoing the
+        step must put the bounds back with the keys.  (2026-09-16 discarded
+        it, against an undo that then offered an UNPAIRED point.)
+        """
         from pythontk import ShotBoundaryConflict
 
         ctl = self._bind(self._controller())
@@ -135,8 +141,8 @@ class TestBoundaryEditRefusesInsteadOfCrashing(unittest.TestCase):
         self.assertEqual(store.pushed, 1)
         self.assertEqual(
             store.discarded,
-            1,
-            "nothing changed, so the restore point must not be left behind",
+            0,
+            "the restore point stays paired with the step scene_edit pushed",
         )
 
     def test_a_refusal_is_reported_to_the_user(self):

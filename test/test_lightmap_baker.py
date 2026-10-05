@@ -783,6 +783,51 @@ try:
         f"types={types} compression={compression}",
     )
 
+    # A scene saved with Video (or Multi-Layer EXR) output. Blender 5.x gates
+    # file_format by media_type, so pinning OPEN_EXR alone raised: the atlas fell
+    # back to its unhealed tiles, every heal and intensity write was skipped, and
+    # the denoise kept the raw bake. 4.x has no media_type.
+    out_settings = bpy.context.scene.render.image_settings
+    if hasattr(out_settings, "media_type"):
+        video_maps = {
+            a.name: _exr_dead("videoA.exr", 1.5, 8),
+            b.name: _exr_dead("videoB.exr", 0.8, 0),
+        }
+        video_raw = _exr_dead("videoRaw.exr", 0.9, 4)
+        out_prior = (out_settings.media_type, out_settings.file_format)
+        out_settings.media_type, out_settings.file_format = "VIDEO", "FFMPEG"
+        try:
+            packed_video = atlas_baker.pack_atlas(
+                video_maps, output_dir=tmp_dir, suffix="_VideoLM"
+            )
+            video_atlas = {p for p, _so in packed_video.values()}
+            types, compression = (
+                _exr_header(next(iter(video_atlas)))
+                if len(video_atlas) == 1
+                else ([], None)
+            )
+            check(
+                "video output scene: the atlas still assembles, half-float + ZIP",
+                len(video_atlas) == 1 and set(types) == {HALF} and compression == ZIP,
+                f"maps={len(video_atlas)} types={types} compression={compression}",
+            )
+            denoised = TextureBaker.denoise_images([video_raw])
+            check(
+                "video output scene: the denoise still runs",
+                set(denoised) == {video_raw},
+                f"{denoised}",
+            )
+            check(
+                "video output scene: its output settings come back unchanged",
+                (out_settings.media_type, out_settings.file_format)
+                == ("VIDEO", "FFMPEG"),
+                f"{out_settings.media_type} / {out_settings.file_format}",
+            )
+        finally:
+            out_settings.media_type, out_settings.file_format = out_prior
+    else:
+        lines.append("OK   (skipped) video output scene: no media_type before 5.0")
+
     solo_dead = atlas_baker.pack_atlas(
         {cube.name: _exr_dead("deadSolo.exr", 1.2, 4)},
         output_dir=tmp_dir,
@@ -2387,6 +2432,7 @@ try:
     # never onto another file's, and one whose every move fails is left out --
     # the bake reports it unbaked -- with the old map intact and nothing staged
     # left behind. Mirror of mayatk's.
+    import errno
     from unittest import mock
 
     def _written(path, data):
@@ -2425,8 +2471,19 @@ try:
     os.makedirs(fail_dir, exist_ok=True)
     own_fail = _written(os.path.join(fail_dir, "Fail_Lightmap.exr"), b"old")
     fail_src = _written(os.path.join(work, "Fail_Lightmap.exr"), b"new")
-    with mock.patch.object(
-        shutil, "move", side_effect=OSError(28, "No space left on device")
+    # Every move fails at both layers FileUtils.move_file uses: the replace
+    # over an existing map (refused as cross-volume, so the overwrite is
+    # staged -- the one path a full disk can fail) and the move into the
+    # stage or onto a free name.
+    with (
+        mock.patch.object(
+            ptk.FileUtils,
+            "replace_file",
+            side_effect=OSError(errno.EXDEV, "Cross-device link"),
+        ),
+        mock.patch.object(
+            shutil, "move", side_effect=OSError(28, "No space left on device")
+        ),
     ):
         unplaced = beside._place_unpacked(
             {"fail_obj": (fail_src, None)},

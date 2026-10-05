@@ -1067,6 +1067,78 @@ try:
         UvDiagnostics.is_bakeable_lightmap(cube, lm),
     )
 
+    # ---- the UV reads behind every lightmap bake take bpy's float32 path. A
+    # float64 buffer makes foreach_get convert per element -- measured 3-4x
+    # slower on 'uv' / 'co' (Blender 5.1), three passes per bake over every mesh.
+    # A recording double around the real mesh sees each buffer's dtype.
+    import numpy as np
+
+    class _Seen:
+        """A bpy collection whose foreach_get records the buffer's dtype."""
+
+        def __init__(self, real, seen):
+            self._real, self._seen = real, seen
+
+        def __len__(self):
+            return len(self._real)
+
+        def foreach_get(self, attr, buf):
+            self._seen[attr] = buf.dtype
+            self._real.foreach_get(attr, buf)
+
+    class _SeenLayer:
+        def __init__(self, real, seen):
+            self.data = _Seen(real.data, seen)
+
+    class _SeenLayers:
+        def __init__(self, real, seen):
+            self._real, self._seen = real, seen
+
+        def __len__(self):
+            return len(self._real)
+
+        def get(self, name):
+            layer = self._real.get(name)
+            return None if layer is None else _SeenLayer(layer, self._seen)
+
+        @property
+        def active(self):
+            return _SeenLayer(self._real.active, self._seen)
+
+    class _SeenMesh:
+        def __init__(self, real, seen):
+            self._real = real
+            self.uv_layers = _SeenLayers(real.uv_layers, seen)
+            self.loop_triangles = _Seen(real.loop_triangles, seen)
+            self.vertices = _Seen(real.vertices, seen)
+            self.loops = real.loops
+
+        def calc_loop_triangles(self):
+            self._real.calc_loop_triangles()
+
+    seen = {}
+    seen_cube = type("_SeenObj", (), {"data": _SeenMesh(cube.data, seen)})()
+    tris = _UvUtils.get_uv_triangles(seen_cube, lm)
+    check(
+        "get_uv_triangles: reads the UVs through a float32 buffer",
+        seen.get("uv") == np.float32,
+        str(seen),
+    )
+    want = _UvUtils.get_uv_triangles(cube, lm)
+    check(
+        "get_uv_triangles: the same float64 triangles either way",
+        tris.dtype == np.float64 and tris.shape == want.shape and (tris == want).all(),
+        f"{tris.dtype} {tris.shape} vs {want.shape}",
+    )
+    seen.clear()
+    check(
+        "is_bakeable_lightmap: reads positions and UVs through float32 buffers",
+        _UvUtils._is_bakeable_lightmap(seen_cube, lm)
+        and seen.get("co") == np.float32
+        and seen.get("uv") == np.float32,
+        str(seen),
+    )
+
     # ---- apply_uv_layout: the receiving half (mirror of mtk.UvUtils.apply_uv_layout).
     # What export_uv_layout reads off one mesh replays onto another of the same
     # topology loop for loop -- how a texture transfer hands a target its source's

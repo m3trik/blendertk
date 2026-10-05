@@ -6,7 +6,8 @@ Blender mirror of mayatk's ``shot_sequencer.shot_nav`` — :class:`ShotNavMixin`
 handles shot selection, navigation, and combobox population.  Two DCC swaps vs.
 the Maya original: object selection (``cmds.ls``/``cmds.select`` → Blender
 ``select_set`` + active object) and the view playback range (``cmds.playbackOptions``
-→ ``scene.frame_start`` / ``scene.frame_end``).
+→ the scene's PREVIEW range, ``frame_preview_start`` / ``frame_preview_end``: the
+scene range is also the render range).
 """
 
 from __future__ import annotations
@@ -227,7 +228,9 @@ class ShotNavMixin:
                         shot.shot_id, shot.start, float(cells["end"])
                     )
         except ShotBoundaryConflict as exc:
-            self._discard_shot_state()
+            # The restore point stays with the step ``scene_edit`` pushed: the
+            # rename and the move may already have run when the resize is
+            # declined, and undoing the step has to take them back whole.
             self.logger.warning(str(exc))
             self._set_footer(str(exc))
         finally:

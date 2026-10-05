@@ -364,9 +364,12 @@ class _AnimUtilsInternal(object):
         fc.update()
 
     @staticmethod
-    def _invert_selected(fcurves, do_time, do_value, value_pivot) -> int:
+    def _invert_selected(
+        fcurves, do_time, do_value, value_pivot, on_replace=None
+    ) -> int:
         """Body of ``AnimUtils.invert_keys(selected_only=True)``: mirror the selected
-        points of *fcurves* in place over the selection's combined ``[min, max]``."""
+        points of *fcurves* in place over the selection's combined ``[min, max]``
+        (*on_replace*: see ``invert_keys``)."""
         picked = []
         for fc in fcurves:
             pts = sorted(
@@ -419,8 +422,10 @@ class _AnimUtilsInternal(object):
                 k.handle_left_type, k.handle_right_type = hlt, hrt
                 k.handle_left, k.handle_right = hl, hr
             n += len(pts)
-            _AnimUtilsInternal._merge_onto_moved(fc, pts)
+            replaced = _AnimUtilsInternal._merge_onto_moved(fc, pts)
             fc.update()
+            if replaced and on_replace is not None:
+                on_replace(fc, replaced)
         return n
 
     @staticmethod
@@ -1316,7 +1321,9 @@ class AnimUtils(_AnimUtilsInternal):
         return moved
 
     @staticmethod
-    def align_selected_keyframes(objects, target_frame=None, use_earliest=True):
+    def align_selected_keyframes(
+        objects, target_frame=None, use_earliest=True, on_replace=None
+    ):
         """Shift each object's SELECTED keyframes (``select_control_point``, e.g. picked in
         the Dope Sheet / Graph Editor) so every object's selection starts on one frame --
         mirror of ``mtk.align_selected_keyframes``.
@@ -1325,7 +1332,9 @@ class AnimUtils(_AnimUtilsInternal):
         not selected stay put (a key the block lands on is replaced, as the Graph Editor's
         auto-merge does).  The auto target is the earliest (or, ``use_earliest=False``, the
         latest) per-object selection START; *target_frame* overrides it.  An fcurve passed
-        in aligns with the other curves of its own action.
+        in aligns with the other curves of its own action.  *on_replace* is called as
+        ``on_replace(fcurve, frames)`` with the frames of the keys a moved key replaced,
+        for a caller holding something on them (the shot system's claims).
 
         Returns the number of keys moved (0 = nothing selected, or already aligned).
         """
@@ -1368,8 +1377,10 @@ class AnimUtils(_AnimUtilsInternal):
                     k.handle_left.x += delta
                     k.handle_right.x += delta
                 moved += len(pts)
-                _AnimUtilsInternal._merge_onto_moved(fc, pts)
+                replaced = _AnimUtilsInternal._merge_onto_moved(fc, pts)
                 fc.update()
+                if replaced and on_replace is not None:
+                    on_replace(fc, replaced)
         return moved
 
     @staticmethod
@@ -1570,6 +1581,7 @@ class AnimUtils(_AnimUtilsInternal):
         relative=True,
         delete_original=False,
         selected_only=False,
+        on_replace=None,
     ):
         """Mirror keys to reverse motion — Blender analogue of Maya's invert (modes mirror its X/Y/both
         time/value/both, plus the reversed-copy semantics of Maya's ``time``/``relative``/
@@ -1592,12 +1604,17 @@ class AnimUtils(_AnimUtilsInternal):
         re-homed to the key that now precedes it (a ``CONSTANT`` hold stays a hold of the
         same span).  *objects* may then be fcurves (the channels to read).  Returns the
         number of keys mirrored; ``start_frame`` / ``relative`` / ``delete_original`` do not
-        apply."""
+        apply, and *on_replace* is called as ``on_replace(fcurve, frames)`` with the frames
+        of the unselected keys a mirrored one replaced (as ``align_selected_keyframes``)."""
         do_time = mode in ("time", "both")
         do_value = mode in ("value", "both")
         if selected_only:
             return _AnimUtilsInternal._invert_selected(
-                _AnimUtilsInternal._fcurves(objects), do_time, do_value, value_pivot
+                _AnimUtilsInternal._fcurves(objects),
+                do_time,
+                do_value,
+                value_pivot,
+                on_replace,
             )
         for action, slot in _AnimUtilsInternal._actions(objects):
             fcurves = _AnimUtilsInternal._slot_fcurves(action, slot)

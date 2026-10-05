@@ -207,12 +207,8 @@ class ShotLaneMixin:
         if reply != QtWidgets.QMessageBox.Yes:
             return
         store = self.sequencer.store
-        try:
-            with store.scene_edit("Delete Shot"):
-                result = self.sequencer.delete_shot(shot_id)
-        except Exception:
-            self._discard_shot_state()
-            raise
+        with store.scene_edit("Delete Shot"):
+            result = self.sequencer.delete_shot(shot_id)
         store.set_active_shot(None)
         self._after_shot_change()
         cut = result.get("curves_cut", 0)
@@ -245,12 +241,8 @@ class ShotLaneMixin:
         parent = self._get_sequencer_widget() or self.ui
         if not ShotsController.confirm_stale_removal(stale, parent):
             return
-        try:
-            with store.scene_edit("Delete Stale Shots"):
-                removed = store.remove_stale_shots()
-        except Exception:
-            self._discard_shot_state()
-            raise
+        with store.scene_edit("Delete Stale Shots"):
+            removed = store.remove_stale_shots()
         self._after_shot_change()
         self._set_footer(f"Deleted {len(removed)} stale shot(s)")
 
@@ -265,12 +257,8 @@ class ShotLaneMixin:
         """
         if self.sequencer is None:
             return
-        try:
-            with self.sequencer.store.scene_edit("Reorder Shot"):
-                self.sequencer.move_shot_to_position(shot_id, position)
-        except Exception:
-            self._discard_shot_state()
-            raise
+        with self.sequencer.store.scene_edit("Reorder Shot"):
+            self.sequencer.move_shot_to_position(shot_id, position)
         self._after_shot_change(shot_id=shot_id)
         shot = self.sequencer.shot_by_id(shot_id)
         if shot is not None:
@@ -284,12 +272,8 @@ class ShotLaneMixin:
         if self.sequencer is None:
             return
         store = self.sequencer.store
-        try:
-            with store.scene_edit("Merge Shots"):
-                merged = self.sequencer.merge_shots([shot_id, other_id])
-        except Exception:
-            self._discard_shot_state()
-            raise
+        with store.scene_edit("Merge Shots"):
+            merged = self.sequencer.merge_shots([shot_id, other_id])
         store.set_active_shot(merged.shot_id)
         self._after_shot_change(shot_id=merged.shot_id)
         self._set_footer(
@@ -302,15 +286,17 @@ class ShotLaneMixin:
             return
         store = self.sequencer.store
         try:
-            with store.scene_edit("Split Shot"):
-                tail = self.sequencer.split_shot(shot_id, time)
+            with store.scene_edit("Split Shot") as edit:
+                try:
+                    tail = self.sequencer.split_shot(shot_id, time)
+                except ValueError:
+                    # Refused before anything is cut (``split_shot``): no
+                    # step and no restore point.
+                    edit.cancel()
+                    raise
         except ValueError as exc:
-            self._discard_shot_state()
             self._set_footer(str(exc))
             return
-        except Exception:
-            self._discard_shot_state()
-            raise
         store.set_active_shot(tail.shot_id)
         self._after_shot_change(shot_id=tail.shot_id)
         self._set_footer(
@@ -367,15 +353,13 @@ class ShotLaneMixin:
                     # visibly do nothing.
                     edit.cancel()
         except ShotBoundaryConflict as exc:
-            # Declined before writing anything, so the restore point goes too
-            # (mirrors mayatk): a refusal is an answer, not a crash.
-            self._discard_shot_state()
+            # A refusal is an answer, not a crash.  The restore point stays:
+            # ``scene_edit`` pushed its step, and a "both" pad slides the head
+            # BEFORE the tail ripple can be declined, so the step may hold
+            # writes its undo has to take back with the bounds.
             self.logger.warning(str(exc))
             self._set_footer(str(exc))
             return
-        except Exception:
-            self._discard_shot_state()
-            raise
         if abs(head) < 1e-6 and abs(tail) < 1e-6:
             self._set_footer(f"Add {edge} space: nothing to do")
             return
@@ -472,14 +456,12 @@ class ShotLaneMixin:
                     # leave an empty step in the user's history each time.
                     edit.cancel()
         except ShotBoundaryConflict as exc:
-            self._discard_shot_state()
+            # The restore point stays with the step ``scene_edit`` pushed (a
+            # fit may write before a ripple is declined; see _add_shot_space).
             self.logger.warning(str(exc))
             if not quiet:
                 self._set_footer(str(exc))
             return False
-        except Exception:
-            self._discard_shot_state()
-            raise
         finally:
             self._syncing = was_syncing
         if abs(head) < 1e-6 and abs(tail) < 1e-6:
@@ -522,16 +504,12 @@ class ShotLaneMixin:
         from pythontk.core_utils.engines.shots.manifest.behaviors import Behaviors
 
         duration = Behaviors.compute_duration([], fallback=100.0)
-        try:
-            with store.scene_edit("Insert Shot"):
-                shot = seq.insert_shot(
-                    name=name,
-                    duration=duration,
-                    at_position=(idx + 1) if before else (idx + 2),
-                )
-        except Exception:
-            self._discard_shot_state()
-            raise
+        with store.scene_edit("Insert Shot"):
+            shot = seq.insert_shot(
+                name=name,
+                duration=duration,
+                at_position=(idx + 1) if before else (idx + 2),
+            )
         store.set_active_shot(shot.shot_id)
         self._segment_cache.clear()
         self._sub_row_cache.clear()
@@ -563,12 +541,8 @@ class ShotLaneMixin:
         # the ledger's membership diff, and its own undo step pairs with that
         # restore point -- without one, the panel's undo also popped the
         # user's previous, unrelated Blender step.
-        try:
-            with store.scene_edit("New Shot"):
-                shot = self.sequencer.insert_shot(name=name, duration=duration, gap=gap)
-        except Exception:
-            self._discard_shot_state()
-            raise
+        with store.scene_edit("New Shot"):
+            shot = self.sequencer.insert_shot(name=name, duration=duration, gap=gap)
         self._sync_combobox()
         cmb = getattr(self.ui, "cmb_shot", None)
         if cmb is not None:

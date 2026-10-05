@@ -10,6 +10,7 @@ paste and stash.
 """
 
 from blendertk.anim_utils._anim_utils import AnimUtils
+from blendertk.anim_utils.shots._shots import BlenderShotStore
 from blendertk.anim_utils.shots.shot_sequencer.clip_motion import ClipMotionMixin
 from blendertk.core_utils._core_utils import CoreUtils
 
@@ -206,6 +207,11 @@ class KeyMenuMixin:
         The bracket every key edit needs and none of them should re-state.
         ``_syncing`` is held throughout so our own writes do not re-arm the
         keyframe debounce and rebuild underneath us.
+
+        A raise keeps the restore point (mirror of mayatk's): ``scene_edit``
+        has pushed and tagged its step by then, so the keys *fn* wrote before
+        raising undo with it, and the bounds and claims have to come back with
+        them -- a dropped point left them as the failed edit made them.
         """
         if self.sequencer is None:
             return None
@@ -215,9 +221,6 @@ class KeyMenuMixin:
             with self.sequencer.store.scene_edit(label):
                 result = fn()
                 self.sequencer.reconcile_system_edits()
-        except Exception:
-            self._discard_shot_state()
-            raise
         finally:
             self._syncing = was_syncing
         self._segment_cache.clear()
@@ -316,6 +319,30 @@ class KeyMenuMixin:
                 f"Snapped {n or 0} key{'s' if n != 1 else ''} to whole frames"
             )
 
+    def _release_replaced(self, objects):
+        """An ``on_replace(fcurve, frames)`` for the AnimUtils key edits over
+        *objects*: a key the edit REPLACED (a moved key landing on it, the
+        Graph Editor's auto-merge) takes its claims with it -- every one, as
+        each key the shot system cuts does (``ShotSequencer._overwrite_landed``);
+        left there they passed to the key that landed on the frame."""
+        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
+            _ShotSequencerInternal,
+        )
+
+        owners: dict = {}
+        for obj in self._resolve_objects(objects):
+            for fc in BlenderShotStore.iter_action_fcurves(obj):
+                owners.setdefault(fc.as_pointer(), []).append(obj.name)
+
+        def on_replace(fc, frames):
+            ledger = self.sequencer.ledger
+            for name in owners.get(fc.as_pointer(), ()):
+                key = _ShotSequencerInternal._fc_key(name, fc)
+                for t in frames:
+                    ledger.release(key, t)
+
+        return on_replace
+
     def _invert_selected_keys(self, targets) -> None:
         """Mirror the selected keys in time, in place.
 
@@ -326,8 +353,11 @@ class KeyMenuMixin:
         ran, n = self._key_selection_edit(
             targets,
             "Invert Keys",
-            lambda _objects, _span: AnimUtils.invert_keys(
-                curves, mode="time", selected_only=True
+            lambda objects, _span: AnimUtils.invert_keys(
+                curves,
+                mode="time",
+                selected_only=True,
+                on_replace=self._release_replaced(objects),
             ),
         )
         if ran:
@@ -341,7 +371,8 @@ class KeyMenuMixin:
             targets,
             "Align Keys",
             lambda objects, _span: AnimUtils.align_selected_keyframes(
-                self._resolve_objects(objects)
+                self._resolve_objects(objects),
+                on_replace=self._release_replaced(objects),
             ),
         )
         if ran:

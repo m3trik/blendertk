@@ -311,7 +311,13 @@ class _TextureTransferInternal:
 
     @staticmethod
     def material_constant(material, channel: str) -> Optional[Tuple[float, ...]]:
-        """The channel's Principled BSDF default value on *material*, or None."""
+        """The channel's Principled BSDF default value on *material*, or None.
+
+        Emission is its colour times its unlinked ``Emission Strength``, which
+        a fresh Principled BSDF holds at 0 behind a WHITE colour: read alone,
+        every non-emissive source's share of a consolidated emission map came
+        out white. Mirror of mayatk's ``ShaderAttributeMap.read_constant``.
+        """
         from blendertk.mat_utils._mat_utils import _MatUtilsInternal
 
         node = _MatUtilsInternal._principled_node(material)
@@ -324,10 +330,68 @@ class _TextureTransferInternal:
             value = sock.default_value
             try:
                 seq = tuple(float(v) for v in value)
-                return seq[:3] if len(seq) >= 3 else seq
+                values = seq[:3] if len(seq) >= 3 else seq
             except TypeError:
-                return (float(value),)
+                values = (float(value),)
+            strength = node.inputs.get("Emission Strength")
+            if (
+                channel == "emission"
+                and strength is not None
+                and not strength.is_linked
+            ):
+                values = tuple(v * float(strength.default_value) for v in values)
+            return values
         return None
+
+    # --------------------------------------------------------- ownership
+    #: ID property naming the output a result material IS (mirror of mayatk's
+    #: ``transferOutput`` attribute): what finds it again however it is called.
+    OUTPUT_STAMP = "transferOutput"
+
+    @classmethod
+    def _holders(cls, name: str, material_name: str) -> list:
+        """What holds output *name*: the material called *material_name* (the
+        name its material takes), and every material stamped *name*, whatever
+        it is called now (mirror of mayatk; stamps compare without case)."""
+        import bpy
+
+        return [
+            m
+            for m in bpy.data.materials
+            if m.name == material_name
+            or str(m.get(cls.OUTPUT_STAMP) or "").lower() == name.lower()
+        ]
+
+    @staticmethod
+    def _worn_outside(material, targets) -> bool:
+        """Whether an object other than *targets* wears *material* in a slot of
+        its own. A slot on a target's mesh DATA is the target's whichever object
+        shows it: a linked duplicate wears what its data's slots hold, and the
+        run assigns through those slots."""
+        import bpy
+
+        names = {t.name for t in targets}
+        data = {t.data for t in targets}
+        return any(
+            sl.material == material and not (sl.link == "DATA" and o.data in data)
+            for o in bpy.data.objects
+            if o.name not in names
+            for sl in o.material_slots
+        )
+
+    @classmethod
+    def _replaceable(cls, material, name: str, targets) -> bool:
+        """Mirror of mayatk: *material* is output *name*'s own previous result
+        -- stamped *name*, and worn by nothing outside *targets*. Anything else
+        keeps the name: a material another object or a source of this run
+        wears, the run's own original (a same-mesh run READS it), and every
+        unstamped material, which may be anyone's."""
+        stamp = str(material.get(cls.OUTPUT_STAMP) or "")
+        return (
+            bool(stamp)
+            and stamp.lower() == name.lower()
+            and not cls._worn_outside(material, targets)
+        )
 
     @staticmethod
     def pair_by_name(targets: Sequence, sources: Sequence) -> Dict[Any, Any]:
@@ -595,14 +659,17 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
                 list(jobs), stem, prefix=assign_prefix, suffix=suffix
             )
             jobs = {relabel[label]: job for label, job in jobs.items()}
+        # Mirror of mayatk: every output's name -- its maps' stem AND its
+        # material's core -- is decided before anything is written, and a
+        # name held outside this run is named beside, never taken.
         if stem:
-            name_format = (
-                f"{stem}_{{channel}}"
-                if len(jobs) == 1
-                else f"{stem}_{{material}}_{{channel}}"
-            )
-        results = ptk.UvTransfer.transfer_materials(
-            jobs,
+            name_format = "{material}_{channel}"
+        names, replaced = self._output_names(
+            jobs, stem, assign_prefix, suffix, out_dir, name_format, source_specs
+        )
+        named = {names[label]: job for label, job in jobs.items()}
+        written = ptk.UvTransfer.transfer_materials(
+            named,
             output_dir=out_dir,
             channels=channels,
             size=size,
@@ -611,24 +678,25 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
             name_format=name_format,
             normal_convention=normal_convention,
             source_mask_from_uvs=source_mask_from_uvs,
+            # Mirror of mayatk: a map a material this run keeps reads is never
+            # written; a replaced previous result's are rewritten in place.
+            avoid=[
+                path
+                for spec in source_specs
+                if spec["name"] not in replaced
+                for path in spec["maps"].values()
+            ],
             log=self.logger.info,
         )
         if assign:
             self.assign_results(
-                results,
-                jobs,
+                written,
+                named,
                 prefix=assign_prefix,
                 suffix=suffix,
-                base_name=stem or None,
                 assign_from=assign_from,
-                sources=[
-                    s
-                    for src in pairs.values()
-                    if src is not None
-                    for s in self._parts(src)
-                ],
             )
-        return results
+        return {label: written[names[label]] for label in jobs}
 
     # ----------------------------------------------------------- helpers
     @classmethod
@@ -708,6 +776,89 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
             out.append((obj, face_ids, vacated))
         return out
 
+    def _output_names(
+        self,
+        jobs: Dict[str, Dict[str, Any]],
+        stem: str,
+        prefix: str,
+        suffix: str,
+        out_dir: str,
+        name_format: str,
+        source_specs: List[Dict[str, Any]],
+    ) -> Tuple[Dict[str, str], set]:
+        """``({label: output name}, names of the previous results replaced)``.
+
+        Mirror of :meth:`mayatk.TextureTransfer._output_names`: a layout is
+        named *stem* (``<stem>_<label>`` when there are several), else after
+        its label, or -- where that name is held -- the first free
+        ``<name>_1``, ``<name>_2``, ... Held: taken by another output of this
+        run, held by a material that is not this output's own previous result
+        (:meth:`_replaceable`), or a file it would write is a map a material
+        this run keeps reads.
+        """
+        targets = list(
+            dict.fromkeys(
+                obj for job in jobs.values() for obj, _m in job.get("members") or []
+            )
+        )
+
+        def key(path: str) -> str:
+            return os.path.normcase(os.path.abspath(path))
+
+        def writes(name: str) -> set:
+            return {
+                key(os.path.join(out_dir, f"{file_stem}.png"))
+                for token in ptk.UvTransfer.CHANNEL_TOKENS.values()
+                for file_stem in [name_format.format(material=name, channel=token)]
+            }
+
+        steerable = writes("a") != writes("b")
+        names: Dict[str, str] = {}
+        replaced: set = set()
+        taken: set = set()
+        for label in jobs:
+            if stem:
+                base = stem if len(jobs) == 1 else f"{stem}_{label}"
+            else:
+                # Mirror of mayatk: a re-run's label is the result the last
+                # run assigned (`wood_TRANSFER`); named by what it came from.
+                base = (
+                    ptk.StrUtils.strip_known_affix(
+                        label, prefix=prefix, suffix=suffix
+                    ).strip("_")
+                    or label
+                )
+            name, k = base, 0
+            while True:
+                holders = self._holders(
+                    name, ptk.StrUtils.apply_affix(name, prefix=prefix, suffix=suffix)
+                )
+                held = {m.name for m in holders}
+                kept_reads = {
+                    key(path)
+                    for spec in source_specs
+                    if spec["name"] not in held
+                    for path in spec["maps"].values()
+                }
+                if (
+                    name.lower() not in taken
+                    and all(self._replaceable(m, name, targets) for m in holders)
+                    and not (steerable and writes(name) & kept_reads)
+                ):
+                    break
+                k += 1
+                name = f"{base}_{k}"
+            if k:
+                self.logger.warning(
+                    f"{base} is held outside this run -- a material another "
+                    "object or this run's source wears, or a map one reads: "
+                    f"named {name}."
+                )
+            taken.add(name.lower())
+            names[label] = name
+            replaced.update(m.name for m in holders)
+        return names, replaced
+
     def assign_results(
         self,
         results: Dict[str, Dict[str, str]],
@@ -716,7 +867,6 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         base_name: Optional[str] = None,
         prefix: str = "",
         assign_from: str = "target",
-        sources: Sequence[Any] = (),
     ) -> Dict[str, str]:
         """One ``<prefix><layout><suffix>`` material per output, on its faces.
 
@@ -734,9 +884,13 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         material covering the most of the layout -- and wired to the outputs.
         Originals are untouched.
 
-        A material already holding the result's name is a previous run's and
-        is replaced -- unless one of the run's *sources* wears it: the run is
-        reading that material. The new one is then named beside it.
+        Mirror of mayatk: a material holding the result's name -- called it,
+        or stamped as this output (:attr:`OUTPUT_STAMP`) whatever it is called
+        now -- is replaced only when it is this output's own previous result
+        (:meth:`_replaceable`); anything else keeps it, and the new one is
+        named beside it. :meth:`transfer` names every output past such a holder
+        before it writes, so only a direct call meets one here. Every result
+        is stamped with its name.
 
         Returns ``{output label: new material name}``.
         """
@@ -744,6 +898,11 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         from blendertk.mat_utils._mat_utils import _MatUtilsInternal
         from blendertk.mat_utils.mat_manifest import MatManifest
 
+        targets = list(
+            dict.fromkeys(
+                obj for job in jobs.values() for obj, _m in job.get("members") or []
+            )
+        )
         # Mirror of mayatk: resolve EVERY output's faces and make every copy --
         # neither touches a slot -- before anything is freed. A replaced
         # material can be one another output's targets wear (or copy from), and
@@ -758,26 +917,30 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
                 named = self._source_name(jobs[label])
                 base_mat = bpy.data.materials.get(named or "") or base_mat
             if base_name:
-                new_name = base_name if len(jobs) == 1 else f"{base_name}_{label}"
+                core = base_name if len(jobs) == 1 else f"{base_name}_{label}"
             else:
-                new_name = label
-            new_name = ptk.StrUtils.apply_affix(new_name, prefix=prefix, suffix=suffix)
+                core = label
+            new_name = ptk.StrUtils.apply_affix(core, prefix=prefix, suffix=suffix)
             per_object = self._member_faces(members)
-            planned.append((label, channels, new_name, per_object, base_mat.copy()))
+            planned.append(
+                (label, channels, core, new_name, per_object, base_mat.copy())
+            )
+        # A copy of a previous result carries its stamp until it is restamped.
         fresh = [new_mat for *_rest, new_mat in planned]
         created: Dict[str, str] = {}
-        for label, channels, new_name, per_object, new_mat in planned:
-            old = bpy.data.materials.get(new_name)
-            # Another output's copy is no previous run's result.
-            if old is not None and not any(old == m for m in fresh):
-                if any(sl.material == old for s in sources for sl in s.material_slots):
+        for label, channels, core, new_name, per_object, new_mat in planned:
+            for old in self._holders(core, new_name):
+                if any(old == m for m in fresh):  # another output's copy
+                    continue
+                if not self._replaceable(old, core, targets):
                     self.logger.warning(
-                        f"{old.name} is worn by a source of this run, so it is "
-                        "kept; the result is named beside it."
+                        f"{old.name} is not this output's previous result, so it "
+                        "is kept; the result is named beside it."
                     )
-                else:
-                    bpy.data.materials.remove(old)
+                    continue
+                bpy.data.materials.remove(old)
             new_mat.name = new_name
+            new_mat[self.OUTPUT_STAMP] = core
             # Drop the copied Principled input links so the restore wires only
             # the outputs (a transferred channel must not keep the source's
             # image behind it).

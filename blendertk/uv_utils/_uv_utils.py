@@ -529,9 +529,12 @@ class UvUtils(_UvUtilsInternal):
             return empty
         loops = np.empty(count * 3, dtype=np.int64)
         me.loop_triangles.foreach_get("loops", loops)
-        uv = np.empty(len(me.loops) * 2, dtype=np.float64)
+        # float32, the property's own type: a float64 buffer makes foreach_get
+        # convert per element (measured 3x slower, Blender 5.1). The loop-triangle
+        # indices measured the same in every int buffer (int32, intc, int64).
+        uv = np.empty(len(me.loops) * 2, dtype=np.float32)
         layer.data.foreach_get("uv", uv)
-        return uv.reshape(-1, 2)[loops].reshape(count, 3, 2)
+        return uv.astype(np.float64).reshape(-1, 2)[loops].reshape(count, 3, 2)
 
     @staticmethod
     def get_neighbor_shell_bounds(objects):
@@ -1070,9 +1073,9 @@ class UvUtils(_UvUtilsInternal):
         me = obj.data  # get_uv_triangles has just refreshed its loop triangles
         verts = np.empty(count * 3, dtype=np.int64)
         me.loop_triangles.foreach_get("vertices", verts)
-        co = np.empty(len(me.vertices) * 3, dtype=np.float64)
+        co = np.empty(len(me.vertices) * 3, dtype=np.float32)  # see get_uv_triangles
         me.vertices.foreach_get("co", co)
-        pts = co.reshape(-1, 3)[verts].reshape(count, 3, 3)
+        pts = co.astype(np.float64).reshape(-1, 3)[verts].reshape(count, 3, 3)
 
         if uv_tris.min() < -1e-4 or uv_tris.max() > 1.0 + 1e-4:
             return False

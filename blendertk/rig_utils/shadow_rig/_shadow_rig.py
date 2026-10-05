@@ -750,7 +750,9 @@ class ShadowRig(ptk.LoggingMixin):
                 n = len(me.vertices)
                 if not n:
                     continue
-                co = np.empty(n * 3, dtype=np.float64)
+                # float32: foreach_get's fast path needs the property's own
+                # format; column_stack widens to float64 below.
+                co = np.empty(n * 3, dtype=np.float32)
                 me.vertices.foreach_get("co", co)
                 local = np.column_stack([co.reshape(-1, 3), np.ones(n)])
                 world = (local @ np.array(o.matrix_world, dtype=np.float64).T)[:, :3]

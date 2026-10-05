@@ -64,9 +64,9 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
 
     Expects the host controller to provide ``sequencer``, ``_get_sequencer_widget()``,
     ``_shifted_out_keys``, ``_segment_cache`` / ``_sub_row_cache``,
-    ``_audio_segments_cache``, ``_syncing``, ``_discard_shot_state()`` (edits
-    bracket through ``sequencer.store.scene_edit()``, which records the restore
-    point), ``_sync_to_widget()`` / ``_sync_combobox()``, ``_gap_edit_epilogue()``,
+    ``_audio_segments_cache``, ``_syncing`` (edits bracket through
+    ``sequencer.store.scene_edit()``, which records the restore point),
+    ``_sync_to_widget()`` / ``_sync_combobox()``, ``_gap_edit_epilogue()``,
     ``_set_footer()``, and ``logger``.
     """
 

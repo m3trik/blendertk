@@ -1406,6 +1406,48 @@ try:
         btk.align_selected_keyframes(a) == 0,
     )
 
+    # on_replace: the frames of the keys a moved key REPLACED, per fcurve --
+    # what the shot system releases its claims on (BTK-SHOTS-3).
+    bpy.ops.mesh.primitive_cube_add()
+    rep = bpy.context.active_object
+    key_obj(rep, (0, 3, 7, 10))
+    rep_fc = btk.get_fcurves(rep)[0]
+
+    def _select(times):
+        for k in rep_fc.keyframe_points:
+            k.select_control_point = any(abs(k.co.x - t) < 1e-3 for t in times)
+
+    replaced = []
+
+    def _on_replace(fc, frames):
+        replaced.append((fc == rep_fc, list(frames)))
+
+    _select([3])
+    try:
+        btk.align_selected_keyframes(rep, target_frame=7, on_replace=_on_replace)
+    except TypeError as exc:  # no on_replace parameter
+        replaced.append(repr(exc))
+    check(
+        "align_selected_keyframes on_replace names the key it landed on",
+        key_times(rep) == [0.0, 7.0, 10.0] and replaced == [(True, [7.0])],
+        f"{key_times(rep)} {replaced}",
+    )
+    replaced.clear()
+    bpy.ops.mesh.primitive_cube_add()
+    rep = bpy.context.active_object
+    key_obj(rep, (0, 3, 7, 10))
+    rep_fc = btk.get_fcurves(rep)[0]
+    _select([0, 3, 10])  # mirrored over [0, 10]: 3 lands on the unselected 7
+    try:
+        btk.invert_keys(rep, mode="time", selected_only=True, on_replace=_on_replace)
+    except TypeError as exc:  # no on_replace parameter
+        replaced.append(repr(exc))
+    check(
+        "invert_keys(selected_only) on_replace names the key a mirrored one replaced",
+        key_times(rep) == [0.0, 7.0, 10.0] and replaced == [(True, [7.0])],
+        f"{key_times(rep)} {replaced}",
+    )
+
     # intermediate keys: a = 60,70 -> sampled key on every frame between (61..69)
     added = btk.add_intermediate_keys(a)
     check(

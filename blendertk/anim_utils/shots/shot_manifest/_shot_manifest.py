@@ -13,18 +13,31 @@ scene hooks:
 - ``_measure_audio`` → the source file probed headlessly (``aud``), falling
   back to an already-placed VSE strip's path;
 - ``_audio_grow_duration`` → the Blender-bound ``Behaviors.compute_duration``;
-- ``_resolve_names_keep_missing`` → identity (Blender names are unique);
+- name resolution → the store's ``resolve_member``, which the engine's
+  ``_resolve_object`` asks (no override here);
 - ``_discover_scene_objects`` / ``_filter_to_animated`` → objects whose
   transform channels actually *vary* in a shot's range (fcurve walk, cached
   per cycle — flat keys are boundary markers, same rule as Maya);
 - assess seams (``_object_exists`` / ``_keyframe_range`` / ``_audio_exists`` /
   ``_verify_behavior``) → ``bpy.data`` / fcurve / VSE queries;
-- ``apply_behaviors`` → :meth:`Behaviors.apply_to_shots` with the Blender
-  appliers (:mod:`.behaviors`): fades dual-keyed on :class:`RenderOpacity`'s
-  ``opacity`` + stepped ``hide_render``, audio placed as VSE sound strips;
+- ``apply_behaviors`` / ``_apply_one`` → :meth:`Behaviors.apply_to_shots` /
+  :meth:`Behaviors.apply_behavior` with the Blender appliers (:mod:`.behaviors`):
+  fades dual-keyed on :class:`RenderOpacity`'s ``opacity`` + stepped
+  ``hide_render``, audio placed as VSE sound strips;
+- ``_key_samples`` / ``_delete_keys`` → a behavior's fcurve keys, named by
+  :meth:`BlenderShotStore.curve_key` -- what a build claims as its own and
+  releases;
 - ``rewire_audio`` → no-op (a VSE strip is its own playback node; Maya needs
   the compositor to materialise DG audio nodes from keyed tracks).
 
+One divergence, kept on purpose: an audio behavior claims nothing and
+``_placed_clip_keys`` keeps the engine's ``[]``.  A clip here is one VSE strip,
+not keys -- a build re-places it (``apply_audio_clip`` moves the strip) but
+never takes one out, so a clip the doc drops keeps its strip and Assess lists
+it under no ``dropped_behaviors``.  Maya claims a clip's track keys, so a build
+there removes a dropped clip.  Claiming the strip would need a stand-in key
+whose release deletes the strip -- and the strip is where the clip's source
+path lives, which a re-apply that cannot re-create it would lose.
 """
 
 import functools
@@ -118,8 +131,6 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
 
         return Behaviors.compute_duration(audio_objs, fallback=0.0)
 
-    # ---- name / scene resolution ----------------------------------------
-
     # ---- behavior application / audio rewire ------------------------------
 
     def apply_behaviors(self) -> Dict[str, list]:
@@ -207,7 +218,7 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
         self, obj: str, behavior: str, start: float, end: float
     ) -> List[Tuple[str, float]]:
         """Keys in ``[start, end]`` on the fcurves *behavior* keys on *obj*
-        (``Behaviors.behavior_paths``), by :meth:`BlenderShotStore.curve_key`."""
+        (``Behaviors._behavior_paths``), by :meth:`BlenderShotStore.curve_key`."""
         try:
             import bpy
         except ImportError:
@@ -218,7 +229,7 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
         node = bpy.data.objects.get(obj)
         if node is None:
             return []
-        paths = set(Behaviors.behavior_paths(node, behavior))
+        paths = set(Behaviors._behavior_paths(node, behavior))
         out: List[Tuple[str, float]] = []
         for fc in BlenderShotStore.iter_action_fcurves(node):
             if fc.data_path not in paths:

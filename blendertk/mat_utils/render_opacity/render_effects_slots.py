@@ -312,7 +312,9 @@ class RenderEffectsSlots(ptk.LoggingMixin):
                 field,
                 spin,
                 getter=lambda w=spin, k=scale: float(w.value()) / k,
-                setter=lambda v, w=spin, k=scale: w.setValue(v * k),
+                setter=lambda v, w=spin, k=scale: w.setValue(
+                    self._spin_value(w, v * k)
+                ),
             )
         # The rows join the window: state restore for the panel's own fields.
         self.ui.register_children(widget)
@@ -321,6 +323,13 @@ class RenderEffectsSlots(ptk.LoggingMixin):
         if store is not None:
             self._unwatch_recipe = store.watch_settings(self._on_recipe_changed)
         self.cmb_effect(widget.currentIndex())
+
+    @staticmethod
+    def _spin_value(spin, value):
+        """*value* as *spin* can hold it: the nearest whole number in a
+        whole-number box, whose ``setValue`` truncates a float -- a 0.57 duty
+        is 56.99... percent, and showed 56."""
+        return round(value) if isinstance(spin.value(), int) else value
 
     def ui_field(self, name):
         """A page field by objectName, from whichever page holds it."""
@@ -594,14 +603,10 @@ class RenderEffectsSlots(ptk.LoggingMixin):
         if page is None:
             return
         channel, _label, _page, _keyer, key_text = page
-        focus = self._focus
-        if (
-            focus
-            and focus["channel"] == channel
-            and focus["apply"] is not None
-            and focus["apply_text"]
-        ):
-            key_text = focus["apply_text"]
+        # The manifest's text only while Key runs the manifest's re-key: a
+        # focused highlight's Revise re-colours, as the page's own Key does.
+        if self._focused_apply(channel) is not None and self._focus["apply_text"]:
+            key_text = self._focus["apply_text"]
         self.ui.b000.setText(key_text)
         carried = (snapshot if snapshot is not None else self._selection_snapshot())[1]
         remove = self.ui.btn_remove
@@ -790,6 +795,7 @@ class RenderEffectsSlots(ptk.LoggingMixin):
     def _on_mode_changed(self, channel) -> None:
         self._clear_report()
         self._sync_mode(channel, deep=True)
+        self._sync_actions()  # Key's text is the mode's (a focus serves one)
 
     def _bind_mode(self, channel: str, fields=None, on_sync=None):
         """Declare what each mode writes, then show the opening one.

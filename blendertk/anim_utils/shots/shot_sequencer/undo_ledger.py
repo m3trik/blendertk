@@ -30,10 +30,10 @@ class UndoLedgerMixin:
         if self.sequencer is not None:
             self.sequencer.store.push_boundary_snapshot()
 
-    def _discard_shot_state(self) -> None:
-        """Drop the most recent restore point (the edit was a no-op)."""
-        if self.sequencer is not None:
-            self.sequencer.store.discard_boundary_snapshot()
+    # No ``_discard_shot_state`` (mayatk's): a Blender ``scene_edit`` pushes its
+    # step even when the body raised, so the point it tagged stays paired with
+    # that step; an edit that changed nothing calls the handle's ``cancel()``,
+    # which drops the point and pushes no step.
 
     def _restore_shot_state(self) -> None:
         """Apply the most recent restore point (the undo direction).
@@ -55,8 +55,9 @@ class UndoLedgerMixin:
     #: native step ran (``_on_undo_pre`` / ``_on_redo_pre``).
     _serial_before_native = None
 
-    def _native_event_is_ours(self, redo: bool = False) -> bool:
-        """True when the undo/redo Blender JUST performed was our newest edit.
+    def _native_event_is_ours(self, redo: bool = False, first: bool = True) -> bool:
+        """True when the undo/redo Blender JUST performed passed over the edit
+        whose restore point is next in that direction.
 
         Mirror of mayatk's: Blender fires its undo/redo handlers for every step
         in the session, and consuming a restore point for someone else's step
@@ -64,26 +65,49 @@ class UndoLedgerMixin:
         mayatk reads the step's NAME off the queue; Blender's undo exposes no
         names, so each edit stamps :attr:`BlenderShotStore.EDIT_SERIAL_PROP`
         inside its own step (``scene_edit``) and the restore point records it.
-        Memfile undo winds that property with the steps, so:
+        Memfile undo winds that property with the steps, and serials only
+        grow, so the point's marker says whether the jump crossed its edit:
 
-        * an undo was ours when the serial moved AND it stood at our marker
-          before the step was taken;
-        * a redo was ours when the serial moved and now stands at the marker.
+        * an undo crossed it when ``after < marker <= before``;
+        * a redo crossed it when ``before < marker <= after``.
 
-        Any other step leaves the serial where it was.  An untagged restore
-        point (a legacy push) keeps the pre-pairing "always ours" behaviour.
+        One step, or an Undo History jump over several, which fires the
+        handlers ONCE (:meth:`_apply_native_jump` asks again per point).  Any
+        other step leaves the serial where it was.  An untagged restore point
+        (a legacy push) keeps the pre-pairing "always ours" behaviour, for the
+        *first* point of an event only.
         """
         store = self.sequencer.store if self.sequencer is not None else None
         if store is None or not store.has_boundary_snapshot(redo=redo):
             return False
         tag = store.peek_boundary_tag(redo=redo)
         if not isinstance(tag, tuple):
-            return True
+            return first
         paired, marker = tag
         before, after = self._serial_before_native, store.edit_serial()
         if not paired or before is None or before == after:
             return False
-        return (after if redo else before) == marker
+        lo, hi = (before, after) if redo else (after, before)
+        return lo < marker <= hi
+
+    def _apply_native_jump(self, redo: bool = False) -> int:
+        """Apply every restore point the undo/redo Blender just performed
+        crossed (:meth:`_native_event_is_ours`), newest first for an undo and
+        oldest first for a redo -- the order the stacks hold them.  An Undo
+        History jump runs many steps under ONE handler call, and restoring
+        only the newest point left the bounds and claims of every earlier edit
+        it undid behind, while a redo jump re-applied none.
+
+        Returns the number of points applied.
+        """
+        n = 0
+        while self._native_event_is_ours(redo=redo, first=n == 0):
+            if redo:
+                self._redo_shot_state()
+            else:
+                self._restore_shot_state()
+            n += 1
+        return n
 
     def on_undo(self) -> None:
         """Widget undo_requested -- Blender's undo; the restore point follows

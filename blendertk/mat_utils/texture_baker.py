@@ -14,7 +14,8 @@ bake natively in Cycles**, so this is a thin adapter over ``bpy.ops.object.bake`
 
 * ``bake_type='COMBINED'`` — albedo × lighting (what the render shows), the mayatk-parity default.
 * ``bake_type='DIFFUSE'`` + ``pass_filter={'DIRECT','INDIRECT'}`` (``use_pass_color=False``) —
-  native white-card irradiance (lighting only, no material swap needed).
+  lighting only. Through a white card (``shader=``, as the lightmap bake does) it is the
+  geometry's own irradiance; through the object's own material a metal bakes near black.
 * ``scene.render.bake.margin`` — native gutter/seam padding.
 
 The engine surface is Qt-free and defers ``import bpy`` (headless-importable).
@@ -89,27 +90,29 @@ class TextureBaker(ptk.LoggingMixin):
         #: room it is also the single biggest lightmap lever -- each extra bounce adds
         #: another rho^n term: measured in a rho~0.7 room, 1 -> 4 bounces is 1.65x
         #: (x1.29 / x1.16 / x1.10 per step), with nothing in the output to say why.
-        #: That is a CYCLES-internal figure -- it is not a conversion to Arnold's
-        #: ``GIDiffuseDepth``, whose numbers are measurably not interchangeable with
-        #: these (see ``LightmapBaker.from_preset``).
+        #: A bounce here counts what one does in Arnold's ``GIDiffuseDepth``: a
+        #: calibration room on one lambert agreed with Arnold and the analytic value
+        #: to 2%, so the lightmap tiers carry mayatk's depths (see
+        #: ``LightmapBaker.from_preset``).
         #:
         #: There is deliberately no ``gi_samples`` twin: Arnold samples GI separately,
         #: Cycles path-traces everything from :attr:`samples`, and cargo-culting the
         #: name would imply a dial that does not exist (blendertk mirrors mayatk's
         #: public API where the CONCEPTS meet, not where they diverge).
         #:
-        #: The default is CYCLES' own (4), not the ``preview`` tier's, unlike
-        #: :attr:`samples`: pinning is here to make a bake reproducible, not to
-        #: restyle one, and the bare constructor is what a scripted caller and the
-        #: panel's revert-only instance get. Anything lower here would silently
-        #: darken every bake that never named a tier.
+        #: The default is CYCLES' own (4), the default ``mobile`` tier's too:
+        #: pinning is here to make a bake reproducible, not to restyle one, and the
+        #: bare constructor is what a scripted caller and the panel's revert-only
+        #: instance get. Anything lower here would silently darken every bake that
+        #: never named a tier.
         self.bounces = int(bounces)
         #: Cycles PATHS per texel -- NOT mayatk's ``samples=5``, which is Arnold
         #: AA samples (~25 camera rays, each spawning GI rays: hundreds of
         #: effective diffuse samples). Mirroring the API does not mean mirroring
         #: a number across a unit change: 5 Cycles paths is pure noise, and the
         #: bare constructor is the one path that does not go through a preset
-        #: (64 == the ``preview`` tier).
+        #: (64: a quick bake -- the lightmap tiers carry their own, see
+        #: ``LightmapBaker.from_preset``).
         self.samples = int(samples)
         #: Denoise each baked map. On by default because a *baked* texture is permanent —
         #: unlike a noisy render preview, the grain ships — and denoising buys more
@@ -171,7 +174,8 @@ class TextureBaker(ptk.LoggingMixin):
             pass_filter: Optional pass set for typed bakes (e.g. ``{'DIRECT','INDIRECT'}`` for a
                 lighting-only DIFFUSE bake).
             use_pass_color: ``scene.render.bake.use_pass_color`` — ``False`` excludes albedo
-                (native white-card irradiance).
+                (lighting only; pair it with a white-card *shader* for the geometry's own
+                irradiance).
             output_dir: Output directory (created if missing). Defaults to
                 :meth:`default_output_dir`.
             prefix / suffix: Name affix wrapped around the object's stem.
@@ -411,7 +415,7 @@ class TextureBaker(ptk.LoggingMixin):
         new_bake = {
             "use_pass_direct": True,
             "use_pass_indirect": True,
-            "use_pass_color": use_pass_color,  # False excludes albedo (native white-card)
+            "use_pass_color": use_pass_color,  # False excludes albedo (lighting only)
             "use_selected_to_active": False,  # bake each object onto itself
             "target": "IMAGE_TEXTURES",  # never vertex colors
             # EXTEND replicates island-edge shading outward -- the same
@@ -664,6 +668,11 @@ class TextureBaker(ptk.LoggingMixin):
             "use_nodes": None if modern else scene.use_nodes,
             "engine": scene.render.engine,
             "filepath": scene.render.filepath,
+            # Pinned before the format and put back before it: Blender 5.x offers
+            # only the file_format values its media type allows, so a scene saved
+            # with Video or Multi-Layer EXR output refused OPEN_EXR and every map
+            # kept its raw bake. None on 4.x, which has no media_type.
+            "media_type": getattr(scene.render.image_settings, "media_type", None),
             "format": scene.render.image_settings.file_format,
             "depth": scene.render.image_settings.color_depth,
             "color_mode": scene.render.image_settings.color_mode,
@@ -718,6 +727,8 @@ class TextureBaker(ptk.LoggingMixin):
             # Workbench: the compositor is the point, the 3D render is a formality.
             scene.render.engine = "BLENDER_WORKBENCH"
             scene.render.resolution_percentage = 100
+            if prior["media_type"] is not None:
+                scene.render.image_settings.media_type = "IMAGE"
             scene.render.image_settings.file_format = "OPEN_EXR"
             scene.render.image_settings.color_depth = "32"
             scene.render.image_settings.color_mode = "RGBA"
@@ -760,6 +771,8 @@ class TextureBaker(ptk.LoggingMixin):
                 scene.use_nodes = prior["use_nodes"]
             scene.render.engine = prior["engine"]
             scene.render.filepath = prior["filepath"]
+            if prior["media_type"] is not None:
+                scene.render.image_settings.media_type = prior["media_type"]
             scene.render.image_settings.file_format = prior["format"]
             scene.render.image_settings.color_depth = prior["depth"]
             scene.render.image_settings.color_mode = prior["color_mode"]

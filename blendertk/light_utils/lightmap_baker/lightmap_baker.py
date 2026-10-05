@@ -3,16 +3,19 @@
 """High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 
 Blender counterpart of mayatk's ``LightmapBaker``. Where the Maya workflow had to
-orchestrate Arnold RTT, an alpha-mask seam dilation and a white-card material swap,
-**Blender ships the whole bake natively in Cycles** — so this is a much thinner adapter
-over ``bpy.ops.object.bake``:
+orchestrate Arnold RTT and an alpha-mask seam dilation, **Blender ships the bake
+natively in Cycles** — so this is a much thinner adapter over ``bpy.ops.object.bake``:
 
 * :func:`UvUtils.create_lightmap_uvs` -- packed, non-overlapping lightmap UV (UV2).
 * ``bpy.ops.object.bake`` -- Cycles bakes straight into an image-texture node:
     * **Lighting only** = ``type='DIFFUSE'`` with ``pass_filter={'DIRECT','INDIRECT'}``
-      (no ``'COLOR'``) — the *native* white-card irradiance, no material swap.
+      (no ``'COLOR'``), each target rendered through a white card (:meth:`_white_card`,
+      handed to ``TextureBaker.bake(shader=)``) as mayatk's is, so the map is the
+      GEOMETRY's irradiance: dividing the colour out of the target's own material lost
+      a metal's light and aliased its normal map into the lightmap.
       (There is no albedo-fused level: ``COMBINED`` is not lightmapping.)
-* ``scene.render.bake.margin`` -- native gutter/seam padding (no ``dilate_image`` needed).
+* ``scene.render.bake.margin`` -- native gutter/seam padding, only a few texels wide:
+  :meth:`_heal_dead_texels` and the atlas assembly fill the rest.
 * ``ptk.SceneRecords.LIGHTMAPS`` -- the export manifest record (a custom prop on the
   ``data_export`` Empty through ``DataNodes``, rides the FBX; no sidecar file). Informational
   -- the mesh's UV2 samples the map in any engine; unitytk's optional editor helper reads it
@@ -319,24 +322,22 @@ class LightmapBaker(ptk.LoggingMixin):
         saved from the panel adds). ``overrides`` win over the preset (e.g.
         ``from_preset("mobile", resolution=1536)``); extra preset keys
         (``description``, the panel's ``packing``) are ignored.
-        Built-ins (Cycles samples, denoised): ``preview`` (256/64), ``mobile`` (1024/256),
-        ``desktop`` (2048/512), ``hero`` (4096/1024). The tiers name an ATLAS size, and an
-        atlas is shared by a whole material group -- a 40-piece room on one material gets
-        1/40th of it each, which is why an environment needs a tier above its per-object
-        intuition.
+        Built-ins (denoised): ``preview``, ``mobile``, ``desktop`` and ``hero``, whose
+        dials are the ``presets/*.json`` beside this module -- read them there, not from
+        a copy here. The tiers name an ATLAS size, and an atlas is shared by a whole
+        material group -- a 40-piece room on one material gets 1/40th of it each, which
+        is why an environment needs a tier above its per-object intuition.
 
         ``bounces`` rides the tier for the same reason mayatk's ``gi_depth`` does: in a
         closed room it is the biggest quality-per-second lever, and a preset that named
         only resolution and samples would leave the bake at whatever the scene last
-        rendered with. The tiers are NOT mayatk's Arnold depths, though -- measured on
-        one production room, Cycles at 4 bounces already sits at 0.76x an Arnold
-        ``gi_depth`` 2 bake of the same scene, so the two renderers' depth numbers are
-        not interchangeable and the level difference is method (Arnold bakes through a
-        white card) rather than bounce count. Every tier but ``preview`` therefore
-        keeps Cycles' own default of 4: pinning is here to make a bake REPRODUCIBLE,
-        not to restyle one that was already being produced at the factory default,
-        and ``mobile`` is the default tier on both the panel and the Maya bridge.
-        Only ``preview``, which advertises speed, trades bounces for it. A retired
+        rendered with. Each tier bakes mayatk's depth for the tier of the same name:
+        both renderers count bounces alike -- a calibration room on one lambert agreed
+        with Arnold and the analytic value to 2% -- and the gap once measured on a
+        production room was the scene (no white card then, :meth:`_white_card` now, and
+        mis-crossed area lights), not the depth. The samples are Cycles paths, matched
+        to the Arnold tier's shadow noise rather than copied from its AA count.
+        ``mobile`` is the default tier on both the panel and the Maya bridge. A retired
         tier name (``quest``) still resolves, with a notice.
         """
         store = cls.preset_store()
@@ -732,10 +733,12 @@ class LightmapBaker(ptk.LoggingMixin):
     ) -> Dict[str, str]:
         """Bake a **lighting-only** irradiance lightmap per object -- THE bake.
 
-        Cycles ``type='DIFFUSE'`` with ``pass_filter={'DIRECT','INDIRECT'}`` (no ``'COLOR'``)
-        — the native white-card irradiance, so albedo stays on its own UV/texture and the
-        lightmap holds lighting only, to be combined ``albedo x lightmap`` by the engine.
-        Unlike Maya this needs **no material swap** (Cycles excludes the color pass directly).
+        Cycles ``type='DIFFUSE'`` with ``pass_filter={'DIRECT','INDIRECT'}`` (no ``'COLOR'``),
+        each target rendered through mayatk's white card (:meth:`_white_card`), so albedo
+        stays on its own UV/texture and the lightmap holds the geometry's lighting only, to
+        be combined ``albedo x lightmap`` by the engine. The card is object-linked for the
+        target's own bake (``TextureBaker.bake(shader=)``): the neighbours bounce light off
+        their real materials, and every slot comes back after.
         Pairs with :meth:`commit_lightmap`. Returns ``{object_name: exr_path}``.
 
         The objects go through :meth:`bake_targets`, so a member of the file's
@@ -1388,10 +1391,11 @@ class LightmapBaker(ptk.LoggingMixin):
     def _move_into_place(source: str, destination: str) -> None:
         """Move *source* onto *destination*, never deleting what is there first.
 
-        ``ptk.FileUtils.move_file`` stages it beside the destination and swaps it
-        in, so a failure leaves the destination's old file as it was -- the object
-        keeps its map -- and a swap that fails puts the source back, for the
-        caller's next name. Mirror of mayatk's.
+        ``ptk.FileUtils.move_file`` replaces it in one rename (across volumes it
+        stages the source beside it and swaps it in), so a failure leaves the
+        destination's old file as it was -- the object keeps its map -- and a
+        swap that fails puts the source back, for the caller's next name.
+        Mirror of mayatk's.
 
         Raises:
             OSError: The move or the swap failed; *destination* is untouched.
@@ -1616,8 +1620,13 @@ class LightmapBaker(ptk.LoggingMixin):
     #: How a delivered lightmap is written: what mayatk's twin writes (half
     #: float, lossless ZIP). ``Image.save()`` cannot be told either -- it wrote
     #: uncompressed 32-bit, 16.8 MB per 1024 atlas against Arnold's ~2 MB for
-    #: the same production room (2026-10-01).
+    #: the same production room (2026-10-01). Applied in this order and put
+    #: back in it: ``media_type`` leads because Blender 5.x offers only the
+    #: ``file_format`` values its media type allows, so a scene saved with
+    #: Video or Multi-Layer EXR output refused ``OPEN_EXR`` and no map was
+    #: written. 4.x has no ``media_type``; a key the build lacks is skipped.
     _EXR_SETTINGS: Dict[str, str] = {
+        "media_type": "IMAGE",
         "file_format": "OPEN_EXR",
         "color_depth": "16",
         "exr_codec": "ZIP",
@@ -1650,7 +1659,8 @@ class LightmapBaker(ptk.LoggingMixin):
         )
         scene = bpy.context.scene
         settings = scene.render.image_settings
-        prior = {key: getattr(settings, key) for key in cls._EXR_SETTINGS}
+        pinned = {k: v for k, v in cls._EXR_SETTINGS.items() if hasattr(settings, k)}
+        prior = {key: getattr(settings, key) for key in pinned}
         img = bpy.data.images.new(
             os.path.basename(path), width, height, alpha=True, float_buffer=True
         )
@@ -1659,7 +1669,7 @@ class LightmapBaker(ptk.LoggingMixin):
             # discarded or the save goes through a view transform.
             img.colorspace_settings.name = "Non-Color"
             img.pixels.foreach_set(rgba.reshape(-1))
-            for key, value in cls._EXR_SETTINGS.items():
+            for key, value in pinned.items():
                 setattr(settings, key, value)
             os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
             img.save_render(path, scene=scene)

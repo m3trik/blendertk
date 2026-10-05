@@ -46,11 +46,11 @@ class SceneCallbacksMixin:
         _add(h.redo_post, self._on_redo_post)
         _add(h.depsgraph_update_post, self._on_depsgraph_update)
 
-        # An object rename (no app handler reports one): the next rebuild
-        # re-points the shots naming it (``reconcile_all_shots``) -- mayatk's
-        # DAG-path reconcile, reached the same way.  msgbus takes plain
-        # functions only, so the hook goes through this closure; file load
-        # drops the subscription and the invalidation re-runs this method.
+        # An object rename (no app handler reports one): a rebuild re-points
+        # the shots naming it (``reconcile_all_shots``) -- mayatk's DAG-path
+        # reconcile, reached the same way.  msgbus takes plain functions only,
+        # so the hook goes through this closure; file load drops the
+        # subscription and the invalidation re-runs this method.
         def _on_rename(*_args):
             self._on_object_renamed()
 
@@ -88,21 +88,53 @@ class SceneCallbacksMixin:
             pass
         self._unregister_scene_callbacks()
         self._edited_objects.clear()
-        if self._keyframe_debounce is not None:
-            try:
-                self._keyframe_debounce.stop()
-            except RuntimeError:
-                pass
-            self._keyframe_debounce = None
+        for attr in ("_keyframe_debounce", "_rebuild_debounce"):
+            timer = getattr(self, attr, None)
+            if timer is not None:
+                try:
+                    timer.stop()
+                except RuntimeError:
+                    pass
+                setattr(self, attr, None)
 
     def _on_object_renamed(self) -> None:
-        """An object was renamed: re-point the shots on the next (debounced)
-        rebuild, as a keyframe edit does."""
+        """An object was renamed: re-point the shots on a plain (debounced)
+        rebuild (:meth:`_arm_rebuild_debounce`).
+
+        Not the keyframe debounce: its epilogue adds keyed objects to the
+        active shot, falling back to the SELECTION when nothing was keyed --
+        and a rename keys nothing, so riding it put whatever was selected
+        into the shot (and let Extend to Keys grow it), outside any undo step.
+        """
         self._reconcile_needed = True
         try:
-            self._arm_keyframe_debounce()
+            self._arm_rebuild_debounce()
         except Exception:
             self.logger.debug("rename refresh not scheduled", exc_info=True)
+
+    #: The single-shot plain rebuild (:meth:`_arm_rebuild_debounce`).
+    _rebuild_debounce = None
+
+    def _arm_rebuild_debounce(self) -> None:
+        """(Re)start a 200 ms single-shot rebuild with NO keying epilogue, built
+        on first use: for scene changes that key nothing (a rename, a sound
+        strip edited in Blender's Sequencer)."""
+        from qtpy import QtCore
+
+        if self._rebuild_debounce is None:
+            self._rebuild_debounce = QtCore.QTimer()
+            self._rebuild_debounce.setSingleShot(True)
+            self._rebuild_debounce.setInterval(200)
+            self._rebuild_debounce.timeout.connect(self._on_rebuild_debounce_fire)
+        self._rebuild_debounce.start()
+
+    def _on_rebuild_debounce_fire(self) -> None:
+        """Rebuild the widget from the scene -- membership is left as it is."""
+        if self._syncing:
+            return
+        self._segment_cache.clear()
+        self._sub_row_cache.clear()
+        self._sync_to_widget()
 
     def _arm_keyframe_debounce(self) -> None:
         """(Re)start the 200 ms single-shot refresh, built on first use."""
@@ -154,24 +186,27 @@ class SceneCallbacksMixin:
         self._serial_before_native = BlenderShotStore.edit_serial()
 
     def _on_undo_post(self, *_args) -> None:
-        """Restore the newest restore point when Blender's undo was OUR edit.
+        """Restore the restore points of OUR edits the undo just took back.
 
-        Only then (mirror of mayatk's ``_on_maya_undo``): consuming a restore
+        Only those (mirror of mayatk's ``_on_maya_undo``): consuming a restore
         point for somebody else's step would silently revert a boundary
-        change the user never undid.  The widget refreshes either way --
-        Blender has no per-key callback to report what an unrelated undo did
-        to the keys on screen, where mayatk's keyframe callback does.
+        change the user never undid -- and every one of them, since an Undo
+        History jump runs several steps under this one call
+        (``_apply_native_jump``).  The widget refreshes either way, with a
+        rename reconcile (an undo can take a rename back) -- Blender has no
+        per-key callback to report what an unrelated undo did to the keys on
+        screen, where mayatk's keyframe callback does.
         """
         if self._syncing:
             return
         self._syncing = True
         try:
-            if self._native_event_is_ours():
-                self._restore_shot_state()
+            self._apply_native_jump()
         finally:
             self._syncing = False
         self._segment_cache.clear()
         self._sub_row_cache.clear()
+        self._reconcile_needed = True
         # The dropdown lists the shots in order and paints their bounds, so
         # it goes as stale as the timeline does -- an undone reorder left it
         # showing the order that had just been undone.
@@ -181,17 +216,18 @@ class SceneCallbacksMixin:
     def _on_redo_post(self, *_args) -> None:
         # Redo re-applies the scene keys; the ledger's redo direction
         # re-applies the bounds the matching undo stepped back from, so the
-        # two stay paired through undo→redo cycles.
+        # two stay paired through undo→redo cycles (every one a redo jump
+        # crossed: ``_apply_native_jump``).
         if self._syncing:
             return
         self._syncing = True
         try:
-            if self._native_event_is_ours(redo=True):
-                self._redo_shot_state()
+            self._apply_native_jump(redo=True)
         finally:
             self._syncing = False
         self._segment_cache.clear()
         self._sub_row_cache.clear()
+        self._reconcile_needed = True
         # The dropdown lists the shots in order and paints their bounds, so
         # it goes as stale as the timeline does -- an undone reorder left it
         # showing the order that had just been undone.
@@ -233,12 +269,15 @@ class SceneCallbacksMixin:
                 # through its keyframe callback, its audio being keyed on a
                 # carrier -- so compare the strips themselves.  Only when the
                 # SCENE is among the updates (a strip edit tags it; a viewport
-                # drag, every tick of it, does not).
+                # drag, every tick of it, does not).  A plain rebuild redraws
+                # the audio track: the keying epilogue would add the SELECTION
+                # to the active shot, since a strip edit keys no object.
                 scene_tagged = any(
                     isinstance(u.id, bpy.types.Scene) for u in depsgraph.updates
                 )
-                if not scene_tagged or not self._sound_strips_changed():
-                    return
+                if scene_tagged and self._sound_strips_changed():
+                    self._arm_rebuild_debounce()
+                return
             if (
                 depsgraph is not None
                 and len(self._edited_objects) <= self._EDITED_OBJECT_CAP

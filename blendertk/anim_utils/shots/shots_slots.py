@@ -242,11 +242,13 @@ class ShotsController(ptk.LoggingMixin):
         scene keys ride the native undo queue, shot bounds do not, and the
         sequencer panel's undo restores from this ledger.
 
-        :class:`ShotBoundaryConflict` means the operation declined BEFORE
-        writing anything: the shots would have had to share a sample whose two
-        poses disagree, which one frame cannot hold. Since nothing changed, the
-        restore point is discarded rather than left for an undo to "restore"
-        the state it is already in.
+        :class:`ShotBoundaryConflict` means the operation was declined: the
+        shots would have had to share a sample whose two poses disagree, which
+        one frame cannot hold. The restore point stays with the step
+        ``scene_edit`` pushed: a multi-stage edit can write before it is
+        declined (a "both" Add Space slides the head before the tail ripple
+        refuses), and undoing that step must put the bounds and claims back
+        with the keys -- where nothing changed, restoring it changes nothing.
 
         Behaviour mirrors mayatk's ``_boundary_edit``, through the same
         ``store.scene_edit`` bracket: one named undo step whose restore point is
@@ -269,9 +271,9 @@ class ShotsController(ptk.LoggingMixin):
             with store.scene_edit(label):
                 fn(*args, **kwargs)
         except ShotBoundaryConflict as exc:
-            # Declined before writing anything, so the restore point goes too
-            # (mirrors mayatk): a refusal is an answer, not a crash.
-            store.discard_boundary_snapshot()
+            # A refusal is an answer, not a crash. The restore point stays with
+            # the step scene_edit pushed: a multi-stage edit can write before
+            # it is declined.
             self.logger.warning(str(exc))
             self._set_footer(str(exc))
             return False

@@ -207,6 +207,24 @@ class _BehaviorsInternal(object):
 
         RenderEffects._ensure_opacity_prop(obj)
 
+    @staticmethod
+    def _behavior_paths(obj, behavior_name: str) -> List[str]:
+        """The fcurve data paths *behavior_name* keys on *obj*: its template's
+        channels as :meth:`Behaviors.apply_behavior` targets them, plus the
+        stepped ``hide_render`` mirror a presence channel brings.  ``[]`` when
+        the template does not exist -- the manifest's key-ownership reads
+        (``BlenderShotManifest._key_samples``)."""
+        from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
+
+        try:
+            attrs = Behaviors.keyed(behavior_name).get("attributes") or {}
+        except (FileNotFoundError, ValueError):
+            return []
+        paths = {_BehaviorsInternal._data_path_for(obj, a)[0] for a in attrs}
+        if set(attrs) & {"visibility", "opacity"}:
+            paths.add(RenderEffects.VIS_PATH)
+        return sorted(paths)
+
 
 class Behaviors(_PyBehaviors, _BehaviorsInternal):
     """Behaviors — module namespace.
@@ -362,23 +380,6 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
                             )
                         )
         return written
-
-    @staticmethod
-    def behavior_paths(obj, behavior_name: str) -> List[str]:
-        """The fcurve data paths *behavior_name* keys on *obj*: its template's
-        channels as :meth:`apply_behavior` targets them, plus the stepped
-        ``hide_render`` mirror a presence channel brings.  ``[]`` when the
-        template does not exist."""
-        from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
-
-        try:
-            attrs = Behaviors.keyed(behavior_name).get("attributes") or {}
-        except (FileNotFoundError, ValueError):
-            return []
-        paths = {_BehaviorsInternal._data_path_for(obj, a)[0] for a in attrs}
-        if set(attrs) & {"visibility", "opacity"}:
-            paths.add(RenderEffects.VIS_PATH)
-        return sorted(paths)
 
     @staticmethod
     def verify_behavior(

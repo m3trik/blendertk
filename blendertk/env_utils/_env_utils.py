@@ -265,17 +265,28 @@ class EnvUtils(_EnvUtilsInternal):
 
     @staticmethod
     def remove_library(library):
-        """Remove a library and everything linked from it (datablock or name). Returns True on success."""
+        """Remove a library and everything linked from it (datablock or name). Returns True on success.
+
+        The local collection-instance Empties that instance its collections go with it (the
+        ones :meth:`link_blend_file` creates): they belong to this file, so removing the
+        library alone left each one behind instancing nothing -- one more per Reference
+        Manager row click, now that the row selection is the reference set.
+        """
         import bpy
 
         lib = bpy.data.libraries.get(library) if isinstance(library, str) else library
         if lib is None:
             return False
         try:
+            instancers = [
+                o for o in _EnvUtilsInternal._library_objects(lib) if o.library is None
+            ]
             bpy.data.libraries.remove(lib, do_unlink=True)
-            return True
         except (RuntimeError, ReferenceError):
-            return False
+            return False  # still linked: its instancers still show it
+        for o in instancers:
+            bpy.data.objects.remove(o, do_unlink=True)
+        return True
 
     #: What a make-local does with a library's scene data (see make_library_local).
     SCENE_DATA_MODES = ("merge", "discard")
