@@ -328,7 +328,11 @@ class TestShotManifestPanelLoads(unittest.TestCase):
         self.addCleanup(restore)
         ctrl._unbind_store_listener()
         BlenderShotStore.clear_active()
-        store = BlenderShotStore.active()
+        # Built, not ``active()``: under Blender ``active()`` re-attaches the
+        # scene record, so one test's shots persisted into the next (a
+        # second ``define_shot('intro')`` refused, a table one row long).
+        store = BlenderShotStore()
+        BlenderShotStore.set_active(store)
         ctrl._store = store
         if listen:
             ctrl._bind_store_listener()
