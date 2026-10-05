@@ -10,14 +10,15 @@ _Diff vs the last release (origin/main @ 1ceb879)._
 - `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.tb001` — was `(self, widget)`
 - `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.tb001_init` — was `(self, widget)`
 
-## Added (37)
+## Added (38)
 
 - `anim_utils/shots/_shots.py::BlenderShotStore.curve_key(obj_name: str, data_path: str, index: int = 0) -> str`
 - `anim_utils/shots/_shots.py::BlenderShotStore.discard_carrier(cls, carriers, other, ctx) -> None`
 - `anim_utils/shots/_shots.py::BlenderShotStore.edit_serial(cls) -> int`
+- `anim_utils/shots/_shots.py::BlenderShotStore.follow_renames(self) -> bool`
+- `anim_utils/shots/_shots.py::BlenderShotStore.rescale_to_fps(self, new_fps: float) -> None`
 - `anim_utils/shots/_shots.py::BlenderShotStore.resolve_member(self, name: str) -> Tuple[str, str]`
 - `anim_utils/shots/_shots.py::BlenderShotStore.scene_edit(self, label: str = 'edit', snapshot: bool = True)`
-- `anim_utils/shots/shot_manifest/behaviors/_behaviors.py::Behaviors.behavior_paths(obj, behavior_name: str) -> List[str]`
 - `anim_utils/shots/shot_sequencer/clip_motion.py::ClipMotionMixin.curves_for_attrs(obj_name: str, attr_names) -> list`
 - `audio_utils/audio_clips.py::AudioClipsSlots.select_track(self, name: str) -> bool`
 - `core_utils/diagnostics/uv_diag.py::UvDiagnostics(class)`
@@ -66,13 +67,16 @@ _Live retirement debt, earliest deadline first. An **EXPIRED** row has outlived 
 - **HELD** `env_utils/hierarchy_sync/hierarchy_baseline.py::HierarchyBaseline.migrate_from_sidecar` — remove in 0.13.0, not before 2026-10-24
 - **HELD** `edit_utils/curtain/_curtain.py::CurtainUtils.create_curtain` — remove in 0.14.0, not before 2026-10-26
 - **HELD** `edit_utils/curtain/_curtain.py::CurtainUtils.curtain_rail_from_selection` — remove in 0.14.0, not before 2026-10-26
-- `mat_utils/substance_bridge/_substance_bridge.py::SubstanceBridge.high_poly_path_for` — remove in 0.15.0, not before 2026-10-27
+- **HELD** `mat_utils/substance_bridge/_substance_bridge.py::SubstanceBridge.high_poly_path_for` — remove in 0.15.0, not before 2026-10-27
 
-## Signature changed (14)
+## Signature changed (15)
 
+- `anim_utils/_anim_utils.py::AnimUtils.align_selected_keyframes`
+  - was: `(objects, target_frame=None, use_earliest=True)`
+  - now: `(objects, target_frame=None, use_earliest=True, on_replace=None)`
 - `anim_utils/_anim_utils.py::AnimUtils.invert_keys`
   - was: `(objects, mode='time', value_pivot=0.0, start_frame=None, relative=True, delete_original=False)`
-  - now: `(objects, mode='time', value_pivot=0.0, start_frame=None, relative=True, delete_original=False, selected_only=False)`
+  - now: `(objects, mode='time', value_pivot=0.0, start_frame=None, relative=True, delete_original=False, selected_only=False, on_replace=None)`
 - `anim_utils/segment_keys.py::SegmentKeys.collect_segments`
   - was: `(cls, objects: Union[str, List[str]], ignore: Optional[Union[str, List[str]]] = None, split_static: bool = False, selected_keys_only: bool = False, channel_box_attrs: Optional[List[str]] = None, static_tolerance: float = 0.0001, time_range: Optional[Tuple[Optional[float], Optional[float]]] = None, ignore_visibility_holds: bool = False, ignore_holds: bool = False, exclude_next_start: bool = True, motion_only: bool = False, motion_rate: float = 0.001, transform_only: bool = True) -> List[Dict[str, Any]]`
   - now: `(cls, objects: Union[str, List[str]], ignore: Optional[Union[str, List[str]]] = None, split_static: bool = False, selected_keys_only: bool = False, channel_box_attrs: Optional[List[str]] = None, static_tolerance: float = 0.0001, time_range: Optional[Tuple[Optional[float], Optional[float]]] = None, ignore_visibility_holds: bool = False, ignore_holds: bool = False, exclude_next_start: bool = True, motion_only: bool = False, motion_rate: float = 0.001, transform_only: bool = False) -> List[Dict[str, Any]]`
@@ -108,7 +112,7 @@ _Live retirement debt, earliest deadline first. An **EXPIRED** row has outlived 
   - now: `(objects, uv_set=LIGHTMAP_UV_SET, margin=0.02, quiet=True, force=False)`
 - `uv_utils/texture_transfer.py::TextureTransfer.assign_results`
   - was: `(self, results: Dict[str, Dict[str, str]], jobs: Dict[str, Dict[str, Any]], suffix: str = '_TRANSFER', base_name: Optional[str] = None, prefix: str = '') -> Dict[str, str]`
-  - now: `(self, results: Dict[str, Dict[str, str]], jobs: Dict[str, Dict[str, Any]], suffix: str = '_TRANSFER', base_name: Optional[str] = None, prefix: str = '', assign_from: str = 'target', sources: Sequence[Any] = ()) -> Dict[str, str]`
+  - now: `(self, results: Dict[str, Dict[str, str]], jobs: Dict[str, Dict[str, Any]], suffix: str = '_TRANSFER', base_name: Optional[str] = None, prefix: str = '', assign_from: str = 'target') -> Dict[str, str]`
 - `uv_utils/texture_transfer.py::TextureTransfer.transfer`
   - was: `(self, targets, source=None, *, source_uv_set: Optional[str] = None, target_uv_set: Optional[str] = None, channels: Optional[Sequence[str]] = None, size: Optional[int] = None, supersample: int = 2, padding: int = -1, output_dir: Optional[str] = None, name_format: str = '{material}_{channel}', output_name: Optional[str] = None, normal_convention: Optional[str] = None, source_mask_from_uvs: bool = True, assign: bool = False, assign_prefix: str = '', assign_suffix: Optional[str] = None) -> Dict[str, Dict[str, str]]`
   - now: `(self, targets, source=None, *, source_uv_set: Optional[str] = None, target_uv_set: Optional[str] = None, channels: Optional[Sequence[str]] = None, size: Optional[int] = None, supersample: int = 2, padding: int = -1, output_dir: Optional[str] = None, name_format: str = '{material}_{channel}', output_name: Optional[str] = None, normal_convention: Optional[str] = None, source_mask_from_uvs: bool = True, assign: bool = False, assign_prefix: str = '', assign_suffix: Optional[str] = None, assign_from: str = 'target') -> Dict[str, Dict[str, str]]`

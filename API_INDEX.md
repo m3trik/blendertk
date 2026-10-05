@@ -66,7 +66,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class BlenderScenePersistence`
   - methods: store_cls, remove_callbacks, save, load, record_changed
 - `class BlenderShotStore(ShotStore, _BlenderShotStoreInternal)`
-  - methods: resolve_member, curve_key, edit_serial, scene_edit, active, has_animation, detect_regions, assess, publish_export_view, export_transfer, apply_transfer, transfer_out, transfer_in, merge_carrier, discard_carrier, iter_action_fcurves, collect_transform_segments, collect_selected_key_entries
+  - methods: resolve_member, curve_key, follow_renames, edit_serial, scene_edit, active, rescale_to_fps, has_animation, detect_regions, assess, publish_export_view, export_transfer, apply_transfer, transfer_out, transfer_in, merge_carrier, discard_carrier, iter_action_fcurves, collect_transform_segments, collect_selected_key_entries
 
 ### `anim_utils/shots/shot_manifest/_shot_manifest.py` — Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
 - `class BlenderShotManifest(ShotManifest, _ShotManifestInternal)`
@@ -74,7 +74,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `anim_utils/shots/shot_manifest/behaviors/_behaviors.py` — Behaviors — Blender appliers over the engine's pure keying-recipe core.
 - `class Behaviors(pythontk.core_utils.engines.shots.manifest.behaviors.Behaviors, _BehaviorsInternal)`
-  - methods: apply_behavior, behavior_paths, verify_behavior, apply_audio_clip, compute_duration, apply_to_shots
+  - methods: apply_behavior, verify_behavior, apply_audio_clip, compute_duration, apply_to_shots
 
 ### `anim_utils/shots/shot_manifest/manifest_data.py` — Constants, column layout, and pure helper functions for the Shot Manifest UI.
 - constants: SETTINGS_NS, HEADERS, COL_STEP, COL_SECTION, COL_DESC, COL_BEHAVIORS, COL_START, COL_END, STEP_ICON_COLOR, PASTEL_STATUS, BEHAVIOR_STATUS_COLORS, ERROR_COLOR
