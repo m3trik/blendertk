@@ -49,18 +49,6 @@ try:
 except ImportError:  # pragma: no cover
     np = None
 
-# Logical channel -> Principled BSDF input names (first present wins). Mirrors
-# ``mat_manifest._SLOT_SOCKETS`` for the constants; the maps themselves come
-# from ``MatManifest._process_material`` so the two never drift.
-_CONSTANT_SOCKETS: Dict[str, Tuple[str, ...]] = {
-    "baseColor": ("Base Color",),
-    "emission": ("Emission Color", "Emission"),
-    "specular": ("Specular IOR Level", "Specular"),
-    "roughness": ("Roughness",),
-    "metallic": ("Metallic",),
-    "opacity": ("Alpha",),
-}
-
 
 class _TextureTransferInternal:
     """Host-side helpers: correspondence, material lookup."""
@@ -319,11 +307,15 @@ class _TextureTransferInternal:
         out white. Mirror of mayatk's ``ShaderAttributeMap.read_constant``.
         """
         from blendertk.mat_utils._mat_utils import _MatUtilsInternal
+        from blendertk.mat_utils.mat_manifest import _NORMAL_SLOTS, _SLOT_SOCKETS
 
         node = _MatUtilsInternal._principled_node(material)
-        if node is None:
+        if node is None or channel in _NORMAL_SLOTS:
             return None
-        for name in _CONSTANT_SOCKETS.get(channel, ()):
+        # The manifest's own socket table, so a channel the maps carry is one
+        # the constants carry too (the lobes, the specular level). A normal's
+        # literal is no value.
+        for name in _SLOT_SOCKETS.get(channel, ()):
             sock = node.inputs.get(name)
             if sock is None or sock.is_linked:
                 continue

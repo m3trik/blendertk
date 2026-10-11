@@ -23,7 +23,7 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
@@ -620,6 +620,24 @@ try:
         "anchor: pulling the end anchor stretches the mesh",
         (mx1.z - mn1.z) > (mx0.z - mn0.z) + 1.0,
         f"z-len {(mx0.z - mn0.z):.2f} -> {(mx1.z - mn1.z):.2f}",
+    )
+
+    # ============================ REVERSE (every strategy) ============================
+    # mayatk's Reverse Direction, on the one-click build too: the chain roots at the other end.
+    _heads = []
+    for _rev in (False, True):
+        reset()
+        _tr = tube("RevTail", depth=8.0)
+        _b = TubeRig(_tr, rig_name="rev").build(
+            "fk", num_joints=6, radius=0.6, reverse=_rev
+        )
+        _heads.append(
+            _b.armature.matrix_world @ _b.armature.data.bones[_b.bones[0]].head_local
+        )
+    check(
+        "reverse: the fk root bone starts at the tube's other end",
+        (_heads[0] - _heads[1]).length > 6.0,
+        f"{tuple(_heads[0])} vs {tuple(_heads[1])}",
     )
 
     # ============================ FK CHAIN ============================

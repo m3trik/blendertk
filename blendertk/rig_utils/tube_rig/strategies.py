@@ -60,6 +60,17 @@ class TubeStrategy(ABC):
             d.update({k: v for k, v in opts.items() if v is not None})
         return d
 
+    @staticmethod
+    def centerline(rig, count, o: dict) -> list:
+        """The rig's centerline, root first -- reversed when ``o["reverse"]``.
+
+        ``reverse`` is every strategy's, so it is not a declared option (the
+        panel's one Reverse Direction toggle carries it, as mayatk's does):
+        the end the chain roots at -- the end that stays put -- swaps.
+        """
+        pts = rig.resolve_centerline(count)
+        return list(pts)[::-1] if o.get("reverse") else pts
+
     @abstractmethod
     def build(self, rig: "TubeRig", **opts) -> TubeRigBundle: ...
 
@@ -135,7 +146,7 @@ class SplineIKStrategy(TubeStrategy):
     def build(self, rig, **opts):
         o = self.resolve(opts)
         rig._report("Building spline IK: reading the tube's centerline…")
-        centerline = rig.resolve_centerline(o["num_joints"])
+        centerline = self.centerline(rig, o["num_joints"], o)
         root = rig.create_root()
         rig._report(f"Building spline IK: creating {len(centerline)} joints…")
         arm, bones = rig.create_armature(centerline)
@@ -184,7 +195,7 @@ class AnchorStrategy(TubeStrategy):
     def build(self, rig, **opts):
         o = self.resolve(opts)
         rig._report("Building anchor rig: reading the tube's centerline…")
-        centerline = rig.resolve_centerline(2)
+        centerline = self.centerline(rig, 2, o)
         start, end = centerline[0], centerline[-1]
         root = rig.create_root()
         rig._report("Building anchor rig: creating end joints…")
@@ -242,7 +253,7 @@ class FKChainStrategy(TubeStrategy):
     def build(self, rig, **opts):
         o = self.resolve(opts)
         rig._report("Building FK chain: reading the tube's centerline…")
-        centerline = rig.resolve_centerline(o["num_joints"])
+        centerline = self.centerline(rig, o["num_joints"], o)
         root = rig.create_root()
         rig._report(f"Building FK chain: creating {len(centerline)} bones…")
         arm, bones = rig.create_armature(centerline)

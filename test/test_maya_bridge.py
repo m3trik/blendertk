@@ -28,7 +28,7 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
@@ -127,7 +127,7 @@ try:
 
     # ---- MEL command builder (Qt-free) --------------------------------------
     # maya.exe decodes its command line in the ANSI code page (measured on Maya 2025:
-    # "Жук" arrived as "???"), and the script sits under %TEMP%, which holds the
+    # Cyrillic arrived as "???"), and the script sits under %TEMP%, which holds the
     # user's name -- so the MEL names no path: it reads the script from the env var
     # the deliverer always sets. And Maya's open() decodes with the locale (cp1252),
     # which turned a UTF-8 payload path INSIDE the script into another path.
@@ -147,16 +147,14 @@ try:
         and "\\" not in mel,
         mel,
     )
-    mel_dir = os.path.join(
-        HERE, "temp_tests", f"mel Jos\u00e9 \u0416\u0443\u043a {os.getpid()}"
-    )
+    mel_dir = os.path.join(HERE, "temp_tests", f"mel Zo\u00eb \u2605 {os.getpid()}")
     os.makedirs(mel_dir, exist_ok=True)
     mel_script = os.path.join(mel_dir, "btk_to_maya.py")
     mel_out = os.path.join(mel_dir, "out.json")
     with open(mel_script, "w", encoding="utf-8") as fh:
         fh.write(
             "import json\n"
-            "WORD = 'Jos\u00e9 \u0416\u0443\u043a'\n"
+            "WORD = 'Zo\u00eb \u2605'\n"
             "def _word():\n"
             "    return WORD\n"
             f"json.dump([_word(), __name__], open({mel_out!r}, 'w', encoding='utf-8'))\n"
@@ -178,7 +176,7 @@ try:
                 mel_seen = json.load(fh)
         check(
             "mel body runs a non-ASCII script, decoded as UTF-8, in __main__ (mayapy)",
-            mel_seen == ["Jos\u00e9 \u0416\u0443\u043a", "__main__"],
+            mel_seen == ["Zo\u00eb \u2605", "__main__"],
             ascii((mel_seen, mel_run.returncode, mel_run.stderr[-400:])),
         )
     shutil.rmtree(mel_dir, ignore_errors=True)
@@ -749,43 +747,45 @@ try:
     # node reading "proj ???/..." with outSize 0 (measured, real mayapy). The
     # manifest hands Maya its 8.3 form; names the code page holds are kept.
     if os.name == "nt":
-        cyr_root = os.path.join(HERE, "temp_tests", f"mbtex {os.getpid()}")
-        cyr_dir = os.path.join(cyr_root, "proj \u0416\u0443\u043a")
-        os.makedirs(cyr_dir, exist_ok=True)
-        if (ptk.AppLauncher._short_name(cyr_dir) or "").isascii():
-            cyr_tex = os.path.join(cyr_dir, "crate_BaseColor.png")
-            shutil.copyfile(tex_path, cyr_tex)
-            cyr_mat = bpy.data.materials.new("MB_cyrillic")
-            cyr_mat.use_nodes = True
-            cyr_bsdf = next(
-                n for n in cyr_mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"
+        star_root = os.path.join(HERE, "temp_tests", f"mbtex {os.getpid()}")
+        star_dir = os.path.join(star_root, "proj \u2605")
+        os.makedirs(star_dir, exist_ok=True)
+        if (ptk.AppLauncher._short_name(star_dir) or "").isascii():
+            star_tex = os.path.join(star_dir, "crate_BaseColor.png")
+            shutil.copyfile(tex_path, star_tex)
+            star_mat = bpy.data.materials.new("MB_star")
+            star_mat.use_nodes = True
+            star_bsdf = next(
+                n for n in star_mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"
             )
-            cyr_node = cyr_mat.node_tree.nodes.new("ShaderNodeTexImage")
-            cyr_node.image = bpy.data.images.load(cyr_tex)
-            cyr_mat.node_tree.links.new(
-                cyr_node.outputs["Color"], cyr_bsdf.inputs["Base Color"]
+            star_node = star_mat.node_tree.nodes.new("ShaderNodeTexImage")
+            star_node.image = bpy.data.images.load(star_tex)
+            star_mat.node_tree.links.new(
+                star_node.outputs["Color"], star_bsdf.inputs["Base Color"]
             )
             bpy.ops.mesh.primitive_cube_add()
             cube_c = bpy.context.active_object
-            cube_c.data.materials.append(cyr_mat)
+            cube_c.data.materials.append(star_mat)
             MayaBridge(maya_path="C:/fake/maya.exe")._write_manifest(
                 [cube_c], manifest_fbx
             )
             with open(manifest_path, "r", encoding="utf-8") as fh:
-                cyr_entry = json.load(fh)["materials"][0]
-            cyr_paths = list(cyr_entry["files"]) + list(cyr_entry["slots"].values())
+                star_entry = json.load(fh)["materials"][0]
+            star_paths = list(star_entry["files"]) + list(star_entry["slots"].values())
             check(
                 "manifest: texture paths reach Maya in a form it can open",
-                len(cyr_paths) == 2
-                and all(p.isascii() and os.path.samefile(p, cyr_tex) for p in cyr_paths)
+                len(star_paths) == 2
                 and all(
-                    os.path.basename(p) == "crate_BaseColor.png" for p in cyr_paths
+                    p.isascii() and os.path.samefile(p, star_tex) for p in star_paths
+                )
+                and all(
+                    os.path.basename(p) == "crate_BaseColor.png" for p in star_paths
                 ),
-                ascii(cyr_paths),
+                ascii(star_paths),
             )
             os.remove(manifest_path)
             bpy.data.objects.remove(cube_c)
-        shutil.rmtree(cyr_root, ignore_errors=True)
+        shutil.rmtree(star_root, ignore_errors=True)
 
     # ---- shots sidecar (the send half of the shot transfer) -------------------
     from blendertk.anim_utils.shots._shots import BlenderShotStore
@@ -952,6 +952,41 @@ try:
         str(slots),
     )
 
+    # 3b. OpenPBR lobe sockets resolve to the shared lobe channels, and the
+    #     specular LEVEL is specularWeight -- it was filed under `specular`,
+    #     which the Maya side reads as the specular COLOUR (tint).
+    for socket, expected in (
+        ("Coat Roughness", "coatRoughness"),
+        ("Sheen Tint", "sheenColor"),
+        ("Transmission Weight", "transmission"),
+        ("Specular IOR Level", "specularWeight"),
+        ("Specular Tint", "specular"),
+    ):
+        m, nt, bsdf = _mat("slotLobe_" + socket.replace(" ", ""))
+        nt.links.new(_img(nt, "lobe_" + expected).outputs["Color"], bsdf.inputs[socket])
+        slots = MayaBridge._material_slots(m)
+        check(
+            f"slot trace: {socket} resolves {expected}",
+            list(slots) == [expected],
+            str(slots),
+        )
+
+    # 3c. the table is a literal (mayatk's pull templates copy it verbatim), so
+    #     pin it to the Game Shader's Principled lobe table it mirrors.
+    from blendertk.mat_utils._mat_utils import _PRINCIPLED_LOBES
+
+    drift = {
+        socket: channel
+        for channel, socket in _PRINCIPLED_LOBES.items()
+        if channel != "coatNormal"
+        and MayaBridge._PRINCIPLED_CHANNELS.get(socket) != channel
+    }
+    check(
+        "slot trace: the channel table mirrors the Principled lobe table",
+        not drift,
+        str(drift),
+    )
+
     # 4. one image reaching SEVERAL channels (packed) records nothing
     m, nt, bsdf = _mat("slotPacked")
     packed = _img(nt, "orm")
@@ -1052,6 +1087,38 @@ try:
     )
 
     shutil.rmtree(_slot_dir, ignore_errors=True)  # artifacts are teardown's job
+
+    # ---- empties manifest: a locator rig goes to Maya as mayatk's GRP > LOC ---------------
+    # The locator parents its object, so the children heuristic alone sends it as a Maya
+    # GROUP; the rig's node-type stamps say what each Empty stands for, and Maya's
+    # ``_manifest_empty_rules`` lets a stamp win outright.
+    from blendertk.rig_utils._rig_utils import RigUtils
+
+    # A ring-drawn group is a CIRCLE Empty with children -- unstamped, the display rule
+    # would send it as a deliberate locator.
+    for _look in ("none", "ring"):
+        _prop = bpy.data.objects.new("Prop", bpy.data.meshes.new("Prop"))
+        bpy.context.scene.collection.objects.link(_prop)
+        _rig_loc = RigUtils.create_locator_at_object(
+            _prop,
+            grp_suffix="_GRP",
+            loc_suffix="_LOC",
+            obj_suffix="_GEO",
+            group_display=_look,
+        )[0]
+        _rig_grp = _rig_loc.parent
+        _sent = {
+            e["name"]: e.get("maya_node_type")
+            for e in MayaBridge._manifest_empties([_rig_grp, _rig_loc, _prop])
+        }
+        check(
+            f"empties manifest: a locator rig's group and locator go to Maya typed "
+            f"(group_display={_look!r})",
+            _sent == {_rig_grp.name: "group", _rig_loc.name: "locator"},
+            f"{_sent}",
+        )
+        for _o in (_prop, _rig_loc, _rig_grp):
+            bpy.data.objects.remove(_o, do_unlink=True)
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

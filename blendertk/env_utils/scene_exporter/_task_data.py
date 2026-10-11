@@ -73,6 +73,15 @@ class _TaskDataMixin:
     #: Materials assigned to the export set; None = not computed this run.
     _cached_materials: Optional[List] = None
 
+    # -- report lines a plain logger can carry (mirror of mayatk's) ---------
+    def _log_link(self, text: str, action: str, **params: str) -> str:
+        """``logger.log_link`` where the logger builds links, else plain text:
+        *text*, with the file a link would open."""
+        build = getattr(self.logger, "log_link", None)
+        if build is not None:
+            return build(text, action, **params)
+        return f"{text}: {params['filepath']}" if "filepath" in params else text
+
     @property
     def export_path(self) -> str:
         """The deliverable this run writes (``run.export_path``).

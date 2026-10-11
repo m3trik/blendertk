@@ -16,17 +16,32 @@ from typing import Any, Dict, List, Optional
 
 import pythontk as ptk
 
+from blendertk.mat_utils._mat_utils import _PRINCIPLED_LOBES
+
 # (slot key) -> candidate Principled-BSDF input socket names, tried in order (covers the
-# Blender-version rename of "Emission" -> "Emission Color").
+# Blender-version rename of "Emission" -> "Emission Color"). Keys are mayatk's
+# ``ShaderAttrs`` fields, so a manifest crosses the bridge slot for slot -- the OpenPBR lobes
+# included, taken from the Game Shader's Principled table so the two cannot drift.
+# ``specular`` is the TINT (``Specular Tint``), as on Maya's surfaces; the level that
+# ``Specular IOR Level`` holds -- and Blender < 4.0's ``Specular`` -- is ``specularWeight``.
+# Filed under ``specular``, a level map crossed into Maya's specular COLOUR.
 _SLOT_SOCKETS: Dict[str, tuple] = {
     "baseColor": ("Base Color",),
     "emission": ("Emission Color", "Emission"),
-    "specular": ("Specular IOR Level", "Specular"),
     "roughness": ("Roughness",),
     "metallic": ("Metallic",),
     "opacity": ("Alpha",),
     "normal": ("Normal",),
+    "specularWeight": ("Specular IOR Level", "Specular"),
+    **{
+        channel: (socket,)
+        for channel, socket in _PRINCIPLED_LOBES.items()
+        if channel != "specularWeight"
+    },
 }
+
+# Slots whose input is a tangent-space normal: restored through a Normal Map node.
+_NORMAL_SLOTS = ("normal", "coatNormal")
 
 
 class MatManifest(ptk.HelpMixin):
@@ -148,10 +163,23 @@ class MatManifest(ptk.HelpMixin):
             img = cls._find_or_load_image(tex_path)
             if img is None:
                 continue
+            # The slot's data, not Blender's load default: a fresh PNG loads as
+            # sRGB, so every restored roughness / opacity / normal / lobe
+            # weight was gamma-decoded. The registry's color_space says which.
+            entry = ptk.MapRegistry().get(
+                ptk.MapRegistry.resolve_type_from_channel(slot)
+            )
+            if entry is not None:
+                try:
+                    img.colorspace_settings.name = (
+                        "sRGB" if entry.color_space == "sRGB" else "Non-Color"
+                    )
+                except (AttributeError, TypeError):
+                    pass
 
             img_node = nt.nodes.new("ShaderNodeTexImage")
             img_node.image = img
-            if slot == "normal":
+            if slot in _NORMAL_SLOTS:
                 norm_node = nt.nodes.new("ShaderNodeNormalMap")
                 nt.links.new(img_node.outputs["Color"], norm_node.inputs["Color"])
                 nt.links.new(norm_node.outputs["Normal"], socket)

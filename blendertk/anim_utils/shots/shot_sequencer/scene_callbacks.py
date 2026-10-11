@@ -204,14 +204,10 @@ class SceneCallbacksMixin:
             self._apply_native_jump()
         finally:
             self._syncing = False
-        self._segment_cache.clear()
-        self._sub_row_cache.clear()
-        self._reconcile_needed = True
         # The dropdown lists the shots in order and paints their bounds, so
         # it goes as stale as the timeline does -- an undone reorder left it
         # showing the order that had just been undone.
-        self._sync_combobox()
-        self._sync_to_widget()
+        self._after_shot_change()
 
     def _on_redo_post(self, *_args) -> None:
         # Redo re-applies the scene keys; the ledger's redo direction
@@ -225,14 +221,10 @@ class SceneCallbacksMixin:
             self._apply_native_jump(redo=True)
         finally:
             self._syncing = False
-        self._segment_cache.clear()
-        self._sub_row_cache.clear()
-        self._reconcile_needed = True
         # The dropdown lists the shots in order and paints their bounds, so
         # it goes as stale as the timeline does -- an undone reorder left it
         # showing the order that had just been undone.
-        self._sync_combobox()
-        self._sync_to_widget()
+        self._after_shot_change()
 
     def _on_depsgraph_update(self, *args) -> None:
         """Debounced refresh when the scene's ANIMATION DATA changes.

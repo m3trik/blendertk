@@ -128,6 +128,30 @@ class AudioUtils(ptk.LoggingMixin):
         return clips
 
     @classmethod
+    def read_all_events(cls, scene=None) -> Dict[str, List[Tuple[float, float]]]:
+        """Every sound strip's span: ``{strip_name: [(frame_start, frame_end)]}``.
+
+        The whole-scene scan the shot sequencer's audio lane and the shot
+        store's empty-shot check read -- the shape mayatk's
+        ``AudioUtils.read_all_events`` returns (a Maya track can hold several
+        on/off spans; a strip is one).
+
+        Parameters:
+            scene: The scene to read; ``None`` for the current one.
+
+        Returns:
+            ``{strip_name: [(frame_start, frame_end)]}``; empty when the scene
+            has no sequence editor.
+        """
+        try:
+            clips = cls.list_clips(scene)
+        except Exception:
+            return {}
+        return {
+            c["name"]: [(float(c["frame_start"]), float(c["frame_end"]))] for c in clips
+        }
+
+    @classmethod
     def get_clip(cls, name: str, scene=None) -> Optional[Dict]:
         """Return info for the sound strip named *name*, or ``None``."""
         strip = cls._find_strip(name, scene)

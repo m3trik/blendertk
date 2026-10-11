@@ -6,11 +6,11 @@ carrier with its staged curve proxies, and the declared takes.
 """
 
 import math
-from typing import Union
+import os
+from typing import Optional, Tuple, Union
 
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.env_utils.scene_exporter._task_data import _TaskDataMixin
 
 
@@ -216,24 +216,11 @@ class _AnimationTasksMixin(_TaskDataMixin):
                 A legacy ``True`` reads as ``"keys"`` -- what this task did as a
                 checkbox.
         """
-        if not mode:  # OFF — as optimize_keys: the panel filters its own OFF row
-            return None  # out, so this is a headless caller's falsy value
-        mode = "keys" if mode is True else str(mode).strip().lower()
-        if mode not in self.BAKE_RANGE_MODES:
-            raise ValueError(
-                f"Unknown bake range mode {mode!r}; expected one of "
-                f"{', '.join(self.BAKE_RANGE_MODES)}."
-            )
+        mode = self._bake_range_token(mode)
+        if mode is None:  # OFF — as optimize_keys: the panel filters its own OFF
+            return None  # row out, so this is a headless caller's falsy value
 
-        if mode == "auto":
-            resolved, source = self._bake_range_from_shots(), "shot union"
-            if resolved is None:
-                resolved = self._bake_range_from_keys()
-                source = "animated extent (no shots declared)"
-        elif mode == "keys":
-            resolved, source = self._bake_range_from_keys(), "animated extent"
-        else:
-            resolved, source = self._bake_range_from_scene(), "scene frame range"
+        resolved, source = self._bake_range_for_mode(mode)
 
         # Never clip a span another task claimed (:meth:`_require_range_coverage`),
         # whatever the selected source measured.
@@ -258,6 +245,85 @@ class _AnimationTasksMixin(_TaskDataMixin):
         self.logger.info(f"Set bake range to {start}-{end} ({source}).")
         return None
 
+    def _bake_range_token(self, mode: Union[bool, str, None]) -> Optional[str]:
+        """The Bake Range row's *mode* as a :attr:`BAKE_RANGE_MODES` token, or
+        ``None`` for OFF; a legacy ``True`` reads as ``"keys"`` (mirror of
+        mayatk's).
+
+        Raises:
+            ValueError: An unknown mode.
+        """
+        if not mode:
+            return None
+        mode = "keys" if mode is True else str(mode).strip().lower()
+        if mode not in self.BAKE_RANGE_MODES:
+            raise ValueError(
+                f"Unknown bake range mode {mode!r}; expected one of "
+                f"{', '.join(self.BAKE_RANGE_MODES)}."
+            )
+        return mode
+
+    def _bake_range_for_mode(self, mode: str) -> Tuple[Optional[Tuple], str]:
+        """What Bake Range *mode* (a token) measures, and what it measured --
+        the one reading :meth:`set_bake_animation_range` sets and the clip
+        origin predicts (:meth:`_predicted_bake_range`). Mirror of mayatk's."""
+        if mode == "auto":
+            resolved = self._bake_range_from_shots()
+            if resolved is not None:
+                return resolved, "shot union"
+            return self._bake_range_from_keys(), "animated extent (no shots declared)"
+        if mode == "keys":
+            return self._bake_range_from_keys(), "animated extent"
+        return self._bake_range_from_scene(), "scene frame range"
+
+    def _predicted_bake_range(self) -> Optional[Tuple[float, float]]:
+        """The scene range this run's write will bake over, before anything sets it.
+
+        What the Bake Range row's mode measures (:meth:`_bake_range_for_mode`,
+        the reading :meth:`set_bake_animation_range` sets LAST), widened as
+        that task widens it: to the frames claimed so far (the staged curve
+        proxies, :meth:`_cover_frame_range`) and, for a split, to the declared
+        shots :meth:`apply_declared_takes` claims next. With the row OFF, the
+        scene's own range widened the same way -- what those two tasks leave it
+        at. Mirror of mayatk's.
+        """
+        try:
+            mode = self._bake_range_token(self.run.bake_range_mode)
+        except ValueError:  # the range task raises it, naming the mode
+            mode = None
+        shots = self._bake_range_from_shots() if self.run.splits_takes else None
+        spans = [span for span in (self._required_range_coverage, shots) if span]
+        measured = self._bake_range_for_mode(mode)[0] if mode is not None else None
+        if measured:
+            spans.append(measured)
+        elif mode is None or not spans:
+            # The row is OFF, or it measured nothing and nothing is claimed:
+            # the range the scene holds now is the one the write bakes.
+            scene = self._scene()
+            spans.append((scene.frame_start, scene.frame_end))
+        return min(span[0] for span in spans), max(span[1] for span in spans)
+
+    def _clip_origin_span(self) -> Optional[Tuple[int, int]]:
+        """The frames the whole-timeline take will carry -- the span every GLB
+        clip is cut against (the export context's ``clip_span``).
+
+        Blender bakes every frame of the scene range at the write, so the
+        stack carries exactly the range the tasks leave the scene at, which
+        :meth:`set_bake_animation_range` sets after this publishes: predicted
+        (:meth:`_predicted_bake_range`). Published as the FBX will have it --
+        the producer's own seed was the scene range as it stood, and a Bake
+        Range that then narrowed it to the shots published a span the stack
+        never held (measured: 1-250 for a 1-40 stack). Mirror of mayatk's,
+        where only a write that resamples bakes the range; here every
+        animated write does. A USD layer carries no stack: ``None``.
+        """
+        if self.run.usd:
+            return None
+        span = self._predicted_bake_range()
+        if span is None:
+            return None
+        return int(math.floor(span[0])), int(math.ceil(span[1]))
+
     def export_data_node(self):
         """Publish the scene records and ship the carrier (default on).
 
@@ -269,55 +335,62 @@ class _AnimationTasksMixin(_TaskDataMixin):
         point (producers also publish at authoring time, which is what a
         non-exporter write ships).  Then the carrier joins the export set so
         its custom properties ride into the FBX as user properties
-        (``use_custom_props`` + Empty-inclusive ``object_types``, both on by
-        default in ``_DEFAULT_FBX_OPTIONS``); the mesh-only object sets would
-        otherwise omit it.
+        (``use_custom_props`` + Empty-inclusive ``object_types``, which the
+        write forces whenever it ships the carrier); the mesh-only object sets
+        would otherwise omit it.
         """
-        self._scene_snapshot = self._publish_scene_records()
+        from blendertk.env_utils.fbx_utils import FbxUtils
+
+        # Stage the write NOW (mirror of mayatk's): the curve-proxy transport
+        # -- Blender's exporter cannot ship custom-property animation, so each
+        # keyed render-effect channel and emissive weight rides one transient
+        # Empty whose scale.x carries the curve (FbxUtils.STAGERS) -- and a
+        # preview that must stand down. The checks after this task and the
+        # hierarchy baseline the write records see the same nodes. The write's
+        # bracket stages again (a stager whose nodes still stand is skipped)
+        # and finishes after the write; a run that stops before it (a declined
+        # check, an empty export set, a cancel) never reaches it, so the finish
+        # is also a deferred restore, run on every exit -- finishing twice is
+        # safe.
+        table = FbxUtils.stage()
+        self.stage_deferred_restore(
+            "export_stagers", lambda: FbxUtils._run_stagers("finish", table)
+        )
+        # A carrier that already exists joins the export set before the
+        # proxies are read (the keyed emissive weights' proxies hang under
+        # it), and the proxies join before the publish: the frames they claim
+        # are part of the range the published clip origin predicts. A carrier
+        # the publish creates joins after it.
         self._include_data_export_node()
 
-        # Keyed-weight curve proxies: Blender's FBX exporter can't ship
-        # custom-property animation, so EmissiveGroups stages one transient
-        # Empty per keyed group whose scale.x carries the weight curve (the
-        # Blender half of mayatk's emissive export transport). They must
-        # exist THROUGH the FBX write and vanish after, which the task-revert
-        # engine can't express (reverts run before the write) — hence the
-        # deferred restore.
-        from blendertk.mat_utils.emissive_groups import EmissiveGroups
-
-        proxies = EmissiveGroups.create_export_curve_proxies()
+        # The proxies of what ships join the export set -- the rule the write
+        # ships them by -- and claim the frames they key: theirs sit outside
+        # the exported objects' own extent by construction. The stagers make
+        # one for every keyed object in the file; another object's would ship
+        # here as a stray Empty and widen the bake range for nothing.
+        shipped = list(self.objects or [])
+        proxies = [
+            p
+            for p in FbxUtils._staged_nodes(table)
+            if p.parent in shipped and p not in shipped
+        ]
         if proxies:
-            self.objects = list(self.objects or []) + proxies
-            self.stage_deferred_restore(
-                "emissive_curve_proxies",
-                EmissiveGroups.remove_export_curve_proxies,
-            )
+            self.objects = shipped + proxies
             self._cover_frame_range(proxies)
 
-        # The render-effect channels ride the same transport: one Empty per
-        # keyed channel per object, parented under it (the Unity importer
-        # rebinds by the parent path), removed after the write.
-        from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
-
-        effect_proxies = RenderEffects.stage_export_proxies()
-        if effect_proxies:
-            self.objects = list(self.objects or []) + effect_proxies
-            self.stage_deferred_restore(
-                "render_effect_curve_proxies",
-                RenderEffects.remove_export_proxies,
-            )
-            self._cover_frame_range(effect_proxies)
-
+        self._scene_snapshot = self._publish_scene_records()
+        self._include_data_export_node()
         self._log_data_node_summary()
 
     def _include_data_export_node(self):
-        """Fold the ``data_export`` carrier into the export set (shippable).
+        """Fold the ``data_export`` carrier into the export set.
 
         Idempotent; a no-op when the scene has no carrier.  Shared by
         :meth:`export_data_node` and :meth:`apply_declared_takes` (mirror of
-        mayatk's ``_include_data_export_node``), and — beyond the mayatk twin —
-        also clears, for the write only, whatever hide state would make the
-        selection-based FBX funnel silently drop the Empty.
+        mayatk's ``_include_data_export_node``).  A hidden carrier is folded in
+        as it is: the write shows it for itself and hides it again after
+        (``FbxUtils._carriers_shippable``, lifted from here 2026-10-05 so every
+        writer ships it the same way).
         """
         from blendertk.node_utils.data_nodes import DataNodes
 
@@ -325,78 +398,6 @@ class _AnimationTasksMixin(_TaskDataMixin):
         if carrier is None:
             self.logger.debug("No data_export carrier in scene — nothing to include.")
             return
-
-        # The FBX funnel exports via use_selection + select_set, which can only
-        # ship selectable, visible objects — a hidden carrier would silently
-        # drop the metadata, so clear any hide state before including it, and
-        # put it back after the write: a deferred restore runs AFTER it (the
-        # task reverts that ran before the write were retired 2026-09-13, and
-        # the carrier was left visible for good until 2026-09-24). The eye is
-        # per view layer: the window's, the one the FBX funnel selects in
-        # (windowless, the bare calls read the scene's default layer).
-        vl = CoreUtils._active_view_layer()
-        try:
-            layer_hidden = carrier.hide_get(view_layer=vl)
-        except RuntimeError:  # not in the active view layer
-            layer_hidden = False
-        hide_state = (carrier.hide_select, carrier.hide_viewport, layer_hidden)
-
-        def _rehide(carrier=carrier, state=hide_state, vl=vl):
-            try:
-                carrier.hide_select, carrier.hide_viewport = state[0], state[1]
-                if state[2]:
-                    carrier.hide_set(True, view_layer=vl)
-            except (RuntimeError, ReferenceError):
-                pass  # unlinked from the layer since, or freed
-
-        # First wins: a later call sees the state this one cleared.
-        self.stage_deferred_restore("data_export_hide", _rehide)
-        was_hidden = carrier.hide_select or carrier.hide_viewport
-        carrier.hide_select = False
-        carrier.hide_viewport = False
-        try:
-            if not carrier.visible_get(view_layer=vl):
-                was_hidden = True
-                carrier.hide_set(False, view_layer=vl)
-        except RuntimeError:  # not in the active view layer
-            was_hidden = True
-        if was_hidden:
-            self.logger.info("data_export carrier was hidden — cleared for export.")
-
-        # The object-level clears above can't help when the carrier's COLLECTION
-        # is hidden or excluded from the view layer (hide_set even RAISES in the
-        # excluded case) — the selection funnel would still drop it, or
-        # select_set would kill the export outright. Link the carrier to the
-        # scene root collection for the duration of the write and unlink it
-        # right after (deferred restore: task reverts fire BEFORE the write).
-        try:
-            still_hidden = not carrier.visible_get(view_layer=vl)
-        except RuntimeError:  # not in the active view layer at all
-            still_hidden = True
-        if still_hidden:
-            root = self._scene().collection
-            if carrier.name not in root.objects:
-                root.objects.link(carrier)
-
-                def _unlink_carrier(root=root, carrier=carrier):
-                    try:
-                        root.objects.unlink(carrier)
-                    except RuntimeError:
-                        pass
-
-                self.stage_deferred_restore("data_export_root_link", _unlink_carrier)
-                if vl is not None:
-                    vl.update()  # visible_get/select_set read the evaluated layer
-                try:  # now reachable through the root — re-clear per-view-layer hiding
-                    carrier.hide_set(False, view_layer=vl)
-                except RuntimeError:
-                    pass
-                self.logger.info(
-                    "data_export carrier's collection is hidden/excluded — linked "
-                    "the carrier to the scene root collection for the write "
-                    "(unlinked after)."
-                )
-
         if carrier not in (self.objects or []):
             self.objects = list(self.objects or []) + [carrier]
             self.logger.info("data_export carrier added to the export set.")
@@ -414,10 +415,10 @@ class _AnimationTasksMixin(_TaskDataMixin):
     def _publish_scene_records(self, only=None):
         """``FbxUtils.publish`` with THIS run's context (mirror of mayatk's).
 
-        The clip span stays unmeasured here: what a Blender stack's origin
-        should be with no takes armed is an open contract question (the
-        producer seeds it from the bake range, as before).  Never raises -- a
-        record that cannot be produced is logged and left as stored.
+        The clip span is the span the written stack will carry
+        (:meth:`_clip_origin_span`): the producer publishes what the FBX has,
+        not the scene range it would seed from.  Never raises -- a record that
+        cannot be produced is logged and left as stored.
 
         Outside the write's bracket the publish PREPARES the session stagers
         (the shadow preview stands down so no producer reads it), and a run
@@ -426,15 +427,24 @@ class _AnimationTasksMixin(_TaskDataMixin):
         finish is staged here too, as a deferred restore.  A completed run
         finishes them twice, which a stager's ``finish`` tolerates (it undoes
         what its ``prepare`` recorded, and the first pass consumed that).
+
+        The context carries the export set as its ``scope`` (mirror of
+        mayatk's): an export-scoped record (the lightmaps, the shadow planes)
+        names only the objects the write ships, so the post-write embed never
+        ships the maps of one left out. The file's own copy of each narrowed
+        record is put back after the run (``ExportSnapshot.restore_scene_wide``).
         """
         from blendertk.env_utils.fbx_utils import FbxUtils
+        from blendertk.node_utils.data_nodes import DataNodes
 
         try:
             ctx = FbxUtils.export_context(
                 clip_mode=ptk.ExportRun.clip_mode(self.run.animation_clips_mode),
+                clip_span=self._clip_origin_span(),
                 # The FBX's handoff record publishes the same lighting recipe
                 # the GLB's envelope does, with this run's choices.
                 rendering=self.run.rendering,
+                scope=tuple(o.name for o in self._live_objects()) or None,
             )
             if not FbxUtils._export_depth:
                 staged = dict(FbxUtils._session_stagers)
@@ -442,7 +452,18 @@ class _AnimationTasksMixin(_TaskDataMixin):
                     "export_stagers",
                     lambda: FbxUtils._run_stagers("finish", staged),
                 )
-            return FbxUtils.publish(ctx, only=only)
+            snapshot = FbxUtils.publish(ctx, only=only)
+            if snapshot is not None and snapshot.scene_wide:
+                self.stage_deferred_restore(
+                    "scene_wide_records",
+                    lambda: snapshot.restore_scene_wide(DataNodes),
+                )
+                self.logger.info(
+                    "Narrowed to the export set: "
+                    f"{', '.join(snapshot.scene_wide)} (the file keeps its "
+                    "whole copy)."
+                )
+            return snapshot
         except Exception:  # noqa: BLE001 - the write goes on; say what ships
             self.logger.warning(
                 "Scene records not published; the carrier ships as last stored.",
@@ -517,14 +538,15 @@ class _AnimationTasksMixin(_TaskDataMixin):
         per export is enough), then arms ``FbxUtils`` with whatever takes
         the scene declares, folding the carrier into the export
         selection with them (a scene declaring none is a true no-op);
-        the write realizes them by splitting its baked scene-range AnimStack
-        (see ``fbx_utils``' module docstring for the divergence from Maya's
-        exporter-state mechanism). Blender's split REPLACES the single
-        scene-range take with the per-shot ones, so on the FBX leg the two
-        shot-bearing modes ship the same takes; the GLB leg keeps the
-        difference -- :meth:`create_glb` carries *mode* to the conversion as
-        ``clip_mode``, and the sequence has to be CUT before it can be
-        dropped, so which clips survive is decided on the deliverable.
+        the write realizes them by cloning its baked scene-range AnimStack into
+        one stack per take (see ``fbx_utils``' module docstring for the
+        divergence from Maya's exporter-state mechanism), and keeps the
+        scene-range stack beside them, as Maya's split keeps ``Take 001``.
+        Which clips survive is decided on the deliverables, since the sequence
+        has to be CUT before it can be dropped: :meth:`create_glb` carries
+        *mode* to the conversion as ``clip_mode``, and
+        :meth:`ship_declared_takes` drops the whole-timeline take from a Shots
+        Only FBX after it.
 
         Parameters:
             mode: ``"both"`` (shots + the whole-timeline sequence),
@@ -599,6 +621,50 @@ class _AnimationTasksMixin(_TaskDataMixin):
         else:
             self.logger.debug("No takes declared. Skipping animation takes.")
 
+    def ship_declared_takes(self, fbx_path: str) -> Optional[dict]:
+        """Give the written FBX the clips its Animation Clips mode names.
+
+        Mirror of mayatk's. The split keeps the whole-timeline take beside the
+        takes it was asked for, so Shots Only would ship the same FBX as Shots
+        + Full Sequence and Unity would import a whole-timeline clip nobody
+        asked for. In Shots Only the takes the scene does not declare are
+        dropped from the deliverable (``ptk.FbxMedia.drop_takes``), as the GLB
+        drops its stack. Runs after the write and after any GLB conversion --
+        the GLB's clips are cut FROM that take -- and never raises: the FBX
+        already ships, and a take left in it is the old file, not a broken one.
+
+        Parameters:
+            fbx_path: The FBX deliverable just written.
+
+        Returns:
+            The ``drop_takes`` report, or ``None`` when nothing was dropped.
+        """
+        from blendertk.env_utils.fbx_utils import FbxUtils
+
+        if self._clip_mode != "shots" or not os.path.isfile(fbx_path or ""):
+            return None
+        try:
+            declared = {take["name"] for take in FbxUtils._stored_takes()}
+            present = ptk.FbxFile.load(fbx_path, raw_payloads=False).take_names()
+            drop = [name for name in present if name not in declared]
+            # Only beside a declared take: a file the split never reached keeps
+            # the one take it has.
+            if not drop or len(drop) == len(present):
+                return None
+            report = ptk.FbxMedia.drop_takes(fbx_path, names=drop)
+        except Exception:  # noqa: BLE001 - the deliverable already shipped
+            self.logger.warning(
+                "Shots Only: the whole-timeline take could not be dropped; the "
+                "FBX ships it beside the shots.",
+                exc_info=True,
+            )
+            return None
+        self.logger.info(
+            f"Shots Only: dropped {', '.join(report['takes'])} from the FBX; it "
+            f"ships the {len(present) - len(report['takes'])} shot take(s)."
+        )
+        return report
+
     #: The panel that acts on a record's export notes (mirror of mayatk's):
     #: record key -> (link label, panel name), opened by ``action://show``.
     NOTE_PANELS = {ptk.SceneRecords.SHOTS.key: ("Open Shots", "shots")}
@@ -638,13 +704,14 @@ class _AnimationTasksMixin(_TaskDataMixin):
             self.logger.debug("data_export notes skipped.", exc_info=True)
 
     def _note_link(self, key: str) -> str:
-        """The link to the panel that acts on *key*'s notes, or ``""``."""
+        """The link to the panel that acts on *key*'s notes, ``""`` when none
+        is declared -- the panel's name as plain text through a logger that
+        builds no links (:meth:`_log_link`)."""
         entry = self.NOTE_PANELS.get(key)
-        build = getattr(self.logger, "log_link", None)
-        if entry is None or build is None:
+        if entry is None:
             return ""
         label, panel = entry
-        return build(label, "show", ui=panel)
+        return self._log_link(label, "show", ui=panel)
 
     def _restore_bake_session(self) -> None:
         """Undo :meth:`smart_bake`'s session -- the restore that task stages.

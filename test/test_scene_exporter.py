@@ -54,7 +54,7 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
@@ -235,6 +235,17 @@ try:
             _resolved_default[k] == v
             for k, v in on_disk_default.items()
             if k not in ("bake_anim_use_nla_strips", "bake_anim_use_all_actions")
+            and k not in SceneExporter._SELF_CONTAINED_FBX_OPTIONS
+        ),
+        f"{_resolved_default}",
+    )
+    # ...save whether the deliverable carries its media: pinned over any preset
+    # (nothing ships beside a deliverable).
+    check(
+        "the stock preset's FBX carries its media",
+        all(
+            _resolved_default[k] == v
+            for k, v in SceneExporter._SELF_CONTAINED_FBX_OPTIONS.items()
         ),
         f"{_resolved_default}",
     )
@@ -408,6 +419,40 @@ try:
         "perform_export(preset_name=...) writes the file using the preset's resolved kwargs",
         result is True and os.path.isfile(out_file) and os.path.getsize(out_file) > 0,
         f"result={result} exists={os.path.isfile(out_file)}",
+    )
+
+    # ---- the FBX is finished in a LOCAL stage and delivered once (mirror of
+    # mayatk, production 2026-10-08): a synced output folder held the
+    # just-written file and refused the in-place rewrite. Every pass that
+    # rewrites the file sees the staged copy, never the output folder's. ---------
+    from unittest import mock as _stage_mock
+    from blendertk.env_utils.fbx_utils import FbxUtils as _StageFbxUtils
+
+    _seen_stage = {}
+    _real_embed = _StageFbxUtils.embed_dependencies
+
+    def _spy_embed(path, *a, **k):
+        _seen_stage["embed"] = path
+        return _real_embed(path, *a, **k)
+
+    with _stage_mock.patch.object(
+        _StageFbxUtils, "embed_dependencies", staticmethod(_spy_embed)
+    ):
+        staged_ok = SceneExporter().perform_export(
+            export_dir=out_dir,
+            objects=[cube],
+            output_name="staged_test",
+            export_visible=True,
+        )
+    check(
+        "the FBX is finished away from the output folder and delivered once",
+        staged_ok is True
+        and os.path.isfile(os.path.join(out_dir, "staged_test.fbx"))
+        and "embed" in _seen_stage
+        and os.path.normcase(os.path.dirname(os.path.abspath(_seen_stage["embed"])))
+        != os.path.normcase(os.path.abspath(out_dir))
+        and not [n for n in os.listdir(out_dir) if n.endswith(".part")],
+        f"ok={staged_ok} seen={_seen_stage}",
     )
 
     # ---- an invalid kwarg key in a preset surfaces a clear error (not a silent partial
@@ -2112,6 +2157,50 @@ try:
         f"result={result}",
     )
 
+    # A GLB the output folder takes in no form (neither placed nor parked beside it)
+    # stays in the stage, which the run then keeps: the log names it as kept there, so
+    # the stage's cleanup must not delete it. Added: 2026-10-10.
+    from unittest import mock as _glb_mock
+
+    kept_dir = os.path.join(tmp, "fbx_glb_kept")
+    os.makedirs(kept_dir, exist_ok=True)
+    exp12 = SceneExporter()
+    _staged_glbs = []
+
+    def _staged_glb(fbx_path=None, announce=True):
+        path = os.path.splitext(fbx_path)[0] + ".glb"
+        with open(path, "wb") as fh:
+            fh.write(b"GLBDATA")
+        _staged_glbs.append(path)
+        return path
+
+    exp12.task_manager.create_glb = _staged_glb
+    _real_deliver = ptk.FileUtils.deliver_file
+
+    def _refuse_glb(staged, destination):
+        if destination.lower().endswith(".glb"):
+            return staged, "held open (test)"
+        return _real_deliver(staged, destination)
+
+    with _glb_mock.patch.object(ptk.FileUtils, "deliver_file", side_effect=_refuse_glb):
+        result = exp12.perform_export(
+            export_dir=kept_dir,
+            objects=[gcube],
+            output_name="both_kept",
+            export_visible=True,
+            tasks={"export_data_node": True, "output_format": "fbx_glb"},
+        )
+    check(
+        "a glb the output folder refuses whole stays in the stage it is named in",
+        result is True
+        and os.path.isfile(os.path.join(kept_dir, "both_kept.fbx"))
+        and len(_staged_glbs) == 1
+        and os.path.isfile(_staged_glbs[0]),
+        f"result={result} staged={_staged_glbs}",
+    )
+    for _glb in _staged_glbs:
+        shutil.rmtree(os.path.dirname(_glb), ignore_errors=True)
+
     # ---- Check scheduling: CHECK_DEPENDENCIES hoists each check above the tasks it does
     # not read (pythontk TaskFactory._schedule), so a failing gate aborts BEFORE the
     # texture and animation phases run. blendertk declared no map until 2026-09-13, so
@@ -2478,6 +2567,19 @@ try:
     )
     check(
         "a note's show link opens the panel it names", _shown == ["shots"], f"{_shown}"
+    )
+    import logging as _plain_logging
+    from blendertk.env_utils.scene_exporter.task_manager import (
+        TaskManager as _PlainTM,
+    )
+
+    _plain_note = _PlainTM(_plain_logging.getLogger("btk_plain_note"))._note_link(
+        ptk.SceneRecords.SHOTS.key
+    )
+    check(
+        "through a plain logger a note names its panel as text (mirror of mayatk's)",
+        _plain_note == "Open Shots",
+        repr(_plain_note),
     )
 
     # Export Scene Data Node OFF: the takes task publishes instead, and it must
@@ -4060,9 +4162,11 @@ try:
         bpy.data.actions.remove(a)
     imported = FbxUtils.import_fbx(takes_file, use_custom_props=True)
     take_actions = sorted(a.name for a in bpy.data.actions)
+    # True is "both": the shots AND the whole-timeline stack they were cut
+    # from, as Maya's Take 001 ships beside its takes (2026-10-05).
     check(
-        "the file ships one AnimStack per declared shot and ONLY those",
-        take_actions == ["ShotCube|close", "ShotCube|open"],
+        "Shots + Full Sequence ships one AnimStack per shot beside the whole timeline",
+        take_actions == ["ShotCube|Scene", "ShotCube|close", "ShotCube|open"],
         f"{take_actions}",
     )
     icarrier2 = next((o for o in imported if o.name.startswith(DataNodes.EXPORT)), None)
@@ -5148,11 +5252,120 @@ try:
         _g_switch is not None and abs(_g_switch - 30) < 0.5,
         f"ShotB hides at frame {_g_switch}",
     )
+
+    # ---- Shots + Full Sequence ships the whole timeline in both files (2026-10-05)
+    # Blender's split REPLACED the scene-range take, so "both" and "shots"
+    # shipped the same files while the shot record declared clip_mode both;
+    # Maya ships ['ShotA', 'ShotB', 'FULL_SEQUENCE']. Shots Only drops the
+    # whole-timeline take from the FBX after the GLB was cut from it.
+    def _clip_lists(stem):
+        takes = ptk.FbxFile.load(
+            os.path.join(_g_dir, f"{stem}.fbx"), raw_payloads=False
+        ).take_names()
+        with ptk.MeshConvert.open_glb(os.path.join(_g_dir, f"{stem}.glb")) as edit:
+            clips = [a.get("name") for a in edit.gltf.get("animations") or []]
+        return sorted(takes), sorted(clips)
+
+    _g_scene = bpy.context.scene.name
+    _g_takes, _g_clips = _clip_lists("gate")
+    check(
+        "Shots + Full Sequence: the FBX keeps the whole-timeline take beside the shots",
+        _g_takes == sorted(["ShotA", "ShotB", _g_scene]),
+        f"{_g_takes}",
+    )
+    check(
+        "Shots + Full Sequence: the GLB ships the sequence clip beside the shots",
+        _g_clips == ["FULL_SEQUENCE", "ShotA", "ShotB"],
+        f"{_g_clips}",
+    )
+    SceneExporter().perform_export(
+        export_dir=_g_dir,
+        objects=[_g_mover, _g_blink],
+        output_name="gate_shots",
+        export_visible=True,
+        tasks={
+            "export_data_node": True,
+            "apply_declared_takes": "shots",
+            "output_format": "fbx_glb",
+        },
+    )
+    _g_takes, _g_clips = _clip_lists("gate_shots")
+    check(
+        "Shots Only ships the shots alone in both files",
+        _g_takes == ["ShotA", "ShotB"] and _g_clips == ["ShotA", "ShotB"],
+        f"fbx={_g_takes} glb={_g_clips}",
+    )
+
+    # ---- the published clip origin is the span the stack carries (2026-10-05) ----------
+    # Bake Range Auto narrows the scene range to the shot union AFTER the records
+    # publish, so the whole-timeline span the producer published was its seed -- the
+    # scene range, 1-250 -- for a stack the FBX holds as 1-40. The GLB was still cut
+    # right (the conversion measures the FBX), and clip_origin WARNed that the
+    # published span was off. Report what the FBX has.
+    _gs.frame_start, _gs.frame_end = 1, 250
+    SceneExporter().perform_export(
+        export_dir=_g_dir,
+        objects=[_g_mover, _g_blink],
+        output_name="gate_auto",
+        export_visible=True,
+        tasks={
+            "export_data_node": True,
+            "apply_declared_takes": "both",
+            "set_bake_animation_range": "auto",
+            "output_format": "fbx_glb",
+        },
+    )
+    _g_origin = ptk.ExportVerifier(
+        glb=os.path.join(_g_dir, "gate_auto.glb"),
+        fbx=os.path.join(_g_dir, "gate_auto.fbx"),
+    ).run(["check_clip_origin"])
+    check(
+        "Bake Range Auto over a wider scene range: the published span is the stack's",
+        [row.status for row in _g_origin.rows] == ["PASS"],
+        _g_origin.summary(),
+    )
     BlenderShotStore.clear_active()
     BlenderShotStore._prefs_dir_override = None
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     reset_scene()
+
+    # ---- a curve proxy ships beside its own object only (2026-10-05) -------------------
+    # The stagers stage a proxy for EVERY keyed object in the file, and the carrier task
+    # folded all of them into the export set: an export of one object shipped another's
+    # <object>__opacity as a root Empty -- which Unity's importer rebinds onto every
+    # Renderer in the prefab -- and widened the bake range to that object's keys.
+    for _o in (bpy.data.objects, bpy.data.actions):
+        for _block in list(_o):
+            _o.remove(_block)
+    bpy.ops.mesh.primitive_cube_add()
+    _px_ship = bpy.context.active_object
+    _px_ship.name = "ProxyShipped"
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    _px_other = bpy.context.active_object
+    _px_other.name = "ProxyOther"
+    for _o in (_px_ship, _px_other):
+        for _f, _a in ((1, 1.0), (10, 0.0)):
+            _o["opacity"] = _a
+            _o.keyframe_insert('["opacity"]', frame=_f)
+    _px_dir = os.path.join(tmp, "proxy_scope")
+    os.makedirs(_px_dir, exist_ok=True)
+    SceneExporter().perform_export(
+        export_dir=_px_dir,
+        objects=[_px_ship],
+        output_name="proxy_scope",
+        export_visible=True,
+        tasks={"export_data_node": True},
+    )
+    _px_models = ptk.FbxFile.load(
+        os.path.join(_px_dir, "proxy_scope.fbx"), raw_payloads=False
+    ).object_names("Model")
+    check(
+        "a curve proxy ships beside its own object only, never another's",
+        "ProxyShipped__opacity" in _px_models
+        and "ProxyOther__opacity" not in _px_models,
+        f"{sorted(_px_models)}",
+    )
 
     shutil.rmtree(tmp, ignore_errors=True)
     shutil.rmtree(_PRESETS_ROOT, ignore_errors=True)

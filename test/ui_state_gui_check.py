@@ -9,7 +9,9 @@ Drives the whole lifecycle against a scratch sidecar: seed "Timeline hidden, gri
 off" -> install from a windowless timer state (the fallback path) -> first tick applies ->
 user-style changes land in the sidecar -> a maximized viewport's one-area screen is skipped
 (not recorded as "everything closed") -> ``read_homefile`` brings the factory layout back ->
-the tick re-applies the saved state over it. Auto-quits when done.
+the tick re-applies the saved state over it, then what ``after_restore`` holds (a change made
+directly after the load is overruled; the held Relationship Lines hide is not) -> a workspace
+visited after the load is restored, and the hide again overrules its saved flags. Auto-quits.
 """
 import json
 import os
@@ -26,6 +28,8 @@ for p in (REPO, os.path.join(MONO, "pythontk")):
 
 lines = []
 SCRATCH = os.path.join(HERE, "temp_tests", f"ui_state_gui_{os.getpid()}")
+# A factory workspace the run switches to after the load (restored on its first visit).
+OTHER_WS = "Animation"
 
 
 def check(name, cond, detail=""):
@@ -36,6 +40,12 @@ def _ui_types():
     import blendertk as btk
 
     return sorted(a.ui_type for a in btk.main_window().screen.areas)
+
+
+def btk_ws():
+    import blendertk as btk
+
+    return btk.main_window().workspace.name
 
 
 def _v3d():
@@ -132,17 +142,30 @@ def phase_reload():
     import bpy
     import blendertk as btk
 
+    from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
+    from blendertk.ui_utils.ui_state import UiState
+
     with bpy.context.temp_override(window=btk.main_window()):
         bpy.ops.wm.read_homefile()
     types = _ui_types()
     v3d = _v3d()
     check("after read_homefile: factory layout is back (TIMELINE/OUTLINER, toolbar on)",
           "TIMELINE" in types and "OUTLINER" in types and v3d.show_region_toolbar, str(types))
+    # What the Reference Manager's Open does right after the load. The sidecar holds every
+    # show_* flag of the last snapshot -- Relationship Lines and Origins on, as factory.
+    v3d.overlay.show_object_origins = False  # control: a direct change, undone by the re-apply
+    waits = MayaSceneImport.hide_relationship_lines() is False
+    check("hide_relationship_lines waits behind the pending re-apply (lines still on now)",
+          waits and v3d.overlay.show_relationship_lines)
+    # A workspace not visited yet whose saved flags have the lines on.
+    UiState._state["workspaces"][OTHER_WS] = {
+        "hidden": [], "spaces": {"VIEW_3D": {"overlay.show_relationship_lines": True}}}
     return 2.0
 
 
 def phase_reapplied_after_load():
-    from blendertk.ui_utils.ui_state import UiState
+    import bpy
+    import blendertk as btk
 
     types = _ui_types()
     v3d = _v3d()
@@ -150,15 +173,34 @@ def phase_reapplied_after_load():
           "TIMELINE" not in types and "OUTLINER" not in types, str(types))
     check("re-applied after load: toolbar off again", not v3d.show_region_toolbar)
     check("re-applied after load: grid on (the user's last state)", v3d.overlay.show_floor)
-    entry = next(iter(_sidecar()["workspaces"].values()))
+    check("control: a change made directly after the load is undone (origins back on)",
+          v3d.overlay.show_object_origins)
+    check("hide_relationship_lines outlives the re-apply (lines off)",
+          not v3d.overlay.show_relationship_lines)
+    entry = _sidecar()["workspaces"][btk_ws()]
     check("sidecar stable after the re-apply", entry["hidden"] == ["OUTLINER", "TIMELINE"], str(entry["hidden"]))
+    btk.main_window().workspace = bpy.data.workspaces[OTHER_WS]
+    return 2.0
+
+
+def phase_other_workspace():
+    import bpy
+    from blendertk.ui_utils.ui_state import UiState
+
+    check(f"switched to {OTHER_WS}, restored on its first visit",
+          btk_ws() == OTHER_WS and OTHER_WS in UiState._applied, btk_ws())
+    spaces = [a.spaces.active for a in bpy.context.window_manager.windows[0].screen.areas
+              if a.type == "VIEW_3D"]
+    check(f"{OTHER_WS}: its saved lines-on is overruled too (held for the file)",
+          spaces and not any(s.overlay.show_relationship_lines for s in spaces), str(len(spaces)))
     UiState.uninstall()
     check("uninstall() stops tracking", not UiState._installed and UiState._timer_fn is None)
     return None
 
 
 PHASES = [phase_seed_and_install, phase_applied, phase_user_changes_persisted,
-          phase_fullscreen_skipped, phase_reload, phase_reapplied_after_load]
+          phase_fullscreen_skipped, phase_reload, phase_reapplied_after_load,
+          phase_other_workspace]
 
 
 def _main():

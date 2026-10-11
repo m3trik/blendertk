@@ -306,8 +306,10 @@ class TestSequencerAdapterHooks(unittest.TestCase):
 
     #: Hooks inherited on purpose. ``_content_batch``: a VSE strip's position IS
     #: its keyed state, so there is no audio re-sync to batch (the engine
-    #: module's "Audio = VSE sound strips").
-    INHERITED = frozenset({"_content_batch"})
+    #: module's "Audio = VSE sound strips").  ``_member_names``: a Blender
+    #: object has ONE name -- no short name beside a long path, as a Maya node
+    #: has -- so the default's names-as-given comparison is the match.
+    INHERITED = frozenset({"_content_batch", "_member_names"})
 
     @staticmethod
     def _classes():
@@ -445,18 +447,17 @@ class TestShotsPanelLoads(unittest.TestCase):
             "btn_trim_empty",
             "b000",
             # All Shots group
-            "spn_gap",
-            "spn_shift_all",
+            "btn_apply_gap",
+            "btn_shift_all",
             "btn_trim_all",
-            "btn_delete_stale",
-            "btn_delete_all",
+            "btn_delete_shots",
         ]
         missing = [w for w in expected if not hasattr(self.ui, w)]
         self.assertEqual(missing, [])
 
-    def test_delete_stale_shots_is_offered_while_the_store_has_shots(self):
-        """All Shots > Delete Stale Shots (mayatk mirror): enabled while the
-        store holds a shot, and the click decides.  Deleting an object raises
+    def test_delete_shots_is_offered_while_the_store_has_shots(self):
+        """All Shots > Delete Shots on its default scope, Stale (mayatk
+        mirror): enabled while the store holds a shot, and the click decides.  Deleting an object raises
         no store event, so a state judged at the last one went stale -- the
         export's Open Shots link opened the panel with the button greyed out.
         With none stale it says so and deletes nothing; with one it asks with
@@ -482,19 +483,20 @@ class TestShotsPanelLoads(unittest.TestCase):
 
         try:
             ctrl.refresh_state()
-            self.assertTrue(self.ui.btn_delete_stale.isEnabled())
+            self.ui.cmb_delete_scope.setCurrentIndex(0)
+            self.assertTrue(self.ui.btn_delete_shots.isEnabled())
             with mock.patch.object(
                 QtWidgets.QMessageBox, "question", new=staticmethod(answer)
             ):
-                self.ui.slots.btn_delete_stale()  # nothing stale yet
+                self.ui.slots.btn_delete_shots()  # nothing stale yet
                 self.assertEqual((asked, len(store.shots)), ([], 2))
                 held.discard("Lost")  # deleted from the file: no store event
-                self.ui.slots.btn_delete_stale()
+                self.ui.slots.btn_delete_shots()
             self.assertIn("Gone [40–60]", asked[0])
             self.assertEqual([s.name for s in store.shots], ["Live"])
             store.shots = []
             ctrl.refresh_state()
-            self.assertFalse(self.ui.btn_delete_stale.isEnabled())
+            self.assertFalse(self.ui.btn_delete_shots.isEnabled())
         finally:
             del store._existing_objects, store._keyed_windows
             store.shots = []
@@ -538,18 +540,120 @@ class TestShotsPanelLoads(unittest.TestCase):
                 "btn_trim_all_leading",
                 "btn_trim_all_trailing",
                 "btn_trim_all_both",
+                "spn_gap",
                 "cmb_gap_scope",
-                "btn_apply_gap",
                 "chk_override_locks",
-                "btn_shift_all",
+                "spn_shift_all",
+                "cmb_delete_scope",
             )
             if getattr(self.ui, name, None) is None
         ]
         self.assertEqual(missing, [])
 
+    def test_the_scope_decides_what_delete_shots_takes(self):
+        """One button, three scopes, picked in its option box and named on
+        the button (mayatk mirror).  No bpy here, so the store's two scene
+        hooks stand in for the file: "Held" exists, nothing is keyed."""
+        from unittest import mock
+        from pythontk import ShotBlock
+
+        ctrl = self.ui.slots.controller
+        store = ctrl._active_store()
+        store._existing_objects = lambda names: {n for n in names if n == "Held"}
+        store._keyed_windows = lambda windows: [False] * len(windows)
+        # "Held" keys inside Live; "Gone" resolves to nothing (2026-10-10:
+        # Empty is what holds nothing, whatever it names).
+        store._members_keyed_windows = lambda entries: [
+            True if "Held" in names else None for names, _w in entries
+        ]
+        cmb = self.ui.cmb_delete_scope
+        self.assertEqual(
+            [cmb.itemData(i) for i in range(cmb.count())], ["stale", "empty", "all"]
+        )
+        yes = staticmethod(lambda *a, **kw: QtWidgets.QMessageBox.Yes)
+        try:
+            for scope, label, left in (
+                ("empty", "Delete Empty Shots", ["Live"]),
+                ("all", "Delete All Shots", []),
+            ):
+                store.shots = [
+                    ShotBlock(1, "Live", 0, 20, ["Held"]),
+                    ShotBlock(2, "Empty", 40, 60),
+                    ShotBlock(3, "Cleared", 70, 90, ["Gone"]),
+                ]
+                cmb.setCurrentIndex(cmb.findData(scope))
+                self.assertEqual(self.ui.btn_delete_shots.text(), label)
+                with mock.patch.object(QtWidgets.QMessageBox, "question", new=yes):
+                    self.ui.slots.btn_delete_shots()
+                self.assertEqual([s.name for s in store.shots], left, scope)
+        finally:
+            del store._existing_objects, store._keyed_windows
+            del store._members_keyed_windows
+            cmb.setCurrentIndex(0)
+            store.shots = []
+            store.set_active_shot(None)
+
     def test_shift_all_defaults_to_zero(self):
         """A re-base target is about THIS sequence, not the last one."""
         self.assertAlmostEqual(self.ui.spn_shift_all.value(), 0.0)
+
+    def test_shift_to_is_a_button_naming_the_frame_in_its_option_box(self):
+        """Apply Gap's shape (mayatk mirror, 2026-10-10)."""
+        btn = self.ui.btn_shift_all
+        self.assertIsInstance(btn, QtWidgets.QPushButton)
+        self.assertTrue(btn.option_box.menu.isAncestorOf(self.ui.spn_shift_all))
+        try:
+            self.ui.spn_shift_all.setValue(24)
+            self.assertEqual(btn.text(), "Shift To: 24")
+        finally:
+            self.ui.spn_shift_all.setValue(0)
+
+    def _three_shots(self):
+        from pythontk import ShotBlock
+
+        store = self.ui.slots.controller._active_store()
+        store.shots = [
+            ShotBlock(1, "A", 0, 20, []),
+            ShotBlock(2, "B", 30, 50, []),
+            ShotBlock(3, "C", 60, 80, []),
+        ]
+        store.set_active_shot(1)
+        self.ui.slots.controller._sync_from_store()
+        return store
+
+    def test_the_dropdown_follows_a_shot_picked_elsewhere(self):
+        """mayatk mirror (2026-10-10): a pick in the Shot Sequencer relabelled
+        the row the dropdown still showed with the active shot, listing it
+        twice and losing the other."""
+        store = self._three_shots()
+        cmb = self.ui.cmb_shot_select
+        try:
+            store.set_active_shot(3)
+            self.assertEqual(
+                [(cmb.itemData(i), cmb.itemText(i)) for i in range(cmb.count())],
+                [(1, "A  [0–20]"), (2, "B  [30–50]"), (3, "C  [60–80]")],
+            )
+            self.assertEqual(cmb.currentData(), 3)
+        finally:
+            store.set_active_shot(None)
+            store.shots = []
+
+    def test_previous_and_next_step_through_the_shots(self):
+        store = self._three_shots()
+        ctrl = self.ui.slots.controller
+        nav = self.ui.cmb_shot_select._shots_nav_options
+        try:
+            self.assertEqual(sorted(nav), ["new", "next", "prev"])
+            self.assertFalse(nav["prev"].widget.isEnabled(), "first shot")
+            ctrl.on_navigate_shot(1)
+            ctrl.on_navigate_shot(1)
+            self.assertEqual(store.active_shot_id, 3)
+            self.assertFalse(nav["next"].widget.isEnabled(), "last shot")
+            ctrl.on_navigate_shot(-1)
+            self.assertEqual(store.active_shot_id, 2)
+        finally:
+            store.set_active_shot(None)
+            store.shots = []
 
     def test_override_locked_gaps_is_off_by_default(self):
         """A lock is honoured unless the user says otherwise."""
@@ -614,6 +718,30 @@ class TestShotsPanelLoads(unittest.TestCase):
         finally:
             ctrl.on_gap_changed = real
             self.ui.chk_override_locks.setChecked(False)
+
+    def test_the_gap_amount_lives_in_apply_gaps_option_box(self):
+        """Apply Gap is the group's button; the amount is one of its options,
+        named on the button and owned by the store (mayatk mirror)."""
+        from qtpy import QtWidgets
+        from pythontk import ShotBlock
+
+        btn = self.ui.btn_apply_gap
+        self.assertIsInstance(btn, QtWidgets.QPushButton)
+        self.assertTrue(btn.option_box.menu.isAncestorOf(self.ui.spn_gap))
+        self.assertFalse(self.ui.spn_gap.restore_state)
+        ctrl = self.ui.slots.controller
+        store = ctrl._active_store()
+        store.shots = [ShotBlock(1, "A", 0, 20, []), ShotBlock(2, "B", 32, 50, [])]
+        old_gap = store.gap
+        try:
+            store.gap = 12.0
+            ctrl._sync_from_store()
+            self.assertEqual(btn.text(), "Apply Gap: 12")
+            self.ui.spn_gap.setValue(5)
+            self.assertEqual(btn.text(), "Apply Gap: 5")
+        finally:
+            store.gap = old_gap
+            store.shots = []
 
     def test_gap_scope_combo_items(self):
         cmb = getattr(self.ui, "cmb_gap_scope", None)

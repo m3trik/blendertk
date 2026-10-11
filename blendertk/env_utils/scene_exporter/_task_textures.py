@@ -154,23 +154,18 @@ class _TextureTasksMixin(_TaskDataMixin):
         (mirror of mayatk's).
 
         Shared by :meth:`convert_textures` and :meth:`optimize_textures`, so
-        both halves of a run stage into ONE place. Staged files are temp only
-        when nothing after the export references them — the deliverable
-        embeds or copies its own (GLB-only output, or an FBX preset with
-        ``embed_textures`` / ``path_mode COPY``) — or when direct TaskManager
-        use has no export path to stage beside. Otherwise the written FBX
-        references the staged files, so they land durably in ``textures/``
-        beside it.
+        both halves of a run stage into ONE place. Staged files are temp
+        whenever the deliverable embeds its own copies -- every FBX and GLB
+        does (the exporter forces ``embed_textures``: nothing ships beside a
+        deliverable) -- or when direct TaskManager use has no export path to
+        stage beside. Only a USD layer references its maps, so its copies land
+        durably in ``textures/`` beside it.
 
         Returns:
             tuple: ``(staging_dir, temp_staging)``.
         """
         export_path = self.export_path
-        temp_staging = (
-            bool(self.run.glb_only)
-            or bool(self.run.fbx_media_selfcontained)
-            or not export_path
-        )
+        temp_staging = not self.run.usd or not export_path
         if temp_staging:
             return ptk.TempArtifacts(f"scene_exporter_{tag}").dir_path(), True
         staging_dir = os.path.join(os.path.dirname(export_path), "textures")
@@ -317,10 +312,10 @@ class _TextureTasksMixin(_TaskDataMixin):
         original ``filepath`` back. Where the staged files go — and whether
         they outlive the export — is :meth:`_texture_staging_dir` (shared
         with ``convert_textures``): temp, a ``TempArtifacts`` dir deleted by
-        that restore, when the deliverable carries its own copies (GLB-only
-        output, or an FBX preset with ``embed_textures`` / ``path_mode
-        COPY``); else durable in ``textures/`` beside the export and kept
-        (``check_existing=True`` makes re-exports incremental).
+        that restore, when the deliverable carries its own copies (every FBX
+        and GLB); for a USD layer, which references them, durable in
+        ``textures/`` beside it and kept (``check_existing=True`` makes
+        re-exports incremental).
 
         **Write-back mode** (Texture Output at "Scene Files (In Place)"): the
         optimization is written over the scene's own texture files (originals

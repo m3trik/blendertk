@@ -13,7 +13,7 @@ module names as mayatk's):
   depsgraph events.
 - ``undo_ledger`` -- the shot-boundary snapshots undo/redo step through.
 - ``shot_lane`` -- the shot lane's context menu and shot structure edits.
-- ``clip_menu`` -- clip context menus, Move to Shot, clip-key delete / stash.
+- ``clip_menu`` -- clip context menus, Move / Copy to Shot, clip-key delete / stash.
 - ``key_menu`` -- key context menus, handle edits and drags, key edits.
 - ``widget_sync`` -- rebuilding the widget: tracks, clips, sub-rows, colours.
 - ``scene_selection`` -- tracks and the Blender selection / Graph Editor sync.
@@ -50,7 +50,7 @@ The panel's Switchboard slots (:class:`ShotSequencerSlots`) stay in
 from typing import Optional
 
 import pythontk as ptk
-from pythontk import StoreEvent
+from pythontk import ActiveShotChanged, ShotsEdited, StoreEvent
 
 from blendertk.anim_utils.shots._shots import BlenderShotStore
 from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import ShotSequencer
@@ -143,7 +143,6 @@ class ShotSequencerController(
         self._sub_row_cache: dict = {}
         self._color_map_cache: Optional[dict] = None
         self._audio_segments_cache = None
-        self._last_visible_key = None
         self._reconcile_needed = True
         # Objects whose Actions Blender reported as updated since the last
         # refresh — banked at depsgraph-handler time (the depsgraph is
@@ -159,6 +158,11 @@ class ShotSequencerController(
         # Global "grow the current shot over keys set just outside it".  Off
         # by default: it moves a bound the user did not touch.
         self._extend_to_keys: bool = False
+        # Global "a shot change puts the playhead on the shot's first frame"
+        # (header menu; on by default -- mirror of mayatk).
+        self._playhead_to_shot_start: bool = True
+        # Move / Copy to Shot's toggle: a pick copies while it is on (mayatk).
+        self._copy_to_shot: bool = False
         self._extend_reach: float = self.EXTEND_REACH_FRAMES
         # Keys copied from the key menu, awaiting a paste.
         self._copied_keys = None
@@ -269,11 +273,7 @@ class ShotSequencerController(
         """Rebind to the new active store after a scene swap."""
         self._unbind_store_listener()
         self._sequencer = None
-        self._segment_cache.clear()
-        self._sub_row_cache.clear()
-        self._audio_segments_cache = None
-        self._last_visible_key = None
-        self._reconcile_needed = True
+        self._drop_caches()
         # The boundary ledger needs no clearing here — it lives on the
         # STORE, so the new scene's store starts with a fresh one.
         self._edited_objects.clear()
@@ -292,11 +292,23 @@ class ShotSequencerController(
     def _on_store_event(self, event: StoreEvent) -> None:
         if self._syncing or self.sequencer is None:
             return
-        self._segment_cache.clear()
-        self._sub_row_cache.clear()
-        self._audio_segments_cache = None
-        self._last_visible_key = None
-        self._reconcile_needed = True
+        if isinstance(event, ShotsEdited):
+            # An edit's own announcement (``scene_edit``), for the panels that
+            # did not make it.  This one redraws after each of its own edits,
+            # and another panel's reaches it through the events that edit
+            # raises: rebuilding here too drew every sequencer edit twice.
+            return
+        self._drop_caches()
+        if (
+            isinstance(event, ActiveShotChanged)
+            and event.shot_id is not None
+            and event.previous is not None
+        ):
+            # A shot picked in another panel is a shot change too; one that
+            # only fills an empty slot is not (mayatk).
+            shot = self.sequencer.shot_by_id(event.shot_id)
+            if shot is not None:
+                self._land_on_shot(shot)
         self._sync_combobox()
         self._sync_to_widget()
         widget = self._get_sequencer_widget()

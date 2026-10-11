@@ -32,7 +32,7 @@ except Exception:
 
 lines = []
 def check(name, cond, detail=""):
-    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}")
 
 
 try:
@@ -71,6 +71,20 @@ try:
         except FileNotFoundError:
             raised = True
         check("missing image raises FileNotFoundError", raised)
+        # cv2.imread opens no path that is not ASCII on Windows: an image in a folder
+        # named "Résumé ★" raised "Failed to read image" though it was there.
+        with tempfile.TemporaryDirectory() as scratch:
+            odd = os.path.join(scratch, "Résumé ★")
+            os.makedirs(odd)
+            odd_png = os.path.join(odd, "shape.png")
+            with open(tmp, "rb") as src, open(odd_png, "wb") as dst:
+                dst.write(src.read())
+            try:
+                odd_contours, detail = ImageTracer._contours_from_image(odd_png), ""
+            except ValueError as exc:
+                odd_contours, detail = [], str(exc)
+            check("contours from an image in a non-ASCII folder",
+                  len(odd_contours) == len(contours), detail.encode("ascii", "replace").decode())
         try:
             os.remove(tmp)
         except OSError:

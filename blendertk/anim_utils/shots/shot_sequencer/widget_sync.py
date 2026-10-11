@@ -88,13 +88,18 @@ class WidgetSyncMixin:
             result.append(sorted_shots[idx + 1])
         return result
 
-    def refresh(self) -> None:
-        """Clear cached segments and rebuild the sequencer widget."""
+    def _drop_caches(self) -> None:
+        """Forget every cached read of the scene: shot and sub-row segments,
+        the audio segments, and the membership reconcile (re-run on the next
+        rebuild) -- mirror of mayatk's."""
         self._segment_cache.clear()
         self._sub_row_cache.clear()
         self._audio_segments_cache = None
-        self._last_visible_key = None
         self._reconcile_needed = True
+
+    def refresh(self) -> None:
+        """Clear cached segments and rebuild the sequencer widget."""
+        self._drop_caches()
         self._sync_to_widget()
 
     def _sync_to_widget(
@@ -367,12 +372,6 @@ class WidgetSyncMixin:
             mode = cmb_overlay.itemData(cmb_overlay.currentIndex())
             if mode in widget.SHORTCUT_OVERLAY_MODES:
                 widget.shortcut_overlay_mode = mode
-        spn_gap = getattr(self.ui, "spn_gap", None)
-        if spn_gap is not None:
-            stored_gap = self.sequencer.store.gap if self.sequencer else 0
-            spn_gap.blockSignals(True)
-            spn_gap.setValue(int(stored_gap))
-            spn_gap.blockSignals(False)
         if self._color_map_cache is None:
             from uitk import AttributeColorDialog
 
@@ -744,7 +743,16 @@ class WidgetSyncMixin:
                 st, en = seg["start"], seg["end"]
                 preview = None
                 for crv in seg.get("curves", []):
-                    preview = SegmentCollector.build_curve_preview(crv, st, en)
+                    # The shot system's claimed bound samples get no dot
+                    # (mirror of mayatk, 2026-10-06).
+                    preview = SegmentCollector.build_curve_preview(
+                        crv,
+                        st,
+                        en,
+                        hidden_times=self.sequencer.ledger.key_times(
+                            self.sequencer._fc_key(obj_name, crv)
+                        ),
+                    )
                     if preview:
                         break
                 extra = {

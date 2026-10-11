@@ -76,7 +76,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pythontk as ptk
 
-from pythontk import ShotStore, ShotTransfer
+from pythontk import ShotTransfer
 
 from blendertk.anim_utils.shots._detection import Detection
 from blendertk.anim_utils._anim_utils import AnimUtils, _VISIBILITY_PATHS
@@ -469,6 +469,20 @@ class _BlenderShotStoreInternal(object):
         ]
 
     @staticmethod
+    def _objects_of(objects) -> list:
+        """The ``bpy`` objects *objects* names (names or objects, a name the
+        file does not hold dropped); ``None``: every object in the file."""
+        import bpy
+
+        if objects is None:
+            return list(bpy.data.objects)
+        found = (
+            bpy.data.objects.get(o) if isinstance(o, str) else o
+            for o in ptk.make_iterable(objects)
+        )
+        return [o for o in found if o is not None]
+
+    @staticmethod
     def _active_scene(scene=None):
         """Resolve *scene* (explicit or the context's active scene); ``None`` if headless-empty."""
         if scene is not None:
@@ -629,7 +643,7 @@ class _BlenderShotStoreInternal(object):
         return f"{obj_name}|{data_path}|{index}"
 
 
-class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
+class BlenderShotStore(ptk.ShotStore, _BlenderShotStoreInternal):
     """:class:`pythontk.ShotStore` with the scene hooks bound to Blender.
 
     Only the DCC-reaching hooks are overridden; every CRUD / observer / planning
@@ -651,29 +665,25 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
         self._seen_bones: Dict[Tuple[int, str], int] = {}
         self._remember_names(self._seen_names, self._seen_bones, *self._scene_names())
 
-    def resolve_member(self, name: str) -> Tuple[str, str]:
-        """Resolve a doc object *name* to one scene object.
+    def member_nodes(self, name: str) -> List[str]:
+        """Names of every object answering to a doc object *name*.
 
-        Exact first; then, for a name written without a namespace, the object
+        Exact first; then, for a name written without a namespace, the objects
         whose :meth:`~pythontk.ShotStore.member_key` it is -- an FBX from Maya
         names its objects ``AC:door_geo`` for the doc's ``door_geo`` (mirror
-        of mayatk's).  Returns ``(object name, "found")``, or ``(name,
-        "missing")`` / ``(name, "ambiguous")``: several objects answering to
-        it is a finding, never a silent pick.
+        of mayatk's).  :meth:`~pythontk.ShotStore.resolve_member` reads one
+        hit as found, several as ambiguous.
         """
         try:
             import bpy
         except ImportError:
-            return str(name), "found"
+            return [str(name)]
         name = str(name)
         if name in bpy.data.objects:
-            return name, "found"
-        hits = []
-        if ":" not in name:
-            hits = [o.name for o in bpy.data.objects if self.member_key(o.name) == name]
-        if len(hits) == 1:
-            return hits[0], "found"
-        return name, ("ambiguous" if hits else "missing")
+            return [name]
+        if ":" in name:
+            return []
+        return [o.name for o in bpy.data.objects if self.member_key(o.name) == name]
 
     @staticmethod
     def curve_key(obj_name: str, data_path: str, index: int = 0) -> str:
@@ -684,6 +694,37 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
         manifest's behavior keys share.
         """
         return f"{obj_name}|{data_path}|{index}"
+
+    def _curve_ledger_keys(self, objects=None):
+        """``keys_of(fcurve)``: the ledger keys an fcurve is claimed under --
+        the hook :meth:`~pythontk.ShotStore.release_replaced` resolves through.
+
+        A claim names its fcurve by OWNER (:meth:`curve_key`), and an fcurve
+        knows only its action, which several objects can share; so the owners
+        are read off *objects* (names or objects; ``None``: every object in
+        the file) when the first curve is resolved -- once, lazily: building
+        the hooks scans nothing.  Renames are followed first then
+        (:meth:`follow_renames`, as every shot edit does) when anything is
+        claimed: a claim still naming an object by its old name would match
+        nothing.
+        """
+        owners = None
+
+        def keys_of(fc):
+            nonlocal owners
+            if owners is None:
+                if self.edit_ledger:
+                    self.follow_renames()
+                owners = {}
+                for obj in self._objects_of(objects):
+                    for curve in self.iter_action_fcurves(obj):
+                        owners.setdefault(curve.as_pointer(), []).append(obj.name)
+            return [
+                self.curve_key(name, fc.data_path, fc.array_index)
+                for name in owners.get(fc.as_pointer(), ())
+            ]
+
+        return keys_of
 
     def follow_renames(self) -> bool:
         """Re-point everything this store names an object by at its new name.
@@ -726,10 +767,8 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
         if not names:
             return False  # no object in the file (or none readable) to follow to
         ledger = self.edit_ledger
-        referenced = {o for shot in self.shots for o in shot.objects}
+        referenced = self.held_names()
         referenced |= {k.rsplit("|", 2)[0] for k in ledger.curves if k.count("|") >= 2}
-        for attr in ("hidden_objects", "pinned_objects", "locked_objects"):
-            referenced |= set(getattr(self, attr, None) or ())
         stale = referenced - set(names.values())
         renames = self._uid_renames(stale, self._seen_names, names)
         rest = stale - set(renames)
@@ -760,14 +799,7 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
         if not renames and not rekeyed:
             return False
         with self.batch_update():
-            for shot in self.shots:
-                objects = sorted({renames.get(o, o) for o in shot.objects})
-                if objects != sorted(shot.objects):
-                    self.update_shot(shot.shot_id, objects=objects)
-            for attr in ("hidden_objects", "pinned_objects", "locked_objects"):
-                held = getattr(self, attr, None)
-                if held and held & set(renames):
-                    setattr(self, attr, {renames.get(n, n) for n in held})
+            self.rename_members(renames)
             for old in sorted(rekeyed):
                 ledger.rename_curve(old, rekeyed[old])
             self.mark_dirty()
@@ -841,6 +873,7 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
         if snapshot:
             self.push_boundary_snapshot()
         marker = chunk = None
+        changed = False
         try:
             with CoreUtils.undo_chunk(label) as chunk:
                 try:
@@ -851,12 +884,16 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
                     self._flush_dirty()
                     if snapshot and not chunk.cancelled:
                         marker = self._stamp_edit_serial()
+            # Reached only when the body did not raise (mayatk's ShotsEdited).
+            changed = snapshot and not chunk.cancelled and self.changed_since_snapshot()
         finally:
             if snapshot and chunk is not None:
                 if chunk.cancelled:
                     self.discard_boundary_snapshot()
                 elif marker is not None:
                     self.tag_boundary_snapshot((True, marker))
+        if changed:
+            self._notify(ptk.ShotsEdited(label=label))
 
     @classmethod
     def active(cls) -> "BlenderShotStore":
@@ -1004,8 +1041,12 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
         user (a deleted object's) animates nothing and is skipped, and so is
         one only its fake user holds: a Key Stash clip, SmartBake's parked
         original -- ``users`` counts the fake user (mayatk skips a curve whose
-        only link is its stash registry's ``message``).  One sorted pass over
-        the key times, each window a bisection.
+        only link is its stash registry's ``message``).  A key the shot system
+        holds as a bound sample (``edit_ledger``, keyed by :meth:`curve_key`)
+        is its bookkeeping, not content, as :meth:`_members_keyed_windows`
+        reads it: a New Shot naming nothing got a gap hold's start pin on every
+        curve through it, and Delete Empty kept it.  One sorted pass over the
+        key times, each window a bisection.
         """
         windows = list(windows)
         try:
@@ -1014,18 +1055,88 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
             return super()._keyed_windows(windows)
         from bisect import bisect_left
 
+        ledger = self.edit_ledger
+        # A claim names an fcurve by its OWNER: map each object's fcurves to
+        # it, only when anything is claimed at all.
+        owners: Dict[int, List[str]] = {}
+        if ledger:
+            for obj in bpy.data.objects:
+                for fc in self.iter_action_fcurves(obj):
+                    owners.setdefault(fc.as_pointer(), []).append(obj.name)
         times: List[float] = []
         for action in bpy.data.actions:
             if action.users <= int(action.use_fake_user):
                 continue
             for fc in AnimUtils._slot_fcurves(action):
-                times.extend(AnimUtils.key_times(fc))
+                kt = AnimUtils.key_times(fc)
+                claimed = [
+                    key
+                    for key in (
+                        self.curve_key(name, fc.data_path, fc.array_index)
+                        for name in owners.get(fc.as_pointer(), ())
+                    )
+                    if ledger.key_times(key)
+                ]
+                if claimed:
+                    kt = [
+                        t
+                        for t in kt
+                        if not any(ledger.owns_key(key, t) for key in claimed)
+                    ]
+                times.extend(kt)
         times.sort()
         keyed = []
         for start, end in windows:
             i = bisect_left(times, start)
             keyed.append(i < len(times) and times[i] <= end)
         return keyed
+
+    def _audio_windows(self, windows) -> List[bool]:
+        """Per ``(start, end)`` window, whether a sound strip plays in it
+        (``ptk.ShotStore.empty_shots``; mirror of mayatk's)."""
+        try:
+            import bpy  # noqa: F401
+        except ImportError:
+            return super()._audio_windows(windows)
+        from blendertk.audio_utils._audio_utils import AudioUtils
+
+        spans = (s for events in AudioUtils.read_all_events().values() for s in events)
+        return self._spans_overlap(spans, list(windows))
+
+    def _members_keyed_windows(self, entries) -> List[Optional[bool]]:
+        """Per ``(names, (start, end))``, whether an fcurve of the named
+        objects keys a frame inside the window -- ``None`` when none of the
+        names is in the file (``ptk.ShotStore.empty_shots``).  A key the shot
+        system holds as a bound sample (``edit_ledger``, keyed by
+        :meth:`curve_key`) is its bookkeeping, not the shot's content -- the
+        mirror of mayatk's.
+        """
+        try:
+            import bpy
+        except ImportError:
+            return super()._members_keyed_windows(entries)
+        ledger = self.edit_ledger
+        out: List[Optional[bool]] = []
+        for names, (start, end) in entries:
+            objs = [bpy.data.objects.get(str(n)) for n in names]
+            objs = [o for o in objs if o is not None]
+            if not objs:
+                out.append(None)
+                continue
+            keyed = False
+            for obj in objs:
+                for fc in self.iter_action_fcurves(obj):
+                    key = self.curve_key(obj.name, fc.data_path, fc.array_index)
+                    if any(
+                        start <= t <= end and not ledger.owns_key(key, t)
+                        for t in AnimUtils.key_times(fc)
+                    ):
+                        keyed = True
+                        break
+                if keyed:
+                    break
+            out.append(keyed)
+        return out
 
     # ---- export-view projection (Blender carrier) --------------------------
 

@@ -473,7 +473,7 @@ class ShotSequencerSlots(ptk.LoggingMixin):
             sid = self.controller.active_shot_id
             if sid is not None:
                 self.controller.sequencer.store.set_active_shot(sid)
-        self.sb.handlers.marking_menu.show("shots")
+        self.controller._show_shots_window()
 
     def _delete_shot(self) -> None:
         """Delete the selected shot (combobox menu / nav bar).
@@ -513,11 +513,16 @@ class ShotSequencerSlots(ptk.LoggingMixin):
         name, s, e, desc = result
         if e <= s:
             return
-        seq.define_shot(
-            name=name, start=s, end=e, objects=cand["objects"], description=desc
-        )
-        self.controller._sync_combobox()
-        self.controller._sync_to_widget()
+        # Through scene_edit like every other shot edit: without its restore
+        # point a detected shot could not be undone at all.  A raise keeps
+        # the point, where mayatk's discards it: Blender's step is pushed
+        # anyway and the point stays paired with it (``UndoLedgerMixin``), as
+        # New Shot's (``_insert_shot``).
+        with store.scene_edit("Generate Shot"):
+            shot = seq.define_shot(
+                name=name, start=s, end=e, objects=cand["objects"], description=desc
+            )
+        self.controller._take_new_shot(shot)
 
     def _cmb_context_menu(self, pos) -> None:
         """Right-click context menu on the shot combobox."""
@@ -545,21 +550,27 @@ class ShotSequencerSlots(ptk.LoggingMixin):
         menu.add("Generate Next Shot\u2026", callback=self._detect_next_shot)
         menu.add_separator()
         menu.add("Delete Shot\u2026", callback=self._delete_shot, setEnabled=has_shot)
+        # The Shots window's Delete Shots, scope by scope: each row names how
+        # many shots it would take, and is off when that is none.
+        from blendertk.anim_utils.shots.shots_slots import ShotsController
+
         seq = self.controller.sequencer
-        stale = seq.store.stale_shots() if seq is not None else []
-        menu.add(
-            "Delete Stale Shots\u2026",
-            callback=self.controller.delete_stale_shots,
-            setEnabled=bool(stale),
-            setToolTip=(
-                f"{len(stale)} shot(s) name only objects the file no longer "
-                "holds and key nothing -- exports already leave them out.\n"
-                "Deletes their records; no keyframe is touched, no shot moves."
-                if stale
-                else "No stale shots: every shot names an object the file "
-                "holds, or keys something in its frames."
-            ),
-        )
+        store = seq.store if seq is not None else None
+        scoped = menu.add("Delete Shots", setEnabled=bool(store and store.shots))
+        for label, scope in ShotsController.DELETE_SCOPES:
+            doomed = store.shots_in_scope(scope) if store is not None else []
+            menu.add(
+                f"{label}\u2026",
+                parent=scoped,
+                callback=lambda s=scope: self.controller.delete_shots(s),
+                setEnabled=bool(doomed),
+                setToolTip=(
+                    f"Delete {ShotsController.scope_count(doomed, scope)}.\n"
+                    "Their records only: no keyframe is touched, no shot moves."
+                    if doomed
+                    else f"No {'' if scope == 'all' else label.lower() + ' '}shots."
+                ),
+            )
         menu.exec_(cmb.mapToGlobal(pos))
 
     # ---- header menu (built here; auto-called by Switchboard) -------------
@@ -685,6 +696,20 @@ class ShotSequencerSlots(ptk.LoggingMixin):
             chk_frame.setChecked(seq.store.frame_on_shot_change)
         chk_frame.toggled.connect(self.controller._on_frame_on_shot_change_toggled)
 
+        # One global option for every shot change and every new shot,
+        # remembered per user (mayatk mirror).
+        chk_playhead = widget.menu.add(
+            "QCheckBox",
+            setText="Playhead to Shot Start",
+            setObjectName="chk_playhead_to_shot_start",
+            setChecked=True,
+            setToolTip=(
+                "Move the playhead to a shot's first frame\n"
+                "when changing to it or creating it."
+            ),
+        )
+        chk_playhead.toggled.connect(self.controller._set_playhead_to_shot_start)
+
         widget.menu.add("Separator", setTitle="Actions")
         widget.menu.add(
             "QPushButton",
@@ -721,7 +746,7 @@ class ShotSequencerSlots(ptk.LoggingMixin):
                     (
                         "Shot Navigation",
                         [
-                            "<b>Dropdown</b> — Select shot (sets playback range, selects objects, reframes the timeline). Right-click for Edit Shot, Generate Next Shot, Delete Shot, Delete Stale Shots — the shot body's own menu carries the rest.",
+                            "<b>Dropdown</b> — Select shot (sets playback range, selects objects, reframes the timeline, and puts the playhead on its first frame while <i>Playhead to Shot Start</i> is on in the header menu). Right-click for Edit Shot, Generate Next Shot, Delete Shot, Delete Shots (Stale / Empty / All) — the shot body's own menu carries the rest.",
                             "<b>◄ / ►</b> — Previous / next shot. &nbsp; <b>+</b> — Append new shot.",
                             "<b>View Mode</b> (cycles): Current → Adjacent → All.",
                             "<b>Refresh</b> — Rebuild from the scene.",
@@ -735,7 +760,7 @@ class ShotSequencerSlots(ptk.LoggingMixin):
                             "<b>Shift+drag</b> — Move across shot boundaries without changing them.",
                             "<b>Ctrl</b> while dragging — Snap to whole frames.",
                             "A drag that lands on a frame already carrying keys is marked with a guide; <i>Snap to Keys</i> in the header menu also pulls the drag onto it.",
-                            "<b>Right-click</b> — Lock/Unlock, Move to Shot (Next / Previous Shot lead the list), Store Keys (one entry per gesture, however many channels it covered), Retrieve Stored Keys (▸ Restore Keys… opens the Key Stash panel). On a key: handle types, interpolation, Break/Unify Tangents, Store Keys, the key edits under Edit, Move to Shot (keys); drag a selected key's handles to shape its tangents — the drag carries every selected key, <b>Ctrl</b> reshapes only the one grabbed, <b>Shift</b> gives them all that exact tangent, <b>Alt</b> breaks it. All edits undoable (Ctrl+Z).",
+                            "<b>Right-click</b> — Lock/Unlock, Move to Shot (Next / Previous Shot lead the list), Store Keys (one entry per gesture, however many channels it covered), Retrieve Stored Keys (▸ Restore Keys… opens the Key Stash panel). On a key: handle types, interpolation, Break/Unify Tangents, Store Keys, the key edits under Edit, Move / Copy to Shot (keys); drag a selected key's handles to shape its tangents — the drag carries every selected key, <b>Ctrl</b> reshapes only the one grabbed, <b>Shift</b> gives them all that exact tangent, <b>Alt</b> breaks it. All edits undoable (Ctrl+Z).",
                         ],
                     ),
                     (
@@ -743,7 +768,7 @@ class ShotSequencerSlots(ptk.LoggingMixin):
                         [
                             "The shot's own edges (and the ruler band's edges) never move its keyframes:",
                             "<b>Drag</b> — Move the bound; the neighbouring shots move with their keys to keep the gaps.",
-                            "<b>Ctrl+drag</b> — Move the bound and nothing else: the shot grows into the gap (taking the keys it covers) or shrinks and leaves them for the next shot.",
+                            "<b>Ctrl+drag</b> — Move the bound and no key: the shot grows over the keys in the gap and on into the next shot, whose bound gives way, or shrinks and leaves its keys (to the next shot when the two touch). The objects moving in the frames that change hands change shots with them.",
                             "<b>Shift+drag</b> — Retime: the shot's keyframes scale into the new range.",
                             "<b>Drag the ruler band</b> — Move the shot with its keys. A gap's edge belongs to the shot beyond it: drag to slide that shot, Ctrl moves that bound only, Shift retimes it. The <i>Shortcut Overlay</i> (header menu) keeps this legend in the timeline's corner.",
                         ],
@@ -752,7 +777,7 @@ class ShotSequencerSlots(ptk.LoggingMixin):
                         "Ruler / Tracks / Gaps / Markers",
                         [
                             "<b>Ruler:</b> Click/drag to move playhead, double-click to add a marker, scroll to zoom, middle-drag to pan.",
-                            "<b>Shot Lane:</b> Right-click a shot block on the ruler for its menu: Edit, New Shot (insert before / after), Split Here (or at the current time), Merge (previous / next), Move To (re-slot it among the other shots; the one holding that slot moves downstream), Add Frames, Trim Empty Space (leading / trailing). Hover a row to open its finer forms. Right-click the ruler, or the tracks clear of every shot, for the timeline's own menu (markers and display toggles). The selected shot is drawn with a tinted band, a rule along the top of the lane, and ticks at its two bounds. Double-click the shot dropdown to edit name / start / end / description in place.",
+                            "<b>Shot Lane:</b> Right-click a shot block on the ruler for its menu: Edit, New Shot (insert before / after), Split Here (or at the current time), Merge (previous / next), Move To (re-slot it among the other shots; the one holding that slot moves downstream), Add Frames, Trim Empty Space (leading / trailing), Delete (the shot, its keys and its space). Hover a row to open its finer forms. Right-click the ruler, or the tracks clear of every shot, for the timeline's own menu (markers and display toggles). The selected shot is drawn with a tinted band, a rule along the top of the lane, and ticks at its two bounds. Double-click the shot dropdown to edit name / start / end / description in place.",
                             "<b>Tracks:</b> Double-click header to expand per-attribute sub-rows. Right-click to hide, delete, or reveal in Outliner.",
                             "<b>Gaps:</b> Drag an edge to slide the shot beyond it (Ctrl moves the bound only, Shift retimes); drag the body to slide the gap. Right-click to lock. The caps before the first shot and after the last are those shots' own bounds: a plain drag moves the bound and nothing else.",
                             "<b>Markers:</b> M or double-click ruler to add. Drag to move. Right-click to edit note, color, or style.",
@@ -837,8 +862,8 @@ class ShotSequencerSlots(ptk.LoggingMixin):
             widget._shortcut_mgr.show_editor(parent=widget, title="Sequencer Shortcuts")
 
     def btn_shot_settings(self):
-        """Open the shared shots settings panel."""
-        self.sb.handlers.marking_menu.show("shots")
+        """Open the shared shots settings panel (pinned, as Edit Shot does)."""
+        self.controller._show_shots_window()
 
     def cmb_shot(self, index):
         """Handle direct combobox selection of a shot or marker."""
@@ -854,11 +879,5 @@ class ShotSequencerSlots(ptk.LoggingMixin):
                     widget.playhead_moved.emit(marker_time)
             return
         shot_id = cmb.itemData(index)
-        if shot_id is None:
-            return
-        self.controller._shifted_out_keys.clear()
-        self.controller.select_shot(shot_id)
-        store = self.controller.sequencer.store if self.controller.sequencer else None
-        do_frame = store.frame_on_shot_change if store else False
-        self.controller._sync_to_widget(frame=do_frame)
-        self.controller._update_shot_nav_state()
+        if shot_id is not None:
+            self.controller._go_to_shot(shot_id)

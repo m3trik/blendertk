@@ -895,3 +895,160 @@ class XformUtils(_XformUtilsInternal):
     def get_pivot_options():
         """Pivot keys understood by :func:`move_to` (mirror of ``mtk.XformUtils.get_pivot_options``)."""
         return ["center", "object"]
+
+    #: Euler orders, Maya-spelled and in its ``rotateOrder`` enum order (Blender's
+    #: ``rotation_mode`` of the same letters applies the axes in the same sequence).
+    ROTATE_ORDERS = ("xyz", "yzx", "zxy", "xzy", "yxz", "zyx")
+
+    @staticmethod
+    def set_rotate_order(objects, order, preserve=True):
+        """Change objects' Euler order keeping their pose and keyed animation --
+        mirror of ``mtk.XformUtils.set_rotate_order``.
+
+        The FIRST letter is the local axis that turns through a single channel
+        ("zyx" for a Z spin). ``order="auto"`` reads it off the keys: of the six,
+        the order in which each key-to-key step moves the fewest channels without
+        nearing gimbal lock (``ptk.MathUtils.best_rotate_order``); an unkeyed
+        object, or one every order serves alike, is left alone.
+
+        With *preserve*, every ``rotation_euler`` key is re-solved in the new
+        order (the pose AT each key is unchanged; each solution chained to the
+        previous one, so the curves do not flip) -- an unkeyed object re-solves
+        in place. Between keys the interpolation runs in the new order.
+
+        Parameters:
+            objects (obj/str/list): The objects (or names) to change.
+            order (str): "xyz", "yzx", "zxy", "xzy", "yxz", "zyx" (Maya's
+                spelling, any case) or "auto".
+            preserve (bool): Keep the pose. False only sets the mode, so the
+                object turns. "auto" always preserves.
+
+        Returns:
+            (list): The objects that changed. A quaternion / axis-angle object,
+            one whose rotation a driver owns, and one with a locked rotation
+            channel are skipped with a warning.
+
+        Raises:
+            ValueError: *order* is neither a rotate order nor "auto".
+        """
+        import bpy
+        from mathutils import Euler
+
+        import blendertk as btk
+
+        orders = XformUtils.ROTATE_ORDERS
+        name = str(order).lower()
+        auto = name == "auto"
+        if not auto and name not in orders:
+            raise ValueError(
+                f"Invalid rotate order {order!r}; expected one of {orders}."
+            )
+
+        def resolved(poses, mode):
+            out, prev = [], None
+            for e in poses:
+                compat = prev if prev is not None else Euler(e, mode)
+                prev = e.to_matrix().to_euler(mode, compat)
+                out.append(prev)
+            return out
+
+        changed = []
+        for obj in ptk.make_iterable(objects):
+            obj = bpy.data.objects.get(obj) if isinstance(obj, str) else obj
+            if obj is None:
+                continue
+            old = obj.rotation_mode.lower()
+            if old not in orders:
+                print(
+                    f"[set_rotate_order] Skipped '{obj.name}': {obj.rotation_mode} is not an Euler order."
+                )
+                continue
+            if old == name:
+                continue
+            if not preserve and not auto:
+                # Euler to Euler, the RNA setter keeps the channels as they are
+                # (measured, 5.1): the values stay and the pose turns.
+                obj.rotation_mode = name.upper()
+                changed.append(obj)
+                continue
+            drivers = obj.animation_data.drivers if obj.animation_data else []
+            reason = (
+                "driven"
+                if any(d.data_path == "rotation_euler" for d in drivers)
+                else "locked"
+                if any(obj.lock_rotation)
+                else None
+            )
+            if reason:
+                print(
+                    f"[set_rotate_order] Skipped '{obj.name}': its rotation is {reason}."
+                )
+                continue
+            curves = {
+                fc.array_index: fc
+                for fc in btk.AnimUtils.get_fcurves(obj)
+                if fc.data_path == "rotation_euler"
+            }
+            if not curves:
+                if not auto:
+                    # The setter keeps the channels, not the pose (measured, 5.1:
+                    # (0.3, 0.6, 0.9) XYZ -> ZYX turned the object up to 0.48), so
+                    # the pose is re-solved in the new order and written back.
+                    pose = resolved([obj.rotation_euler.copy()], name.upper())[0]
+                    obj.rotation_mode = name.upper()
+                    obj.rotation_euler = pose
+                    changed.append(obj)
+                continue
+            times = sorted(
+                {kp.co.x for fc in curves.values() for kp in fc.keyframe_points}
+            )
+            static = tuple(obj.rotation_euler)
+            poses = [
+                Euler(
+                    [
+                        curves[i].evaluate(t) if i in curves else static[i]
+                        for i in range(3)
+                    ],
+                    old.upper(),
+                )
+                for t in times
+            ]
+            if auto:
+                import math
+
+                degrees = {
+                    o: [
+                        tuple(math.degrees(a) for a in e)
+                        for e in resolved(poses, o.upper())
+                    ]
+                    for o in orders
+                }
+                target = ptk.MathUtils.best_rotate_order(degrees, current=old)
+                if target == old:
+                    continue
+            else:
+                target = name
+            mode = target.upper()
+            solved = resolved(poses, mode)
+            obj.rotation_mode = mode
+            for i in range(3):
+                fc = curves.get(i)
+                for t, e in zip(times, solved):
+                    if fc is None:
+                        obj.rotation_euler[i] = e[i]
+                        obj.keyframe_insert("rotation_euler", index=i, frame=t)
+                        continue
+                    kp = next(
+                        (k for k in fc.keyframe_points if abs(k.co.x - t) < 1e-3), None
+                    )
+                    if kp is None:
+                        fc.keyframe_points.insert(t, e[i])
+                        continue
+                    delta = e[i] - kp.co.y
+                    kp.co.y += delta
+                    kp.handle_left.y += delta
+                    kp.handle_right.y += delta
+                if fc is not None:
+                    fc.update()
+            changed.append(obj)
+        return changed

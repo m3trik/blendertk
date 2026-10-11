@@ -6,7 +6,9 @@ selected), move (align/selected), intermediate (time-range / ignore-visibility),
 Run: blender --background --factory-startup --python blendertk/test/test_anim_depth.py
 """
 
-import sys, os, traceback
+import sys
+import os
+import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -20,7 +22,7 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
@@ -197,6 +199,35 @@ try:
     check(
         "move align=end lands the last key on the frame",
         frames(fc) == [11, 15, 20],
+        f"{frames(fc)}",
+    )
+
+    # ---- move_keys_to_frame: align=auto picks the nearer end (mayatk's rule:
+    # End when the range's midpoint sits before the frame, Start otherwise) ----
+    reset()
+    o, fc = keyed_at([(1, 0), (5, 1), (10, 2)])
+    btk.move_keys_to_frame([o], frame=20, align="auto")
+    check(
+        "move align=auto lands the last key on a frame after the range",
+        frames(fc) == [11, 15, 20],
+        f"{frames(fc)}",
+    )
+    reset()
+    o, fc = keyed_at([(1, 0), (5, 1), (10, 2)])
+    btk.move_keys_to_frame([o], frame=-20, align="auto")
+    check(
+        "move align=auto lands the first key on a frame before the range",
+        frames(fc) == [-20, -16, -11],
+        f"{frames(fc)}",
+    )
+    reset()
+    o, fc = keyed_at([(1, 0), (5, 1), (10, 2)])
+    for k in fc.keyframe_points:
+        k.select_control_point = k.co.x in (1, 5)
+    btk.move_keys_to_frame([o], frame=30, selected_keys_only=True, align="auto")
+    check(
+        "move align=auto with selected keys anchors the selection's nearer end",
+        frames(fc) == [10, 26, 30],
         f"{frames(fc)}",
     )
 
@@ -714,7 +745,7 @@ except Exception:
     lines.append("FAIL unhandled exception")
 
 print("\n".join(lines))
-ok = all(l.startswith("OK") for l in lines) and lines
+ok = all(ln.startswith("OK") for ln in lines) and lines
 print(
-    f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({sum(1 for l in lines if l.startswith('OK'))}/{len(lines)})"
+    f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({sum(1 for ln in lines if ln.startswith('OK'))}/{len(lines)})"
 )

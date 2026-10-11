@@ -103,7 +103,7 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
@@ -1314,12 +1314,8 @@ try:
     # spinbox) and the Scope combo gates which objects bake; both are Qt-only (no bpy). Verify
     # the lists, the defaults, and that a Quality preset snaps the Resolution combo.
     lb_ui = sb.get_ui("lightmap_baker")
-    # Pump once, as a shown panel is, before reading its fields: each field's
-    # init hangs a switch off its option box, and run instead from a lazy first
-    # attribute read, that wrap drops the Python wrapper of a QUiLoader-built
-    # QSpinBox under PySide6 6.10 (the C++ widget lives on; Blender's 6.11 and a
-    # shown panel are unaffected -- measured 2026-09-23).
-    app.processEvents()
+    # Read lazily, with no event pass: under PySide6 6.10 the option-box wrap
+    # used to drop a QUiLoader-built QSpinBox's wrapper here (uitk 2026-10-05).
     lb = getattr(lb_ui, "slots", None)
     if lb is not None:
         res_items = [

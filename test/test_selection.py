@@ -14,7 +14,7 @@ lines = []
 
 
 def check(name, cond, detail=""):
-    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}")
 
 
 try:
@@ -156,6 +156,22 @@ try:
     check("Lights -> [LightObj]", res == [light], f"{res}")
     res = btk.Selection.select_by_type("Transforms", objs, mode="replace")
     check("Transforms -> every object", set(res) == set(objs), f"n={len(res)}")
+
+    # A Maya node type stamped on an Empty (the bridge pull's, or a locator rig's) wins
+    # over the hierarchy: a locator holding its rigged object is still a locator, and a
+    # childless group still a group -- as in mayatk, where the shape decides, not the
+    # children.
+    reset()
+    rig_loc = empty_obj("RigLoc")
+    btk.NodeUtils.set_maya_node_type(rig_loc, "locator")
+    mesh_obj("RigGeo").parent = rig_loc
+    bare_grp = empty_obj("BareGrp")
+    btk.NodeUtils.set_maya_node_type(bare_grp, "group")
+    objs = list(bpy.data.objects)
+    res = btk.Selection.select_by_type("Locators", objs, mode="replace")
+    check("Locators -> [RigLoc] (a stamped locator, children and all)", res == [rig_loc], f"{res}")
+    res = btk.Selection.select_by_type("Groups", objs, mode="replace")
+    check("Groups -> [BareGrp] (a stamped group, childless)", res == [bare_grp], f"{res}")
 
     # ---- Assets (untested leaf -- verify the asset_data API assumption live too) ----
     reset()

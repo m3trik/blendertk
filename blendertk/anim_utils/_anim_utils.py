@@ -54,13 +54,16 @@ class _AnimUtilsInternal(object):
 
         Blender 4.4+ actions are *slotted/layered* — 5.x drops the legacy flat ``action.fcurves``
         entirely, so keys live in per-slot channelbags (``layers → strips → channelbag(slot)``).
-        Falls back to the legacy accessor on older builds.
+        The layers are read first: on 4.4-5.0 ``action.fcurves`` survives only as a proxy
+        for the FIRST slot, so read first it handed every slot of a multi-slot action the
+        first slot's curves. The legacy accessor serves an action with no layers (pre-4.4).
         """
-        legacy = getattr(action, "fcurves", None)
-        if legacy is not None:
-            return list(legacy)
+        layers = getattr(action, "layers", None)
+        if not layers:
+            legacy = getattr(action, "fcurves", None)
+            return list(legacy) if legacy is not None else []
         out = []
-        for layer in action.layers:
+        for layer in layers:
             for strip in layer.strips:
                 if slot is not None:
                     cb = strip.channelbag(slot)
@@ -266,29 +269,77 @@ class _AnimUtilsInternal(object):
         return _AnimUtilsInternal._when_frames(when, rng[0], rng[1], offset)
 
     @staticmethod
-    def _paste_pose(objects, buffer, target_time):
+    def _paste_pose(objects, buffer, target_time, on_replace=None):
         """Key a ``"current_frame"``-mode :func:`copy_keys` snapshot back onto ``objects`` at
-        ``target_time`` (or the frame it was captured at, when ``None``)."""
+        ``target_time`` (or the frame it was captured at, when ``None``); *on_replace*: see
+        :func:`paste_keys`."""
         frame = buffer["frame"] if target_time is None else target_time
         pasted = []
         for o in ptk.make_iterable(objects):
             touched = False
             for (data_path, array_index), value in buffer["values"].items():
+                fc, replaced = (
+                    _AnimUtilsInternal._keyed_over(
+                        o, data_path, array_index, [(frame, value)]
+                    )
+                    if on_replace is not None
+                    else (None, [])
+                )
                 if not _AnimUtilsInternal._set_path_value(
                     o, data_path, array_index, value
                 ):
                     continue
                 o.keyframe_insert(data_path, index=array_index, frame=frame)
                 touched = True
+                if replaced:
+                    on_replace(fc, replaced)
             if touched:
                 pasted.append(o)
         return pasted
 
     @staticmethod
-    def _paste_selected_keys(objects, buffer, target_time):
+    def _report_action_swap(o, incoming, shift, on_replace, value_offsets=None):
+        """Report every key of *o*'s action that pasting the *incoming* fcurves (shifted by
+        *shift*) in its place REPLACES: all of them, bar one the new action holds at its frame
+        with its value.  Called BEFORE the swap -- after it, the old fcurves are no longer
+        *o*'s, and nothing resolves their owner.  *value_offsets* (``{(data_path, index):
+        offset}``) is what a channel's values gain after the swap (a relative transfer), so
+        the comparison reads the values *o* ends with."""
+        import bisect
+
+        action, slot = _AnimUtilsInternal._animating(getattr(o, "animation_data", None))
+        if action is None:
+            return
+        value_offsets = value_offsets or {}
+        arriving = {}
+        for fc in incoming:
+            addr = (fc.data_path, fc.array_index)
+            dv = value_offsets.get(addr, 0.0)
+            arriving[addr] = sorted(
+                (float(k.co.x) + shift, float(k.co.y) + dv) for k in fc.keyframe_points
+            )
+        for fc in _AnimUtilsInternal._slot_fcurves(action, slot):
+            keys = arriving.get((fc.data_path, fc.array_index), [])
+            frames = [x for x, _y in keys]
+            replaced = []
+            for k in fc.keyframe_points:
+                x, y = float(k.co.x), float(k.co.y)
+                i = bisect.bisect_left(frames, x - 0.01)
+                same = (
+                    i < len(frames)
+                    and frames[i] - x <= 0.01
+                    and abs(keys[i][1] - y) <= 1e-6 * max(1.0, abs(y))
+                )
+                if not same:
+                    replaced.append(x)
+            if replaced:
+                on_replace(fc, replaced)
+
+    @staticmethod
+    def _paste_selected_keys(objects, buffer, target_time, on_replace=None):
         """Key a ``"selected"``-mode :func:`copy_keys` buffer back onto ``objects``, shifting so the
         earliest captured frame lands on ``target_time`` (unshifted, at the original frames, when
-        ``None``)."""
+        ``None``); *on_replace*: see :func:`paste_keys`."""
         keys_by_path = buffer["keys"]
         if not keys_by_path:
             return []
@@ -303,6 +354,13 @@ class _AnimUtilsInternal(object):
             touched = False
             for path, pts in keys_by_path.items():
                 data_path, array_index = path
+                fc, replaced = (
+                    _AnimUtilsInternal._keyed_over(
+                        o, data_path, array_index, [(x + offset, y) for x, y in pts]
+                    )
+                    if on_replace is not None
+                    else (None, [])
+                )
                 written = []
                 for x, y in pts:
                     if not _AnimUtilsInternal._set_path_value(
@@ -320,6 +378,8 @@ class _AnimUtilsInternal(object):
                         tangents.get(path) or [],
                         extrapolation.get(path),
                     )
+                if written and replaced:
+                    on_replace(fc, replaced)
             if touched:
                 pasted.append(o)
         return pasted
@@ -365,11 +425,11 @@ class _AnimUtilsInternal(object):
 
     @staticmethod
     def _invert_selected(
-        fcurves, do_time, do_value, value_pivot, on_replace=None
+        fcurves, do_time, do_value, value_pivot, on_replace=None, on_move=None
     ) -> int:
         """Body of ``AnimUtils.invert_keys(selected_only=True)``: mirror the selected
         points of *fcurves* in place over the selection's combined ``[min, max]``
-        (*on_replace*: see ``invert_keys``)."""
+        (*on_replace* / *on_move*: see ``invert_keys``)."""
         picked = []
         for fc in fcurves:
             pts = sorted(
@@ -406,6 +466,7 @@ class _AnimUtilsInternal(object):
                 modes = [modes[-1]] + modes[:-1]
             else:
                 modes = [(row[2], row[3]) for row in snap]
+            pairs = []
             for k, row, (interp, easing) in zip(pts, snap, modes):
                 x, y, _i, _e, hlt, hrt, hl, hr = row
                 if do_time:
@@ -416,6 +477,7 @@ class _AnimUtilsInternal(object):
                     y = 2.0 * value_pivot - y
                     hl = (hl[0], 2.0 * value_pivot - hl[1])
                     hr = (hr[0], 2.0 * value_pivot - hr[1])
+                pairs.append((float(row[0]), float(x)))
                 k.co = (x, y)
                 k.interpolation = interp
                 k.easing = easing
@@ -424,9 +486,22 @@ class _AnimUtilsInternal(object):
             n += len(pts)
             replaced = _AnimUtilsInternal._merge_onto_moved(fc, pts)
             fc.update()
-            if replaced and on_replace is not None:
-                on_replace(fc, replaced)
+            _AnimUtilsInternal._report_edit(fc, replaced, pairs, on_replace, on_move)
         return n
+
+    @staticmethod
+    def _report_edit(fc, replaced, pairs, on_replace=None, on_move=None) -> None:
+        """Hand a key edit's ``on_replace(fc, frames)`` the frames of the keys it
+        replaced on *fc*, then its ``on_move(fc, pairs)`` the ``(old, new)``
+        frames of the keys it moved -- replaced first, so a claim carried onto a
+        frame is not the one released there.  A pair that went nowhere is no move.
+        """
+        if replaced and on_replace is not None:
+            on_replace(fc, replaced)
+        if on_move is not None:
+            moved = [(old, new) for old, new in pairs if abs(new - old) >= 1e-9]
+            if moved:
+                on_move(fc, moved)
 
     @staticmethod
     def _merge_onto_moved(fc, moved, eps=1e-4) -> list:
@@ -458,18 +533,153 @@ class _AnimUtilsInternal(object):
         return frames
 
     @staticmethod
+    def _keyed_over(obj, data_path, index, keys, eps=0.01):
+        """``(fcurve, frames)``: the keys of *obj*'s ``data_path[index]`` fcurve that keying
+        the ``(frame, value)`` *keys* REPLACES -- one within Blender's 0.01-frame insert
+        window holding another value (keying the value a key already holds only re-keys
+        it).  Read BEFORE the writes; ``(None, [])`` while the fcurve does not exist.
+        Mirror of mayatk's ``_keyed_over``."""
+        import bisect
+
+        fc = next(
+            (
+                c
+                for c in AnimUtils.get_fcurves([obj])
+                if c.data_path == data_path and c.array_index == index
+            ),
+            None,
+        )
+        if fc is None:
+            return None, []
+        wanted = sorted((float(f), float(v)) for f, v in keys)
+        landing = [f for f, _v in wanted]
+        hit = []
+        for k in fc.keyframe_points:
+            x, y = float(k.co.x), float(k.co.y)
+            i = bisect.bisect_left(landing, x - eps)
+            if i == len(landing) or landing[i] - x > eps:
+                continue  # nothing keyed here
+            new = wanted[i][1]
+            if abs(new - y) > 1e-6 * max(1.0, abs(new), abs(y)):
+                hit.append(x)
+        return fc, hit
+
+    @staticmethod
+    def _key_visibility(o, frames, visible, on_replace=None):
+        """Key ``hide_viewport`` / ``hide_render`` to *visible* at *frames*.  A key on a
+        frame that held the other state is replaced, and *on_replace* hears it."""
+        hide = not visible
+        reports = []
+        if on_replace is not None:
+            for path in _VISIBILITY_PATHS:
+                fc, hit = _AnimUtilsInternal._keyed_over(
+                    o, path, 0, [(f, float(hide)) for f in frames]
+                )
+                if hit:
+                    reports.append((fc, hit))
+        o.hide_viewport = hide
+        o.hide_render = hide
+        for f in frames:
+            o.keyframe_insert("hide_viewport", frame=f)
+            o.keyframe_insert("hide_render", frame=f)
+        for fc, hit in reports:
+            on_replace(fc, hit)
+
+    @staticmethod
+    def _merge_landed(fc, moves, eps=1e-4):
+        """Merge for an edit that can land MOVED points on each other too (a
+        snapped scale): ``(replaced, pairs)``.
+
+        *moves* is ``[(old x, point)]`` or ``[(old x, point, ideal x)]`` for the
+        points the edit moved, already at their new frames.  A point it did not
+        move that one lands on is removed (the Graph Editor's auto-merge); of
+        moved points that land together the LEAST MOVED is kept -- the one whose
+        frame is nearest its *ideal* (a snapped scale: its exact scaled time;
+        default: its own frame), an exact tie going to the LATER source -- and
+        the others are removed (mayatk's ``_move_curve_keys`` decides the same).
+        *replaced* is the frames of the points removed -- a moved one's at its
+        SOURCE, where what is held on it still is -- and *pairs* the ``(old,
+        new)`` frames of the moved points kept.  Removed last-first, so no
+        reference to a later point goes stale.
+        """
+        import bisect
+
+        moves = [
+            (float(m[0]), m[1], float(m[2]) if len(m) > 2 else float(m[1].co.x))
+            for m in moves
+        ]
+        ordered = sorted(moves, key=lambda m: m[1].co.x)
+        kept, losers = [], []
+        i = 0
+        while i < len(ordered):
+            j = i + 1
+            while j < len(ordered) and ordered[j][1].co.x - ordered[i][1].co.x <= eps:
+                j += 1
+            group = ordered[i:j]
+            best = min(group, key=lambda m: (abs(m[1].co.x - m[2]), -m[0]))
+            kept.append(best)
+            losers.extend(m for m in group if m is not best)
+            i = j
+        pairs = [(old, float(k.co.x)) for old, k, _ideal in kept]
+        replaced = [old for old, _k, _ideal in losers]
+        landing = sorted(k.co.x for _old, k, _ideal in kept)
+        moved = {k.as_pointer() for _old, k, _ideal in moves}
+        doomed = {k.as_pointer() for _old, k, _ideal in losers}
+        remove = []
+        for k in fc.keyframe_points:
+            ptr = k.as_pointer()
+            if ptr in doomed:
+                remove.append(k)
+            elif ptr not in moved:
+                at = bisect.bisect_left(landing, k.co.x - eps)
+                if at < len(landing) and abs(landing[at] - k.co.x) <= eps:
+                    replaced.append(float(k.co.x))
+                    remove.append(k)
+        for k in reversed(remove):
+            fc.keyframe_points.remove(k, fast=True)
+        return replaced, pairs
+
+    @staticmethod
+    def _landed_on(times, moves, moving=False, eps=1e-4) -> list:
+        """The frames of *times* (a curve's keys before an edit) that the
+        ``(source, destination)`` *moves* land on and so REPLACE.
+
+        Not one the edit carries on itself: with *moving* every source goes on
+        to its own destination, and a key its own copy lands on is re-keyed.
+        Mirror of mayatk's ``_landed_on`` (which reads the times off the curve).
+        """
+        import bisect
+
+        dests = sorted((d, s) for s, d in moves)
+        landing = [d for d, _s in dests]
+        sources = {s for s, _d in moves}
+        hit = []
+        for t in times:
+            i = bisect.bisect_left(landing, t - eps)
+            if i == len(landing) or landing[i] - t > eps:
+                continue  # nothing lands here
+            if abs(dests[i][1] - t) <= eps or (moving and t in sources):
+                continue
+            hit.append(float(t))
+        return hit
+
+    @staticmethod
     def _remove_fcurve(action, slot, fc):
         """Remove ``fc`` from ``action`` (slot-aware — legacy flat list or per-slot channelbag).
 
         Returns ``True`` when the curve was found and removed, ``False`` when it was
         not there: a caller reporting "did anything change" has to tell those apart,
-        and a bare ``return`` cannot.
+        and a bare ``return`` cannot. Layers first, as :meth:`_slot_fcurves` reads
+        them (4.4-5.0's ``action.fcurves`` is a first-slot proxy).
         """
-        legacy = getattr(action, "fcurves", None)
-        if legacy is not None:
+        layers = getattr(action, "layers", None)
+        if not layers:
+            legacy = getattr(action, "fcurves", None)
+            if legacy is None or fc not in list(legacy):
+                return False
             legacy.remove(fc)
             return True
-        for layer in action.layers:
+        for layer in layers:
             for strip in layer.strips:
                 bags = (
                     [strip.channelbag(slot)]
@@ -1155,22 +1365,42 @@ class AnimUtils(_AnimUtilsInternal):
 
     @staticmethod
     def move_keys_to_frame(
-        objects, frame=None, retain_spacing=True, selected_keys_only=False, align="auto"
+        objects,
+        frame=None,
+        retain_spacing=True,
+        selected_keys_only=False,
+        align="auto",
+        on_replace=None,
+        on_move=None,
     ):
         """Move the objects' keys so they align to ``frame`` (default: the current frame).
 
         ``retain_spacing=True`` applies one global offset — the earliest key across the selection
         lands on ``frame`` and relative timing between objects is kept; ``False`` aligns each
         action's own first key to ``frame``. ``align`` chooses which end of the key range anchors to
-        ``frame``: ``"auto"``/``"start"`` use the earliest key, ``"end"`` the latest. With
+        ``frame``: ``"start"`` the earliest key, ``"end"`` the latest, ``"auto"`` whichever end is
+        nearer -- End when the keys' midpoint (the selected keys', with ``selected_keys_only``)
+        sits before ``frame``, Start otherwise (mayatk's rule). With
         ``selected_keys_only`` only the keys selected in the Dope Sheet / Graph Editor move (the
-        selected set's chosen end lands on ``frame``); returns keys moved. Otherwise returns the
+        selected set's chosen end lands on ``frame``, and an unselected key one lands on is
+        replaced, the Graph Editor's auto-merge); returns keys moved. Otherwise returns the
         number of keyed actions (an already-aligned action counts — it is at the target).
+        *on_replace* / *on_move* hear the keys replaced and moved, as
+        ``align_selected_keyframes``'s do.
         """
         import bpy
 
         if frame is None:
             frame = bpy.context.scene.frame_current
+        if align == "auto":
+            # mayatk's rule: the end nearer the frame anchors.
+            xs = [
+                k.co.x
+                for fc in _AnimUtilsInternal._fcurves(objects)
+                for k in fc.keyframe_points
+                if k.select_control_point or not selected_keys_only
+            ]
+            align = "end" if xs and (min(xs) + max(xs)) / 2.0 < frame else "start"
         use_end = align == "end"
 
         if selected_keys_only:
@@ -1184,14 +1414,24 @@ class AnimUtils(_AnimUtilsInternal):
                 return 0
             xs = [k.co.x for _fc, k in sel]
             offset = frame - (max(xs) if use_end else min(xs))
-            touched = set()
+            by_fc = {}
             for fc, k in sel:
+                by_fc.setdefault(fc, []).append((float(k.co.x), k))
                 k.co.x += offset
                 k.handle_left.x += offset
                 k.handle_right.x += offset
-                touched.add(fc)
-            for fc in touched:
+            for fc, moves in by_fc.items():
+                replaced = _AnimUtilsInternal._merge_onto_moved(
+                    fc, [k for _old, k in moves]
+                )
                 fc.update()
+                _AnimUtilsInternal._report_edit(
+                    fc,
+                    replaced,
+                    [(old, old + offset) for old, _k in moves],
+                    on_replace,
+                    on_move,
+                )
             return len(sel)
 
         pairs = []
@@ -1206,6 +1446,16 @@ class AnimUtils(_AnimUtilsInternal):
         def _anchor(rng):
             return rng[1] if use_end else rng[0]
 
+        def _shift(fcurves, offset):
+            # Every key of the action moves, so none is landed on: moves only.
+            moved = {
+                fc: [(float(t), float(t) + offset) for t in AnimUtils.key_times(fc)]
+                for fc in fcurves
+            }
+            _AnimUtilsInternal._shift_fcurves(fcurves, offset)
+            for fc, fc_pairs in moved.items():
+                _AnimUtilsInternal._report_edit(fc, [], fc_pairs, None, on_move)
+
         if retain_spacing:
             global_anchor = (max if use_end else min)(
                 _anchor(rng) for _fc, rng in pairs
@@ -1213,12 +1463,12 @@ class AnimUtils(_AnimUtilsInternal):
             for fcurves, _rng in pairs:
                 offset = frame - global_anchor
                 if offset:
-                    _AnimUtilsInternal._shift_fcurves(fcurves, offset)
+                    _shift(fcurves, offset)
         else:
             for fcurves, rng in pairs:
                 offset = frame - _anchor(rng)
                 if offset:
-                    _AnimUtilsInternal._shift_fcurves(fcurves, offset)
+                    _shift(fcurves, offset)
         return len(pairs)
 
     @staticmethod
@@ -1230,11 +1480,15 @@ class AnimUtils(_AnimUtilsInternal):
         preserve_keys=False,
         selected_keys_only=False,
         exact_gap=False,
+        on_replace=None,
+        on_move=None,
     ):
         """Add (+) or remove (−) ``spacing`` frames of space at ``frame`` (default: the current
         frame) — every key at/after ``frame`` shifts by ``spacing``; mirror of
-        ``mtk.adjust_key_spacing``. Negative spacing larger than the gap can collide keys with
-        the ones before ``frame`` (as in Maya without preserve-keys). Returns keys shifted.
+        ``mtk.adjust_key_spacing``. Negative spacing larger than the gap can land keys on the
+        ones before ``frame`` (and with ``selected_keys_only`` on an unselected one): such a key
+        is REPLACED (the Graph Editor's auto-merge), and *on_replace* / *on_move* hear the keys
+        replaced and moved, as ``align_selected_keyframes``'s do. Returns keys shifted.
 
         * ``objects`` — ``None`` adjusts every scene object (mirrors ``mtk.adjust_key_spacing``'s
           own "If None, adjusts all scene objects" contract, and the sibling ``objects=None``
@@ -1246,7 +1500,8 @@ class AnimUtils(_AnimUtilsInternal):
           absolute frame number. Ignored when ``frame`` is None (always the current frame).
         * ``preserve_keys`` — if a keyframe exists exactly at the adjustment point, re-insert it
           there (same value/interpolation/handle shape) after the shift moves it away, so a key
-          stays anchored at the point where the spacing changes.
+          stays anchored at the point where the spacing changes -- with what is held on it
+          (it is not reported moved), and a moved key the re-insert lands on is replaced.
         * ``selected_keys_only`` — only shift keys selected in the Dope Sheet / Graph Editor.
         * ``exact_gap`` — interpret ``spacing`` as a target gap: shift so the first key at/after
           ``frame`` lands exactly at ``frame + spacing`` (clears a precise range), mirror of Maya.
@@ -1297,15 +1552,33 @@ class AnimUtils(_AnimUtilsInternal):
                             k.handle_right.y - k.co.y,
                         )
                         break
-            touched = False
+            moves = []
             for k in fc.keyframe_points:
                 if _affected(k):
+                    moves.append((float(k.co.x), k))
                     k.co.x += shift
                     k.handle_left.x += shift
                     k.handle_right.x += shift
                     moved += 1
-                    touched = True
+            touched = bool(moves)
+            pairs = [(old, old + shift) for old, _k in moves]
+            # A moved key landing on one that stayed replaces it.
+            replaced = (
+                _AnimUtilsInternal._merge_onto_moved(fc, [k for _old, k in moves])
+                if moves
+                else []
+            )
             if preserved is not None:
+                # The key at the adjustment point is keyed back there, with what
+                # is held on it (no move); a moved key that insert lands on
+                # (Blender's insert replaces within 0.01) is replaced -- from its
+                # source frame, where what is held on it still is.
+                replaced += [old for old, new in pairs if abs(new - adjusted) < 0.01]
+                pairs = [
+                    (old, new)
+                    for old, new in pairs
+                    if abs(old - adjusted) >= 1e-4 and abs(new - adjusted) >= 0.01
+                ]
                 value, interp, hlt, hrt, hl_dx, hr_dx, hl_dy, hr_dy = preserved
                 nk = fc.keyframe_points.insert(adjusted, value)
                 nk.interpolation = interp
@@ -1318,11 +1591,12 @@ class AnimUtils(_AnimUtilsInternal):
                 touched = True
             if touched:
                 fc.update()
+            _AnimUtilsInternal._report_edit(fc, replaced, pairs, on_replace, on_move)
         return moved
 
     @staticmethod
     def align_selected_keyframes(
-        objects, target_frame=None, use_earliest=True, on_replace=None
+        objects, target_frame=None, use_earliest=True, on_replace=None, on_move=None
     ):
         """Shift each object's SELECTED keyframes (``select_control_point``, e.g. picked in
         the Dope Sheet / Graph Editor) so every object's selection starts on one frame --
@@ -1334,7 +1608,9 @@ class AnimUtils(_AnimUtilsInternal):
         latest) per-object selection START; *target_frame* overrides it.  An fcurve passed
         in aligns with the other curves of its own action.  *on_replace* is called as
         ``on_replace(fcurve, frames)`` with the frames of the keys a moved key replaced,
-        for a caller holding something on them (the shot system's claims).
+        then *on_move* as ``on_move(fcurve, pairs)`` with the ``(old, new)`` frames of the
+        keys moved -- for a caller holding something on them (the shot system's claims:
+        ``ShotStore.release_replaced`` / ``remap_moved``).
 
         Returns the number of keys moved (0 = nothing selected, or already aligned).
         """
@@ -1372,6 +1648,7 @@ class AnimUtils(_AnimUtilsInternal):
             if abs(delta) < 1e-6:
                 continue
             for fc, pts in picked:
+                pairs = [(float(k.co.x), float(k.co.x) + delta) for k in pts]
                 for k in pts:
                     k.co.x += delta
                     k.handle_left.x += delta
@@ -1379,8 +1656,9 @@ class AnimUtils(_AnimUtilsInternal):
                 moved += len(pts)
                 replaced = _AnimUtilsInternal._merge_onto_moved(fc, pts)
                 fc.update()
-                if replaced and on_replace is not None:
-                    on_replace(fc, replaced)
+                _AnimUtilsInternal._report_edit(
+                    fc, replaced, pairs, on_replace, on_move
+                )
         return moved
 
     @staticmethod
@@ -1391,6 +1669,7 @@ class AnimUtils(_AnimUtilsInternal):
         when="current",
         offset=0,
         group_overlapping=False,
+        on_replace=None,
     ):
         """Key viewport + render visibility (``hide_viewport``/``hide_render``) — mirror of
         ``mtk.set_visibility_keys``.
@@ -1402,7 +1681,9 @@ class AnimUtils(_AnimUtilsInternal):
         ``_group_overlapping_keyframes``) as one group sharing a combined range for the ``when``
         calculation (ignored for ``"current"``, which needs no range); reuses
         :func:`stagger_keys._group_units` as the grouping model. Returns the objects keyed (objects
-        with no key range are skipped for the range-relative modes)."""
+        with no key range are skipped for the range-relative modes).  A visibility key on a frame
+        that held the other state is replaced, and *on_replace* hears it (``on_replace(fcurve,
+        frames)``, as ``align_selected_keyframes``'s)."""
         import bpy
 
         scene = bpy.context.scene
@@ -1419,13 +1700,10 @@ class AnimUtils(_AnimUtilsInternal):
                 b_end = max(u["end"] for u in block)
                 frames = _AnimUtilsInternal._when_frames(when, b_start, b_end, offset)
                 for u in block:
-                    o = u["obj"]
-                    o.hide_viewport = not visible
-                    o.hide_render = not visible
-                    for f in frames:
-                        o.keyframe_insert("hide_viewport", frame=f)
-                        o.keyframe_insert("hide_render", frame=f)
-                    keyed.append(o)
+                    _AnimUtilsInternal._key_visibility(
+                        u["obj"], frames, visible, on_replace
+                    )
+                    keyed.append(u["obj"])
             return keyed
 
         for o in ptk.make_iterable(objects):
@@ -1434,11 +1712,7 @@ class AnimUtils(_AnimUtilsInternal):
             )
             if not frames:
                 continue
-            o.hide_viewport = not visible
-            o.hide_render = not visible
-            for f in frames:
-                o.keyframe_insert("hide_viewport", frame=f)
-                o.keyframe_insert("hide_render", frame=f)
+            _AnimUtilsInternal._key_visibility(o, frames, visible, on_replace)
             keyed.append(o)
         return keyed
 
@@ -1490,8 +1764,10 @@ class AnimUtils(_AnimUtilsInternal):
             frames = []
             for f in candidates:
                 i = bisect.bisect_left(existing, f)
+                # Blender's insert REPLACES a key within 0.01 of its frame (its
+                # value rewritten): a candidate that close is the key's own frame.
                 near = any(
-                    abs(existing[j] - f) <= 1e-4
+                    abs(existing[j] - f) < 0.01
                     for j in (i - 1, i)
                     if 0 <= j < len(existing)
                 )
@@ -1507,7 +1783,9 @@ class AnimUtils(_AnimUtilsInternal):
         return added
 
     @staticmethod
-    def remove_intermediate_keys(objects, time_range=None, ignore_visibility=False):
+    def remove_intermediate_keys(
+        objects, time_range=None, ignore_visibility=False, on_delete=None
+    ):
         """Remove every key strictly between each fcurve's first and last (keeps only the
         endpoints) — mirror of ``mtk.remove_intermediate_keys``. Returns keys removed.
 
@@ -1516,6 +1794,8 @@ class AnimUtils(_AnimUtilsInternal):
           ``(start + 0.001, end - 0.001)``.  The shot sequencer hands the key selection's own
           span here, and the selection's first and last keys are the ones it keeps.
         * ``ignore_visibility`` — skip ``hide_viewport``/``hide_render`` curves.
+        * ``on_delete(fcurve, frames)`` — hears the frames of the keys removed, per fcurve
+          (what the shot system releases its claims on).
         """
         removed = 0
         for fc in _AnimUtilsInternal._fcurves(objects):
@@ -1524,6 +1804,7 @@ class AnimUtils(_AnimUtilsInternal):
             pts = fc.keyframe_points
             if len(pts) <= 2:
                 continue
+            gone = []
             # Walk interior keys high→low so removals don't shift unvisited indices; endpoints
             # (index 0 and the last) are never touched.
             for i in range(len(pts) - 2, 0, -1):
@@ -1532,9 +1813,12 @@ class AnimUtils(_AnimUtilsInternal):
                     time_range is None
                     or time_range[0] + 1e-3 < x < time_range[1] - 1e-3
                 ):
+                    gone.append(float(x))
                     pts.remove(pts[i], fast=True)
                     removed += 1
             fc.update()
+            if gone and on_delete is not None:
+                on_delete(fc, sorted(gone))
         return removed
 
     @staticmethod
@@ -1582,6 +1866,7 @@ class AnimUtils(_AnimUtilsInternal):
         delete_original=False,
         selected_only=False,
         on_replace=None,
+        on_move=None,
     ):
         """Mirror keys to reverse motion — Blender analogue of Maya's invert (modes mirror its X/Y/both
         time/value/both, plus the reversed-copy semantics of Maya's ``time``/``relative``/
@@ -1604,8 +1889,17 @@ class AnimUtils(_AnimUtilsInternal):
         re-homed to the key that now precedes it (a ``CONSTANT`` hold stays a hold of the
         same span).  *objects* may then be fcurves (the channels to read).  Returns the
         number of keys mirrored; ``start_frame`` / ``relative`` / ``delete_original`` do not
-        apply, and *on_replace* is called as ``on_replace(fcurve, frames)`` with the frames
-        of the unselected keys a mirrored one replaced (as ``align_selected_keyframes``)."""
+        apply.
+
+        *on_replace* is called as ``on_replace(fcurve, frames)`` with the frames of the keys
+        a mirrored key REPLACED (as ``align_selected_keyframes``): with ``selected_only``, an
+        unselected key a mirrored one lands on; with a reversed copy, a source key another
+        key's copy lands on (none when ``delete_original`` moves every source on).  A key its
+        own copy lands on is only re-keyed, and the whole-range in-place mirror moves every
+        key, so it replaces none.  *on_move* is then called as ``on_move(fcurve, pairs)``
+        with the ``(old, new)`` frames of the keys the edit moved: every mirrored key in
+        place, every source of a copy that deletes them, none of a copy that keeps them.
+        Mirror of mayatk's ``invert_keys``."""
         do_time = mode in ("time", "both")
         do_value = mode in ("value", "both")
         if selected_only:
@@ -1615,6 +1909,7 @@ class AnimUtils(_AnimUtilsInternal):
                 do_value,
                 value_pivot,
                 on_replace,
+                on_move,
             )
         for action, slot in _AnimUtilsInternal._actions(objects):
             fcurves = _AnimUtilsInternal._slot_fcurves(action, slot)
@@ -1626,6 +1921,12 @@ class AnimUtils(_AnimUtilsInternal):
             if start_frame is None:
                 center = (lo + hi) / 2.0
                 for fc in fcurves:
+                    # Every key moves (nothing is replaced): t' = 2c - t.
+                    pairs = [
+                        (float(k.co.x), 2.0 * center - float(k.co.x))
+                        for k in fc.keyframe_points
+                        if do_time
+                    ]
                     for k in fc.keyframe_points:
                         if do_time:
                             k.co.x = 2.0 * center - k.co.x
@@ -1654,6 +1955,7 @@ class AnimUtils(_AnimUtilsInternal):
                                 k.handle_left_type,
                             )
                     fc.update()
+                    _AnimUtilsInternal._report_edit(fc, [], pairs, None, on_move)
                 continue
 
             inversion_point = (hi + start_frame) if relative else start_frame
@@ -1675,9 +1977,11 @@ class AnimUtils(_AnimUtilsInternal):
             ]
             touched = set()
             new_frames_by_fc = {}
+            moves_by_fc = {}  # fc -> [(source frame, copy frame)]
             for fc, ox, oy, interp, hlt, hrt, hl_dx, hr_dx, hl_dy, hr_dy in originals:
                 new_x = (inversion_point - (ox - hi)) if do_time else ox
                 new_y = (2.0 * value_pivot - oy) if do_value else oy
+                moves_by_fc.setdefault(fc, []).append((ox, new_x))
                 nk = fc.keyframe_points.insert(new_x, new_y)
                 nk.interpolation = interp
                 # Time-reversal reflects handles horizontally, so the handle that was
@@ -1716,9 +2020,34 @@ class AnimUtils(_AnimUtilsInternal):
 
             for fc in touched:
                 fc.update()
+            # A copy inserted on a source key overwrote it (Blender's insert
+            # replaces a key within 0.01 frame); every key here is a source, so
+            # delete_original, which moves them all on, replaces none -- and
+            # only it moves anything: a copy that keeps its sources moves none.
+            for fc, moves in moves_by_fc.items():
+                frames = (
+                    _AnimUtilsInternal._landed_on(
+                        [s for s, _d in moves], moves, moving=delete_original, eps=0.01
+                    )
+                    if on_replace is not None
+                    else []
+                )
+                _AnimUtilsInternal._report_edit(
+                    fc,
+                    frames,
+                    moves if delete_original else [],
+                    on_replace,
+                    on_move,
+                )
 
     @staticmethod
-    def snap_keys(objects=None, selected_only=False, time_range=None, method="nearest"):
+    def snap_keys(
+        objects=None,
+        selected_only=False,
+        time_range=None,
+        method="nearest",
+        on_move=None,
+    ):
         """Snap keys to whole frames (or "clean" numbers) — mirror of ``mtk.snap_keys_to_frames``.
 
         ``method`` is any :meth:`pythontk.MathUtils.round_value` mode — DRY reuse of the same
@@ -1732,16 +2061,33 @@ class AnimUtils(_AnimUtilsInternal):
         ``objects`` defaults to every scene object, as ``repair_corrupted_curves`` does — the
         scope a repair pass wants when nothing is selected.
 
+        A snap never replaces a key (mayatk's contract): one whose target frame is taken
+        stays where it is.  Per fcurve the candidates go highest time first, and a target
+        within 1e-4 of a whole-frame key or of a frame an earlier candidate took is skipped
+        -- so of two keys snapping onto one frame the later takes it.  A key with a
+        non-finite (corrupt) time is left to :meth:`repair_corrupted_curves`.  *on_move*
+        hears the ``(old, new)`` frames of the keys moved (the shot system's claims ride
+        along: ``ShotStore.remap_moved``).
+
         Returns the number of keys that actually moved."""
         if method == "none":
             return 0
+        import bisect
+        import math
+
         import bpy
 
         pool = objects if objects is not None else list(bpy.data.objects)
         snapped = 0
         for fc in _AnimUtilsInternal._fcurves(pool):
-            touched = False
+            candidates = []
+            occupied = []  # sorted below: a bisect per candidate, not a scan
             for k in fc.keyframe_points:
+                x = float(k.co.x)
+                if not math.isfinite(x):
+                    continue  # a corrupt time (Repair's job): nothing to round
+                if x.is_integer():
+                    occupied.append(x)  # a whole-frame key holds its frame
                 if selected_only and not k.select_control_point:
                     continue
                 # Inclusive with a slop: ``co.x`` is float32, so a fractional
@@ -1749,19 +2095,31 @@ class AnimUtils(_AnimUtilsInternal):
                 # built from the frame it was keyed on -- exactly the keys a
                 # snap exists for.
                 if time_range is not None and not (
-                    time_range[0] - 1e-3 <= k.co.x <= time_range[1] + 1e-3
+                    time_range[0] - 1e-3 <= x <= time_range[1] + 1e-3
                 ):
                     continue
-                r = ptk.MathUtils.round_value(k.co.x, mode=method)
-                if r != k.co.x:
-                    snapped += 1
+                r = ptk.MathUtils.round_value(x, mode=method)
+                if r != x:
+                    candidates.append((x, float(r), k))
+            if not candidates:
+                continue
+            occupied.sort()
+            pairs = []
+            for x, r, k in sorted(candidates, key=lambda c: c[0], reverse=True):
+                i = bisect.bisect_left(occupied, r - 1e-4)
+                if i < len(occupied) and occupied[i] <= r + 1e-4:
+                    continue  # taken: the key stays, never a replacement
                 delta = r - k.co.x
                 k.co.x = r
                 k.handle_left.x += delta
                 k.handle_right.x += delta
-                touched = True
-            if touched:
-                fc.update()
+                bisect.insort(occupied, r)
+                pairs.append((x, r))
+            if not pairs:
+                continue
+            snapped += len(pairs)
+            fc.update()
+            _AnimUtilsInternal._report_edit(fc, [], pairs, None, on_move)
         return snapped
 
     @staticmethod
@@ -1809,7 +2167,7 @@ class AnimUtils(_AnimUtilsInternal):
         return stepped
 
     @staticmethod
-    def delete_keys(objects, time=None):
+    def delete_keys(objects, time=None, on_delete=None):
         """Remove animation from the given objects — mirror of ``mtk.delete_keys``.
 
         ``time`` is ``None`` (default, backward-compatible) to clear all animation outright
@@ -1817,11 +2175,20 @@ class AnimUtils(_AnimUtilsInternal):
         values to only remove keys in that window relative to the current frame: ``"current"``,
         ``"before"``, ``"before|current"``, ``"after"``, ``"after|current"`` (Maya's ``"all"`` maps to
         ``None`` at the call site). Returns the objects touched (cleared outright, or with at least
-        one key removed for a scoped ``time``)."""
+        one key removed for a scoped ``time``).
+
+        ``on_delete(fcurve, frames)`` hears the frames of the keys removed, per fcurve (what the
+        shot system releases its claims on) -- for a clear, every key of the action, BEFORE it
+        goes, while the fcurves still resolve to their owner."""
         if time is None:
             cleared = []
             for o in ptk.make_iterable(objects):
                 if getattr(o, "animation_data", None):
+                    if on_delete is not None:
+                        for fc in AnimUtils.get_fcurves([o]):
+                            frames = sorted(float(k.co.x) for k in fc.keyframe_points)
+                            if frames:
+                                on_delete(fc, frames)
                     o.animation_data_clear()
                     cleared.append(o)
             return cleared
@@ -1838,14 +2205,16 @@ class AnimUtils(_AnimUtilsInternal):
             obj_touched = False
             for fc in AnimUtils.get_fcurves([o]):
                 pts = fc.keyframe_points
-                fc_touched = False
+                gone = []
                 for i in range(len(pts) - 1, -1, -1):
                     if predicate(pts[i].co.x, current):
+                        gone.append(float(pts[i].co.x))
                         pts.remove(pts[i], fast=True)
-                        fc_touched = True
-                if fc_touched:
+                if gone:
                     fc.update()
                     obj_touched = True
+                    if on_delete is not None:
+                        on_delete(fc, sorted(gone))
             if obj_touched:
                 touched.append(o)
         return touched
@@ -1939,7 +2308,7 @@ class AnimUtils(_AnimUtilsInternal):
         raise ValueError(f"Unknown copy_keys mode: {mode!r}")
 
     @staticmethod
-    def paste_keys(objects, buffer, target_time=None):
+    def paste_keys(objects, buffer, target_time=None, on_replace=None):
         """Paste a copy-buffer from :func:`copy_keys` onto ``objects`` — mirror of
         ``mtk.AnimUtils.paste_keys``.
 
@@ -1951,6 +2320,11 @@ class AnimUtils(_AnimUtilsInternal):
           ("at copy frame"); a frame number re-anchors it there instead ("at playhead") — for
           multi-key buffers the EARLIEST captured frame aligns to ``target_time`` and every other key
           keeps its relative offset.
+        * ``on_replace`` — called as ``on_replace(fcurve, frames)`` with the frames of the keys a
+          paste replaced, as ``align_selected_keyframes``'s: a key on a pasted frame (Blender's
+          insert replaces within 0.01) holding another value -- pasting the value a key already
+          holds only re-keys it.  An ``"action"`` paste replaces each target's whole action, so
+          every key of it the new one does not hold at that frame with that value.
 
         Returns the objects pasted onto."""
         if buffer is None:
@@ -1959,10 +2333,12 @@ class AnimUtils(_AnimUtilsInternal):
         if isinstance(buffer, dict):
             mode = buffer.get("mode")
             if mode == "current_frame":
-                return _AnimUtilsInternal._paste_pose(objects, buffer, target_time)
+                return _AnimUtilsInternal._paste_pose(
+                    objects, buffer, target_time, on_replace
+                )
             if mode == "selected":
                 return _AnimUtilsInternal._paste_selected_keys(
-                    objects, buffer, target_time
+                    objects, buffer, target_time, on_replace
                 )
             raise ValueError(f"Unknown paste_keys buffer mode: {mode!r}")
 
@@ -1971,24 +2347,32 @@ class AnimUtils(_AnimUtilsInternal):
             if o.animation_data is None:
                 o.animation_data_create()
             copy = buffer.copy()
-            o.animation_data.action = copy
             slots = getattr(
                 copy, "slots", None
             )  # slotted actions need an explicit slot pick
-            if slots:
-                o.animation_data.action_slot = slots[0]
+            fcurves = _AnimUtilsInternal._slot_fcurves(
+                copy, slots[0] if slots else None
+            )
+            shift = 0.0
             if target_time is not None:
-                fcurves = _AnimUtilsInternal._slot_fcurves(
-                    copy, slots[0] if slots else None
-                )
                 rng = _AnimUtilsInternal._key_range(fcurves)
                 if rng is not None:
-                    _AnimUtilsInternal._shift_fcurves(fcurves, target_time - rng[0])
+                    shift = target_time - rng[0]
+            if on_replace is not None:
+                # BEFORE the swap: after it the old fcurves are no longer the target's.
+                _AnimUtilsInternal._report_action_swap(o, fcurves, shift, on_replace)
+            o.animation_data.action = copy
+            if slots:
+                o.animation_data.action_slot = slots[0]
+            if shift:
+                _AnimUtilsInternal._shift_fcurves(fcurves, shift)
             pasted.append(o)
         return pasted
 
     @staticmethod
-    def transfer_keyframes(objects, relative=False, optimize=False):
+    def transfer_keyframes(
+        objects, relative=False, optimize=False, on_replace=None, on_delete=None
+    ):
         """Transfer keyframes from the first object (source) onto the rest (targets) — mirror of
         ``mtk.AnimUtils.transfer_keyframes`` (``source = objects[0]``, targets = the remainder, same
         convention as :func:`blendertk.xform_utils.transfer_pivot`).
@@ -2009,6 +2393,11 @@ class AnimUtils(_AnimUtilsInternal):
                 source's literal values). If False (default), values are copied verbatim (absolute)
                 — the prior/only Blender behavior.
             optimize (bool): if True, run :func:`optimize_keys` on the source before transferring.
+            on_replace: as :func:`paste_keys`'s -- each target's own keys are replaced by the
+                source's action (bar one it holds at that frame with that value; with
+                ``relative``, the offset value the target ends with).
+            on_delete: as :func:`optimize_keys`'s -- the SOURCE keys (and curves) the
+                ``optimize`` pass drops.
 
         Returns the targets that received keys (empty list if the source has no keys, or there are
         no targets).
@@ -2022,50 +2411,58 @@ class AnimUtils(_AnimUtilsInternal):
             return []
 
         if optimize:
-            AnimUtils.optimize_keys([source])
+            AnimUtils.optimize_keys([source], on_delete=on_delete)
 
         src_fcurves = AnimUtils.get_fcurves([source])
         if not src_fcurves:
             return []
 
-        # Snapshot each target's CURRENT value per (data_path, array_index) BEFORE paste_keys
-        # overwrites it with the source's action — this is the "own base pose" relative mode
-        # preserves.
-        initial_values = None
+        # Relative mode: each target's offset per (data_path, array_index) -- its CURRENT
+        # value (snapshotted BEFORE paste_keys overwrites it with the source's action: the
+        # "own base pose" relative mode preserves) less the source fcurve's OWN earliest keyed
+        # value (mirrors mtk's "this attribute's own first key", not the
+        # global-earliest-frame-across-all-curves value).
+        offsets = {}
         if relative:
-            addrs = [(fc.data_path, fc.array_index) for fc in src_fcurves]
-            initial_values = {
-                target: {
-                    addr: _AnimUtilsInternal._get_path_value(target, *addr)
-                    for addr in addrs
-                }
-                for target in targets
+            src_first_values = {
+                (fc.data_path, fc.array_index): min(
+                    fc.keyframe_points, key=lambda k: k.co.x
+                ).co.y
+                for fc in src_fcurves
+                if len(fc.keyframe_points)
             }
+            for target in targets:
+                own = {}
+                for addr, src_first in src_first_values.items():
+                    tgt_val = _AnimUtilsInternal._get_path_value(target, *addr)
+                    if tgt_val is not None and tgt_val - src_first:
+                        own[addr] = tgt_val - src_first
+                offsets[target] = own
 
         action = AnimUtils.copy_keys(source, mode="action")
-        pasted = AnimUtils.paste_keys(targets, action)
+        if relative and on_replace is not None:
+            # A target ends with the source's values PLUS its offset, so the keys the swap
+            # replaces are read against those -- paste_keys would compare the bare source
+            # values (mayatk's transfer compares the values it writes).  Before the paste,
+            # as paste_keys reports, while the old fcurves still resolve to their owner.
+            slots = getattr(action, "slots", None)
+            incoming = _AnimUtilsInternal._slot_fcurves(
+                action, slots[0] if slots else None
+            )
+            for target in targets:
+                _AnimUtilsInternal._report_action_swap(
+                    target, incoming, 0.0, on_replace, value_offsets=offsets[target]
+                )
+            pasted = AnimUtils.paste_keys(targets, action)
+        else:
+            pasted = AnimUtils.paste_keys(targets, action, on_replace=on_replace)
         if not pasted or not relative:
             return pasted
 
-        # This fcurve's OWN earliest keyed value (mirrors mtk's "this attribute's own first key",
-        # not the global-earliest-frame-across-all-curves value).
-        src_first_values = {
-            (fc.data_path, fc.array_index): min(
-                fc.keyframe_points, key=lambda k: k.co.x
-            ).co.y
-            for fc in src_fcurves
-            if len(fc.keyframe_points)
-        }
-
         for target in pasted:
-            tgt_initial = initial_values[target]
+            own = offsets.get(target) or {}
             for fc in AnimUtils.get_fcurves([target]):
-                addr = (fc.data_path, fc.array_index)
-                src_first = src_first_values.get(addr)
-                tgt_val = tgt_initial.get(addr)
-                if src_first is None or tgt_val is None:
-                    continue
-                offset = tgt_val - src_first
+                offset = own.get((fc.data_path, fc.array_index))
                 if not offset:
                     continue
                 for kp in fc.keyframe_points:
@@ -2078,7 +2475,7 @@ class AnimUtils(_AnimUtilsInternal):
 
     @staticmethod
     def reduce_to_extremes(
-        objects=None, value_tolerance=0.001, stats=None, max_error=None
+        objects=None, value_tolerance=0.001, stats=None, max_error=None, on_delete=None
     ):
         """Reduce baked fcurves to their shape-defining keys and refit the handles —
         mirror of ``mtk.AnimUtils.reduce_to_extremes``.
@@ -2096,6 +2493,8 @@ class AnimUtils(_AnimUtilsInternal):
         ``reduce_max_error`` (largest deviation from the baked samples).
         ``max_error`` bounds that deviation (None = 1% of each curve's own
         amplitude; 0 keeps the extrema alone).  Returns the reduced fcurves.
+        ``on_delete(fcurve, frames)`` hears the frames of the tweens removed, per fcurve
+        (what the shot system releases its claims on).
         """
         import bpy
 
@@ -2107,12 +2506,17 @@ class AnimUtils(_AnimUtilsInternal):
         reduced, removed, worst_error = [], 0, 0.0
         for _o, action, slot in _AnimUtilsInternal._owned_actions(pool):
             for fc in list(_AnimUtilsInternal._slot_fcurves(action, slot)):
+                before = set(AnimUtils.key_times(fc)) if on_delete is not None else None
                 result = _AnimUtilsInternal._reduce_fcurve_to_extremes(
                     fc, value_tolerance, max_error
                 )
                 if result is None:
                     continue
                 reduced.append(fc)
+                if before is not None:
+                    gone = before - set(AnimUtils.key_times(fc))
+                    if gone:
+                        on_delete(fc, sorted(gone))
                 removed += result[0]
                 worst_error = max(worst_error, result[1])
         if stats is not None:
@@ -2184,7 +2588,11 @@ class AnimUtils(_AnimUtilsInternal):
 
     @staticmethod
     def simplify_curve(
-        objects, value_tolerance=0.001, time_range=None, selected_only=False
+        objects,
+        value_tolerance=0.001,
+        time_range=None,
+        selected_only=False,
+        on_delete=None,
     ):
         """Drop the keys that do not contribute to a curve's shape — mirror of
         ``mtk.AnimUtils.simplify_curve``. Returns the fcurves that lost a key.
@@ -2204,6 +2612,9 @@ class AnimUtils(_AnimUtilsInternal):
         whole curve's shape; this is the greedy collinear pass, which weighs it against
         its two neighbours. Same verb and same scope rules, different engine — the
         parity contract is behaviour, not the arithmetic.
+
+        ``on_delete(fcurve, frames)`` hears the frames of the keys removed, per fcurve
+        (what the shot system releases its claims on).
         """
 
         def in_scope(key):
@@ -2246,9 +2657,14 @@ class AnimUtils(_AnimUtilsInternal):
                 def candidate(key, _ends=ends):
                     return in_scope(key) and key.co.x not in _ends
 
+            before = {k.co.x for k in fc.keyframe_points}
             if _AnimUtilsInternal._simplify_fcurve(fc, value_tolerance, candidate):
                 fc.update()
                 simplified.append(fc)
+                if on_delete is not None:
+                    gone = before - {k.co.x for k in fc.keyframe_points}
+                    if gone:
+                        on_delete(fc, sorted(float(x) for x in gone))
         return simplified
 
     @staticmethod
@@ -2260,6 +2676,7 @@ class AnimUtils(_AnimUtilsInternal):
         simplify_keys=False,
         stats=None,
         max_error=None,
+        on_delete=None,
     ):
         """Remove redundant animation data — mirror of ``mtk.AnimUtils.optimize_keys``.
 
@@ -2281,6 +2698,10 @@ class AnimUtils(_AnimUtilsInternal):
         ``objects`` defaults to every scene object. Pass a dict as ``stats`` to receive
         ``curves_before/after`` and ``keys_before/after`` counts (also returned), plus the
         :meth:`reduce_to_extremes` stats in extremes mode.
+
+        ``on_delete(fcurve, frames)`` hears the frames of the keys removed, per fcurve (what
+        the shot system releases its claims on) -- ``frames`` ``None`` for a static curve
+        removed outright, BEFORE it goes, while the fcurve still resolves to its owner.
         """
         extremes = value_tolerance < 0
         if extremes:
@@ -2299,6 +2720,7 @@ class AnimUtils(_AnimUtilsInternal):
                 pts = fc.keyframe_points
                 s["curves_before"] += 1
                 s["keys_before"] += len(pts)
+                before = set(AnimUtils.key_times(fc)) if on_delete is not None else None
                 if remove_static_curves and len(pts):
                     vals = AnimUtils.key_arrays(fc)[1]
                     if max(vals) - min(
@@ -2306,6 +2728,8 @@ class AnimUtils(_AnimUtilsInternal):
                     ) <= value_tolerance and _AnimUtilsInternal._set_fcurve_value(
                         o, fc, vals[0]
                     ):
+                        if on_delete is not None:
+                            on_delete(fc, None)  # the whole curve goes
                         _AnimUtilsInternal._remove_fcurve(action, slot, fc)
                         continue
                 reduced = (
@@ -2327,6 +2751,11 @@ class AnimUtils(_AnimUtilsInternal):
                 fc.update()
                 s["curves_after"] += 1
                 s["keys_after"] += len(fc.keyframe_points)
+                if before is not None:
+                    # Every pass here only removes keys: the times gone are its cut.
+                    gone = before - set(AnimUtils.key_times(fc))
+                    if gone:
+                        on_delete(fc, sorted(gone))
         if stats is not None:
             stats.update(s)
         return s
@@ -2340,6 +2769,7 @@ class AnimUtils(_AnimUtilsInternal):
         fix_invalid_times=True,
         time_threshold=100000.0,
         value_threshold=1000000.0,
+        on_delete=None,
     ):
         """Detect and repair corrupted animation fcurves — mirror of
         ``mtk.Diagnostics.repair_corrupted_curves``.
@@ -2355,6 +2785,10 @@ class AnimUtils(_AnimUtilsInternal):
 
         ``objects`` defaults to every scene object. Returns
         ``{corrupted_found, curves_repaired, curves_deleted, keys_fixed, details}``.
+
+        ``on_delete(fcurve, frames)`` hears the frames of the keys removed, per fcurve (what
+        the shot system releases its claims on) -- ``frames`` ``None`` for a curve deleted
+        outright, BEFORE it goes.
         """
         import bpy
         import math
@@ -2389,6 +2823,7 @@ class AnimUtils(_AnimUtilsInternal):
                     continue
                 result["corrupted_found"] += 1
                 path = f"{fc.data_path}[{fc.array_index}]"
+                gone = []
                 # Remove corrupted keys one at a time: removing a keyframe_point invalidates the
                 # other references, so re-fetch the next bad key each pass rather than batch-remove.
                 while True:
@@ -2402,9 +2837,13 @@ class AnimUtils(_AnimUtilsInternal):
                     )
                     if bad is None:
                         break
+                    if math.isfinite(bad.co.x):
+                        gone.append(float(bad.co.x))
                     fc.keyframe_points.remove(bad)
                     result["keys_fixed"] += 1
                 if len(fc.keyframe_points) == 0 and delete_unfixable:
+                    if on_delete is not None:
+                        on_delete(fc, None)  # the whole curve goes
                     _AnimUtilsInternal._remove_fcurve(action, slot, fc)
                     result["curves_deleted"] += 1
                     result["details"].append(
@@ -2413,13 +2852,17 @@ class AnimUtils(_AnimUtilsInternal):
                 else:
                     fc.update()
                     result["curves_repaired"] += 1
+                    if gone and on_delete is not None:
+                        on_delete(fc, sorted(gone))
                     result["details"].append(
                         f"{path}: {'emptied' if not fc.keyframe_points else 'removed corrupt key(s)'}"
                     )
         return result
 
     @staticmethod
-    def tie_keyframes(objects=None, untie=False, frame_range=None, absolute=False):
+    def tie_keyframes(
+        objects=None, untie=False, frame_range=None, absolute=False, on_delete=None
+    ):
         """Add (tie) or remove (untie) bookend keys at the playback-range boundaries — mirror of
         ``mtk.AnimUtils.tie_keyframes``.
 
@@ -2428,6 +2871,8 @@ class AnimUtils(_AnimUtilsInternal):
         boundary keys (never the last remaining key). ``frame_range`` defaults to the scene's
         ``frame_start``/``frame_end``; ``absolute`` (when no explicit range is given) uses the actual
         keyed extent across the objects instead of the scene range. Returns the number of keys changed.
+        ``on_delete(fcurve, frames)`` hears the frames of the bookends an untie removed, per
+        fcurve (what the shot system releases its claims on).
         """
         import bpy
 
@@ -2456,16 +2901,22 @@ class AnimUtils(_AnimUtilsInternal):
                 if not len(pts):
                     continue
                 if untie:
+                    gone = []
                     for bound in (hi, lo):
                         for i in reversed(
                             [i for i, k in enumerate(pts) if abs(k.co.x - bound) < 1e-6]
                         ):
                             if len(pts) > 1:
+                                gone.append(float(pts[i].co.x))
                                 pts.remove(pts[i], fast=True)
                                 changed += 1
+                    if gone and on_delete is not None:
+                        on_delete(fc, sorted(gone))
                 else:
                     for bound in (lo, hi):
-                        if not any(abs(k.co.x - bound) < 1e-6 for k in pts):
+                        # A key within Blender's 0.01 insert window already stands
+                        # on the bound: inserting would rewrite its value instead.
+                        if not any(abs(k.co.x - bound) < 0.01 for k in pts):
                             pts.insert(bound, fc.evaluate(bound))
                             changed += 1
                 fc.update()
@@ -2766,7 +3217,55 @@ class AnimUtils(_AnimUtilsInternal):
                     crf for threshold, crf in _CRF_BY_QUALITY if quality >= threshold
                 )
 
-    # ---- key selection readers (mirror of mayatk) ---------------------------------
+    # ---- key selection (mirror of mayatk) -----------------------------------------
+
+    @staticmethod
+    def clear_key_selection() -> None:
+        """Deselect every key, whatever is or is not selected.
+
+        Mirror of mayatk's ``AnimUtils.clear_key_selection`` (name + behavior):
+        Maya's ``selectKey -clear`` empties the key selection on every anim
+        curve in the scene, so every action's fcurves are cleared here -- each
+        slot's, whatever ID it animates (object, data, shape keys) -- and the
+        handles with the control points, or a stale handle selection outlives
+        the clear for the next Graph Editor / Dope Sheet operation to act on.
+        Driver fcurves belong to no action and are left alone.  The Maya twin
+        skips its clear with nothing selected (the bare ``selectKey -clear``
+        raises then); Blender has no such failure, so with nothing selected
+        this only rewrites flags that are already off.  Not an undo step of
+        its own.
+
+        Returns:
+            None.
+        """
+        import bpy
+
+        for action in bpy.data.actions:
+            # Every slot's channelbag, not ``_slot_fcurves(action)``: 4.4/4.5
+            # still carry the legacy ``Action.fcurves``, which reaches the
+            # first slot only.
+            layers = getattr(action, "layers", None)
+            if layers:
+                curves = [
+                    fc
+                    for layer in layers
+                    for strip in layer.strips
+                    for cb in strip.channelbags
+                    for fc in cb.fcurves
+                ]
+            else:  # a legacy action (pre-4.4, or not yet converted)
+                curves = getattr(action, "fcurves", None) or ()
+            for fc in curves:
+                n = len(fc.keyframe_points)
+                if not n:
+                    continue
+                off = [False] * n
+                for prop in (
+                    "select_control_point",
+                    "select_left_handle",
+                    "select_right_handle",
+                ):
+                    fc.keyframe_points.foreach_set(prop, off)
 
     @staticmethod
     def get_selected_key_times(objects=None):

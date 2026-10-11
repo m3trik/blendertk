@@ -98,6 +98,35 @@ class BlenderTestRunner:
         "import os, tempfile; os.makedirs({0!r}, exist_ok=True); "
         "tempfile.tempdir = {0!r}"
     )
+    #: Then uitk's settings sandbox (:attr:`sandbox_settings`): the presets root
+    #: and every ``QSettings(org, app)`` store redirected into the temp root, so
+    #: a suite that builds a panel never reaches the developer's live ones
+    #: (``HKCU\\Software\\uitk``). uitk comes from :attr:`_SANDBOX_ROOTS`, the
+    #: checkouts every suite puts first on its own path, and the path is left as
+    #: it was found. Best-effort and never raising: a child without a Qt binding
+    #: has no QSettings to redirect, and one without uitk warns and runs its suite.
+    _SANDBOX_SETTINGS = "\n".join(
+        (
+            "import os, sys",
+            "_path = sys.path[:]",
+            "sys.path[:0] = {0!r}",
+            "try:",
+            "    from uitk.testing import TestSandbox",
+            "    TestSandbox.presets()",
+            "    os.environ.setdefault('QT_API', 'pyside6')  # the suites' own binding",
+            "    try:",
+            "        TestSandbox.qsettings()",
+            "    except ImportError:  # no Qt binding: no QSettings store to reach",
+            "        pass",
+            "except Exception as error:",
+            "    print('[WARN] uitk settings sandbox unavailable (%r): this suite '",
+            "          'reaches the live settings stores.' % (error,))",
+            "finally:",
+            "    sys.path[:] = _path",
+        )
+    )
+    #: Where :attr:`_SANDBOX_SETTINGS` imports uitk (and its pythontk) from.
+    _SANDBOX_ROOTS = [str(PACKAGE_ROOT.parent / name) for name in ("pythontk", "uitk")]
     #: Then, in a plain interpreter, the suite as ``python <suite>`` would run it.
     _RUN_AS_MAIN = "\n".join(
         (
@@ -118,6 +147,8 @@ class BlenderTestRunner:
         self.venv_python = find_venv_python()
         #: The run's throwaway temp root (:meth:`_isolate_temp`); None = real TEMP.
         self.temp_root: Optional[str] = None
+        #: Each child redirects uitk's settings stores first (:attr:`_SANDBOX_SETTINGS`).
+        self.sandbox_settings = True
 
     def discover(self, patterns: Optional[List[str]] = None) -> List[Path]:
         """Suites are ``test_*.py`` + the smoke test + the ``*_slot_check.py``
@@ -195,6 +226,12 @@ class BlenderTestRunner:
         suite -- Blender through ``--python-exit-code``, a plain interpreter
         through the uncaught error -- so an unpinned suite never runs.
 
+        Then uitk's settings stores (:attr:`_SANDBOX_SETTINGS`), with or
+        without a root: a suite kept off them only when it loaded uitk's
+        conftest left every other one free to write the developer's live
+        QSettings and presets, from a headless Blender too (it imports the
+        PySide6 tentacle provisions). That step never stops a child.
+
         Parameters:
             suite: The suite file to run.
             python: Run it under this interpreter instead of a headless Blender.
@@ -203,13 +240,21 @@ class BlenderTestRunner:
             The argument list for ``subprocess.run``.
         """
         pin = self._PIN_TEMP.format(self.temp_root) if self.temp_root else None
+        settings = (
+            self._SANDBOX_SETTINGS.format(self._SANDBOX_ROOTS)
+            if self.sandbox_settings
+            else None
+        )
+        prelude = "\n".join(code for code in (pin, settings) if code)
         if python:
-            if not pin:
+            if not prelude:
                 return [python, str(suite)]
-            return [python, "-c", f"{pin}\n{self._RUN_AS_MAIN}", str(suite)]
+            return [python, "-c", f"{prelude}\n{self._RUN_AS_MAIN}", str(suite)]
         cmd = [self.blender, "--background", "--factory-startup"]
         if pin:
-            cmd += ["--python-exit-code", "1", "--python-expr", pin]
+            cmd += ["--python-exit-code", "1"]
+        if prelude:
+            cmd += ["--python-expr", prelude]
         return cmd + ["--python", str(suite)]
 
     def run_suite(

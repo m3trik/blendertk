@@ -7,6 +7,7 @@ Unity bridge (DataNodes manifest). Tiny resolution / samples so the real bake st
 """
 
 import json
+import math
 import os
 import shutil
 import sys
@@ -218,6 +219,23 @@ try:
     n = len(cube.data.uv_layers)
     btk.create_lightmap_uvs([cube])
     check("create_lightmap_uvs is idempotent", len(cube.data.uv_layers) == n)
+    # A regenerated layout that still overlaps is named (mirror of mayatk;
+    # a 9544-face production door kept 375 overlapping faces, 2026-10-08).
+    import contextlib as _ctx
+    import io as _io
+    from blendertk.uv_utils._uv_utils import UvUtils as _UvUtils
+
+    _overlap_out = _io.StringIO()
+    with (
+        _mock.patch.object(_UvUtils, "_is_bakeable_lightmap", return_value=False),
+        _ctx.redirect_stdout(_overlap_out),
+    ):
+        btk.create_lightmap_uvs([cube], force=True)
+    check(
+        "a regenerated lightmap layout that still overlaps is named",
+        "overlap" in _overlap_out.getvalue() and cube.name in _overlap_out.getvalue(),
+        _overlap_out.getvalue()[-200:],
+    )
 
     # --- lighting-only bake + commit (the default path) -------------------
     result = baker.bake_separated([cube], output_dir=tmp_dir, suffix="_Lightmap")
@@ -1027,6 +1045,163 @@ try:
         f"{recs_inst}",
     )
     atlas_baker.revert([ia, ib])
+
+    # --- the atlas is PACKED: a gutter at every resolution, copies in name order ---
+    # Twin of mayatk's TestAtlasPlanFirst: the tiled layout this replaced inset each
+    # cell's gutter only as far as a small cell could afford, so at a low resolution
+    # neighbours met with none; and it ordered cells by area, so copies of one mesh
+    # (equal but for float noise) traded places between bakes of one room.
+    gutter_mat = btk.create_mat("standard", name="gutter_shared_mat")
+    gutter_objs = []
+    for i in range(30):
+        size = 0.2 + (i % 7) ** 2 * 0.35
+        bpy.ops.mesh.primitive_cube_add(size=size, location=(40 + i * 6, 0, 0))
+        obj = bpy.context.active_object
+        obj.name = f"GutterCube{i:02d}"
+        btk.assign_mat(obj, gutter_mat)
+        gutter_objs.append(obj)
+    low = LightmapBaker(resolution=256)
+    low_entries = next(iter(low.atlas_plan(gutter_objs).values()))
+    cells = ptk.ImgUtils.atlas_pixel_rects([r for _n, r in low_entries], 256)
+
+    def gap(p, q):
+        return max(q[2] - p[3], p[2] - q[3], q[0] - p[1], p[0] - q[1])
+
+    worst = min(gap(cells[i], cells[j]) for i in range(len(cells)) for j in range(i))
+    check(
+        "atlas: every cell keeps 2 x gutter from every other at 256 px",
+        worst >= 2 * low._atlas_gutter()
+        and min(min(r1 - r0, c1 - c0) for r0, r1, c0, c1 in cells) >= 2,
+        f"worst gap {worst}, gutter {low._atlas_gutter()}",
+    )
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0, -30, 0))
+    copy_a = bpy.context.active_object
+    copy_a.name = "CopyA"
+    copy_a.scale = (5.0, 0.17, 1.0)
+    copies = [copy_a]
+    for name, angle in (("CopyB", 90), ("CopyC", 180), ("CopyD", 270)):
+        dup = copy_a.copy()  # linked: one mesh
+        dup.name = name
+        dup.rotation_euler = (0.0, 0.0, math.radians(angle))
+        bpy.context.collection.objects.link(dup)
+        copies.append(dup)
+    bpy.context.view_layer.update()
+    copy_mat = btk.create_mat("standard", name="copy_shared_mat")
+    for obj in copies:
+        btk.assign_mat(obj, copy_mat)
+    copy_entries = dict(
+        next(iter(LightmapBaker(resolution=512).atlas_plan(copies).values()))
+    )
+    copy_cells = {
+        n: ptk.ImgUtils.atlas_pixel_rects([copy_entries[n]], 512)[0]
+        for n in ("CopyA", "CopyB", "CopyC", "CopyD")
+    }
+    check(
+        "atlas: copies of one mesh take equal cells, in name order",
+        len({(r1 - r0, c1 - c0) for r0, r1, c0, c1 in copy_cells.values()}) == 1
+        and sorted(copy_cells, key=lambda n: (copy_cells[n][0], copy_cells[n][2]))
+        == ["CopyA", "CopyB", "CopyC", "CopyD"],
+        f"{copy_cells}",
+    )
+    # A layout stretched over its square gets a cell of its SURFACE's shape (twin of
+    # mayatk's test_a_stretched_layout_gets_a_cell_of_its_surfaces_shape): every wall
+    # and baseboard of a production room is laid out filling its square whatever its
+    # shape, and a square cell shipped that stretch -- texels 27x longer along a
+    # baseboard than up it. The panel's lightmap layer copies its square-filling uvs.
+    stretch_mat = btk.create_mat("standard", name="stretch_shared_mat")
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0, -60, 0))
+    panel = bpy.context.active_object
+    panel.name = "StretchPanel"
+    panel.scale = (4.0, 1.0, 1.0)
+    panel.data.uv_layers.new(name="Lightmap")
+    stretch_objs = [panel]
+    for i in range(3):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(10 + i * 3, -60, 0))
+        bpy.context.active_object.name = f"StretchCube{i}"
+        stretch_objs.append(bpy.context.active_object)
+    bpy.context.view_layer.update()
+    for obj in stretch_objs:
+        btk.assign_mat(obj, stretch_mat)
+    stretch_entries = dict(
+        next(iter(LightmapBaker(resolution=512).atlas_plan(stretch_objs).values()))
+    )
+    sr0, sr1, sc0, sc1 = ptk.ImgUtils.atlas_pixel_rects(
+        [stretch_entries["StretchPanel"]], 512
+    )[0]
+    check(
+        "atlas: a layout stretched over its square gets its surface's 4:1 cell",
+        abs((sc1 - sc0) / (sr1 - sr0) - 4.0) < 0.3,
+        f"cell {sc1 - sc0} x {sr1 - sr0}",
+    )
+    # The layouts are settled before the plan reads them: a first bake's generated
+    # layout (Smart UV Project stretches its islands to fill the square) is what the
+    # plan sizes and shapes. Planned first, the panel below took the unwrap-fill
+    # square of a mesh with no lightmap yet and rendered its stretched layout into it.
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0, -90, 0))
+    fresh = bpy.context.active_object
+    fresh.name = "FreshPanel"
+    fresh.scale = (4.0, 1.0, 1.0)
+    fresh_objs = [fresh]
+    for i in range(2):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(10 + i * 3, -90, 0))
+        bpy.context.active_object.name = f"FreshCube{i}"
+        fresh_objs.append(bpy.context.active_object)
+    bpy.context.view_layer.update()
+    fresh_mat = btk.create_mat("standard", name="fresh_shared_mat")
+    for obj in fresh_objs:
+        btk.assign_mat(obj, fresh_mat)
+    fresh_baker = LightmapBaker(resolution=256)
+    packed_plan = {}
+
+    def fake_render(_self, meshes, **_kw):
+        return {m.name: os.path.join(tmp_dir, f"{m.name}_fresh.exr") for m in meshes}
+
+    def fake_pack(_self, maps, plan=None, **_kw):
+        packed_plan.update(plan or {})
+        return {}
+
+    with (
+        _mock.patch.object(TextureBaker, "bake", fake_render),
+        _mock.patch.object(LightmapBaker, "pack_atlas", fake_pack),
+    ):
+        fresh_baker.bake_atlas(fresh_objs, output_dir=tmp_dir)
+    check(
+        "atlas: the plan is drawn from the layouts the bake renders (built first)",
+        bool(packed_plan) and packed_plan == fresh_baker.atlas_plan(fresh_objs),
+        f"{packed_plan}",
+    )
+
+    # --- the Bake Set: plain, or spelled by the naming convention -------------
+    from blendertk.mat_utils.bake_sets import LightmapBakeSet
+
+    saved_cache = ptk.NamingConvention._cache
+    ptk.NamingConvention._cache = {
+        **ptk.NamingConvention.DEFAULTS,
+        "objectSet": ptk.AffixRule("_SET", "auto", "Set"),
+    }
+    try:
+        LightmapBakeSet.define([copy_a])
+        plain = LightmapBakeSet.name()
+        LightmapBakeSet.define([copy_a], conventional=True)
+        spelled = LightmapBakeSet.name()
+        respelled = LightmapBakeSet.respell(False)
+        stamped = [c for c in bpy.data.collections if LightmapBakeSet.STAMP in c]
+        check(
+            "bake set: plain by default, by the convention when asked, one collection",
+            plain == "lightmapBaker_baked"
+            and spelled == "lightmapBaker_baked_SET"
+            and respelled == "lightmapBaker_baked"
+            and len(stamped) == 1
+            and [o.name for o in LightmapBakeSet.members()] == ["CopyA"],
+            f"{plain} / {spelled} / {respelled} / {[c.name for c in stamped]}",
+        )
+        LightmapBakeSet.clear()
+        check(
+            "bake set: clear removes it and leaves its objects",
+            not LightmapBakeSet.exists() and "CopyA" in bpy.data.objects,
+        )
+    finally:
+        ptk.NamingConvention._cache = saved_cache
 
     # --- the lightmap is named after the TEXTURE SET, not the material -------------
     # A lightmap is one more map of the set the object already wears, so it has to sort
@@ -2209,11 +2384,16 @@ try:
     box_home.hide_render = True
     open_centre, open_corner = _floor_levels()
     box_home.hide_render = False
-    shadow_centre, shadow_corner = _floor_levels()
+    # Neither baked nor excluded, the box moves (an interactive prop): out of
+    # the render for the bake, so it shadows nothing -- production, 2026-10-07,
+    # props on a cart shadowed the cart's map (mirror of mayatk's).
+    moved_centre, _moved_corner = _floor_levels()
     check(
-        "fixture: the box shadows the floor under it",
-        open_centre > 0.05 and shadow_centre < 0.5 * open_centre,
-        f"open {open_centre:.4f} shadowed {shadow_centre:.4f}",
+        "what the bake leaves out casts no shadow, and is handed back",
+        open_centre > 0.05
+        and abs(moved_centre / open_centre - 1.0) < 0.2
+        and not box.hide_render,
+        f"open {open_centre:.4f} with the box {moved_centre:.4f}",
     )
 
     LightmapExcludeSet.define([box])
@@ -2257,6 +2437,57 @@ try:
     )
     LightmapRecords.revert([floor])
     LightmapExcludeSet.clear()
+
+    # A selected Empty is "bake what is in it": production (2026-10-07, Maya)
+    # selected a bake set's members -- a mesh and two groups -- and the bake took
+    # the mesh alone. Mirror of mayatk's.
+    grp = bpy.data.objects.new("grp_room", None)
+    bpy.context.scene.collection.objects.link(grp)
+    grp_a = _par_cube("grp_a", (120, 0, 0), size=1.0)
+    grp_b = _par_cube("grp_b", (122, 0, 0), size=1.0)
+    for child in (grp_a, grp_b):
+        child.parent = grp
+    check(
+        "a selected Empty bakes the meshes under it; resolve alone keeps none",
+        sorted(LightmapBaker.bake_targets([grp])) == ["grp_a", "grp_b"]
+        and TextureBaker.resolve_meshes([grp]) == [],
+        f"{LightmapBaker.bake_targets([grp])}",
+    )
+    grp_b.parent = grp_a  # a mesh under a mesh: the mesh names itself alone
+    check(
+        "a selected mesh with a mesh child bakes itself alone",
+        LightmapBaker.bake_targets([grp_a]) == ["grp_a"],
+        f"{LightmapBaker.bake_targets([grp_a])}",
+    )
+    # Any object that is not a mesh stands for what is under it -- a rig's
+    # curve control parenting meshes too, as mayatk's locator (2026-10-09:
+    # a table under a ``*_LOC`` re-baked none of its meshes).
+    ctrl = bpy.data.objects.new("grp_ctrl", bpy.data.curves.new("grp_ctrl", "CURVE"))
+    bpy.context.scene.collection.objects.link(ctrl)
+    grp_b.parent = ctrl
+    check(
+        "a selected curve control bakes the meshes under it",
+        LightmapBaker.bake_targets([ctrl]) == ["grp_b"],
+        f"{LightmapBaker.bake_targets([ctrl])}",
+    )
+    # The production workflow (mirror of mayatk's): an include set -- here a
+    # collection holding the group and the control -- and the Exclude set,
+    # which overrules it. The set stands for its members, ref or name.
+    include = bpy.data.collections.new("grp_include")
+    bpy.context.scene.collection.children.link(include)
+    for obj in (grp, ctrl):
+        include.objects.link(obj)
+    LightmapExcludeSet.define([grp_b])
+    check(
+        "a bake set bakes its members, the Exclude set overruling it",
+        LightmapBaker.bake_targets([include]) == ["grp_a"]
+        and LightmapBaker.bake_targets(["grp_include"]) == ["grp_a"],
+        f"{LightmapBaker.bake_targets([include])}",
+    )
+    LightmapExcludeSet.clear()
+    bpy.data.collections.remove(include)
+    for obj in (grp_a, grp_b, grp, ctrl):
+        bpy.data.objects.remove(obj)
 
     # Beside Material Textures: each map in its texture set's folder, the rest
     # in output_dir, and a folder that resolves nowhere here never created.
@@ -2945,6 +3176,7 @@ try:
                 "header",
                 "cmb_scope",
                 "exclude_layout",
+                "bake_set_layout",
                 "cmb002",
                 "cmb_device",
                 "quality_group",
@@ -2954,6 +3186,12 @@ try:
                 "footer",
             ],
             f"{_layout_items('main_layout')}",
+        )
+        check(
+            "the Bake Set row mirrors the Exclude row: a label and one button "
+            "(its switches ride the button's option box)",
+            _layout_items("bake_set_layout") == ["lbl_bake_set", "select_bake_set"],
+            f"{_layout_items('bake_set_layout')}",
         )
         check(
             "the Quality group holds Resolution, Samples and Bounces",
@@ -3742,6 +3980,44 @@ try:
             ),
             f"{[(lib.name, lib.filepath) for lib in bpy.data.libraries]} {_deps}",
         )
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+    # --- a scoped export names only the export set's objects ---------------
+    # The record is export-scoped (mirror of mayatk's): a marker outside the
+    # export set ships its map with nothing to bind it to -- a production
+    # FBX's hidden group of stale copies shipped five outdated maps
+    # (2026-10-09). Roots, descendants included; none is the file.
+    bpy.ops.mesh.primitive_cube_add()
+    _ship = bpy.context.active_object
+    _ship.name = "ship_leaf"
+    _ship_root = bpy.data.objects.new("SHIP_ROOT", None)
+    bpy.context.scene.collection.objects.link(_ship_root)
+    _ship.parent = _ship_root
+    bpy.ops.mesh.primitive_cube_add()
+    _stale = bpy.context.active_object
+    _stale.name = "stale_leaf"
+    LightmapRecords.commit(
+        {
+            _ship.name: os.path.join(tmp_dir, "ship_LM.exr"),
+            _stale.name: os.path.join(tmp_dir, "stale_LM.exr"),
+        }
+    )
+
+    def _scoped_names(scope):
+        rec = LightmapRecords.export_record(ptk.ExportContext(scope=scope))
+        return sorted(o["name"] for o in rec.payload["objects"]) if rec else []
+
+    check(
+        "a scoped export names only the export set's objects",
+        _scoped_names(("SHIP_ROOT",)) == ["ship_leaf"],
+        _scoped_names(("SHIP_ROOT",)),
+    )
+    check(
+        "...no scope is the whole file; an empty one names nothing",
+        _scoped_names(None) == ["ship_leaf", "stale_leaf"] and _scoped_names(()) == [],
+        (_scoped_names(None), _scoped_names(())),
+    )
+    LightmapRecords.revert()
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
 except Exception:

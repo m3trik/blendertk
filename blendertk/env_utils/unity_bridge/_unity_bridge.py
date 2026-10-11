@@ -58,6 +58,17 @@ class UnityBridge(BlenderExportMixin, ptk.HandoffBridge):
     #: flag also turns on ``use_custom_props``, without which the carrier would arrive
     #: as an Empty holding nothing. Mirror of mayatk's ``UnityBridge``.
     include_data_export = True
+    #: unitytk's ``RenderEffectsImporter`` and ``EmissiveGroupController``
+    #: rebind the curve proxies -- ``<object>__<channel>`` and one per keyed
+    #: emissive weight -- so this hand-off stages them exactly like the Scene
+    #: Exporter's FBX (mirror of mayatk's, which names ``render_effects``:
+    #: Maya's FBX carries the keyed weights on the carrier itself).
+    export_stagers = ("render_effects", "emissive_groups")
+    #: Unity builds a model's AnimationClips from the FBX's takes, and Blender's
+    #: exporter writes none unless it bakes; this panel offers no animation
+    #: knob, so the hand-off bakes (and splits the declared shots) by default.
+    #: Measured in Unity before this: the curve proxies arrived as static nodes.
+    include_animation = True
 
     @staticmethod
     def _deliverer_cls():

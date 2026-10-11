@@ -337,20 +337,26 @@ class SceneExporter(ptk.SceneExporterBase):
         # The FBX export kwargs for this run: the named preset merged over the
         # built-in defaults, or the defaults alone when no preset is selected.
         # Called unconditionally so a prior run's loaded preset never leaks
-        # into one with none picked -- and BEFORE the run begins, because
-        # whether the deliverable carries its own texture copies
-        # (``embed_textures``, or ``path_mode COPY``) is a run mode the
-        # texture passes key their staging on: either way nothing references
-        # staged files after the write, so they may stage into a temp dir.
+        # into one with none picked. Whatever the preset says, the deliverable
+        # carries its media (``_SELF_CONTAINED_FBX_OPTIONS``), so the texture
+        # passes stage in scratch for every FBX (``_texture_staging_dir``).
         self.load_fbx_export_preset(self.preset_name)
-        fbx_options = self._resolved_fbx_options()
+        preset = getattr(self, "_fbx_preset_options", None) or {}
+        overridden = [
+            key
+            for key, value in self._SELF_CONTAINED_FBX_OPTIONS.items()
+            if key in preset and preset[key] != value
+        ]
+        if overridden:
+            self.logger.info(
+                f"FBX preset overridden: {', '.join(overridden)} -- the "
+                "deliverable carries its media; the preset's other settings stand."
+            )
         run = run.replace(
             export_path=self.export_path,
             # A versioned name routes the sidecar through the base stem so
             # every version of a series shares one manifest.
             versioned=resolved["n"] is not None,
-            fbx_media_selfcontained=bool(fbx_options.get("embed_textures"))
-            or str(fbx_options.get("path_mode", "")).upper() == "COPY",
         )
         # The ONE per-run reset: the manager adopts this run's modes and drops
         # every marker a previous run left, BEFORE the export set is seeded --
@@ -440,8 +446,11 @@ class SceneExporter(ptk.SceneExporterBase):
         ``exclude_hdr``/``ignore_groups`` pattern: the exclusion is logged (INFO,
         naming what was dropped) rather than silent. ``check_hidden_geometry`` is
         what *fails* an export over hidden meshes; this filter keeps the write
-        honest when that check is off or the members aren't meshes."""
+        honest when that check is off or the members aren't meshes. The
+        ``data_export`` carrier always stays: the write shows it for itself and
+        hides it again after (``FbxUtils._carriers_shippable``)."""
         from blendertk.core_utils._core_utils import CoreUtils
+        from blendertk.node_utils.data_nodes import DataNodes
 
         # the window's layer -- the one FbxUtils.export selects in (windowless, a
         # bare visible_get reads the scene's default layer)
@@ -449,8 +458,9 @@ class SceneExporter(ptk.SceneExporterBase):
         exportable, dropped = [], []
         for o in objects:
             try:
-                ok = (not getattr(o, "hide_select", False)) and o.visible_get(
-                    view_layer=vl
+                ok = getattr(o, "name", None) == DataNodes.EXPORT or (
+                    (not getattr(o, "hide_select", False))
+                    and o.visible_get(view_layer=vl)
                 )
             except RuntimeError:  # not in the active view layer
                 ok = False
@@ -476,7 +486,13 @@ class SceneExporter(ptk.SceneExporterBase):
         # the scene-data sidecar and every post-write read describe it.
         self.task_manager.objects = export_objects
         export_succeeded = False
-        glb_tempdir = None
+        # The FBX is written to, and finished in, a LOCAL stage -- the GLB
+        # conversion, the takes and the embedded maps read or rewrite it there
+        # -- and reaches the output directory once (``_deliver``): a synced
+        # output folder holds a just-written file while it uploads, and a
+        # rewrite in place is then refused. Mirror of mayatk's. GLB-only throws
+        # the staged FBX away; USD writes straight to its destination.
+        stage_dir = None
         # The export bracket (mirror of mayatk's): it stages the scene for the
         # write and finishes it in the ``finally`` below, AFTER the GLB
         # conversion and the sidecar have read the scene -- a session stager
@@ -485,13 +501,13 @@ class SceneExporter(ptk.SceneExporterBase):
         # by ``export_data_node`` or just below.
         FbxUtils.begin_export()
         try:
-            if run.glb_only:
-                glb_tempdir = ptk.TempArtifacts("scene_exporter_glb").dir_path()
-                fbx_write_path = os.path.join(
-                    glb_tempdir, os.path.basename(self.export_path)
-                )
-            else:
+            if run.usd:
                 fbx_write_path = self.export_path
+            else:
+                stage_dir = ptk.TempArtifacts("scene_exporter_stage").dir_path()
+                fbx_write_path = os.path.join(
+                    stage_dir, os.path.basename(self.export_path)
+                )
 
             # A run with the carrier tasks off still publishes the scene
             # records exactly once before the write (mirror of mayatk's
@@ -539,7 +555,12 @@ class SceneExporter(ptk.SceneExporterBase):
                     export_succeeded = False
                     return False
                 deliverable_path = os.path.splitext(self.export_path)[0] + ".glb"
-                shutil.move(glb_path, deliverable_path)
+                placed = self._deliver(glb_path, deliverable_path)
+                if placed != deliverable_path:
+                    if placed == glb_path:
+                        stage_dir = None  # the stage holds the only copy
+                    export_succeeded = False
+                    return False
                 self.logger.success(f"GLB created: {deliverable_path}")
 
             elapsed = time.time() - start_time
@@ -571,7 +592,45 @@ class SceneExporter(ptk.SceneExporterBase):
             glb_alongside = None
             if run.create_glb and not run.glb_only:
                 self._progress_step("Converting to GLB…")
-                glb_alongside = self.task_manager.create_glb()
+                glb_alongside = self.task_manager.create_glb(
+                    fbx_path=fbx_write_path, announce=False
+                )
+
+            # The FBX deliverable's clips, per the Animation Clips mode --
+            # after the GLB, whose clips are cut from the whole-timeline take
+            # Shots Only drops (mirror of mayatk). A GLB-only run's FBX is not
+            # shipped.
+            if not run.glb_only and not run.usd:
+                self.task_manager.ship_declared_takes(fbx_write_path)
+                # Every file the scene records name by file name (the
+                # lightmaps, the reflection probe, the shadow maps) goes
+                # INSIDE the FBX, so nothing ships beside it -- after the
+                # GLB, which binds its own copies. Mirror of mayatk.
+                FbxUtils.embed_dependencies(
+                    fbx_write_path,
+                    self.task_manager._lightmap_search_dirs(),
+                    logger=self.logger,
+                )
+                # The finished files, into place (mirror of mayatk): the FBX is
+                # the deliverable; a GLB that cannot land is dropped from the
+                # sidecar rather than failing the run.
+                placed = self._deliver(fbx_write_path, self.export_path)
+                if placed != self.export_path:
+                    if placed == fbx_write_path:
+                        stage_dir = None  # the stage holds the only copy
+                    export_succeeded = False
+                    return False
+                if glb_alongside:
+                    placed_glb = os.path.splitext(self.export_path)[0] + ".glb"
+                    landed = self._deliver(glb_alongside, placed_glb)
+                    if landed == placed_glb:
+                        glb_alongside = placed_glb
+                    else:
+                        if landed == glb_alongside:
+                            stage_dir = None  # the stage holds the only copy
+                        glb_alongside = None
+                    if glb_alongside:
+                        self.logger.success(f"GLB created: {glb_alongside}")
 
             # Write the scene-data sidecar (hierarchy baseline + data_export
             # snapshot) as the single LAST step of every mode, so it can
@@ -595,13 +654,27 @@ class SceneExporter(ptk.SceneExporterBase):
             raise RuntimeError(f"Failed to export objects: {e}")
         finally:
             FbxUtils.end_export()
-            if glb_tempdir:
-                shutil.rmtree(glb_tempdir, ignore_errors=True)
+            if stage_dir:
+                shutil.rmtree(stage_dir, ignore_errors=True)
 
         if not export_succeeded:
             return False
 
         return True
+
+    def _deliver(self, staged: str, destination: str) -> str:
+        """Put the finished *staged* file at *destination* (``ptk.FileUtils.deliver_file``).
+
+        Returns where the file is now: *destination* when it landed; else the
+        copy parked beside it, or *staged* itself when the output folder takes
+        nothing -- both named in the log, so the run's output is never lost
+        with its stage. Mirror of mayatk's.
+        """
+        placed, reason = ptk.FileUtils.deliver_file(staged, destination)
+        if reason:
+            self.logger.error(f"Could not write {destination}: {reason}")
+            self.logger.warning(f"The finished file was kept at: {placed}")
+        return placed
 
     #: ``wm.usd_export`` kwargs for the USD output format: the shared interchange
     #: set (``btk.UsdUtils.INTERCHANGE_EXPORT_OPTIONS``; a MaterialX network is a
@@ -645,13 +718,18 @@ class SceneExporter(ptk.SceneExporterBase):
                 "USD: the data_export carrier ships as a prim with userProperties; "
                 "consumers reading them are not yet verified."
             )
-        written = UsdUtils.export(
-            filepath=usd_path,
-            objects=export_objects,
-            selection_only=True,
-            frame_range=frame_range,
-            **options,
-        )
+        from blendertk.env_utils.fbx_utils import FbxUtils
+
+        # Shown for the write, as the FBX write shows it: a carrier in a hidden
+        # or excluded collection could not be selected otherwise.
+        with FbxUtils._carriers_shippable(export_objects):
+            written = UsdUtils.export(
+                filepath=usd_path,
+                objects=export_objects,
+                selection_only=True,
+                frame_range=frame_range,
+                **options,
+            )
         self.logger.info(f"USD written: {written}")
         return written
 
@@ -998,32 +1076,32 @@ class SceneExporter(ptk.SceneExporterBase):
             **(getattr(self, "_fbx_preset_options", None) or {}),
         }
         self._force_scene_range_take(options)
+        options.update(self._SELF_CONTAINED_FBX_OPTIONS)
         return options
 
+    #: What every FBX deliverable needs, preset or not: its media inside it --
+    #: nothing ships beside a deliverable (the user's rule, 2026-10-05). The
+    #: exporter embeds only under ``COPY`` (Blender's own rule). The files the
+    #: scene records name follow after the write (``FbxUtils.embed_dependencies``).
+    #: Mirror of mayatk's ``_SELF_CONTAINED_FBX_OPTIONS``.
+    _SELF_CONTAINED_FBX_OPTIONS: Dict[str, Any] = {
+        "embed_textures": True,
+        "path_mode": "COPY",
+    }
+
     def _force_carrier_readability(self, export_objects, fbx_options: dict) -> None:
-        """When the ``data_export`` carrier is in the export set, force the two exporter
-        options that make it readable — Blender's FBX exporter drops custom properties by
-        default and excluded object types outright, so a user preset carrying
-        ``use_custom_props: false`` or an ``object_types`` without ``EMPTY`` would ship a
-        carrier holding nothing (or no carrier at all) with no signal: the failure that
-        looks most like success. Same rule as the hand-off bridges (``handoff_export``):
-        shipping the carrier and shipping what makes it readable are one decision, so a
-        preset override cannot separate them. Mutates *fbx_options* in place and logs any
-        repair."""
-        from blendertk.node_utils.data_nodes import DataNodes
+        """When the ``data_export`` carrier (or a staged curve proxy) is in the export
+        set, force the two exporter options that make it readable — Blender's FBX
+        exporter drops custom properties by default and excluded object types outright,
+        so a user preset carrying ``use_custom_props: false`` or an ``object_types``
+        without ``EMPTY`` would ship a carrier holding nothing (or no carrier at all) with
+        no signal: the failure that looks most like success. The shared step
+        (``FbxUtils._force_carrier_readability``, which the write and the hand-off
+        bridges take too), run here so the settings report describes it. Mutates
+        *fbx_options* in place and logs any repair."""
         from blendertk.env_utils.fbx_utils import FbxUtils
 
-        names = {getattr(o, "name", str(o)) for o in export_objects or []}
-        if DataNodes.EXPORT not in names:
-            return
-        repaired = []
-        if not fbx_options.get("use_custom_props"):
-            fbx_options["use_custom_props"] = True
-            repaired.append("use_custom_props=True")
-        types = FbxUtils._as_object_types(fbx_options.get("object_types") or {"MESH"})
-        if "EMPTY" not in types:
-            fbx_options["object_types"] = types | {"EMPTY"}
-            repaired.append("object_types+=EMPTY")
+        repaired = FbxUtils._force_carrier_readability(export_objects, fbx_options)
         if repaired:
             self.logger.warning(
                 "The active FBX preset would ship an unreadable data_export "

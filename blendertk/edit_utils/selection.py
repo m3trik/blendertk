@@ -125,13 +125,9 @@ class Selection:
             "Ancestors": lambda objs: Selection.select_hierarchy_above(objs),
             "Children": lambda objs: Selection.select_children(objs),
             "Descendants": lambda objs: Selection.select_hierarchy_below(objs),
-            # Empties used purely as organizational parents (Maya's is_group check: null
-            # transform, no shape, has children); Image-Plane empties are excluded (own leaf).
-            "Groups": lambda objs: [
-                o
-                for o in objs
-                if o.type == "EMPTY" and o.children and o.empty_display_type != "IMAGE"
-            ],
+            # Empties standing for a Maya group (NodeUtils.is_group: the node-type stamp,
+            # else a parent); Image-Plane empties are excluded (own leaf).
+            "Groups": lambda objs: NodeUtils.is_group(objs, filter=True),
         },
         "Scene": {
             "Assets": lambda objs: [
@@ -351,13 +347,10 @@ class Selection:
 
     @staticmethod
     def _select_locators(objects):
-        """Empties acting as plain point markers (no children, not an image plane) —
-        the closest Blender analogue of a Maya locator."""
-        return [
-            o
-            for o in objects
-            if o.type == "EMPTY" and not o.children and o.empty_display_type != "IMAGE"
-        ]
+        """Empties standing for a Maya locator (``NodeUtils.is_locator``): the node-type
+        stamp -- a locator rig's locator holds its object -- else a point marker with no
+        children; never an image plane."""
+        return NodeUtils.is_locator(objects, filter=True)
 
     @staticmethod
     def _select_keyed_locators(objects):

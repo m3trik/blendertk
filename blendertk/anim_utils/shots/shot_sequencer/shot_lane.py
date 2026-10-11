@@ -8,6 +8,8 @@ deleting, moving, merging, splitting, padding and trimming shots, growing a
 shot over new keys, and the timeline / shot-lane context menus that offer them.
 """
 
+import pythontk as ptk
+
 
 class ShotLaneMixin:
     """The shot lane's menus and the shot structure edits they run."""
@@ -161,6 +163,13 @@ class ShotLaneMixin:
                     parent=trim,
                     callback=lambda e=edge: self._trim_shot(sid, edge=e),
                 )
+            # Last, on its own: the one row that takes keys with it -- the
+            # dropdown's and the Shots window's delete (mirror of mayatk's).
+            menu.add_separator()
+            menu.add(
+                f'Delete "{shot.name}"\u2026',
+                callback=lambda: self.delete_shot(sid),
+            )
         return menu
 
     def _neighbour_shots(self, shot_id: int) -> dict:
@@ -175,9 +184,26 @@ class ShotLaneMixin:
         }
 
     def _after_shot_change(self, shot_id=None) -> None:
-        """Rebuild everything a shot add/remove/resize invalidates."""
-        self._segment_cache.clear()
-        self._sub_row_cache.clear()
+        """Rebuild everything a shot edit, an undo or a redo invalidates
+        (mirror of mayatk's): the cached segments, the dropdown, the timeline
+        and the playback range -- the ONE refresh every such path ends with.
+        The dropdown goes first: the rebuild resolves the active shot through
+        it.  A *shot_id* -- the shot the edit acted on -- becomes the active
+        shot."""
+        if shot_id is not None and self.sequencer is not None:
+            if self.sequencer.shot_by_id(shot_id) is not None:
+                # The shot an edit acted on is the one drawn -- and so the
+                # active one, or the timeline shows it while the dropdown and
+                # the playback range stay on another (a shot-lane edit on a
+                # neighbour's band).  Our own rebuild follows: no store-event
+                # rebuild on top of it.
+                was_syncing = self._syncing
+                self._syncing = True
+                try:
+                    self.sequencer.store.set_active_shot(shot_id)
+                finally:
+                    self._syncing = was_syncing
+        self._drop_caches()
         self._sync_combobox()
         self._sync_to_widget(shot_id=shot_id)
         self._apply_view_playback_range()
@@ -209,7 +235,6 @@ class ShotLaneMixin:
         store = self.sequencer.store
         with store.scene_edit("Delete Shot"):
             result = self.sequencer.delete_shot(shot_id)
-        store.set_active_shot(None)
         self._after_shot_change()
         cut = result.get("curves_cut", 0)
         closed = result.get("closed", 0.0)
@@ -220,31 +245,42 @@ class ShotLaneMixin:
             parts.append(f"closed {closed:.0f}f")
         self._set_footer(" \u00b7 ".join(parts))
 
-    def delete_stale_shots(self) -> None:
-        """Delete every stale shot, after naming them (``ShotStore.remove_stale_shots``).
+    def delete_shots(self, scope: str = "stale") -> None:
+        """Delete the shots of *scope*, after naming them (mirror of mayatk's).
 
-        Mirror of mayatk's: a stale shot names only objects the file no longer
-        holds and keys nothing in its frames.  Records only -- no key is
-        touched and no shot moves, where :meth:`delete_shot` cuts a shot's keys
-        and closes the gap behind it.  One undo; the question is the Shots
-        window's own (``ShotsController.confirm_stale_removal``).
+        ``"stale"``, ``"empty"`` or ``"all"`` (``ShotStore.shots_in_scope``) --
+        the scopes of the Shots window's Delete Shots, asked the same question
+        (``ShotsController.confirm_removal``).  Records only: no key is touched
+        and no shot moves, where :meth:`delete_shot` cuts a shot's keys and
+        closes the gap behind it, which would retime every shot after it.  One
+        undo.
         """
         if self.sequencer is None:
             return
         from blendertk.anim_utils.shots.shots_slots import ShotsController
 
         store = self.sequencer.store
-        stale = store.stale_shots()
-        if not stale:
-            self._set_footer("No stale shots")
+        kind = "" if scope == "all" else f"{scope} "
+        doomed = store.shots_in_scope(scope)
+        if not doomed:
+            self._set_footer(f"No {kind}shots")
             return
         parent = self._get_sequencer_widget() or self.ui
-        if not ShotsController.confirm_stale_removal(stale, parent):
+        if not ShotsController.confirm_removal(doomed, scope, parent):
             return
-        with store.scene_edit("Delete Stale Shots"):
-            removed = store.remove_stale_shots()
+        label = ShotsController.scope_label(scope)
+        with store.scene_edit(f"Delete {label} Shots"):
+            removed = store.remove_shots_in_scope(scope)
         self._after_shot_change()
-        self._set_footer(f"Deleted {len(removed)} stale shot(s)")
+        self._set_footer(f"Deleted {len(removed)} {kind}shot(s)")
+
+    @ptk.Deprecation.symbol(
+        "ShotSequencerController.delete_shots",
+        remove_in="0.16.0",
+        since="2026-10-07",
+    )
+    def delete_stale_shots(self) -> None:
+        self.delete_shots("stale")
 
     def move_shot_to_position(self, shot_id: int, position: int) -> None:
         """Re-slot *shot_id* at 1-based *position*, pushing the rest along.
@@ -274,8 +310,7 @@ class ShotLaneMixin:
         store = self.sequencer.store
         with store.scene_edit("Merge Shots"):
             merged = self.sequencer.merge_shots([shot_id, other_id])
-        store.set_active_shot(merged.shot_id)
-        self._after_shot_change(shot_id=merged.shot_id)
+        self._after_shot_change(shot_id=merged.shot_id)  # it becomes active
         self._set_footer(
             f"Merged into {merged.name} \u00b7 {merged.start:.0f}\u2013{merged.end:.0f}"
         )
@@ -297,8 +332,7 @@ class ShotLaneMixin:
         except ValueError as exc:
             self._set_footer(str(exc))
             return
-        store.set_active_shot(tail.shot_id)
-        self._after_shot_change(shot_id=tail.shot_id)
+        self._after_shot_change(shot_id=tail.shot_id)  # it becomes active
         self._set_footer(
             f"Split at {time:.0f} \u00b7 {tail.name} {tail.start:.0f}\u2013{tail.end:.0f}"
         )
@@ -363,8 +397,8 @@ class ShotLaneMixin:
         if abs(head) < 1e-6 and abs(tail) < 1e-6:
             self._set_footer(f"Add {edge} space: nothing to do")
             return
-        # The padded shot, which in the adjacent / all views need not be the
-        # active one (mayatk's ``_after_shot_change(shot_id)``).
+        # The padded shot, which in the adjacent / all views need not have
+        # been the active one; it is now (``_after_shot_change``).
         self._after_shot_change(shot_id)
         self._set_footer(f"Added {tail - head:.0f}f of {edge} space")
 
@@ -384,11 +418,7 @@ class ShotLaneMixin:
         if abs(head) < 1e-6 and abs(tail) < 1e-6:
             self._set_footer("Nothing to trim — the shot already fits its content.")
             return
-        self._segment_cache.clear()
-        self._sub_row_cache.clear()
-        self._sync_to_widget()
-        self._sync_combobox()
-        self._apply_view_playback_range()
+        self._after_shot_change(shot_id)
         self._set_footer(
             f"Trimmed {abs(head):.0f}f from the head, {abs(tail):.0f}f from the tail"
         )
@@ -499,59 +529,34 @@ class ShotLaneMixin:
         idx = next(
             (i for i, sh in enumerate(sorted_s) if sh.shot_id == anchor_shot_id), 0
         )
-        name = store.unique_name("Shot", first=len(sorted_s) + 1)
-
-        from pythontk.core_utils.engines.shots.manifest.behaviors import Behaviors
-
-        duration = Behaviors.compute_duration([], fallback=100.0)
         with store.scene_edit("Insert Shot"):
-            shot = seq.insert_shot(
-                name=name,
-                duration=duration,
-                at_position=(idx + 1) if before else (idx + 2),
-            )
-        store.set_active_shot(shot.shot_id)
-        self._segment_cache.clear()
-        self._sub_row_cache.clear()
-        self._sync_combobox()
-        cmb = getattr(self.ui, "cmb_shot", None)
-        if cmb is not None:
-            for i in range(cmb.count()):
-                if cmb.itemData(i) == shot.shot_id:
-                    cmb.blockSignals(True)
-                    cmb.setCurrentIndex(i)
-                    cmb.blockSignals(False)
-                    break
-        self.select_shot(shot.shot_id)
-        self._sync_to_widget()
+            shot = seq.new_shot(at_position=(idx + 1) if before else (idx + 2))
+        self._take_new_shot(shot)
         self._set_footer(f"Inserted {shot.name} · {shot.start:.0f}–{shot.end:.0f}")
+
+    def _take_new_shot(self, shot) -> None:
+        """Make the shot just created the one being worked on (mirror of
+        mayatk's): active, its objects selected and the playback range on it,
+        the playhead on its first frame (Playhead to Shot Start) -- then the
+        one post-edit refresh."""
+        self.select_shot(shot.shot_id)
+        self._land_on_shot(shot)
+        self._after_shot_change(shot.shot_id)
 
     def _create_shot_one_click(self) -> None:
         if self.sequencer is None:
             return
         store = self.sequencer.store
-        gap = store.gap or 0
-        name = store.unique_name("Shot", first=len(self.sequencer.sorted_shots()) + 1)
-        from pythontk.core_utils.engines.shots.manifest.behaviors import Behaviors
-
-        duration = Behaviors.compute_duration([], fallback=100.0)
-        # Sequencer-level append (insert_shot, no anchor): probes the last
-        # shot's trailing envelope content so the new shot is never built
-        # over fade tails / trailing strips; snapshot makes it undoable via
-        # the ledger's membership diff, and its own undo step pairs with that
-        # restore point -- without one, the panel's undo also popped the
-        # user's previous, unrelated Blender step.
+        # Sequencer-level append (``new_shot`` -> insert_shot, no anchor):
+        # probes the last shot's trailing envelope content so the new shot is
+        # never built over fade tails / trailing strips; snapshot makes it
+        # undoable via the ledger's membership diff, and its own undo step
+        # pairs with that restore point -- without one, the panel's undo also
+        # popped the user's previous, unrelated Blender step.  The Shots
+        # window's New Shot is the same call.
         with store.scene_edit("New Shot"):
-            shot = self.sequencer.insert_shot(name=name, duration=duration, gap=gap)
-        self._sync_combobox()
-        cmb = getattr(self.ui, "cmb_shot", None)
-        if cmb is not None:
-            for i in range(cmb.count()):
-                if cmb.itemData(i) == shot.shot_id:
-                    cmb.setCurrentIndex(i)
-                    break
-        self.select_shot(shot.shot_id)
-        self._sync_to_widget()
+            shot = self.sequencer.new_shot()
+        self._take_new_shot(shot)
         self._set_footer(f"Created {shot.name} · {shot.start:.0f}–{shot.end:.0f}")
 
     def _find_shot_at_time(self, time: float):
@@ -569,4 +574,18 @@ class ShotLaneMixin:
 
     def _edit_shot_dialog(self, shot) -> None:
         self.sequencer.store.set_active_shot(shot.shot_id)
-        self.sb.handlers.marking_menu.show("shots")
+        self._show_shots_window()
+
+    def _show_shots_window(self):
+        """Open the Shots window PINNED, and return it (mirror of mayatk).
+
+        Opened from here to edit a shot it has to stay up while the user works
+        in it, and its pin button is then the one that puts it away.  A window
+        with no pin button never auto-hides, and pinned it would refuse every
+        hide with no button to undo it, so it is left as it is.
+        """
+        window = self.sb.handlers.marking_menu.show("shots")
+        header = getattr(window, "header", None)
+        if "pin" in (getattr(header, "buttons", None) or {}):
+            window.set_pinned(True)
+        return window

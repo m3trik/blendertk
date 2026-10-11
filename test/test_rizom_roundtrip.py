@@ -36,7 +36,7 @@ lines = []
 
 
 def check(name, cond, detail=""):
-    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}")
 
 
 try:
@@ -365,7 +365,7 @@ try:
 
     # -----------------------------------------------------------------------------
     # 5d) Payloads under a folder whose name is not plain ASCII (a user profile, so
-    #     %TEMP%, named "José" or "Жук"). RizomUV 2020.1 reads the -cfi argument in the
+    #     %TEMP%, named "Zoë" or "★"). RizomUV 2020.1 reads the -cfi argument in the
     #     ANSI code page and the UTF-8 bytes of the paths INSIDE its Lua as ANSI: a -cfi
     #     script under a Cyrillic folder hangs to the timeout, ZomLoad/ZomSave under a
     #     cp1252 folder too; the 8.3 forms pass (serial runs, 2026-09-27). Mirror of
@@ -378,10 +378,10 @@ try:
 
     paths_root = os.path.join(HERE, "temp_tests", f"rizom_paths_{os.getpid()}")
     folders = {}
-    for name in ("Jos\u00e9", "\u0416\u0443\u043a"):
+    for name in ("Zo\u00eb", "\u2605"):
         folders[name] = os.path.join(paths_root, f"{name} payloads")
         os.makedirs(folders[name], exist_ok=True)
-    cyr, latin = folders["\u0416\u0443\u043a"], folders["Jos\u00e9"]
+    star, latin = folders["\u2605"], folders["Zo\u00eb"]
 
     def in_folder(path, folder):
         return path.isascii() and os.path.samefile(os.path.dirname(path), folder)
@@ -393,7 +393,7 @@ try:
 
     try:
         # A volume with 8.3 names off answers the LONG name, not None.
-        if not (ptk.AppLauncher._short_name(cyr) or "").isascii():
+        if not (ptk.AppLauncher._short_name(star) or "").isascii():
             check("non-ASCII payloads: SKIP (no 8.3 short names on this volume)", True)
         else:
             for name, folder in folders.items():
@@ -404,7 +404,7 @@ try:
                       ascii(lua_paths))
                 br._release_temp_payloads()
 
-            br = bridge_in(cyr, rizom_path="not-used.exe")
+            br = bridge_in(star, rizom_path="not-used.exe")
             br.script_path = "-- probe"
             seen = {}
 
@@ -445,11 +445,11 @@ try:
             send_paths = re.findall(
                 r'Path="([^"]+)"',
                 RizomUVBridge(rizom_path="not-used.exe").build_send_script(
-                    os.path.join(cyr, "send.fbx"), objects=[textured]
+                    os.path.join(star, "send.fbx"), objects=[textured]
                 ),
             )
             check("non-ASCII payloads: a send names its FBX and texture in ASCII",
-                  len(send_paths) == 2 and in_folder(send_paths[0], cyr)
+                  len(send_paths) == 2 and in_folder(send_paths[0], star)
                   and in_folder(send_paths[1], latin), ascii(send_paths))
             bpy.data.images.remove(node.image)
 

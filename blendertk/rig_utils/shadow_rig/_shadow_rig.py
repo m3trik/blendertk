@@ -103,6 +103,12 @@ class ShadowRig(ptk.LoggingMixin):
     # positional source moved in or out along the same bearing changes the
     # drawn shape too (perspective growth), and the bearing alone misses it.
     _DISTANCE_PROP = "silhouetteDistance"
+    # The third: each target's world matrix in the contact's frame when the
+    # silhouette was drawn (a digest; mirror of mayatk's ``_LAYOUT_ATTR``). A
+    # Combined rig is one rigid caster -- one map, one anchor -- so a member
+    # moved on its own changes what it draws while the source's bearing in
+    # the contact's frame does not move at all.
+    _LAYOUT_PROP = "silhouetteLayout"
     #: Follow Source (:meth:`auto_recalculate`) re-renders a silhouette once
     #: its source has moved this far: degrees of bearing, or this fraction of
     #: its distance (mirror of mayatk's).
@@ -286,8 +292,29 @@ class ShadowRig(ptk.LoggingMixin):
             return True
         return bool(recursive) and any(c.type == "MESH" for c in obj.children_recursive)
 
+    def _contact_parent(self):
+        """Where the contact hangs (mirror of mayatk's): on what moves EVERY
+        target with it -- the targets' lowest common ancestor (a parent they
+        share, or the target the others hang under; a single target itself)
+        -- or None when they share nothing, and :meth:`create` puts it in the
+        rig's own group at the world origin. Under the first target, the
+        set's frame followed one member of it."""
+        chains = []
+        for target in self.targets:
+            chain, node = [], target
+            while node is not None:
+                chain.append(node)
+                node = node.parent
+            chains.append(chain[::-1])  # root first
+        common = None
+        for level in zip(*chains):
+            if any(n.name != level[0].name for n in level):
+                break
+            common = level[0]
+        return common
+
     def create_contact_locator(self):
-        """Empty at the footprint's lowest point (min-Z), parented to the first target so it tracks."""
+        """Empty at the footprint's lowest point (min-Z), hung on :meth:`_contact_parent`."""
         lo, hi = self._world_bounds()
         loc = (
             (lo[0] + hi[0]) * 0.5,
@@ -297,8 +324,31 @@ class ShadowRig(ptk.LoggingMixin):
         self.contact = RigUtils.create_locator(
             f"{self._base}_contact", location=loc, display_type="PLAIN_AXES", size=0.2
         )
-        RigUtils.parent_keep_transform(self.contact, self.targets[0])
+        parent = self._contact_parent()
+        if parent is not None:
+            RigUtils.parent_keep_transform(self.contact, parent)
         return self.contact
+
+    def _independent_movers(self):
+        """The targets keyed to move relative to the contact: a transform
+        fcurve on the target, or on an ancestor below the contact's parent
+        (mirror of mayatk's). A Combined rig's map and anchor follow the
+        contact alone, so at runtime their shadows stay where they were drawn."""
+        import blendertk as btk
+
+        stop = self.contact.parent if self.contact is not None else None
+        channels = ("location", "rotation_euler", "rotation_quaternion", "scale")
+        movers = []
+        for target in self.targets:
+            node = target
+            while node is not None and (stop is None or node.name != stop.name):
+                if any(
+                    f.data_path in channels for f in btk.AnimUtils.get_fcurves([node])
+                ):
+                    movers.append(target)
+                    break
+                node = node.parent
+        return movers
 
     @classmethod
     def ensure_source(cls, source_name=DEFAULT_SOURCE_NAME, position=(5.0, 5.0, 10.0)):
@@ -625,6 +675,65 @@ class ShadowRig(ptk.LoggingMixin):
         p[self._RECURSIVE_PROP] = bool(recursive)
         p.update_tag()
 
+    #: |det| of the contact frame's axes below which nothing can be measured in
+    #: it (mirror of mayatk's): a uniform scale under ~1e-4.
+    _DEGENERATE_FRAME = 1e-12
+
+    def _layout(self):
+        """A digest of each target's world matrix in the contact's frame, to
+        1e-4: what the silhouette and the map were drawn of
+        (:attr:`_LAYOUT_PROP`; mirror of mayatk's -- a digest, since the stamp
+        rides the plane into the FBX). ``""`` while the contact is scaled to
+        nothing (a set popping in from scale 0): Blender keeps the zero, so the
+        frame is singular and nothing can be measured in it -- and the stale
+        check runs from Follow Source's handler, where it must not raise."""
+        import hashlib
+
+        import numpy as np
+
+        frame = self._contact_frame()
+        if abs(np.linalg.det(frame[:3, :3])) < self._DEGENERATE_FRAME:
+            return ""
+        inverse = np.linalg.inv(frame)
+        digest = hashlib.md5()
+        for target in self.targets:
+            world = np.array(target.matrix_world, dtype=float)
+            # + 0.0: a -0.0 that rounds from noise must not read as a move
+            digest.update((np.round(inverse @ world, 4) + 0.0).tobytes())
+        return digest.hexdigest()
+
+    def _stamp_layout(self):
+        if self.shadow_plane is not None:
+            self.shadow_plane[self._LAYOUT_PROP] = self._layout()
+
+    def _layout_moved(self):
+        """Has a target moved relative to the contact since the silhouette was
+        drawn -- a member of a Combined rig carried on its own (a set moved
+        whole carries its contact along: nothing moved)? False for a plane
+        stamped before the layout was, and while the layout is unknowable
+        (:meth:`_layout`'s ``""``)."""
+        p = self.shadow_plane
+        stamped = p.get(self._LAYOUT_PROP) if p is not None else None
+        if not stamped:
+            return False
+        current = self._layout()
+        return bool(current) and stamped != current
+
+    def _refit_layout(self):
+        """A Combined rig whose members moved apart: the contact back on the
+        set's base, the bounding cylinder re-measured and restamped, so the
+        one frame and the one model describe the set as it stands."""
+        lo, hi = self._measure_targets()
+        if self.contact is not None:
+            m = self.contact.matrix_world.copy()
+            m.translation = ((lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5, lo[2])
+            self.contact.matrix_world = m
+        p = self.shadow_plane
+        p["objectHeight"] = float(self.object_height)
+        p["footprintRadius"] = float(self.footprint_radius)
+        # the drivers read these props: the depsgraph does not watch the write
+        p.update_tag()
+
     def _stamp_canvas(self, fractions, source_size):
         """Record the canvas fractions the PNG covers (the drivers re-place the plane from
         them) and the source size drawn into it."""
@@ -725,6 +834,7 @@ class ShadowRig(ptk.LoggingMixin):
         keep = self.canvas if (not refit and self.canvas is not None) else None
         self._stamp_canvas(keep or raster.fractions, source_size)
         self._stamp_bearing(self._current_bearing(), recursive)
+        self._stamp_layout()
         return self.texture_path
 
     def _gather_world_meshes(self, recursive):
@@ -1725,6 +1835,8 @@ class ShadowRig(ptk.LoggingMixin):
         rig = cls.from_plane(plane)
         if rig is None or any(plane.get(k) is None for k in cls._BEARING_PROPS):
             return False
+        if rig._layout_moved():
+            return True  # a member of a Combined rig carried on its own
         stamped = [float(plane.get(k)) for k in cls._BEARING_PROPS]
         norm = math.sqrt(sum(v * v for v in stamped))
         if norm < 1e-6:
@@ -1923,6 +2035,8 @@ class ShadowRig(ptk.LoggingMixin):
                 res = int(rig.image.size[0]) or None
             recursive = bool(plane.get(cls._RECURSIVE_PROP, True))
             fit = cls.plane_is_live(plane) if refit is None else bool(refit)
+            if fit and rig._layout_moved():
+                rig._refit_layout()
             rig.create_silhouette_texture(
                 size=res or 512, recursive=recursive, path=path, refit=fit
             )
@@ -1967,15 +2081,19 @@ class ShadowRig(ptk.LoggingMixin):
         textures behind the user).
 
         Parameters:
-            ctx (ptk.ExportContext): The export's decisions (unused: the
-                record is a function of the planes alone).  For one plane's
-                payload call :meth:`plane_record` instead.
+            ctx (ptk.ExportContext): The export's decisions; only its
+                ``scope`` is read. A scoped export names the export set's
+                planes alone (the record is ``export_scoped``): a plane it
+                leaves out ships its silhouette with nothing to bind it to.
+                For one plane's payload call :meth:`plane_record` instead.
 
         Returns:
             ptk.Record | None: The record, or ``None`` when there is no plane
             (the publisher then clears the channel).
         """
-        planes = cls.find_shadow_planes()
+        if ctx.scope is not None and not ctx.scope:
+            return None  # find_shadow_planes reads an empty scope as the file
+        planes = cls.find_shadow_planes(ctx.scope)
         if not planes:
             return None
         records = []
@@ -2632,6 +2750,10 @@ class ShadowRig(ptk.LoggingMixin):
             rig.group = RigUtils.create_group(
                 f"{rig._base}_shadow_grp", children=[rig.shadow_plane]
             )
+            # Targets sharing no parent: the contact hangs in the rig's own
+            # group (at the world origin), so it ships with the plane.
+            if rig.contact.parent is None:
+                RigUtils.parent_keep_transform(rig.contact, rig.group)
             rig._stamp_rig_links()
             rig.setup_drivers()
             # Follow Source, when it is on: either end of the projection.
@@ -2665,6 +2787,14 @@ class ShadowRig(ptk.LoggingMixin):
         # Publish the engine hand-off record onto the data_export carrier
         # (authoring-time publish; the Scene Exporter re-refreshes at export).
         cls.refresh_export_metadata()
+        movers = rig._independent_movers() if len(rig.targets) > 1 else []
+        if movers:
+            rig.logger.warning(
+                f"{', '.join(m.name for m in movers)} move on their own (keyed): a "
+                "Combined shadow is one rigid caster -- its map and anchor follow the "
+                "contact -- so at runtime their shadows stay where they were drawn. "
+                "Use Planes: Per object for props that move independently."
+            )
         rig.logger.success(
             f"Shadow rig '{rig._base}' ({rig.mode}) — plane {rig.shadow_plane.name}, "
             f"source {rig.light.name}, texture {rig.texture_path}"

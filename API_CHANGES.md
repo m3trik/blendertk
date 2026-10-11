@@ -1,57 +1,113 @@
 # blendertk — API Changes
 
-_Diff vs the last release (origin/main @ 1ceb879)._
+_Diff vs the last release (origin/main @ 51e36e5)._
 
-## Removed (5)
+## Removed (3)
 
-- `anim_utils/shots/shot_manifest/_shot_manifest.py::BlenderShotManifest.reapply_object` — was `(self, shot, obj) -> bool`
-- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.tb000` — was `(self, widget)`
-- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.tb000_init` — was `(self, widget)`
-- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.tb001` — was `(self, widget)`
-- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.tb001_init` — was `(self, widget)`
+- `anim_utils/shots/shot_manifest/manifest_data.py::ManifestData.try_load_blender_icons` — was `()`
+- `anim_utils/shots/shots_slots.py::ShotsSlots.btn_delete_all` — was `(self)`
+- `anim_utils/shots/shots_slots.py::ShotsSlots.btn_delete_stale` — was `(self)`
 
-## Added (38)
+## Added (96)
 
-- `anim_utils/shots/_shots.py::BlenderShotStore.curve_key(obj_name: str, data_path: str, index: int = 0) -> str`
-- `anim_utils/shots/_shots.py::BlenderShotStore.discard_carrier(cls, carriers, other, ctx) -> None`
-- `anim_utils/shots/_shots.py::BlenderShotStore.edit_serial(cls) -> int`
-- `anim_utils/shots/_shots.py::BlenderShotStore.follow_renames(self) -> bool`
-- `anim_utils/shots/_shots.py::BlenderShotStore.rescale_to_fps(self, new_fps: float) -> None`
-- `anim_utils/shots/_shots.py::BlenderShotStore.resolve_member(self, name: str) -> Tuple[str, str]`
-- `anim_utils/shots/_shots.py::BlenderShotStore.scene_edit(self, label: str = 'edit', snapshot: bool = True)`
-- `anim_utils/shots/shot_sequencer/clip_motion.py::ClipMotionMixin.curves_for_attrs(obj_name: str, attr_names) -> list`
-- `audio_utils/audio_clips.py::AudioClipsSlots.select_track(self, name: str) -> bool`
-- `core_utils/diagnostics/uv_diag.py::UvDiagnostics(class)`
-- `core_utils/diagnostics/uv_diag.py::UvDiagnostics.is_bakeable_lightmap(cls, obj, uv_set: str) -> bool`
-- `display_utils/_display_utils.py::DisplayUtils.set_viewport_overlay(**flags)`
-- `env_utils/_env_utils.py::EnvUtils.scene_project_root()`
-- `env_utils/maya_bridge/_scene_import.py::MayaSceneImport.hide_relationship_lines() -> int`
-- `env_utils/maya_bridge/templates/_import_scene_usd.py::drop_unmergeable_locator_shapes(cmds)`
-- `env_utils/scene_exporter/scene_exporter_slots.py::SceneExporterSlots.decide_check_failure(self, check: str, messages: List[str], remaining: List[str]) -> str`
-- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.lightmap_info(cls, obj) -> Dict[str, Any]`
-- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.project_root() -> Optional[str]`
-- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.transfer_lightmaps(cls, targets, source, *, output_dir: Optional[str] = None, output_name: Optional[str] = None, size: Optional[int] = None, supersample: int = 2, padding: int = -1) -> Dict[str, Dict[str, str]]`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.apply_effect(cls, obj, effect, start, end, recipe=None, fps=None, place=None, anchor=None)`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.scene_recipe(cls)`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.scene_store()`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.write_keys(cls, obj, keys, channel='opacity', interp='LINEAR', mirror=None)`
-- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.b000(self, widget=None)`
-- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.btn_remove(self, widget=None)`
-- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.btn_webxr(self, widget=None)`
-- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.btn_webxr_init(self, widget)`
-- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.cmb_effect(self, index, widget=None)`
-- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.cmb_effect_init(self, widget)`
-- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.focus(self, channel, objects, title='', apply=None, apply_text='')`
-- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.stk_effects_init(self, widget)`
-- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.ui_field(self, name)`
-- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.unfocus(self, *_args) -> None`
-- `uv_utils/_uv_utils.py::LIGHTMAP_OVERLAP_TOLERANCE(constant)`
-- `uv_utils/_uv_utils.py::UvUtils.apply_uv_layout(layouts, uv_set=None, quiet=False)`
-- `uv_utils/_uv_utils.py::UvUtils.get_uv_triangles(obj, uv_set=None)`
-- `uv_utils/texture_transfer.py::TextureTransfer.find_combined(cls, meshes: Sequence) -> Optional[Tuple[Any, Tuple]]`
-- `uv_utils/texture_transfer.py::TextureTransfer.pair_sources(cls, targets: Sequence, sources: Sequence) -> Dict[Any, Any]`
+- `anim_utils/_anim_utils.py::AnimUtils.clear_key_selection() -> None`
+- `anim_utils/shots/_shots.py::BlenderShotStore.member_nodes(self, name: str) -> List[str]`
+- `anim_utils/shots/shot_manifest/export_menu.py::ExportMenuMixin(class)`
+- `anim_utils/shots/shot_manifest/export_menu.py::ExportMenuMixin.export(self) -> None`
+- `anim_utils/shots/shot_manifest/header_menu.py::HeaderMenuMixin(class)`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor(class)`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.add_header_options(self, menu) -> None`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.add_menu_actions(self, menu, item, selected: List[str] = ()) -> None`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.add_shot(self, shot, after: str) -> Optional[str]`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.add_step(self, after: str) -> str`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.apply(self, steps: List[ptk.BuilderStep]) -> List[ptk.BuilderStep]`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.begin_edit(self, item, column: int) -> bool`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.commit_edit(self, item, column: int) -> bool`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.decorate(self) -> None`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.enabled(self) -> bool`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.hide_object(self, home: str, sheet_name: str, hidden: bool = True) -> None`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.hide_steps(self, step_ids: List[str], hidden: bool = True) -> None`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.load(self) -> None`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.move_object(self, step, obj, target) -> None`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.refresh(self) -> None`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.refuse_locked(self, step) -> bool`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.refuse_viewing(self, to: str = 'edit') -> bool`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.remove_step(self, step) -> None`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.rename_all(self, name: str, new: Optional[str] = None) -> int`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.reset(self, confirm: bool = True) -> None`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.revert_object(self, home: str, sheet_name: str, name: str = '') -> None`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.revert_step(self, step) -> None`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.save(self) -> None`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.set_behaviors(self, step_id: str, obj, behaviors: List[str]) -> bool`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.source_key(self) -> str`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.stale(self) -> List[str]`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.view_original(self, on: bool = True) -> None`
+- `anim_utils/shots/shot_manifest/manifest_host.py::ManifestHost(class)`
+- `anim_utils/shots/shot_manifest/manifest_host.py::ManifestHost.available() -> bool`
+- `anim_utils/shots/shot_manifest/manifest_host.py::ManifestHost.current_frame() -> Optional[float]`
+- `anim_utils/shots/shot_manifest/manifest_host.py::ManifestHost.detection()`
+- `anim_utils/shots/shot_manifest/manifest_host.py::ManifestHost.find_nodes(name: str, store) -> List[str]`
+- `anim_utils/shots/shot_manifest/manifest_host.py::ManifestHost.leaf_name(name: str) -> str`
+- `anim_utils/shots/shot_manifest/manifest_host.py::ManifestHost.manifest_cls()`
+- `anim_utils/shots/shot_manifest/manifest_host.py::ManifestHost.object_icon(obj, name: str)`
+- `anim_utils/shots/shot_manifest/manifest_host.py::ManifestHost.reveal(nodes: List[str]) -> List[str]`
+- `anim_utils/shots/shot_manifest/manifest_host.py::ManifestHost.store_cls()`
+- `anim_utils/shots/shot_manifest/manifest_source.py::ManifestSourceMixin(class)`
+- `anim_utils/shots/shot_manifest/manifest_source.py::ManifestSourceMixin.detect(self, gap: Optional[float] = None) -> None`
+- `anim_utils/shots/shot_manifest/mapping_picker.py::MappingPickerMixin(class)`
+- `anim_utils/shots/shot_manifest/range_column.py::RangeColumnMixin(class)`
+- `anim_utils/shots/shot_manifest/row_menus.py::RowMenusMixin(class)`
+- `anim_utils/shots/shot_manifest/shot_manifest_controller.py::ShotManifestController(class)`
+- `anim_utils/shots/shot_manifest/shot_manifest_controller.py::ShotManifestController.assess(self, skip_key_check: bool = False) -> None`
+- `anim_utils/shots/shot_manifest/shot_manifest_controller.py::ShotManifestController.build(self) -> None`
+- `anim_utils/shots/shot_manifest/shot_manifest_slots.py::ShotManifestSlots.b004(self)`
+- `anim_utils/shots/shot_manifest/store_follow.py::StoreFollowMixin(class)`
+- `anim_utils/shots/shot_manifest/store_follow.py::StoreFollowMixin.remove_callbacks(self) -> None`
+- `anim_utils/shots/shot_sequencer/_shot_sequencer.py::ShotSequencer.copy_attribute_keys(self, obj: str, attr: Optional[str], delta: float, times: Optional[List[float]] = None, window: Optional[tuple] = None) -> int`
+- `anim_utils/shots/shot_sequencer/shot_lane.py::ShotLaneMixin.delete_shots(self, scope: str = 'stale') -> None`
+- `anim_utils/shots/shots_slots.py::ShotsController.confirm_removal(shots, scope: str = 'stale', parent=None) -> bool`
+- `anim_utils/shots/shots_slots.py::ShotsController.delete_scope(self) -> str`
+- `anim_utils/shots/shots_slots.py::ShotsController.label_apply_gap(self, *_args) -> None`
+- `anim_utils/shots/shots_slots.py::ShotsController.label_delete_shots(self) -> None`
+- `anim_utils/shots/shots_slots.py::ShotsController.label_shift_all(self, *_args) -> None`
+- `anim_utils/shots/shots_slots.py::ShotsController.on_delete_shots(self, scope: str = 'stale') -> None`
+- `anim_utils/shots/shots_slots.py::ShotsController.on_navigate_shot(self, delta: int) -> None`
+- `anim_utils/shots/shots_slots.py::ShotsController.on_new_shot(self) -> None`
+- `anim_utils/shots/shots_slots.py::ShotsController.scope_count(cls, shots, scope: str) -> str`
+- `anim_utils/shots/shots_slots.py::ShotsController.scope_label(cls, scope: str) -> str`
+- `anim_utils/shots/shots_slots.py::ShotsController.shot_label(shot) -> str`
+- `anim_utils/shots/shots_slots.py::ShotsSlots.btn_delete_shots(self)`
+- `anim_utils/shots/shots_slots.py::ShotsSlots.cmb_delete_scope(self, index)`
+- `audio_utils/_audio_utils.py::AudioUtils.read_all_events(cls, scene=None) -> Dict[str, List[Tuple[float, float]]]`
+- `env_utils/_env_utils.py::EnvUtils.scene_source(cls, scene: Optional[str] = None) -> Optional[str]`
+- `env_utils/_env_utils.py::EnvUtils.set_scene_source(cls, scene: str, source: Optional[str] = None) -> Optional[str]`
+- `env_utils/fbx_utils.py::FbxUtils.embed_dependencies(file_path: str, search_dirs: Optional[Iterable[str]] = None, logger: Optional[logging.Logger] = None) -> Optional[Dict[str, Any]]`
+- `env_utils/maya_bridge/_scene_import.py::GLTF_EXTENSIONS(constant)`
+- `env_utils/scene_exporter/task_manager.py::TaskManager.ship_declared_takes(self, fbx_path: str) -> Optional[dict]`
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.clear_bake_set(self) -> None`
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.select_bake_set(self) -> None`
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.select_bake_set_init(self, widget) -> None`
+- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.rename_lightmap(cls, old_name: str, new_name: str) -> int`
+- `mat_utils/_mat_utils.py::MatUtils.rename_texture_file(cls, path: str, new_name: str, images: Any = None) -> Dict[str, Any]`
+- `mat_utils/_mat_utils.py::MatUtils.sync_material_names(cls, material: Any, base: str, material_affix: Tuple[str, str] = ('', ''), image_affix: Tuple[str, str] = ('', ''), images: Any = None, dry_run: bool = False, lightmaps: Optional[Any] = None) -> Dict[str, Any]`
+- `mat_utils/bake_sets.py::BakeSet.conventional_name(cls) -> str`
+- `mat_utils/bake_sets.py::BakeSet.name(cls) -> Optional[str]`
+- `mat_utils/bake_sets.py::BakeSet.respell(cls, conventional: bool) -> Optional[str]`
+- `mat_utils/bake_sets.py::LightmapBakeSet(class)`
+- `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/_rpc_core.py::MainThreadMarshaller.post(self, fn, *args, **kwargs)`
+- `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/_rpc_core.py::MainThreadMarshaller.post(self, fn, *args, **kwargs)`
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.row_rename_file(self, selection=None)`
+- `node_utils/_node_utils.py::NodeUtils.expand_sets(objects) -> List[Any]`
+- `node_utils/_node_utils.py::NodeUtils.get_maya_node_type(obj) -> Optional[str]`
+- `node_utils/_node_utils.py::NodeUtils.is_group(objects, filter: bool = False)`
+- `node_utils/_node_utils.py::NodeUtils.is_locator(objects, filter: bool = False)`
+- `node_utils/_node_utils.py::NodeUtils.set_maya_node_type(objects, node_type: str, look: bool = True) -> List[Any]`
+- `rig_utils/tube_rig/strategies.py::TubeStrategy.centerline(rig, count, o: dict) -> list`
+- `ui_utils/ui_state.py::UiState.after_restore(cls, fn: Callable[[], Any]) -> bool`
+- `uv_utils/_uv_utils.py::UvUtils.get_uv_world_triangles(obj, uv_set=None)`
+- `xform_utils/_xform_utils.py::XformUtils.set_rotate_order(objects, order, preserve=True)`
 
-## Deprecations (13)
+## Deprecations (17)
 
 _Live retirement debt, earliest deadline first. An **EXPIRED** row has outlived its window: delete the alias and its tests rather than moving the date. A **HELD** row is due by version, but its notice has not yet had its calendar window._
 
@@ -68,51 +124,100 @@ _Live retirement debt, earliest deadline first. An **EXPIRED** row has outlived 
 - **HELD** `edit_utils/curtain/_curtain.py::CurtainUtils.create_curtain` — remove in 0.14.0, not before 2026-10-26
 - **HELD** `edit_utils/curtain/_curtain.py::CurtainUtils.curtain_rail_from_selection` — remove in 0.14.0, not before 2026-10-26
 - **HELD** `mat_utils/substance_bridge/_substance_bridge.py::SubstanceBridge.high_poly_path_for` — remove in 0.15.0, not before 2026-10-27
+- **HELD** `anim_utils/shots/shot_sequencer/shot_lane.py::ShotLaneMixin.delete_stale_shots` — remove in 0.16.0, not before 2026-11-06
+- **HELD** `anim_utils/shots/shots_slots.py::ShotsController.confirm_stale_removal` — remove in 0.16.0, not before 2026-11-06
+- **HELD** `anim_utils/shots/shots_slots.py::ShotsController.on_delete_all_shots` — remove in 0.16.0, not before 2026-11-06
+- **HELD** `anim_utils/shots/shots_slots.py::ShotsController.on_delete_stale_shots` — remove in 0.16.0, not before 2026-11-06
 
-## Signature changed (15)
+## Moved (7)
 
+_Still resolvable at the same call site -- hoisted to a base class or re-exported from another module. NOT a removal: no alias or minor bump is owed._
+
+- `anim_utils/shots/_shots.py::BlenderShotStore.resolve_member`
+- `anim_utils/shots/shot_manifest/shot_manifest_slots.py::ShotManifestController`
+- `anim_utils/shots/shot_manifest/shot_manifest_slots.py::ShotManifestController.assess`
+- `anim_utils/shots/shot_manifest/shot_manifest_slots.py::ShotManifestController.build`
+- `anim_utils/shots/shot_manifest/shot_manifest_slots.py::ShotManifestController.detect`
+- `anim_utils/shots/shot_manifest/shot_manifest_slots.py::ShotManifestController.remove_callbacks`
+- `anim_utils/shots/shot_sequencer/_shot_sequencer.py::ShotSequencer.move_stepped_keys`
+
+## Signature changed (26)
+
+- `anim_utils/_anim_utils.py::AnimUtils.adjust_key_spacing`
+  - was: `(objects, spacing=1, frame=None, relative=False, preserve_keys=False, selected_keys_only=False, exact_gap=False)`
+  - now: `(objects, spacing=1, frame=None, relative=False, preserve_keys=False, selected_keys_only=False, exact_gap=False, on_replace=None, on_move=None)`
 - `anim_utils/_anim_utils.py::AnimUtils.align_selected_keyframes`
-  - was: `(objects, target_frame=None, use_earliest=True)`
-  - now: `(objects, target_frame=None, use_earliest=True, on_replace=None)`
+  - was: `(objects, target_frame=None, use_earliest=True, on_replace=None)`
+  - now: `(objects, target_frame=None, use_earliest=True, on_replace=None, on_move=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.delete_keys`
+  - was: `(objects, time=None)`
+  - now: `(objects, time=None, on_delete=None)`
 - `anim_utils/_anim_utils.py::AnimUtils.invert_keys`
-  - was: `(objects, mode='time', value_pivot=0.0, start_frame=None, relative=True, delete_original=False)`
-  - now: `(objects, mode='time', value_pivot=0.0, start_frame=None, relative=True, delete_original=False, selected_only=False, on_replace=None)`
-- `anim_utils/segment_keys.py::SegmentKeys.collect_segments`
-  - was: `(cls, objects: Union[str, List[str]], ignore: Optional[Union[str, List[str]]] = None, split_static: bool = False, selected_keys_only: bool = False, channel_box_attrs: Optional[List[str]] = None, static_tolerance: float = 0.0001, time_range: Optional[Tuple[Optional[float], Optional[float]]] = None, ignore_visibility_holds: bool = False, ignore_holds: bool = False, exclude_next_start: bool = True, motion_only: bool = False, motion_rate: float = 0.001, transform_only: bool = True) -> List[Dict[str, Any]]`
-  - now: `(cls, objects: Union[str, List[str]], ignore: Optional[Union[str, List[str]]] = None, split_static: bool = False, selected_keys_only: bool = False, channel_box_attrs: Optional[List[str]] = None, static_tolerance: float = 0.0001, time_range: Optional[Tuple[Optional[float], Optional[float]]] = None, ignore_visibility_holds: bool = False, ignore_holds: bool = False, exclude_next_start: bool = True, motion_only: bool = False, motion_rate: float = 0.001, transform_only: bool = False) -> List[Dict[str, Any]]`
-- `anim_utils/shots/shot_manifest/behaviors/_behaviors.py::Behaviors.apply_behavior`
-  - was: `(obj: str, behavior_name: str, start: float, end: float, attrs: Optional[List[str]] = None, search_path: Optional[Path] = None, source_path: str = '', anchor_override: Optional[str] = None) -> None`
-  - now: `(obj: str, behavior_name: str, start: float, end: float, attrs: Optional[List[str]] = None, search_path: Optional[Path] = None, source_path: str = '', anchor_override: Optional[str] = None, recipe: Optional[Any] = None, fps: Optional[float] = None) -> List[Tuple[str, float]]`
+  - was: `(objects, mode='time', value_pivot=0.0, start_frame=None, relative=True, delete_original=False, selected_only=False, on_replace=None)`
+  - now: `(objects, mode='time', value_pivot=0.0, start_frame=None, relative=True, delete_original=False, selected_only=False, on_replace=None, on_move=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.move_keys_to_frame`
+  - was: `(objects, frame=None, retain_spacing=True, selected_keys_only=False, align='auto')`
+  - now: `(objects, frame=None, retain_spacing=True, selected_keys_only=False, align='auto', on_replace=None, on_move=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.optimize_keys`
+  - was: `(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None, max_error=None)`
+  - now: `(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None, max_error=None, on_delete=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.paste_keys`
+  - was: `(objects, buffer, target_time=None)`
+  - now: `(objects, buffer, target_time=None, on_replace=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.reduce_to_extremes`
+  - was: `(objects=None, value_tolerance=0.001, stats=None, max_error=None)`
+  - now: `(objects=None, value_tolerance=0.001, stats=None, max_error=None, on_delete=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.remove_intermediate_keys`
+  - was: `(objects, time_range=None, ignore_visibility=False)`
+  - now: `(objects, time_range=None, ignore_visibility=False, on_delete=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.repair_corrupted_curves`
+  - was: `(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0)`
+  - now: `(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0, on_delete=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.set_visibility_keys`
+  - was: `(objects, visible=True, frame=None, when='current', offset=0, group_overlapping=False)`
+  - now: `(objects, visible=True, frame=None, when='current', offset=0, group_overlapping=False, on_replace=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.simplify_curve`
+  - was: `(objects, value_tolerance=0.001, time_range=None, selected_only=False)`
+  - now: `(objects, value_tolerance=0.001, time_range=None, selected_only=False, on_delete=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.snap_keys`
+  - was: `(objects=None, selected_only=False, time_range=None, method='nearest')`
+  - now: `(objects=None, selected_only=False, time_range=None, method='nearest', on_move=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.tie_keyframes`
+  - was: `(objects=None, untie=False, frame_range=None, absolute=False)`
+  - now: `(objects=None, untie=False, frame_range=None, absolute=False, on_delete=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.transfer_keyframes`
+  - was: `(objects, relative=False, optimize=False)`
+  - now: `(objects, relative=False, optimize=False, on_replace=None, on_delete=None)`
+- `anim_utils/scale_keys.py::ScaleKeys.scale_keys`
+  - was: `(objects, factor, pivot=None, mode='uniform', absolute=False, group_mode='single_group', snap_mode='none', samples=64, include_rotation=False, split_static=True, merge_touching=False)`
+  - now: `(objects, factor, pivot=None, mode='uniform', absolute=False, group_mode='single_group', snap_mode='none', samples=64, include_rotation=False, split_static=True, merge_touching=False, on_replace=None, on_move=None)`
+- `anim_utils/segment_keys.py::SegmentKeys.shift_curves`
+  - was: `(curves: List[Any], offset: float, time_range: Optional[Tuple[float, float]] = None, remove_flat_at_dest: bool = False) -> None`
+  - now: `(curves: List[Any], offset: float, time_range: Optional[Tuple[float, float]] = None, remove_flat_at_dest: bool = False, on_replace=None, on_move=None) -> None`
 - `anim_utils/shots/shot_manifest/behaviors/_behaviors.py::Behaviors.apply_to_shots`
-  - was: `(shots: list, apply_fn, exists_fn=None, has_keys_fn=None, store=None) -> Dict[str, list]`
-  - now: `(shots: list, apply_fn, exists_fn=None, has_keys_fn=None, store=None, resolve_fn=None, conflict_fn=None, release_fn=None) -> Dict[str, list]`
-- `anim_utils/shots/shot_manifest/behaviors/_behaviors.py::Behaviors.verify_behavior`
-  - was: `(obj: str, behavior_name: str, start: float, end: float, search_path: Optional[Path] = None, keyframe_fn: Optional[Any] = None, anchor_override: Optional[Any] = None) -> bool`
-  - now: `(obj: str, behavior_name: str, start: float, end: float, search_path: Optional[Path] = None, keyframe_fn: Optional[Any] = None, anchor_override: Optional[Any] = None, recipe: Optional[Any] = None, fps: Optional[float] = None) -> bool`
+  - was: `(shots: list, apply_fn, exists_fn=None, has_keys_fn=None, store=None, resolve_fn=None, conflict_fn=None, release_fn=None) -> Dict[str, list]`
+  - now: `(shots: list, apply_fn, exists_fn=None, has_keys_fn=None, store=None, resolve_fn=None, conflict_fn=None, release_fn=None, skip_behaviors=()) -> Dict[str, list]`
 - `anim_utils/shots/shot_manifest/manifest_data.py::ManifestData.format_behavior_html`
-  - was: `(behaviors, broken=(), status_color=None) -> str`
-  - now: `(behaviors, broken=(), status_color=None, stale=()) -> str`
-- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.commit`
-  - was: `(cls, mapping: Dict[str, str], scale_offsets: Optional[Dict[str, List[float]]] = None, intensity: float = 1.0) -> Dict[str, str]`
-  - now: `(cls, mapping: Dict[str, str], scale_offsets: Optional[Dict[str, List[float]]] = None, intensity: float = 1.0, written: bool = True) -> Dict[str, str]`
-- `mat_utils/_mat_utils.py::MatUtils.create_pbr_material`
-  - was: `(textures, name=None, normal_direction='OpenGL', config=None, plan=None)`
-  - now: `(textures, name=None, normal_direction='OpenGL', config=None, plan=None, ambient_occlusion=True)`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.key_fade`
-  - was: `(cls, objects=None, start=0, end=15, direction='in', auto_create=True, tangent='LINEAR', delete_visibility_keys=False, channel='opacity', whole_frames=True)`
-  - now: `(cls, objects=None, start=0, end=None, direction='in', auto_create=True, tangent='LINEAR', delete_visibility_keys=False, channel='opacity', whole_frames=True, recipe=None)`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.key_pulse`
-  - was: `(cls, objects=None, start=0, end=100, period=86, bright_fraction=0.59, ramp_fraction=0.25, lead_in=None, lead_out=None, color=None, dim_color=None, auto_create=True, channel='highlight', delete_visibility_keys=False, whole_frames=True)`
-  - now: `(cls, objects=None, start=0, end=100, period=None, bright_fraction=None, ramp_fraction=None, lead_in=None, lead_out=None, color=None, dim_color=None, auto_create=True, channel='highlight', delete_visibility_keys=False, whole_frames=True, recipe=None)`
-- `mat_utils/texture_baker.py::TextureBaker.bake`
-  - was: `(self, objects=None, *, bake_type: str = 'COMBINED', pass_filter: Optional[set] = None, use_pass_color: bool = True, output_dir: Optional[str] = None, prefix: str = '', suffix: str = '', margin: Optional[int] = None, uv_set=None, stem: Optional[Any] = None, size: Optional[Any] = None, on_progress: Optional[Callable[[int, int, str], bool]] = None, colorspace: str = 'Non-Color', claims: Optional[Any] = None) -> Dict[str, str]`
-  - now: `(self, objects=None, *, bake_type: str = 'COMBINED', pass_filter: Optional[set] = None, use_pass_color: bool = True, output_dir: Optional[str] = None, prefix: str = '', suffix: str = '', margin: Optional[int] = None, uv_set=None, stem: Optional[Any] = None, size: Optional[Any] = None, on_progress: Optional[Callable[[int, int, str], bool]] = None, colorspace: str = 'Non-Color', claims: Optional[Any] = None, shader: Optional[Any] = None) -> Dict[str, str]`
-- `uv_utils/_uv_utils.py::UvUtils.create_lightmap_uvs`
-  - was: `(objects, uv_set=LIGHTMAP_UV_SET, margin=0.02, quiet=True)`
-  - now: `(objects, uv_set=LIGHTMAP_UV_SET, margin=0.02, quiet=True, force=False)`
-- `uv_utils/texture_transfer.py::TextureTransfer.assign_results`
-  - was: `(self, results: Dict[str, Dict[str, str]], jobs: Dict[str, Dict[str, Any]], suffix: str = '_TRANSFER', base_name: Optional[str] = None, prefix: str = '') -> Dict[str, str]`
-  - now: `(self, results: Dict[str, Dict[str, str]], jobs: Dict[str, Dict[str, Any]], suffix: str = '_TRANSFER', base_name: Optional[str] = None, prefix: str = '', assign_from: str = 'target') -> Dict[str, str]`
-- `uv_utils/texture_transfer.py::TextureTransfer.transfer`
-  - was: `(self, targets, source=None, *, source_uv_set: Optional[str] = None, target_uv_set: Optional[str] = None, channels: Optional[Sequence[str]] = None, size: Optional[int] = None, supersample: int = 2, padding: int = -1, output_dir: Optional[str] = None, name_format: str = '{material}_{channel}', output_name: Optional[str] = None, normal_convention: Optional[str] = None, source_mask_from_uvs: bool = True, assign: bool = False, assign_prefix: str = '', assign_suffix: Optional[str] = None) -> Dict[str, Dict[str, str]]`
-  - now: `(self, targets, source=None, *, source_uv_set: Optional[str] = None, target_uv_set: Optional[str] = None, channels: Optional[Sequence[str]] = None, size: Optional[int] = None, supersample: int = 2, padding: int = -1, output_dir: Optional[str] = None, name_format: str = '{material}_{channel}', output_name: Optional[str] = None, normal_convention: Optional[str] = None, source_mask_from_uvs: bool = True, assign: bool = False, assign_prefix: str = '', assign_suffix: Optional[str] = None, assign_from: str = 'target') -> Dict[str, Dict[str, str]]`
+  - was: `(behaviors, broken=(), status_color=None, stale=()) -> str`
+  - now: `(behaviors, broken=(), status_color=None, stale=(), disabled=()) -> str`
+- `anim_utils/shots/shot_sequencer/segment_collector.py::SegmentCollector.build_curve_preview`
+  - was: `(fcurve, t_start, t_end)`
+  - now: `(fcurve, t_start, t_end, hidden_times=())`
+- `anim_utils/stagger_keys.py::StaggerKeys.stagger_keys`
+  - was: `(objects, start_frame=None, spacing=5, use_intervals=False, invert=False, group_overlapping=False, merge_touching=False, smooth_tangents=False)`
+  - now: `(objects, start_frame=None, spacing=5, use_intervals=False, invert=False, group_overlapping=False, merge_touching=False, smooth_tangents=False, on_replace=None, on_move=None)`
+- `env_utils/maya_bridge/_scene_import.py::MayaSceneImport.hide_relationship_lines`
+  - was: `() -> int`
+  - now: `(cls) -> bool`
+- `mat_utils/_mat_utils.py::MatUtils.set_texture_directory`
+  - was: `(images=None, target_dir=None, mode='rewrite')`
+  - now: `(images: Any = None, target_dir: Optional[str] = None, mode: str = 'rewrite', allow_missing: bool = False) -> int`
+- `mat_utils/bake_sets.py::BakeSet.define`
+  - was: `(cls, objects: Optional[List[Any]] = None) -> List[Any]`
+  - now: `(cls, objects: Optional[List[Any]] = None, conventional: bool = False) -> List[Any]`
+- `mat_utils/texture_baker.py::TextureBaker.resolve_meshes`
+  - was: `(objects) -> List[Any]`
+  - now: `(objects, descendants: bool = False) -> List[Any]`
+- `rig_utils/_rig_utils.py::RigUtils.create_locator_at_object`
+  - was: `(objects, loc_scale=1.0, lock_translate=False, lock_rotation=False, lock_scale=False, grp_suffix=None, grp_affix_mode='auto', loc_suffix=None, loc_affix_mode='auto', obj_suffix=None, obj_affix_mode='auto', strip_digits=False, strip_trailing_underscores=True, strip_suffix=True)`
+  - now: `(objects, loc_scale=1.0, lock_translate=False, lock_rotation=False, lock_scale=False, grp_suffix=None, grp_affix_mode='auto', loc_suffix=None, loc_affix_mode='auto', obj_suffix=None, obj_affix_mode='auto', strip_digits=False, strip_trailing_underscores=True, strip_suffix=True, rotate_order='xyz', freeze_object=True, group_display='none')`

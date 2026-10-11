@@ -265,9 +265,7 @@ def run():
     alpha = hmap.alpha(
         frame_pts, light=frame_light, source_size=record_before["source_size"]
     ).reshape(SIZE_Y, SIZE_X)
-    fade = float(plane.get(ShadowRig.OPACITY_ATTR, 1.0)) * float(
-        plane.get("shadowIntensity", 1.0)
-    )
+    fade = float(plane.get(ShadowRig.OPACITY_ATTR, 1.0))  # carries shadowIntensity
     corners = np.array([(plane.matrix_world @ v.co)[:2] for v in plane.data.vertices])
     centre = corners.mean(axis=0)
     e1 = corners[1] - corners[0]

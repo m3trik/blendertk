@@ -377,21 +377,28 @@ class LightmapBaker(ptk.LoggingMixin):
         object, but :meth:`TextureBaker.bake` reveals each object for its own bake,
         so here a hidden mesh bakes like any other.
         """
-        meshes = TextureBaker.resolve_meshes(objects)
+        return cls._targets(objects)[0]
+
+    @classmethod
+    def _targets(cls, objects=None) -> Tuple[List[str], List[str]]:
+        """``(targets, excluded)`` names for *objects*: the one scoping every
+        bake entry runs -- :meth:`TextureBaker.resolve_meshes` (sets, groups,
+        anything not a mesh), minus the Exclude set (mirror of mayatk's, which
+        also partitions out the hidden)."""
+        meshes = TextureBaker.resolve_meshes(objects, descendants=True)
         if not meshes:
-            return []
-        excluded = set(LightmapExcludeSet.meshes())
-        kept = [obj.name for obj in meshes if obj not in excluded]
-        if len(kept) != len(meshes):
-            skipped = [obj.name for obj in meshes if obj in excluded]
+            return [], []
+        in_set = set(LightmapExcludeSet.meshes())
+        excluded = [obj.name for obj in meshes if obj in in_set]
+        if excluded:
             cls.logger.info(
                 "Skipping %d object(s) in the lightmap exclusion set (%s); they "
                 "still light the bake: %s",
-                len(skipped),
+                len(excluded),
                 LightmapExcludeSet.SET_NAME,
-                ", ".join(skipped[:8]) + (" ..." if len(skipped) > 8 else ""),
+                ", ".join(excluded[:8]) + (" ..." if len(excluded) > 8 else ""),
             )
-        return kept
+        return [obj.name for obj in meshes if obj not in in_set], excluded
 
     # ------------------------------------------------------------------
     # The workflow -- what the panel runs, and what a script should
@@ -458,22 +465,16 @@ class LightmapBaker(ptk.LoggingMixin):
                 f"packing must be 'atlas' or 'per_object', got {packing!r}"
             )
         result = LightmapBakeResult()
-        scoped = TextureBaker.resolve_meshes(objects)
-        if not scoped:
+        # The Exclude set comes off BEFORE anything else touches the scene.
+        targets, result.excluded = self._targets(objects)
+        if not (targets or result.excluded):
             result.refused = "Nothing to bake: no mesh among the given objects."
             return result
-        # The Exclude set comes off BEFORE anything else touches the scene.
-        targets = self.bake_targets(scoped)
-        kept = set(targets)
-        result.excluded = [obj.name for obj in scoped if obj.name not in kept]
         if not targets:
+            count = len(result.excluded)
             result.refused = (
                 "Nothing to bake: "
-                + (
-                    "the object is"
-                    if len(scoped) == 1
-                    else f"all {len(scoped)} objects are"
-                )
+                + ("the object is" if count == 1 else f"all {count} objects are")
                 + " in the Exclude set."
             )
             return result
@@ -846,7 +847,13 @@ class LightmapBaker(ptk.LoggingMixin):
         if create_uvs:
             UvUtils.create_lightmap_uvs(meshes, uv_set=uv_set, quiet=True)
 
-        with self._muted_environment(), self._white_card() as card:
+        # Every target in the render of every other's: a bake's whole list
+        # reaches here once, whether its maps ship apart or as one atlas.
+        with (
+            self._muted_environment(),
+            self._out_of_render(meshes),
+            self._white_card() as card,
+        ):
             result = self._texture_baker.bake(
                 meshes,
                 bake_type="DIFFUSE",
@@ -889,14 +896,15 @@ class LightmapBaker(ptk.LoggingMixin):
     # ``pack_atlas``) remains for callers that already hold maps they did not bake here.
     #
     # Group the per-object lightmaps by primary material, give each object (each INSTANCE --
-    # linked duplicates are first-class) an area-weighted rect, and assemble ONE shared EXR
-    # per group. UVs are never rewritten: every mesh keeps its shared [0,1] unwrap and the
+    # linked duplicates are first-class) a packed rect at the group's one texel density, and
+    # assemble ONE shared EXR per group. UVs are never rewritten: every mesh keeps its shared [0,1] unwrap and the
     # rect is committed as the per-instance ``scaleOffset`` binding -- the industry-standard
     # model (Unity ``Renderer.lightmapScaleOffset``; glTF ``KHR_texture_transform``), and the
     # only one instances can express (per-instance data cannot live in shared UV data).
     # The DCC-agnostic layout math is REUSED from pythontk
-    # (``ptk.ImgUtils.compute_atlas_layout`` / ``inset_atlas_rects`` / ``atlas_pixel_rects``
-    # — all pure-Python, no cv2, the same helpers mayatk uses); only the EXR assembly is
+    # (``ptk.ImgUtils.pack_atlas_rects`` / ``atlas_extent`` / ``uv_axis_scale`` /
+    # ``atlas_pixel_rects`` — all pure-Python, no cv2, the same helpers mayatk uses, with
+    # ``compute_atlas_layout`` the fallback for a group too big to pack); only the EXR assembly is
     # Blender-native (bpy image I/O + a numpy paste/dilate, since Blender's runtime ships no
     # cv2). Legacy commits that DID repack UVs recorded the rect as the marker's ``uvRect``;
     # :meth:`revert_lightmap` still inverts those.
@@ -939,14 +947,23 @@ class LightmapBaker(ptk.LoggingMixin):
         through to both, they collided on ``bake_separated``'s own and raised.
         Returns :meth:`pack_atlas`'s ``{object_name: (atlas_path, rect)}``.
         """
-        # The plan reads only geometry and material assignment, so it is available before the
-        # lightmap UVs exist -- which is precisely what lets it size the bake that creates them.
-        # It also resolves the input, so it doubles as the "is there anything to bake" answer.
-        plan = self.atlas_plan(objects)
-        planned = [name for entries in plan.values() for name, _rect in entries]
-        if not planned:
+        targets = self.bake_targets(objects)
+        if not targets:
             self.logger.error("Nothing to bake. Pass objects= or select a mesh.")
             return {}
+        # The layouts are settled BEFORE the plan reads them (mirror of mayatk's): the plan
+        # sizes and shapes each cell from the lightmap layout that renders, and Smart UV
+        # Project scales a generated layout's islands to fill the square -- a stretch only
+        # a cell planned from that layout undoes. A legacy atlas marker's squeezed UVs are
+        # restored first, as ``_bake`` restores them.
+        meshes = TextureBaker.resolve_meshes(targets)
+        LightmapRecords.migrate_legacy([obj.name for obj in meshes])
+        if kwargs.pop("create_uvs", True):
+            UvUtils.create_lightmap_uvs(
+                meshes, uv_set=kwargs.get("uv_set") or LIGHTMAP_UV_SET, quiet=True
+            )
+        plan = self.atlas_plan(targets)
+        planned = [name for entries in plan.values() for name, _rect in entries]
 
         output_dir = output_dir or TextureBaker.default_output_dir("baked_lighting")
         if claims is None:
@@ -976,6 +993,7 @@ class LightmapBaker(ptk.LoggingMixin):
                 # Named in the work dir, which nobody reads: the pack names the
                 # deliverables, against the file's claims.
                 claims=None,
+                create_uvs=False,  # built above, before the plan
                 **kwargs,
             )
             packed = self.pack_atlas(
@@ -1001,13 +1019,23 @@ class LightmapBaker(ptk.LoggingMixin):
     def atlas_plan(self, objects) -> Dict[str, List[Tuple[str, List[float]]]]:
         """``{material: [(object_name, rect), ...]}`` — the atlas layout, decided before baking.
 
-        Groups the meshes by primary material and gives each an area-weighted, gutter-inset
-        rect (a solo group keeps the identity rect: it is already its own atlas). Objects that
-        share a mesh (linked duplicates / instances) are FIRST-CLASS: each stands somewhere
-        different and receives different light, so each gets its own rect over the one shared
-        [0,1] unwrap — the rect travels as the per-instance scaleOffset binding, never into
-        the shared UVs. Weights are per-instance world-space area, so a scaled copy earns
-        proportional texels.
+        Groups the meshes by primary material and PACKS each group into its atlas
+        (``ptk.ImgUtils.pack_atlas_rects``): every object a cell of its layout box's shape ON
+        THE SURFACE, at one texel density for the whole group, each cell a whole number of texels at
+        least :meth:`_atlas_gutter` from every neighbour and the atlas edge, its padded slot
+        on whole :attr:`_ATLAS_BLOCK` blocks (a solo group keeps the identity rect: it is
+        already its own atlas). Objects that share a mesh (linked duplicates / instances)
+        are FIRST-CLASS: each stands somewhere different and receives different light, so
+        each gets its own cell over the one shared [0,1] unwrap — the rect travels as the
+        per-instance scaleOffset binding, never into the shared UVs — and copies take equal
+        cells in name order. A cell's size is :meth:`_atlas_extent`: world area over the
+        layout's island coverage, so a scaled copy earns proportional texels, in a shape that
+        undoes the layout's stretch (one too long for the atlas at the group's density folds
+        toward square rather than lowering that density for everyone). Twin of
+        mayatk's ``atlas_plan``, which replaced the same squarified treemap: it bent cells
+        away from their content's shape and lost the gutter on small cells at a low
+        resolution. A group too big to fit at :attr:`_ATLAS_MIN_TEXELS` per cell falls back
+        to that tiling, warned.
 
         Pure bookkeeping: nothing is baked, read from disk or written, which is what lets
         :meth:`bake_atlas` size each bake from it. The meshes come from
@@ -1030,22 +1058,72 @@ class LightmapBaker(ptk.LoggingMixin):
             if len(group) == 1:
                 plan[key] = [(group[0], list(self._IDENTITY_SCALE_OFFSET))]
                 continue
-            weights = [self._surface_area(bpy.data.objects.get(n)) for n in group]
-            # Inset each rect by a resolution-scaled gutter and later dilate content into the
-            # freed border, so mip levels / bilinear taps can't bleed across neighbours. The
-            # INSET rect is the applied UV rect, so sampling stays exact -- and it is then
-            # SNAPPED to the texel grid: the assembler writes at rounded pixel edges, and
-            # publishing the un-rounded float samples up to half a texel of gutter along
-            # every rect edge (a thin dark border on each shared instance edge). Twin of
-            # mayatk's ``_pack_group``.
-            rects = ptk.ImgUtils.snap_atlas_rects(
-                ptk.ImgUtils.inset_atlas_rects(
-                    ptk.ImgUtils.compute_atlas_layout(weights), self.resolution, gutter
-                ),
+            # The gutter is the room the pack's dilation fills, so mip levels / bilinear
+            # taps can't bleed across neighbours; cells are whole texels, so the
+            # assembler's placement and the published rect agree. Twin of mayatk's.
+            rects = ptk.ImgUtils.pack_atlas_rects(
+                [self._atlas_extent(bpy.data.objects.get(n)) for n in group],
                 self.resolution,
+                gutter=gutter,
+                min_texels=self._ATLAS_MIN_TEXELS,
+                align=self._ATLAS_BLOCK,
             )
+            if rects is None:
+                self.logger.warning(
+                    "Atlas: the %d objects of %s do not fit a %d px atlas even at %d "
+                    "texels each; tiling them instead (cells may lose their gutter). "
+                    "Bake them at a higher resolution, or split them across materials.",
+                    len(group),
+                    key,
+                    self.resolution,
+                    self._ATLAS_MIN_TEXELS,
+                )
+                rects = ptk.ImgUtils.snap_atlas_rects(
+                    ptk.ImgUtils.inset_atlas_rects(
+                        ptk.ImgUtils.compute_atlas_layout(
+                            [self._surface_area(bpy.data.objects.get(n)) for n in group]
+                        ),
+                        self.resolution,
+                        gutter,
+                    ),
+                    self.resolution,
+                )
             plan[key] = [(n, [float(v) for v in rect]) for n, rect in zip(group, rects)]
         return plan
+
+    #: Smallest atlas cell, in texels per axis (mirror of mayatk's).
+    _ATLAS_MIN_TEXELS: int = 4
+
+    #: The slot grid every atlas cell's padded slot lies on: the 4 x 4 blocks BC6H /
+    #: UASTC / ASTC encode, so no block mixes two objects' light (mirror of mayatk's).
+    _ATLAS_BLOCK: int = 4
+
+    #: Island coverage assumed for an object with no lightmap layer yet.
+    _UNWRAP_FILL: float = 0.75
+
+    def _atlas_extent(self, obj) -> Tuple[float, float]:
+        """*obj*'s natural atlas extent -- the group's texel density (twin of mayatk's).
+
+        ``ptk.ImgUtils.atlas_layout_extent`` of its world area and its lightmap layer's
+        triangles -- the box the pack places (the islands' bbox when :meth:`_pack_group`
+        crops to it, by the same :attr:`_CROP_MAX_COVERAGE`) and their coverage -- turned
+        to that box's shape on the surface (``ptk.ImgUtils.uv_axis_scale``), so a layout
+        stretched to fill its square still gets square texels on the mesh.
+        """
+        area = self._surface_area(obj) if obj is not None else 1.0
+        tris = points = None
+        if obj is not None:
+            tris, points = UvUtils.get_uv_world_triangles(
+                obj, UvUtils.find_lightmap_uv_set(obj) or LIGHTMAP_UV_SET
+            )
+        scale = ptk.ImgUtils.uv_axis_scale(points, tris)
+        return ptk.ImgUtils.atlas_layout_extent(
+            area,
+            tris,
+            stretch=scale[0] / scale[1] if scale else 1.0,
+            max_coverage=self._CROP_MAX_COVERAGE,
+            fill=self._UNWRAP_FILL,
+        )
 
     def plan_sizes(
         self, plan: Dict[str, List[Tuple[str, List[float]]]]
@@ -2200,6 +2278,57 @@ class LightmapBaker(ptk.LoggingMixin):
                     bpy.context.scene.world = prev
                 except Exception as e:  # never leave the scene changed silently
                     self.logger.error("Could not restore the world: %s", e)
+
+    @contextlib.contextmanager
+    def _out_of_render(self, targets):
+        """Take what moves out of the render of a bake of *targets*.
+
+        A bake renders what it bakes, what was baked before
+        (:meth:`LightmapRecords.baked_objects`) and the file's
+        :class:`LightmapExcludeSet` -- the static scene. Any other mesh moves
+        (an interactive prop, never baked), and a shadow or bounce it cast
+        would stay in the maps wherever it went: props on a production cart
+        shadowed the cart's map (2026-10-07). Each is switched off by its
+        ``hide_render`` for the bake -- per object, so a linked duplicate of a
+        mesh that stays, or a child under a mover, is untouched -- and handed
+        back as found. Yields the names taken out. Mirror of mayatk's.
+        """
+        import bpy
+
+        stay = (
+            {obj.name for obj in targets}
+            | set(LightmapRecords.baked_objects())
+            | {obj.name for obj in LightmapExcludeSet.meshes()}
+        )
+        off: List[str] = []
+        for obj in bpy.context.scene.objects:
+            if obj.type != "MESH" or obj.hide_render or obj.name in stay:
+                continue
+            try:
+                obj.hide_render = True
+            except Exception as e:  # a library-linked object refuses the write
+                self.logger.warning("Could not switch off %s: %s", obj.name, e)
+                continue
+            off.append(obj.name)
+        if off:
+            self.logger.info(
+                "%d unbaked mesh(es) are out of this bake's render: neither baked "
+                "now, baked before, nor in the Exclude set (%s), they move, so "
+                "they cast no shadow into the maps. Add a static one to the "
+                "Exclude set to keep its shadow: %s",
+                len(off),
+                LightmapExcludeSet.SET_NAME,
+                ", ".join(off[:8]) + (" ..." if len(off) > 8 else ""),
+            )
+        try:
+            yield off
+        finally:
+            for name in off:
+                obj = bpy.data.objects.get(name)
+                try:
+                    obj.hide_render = False
+                except Exception as e:  # never leave the scene changed silently
+                    self.logger.error("Could not restore %s: %s", name, e)
 
     def _warn_if_unlit_scene(self) -> None:
         """Warn (once per instance) when the scene has no light source to bake.
