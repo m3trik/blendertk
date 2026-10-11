@@ -362,8 +362,8 @@ class _TaskDefinitionsMixin:
                         "per-map-type container decides.",
                         "<b>PNG … HDR</b> — write every map as that format.",
                         "<b>KTX2</b> — GPU-compressed Basis for web/XR "
-                        "runtimes (UASTC for normals/data, ETC1S for color; "
-                        "lightmaps stay lossless WebP). Ships only inside a "
+                        "runtimes (UASTC for normals, data and lightmaps, ETC1S "
+                        "for color). Ships only inside a "
                         "GLB, as KTX2 alone: the smallest deliverable, but it "
                         "needs a basisu-capable viewer (three.js KTX2Loader) "
                         "— Blender, Unreal or stock Unity cannot read its "
@@ -745,10 +745,10 @@ class _TaskDefinitionsMixin:
                         "<b>Export Scene Data Node</b> already does that, and the "
                         "two share one refresh.",
                         "The <b>FBX</b> leg splits takes for Unity on the two "
-                        "shot-bearing modes. Blender's split <b>replaces</b> the "
-                        "single scene-range take with the per-shot ones, so the "
-                        "FBX ships the same takes for both; the <b>GLB</b> keeps "
-                        "the difference, rebuilding its clips per mode.",
+                        "shot-bearing modes and keeps the whole-timeline take "
+                        "beside them, as Maya's does; the <b>GLB</b> cuts its "
+                        "clips from that take, and <b>Shots Only</b> drops it "
+                        "from both files after.",
                         "Forces Bake Animation on, and widens the scene frame "
                         "range to cover the takes it arms; <b>Bake Range</b> "
                         "then widens to cover them in turn, so the two cannot "
@@ -798,8 +798,9 @@ class _TaskDefinitionsMixin:
                         "Every export scope is geometry-driven, so the carrier "
                         "would otherwise be dropped.",
                         "No-op when the scene has no carrier.",
-                        "A readable copy is also written beside the export as "
-                        ".scene_data.json.",
+                        "The exporter keeps its own record of what shipped "
+                        "(.scene_data.json) in your user settings, never beside "
+                        "the export.",
                         "This ships the metadata only — it never changes the "
                         "animation.",
                     ],

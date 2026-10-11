@@ -2115,8 +2115,12 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             scratch = baked
         if btk.open_scene(scratch):
             self._discard_stale_scratches()
+            # The scratch stands in for its source: the pin the source lies under holds
+            # it, so a lightmap bake's project is the source's, not the temp folder
+            # (EnvUtils.scene_project_root).
+            btk.EnvUtils.set_scene_source(scratch, path)
             self._pin_workspace_for(path)
-            # After the open: the file's own UI (and UiState's re-apply) just loaded.
+            # Held past UiState's re-apply of the saved overlays, which the load queued.
             MayaSceneImport.hide_relationship_lines()
             self.sb.message_box(
                 f"Opened <hl>{os.path.basename(path)}</hl> as a new scene "

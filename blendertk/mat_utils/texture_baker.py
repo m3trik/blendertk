@@ -919,7 +919,7 @@ class TextureBaker(ptk.LoggingMixin):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def resolve_meshes(objects) -> List[Any]:
+    def resolve_meshes(objects, descendants: bool = False) -> List[Any]:
         """Normalize ``objects`` (refs / names / None=selection) to mesh objects.
 
         Each mesh once, in the order first given (mirror of mayatk's): an object
@@ -928,12 +928,30 @@ class TextureBaker(ptk.LoggingMixin):
         surface to bake and is left out (its lightmap unwrap failed the whole
         bake; mayatk's twin crashed Arnold on one) -- unless its modifiers build
         faces on the empty base (geometry nodes), which the bake renders.
+
+        With *descendants*, a collection given stands for the objects in it
+        (:meth:`NodeUtils.expand_sets` -- a bake set), and an object that is
+        not itself a mesh -- an Empty, a curve control, an armature -- for
+        every object below it: selecting one is "bake what is in it" (mirror
+        of mayatk's, where a ``*_LOC`` locator parenting a table's meshes
+        baked none of them, 2026-10-09). A mesh names itself alone.
         """
         import bpy
         from blendertk.core_utils._core_utils import CoreUtils
 
         if objects is None:
             objects = CoreUtils.selected_objects()
+        if descendants:
+            from blendertk.node_utils._node_utils import NodeUtils
+
+            given = [
+                bpy.data.objects.get(o) if isinstance(o, str) else o
+                for o in NodeUtils.expand_sets(objects)
+            ]
+            given = [o for o in given if o is not None]
+            objects = given + [
+                c for o in given if o.type != "MESH" for c in o.children_recursive
+            ]
         pool: Dict[Any, None] = {}
         depsgraph = None
         for o in ptk.make_iterable(objects):

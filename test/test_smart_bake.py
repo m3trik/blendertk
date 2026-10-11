@@ -235,7 +235,7 @@ def _run_data_internal_export_exclusion_checks():
 
     def check(name, cond, detail=""):
         lines.append(
-            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
         )
 
     try:
@@ -363,7 +363,7 @@ def _run_engine_round_trip_checks():
 
     def check(name, cond, detail=""):
         lines.append(
-            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
         )
 
     try:
@@ -610,7 +610,7 @@ def _run_driver_bake_restore_regression_checks():
 
     def check(name, cond, detail=""):
         lines.append(
-            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
         )
 
     try:
@@ -725,7 +725,7 @@ def _run_ik_bake_restore_regression_checks():
 
     def check(name, cond, detail=""):
         lines.append(
-            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
         )
 
     try:
@@ -860,7 +860,7 @@ def _run_preserve_outside_and_optimize_checks():
 
     def check(name, cond, detail=""):
         lines.append(
-            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
         )
 
     try:
@@ -1224,7 +1224,7 @@ def _run_skip_reason_checks():
 
     def check(name, cond, detail=""):
         lines.append(
-            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
         )
 
     try:
@@ -1320,7 +1320,7 @@ def _run_backup_mode_checks():
 
     def check(name, cond, detail=""):
         lines.append(
-            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
         )
 
     import os
@@ -1479,7 +1479,7 @@ def _run_task_manager_wiring_checks():
 
     def check(name, cond, detail=""):
         lines.append(
-            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
         )
 
     try:
@@ -1913,7 +1913,7 @@ def _run_exporter_bake_restore_checks():
 
     def check(name, cond, detail=""):
         lines.append(
-            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
         )
 
     import shutil
@@ -2046,7 +2046,7 @@ def _run_blend_shape_driver_restore_checks():
 
     def check(name, cond, detail=""):
         lines.append(
-            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
         )
 
     try:
@@ -2220,7 +2220,7 @@ def _run_session_fidelity_checks():
 
     def check(name, cond, detail=""):
         lines.append(
-            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
         )
 
     try:
@@ -2496,7 +2496,7 @@ def _run_failed_bake_rollback_checks():
 
     def check(name, cond, detail=""):
         lines.append(
-            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
         )
 
     try:
@@ -2703,7 +2703,7 @@ def _run_restore_exactness_checks():
 
     def check(name, cond, detail=""):
         lines.append(
-            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
         )
 
     try:

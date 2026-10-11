@@ -21,7 +21,7 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
@@ -182,6 +182,15 @@ try:
     # ---- suffix_by_type: idempotent (already-suffixed stays) ----------------------------------
     Naming.suffix_by_type([mesh])
     check("suffix_by_type idempotent", mesh.name == "Cube_GEO", mesh.name)
+
+    # A locator rig's locator holds its object and is still a locator: its Maya node-type
+    # stamp decides, as Maya's shape does -- never "_GRP" for parenting something.
+    reset()
+    rig_loc = empty("Rig")
+    empty("Held", parent=rig_loc)
+    btk.NodeUtils.set_maya_node_type(rig_loc, "locator")
+    Naming.suffix_by_type([rig_loc])
+    check("typed locator w/ children → _LOC", rig_loc.name == "Rig_LOC", rig_loc.name)
 
     # ---- suffix_by_type: expanded types (surface / lattice / material / image) ----------------
     reset()

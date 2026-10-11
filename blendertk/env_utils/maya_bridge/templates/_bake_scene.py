@@ -12,7 +12,8 @@ Everything between the empty scene and the save is ONE engine call,
 :meth:`MayaSceneImport.import_payload` -- the same consumer the in-process import and
 mayatk's receiving templates run -- so every manifest section (group/locator identity,
 textures, visibility, lights, instances, the scene clock) and the key reduction replay the
-same way whichever door the scene came through. ``EXTRA_SYS_PATH`` carries blendertk's
+same way whichever door the scene came through; only the importer's selection is cleared
+after it, so the document opens with nothing selected. ``EXTRA_SYS_PATH`` carries blendertk's
 and pythontk's roots, then the parent's importable set minus the parent's own interpreter
 directories (``HandoffBridge.import_roots`` + ``child_sys_path``), so blendertk is always
 importable -- driven from a workspace venv too, whose stdlib must not land ahead of this
@@ -69,6 +70,15 @@ def main():
     imported = MayaSceneImport(log_level="INFO").import_payload(
         SRC_FILE, scene_settings=True, reduce_keys=REDUCE_KEYS, progress=progress
     )
+    # The importer selects all it imports; a document opens with nothing selected (Maya's
+    # file -open). Saved selected, a large scene opens as a field of origin dots. A walk
+    # of a list: the import links and unlinks collections around operators, and a
+    # select_set inside a live ``view_layer.objects`` walk then skips objects.
+    for scene in bpy.data.scenes:
+        for view_layer in scene.view_layers:
+            for obj in list(view_layer.objects):
+                obj.select_set(False, view_layer=view_layer)
+            view_layer.objects.active = None
     print(ptk.ProgressRelay.line(1, 1, "Saving the .blend"), flush=True)
     # relative_remap off: the .blend lives in the cache dir, so relative texture paths
     # would be unresolvable for whoever links it (the absolute-path rule the FBX export

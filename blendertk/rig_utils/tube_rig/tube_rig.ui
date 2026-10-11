@@ -177,6 +177,16 @@
           </widget>
          </item>
          <item>
+          <widget class="QCheckBox" name="chk000">
+           <property name="toolTip">
+            <string>Build from the tube's other end: the root (the end that stays put) and the tip swap. Applies to Build Rig and Step 1.</string>
+           </property>
+           <property name="text">
+            <string>Reverse Direction</string>
+           </property>
+          </widget>
+         </item>
+         <item>
           <widget class="PushButton" name="b000">
            <property name="minimumSize">
             <size>
@@ -210,16 +220,6 @@
          <property name="spacing">
           <number>2</number>
          </property>
-         <item>
-          <widget class="QCheckBox" name="chk000">
-           <property name="toolTip">
-            <string>Reverse the joint-chain direction for Step 1 (Create Joints).</string>
-           </property>
-           <property name="text">
-            <string>Reverse Direction</string>
-           </property>
-          </widget>
-         </item>
          <item>
           <widget class="PushButton" name="b001">
            <property name="minimumSize">

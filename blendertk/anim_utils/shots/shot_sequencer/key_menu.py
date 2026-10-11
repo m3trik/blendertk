@@ -4,13 +4,12 @@
 
 Provides :class:`KeyMenuMixin` -- mixed into
 :class:`~.shot_sequencer_controller.ShotSequencerController`. The key menu
-(handle types, interpolation, break/unify, Move to Shot), dragged handles, and
+(handle types, interpolation, break/unify, Move / Copy to Shot), dragged handles, and
 the edits run over a key selection: simplify, thin, snap, invert, align, copy /
 paste and stash.
 """
 
 from blendertk.anim_utils._anim_utils import AnimUtils
-from blendertk.anim_utils.shots._shots import BlenderShotStore
 from blendertk.anim_utils.shots.shot_sequencer.clip_motion import ClipMotionMixin
 from blendertk.core_utils._core_utils import CoreUtils
 
@@ -77,7 +76,7 @@ class KeyMenuMixin:
         Handle types for both sides (Tangents), one side (In/Out), the
         interpolation mode, Break / Unify (free vs aligned handles), the
         Animation panel's key edits (:meth:`_add_key_edit_actions`), and the
-        sequencer's own Move to Shot for exactly the selected keys, per
+        sequencer's own Move / Copy to Shot for exactly the selected keys, per
         attribute.  The widget appends Delete.
         """
         widget = self._get_sequencer_widget()
@@ -124,9 +123,7 @@ class KeyMenuMixin:
             shots = self.sequencer.sorted_shots()
             if seqs and len(shots) > 1:
                 menu.addSeparator()
-                move_menu = QtWidgets.QMenu(f"Move to Shot{suffix}", menu)
-                menu.addMenu(move_menu)
-                self._populate_move_to_shot(move_menu, seqs, noun="key")
+                self._add_send_to_shot_menu(menu, seqs, noun="key", suffix=suffix)
 
     #: The key edits offered under the key menu's Edit row, as
     #: ``(label, method name)``.  Declared rather than inlined so the two
@@ -256,15 +253,21 @@ class KeyMenuMixin:
         fcurves and, within them, the selected keys, so neither reaches the
         channels beside the one the user highlighted and the selection's ends
         survive.  Mirror of mayatk's ``_simplify_selected_keys``.
+
+        A key either pass removes takes its claims with it, as a replaced one
+        does (``ShotStore.release_replaced``).
         """
         curves = self._target_curves(targets)
 
-        def _run(_objects, span):
+        def _run(objects, span):
+            released = self._claims_follow(objects)["on_replace"]
             flat = AnimUtils.get_redundant_flat_keys(
                 curves, remove=True, selected_only=True, time_range=span
             )
+            for fc, times in flat:
+                released(fc, times)
             shaped = AnimUtils.simplify_curve(
-                curves, selected_only=True, time_range=span
+                curves, selected_only=True, time_range=span, on_delete=released
             )
             return sum(len(times) for _c, times in flat), len(shaped)
 
@@ -289,14 +292,17 @@ class KeyMenuMixin:
 
         The fcurves are passed outright rather than the objects that own them:
         an fcurve IS a channel here, so this is the attribute scope mayatk
-        states with ``remove_intermediate_keys(attributes=...)``.
+        states with ``remove_intermediate_keys(attributes=...)``.  A key it
+        removes takes its claims with it, as a replaced one does.
         """
         curves = self._target_curves(targets)
         ran, n = self._key_selection_edit(
             targets,
             "Remove Intermediate Keys",
-            lambda _objects, span: AnimUtils.remove_intermediate_keys(
-                curves, time_range=span
+            lambda objects, span: AnimUtils.remove_intermediate_keys(
+                curves,
+                time_range=span,
+                on_delete=self._claims_follow(objects)["on_replace"],
             ),
         )
         if ran:
@@ -310,8 +316,13 @@ class KeyMenuMixin:
         ran, n = self._key_selection_edit(
             targets,
             "Snap Keys",
-            lambda _objects, span: AnimUtils.snap_keys(
-                curves, selected_only=True, time_range=span
+            # A snap never replaces a key (a taken target is skipped); the keys
+            # it moves carry their claims along.
+            lambda objects, span: AnimUtils.snap_keys(
+                curves,
+                selected_only=True,
+                time_range=span,
+                on_move=self._claims_follow(objects)["on_move"],
             ),
         )
         if ran:
@@ -319,35 +330,22 @@ class KeyMenuMixin:
                 f"Snapped {n or 0} key{'s' if n != 1 else ''} to whole frames"
             )
 
-    def _release_replaced(self, objects):
-        """An ``on_replace(fcurve, frames)`` for the AnimUtils key edits over
-        *objects*: a key the edit REPLACED (a moved key landing on it, the
-        Graph Editor's auto-merge) takes its claims with it -- every one, as
-        each key the shot system cuts does (``ShotSequencer._overwrite_landed``);
-        left there they passed to the key that landed on the frame."""
-        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
-            _ShotSequencerInternal,
-        )
-
-        owners: dict = {}
-        for obj in self._resolve_objects(objects):
-            for fc in BlenderShotStore.iter_action_fcurves(obj):
-                owners.setdefault(fc.as_pointer(), []).append(obj.name)
-
-        def on_replace(fc, frames):
-            ledger = self.sequencer.ledger
-            for name in owners.get(fc.as_pointer(), ()):
-                key = _ShotSequencerInternal._fc_key(name, fc)
-                for t in frames:
-                    ledger.release(key, t)
-
-        return on_replace
+    def _claims_follow(self, objects) -> dict:
+        """The ``on_replace`` / ``on_move`` a key edit over *objects* takes: a
+        key it REPLACES takes its claims with it (``ShotStore.release_replaced``,
+        as every key the system cuts does, ``ShotSequencer._overwrite_landed``)
+        and a key it MOVES carries them along (``ShotStore.remap_moved``, as the
+        sequencer's own moves do).  Mirror of mayatk's key menu."""
+        on_replace, on_move = self.sequencer.store.claim_hooks(objects)
+        return {"on_replace": on_replace, "on_move": on_move}
 
     def _invert_selected_keys(self, targets) -> None:
         """Mirror the selected keys in time, in place.
 
         Only the SELECTED keys, over their combined range (mayatk's invert
         prefers the Graph Editor selection): the keys around them stay put.
+        A key the mirror lands on is replaced and a key it moves carries its
+        claims along (:meth:`_claims_follow`).
         """
         curves = self._target_curves(targets)
         ran, n = self._key_selection_edit(
@@ -357,7 +355,7 @@ class KeyMenuMixin:
                 curves,
                 mode="time",
                 selected_only=True,
-                on_replace=self._release_replaced(objects),
+                **self._claims_follow(objects),
             ),
         )
         if ran:
@@ -366,13 +364,13 @@ class KeyMenuMixin:
             )
 
     def _align_selected_keys(self, targets) -> None:
-        """Line the selected keys up on the earliest one's frame."""
+        """Line the selected keys up on the earliest one's frame (claims follow
+        as Invert's do, :meth:`_claims_follow`)."""
         ran, n = self._key_selection_edit(
             targets,
             "Align Keys",
             lambda objects, _span: AnimUtils.align_selected_keyframes(
-                self._resolve_objects(objects),
-                on_replace=self._release_replaced(objects),
+                self._resolve_objects(objects), **self._claims_follow(objects)
             ),
         )
         if ran:
@@ -397,7 +395,12 @@ class KeyMenuMixin:
         self._paste_selected_keys(self._selected_key_targets())
 
     def _copy_selected_keys(self, targets) -> None:
-        """Copy the selected keys (frames and values) for a later paste."""
+        """Copy the selected keys (frames and values) for a later paste.
+
+        As the animator left them: a seam the gap hold made ``CONSTANT`` is
+        copied with the interpolation it had before (:meth:`_drop_gap_holds`,
+        mirror of mayatk's panel clipboard).
+        """
         if not targets:
             return
         self._select_target_keys(targets)
@@ -415,6 +418,7 @@ class KeyMenuMixin:
                 continue
             buf = AnimUtils.copy_keys(obj, mode="selected")
             if buf is not None:
+                self._drop_gap_holds(name, buf)
                 buffers[name] = buf
         if not buffers:
             self._set_footer("Nothing to copy")
@@ -422,6 +426,34 @@ class KeyMenuMixin:
         self._copied_keys = buffers
         n = sum(len(pts) for buf in buffers.values() for pts in buf["keys"].values())
         self._set_footer(f"Copied {n} key{'s' if n != 1 else ''}")
+
+    def _drop_gap_holds(self, name: str, buf: dict) -> None:
+        """Give each key of *buf* the gap hold claimed back its pre-hold
+        interpolation (``ShotEditLedger.claimed_step``): the ``CONSTANT`` the
+        hold wrote is the shot system's, and a paste carried it as if the
+        animator had keyed it (2026-10-10, found in Maya's Graph Editor).
+
+        Only while the key is still the one the hold stepped
+        (``ShotEditLedger.is_same_key``, as ``ShotSequencer._release_gap_holds``
+        reads it): a key written over the held one since -- a Graph Editor
+        paste -- is the animator's, its ``CONSTANT`` with it.  Mirror of
+        mayatk's ``_capture_key_rows``."""
+        from blendertk.anim_utils.shots._shots import BlenderShotStore
+
+        if self.sequencer is None:
+            return
+        ledger = self.sequencer.ledger
+        tangents = buf.get("tangents") or {}
+        for (path, index), points in (buf.get("keys") or {}).items():
+            key = BlenderShotStore.curve_key(name, path, index)
+            for (frame, value), tan in zip(points, tangents.get((path, index)) or []):
+                claim = ledger.claimed_step(key, frame)
+                if (
+                    claim is not None
+                    and tan.get("interpolation") == "CONSTANT"
+                    and ledger.is_same_key(claim, tan.get("easing"), value)
+                ):
+                    tan["interpolation"] = claim[1] or "BEZIER"
 
     def _paste_selected_keys(self, targets) -> None:
         """Paste the copied keys onto the selection at the current frame."""
@@ -444,6 +476,8 @@ class KeyMenuMixin:
 
         def _paste():
             pasted = set()
+            # A pasted key replaces the one on its frame, and takes its claims.
+            on_replace = self._claims_follow(names)["on_replace"]
             for name in names:
                 obj = bpy.data.objects.get(name)
                 if obj is None:
@@ -454,7 +488,10 @@ class KeyMenuMixin:
                 buf = self._copied_keys.get(name) or next(
                     iter(self._copied_keys.values())
                 )
-                for done in AnimUtils.paste_keys([obj], buf, target_time=now) or ():
+                done_on = AnimUtils.paste_keys(
+                    [obj], buf, target_time=now, on_replace=on_replace
+                )
+                for done in done_on or ():
                     pasted.add(getattr(done, "name", done))
             return len(pasted)
 

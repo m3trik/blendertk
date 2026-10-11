@@ -24,7 +24,7 @@ lines = []
 
 
 def check(name, cond, detail=""):
-    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}")
 
 
 SCRATCH = os.path.join(HERE, "temp_tests", f"ui_state_{os.getpid()}")
@@ -40,7 +40,7 @@ try:
     # ---- surface
     check("btk.UiState resolves", getattr(btk, "UiState", None) is UiState)
     for fn in ("install", "uninstall", "load", "save", "clear", "snapshot_workspace",
-               "apply_workspace", "apply_spaces", "close_hidden", "state_path"):
+               "apply_workspace", "apply_spaces", "close_hidden", "state_path", "after_restore"):
         check(f"UiState.{fn} is callable", callable(getattr(UiState, fn, None)))
 
     # ---- hidden merge rule: (saved | (loaded - live)) - live
@@ -128,6 +128,50 @@ try:
           and "OUTLINER" in UiState._ui_types(window.screen))
     UiState.uninstall()
     check("uninstall() is safe when never installed", not UiState._installed)
+
+    # ---- after_restore: a caller's change to a loaded file's UI outlives every restore.
+    # load_post only QUEUES the re-apply (the next tick) and other workspaces restore on their
+    # first visit, so a change made right after an open was undone a tick later (the Reference
+    # Manager's hidden Relationship Lines came back). The tick half needs a window ->
+    # ui_state_gui_check.py; the bookkeeping is decidable here.
+    ran = []
+    check("uninstalled: after_restore runs now, holds nothing",
+          UiState.after_restore(lambda: ran.append("now")) is True and ran == ["now"]
+          and UiState._after_restore == [], str(ran))
+    UiState._installed, UiState._pending_apply = True, True
+    try:
+        ran.clear()
+        check("a pending re-apply: held, not run",
+              UiState.after_restore(lambda: ran.append("stale")) is False and ran == [], str(ran))
+        UiState._on_load_post()
+        check("a new load drops what was held for the last file", UiState._after_restore == [])
+        UiState._after_restore.append(lambda: ran.append("kept"))
+        UiState._on_load_post_fail()
+        check("a failed load keeps it (that file is still open)", len(UiState._after_restore) == 1)
+        UiState._after_restore = []
+
+        def _boom():
+            raise RuntimeError("callback failed")
+
+        def _a():
+            ran.append("a")
+
+        for fn in (_a, _boom, lambda: ran.append("b"), _a):
+            UiState.after_restore(fn)
+        UiState._run_after_restore()
+        check("a restore runs them in order, each once; one raising never stops the rest",
+              ran == ["a", "b"], str(ran))
+        UiState._run_after_restore()  # the next workspace's first restore
+        check("...and again after the next restore (held for the file)",
+              ran == ["a", "b", "a", "b"], str(ran))
+        UiState._pending_apply = False
+        ran.clear()
+        check("installed, nothing pending: runs now and is held",
+              UiState.after_restore(lambda: ran.append("c")) is True and ran == ["c"]
+              and len(UiState._after_restore) == 4, str(ran))
+    finally:
+        UiState._installed, UiState._pending_apply, UiState._suspended = False, False, False
+        UiState._after_restore = []
 
 except Exception:
     traceback.print_exc()

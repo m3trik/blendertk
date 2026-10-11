@@ -13,6 +13,7 @@ These operate on ``bpy.data`` object/datablock references (no VIEW_3D context) â
 
 import contextlib
 from dataclasses import dataclass, field
+from typing import Any, List, Optional
 
 import pythontk as ptk
 
@@ -52,15 +53,20 @@ class _NodeUtilsInternal(object):
     @staticmethod
     def _transforms_driven(obj) -> bool:
         """True when something re-writes *obj*'s transform after we would set
-        it: transform drivers / action fcurves, or an unmuted constraint.
-        Compact yes/no twin of ``transform_diag._driving_connections`` (which
-        returns per-connection tags for its diagnosis dict)."""
+        it: transform drivers / fcurves (the delta channels included) in its
+        action or an unmuted NLA strip, or an unmuted constraint. Compact
+        yes/no twin of ``transform_diag._driving_connections`` (which returns
+        per-connection tags for its diagnosis dict)."""
         paths = (
             "location",
             "rotation_euler",
             "rotation_quaternion",
             "rotation_axis_angle",
             "scale",
+            "delta_location",
+            "delta_rotation_euler",
+            "delta_rotation_quaternion",
+            "delta_scale",
         )
         anim = getattr(obj, "animation_data", None)
         if anim:
@@ -73,7 +79,34 @@ class _NodeUtilsInternal(object):
                 f.data_path in paths for f in AnimUtils.get_fcurves(obj)
             ):
                 return True
+            # A strip plays its action with no active one assigned.
+            for track in anim.nla_tracks:
+                if track.mute:
+                    continue
+                for strip in track.strips:
+                    if strip.mute or strip.action is None:
+                        continue
+                    curves = AnimUtils._slot_fcurves(
+                        strip.action, getattr(strip, "action_slot", None)
+                    )
+                    if any(f.data_path in paths for f in curves):
+                        return True
         return any(not c.mute for c in getattr(obj, "constraints", []))
+
+    @staticmethod
+    def _is_maya_node_type(objects, node_type, filter):
+        """Body of :meth:`NodeUtils.is_locator` / :meth:`NodeUtils.is_group`."""
+        import bpy
+
+        objs = [
+            bpy.data.objects.get(o) if isinstance(o, str) else o
+            for o in ptk.make_iterable(objects)
+        ]
+        objs = [o for o in objs if o is not None]
+        result = [NodeUtils.get_maya_node_type(o) == node_type for o in objs]
+        if filter:
+            return [o for o, hit in zip(objs, result) if hit]
+        return ptk.format_return(result, objects)
 
     @staticmethod
     def _local_bbox_size(obj):
@@ -89,6 +122,154 @@ class _NodeUtilsInternal(object):
 
 class NodeUtils(_NodeUtilsInternal):
     """Namespace mirror of mayatk's ``NodeUtils`` (instance helpers also exposed module-level)."""
+
+    #: The custom property naming the Maya node an Empty stands for: ``"locator"`` or
+    #: ``"group"``. Maya tells the two apart by a locator SHAPE; Blender has only the
+    #: Empty, so the type travels as this stamp -- the Maya pull writes it on every Empty
+    #: it brings in, the locator rig on the Empties it builds, and the Maya send restores
+    #: each stamped Empty as that node type.
+    MAYA_NODE_TYPE_PROP = "maya_node_type"
+
+    #: Display size of an Empty that stands for a Maya GROUP. A Maya group draws
+    #: nothing; Blender has no "no display" Empty, so the group is shrunk to the
+    #: property's hard minimum (``Object.empty_display_size`` clamps at 0.0001) --
+    #: sub-pixel at any working zoom, yet still selectable (outliner / pick-walk),
+    #: transformable, and showing its origin dot when selected, like a Maya group's
+    #: pivot. Unlike a Maya group, a click on its origin can select it: Blender cycles
+    #: a repeat click through everything under it (a locator rig can draw its group
+    #: clear of the centre instead -- :attr:`RigUtils.LOCATOR_RING_SCALE`). A locator
+    #: keeps its size: Maya draws those. Deliberately NOT
+    #: ``hide_viewport`` / ``hide_set``: both make the Empty untransformable and would
+    #: fight the animated ``hide_viewport`` keys the Maya pull's visibility replay stamps.
+    MAYA_GROUP_DISPLAY_SIZE = 0.0001
+
+    @staticmethod
+    def get_maya_node_type(obj) -> Optional[str]:
+        """The Maya node *obj* stands for: ``"locator"``, ``"group"`` or ``None``.
+
+        Maya has a locator shape; Blender only the Empty, so an Empty answers by its
+        :attr:`MAYA_NODE_TYPE_PROP` stamp when it carries one -- a rig's locator is one
+        even holding its object -- and otherwise by its hierarchy: a parent is a group,
+        a leaf a locator. (The Maya send reads an unstamped Empty the same way, save
+        that it takes any display but ``PLAIN_AXES`` as a deliberate locator; a stamp
+        settles an Empty for both.) An image Empty (Blender's image plane) and any
+        non-Empty stand for neither.
+
+        Parameters:
+            obj (bpy.types.Object/None): The object to classify.
+
+        Returns:
+            (str/None): ``"locator"``, ``"group"`` (or another stamped type), or ``None``.
+        """
+        if getattr(obj, "type", None) != "EMPTY":
+            return None
+        stamp = obj.get(NodeUtils.MAYA_NODE_TYPE_PROP)
+        if stamp:
+            return str(stamp)
+        if obj.empty_display_type == "IMAGE":
+            return None
+        return "group" if obj.children else "locator"
+
+    @staticmethod
+    def set_maya_node_type(objects, node_type: str, look: bool = True) -> List[Any]:
+        """Stamp Empties as the Maya node *node_type* they stand for.
+
+        Writes :attr:`MAYA_NODE_TYPE_PROP` -- what :meth:`get_maya_node_type` reads and
+        the Maya send restores. With *look*, an Empty also takes that node's Maya look:
+        a ``"group"`` draws nothing (:attr:`MAYA_GROUP_DISPLAY_SIZE`); a ``"locator"``
+        keeps its display, since Maya draws those. A non-Empty is skipped: only an
+        Empty stands in for a node Blender has no object type for.
+
+        Parameters:
+            objects (obj/str/list): The Empties (or names).
+            node_type (str): ``"locator"`` or ``"group"``.
+            look (bool): Give each Empty its node's Maya look. False stamps the type
+                alone, keeping the Empty's own display -- a group grabbed by its arrows.
+
+        Returns:
+            (list): The Empties stamped.
+        """
+        import bpy
+
+        stamped = []
+        for o in ptk.make_iterable(objects):
+            o = bpy.data.objects.get(o) if isinstance(o, str) else o
+            if getattr(o, "type", None) != "EMPTY":
+                continue
+            o[NodeUtils.MAYA_NODE_TYPE_PROP] = node_type
+            if look and node_type == "group":
+                o.empty_display_size = NodeUtils.MAYA_GROUP_DISPLAY_SIZE
+            stamped.append(o)
+        return stamped
+
+    @staticmethod
+    def is_locator(objects, filter: bool = False):
+        """Whether each of *objects* (refs or names) is a locator.
+
+        Mirror of mayatk's, where a locator is a transform with a locator shape -- here
+        an Empty that stands for one (:meth:`get_maya_node_type`). ``filter`` returns
+        the locators instead of one bool per object.
+
+        Parameters:
+            objects (obj/str/list): The objects (or names); unknown names are skipped.
+            filter (bool): Return the locators rather than one bool per object.
+
+        Returns:
+            (bool/list): One bool per object (a single bool for a single object), or
+            the locators with *filter*.
+        """
+        return NodeUtils._is_maya_node_type(objects, "locator", filter)
+
+    @staticmethod
+    def expand_sets(objects) -> List[Any]:
+        """*objects* with every collection replaced by the objects in it.
+
+        Mirror of mayatk's, where a set stands for its members: Blender's sets
+        are collections (a bake set is a stamped one). A collection given -- a
+        ref, or a name no object has -- stands for every object in it and its
+        child collections (``all_objects``); everything else passes through
+        as given, in order.
+
+        Parameters:
+            objects (obj/str/list): Objects, collections, or their names.
+
+        Returns:
+            (list): The objects, each collection replaced by its objects.
+        """
+        import bpy
+
+        result: List[Any] = []
+        for o in ptk.make_iterable(objects):
+            if isinstance(o, bpy.types.Collection):
+                coll = o
+            elif isinstance(o, str) and o not in bpy.data.objects:
+                coll = bpy.data.collections.get(o)
+            else:
+                coll = None
+            if coll is None:
+                result.append(o)
+            else:
+                result.extend(coll.all_objects)
+        return result
+
+    @staticmethod
+    def is_group(objects, filter: bool = False):
+        """Whether each of *objects* (refs or names) is a group.
+
+        Mirror of mayatk's, where a group is a transform with no shape -- here an
+        Empty that stands for one (:meth:`get_maya_node_type`), so a locator is no
+        group, as in Maya. ``filter`` returns the groups instead of one bool per
+        object.
+
+        Parameters:
+            objects (obj/str/list): The objects (or names); unknown names are skipped.
+            filter (bool): Return the groups rather than one bool per object.
+
+        Returns:
+            (bool/list): One bool per object (a single bool for a single object), or
+            the groups with *filter*.
+        """
+        return NodeUtils._is_maya_node_type(objects, "group", filter)
 
     @staticmethod
     def get_instances(objects=None):

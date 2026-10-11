@@ -18,6 +18,13 @@ subclass is one question the file answers:
   while the scoped selection becomes the bake *target*.
 * :class:`LightmapExcludeSet` -- the objects a lightmap bake gives no map of
   their own, while they stay in the render and light the rest.
+* :class:`LightmapBakeSet` -- the objects the last lightmap bake acted on, so
+  the bake can be re-selected and re-run.
+
+A set is found by its stamp, so its collection's NAME is free: plain
+(:attr:`BakeSet.SET_NAME`) or the naming convention's spelling of it (the
+``objectSet`` affix, ``_SET`` by default -- :meth:`BakeSet.conventional_name`),
+as mayatk names its ``objectSet``.
 
 **Membership is neutral.** An object renders when ANY collection it is in
 renders, so a set collection that rendered would put back in the render every
@@ -56,6 +63,50 @@ class BakeSet:
     #: Mirror of mayatk's ``LEGACY_SET_NAMES`` -- a Maya set is identified by
     #: its name, a Blender one by its stamp.
     LEGACY_STAMPS: Tuple[str, ...] = ()
+    #: The ``pythontk.NamingConvention`` entry whose affix a conventional
+    #: spelling carries (mirror of mayatk's).
+    CONVENTION_KEY: str = "objectSet"
+
+    @classmethod
+    def conventional_name(cls) -> str:
+        """:attr:`SET_NAME` spelled by the naming convention (``lightmapBaker_baked_SET``).
+
+        The plain name when the convention's set entry is empty.
+        """
+        import pythontk as ptk
+
+        return ptk.NamingConvention.apply(cls.SET_NAME, cls.CONVENTION_KEY)
+
+    @classmethod
+    def name(cls) -> Optional[str]:
+        """The name of this file's set collection, or ``None``."""
+        col = cls.collection()
+        return col.name if col is not None else None
+
+    @classmethod
+    def respell(cls, conventional: bool) -> Optional[str]:
+        """Rename the set's collection plain or by the convention; the name it ends under.
+
+        One undo step. Blender appends a ``.001`` when another datablock holds
+        the name.
+
+        Parameters:
+            conventional: Spell it :meth:`conventional_name` rather than
+                :attr:`SET_NAME`.
+
+        Returns:
+            The collection's name afterwards, or ``None`` when the file has no set.
+        """
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        col = cls.collection()
+        if col is None:
+            return None
+        wanted = cls.conventional_name() if conventional else cls.SET_NAME
+        if col.name != wanted:
+            with CoreUtils.undo_chunk(f"Rename {col.name}"):
+                col.name = wanted
+        return col.name
 
     @classmethod
     def _collections(cls) -> List[Any]:
@@ -106,11 +157,12 @@ class BakeSet:
         members = cls.members()
         if not members:
             return []
-        below = [child for obj in members for child in obj.children_recursive]
-        return TextureBaker.resolve_meshes(members + below)
+        return TextureBaker.resolve_meshes(members, descendants=True)
 
     @classmethod
-    def define(cls, objects: Optional[List[Any]] = None) -> List[Any]:
+    def define(
+        cls, objects: Optional[List[Any]] = None, conventional: bool = False
+    ) -> List[Any]:
         """Replace the set's contents with *objects* (default: the selection).
 
         An empty input removes the collection -- "no set" is the absence of the
@@ -125,6 +177,10 @@ class BakeSet:
 
         Parameters:
             objects: Objects or object names; ``None`` for the selection.
+            conventional: Name the collection :meth:`conventional_name` (the
+                naming convention's Set affix) rather than :attr:`SET_NAME`
+                -- on every define, so an existing set takes the name asked
+                for. The set is found by its stamp either way.
 
         Returns:
             The set's members afterwards (``[]`` once cleared).
@@ -138,7 +194,8 @@ class BakeSet:
             bpy.data.objects.get(o) if isinstance(o, str) else o for o in objects or []
         ]
         resolved = list(dict.fromkeys(o for o in resolved if o is not None))
-        with CoreUtils.undo_chunk(f"Define {cls.SET_NAME}"):
+        name = cls.conventional_name() if conventional else cls.SET_NAME
+        with CoreUtils.undo_chunk(f"Define {name}"):
             if not resolved:
                 cls._remove()
                 return []
@@ -149,19 +206,19 @@ class BakeSet:
             for extra in found[1:]:
                 cls._remove_collection(extra)
             if col is None:
-                col = bpy.data.collections.new(cls.SET_NAME)
+                col = bpy.data.collections.new(name)
                 bpy.context.scene.collection.children.link(col)
             else:  # redefining replaces membership wholesale
                 for obj in list(col.objects):
                     cls._rehome_if_last(col, obj)
                     col.objects.unlink(obj)
-            # Migrate a set saved under a prior stamp: the canonical stamp and
-            # name from here on, as mayatk's define recreates a legacy set.
-            if any(stamp in col for stamp in cls.LEGACY_STAMPS):
-                for stamp in cls.LEGACY_STAMPS:
-                    if stamp in col:
-                        del col[stamp]
-                col.name = cls.SET_NAME
+            # Migrate a set saved under a prior stamp: the canonical stamp
+            # from here on, as mayatk's define recreates a legacy set.
+            for stamp in cls.LEGACY_STAMPS:
+                if stamp in col:
+                    del col[stamp]
+            if col.name != name:
+                col.name = name
             col[cls.STAMP] = True
             # On every define, so a set an older release created visible stops
             # putting its render-hidden members back into the render.
@@ -260,7 +317,10 @@ class LightmapExcludeSet(BakeSet):
     """Objects every lightmap bake of the file gives no map of their own.
 
     Excluded objects stay in the render: Cycles still traces them, so they
-    keep casting shadows and bouncing light onto the objects that DO bake.
+    keep casting shadows and bouncing light onto the objects that DO bake --
+    the way to keep a static object's shadow without baking it, since a mesh
+    neither baked nor excluded moves and is out of the render
+    (``LightmapBaker._out_of_render``).
     Only their own bake is skipped, and a bake reverts nothing first, so a map
     baked earlier (a hero prop at a higher preset) survives a room re-bake.
     Read by :meth:`blendertk.LightmapBaker.bake_targets`, so the panel and a
@@ -270,3 +330,17 @@ class LightmapExcludeSet(BakeSet):
 
     SET_NAME = "lightmapBaker_exclude"
     STAMP = "btk_lightmap_exclude"
+
+
+class LightmapBakeSet(BakeSet):
+    """The objects the last lightmap bake acted on.
+
+    Mirror of mayatk's ``LightmapBakeSet`` (the same set name). Written by
+    the Lightmap Baker panel after a bake while its *Save After Bake* switch
+    is on: every object the bake was asked to bake -- finished or not -- so
+    selecting the set and baking again re-runs that bake. Each bake replaces
+    it; the panel names it plain or by the naming convention.
+    """
+
+    SET_NAME = "lightmapBaker_baked"
+    STAMP = "btk_lightmap_baked"

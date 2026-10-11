@@ -23,7 +23,7 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
@@ -1527,6 +1527,70 @@ try:
         f"{_ws}",
     )
     btk.set_current_workspace(_prev_pin.root if _prev_pin else None)
+
+    # --- a foreign scene opened as new: the bake's project is its SOURCE's --------------------
+    # BACKLOG 2026-10-04 (decided 2026-10-05): the scratch twin lives in temp, so the pin
+    # on the source's project did not hold it, and a lightmap bake's project was the
+    # scratch folder -- Beside Material Textures accepted no texture folder, and a re-bake
+    # into the project set aside nothing it superseded. The scratch counts as its source.
+    _src_proj = os.path.join(tmp, "proj_source")
+    os.makedirs(os.path.join(_src_proj, "scenes"), exist_ok=True)
+    ptk.Workspace.create(_src_proj, create_dirs=False)
+    _src = os.path.join(_src_proj, "scenes", "opened.ma")
+    with open(_src, "w") as f:
+        f.write("//Maya ASCII 2025 scene\n")
+    _opened_bake = os.path.join(tmp, "opened_bake.blend")
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.wm.save_as_mainfile(filepath=_opened_bake)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+    def _bake_to_opened(self, path, progress=None, **conv):
+        return _opened_bake
+
+    _stock_bake = _si_mod.MayaSceneImport.bake_scene
+    _si_mod.MayaSceneImport.bake_scene = _bake_to_opened
+    try:
+        s, sb = make_progress_slots()
+        s._open_foreign_as_new(_src)
+    finally:
+        _si_mod.MayaSceneImport.bake_scene = _stock_bake
+    _v3d_overlays = [
+        sp.overlay
+        for scr in bpy.data.screens
+        for ar in scr.areas
+        if ar.type == "VIEW_3D"
+        for sp in ar.spaces
+        if getattr(sp, "overlay", None) is not None
+    ]
+    check(
+        "open as new: the opened scene's Relationship Lines are off",
+        _v3d_overlays and not any(o.show_relationship_lines for o in _v3d_overlays),
+        f"{len(_v3d_overlays)} viewports",
+    )
+    check(
+        "open as new: the open file is the source's scratch twin in temp",
+        os.path.normcase(bpy.data.filepath)
+        == os.path.normcase(ReferenceManagerSlots._foreign_scratch_path(_src)),
+        f"{bpy.data.filepath} messages={sb.messages}",
+    )
+    check(
+        "open as new: the bake's project is the pinned source project, not the scratch's folder",
+        os.path.normcase(btk.EnvUtils.scene_project_root() or "")
+        == os.path.normcase(_src_proj),
+        str(btk.EnvUtils.scene_project_root()),
+    )
+    _pin_elsewhere = os.path.join(tmp, "proj_elsewhere")
+    os.makedirs(_pin_elsewhere, exist_ok=True)
+    btk.set_current_workspace(_pin_elsewhere)
+    check(
+        "...and with the pin moved off it, the source's own project",
+        os.path.normcase(btk.EnvUtils.scene_project_root() or "")
+        == os.path.normcase(_src_proj),
+        str(btk.EnvUtils.scene_project_root()),
+    )
+    btk.set_current_workspace(_prev_pin.root if _prev_pin else None)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _twins.discard_except("")
 
     # Save To Workspace: the footer tooltip previews the very path the save writes. Two
     # ways they parted: the save kept a "{scene}" typo literally (a "{scene}" folder)

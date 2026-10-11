@@ -53,10 +53,15 @@ class RigUtils:
     @staticmethod
     def create_group(name="rig_grp", location=(0, 0, 0), children=None):
         """Create an Empty used as a transform group, parenting ``children`` under it (keeping
-        each child's world transform). Mirror of mayatk's ``create_group``."""
+        each child's world transform). Mirror of mayatk's ``create_group``: typed a Maya
+        group (``NodeUtils.set_maya_node_type``), so even childless it is no locator to
+        selection, naming or the Maya send; its arrows stay as the handle."""
         import bpy
 
+        from blendertk.node_utils._node_utils import NodeUtils
+
         grp = RigUtils.create_locator(name, location, display_type="ARROWS")
+        NodeUtils.set_maya_node_type(grp, "group", look=False)
         if children:
             # matrix_world is lazy: settle the just-created group before parent_keep_transform reads
             # its matrix_world, else a non-origin group binds an identity parent-inverse and the
@@ -93,11 +98,18 @@ class RigUtils:
 
     # ----------------------------------------------------------------- locator rigs
     #: The custom property :meth:`create_locator_at_object` stamps on the two Empties it
-    #: builds ("locator" / "group"). Blender has no locator shape, so this -- not "is an
-    #: Empty" -- is what :meth:`remove_locator` dissolves. The Scene Exporter exports
-    #: custom properties, so it rides along as an FBX user property, which unitytk's
-    #: importers skip (they look up the keys they own).
+    #: builds ("locator" / "group"): RIG membership, which tells :meth:`remove_locator`
+    #: a rig's own group from any other group. (What Maya node each Empty stands for is
+    #: :attr:`NodeUtils.MAYA_NODE_TYPE_PROP`, which the bridge reads.) The Scene
+    #: Exporter exports custom properties, so both ride along as FBX user properties,
+    #: which unitytk's importers skip (they look up the keys they own).
     LOCATOR_RIG_PROP = "btk_locator_rig"
+
+    #: A ring-drawn rig group's radius, in multiples of its locator's display size
+    #: (``create_locator_at_object(group_display="ring")``): the circle clears the
+    #: tips of the locator's axes, so it draws nothing at the centre a click on the
+    #: locator lands on.
+    LOCATOR_RING_SCALE = 1.5
 
     @staticmethod
     def _locator_rig_role(obj):
@@ -106,7 +118,9 @@ class RigUtils:
         A rig is known by the stamp :meth:`create_locator_at_object` writes; one
         built before the stamp, by its names -- a ``<stem><locator>`` Empty under
         the ``<stem><group>`` Empty, in the naming convention's affixes (Blender's
-        ``.001`` clash suffix ignored).
+        ``.001`` clash suffix ignored). Any Empty stamped a Maya locator is a
+        ``"locator"`` too -- one the Maya pull brought in, rig or not -- as
+        mayatk's :meth:`remove_locator` takes any locator.
 
         Parameters:
             obj (bpy.types.Object/None): The object to classify.
@@ -118,11 +132,15 @@ class RigUtils:
 
         import pythontk as ptk
 
+        from blendertk.node_utils._node_utils import NodeUtils
+
         if obj is None or obj.type != "EMPTY":
             return None
         stamp = obj.get(RigUtils.LOCATOR_RIG_PROP)
         if stamp in ("locator", "group"):
             return stamp
+        if obj.get(NodeUtils.MAYA_NODE_TYPE_PROP) == "locator":
+            return "locator"
         loc_rule = ptk.NamingConvention.get("locator")
         grp_rule = ptk.NamingConvention.get("group")
 
@@ -162,22 +180,43 @@ class RigUtils:
         strip_digits=False,
         strip_trailing_underscores=True,
         strip_suffix=True,
+        rotate_order="xyz",
+        freeze_object=True,
+        group_display="none",
     ):
-        """Rig each object under a locator (Empty) at its origin, under a group Empty.
+        """Rig each object under a zeroed locator (Empty) at its origin, under a group Empty.
 
-        Mirror of mayatk's ``RigUtils.create_locator_at_object`` (name + behavior):
-        ``<base><grp>`` -> ``<base><loc>`` -> the object renamed ``<base><obj>``,
-        with the object's channels locked as asked. The three names share one
-        stem, stripped of the affixes in play (and of trailing digits /
-        underscores when asked). Maya's freeze / manip-pivot steps have no
-        Blender counterpart, so nothing is frozen and nothing moves: the group
-        takes the object's place -- its parent link (object, bone or vertices),
-        parent-inverse and channels -- so it sits where the object sat and
-        keeps following a posed bone; the locator sits on the group; and the
-        object keeps its own channels (its animation still plays), re-linked
-        to the locator as a plain OBJECT child through a parent-inverse that
-        cancels them. The locator and group carry :attr:`LOCATOR_RIG_PROP`, which
-        is how :meth:`remove_locator` knows them from the user's own Empties.
+        Mirror of mayatk's ``RigUtils.create_locator_at_object`` (name + behavior), down
+        to the channels: ``<base><grp>`` -> ``<base><loc>`` -> the object renamed
+        ``<base><obj>``, locked as asked. The three names share one stem, stripped of
+        the affixes in play (and of trailing digits / underscores when asked); nothing
+        moves.
+
+        - The group takes the object's place -- its parent link (object, bone or
+          vertices) and parent-inverse -- and holds its pose at unit scale, as
+          mayatk's group holds the object's translate / rotate. So it keeps following
+          a posed bone, and the locator under it is never squashed by the object's
+          scale. It draws nothing, as a Maya group
+          (:attr:`NodeUtils.MAYA_GROUP_DISPLAY_SIZE`) -- or, as asked, a ring around
+          the locator (*group_display*).
+        - The locator sits on the group ZEROED -- identity channels and inverse -- so
+          clearing it puts the rig back at rest, and draws at *loc_scale*.
+        - The object re-links to the locator as a plain OBJECT child, frozen: its
+          channels zero and its parent-inverse takes what they held (the scale the
+          group does not), where Maya bakes it into the shape -- so no data changes
+          and :meth:`remove_locator` hands every channel back. An object whose
+          transform something writes (keys, an NLA strip, drivers, a constraint)
+          keeps its channels, the inverse cancelling the pose the group took, so its
+          animation plays as before -- where mayatk's freeze plays the keys offset by
+          that pose.
+
+        A group -- an Empty standing for a Maya group (:meth:`NodeUtils.is_group`) --
+        gets its rig on the world bounding-box centre of its contents, turned like the
+        group, as mayatk's, and is never renamed. The locator and group carry the Maya
+        node type they stand for (:attr:`NodeUtils.MAYA_NODE_TYPE_PROP`), so the Maya
+        send restores a locator and a group, and :attr:`LOCATOR_RIG_PROP`, which is how
+        :meth:`remove_locator` knows a rig's group from the user's own. The new
+        locators end up selected, as mayatk leaves them.
 
         Parameters:
             objects (obj/list): The objects (or names) to rig; unknown names skip.
@@ -199,16 +238,45 @@ class RigUtils:
             strip_digits (bool): Strip trailing digits from the stem.
             strip_trailing_underscores (bool): Strip trailing underscores from it.
             strip_suffix (bool): Strip the affixes in play from it first.
+            rotate_order (str): The locator's Euler order, Maya-spelled ("xyz",
+                "zyx", ...; Blender's ``rotation_mode`` of the same letters
+                applies the axes in the same sequence). Its FIRST letter is the
+                local axis that spins through a single channel at any pose.
+            freeze_object (bool): Freeze the object under the locator (mayatk's
+                flag): zero its channels, its parent-inverse taking what they held.
+                False keeps them, cancelled by the parent-inverse. Driven channels
+                are kept either way.
+            group_display (str): How the group draws (Blender only: a Maya group
+                has no display). "none" -- nothing, as a Maya group, though a
+                repeat click on the locator's centre cycles to it, as Blender cycles
+                every object under a click. "ring" -- a circle around the locator
+                (:attr:`LOCATOR_RING_SCALE` times its size): it marks the rig, gives
+                the group a handle, and leaves the centre to the locator. Either
+                way the group exports, and goes to Maya, as a group.
 
         Returns:
             (list): The created locator Empties, in input order.
+
+        Raises:
+            ValueError: *rotate_order* is not an Euler order, or *group_display*
+                not "none" / "ring".
         """
         import re
 
         import bpy
         import pythontk as ptk
+        from mathutils import Matrix
 
+        import blendertk as btk
+        from blendertk.core_utils._core_utils import CoreUtils
         from blendertk.edit_utils.naming._naming import Naming
+        from blendertk.node_utils._node_utils import NodeUtils
+
+        rotation_mode = str(rotate_order).upper()
+        if sorted(rotation_mode) != ["X", "Y", "Z"]:
+            raise ValueError(f"Invalid rotate order {rotate_order!r}.")
+        if group_display not in ("none", "ring"):
+            raise ValueError(f"Invalid group display {group_display!r}.")
 
         def rule(affix, mode, key):
             if affix is None:
@@ -239,55 +307,30 @@ class RigUtils:
 
         if not isinstance(objects, (list, tuple, set)):
             objects = [objects]
+        # One rig per object, in input order (a dict keeps first-seen order).
+        resolved = map(RigUtils.resolve_object, objects)
+        targets = list({o.as_pointer(): o for o in resolved if o is not None}.values())
+        groups = [NodeUtils.is_group(o) for o in targets]
+        if any(groups):
+            # A group's rig sits on its contents, so their worlds must be current
+            # (a fresh object's matrix_world is identity until a depsgraph update).
+            bpy.context.view_layer.update()
+        # Every pose is read before anything is rigged: a rig built for one object
+        # adds Empties that a later group's contents would count, unevaluated.
+        poses = [RigUtils._locator_rig_pose(o, g) for o, g in zip(targets, groups)]
+
         locators = []
-        for o in (RigUtils.resolve_object(x) for x in objects):
-            if o is None:
-                continue
+        for o, is_group, pose in zip(targets, groups, poses):
             coll = (
                 o.users_collection[0]
                 if o.users_collection
                 else bpy.context.scene.collection
             )
             base = stem(o.name)
-            is_group = o.type == "EMPTY" and bool(o.children)
-            # Blender's world is parent.world @ matrix_parent_inverse @
-            # matrix_basis. The inverses written below cancel a BASIS:
-            # cancelling the object's WORLD matrix is right only for an
-            # unparented object (world == basis) -- a parented one jumped by
-            # its parent's transform. Nor is a fresh object's ``matrix_world``
-            # read: it is identity until a depsgraph update.
-            channels = o.matrix_basis.copy()
-            loc = bpy.data.objects.new(loc_rule.apply(base), None)
-            loc.empty_display_type = "PLAIN_AXES"
-            loc.empty_display_size = loc_scale
-            loc.matrix_world = o.matrix_world.copy()  # its channels read the world
-            loc[RigUtils.LOCATOR_RIG_PROP] = "locator"
-            coll.objects.link(loc)
-
-            # The group takes the object's place (link, inverse and channels),
-            # so it evaluates exactly where the object did -- and a
-            # bone-parented prop keeps following its bone.
-            grp = bpy.data.objects.new(grp_rule.apply(base), None)
-            grp.empty_display_type = "PLAIN_AXES"
-            grp[RigUtils.LOCATOR_RIG_PROP] = "group"
-            coll.objects.link(grp)
-            RigUtils._take_parent_link(grp, o)
-            grp.matrix_basis = channels
-
-            # The locator sits ON the group: its inverse cancels its own
-            # channels, not the world's (a sheared world matrix does not
-            # decompose into channels exactly).
-            loc.parent = grp
-            loc.matrix_parent_inverse = loc.matrix_basis.inverted_safe()
-            # The object keeps its channels -- its animation still plays -- and
-            # its inverse cancels them against the locator. A bone or vertex
-            # link means nothing under an Empty.
-            o.parent = loc
-            o.parent_type = "OBJECT"
-            o.parent_bone = ""
-            o.matrix_parent_inverse = channels.inverted_safe()
-
             if not is_group:
+                # Classified before anything moves, and renamed FIRST: Blender
+                # names are global, and the locator may want the very name the
+                # object gives up (an empty locator affix names it the bare stem).
                 child_rule = Naming.affix_for(o) if by_type else obj_rule
                 if by_type and not child_rule.text:
                     # An unmapped type has no entry to follow; keep the mesh
@@ -297,11 +340,99 @@ class RigUtils:
                 new_name = child_rule.apply(base)
                 if new_name and o.name != new_name:
                     o.name = new_name
+            # Blender's world is parent.world @ matrix_parent_inverse @
+            # matrix_basis, so everything below is solved against the BASIS: the
+            # group shares the object's link and inverse, and its channels act
+            # where the object's did.
+            channels = o.matrix_basis.copy()
+
+            # The group takes the object's place -- link and inverse -- and holds
+            # its pose, so a bone-parented prop keeps following its bone.
+            grp = bpy.data.objects.new(grp_rule.apply(base), None)
+            if group_display == "ring":
+                # The stamp alone keeps a CIRCLE a group: the send reads an
+                # unstamped one as a deliberate locator.
+                grp.empty_display_type = "CIRCLE"
+                grp.empty_display_size = loc_scale * RigUtils.LOCATOR_RING_SCALE
+                NodeUtils.set_maya_node_type(grp, "group", look=False)
+            else:
+                grp.empty_display_type = "PLAIN_AXES"
+                NodeUtils.set_maya_node_type(grp, "group")
+            grp[RigUtils.LOCATOR_RIG_PROP] = "group"
+            coll.objects.link(grp)
+            RigUtils._take_parent_link(grp, o)
+            grp.matrix_basis = pose
+            pose = grp.matrix_basis.copy()  # exactly as its channels hold it
+
+            # The locator sits on the group ZEROED: a new object's channels and
+            # inverse are identity, and the parent write keeps them so.
+            loc = bpy.data.objects.new(loc_rule.apply(base), None)
+            loc.empty_display_type = "PLAIN_AXES"
+            loc.empty_display_size = loc_scale
+            loc.rotation_mode = rotation_mode
+            NodeUtils.set_maya_node_type(loc, "locator")
+            loc[RigUtils.LOCATOR_RIG_PROP] = "locator"
+            coll.objects.link(loc)
+            loc.parent = grp
+
+            # The object re-links to the locator as a plain OBJECT child (a bone or
+            # vertex link means nothing under an Empty; the inverse goes last --
+            # every link write resets it). Driven channels ARE the animation, so
+            # they stay, the inverse cancelling the pose the group took.
+            o.parent = loc
+            o.parent_type = "OBJECT"
+            o.parent_bone = ""
+            if freeze_object and not NodeUtils._transforms_driven(o):
+                o.matrix_parent_inverse = pose.inverted_safe() @ channels
+                # matrix_basis counts the deltas, so they zero with the rest.
+                o.delta_location = (0.0, 0.0, 0.0)
+                o.delta_rotation_euler = (0.0, 0.0, 0.0)
+                o.delta_rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+                o.delta_scale = (1.0, 1.0, 1.0)
+                o.matrix_basis = Matrix.Identity(4)
+            else:
+                o.matrix_parent_inverse = pose.inverted_safe()
             o.lock_location = (lock_translate,) * 3
             o.lock_rotation = (lock_rotation,) * 3
             o.lock_scale = (lock_scale,) * 3
             locators.append(loc)
+        if locators:  # nothing rigged leaves the selection alone, as mayatk's
+            # The windowless context's view layer is the scene's default, not the
+            # window's: select inside the override.
+            with CoreUtils.window_context_override():
+                btk.Selection._apply_selection_mode(locators, "replace")
         return locators
+
+    @staticmethod
+    def _locator_rig_pose(obj, is_group):
+        """The channels a locator rig's group takes for *obj*: its pose, never its scale.
+
+        The group shares *obj*'s parent link and inverse, so these act where *obj*'s
+        own channels do: their location and rotation, at unit scale. A group
+        (*is_group*) gets its rig on the world bounding-box centre of its contents
+        instead, held in that same space -- mayatk's group placement; one with nothing
+        under it keeps its own origin.
+
+        Parameters:
+            obj (bpy.types.Object): The object to rig.
+            is_group (bool): Whether *obj* stands for a Maya group.
+
+        Returns:
+            (mathutils.Matrix): The group's ``matrix_basis``.
+        """
+        from mathutils import Matrix, Vector
+
+        from blendertk.xform_utils._xform_utils import XformUtils
+
+        channels = obj.matrix_basis
+        location, rotation, _scale = channels.decompose()
+        contents = list(obj.children_recursive) if is_group else []
+        if contents:
+            centre = Vector(XformUtils.get_bounding_box(contents, "center"))
+            # The space the channels act in: the world they evaluate to, less them.
+            space = obj.matrix_world @ channels.inverted_safe()
+            location = space.inverted_safe() @ centre
+        return Matrix.LocRotScale(location, rotation, None)
 
     @staticmethod
     def remove_locator(objects):
@@ -316,12 +447,13 @@ class RigUtils:
         the scene root. The group goes with its locator when that leaves it
         childless.
 
-        Blender has no locator shape, so a locator is an Empty of a locator RIG
-        (:meth:`_locator_rig_role`); any other Empty -- a user's own group -- is
-        skipped, as mayatk skips anything that is not a locator. A rig's group
-        names its rig: it draws the same cross as the locator, so selecting
-        either dissolves the rig. Only a rig's own group is ever skipped over or
-        deleted -- a locator the user moved under their own Empty hands its
+        Blender has no locator shape, so a locator is an Empty of a locator RIG, or
+        any Empty stamped a Maya locator -- one the Maya pull brought in -- as
+        mayatk takes any locator (:meth:`_locator_rig_role`); any other Empty -- a
+        user's own group -- is skipped, as mayatk skips anything that is not a
+        locator. A rig's group names its rig, so selecting it (in the outliner: it
+        draws nothing) dissolves the rig. Only a rig's own group is ever skipped
+        over or deleted -- a locator the user moved under their own Empty hands its
         children to that Empty.
 
         Parameters:

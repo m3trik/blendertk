@@ -24,7 +24,7 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
@@ -489,17 +489,28 @@ try:
                 for cb in strip.channelbags:
                     yield from cb.fcurves
 
+    # The whole-timeline stack stays beside the takes it was split into, as
+    # Maya's Take 001 does (2026-10-05): the GLB's clips are cut from it and
+    # a Shots + Full Sequence deliverable ships it.
     take_actions = sorted(a.name for a in bpy.data.actions)
     check(
-        "the FBX ships one AnimStack per declared take and ONLY those",
+        "the FBX ships one AnimStack per declared take beside the whole timeline",
         take_actions
         == [
+            "TakesBall|Scene",
             "TakesBall|shotA",
             "TakesBall|shotB",
+            "TakesCube|Scene",
             "TakesCube|shotA",
             "TakesCube|shotB",
         ],
         f"{take_actions}",
+    )
+    whole = bpy.data.actions.get("TakesCube|Scene")
+    check(
+        "the whole-timeline stack keeps the scene range it was baked over",
+        whole is not None and tuple(round(f) for f in whole.frame_range) == (1, 30),
+        f"{whole and tuple(whole.frame_range)}",
     )
 
     def x_extent(action_name):
@@ -679,6 +690,559 @@ try:
         raised and ran == ["prepare", "finish"] and FbxUtils._export_depth == 0,
         f"raised={raised} ran={ran} depth={FbxUtils._export_depth}",
     )
+
+    # ---- a whole-timeline stack named like a take keeps a name of its own ----
+    # The kept stack is named after the scene; a shot named the same would make
+    # two stacks one name, and every consumer that picks the sequence as "the
+    # take no shot names" would find none.
+    reset_anim()
+    scene.frame_start, scene.frame_end = 1, 20
+    bpy.ops.mesh.primitive_cube_add()
+    twin = bpy.context.active_object
+    twin.name = "TwinCube"
+    for frame, x in ((1, 0.0), (20, 2.0)):
+        twin.location.x = x
+        twin.keyframe_insert("location", frame=frame)
+    FbxUtils.apply_takes([(scene.name, 1, 10)])
+    twin_out = os.path.join(tmp, "takes_twin.fbx")
+    try:
+        FbxUtils.export(filepath=twin_out, objects=[twin], bake_anim=True)
+    finally:
+        FbxUtils.reset_takes()
+    twin_takes = ptk.FbxFile.load(twin_out, raw_payloads=False).take_names()
+    check(
+        "a take named like the scene leaves the whole timeline a distinct name",
+        len(twin_takes) == 2 and scene.name in twin_takes and len(set(twin_takes)) == 2,
+        f"{twin_takes}",
+    )
+    scene.frame_start, scene.frame_end = 1, 30
+
+    # ---- the data_export carrier ships READABLE from any write (2026-10-05) --
+    # Blender's exporter defaults custom-property export OFF, and the carrier
+    # can be hidden: both repairs lived in the Scene Exporter and the bridges
+    # alone, so a scripted btk.FbxUtils.export shipped the carrier as an Empty
+    # holding no channel -- or, hidden, dropped it with a warning -- and the
+    # deliverable arrived with no metadata.
+    def carrier_round_trip(label, prepare=None, **opts):
+        """Export a cube + the carrier; return (shipped channel, state after)."""
+        reset()
+        DataNodes.write(ptk.Scope.DELIVERABLE, "lightmap_metadata", '{"version": 1}')
+        node = DataNodes.get_export_node(create=False)
+        bpy.ops.mesh.primitive_cube_add()
+        mesh = bpy.context.active_object
+        mesh.name = "CarrierCube"
+        if prepare is not None:
+            prepare(node)
+        out = os.path.join(tmp, f"carrier_{label}.fbx")
+        FbxUtils.export(filepath=out, objects=[mesh, node], **opts)
+        vl = bpy.context.view_layer
+        after = {
+            "hide_viewport": node.hide_viewport,
+            "hide_select": node.hide_select,
+            "collections": sorted(c.name for c in node.users_collection),
+            "visible": node.visible_get(view_layer=vl),
+        }
+        reset()
+        FbxUtils.import_fbx(out, use_custom_props=True)
+        arrived = bpy.data.objects.get(DataNodes.EXPORT)
+        return (arrived.get("lightmap_metadata") if arrived else None), after
+
+    shipped, _after = carrier_round_trip("plain")
+    check(
+        "a scripted export with no options ships the carrier readable",
+        shipped == '{"version": 1}',
+        f"{shipped!r}",
+    )
+    with mock.patch.object(_fbx_module.logger, "warning") as warned:
+        shipped, _after = carrier_round_trip(
+            "denied", use_custom_props=False, object_types={"MESH"}
+        )
+    check(
+        "options that would ship it unreadable are forced, and said",
+        shipped == '{"version": 1}'
+        and any("use_custom_props" in str(c) for c in warned.call_args_list),
+        f"{shipped!r} warnings={warned.call_args_list}",
+    )
+
+    def hide_carrier(node):
+        node.hide_viewport = True
+        node.hide_select = True
+
+    shipped, after = carrier_round_trip("hidden", prepare=hide_carrier)
+    check(
+        "a hidden carrier ships, and is hidden again after the write",
+        shipped == '{"version": 1}'
+        and after["hide_viewport"] is True
+        and after["hide_select"] is True,
+        f"{shipped!r} {after}",
+    )
+
+    def exclude_carrier(node):
+        coll = bpy.data.collections.get("CarrierHold") or bpy.data.collections.new(
+            "CarrierHold"
+        )
+        if coll.name not in bpy.context.scene.collection.children:
+            bpy.context.scene.collection.children.link(coll)
+        for owner in list(node.users_collection):
+            owner.objects.unlink(node)
+        coll.objects.link(node)
+        bpy.context.view_layer.layer_collection.children[coll.name].exclude = True
+
+    shipped, after = carrier_round_trip("excluded", prepare=exclude_carrier)
+    check(
+        "a carrier in an excluded collection ships, and is left where it was",
+        shipped == '{"version": 1}' and after["collections"] == ["CarrierHold"],
+        f"{shipped!r} {after}",
+    )
+    _hold = bpy.data.collections.get("CarrierHold")
+    if _hold is not None:
+        bpy.data.collections.remove(_hold)
+
+    # The bridges' USD route shows it for the write too, as the Scene
+    # Exporter's USD write does: the selection funnel dropped it there.
+    from pxr import Usd
+
+    reset()
+    DataNodes.write(ptk.Scope.DELIVERABLE, "lightmap_metadata", '{"version": 1}')
+    usd_carrier = DataNodes.get_export_node(create=False)
+    bpy.ops.mesh.primitive_cube_add()
+    usd_mesh = bpy.context.active_object
+    usd_mesh.name = "UsdCarrierCube"
+    exclude_carrier(usd_carrier)
+    usd_out = os.path.join(tmp, "carrier_excluded.usd")
+    WebXrPreview()._export_usd([usd_mesh], usd_out, {})
+    usd_stage = Usd.Stage.Open(usd_out)  # held: a temporary stage expires mid-walk
+    usd_prims = {prim.GetName() for prim in usd_stage.Traverse()}
+    del usd_stage
+    check(
+        "the bridge USD route ships a carrier from an excluded collection, left there",
+        DataNodes.EXPORT in usd_prims
+        and sorted(c.name for c in usd_carrier.users_collection) == ["CarrierHold"],
+        f"{sorted(usd_prims)}",
+    )
+    _hold = bpy.data.collections.get("CarrierHold")
+    if _hold is not None:
+        bpy.data.collections.remove(_hold)
+
+    # ---- staged transport nodes ride beside the object they hang under -------
+    # Blender writes only selected objects, so a curve proxy a stager made
+    # never reached a bridge's FBX: the bracket records what each stager's
+    # prepare returned, and the write selects the ones whose parent ships.
+    def keyed_fader(name):
+        bpy.ops.mesh.primitive_cube_add()
+        obj = bpy.context.active_object
+        obj.name = name
+        for frame, alpha in ((1, 1.0), (10, 0.0)):
+            obj["opacity"] = alpha
+            obj.keyframe_insert('["opacity"]', frame=frame)
+        return obj
+
+    reset_anim()
+    scene.frame_start, scene.frame_end = 1, 10
+    fader = keyed_fader("FadeCube")
+    keyed_fader("OtherCube")
+    marker = ptk.MeshConvert.CURVE_PROXY_MARKER
+    proxy_out = os.path.join(tmp, "proxies.fbx")
+    alone_out = os.path.join(tmp, "proxies_alone.fbx")
+    check(
+        "render_effects and emissive_groups are export stagers",
+        {"render_effects", "emissive_groups"} <= set(FbxUtils.STAGERS),
+        f"{sorted(FbxUtils.STAGERS)}",
+    )
+    with FbxUtils.export_prepared(stagers=("render_effects",)):
+        FbxUtils.export(filepath=proxy_out, objects=[fader], bake_anim=True)
+    left = [o.name for o in bpy.data.objects if o.get(marker)]
+    shipped_models = ptk.FbxFile.load(proxy_out, raw_payloads=False).object_names(
+        "Model"
+    )
+    check(
+        "a staged curve proxy ships beside its object; its sibling's stays out",
+        "FadeCube__opacity" in shipped_models
+        and "OtherCube__opacity" not in shipped_models,
+        f"{sorted(shipped_models)}",
+    )
+    check("the bracket removes the proxies after the write", not left, f"{left}")
+    FbxUtils.export(filepath=alone_out, objects=[fader], bake_anim=True)
+    check(
+        "a write outside a staging bracket ships no proxy",
+        "FadeCube__opacity"
+        not in ptk.FbxFile.load(alone_out, raw_payloads=False).object_names("Model"),
+    )
+
+    # A hidden object cannot be selected, so the write drops it (and says so);
+    # its staged proxy, a fresh visible Empty, shipped anyway, re-rooted at the
+    # file's root -- where Unity applies a proxy's curve to every Renderer.
+    hidden_fader = keyed_fader("HiddenFader")
+    hidden_fader.hide_set(True)
+    hidden_out = os.path.join(tmp, "proxies_hidden.fbx")
+    with FbxUtils.export_prepared(stagers=("render_effects",)):
+        FbxUtils.export(
+            filepath=hidden_out, objects=[fader, hidden_fader], bake_anim=True
+        )
+    hidden_models = ptk.FbxFile.load(hidden_out, raw_payloads=False).object_names(
+        "Model"
+    )
+    check(
+        "a proxy whose object the write drops stays out with it",
+        "HiddenFader" not in hidden_models
+        and "HiddenFader__opacity" not in hidden_models
+        and "FadeCube__opacity" in hidden_models,
+        f"{sorted(hidden_models)}",
+    )
+
+    # The keyed emissive weights' proxies hang under the carrier, linked into
+    # its collections: a carrier in an excluded collection was shown for the
+    # write and its proxies were not, so the weights stayed out of the file.
+    from blendertk.mat_utils.emissive_groups import EmissiveGroups
+
+    reset_anim()
+    glow_cube = keyed_fader("GlowCube")
+    EmissiveGroups.add_group("glow", {"GlowCube": [0]})
+    EmissiveGroups.make_weights_keyable(["glow"])
+    EmissiveGroups.key_weight("glow", value=1.0, frame=1)
+    EmissiveGroups.key_weight("glow", value=0.0, frame=10)
+    glow_carrier = DataNodes.get_export_node(create=False)
+    if glow_carrier is None:
+        check("the keyed emissive group made a carrier", False)
+    else:
+        exclude_carrier(glow_carrier)
+        glow_out = os.path.join(tmp, "emissive_excluded.fbx")
+        with FbxUtils.export_prepared(stagers=("emissive_groups",)):
+            FbxUtils.export(
+                filepath=glow_out, objects=[glow_cube, glow_carrier], bake_anim=True
+            )
+        glow_models = ptk.FbxFile.load(glow_out, raw_payloads=False).object_names(
+            "Model"
+        )
+        check(
+            "a carrier in an excluded collection ships its keyed weights' proxies",
+            DataNodes.EXPORT in glow_models and "emissiveGroup_glow" in glow_models,
+            f"{sorted(glow_models)}",
+        )
+        check(
+            "the carrier is left in its excluded collection after the write",
+            sorted(c.name for c in glow_carrier.users_collection) == ["CarrierHold"],
+            f"{sorted(c.name for c in glow_carrier.users_collection)}",
+        )
+    _hold = bpy.data.collections.get("CarrierHold")
+    if _hold is not None:
+        bpy.data.collections.remove(_hold)
+    scene.frame_start, scene.frame_end = 1, 30
+
+    # ---- keyed visibility rides the FBX's own Visibility channel -------------
+    # Blender's exporter writes no visibility animation, so keyed hide_render
+    # with no opacity never reached Unity; Maya writes it as each node's
+    # Visibility curve, which Unity imports as the Renderer's m_Enabled.
+    def visibility_keys(path, model_name):
+        """``{stack: ([(frame, value), ...], KeyAttrFlags)}`` for *model_name*."""
+        from io_scene_fbx import parse_fbx
+
+        root, version = parse_fbx.parse(path)
+
+        def kids(parent, eid):
+            return [e for e in parent.elems if e.id == eid]
+
+        objects = kids(root, b"Objects")[0]
+        by_uid = {e.props[0]: e for e in objects.elems if e.props}
+        parents, children = {}, {}
+        for c in kids(root, b"Connections")[0].elems:
+            prop = c.props[3] if len(c.props) > 3 else None
+            parents.setdefault(c.props[1], []).append((c.props[2], prop))
+            children.setdefault(c.props[2], []).append((c.props[1], prop))
+
+        def label(e):
+            return e.props[1].split(b"\x00")[0].decode()
+
+        def parent_of(uid, kind):
+            for p, _prop in parents.get(uid, []):
+                if by_uid.get(p) is not None and by_uid[p].id == kind:
+                    return p
+            return None
+
+        model = next(
+            uid
+            for uid, e in by_uid.items()
+            if e.id == b"Model" and label(e) == model_name
+        )
+        per_frame = FbxUtils._file_ktime(root, version) / (
+            scene.render.fps / scene.render.fps_base
+        )
+        found = {}
+        for uid, e in by_uid.items():
+            if e.id != b"AnimationCurveNode":
+                continue
+            if (model, b"Visibility") not in parents.get(uid, []):
+                continue
+            stack = parent_of(parent_of(uid, b"AnimationLayer"), b"AnimationStack")
+            curve = next(
+                c for c, prop in children.get(uid, []) if prop == b"d|Visibility"
+            )
+            times = kids(by_uid[curve], b"KeyTime")[0].props[0]
+            values = kids(by_uid[curve], b"KeyValueFloat")[0].props[0]
+            flags = list(kids(by_uid[curve], b"KeyAttrFlags")[0].props[0])
+            found[label(by_uid[stack])] = (
+                [(round(t / per_frame, 3), float(v)) for t, v in zip(times, values)],
+                flags,
+            )
+        return found
+
+    def blinker(name="Blink"):
+        bpy.ops.mesh.primitive_cube_add(location=(0, 4, 0))
+        obj = bpy.context.active_object
+        obj.name = name
+        for frame, hidden in ((1, False), (10, True), (20, False)):
+            obj.hide_render = hidden
+            obj.keyframe_insert("hide_render", frame=frame)
+        obj.hide_render = False
+        return obj
+
+    reset_anim()
+    scene.frame_start, scene.frame_end = 1, 30
+    bpy.ops.mesh.primitive_cube_add()
+    walker = bpy.context.active_object
+    walker.name = "Walker"
+    for frame, x in ((1, 0.0), (30, 3.0)):
+        walker.location.x = x
+        walker.keyframe_insert("location", frame=frame)
+    blink = blinker()
+    vis_out = os.path.join(tmp, "visibility.fbx")
+    FbxUtils.export(filepath=vis_out, objects=[walker, blink], bake_anim=True)
+    keyed = visibility_keys(vis_out, "Blink")
+    keys, flags = keyed.get(scene.name, ([], []))
+    check(
+        "keyed hide_render ships as the node's stepped Visibility curve",
+        keys == [(1.0, 1.0), (10.0, 0.0), (20.0, 1.0), (30.0, 1.0)]
+        and flags
+        and all((f & 0x0E) == 0x02 for f in flags),
+        f"{keyed}",
+    )
+    check(
+        "an object with no keyed visibility gets no Visibility curve",
+        visibility_keys(vis_out, "Walker") == {},
+    )
+    reset_anim()
+    created_vis = FbxUtils.import_fbx(vis_out)
+    check(
+        "Blender's importer still reads the file",
+        {"Walker", "Blink"} <= {o.name for o in created_vis},
+        f"{[o.name for o in created_vis]}",
+    )
+
+    # Nothing else animated: the exporter writes no stack at all, so the
+    # visibility needs one of its own to ride.
+    reset_anim()
+    blink = blinker()
+    only_out = os.path.join(tmp, "visibility_only.fbx")
+    FbxUtils.export(filepath=only_out, objects=[blink], bake_anim=True)
+    keys, _flags = visibility_keys(only_out, "Blink").get(scene.name, ([], []))
+    check(
+        "visibility alone still ships, in a scene-range stack of its own",
+        keys == [(1.0, 1.0), (10.0, 0.0), (20.0, 1.0), (30.0, 1.0)]
+        and ptk.FbxFile.load(only_out, raw_payloads=False).take_names() == [scene.name],
+        f"{keys}",
+    )
+    static_vis_out = os.path.join(tmp, "visibility_static.fbx")
+    FbxUtils.export(filepath=static_vis_out, objects=[blink])  # bake_anim off
+    check(
+        "a write that bakes no animation carries no visibility curve either",
+        visibility_keys(static_vis_out, "Blink") == {}
+        and not ptk.FbxFile.load(static_vis_out, raw_payloads=False).take_names(),
+    )
+
+    # Split into takes: each take carries its own window of the curve, held
+    # at the boundary rather than interpolated across the step.
+    reset_anim()
+    blink = blinker()
+    bpy.ops.mesh.primitive_cube_add()
+    walker = bpy.context.active_object
+    walker.name = "Walker"
+    for frame, x in ((1, 0.0), (30, 3.0)):
+        walker.location.x = x
+        walker.keyframe_insert("location", frame=frame)
+    FbxUtils.apply_takes([("early", 1, 15), ("late", 15, 30)])
+    split_out = os.path.join(tmp, "visibility_takes.fbx")
+    try:
+        FbxUtils.export(filepath=split_out, objects=[walker, blink], bake_anim=True)
+    finally:
+        FbxUtils.reset_takes()
+    split = {
+        take: keys for take, (keys, _f) in visibility_keys(split_out, "Blink").items()
+    }
+    check(
+        "each take carries its window of the visibility, held across the step",
+        split.get("early") == [(1.0, 1.0), (10.0, 0.0), (15.0, 0.0)]
+        and split.get("late") == [(15.0, 0.0), (20.0, 1.0), (30.0, 1.0)],
+        f"{split}",
+    )
+
+    # ---- a shadow source LIGHT ships through a type filter without LIGHT -----
+    # The shadow record names its source for the engine to follow; Blender's
+    # exporter drops every object whose type the filter excludes, so a SUN
+    # source never reached Unity and follow-source fell back to the baked keys.
+    reset()
+    sun = bpy.data.objects.new("ShadowSun", bpy.data.lights.new("ShadowSun", "SUN"))
+    lamp = bpy.data.objects.new("FillLamp", bpy.data.lights.new("FillLamp", "POINT"))
+    for light in (sun, lamp):
+        bpy.context.scene.collection.objects.link(light)
+    bpy.ops.mesh.primitive_cube_add()
+    caster = bpy.context.active_object
+    caster.name = "Caster"
+    ptk.SceneRecords.SHADOWS.save(
+        DataNodes,
+        {
+            "unit_scale": 1.0,
+            "planes": [{"name": "Caster_shadow", "source": "ShadowSun"}],
+        },
+    )
+    sun_out = os.path.join(tmp, "shadow_source.fbx")
+    try:
+        FbxUtils.export(filepath=sun_out, objects=[caster, sun, lamp])
+    finally:
+        ptk.SceneRecords.SHADOWS.clear(DataNodes)
+    sun_models = ptk.FbxFile.load(sun_out, raw_payloads=False).object_names("Model")
+    check(
+        "the shadow record's source light ships; a light it does not name stays out",
+        "ShadowSun" in sun_models and "FillLamp" not in sun_models,
+        f"{sorted(sun_models)}",
+    )
+
+    # ---- an armed take outside the scene range is baked, not clamped ---------
+    # Only the Scene Exporter's takes task widened the scene range to cover the
+    # takes it arms; a bridge hand-off arms them too and wrote with the scene
+    # range as it stood, so a shot past it was clamped to the baked span. The
+    # write now covers every armed take for itself (as Maya's apply_takes sets
+    # the bake range), and gives the scene its range back after.
+    reset_anim()
+    scene.frame_start, scene.frame_end = 1, 20
+    bpy.ops.mesh.primitive_cube_add()
+    outrun = bpy.context.active_object
+    outrun.name = "OutrunCube"
+    for frame, x in ((1, 0.0), (40, 4.0)):
+        outrun.location.x = x
+        outrun.keyframe_insert("location", frame=frame)
+    FbxUtils.apply_takes([("late", 25, 40)])
+    outrun_out = os.path.join(tmp, "takes_outrun.fbx")
+    try:
+        FbxUtils.export(filepath=outrun_out, objects=[outrun], bake_anim=True)
+    finally:
+        FbxUtils.reset_takes()
+    outrun_spans = {
+        take: tuple(round(t * 24) for t in span)
+        for take, span in ptk.FbxFile.load(
+            outrun_out, raw_payloads=False, span_arrays=("KeyTime",)
+        )
+        .take_spans()
+        .items()
+    }
+    check(
+        "an armed take past the scene range ships its whole window",
+        outrun_spans.get("late") == (25, 40)
+        and outrun_spans.get(scene.name) == (1, 40),
+        f"{outrun_spans}",
+    )
+    check(
+        "the write gives the scene its own range back",
+        (scene.frame_start, scene.frame_end) == (1, 20),
+        f"{(scene.frame_start, scene.frame_end)}",
+    )
+    scene.frame_start, scene.frame_end = 1, 30
+
+    # ---- baked keys are the scene's own values (2026-10-05) ------------------
+    # Blender's exporter thins its baked keys by default (simplify factor 1.0),
+    # and the thinned curve is interpolated back: a 0-5 m ease-out shipped
+    # 1.47e-3 m off at frame 98, in the sequence and every shot cut from it,
+    # where Maya's bake is exact. A factor of 0.0 is exact too but keys EVERY
+    # channel of every shipped object, static ones included.
+    reset_anim()
+    scene.frame_start, scene.frame_end = 1, 100
+    bpy.ops.mesh.primitive_cube_add()
+    eased = bpy.context.active_object
+    eased.name = "EasedCube"
+    for frame, x in ((1, 0.0), (100, 5.0)):
+        eased.location.x = x
+        eased.keyframe_insert("location", index=0, frame=frame)
+    bpy.ops.mesh.primitive_cube_add(location=(0, 3, 0))
+    parked = bpy.context.active_object
+    parked.name = "ParkedCube"
+    eased_truth = {}
+    for frame in range(1, 101):
+        scene.frame_set(frame)
+        eased_truth[frame] = eased.matrix_world.translation.x
+    scene.frame_set(1)
+
+    def eased_error(path):
+        """Worst |FBX - scene| over every frame for EasedCube's X, in metres,
+        and the names of the Models the file animates."""
+        import numpy as np
+        from io_scene_fbx import parse_fbx
+
+        root, version = parse_fbx.parse(path)
+
+        def kids(parent, eid):
+            return [e for e in parent.elems if e.id == eid]
+
+        objects = kids(root, b"Objects")[0]
+        by_uid = {e.props[0]: e for e in objects.elems if e.props}
+        conns = kids(root, b"Connections")[0].elems
+        models = {
+            e.props[0]: e.props[1].split(b"\x00")[0].decode()
+            for e in kids(objects, b"Model")
+        }
+        animated = {
+            models[c.props[2]]
+            for c in conns
+            if len(c.props) > 3
+            and c.props[2] in models
+            and by_uid.get(c.props[1]) is not None
+            and by_uid[c.props[1]].id == b"AnimationCurveNode"
+        }
+        model = next(uid for uid, name in models.items() if name == "EasedCube")
+        node = next(
+            c.props[1]
+            for c in conns
+            if len(c.props) > 3
+            and c.props[2] == model
+            and c.props[3] == b"Lcl Translation"
+        )
+        curve = next(
+            c.props[1]
+            for c in conns
+            if len(c.props) > 3 and c.props[2] == node and c.props[3] == b"d|X"
+        )
+        kt = np.array(kids(by_uid[curve], b"KeyTime")[0].props[0], dtype=np.float64)
+        kv = np.array(
+            kids(by_uid[curve], b"KeyValueFloat")[0].props[0], dtype=np.float64
+        )
+        per_frame = FbxUtils._file_ktime(root, version) / (
+            scene.render.fps / scene.render.fps_base
+        )
+        # The FBX is in centimetres (the exporter's unit scale).
+        error = max(
+            abs(np.interp(f * per_frame, kt, kv) / 100.0 - eased_truth[f])
+            for f in range(1, 101)
+        )
+        return error, animated
+
+    exact_out = os.path.join(tmp, "eased_exact.fbx")
+    FbxUtils.export(filepath=exact_out, objects=[eased, parked], bake_anim=True)
+    exact_error, exact_animated = eased_error(exact_out)
+    check(
+        "baked keys are the scene's per-frame values, and a static object gets none",
+        exact_error < 1e-5 and exact_animated == {"EasedCube"},
+        f"error={exact_error:.3e} m animated={sorted(exact_animated)}",
+    )
+    thinned_out = os.path.join(tmp, "eased_thinned.fbx")
+    FbxUtils.export(
+        filepath=thinned_out,
+        objects=[eased, parked],
+        bake_anim=True,
+        bake_anim_simplify_factor=1.0,
+    )
+    check(
+        "a caller's own simplify factor is honored",
+        eased_error(thinned_out)[0] > 1e-4,
+    )
+    scene.frame_start, scene.frame_end = 1, 30
 
     # ---- upstream patches: still needed, and still working ------------------
     from blendertk.env_utils.upstream_patches import SIBLING_ARMATURES, _armature_tree

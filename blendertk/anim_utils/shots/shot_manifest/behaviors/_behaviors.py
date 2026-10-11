@@ -595,6 +595,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
         resolve_fn=None,
         conflict_fn=None,
         release_fn=None,
+        skip_behaviors=(),
     ) -> Dict[str, list]:
         """Apply declared behaviors from shot metadata to Blender objects.
 
@@ -656,4 +657,5 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
             resolve_fn=resolve_fn,
             conflict_fn=conflict_fn,
             release_fn=release_fn,
+            skip_behaviors=skip_behaviors,
         )

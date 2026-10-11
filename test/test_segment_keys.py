@@ -220,6 +220,36 @@ def _run_checks():
         f"{t}",
     )
 
+    # A shifted key landing on a key the shift does not move REPLACES it (two
+    # points never share a frame), and on_replace / on_move hear both -- mirror
+    # of mayatk's shift_curves.
+    lnd = keyed("ShiftLand", [(0, 0.0), (10, 1.0), (20, 5.0)])
+    lnd_fc = next(
+        fc for fc in BlenderShotStore.iter_action_fcurves(lnd) if fc.array_index == 0
+    )
+    log = []
+    try:
+        SegmentKeys.shift_curves(
+            [lnd_fc],
+            10,
+            time_range=(10, 10),
+            on_replace=lambda _fc, f: log.append(("replace", sorted(f))),
+            on_move=lambda _fc, p: log.append(("move", sorted(p))),
+        )
+        err = None
+    except TypeError as exc:  # no hook parameters
+        err = repr(exc)
+    pts = sorted(
+        (round(kp.co[0], 3), round(kp.co[1], 3)) for kp in lnd_fc.keyframe_points
+    )
+    check(
+        "shift_curves: a shifted key replaces the key it lands on, and reports both",
+        err is None
+        and pts == [(0.0, 0.0), (20.0, 1.0)]
+        and log == [("replace", [20.0]), ("move", [(10.0, 20.0)])],
+        f"{err} {pts} {log}",
+    )
+
     return lines
 
 

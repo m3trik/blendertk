@@ -35,7 +35,7 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
@@ -122,6 +122,23 @@ try:
     check(
         "clearing the pin restores ambient chain",
         ambient is None or _nc(ambient.root) != _nc(proj),
+    )
+
+    # 3b. scene_source -- a file opened in place of a source scene (the Reference
+    #     Manager's open-as-new scratch) stands in for it; None forgets it.
+    stand_in = os.path.join(tmp, "scratch", "shot_ma.blend")
+    btk.EnvUtils.set_scene_source(stand_in, shot)
+    check(
+        "scene_source names the scene a file stands in for",
+        _nc(btk.EnvUtils.scene_source(stand_in) or "") == _nc(shot),
+    )
+    check(
+        "...and nothing for any other file",
+        btk.EnvUtils.scene_source(loose) is None,
+    )
+    btk.EnvUtils.set_scene_source(stand_in, None)
+    check(
+        "set_scene_source(None) forgets it", btk.EnvUtils.scene_source(stand_in) is None
     )
 
     # 4. rule-fed accessors — marked project answers from its rules...
@@ -351,6 +368,33 @@ try:
             and _nc(os.path.dirname(sub)).endswith(_nc(os.path.join("shots", "hero"))),
             str(sub),
         )
+
+        # 10. scene_project_root -- the boundary a lightmap bake writes and retires
+        #     files in. A pin on a folder of several marked projects yields to the
+        #     file's own (BACKLOG 2026-10-04, decided 2026-10-05): the broad pin opened
+        #     the other projects' folders to this file's bake. A pin inside the file's
+        #     project is narrower, and still names the boundary.
+        broad = os.path.join(tmp, "broad")
+        mine = os.path.join(broad, "mine")
+        ptk.Workspace.create(mine)
+        ptk.Workspace.create(os.path.join(broad, "theirs"))
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(mine, "scenes", "room.blend"))
+        btk.set_current_workspace(broad)
+        check(
+            "scene_project_root: a broad pin yields to the file's own marked project",
+            _nc(btk.EnvUtils.scene_project_root() or "") == _nc(mine),
+            str(btk.EnvUtils.scene_project_root()),
+        )
+        btk.set_current_workspace(os.path.join(mine, "scenes"))
+        check(
+            "scene_project_root: a pin inside the file's project still names it",
+            _nc(btk.EnvUtils.scene_project_root() or "")
+            == _nc(os.path.join(mine, "scenes")),
+            str(btk.EnvUtils.scene_project_root()),
+        )
+        btk.set_current_workspace(None)
+        bpy.ops.wm.read_factory_settings(use_empty=True)
     else:
         print(
             "SKIP bpy integration checks (no bpy — run under the Blender harness for those)"

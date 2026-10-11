@@ -417,6 +417,8 @@ class SegmentKeys(_SegmentKeysInternal):
         offset: float,
         time_range: Optional[Tuple[float, float]] = None,
         remove_flat_at_dest: bool = False,
+        on_replace=None,
+        on_move=None,
     ) -> None:
         """Shift the keys of *curves* (optionally within *time_range*) by *offset* frames.
 
@@ -424,7 +426,12 @@ class SegmentKeys(_SegmentKeysInternal):
         translate directly.  With *remove_flat_at_dest* the destination window is
         first cleared of **flat** keys (value equal to the evaluated curve one
         frame either side) that are not themselves being moved, so an incoming
-        run can't collide with a stale hold key.
+        run can't collide with a stale hold key.  A key the shift lands on that it
+        does not move is REPLACED (two points never share a frame), as mayatk's.
+
+        *on_replace(fcurve, frames)* hears the keys removed (the pre-clean's and the
+        landed-on ones) and *on_move(fcurve, pairs)* the ``(old, new)`` frames of the
+        keys moved -- the shot system's claims follow both.
         """
         if not curves or abs(offset) < 1e-6:
             return
@@ -440,6 +447,7 @@ class SegmentKeys(_SegmentKeysInternal):
             if i1 <= i0:
                 continue
 
+            removed = []
             if remove_flat_at_dest and time_range is not None:
                 d0, d1 = AnimUtils.window_indices(kt, lo + offset, hi + offset)
                 victims = [
@@ -449,7 +457,26 @@ class SegmentKeys(_SegmentKeysInternal):
                     and abs(fc.evaluate(kt[i] - 1) - kv[i]) <= 1e-4
                     and abs(fc.evaluate(kt[i] + 1) - kv[i]) <= 1e-4
                 ]
+                removed += [float(kt[i]) for i in victims]
                 for i in reversed(victims):
                     fc.keyframe_points.remove(fc.keyframe_points[i])
+                kt = AnimUtils.key_times(fc)
+                i0, i1 = AnimUtils.window_indices(kt, lo, hi)
+
+            # A key the shift lands on that it does not move is replaced, cut first.
+            pairs = [(float(kt[i]), float(kt[i]) + offset) for i in range(i0, i1)]
+            outside = [kt[i] for i in range(len(kt)) if not (i0 <= i < i1)]
+            landed = AnimUtils._landed_on(outside, pairs)
+            if landed:
+                doomed = [
+                    i
+                    for i in range(len(kt))
+                    if not (i0 <= i < i1)
+                    and any(abs(kt[i] - t) <= 1e-4 for t in landed)
+                ]
+                for i in reversed(doomed):
+                    fc.keyframe_points.remove(fc.keyframe_points[i])
+                removed += landed
 
             AnimUtils.shift_keys_in_window(fc, lo, hi, offset)
+            AnimUtils._report_edit(fc, sorted(removed), pairs, on_replace, on_move)

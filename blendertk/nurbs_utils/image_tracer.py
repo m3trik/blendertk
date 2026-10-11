@@ -70,7 +70,8 @@ class ImageTracer(ptk.LoggingMixin):
             raise ImportError("OpenCV (cv2) is required for image tracing.")
         if not image_path or not os.path.exists(image_path):
             raise FileNotFoundError(f"Image not found: {image_path}")
-        img = cv2.imread(image_path)
+        # Not cv2.imread: on Windows it opens no path that is not ASCII.
+        img = ptk.ImgUtils.cv2_read(image_path)
         if img is None:
             raise ValueError(f"Failed to read image: {image_path}")
 

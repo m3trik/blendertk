@@ -771,16 +771,24 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         self._syncing = True
         try:
             with self._edit_bracket("Delete Keys") as edit:
+                # Every claim on a deleted key goes with it, a behavior's too
+                # (the reconcile below reaches samples and holds only).
+                release = (
+                    self.sequencer.store.release_replaced([obj_name])
+                    if self.sequencer is not None
+                    else None
+                )
                 for t in times:
                     for fc in curves:
-                        i0, i1 = AnimUtils.window_indices(
-                            AnimUtils.key_times(fc), t - _EPS, t + _EPS
-                        )
+                        kt = AnimUtils.key_times(fc)
+                        i0, i1 = AnimUtils.window_indices(kt, t - _EPS, t + _EPS)
                         for i in reversed(range(i0, i1)):
                             fc.keyframe_points.remove(fc.keyframe_points[i])
                             deleted = True
                         if i1 > i0:
                             fc.update()
+                            if release is not None:
+                                release(fc, kt[i0:i1])
                 if deleted:
                     # A key edit like any other (``_key_scene_edit``): the claims
                     # on the deleted keys go with them and the gap holds re-settle.

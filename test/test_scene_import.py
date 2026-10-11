@@ -28,7 +28,7 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
@@ -203,7 +203,7 @@ try:
         import shutil
 
         ansi_root = os.path.join(HERE, "temp_tests", f"ansi {os.getpid()}")
-        ansi_dir = os.path.join(ansi_root, "José Жук")
+        ansi_dir = os.path.join(ansi_root, "Zoë ★")
         os.makedirs(ansi_dir, exist_ok=True)
         ansi_src = os.path.join(ansi_dir, "scene.ma")
         with open(ansi_src, "w") as fh:
@@ -214,7 +214,7 @@ try:
                 s = eng.render_script(ansi_src, ansi_out, via=via)
                 got_src = re.search(r'SRC_PATH = r"(.*)"', s).group(1)
                 got_out = re.search(token + r' = r"(.*)"', s).group(1)
-                # "José Жук" is one component, so its 8.3 name makes the path ASCII.
+                # "Zoë ★" is one component, so its 8.3 name makes the path ASCII.
                 # (Not an mbcs check: Blender's code page is UTF-8, Maya's is not.)
                 ok = got_src.isascii() and got_out.isascii()
                 check(
@@ -4164,26 +4164,85 @@ try:
     ]
     for _ov in _overlays:
         _ov.show_relationship_lines = True
-    _changed = MayaSceneImport.hide_relationship_lines()
     check(
         "hide_relationship_lines turns the overlay off on every 3D viewport",
         _overlays
-        and _changed == len(_overlays)
+        and MayaSceneImport.hide_relationship_lines() is True
         and not any(o.show_relationship_lines for o in _overlays),
-        f"changed={_changed} of {len(_overlays)}",
+        f"{len(_overlays)} viewports",
     )
-    check(
-        "hide_relationship_lines is a no-op once off",
-        MayaSceneImport.hide_relationship_lines() == 0,
-    )
-    try:
-        from blendertk.display_utils._display_utils import DisplayUtils
+    from blendertk.display_utils._display_utils import DisplayUtils
 
+    check(
+        "set_viewport_overlay is a no-op once off",
+        DisplayUtils.set_viewport_overlay(show_relationship_lines=False) == 0,
+    )
+    # 2026-10-10: hidden right after an Open, the lines came back on UiState's next
+    # tick (the load only queues its re-apply of the user's saved overlays).
+    from blendertk.ui_utils.ui_state import UiState
+
+    for _ov in _overlays:
+        _ov.show_relationship_lines = True
+    UiState._installed, UiState._pending_apply = True, True
+    try:
+        _waited = MayaSceneImport.hide_relationship_lines() is False and all(
+            o.show_relationship_lines for o in _overlays
+        )
+        UiState._run_after_restore()
+        check(
+            "hide_relationship_lines waits for a pending UiState re-apply, then lands",
+            _waited and not any(o.show_relationship_lines for o in _overlays),
+        )
+    finally:
+        UiState._installed, UiState._pending_apply = False, False
+        UiState._after_restore = []
+    try:
         DisplayUtils.set_viewport_overlay(show_relationship_linez=False)
         check("an unknown overlay flag raises, never no-ops", False)
     except AttributeError:
         check("an unknown overlay flag raises, never no-ops", True)
     bpy.ops.wm.read_factory_settings(use_empty=True)
+
+    # ---- a baked document opens with nothing selected -------------------------
+    # Production (2026-10-10, a 1,612-object module): the FBX importer selects all
+    # it imports, the bake saved that, and Open showed 1,518 selected objects --
+    # an origin dot each, most metres off their geometry (Maya's translate, not
+    # its pivot), and every light's ground line orange. Maya opens a scene with
+    # nothing selected. A real child bake of a parented pair, read back by append
+    # (which keeps the saved bases' select / active state).
+    from blendertk.env_utils.maya_bridge._scene_import import BAKE_SOURCE_SUFFIX
+
+    _sel_tmp = ptk.TempArtifacts("btk_bake_selection_test", policy="scoped")
+    _sel_baked = None
+    try:
+        _sel_mesh = bpy.data.meshes.new("SelBox")
+        _sel_mesh.from_pydata([(0, 0, 0), (1, 0, 0), (0, 1, 0)], [], [(0, 1, 2)])
+        _sel_grp = bpy.data.objects.new("SEL_GRP", None)
+        _sel_box = bpy.data.objects.new("SEL_BOX", _sel_mesh)
+        _sel_box.parent = _sel_grp
+        for _o in (_sel_grp, _sel_box):
+            bpy.context.scene.collection.objects.link(_o)
+        _sel_fbx = _sel_tmp.path(extension=".fbx")
+        bpy.ops.export_scene.fbx(filepath=_sel_fbx)
+        _sel_baked = MayaSceneImport().bake_scene(_sel_fbx, use_cache=False)
+        with bpy.data.libraries.load(_sel_baked) as (_sel_src, _sel_dst):
+            _sel_dst.scenes = list(_sel_src.scenes)
+        _sel_vls = [vl for scn in _sel_dst.scenes for vl in scn.view_layers]
+        _sel_pairs = [(vl, o) for vl in _sel_vls for o in vl.objects]
+        _sel_on = [o.name for vl, o in _sel_pairs if o.select_get(view_layer=vl)]
+        _sel_active = [vl.objects.active.name for vl in _sel_vls if vl.objects.active]
+        check(
+            "bake: the saved .blend has nothing selected and nothing active",
+            len(_sel_pairs) >= 2 and not _sel_on and not _sel_active,
+            f"objects={len(_sel_pairs)} selected={_sel_on} active={_sel_active}",
+        )
+    finally:
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        # An uncached bake lives in scratch by design (the caller links it).
+        for _p in [_sel_baked, _sel_baked + BAKE_SOURCE_SUFFIX] if _sel_baked else []:
+            if os.path.exists(_p):
+                os.remove(_p)
+        _sel_tmp.cleanup()
 
     # ---- the two PULL templates are a drift-guarded duplicate ----------------
     # Same treatment mayatk's pair gets (`test_scene_import.py::
@@ -4267,6 +4326,93 @@ try:
             MayaSceneImport._usd_material_key(_name, _mapping) == _want,
             MayaSceneImport._usd_material_key(_name, _mapping),
         )
+
+    # ---- glTF: Blender's own importer, through a decoded copy when it must ----
+    # REGRESSION (2026-10-09): tentacle's Import glTF ran the stock operator, which
+    # refuses a file that REQUIRES KHR_texture_basisu ("Extension KHR_texture_basisu
+    # is not available on this addon version") -- every KTX2 deliverable. The
+    # engine imports a copy with those images decoded; the decode itself is
+    # pythontk's (test_mesh_convert.TestDecodeGlbTextures), stubbed here.
+    import json as _json
+    import struct as _struct
+    from unittest import mock as _mock
+
+    import bpy as _bpy
+
+    def _tri_glb(path, required=()):
+        positions = _struct.pack("<9f", 0, 0, 0, 1, 0, 0, 0, 1, 0)
+        gltf = {
+            "asset": {"version": "2.0"},
+            "scene": 0,
+            "scenes": [{"nodes": [0]}],
+            "nodes": [{"name": "GltfTri", "mesh": 0}],
+            "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],
+            "accessors": [
+                {
+                    "bufferView": 0,
+                    "componentType": 5126,
+                    "count": 3,
+                    "type": "VEC3",
+                    "min": [0, 0, 0],
+                    "max": [1, 1, 0],
+                }
+            ],
+            "bufferViews": [{"buffer": 0, "byteLength": len(positions)}],
+            "buffers": [{"byteLength": len(positions)}],
+        }
+        if required:
+            gltf["extensionsUsed"] = gltf["extensionsRequired"] = list(required)
+        payload = _json.dumps(gltf).encode("utf-8")
+        payload += b" " * ((4 - len(payload) % 4) % 4)
+        rest = _struct.pack("<I4s", len(positions), b"BIN\x00") + positions
+        with open(path, "wb") as fh:
+            fh.write(_struct.pack("<4sII", b"glTF", 2, 20 + len(payload) + len(rest)))
+            fh.write(_struct.pack("<I4s", len(payload), b"JSON") + payload)
+            fh.write(rest)
+        return path
+
+    _gltf_tmp = ptk.TempArtifacts("btk_gltf_import_test", policy="scoped")
+    try:
+        _objs = MayaSceneImport().import_scene(
+            _tri_glb(_gltf_tmp.path(extension=".glb"))
+        )
+        check(
+            "glTF: import_scene imports it natively",
+            [o.name for o in _objs] == ["GltfTri"],
+            str([o.name for o in _objs]),
+        )
+        _required = _tri_glb(
+            _gltf_tmp.path(extension=".glb"), required=("KHR_texture_basisu",)
+        )
+        _decoded_from = []
+
+        def _decode(src, dst, overwrite=False):
+            _decoded_from.append(src)
+            return _tri_glb(dst)
+
+        with _mock.patch.object(
+            ptk.MeshConvert, "decode_glb_textures", side_effect=_decode
+        ):
+            _objs = MayaSceneImport().import_scene(_required)
+        check(
+            "glTF: a KTX2-requiring file imports from the decoded copy",
+            _decoded_from == [os.path.abspath(_required)] and len(_objs) == 1,
+            f"{_decoded_from} {len(_objs)}",
+        )
+        # Why the copy exists. When Blender's importer learns KTX2 this fails,
+        # and the decode step can go.
+        try:
+            _bpy.ops.import_scene.gltf(filepath=_required)
+            _refused = ""
+        except RuntimeError as e:
+            _refused = str(e)
+        check(
+            "glTF: Blender's own importer still refuses required KHR_texture_basisu",
+            "KHR_texture_basisu" in _refused,
+            _refused[:120],
+        )
+    finally:
+        _gltf_tmp.cleanup()
 
 
 except Exception as e:

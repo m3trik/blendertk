@@ -123,22 +123,31 @@ class _ShotSequencerInternal(object):
         ]
 
     @staticmethod
-    def _fcurve_moves_in(fc, start, end, value_tolerance: float = 1e-4) -> bool:
+    def _fcurve_moves_in(
+        fc, start, end, value_tolerance: float = 1e-4, evaluated: bool = False
+    ) -> bool:
         """True when *fc* has keys inside ``[start, end]`` whose values vary by
         more than *value_tolerance* -- mayatk's ``Detection.curve_moves_in``:
-        a key is not animation, a change of value is."""
+        a key is not animation, a change of value is.  *evaluated* also reads
+        the curve at the window's two ends (one key inside still required)."""
         times, values = AnimUtils.key_arrays(fc)
         i0, i1 = AnimUtils.window_indices(times, start - _EPS, end + _EPS)
-        if i1 - i0 < 2:
+        if i1 - i0 < (1 if evaluated else 2):
             return False
-        window = values[i0:i1]
+        window = list(values[i0:i1])
+        if evaluated:
+            window += [fc.evaluate(start), fc.evaluate(end)]
         return (max(window) - min(window)) > value_tolerance
 
     @staticmethod
-    def _has_motion(obj, start, end, value_tolerance: float = 1e-4) -> bool:
+    def _has_motion(
+        obj, start, end, value_tolerance: float = 1e-4, evaluated: bool = False
+    ) -> bool:
         """True when any transform channel of *obj* varies by > *value_tolerance* in ``[start, end]``."""
         return any(
-            _ShotSequencerInternal._fcurve_moves_in(fc, start, end, value_tolerance)
+            _ShotSequencerInternal._fcurve_moves_in(
+                fc, start, end, value_tolerance, evaluated=evaluated
+            )
             for fc in _ShotSequencerInternal._transform_fcurves(obj)
         )
 
@@ -272,6 +281,13 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         """A Blender scene is reachable (``bpy`` importable); else bounds only."""
         return _ShotSequencerInternal._scene() is not None
 
+    def _curve_exists(self, curve: str) -> bool:
+        """A ledger key resolves to a live fcurve (:meth:`_fcurve_for_key`);
+        without a scene nothing is known gone."""
+        if not self._scene_available():
+            return True
+        return _ShotSequencerInternal._fcurve_for_key(curve) is not None
+
     def _move_content_keys(
         self, objects, env_lo, env_hi, delta, lo_open=False, hi_closed=False
     ) -> None:
@@ -369,6 +385,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         end,
         value_tolerance: float = 1e-4,
         require_motion: bool = True,
+        evaluated: bool = False,
     ) -> List[str]:
         """Names of transforms that MOVE in ``[start, end]``.
 
@@ -386,6 +403,8 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         keyed content of an envelope whatever the list says
         (:meth:`_content_objects`), so that guarantee no longer needs the
         list.  ``require_motion=False`` is the old rule, on request.
+        *evaluated* reads each curve at the range's ends too (the frames a
+        bound hands over; see mayatk's ``Detection.curve_moves_in``).
         """
         scene = _ShotSequencerInternal._scene()
         if scene is None:
@@ -394,7 +413,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         for obj in scene.objects:
             if require_motion:
                 hit = _ShotSequencerInternal._has_motion(
-                    obj, start, end, value_tolerance
+                    obj, start, end, value_tolerance, evaluated=evaluated
                 )
             else:
                 hit = _ShotSequencerInternal._has_keys(obj, start, end)
@@ -613,19 +632,6 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
 
     # ---- unified sequence model (anim + audio) ---------------------------
 
-    @staticmethod
-    def _read_all_audio_events() -> Dict[str, List[tuple]]:
-        """Return ``{strip_name: [(start, end)]}`` for every VSE sound strip."""
-        from blendertk.audio_utils._audio_utils import AudioUtils
-
-        try:
-            clips = AudioUtils.list_clips()
-        except Exception:
-            return {}
-        return {
-            c["name"]: [(float(c["frame_start"]), float(c["frame_end"]))] for c in clips
-        }
-
     def _collect_audio_sequences(
         self, start: float, end: float
     ) -> List[Dict[str, Any]]:
@@ -634,8 +640,10 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         Each dict carries ``{"kind": "audio", "obj": <strip name>, "start", "end"}``.
         Every call reads fresh so external VSE edits are never masked.
         """
+        from blendertk.audio_utils._audio_utils import AudioUtils
+
         sequences: List[Dict[str, Any]] = []
-        for tid, events in self._read_all_audio_events().items():
+        for tid, events in AudioUtils.read_all_events().items():
             for ev_start, ev_end in events:
                 if ev_end < start or ev_start > end:
                     continue
@@ -1391,6 +1399,56 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
             )
         return pinned
 
+    def _pin_bound_keys(self, pins: Dict[str, list]) -> int:
+        """Key each fcurve on the bound frames *pins* names (``{fc_key:
+        [(frame, shot_id, edge), ...]}``) without changing what it plays, and
+        claim every key inserted for its bound -- the pythontk hook that stops
+        a gap hold where it has to (``ShotSequencer._enforce_gap_holds``).
+
+        The respace pin's writer (:meth:`_insert_shape_keys`) under its rules,
+        called only for a curve with a frame it can pin: the writer freezes
+        the curve's derived handles first, which a curve already pinned must
+        not pay on every edit.  A key within Blender's merge distance of a
+        bound is put ON it, as the respace pin does (BTK-SHOTS-7): that moves
+        a seam too, so it counts.  Returns the number of keys inserted or put
+        on a bound.
+        """
+        changed = 0
+        for key, bounds in pins.items():
+            fc = _ShotSequencerInternal._fcurve_for_key(key)
+            if fc is None:
+                continue
+            owners: dict = {}
+            for frame, shot_id, edge in bounds:
+                owners.setdefault(float(frame), (shot_id, edge))
+            frames = [t for t in sorted(owners) if self._pinnable(fc, t)]
+            if not frames:
+                continue
+            before = AnimUtils.key_times(fc)
+            inserted = self._insert_shape_keys(
+                fc, frames, ledger=self.ledger, ledger_key=key
+            )
+            for t in inserted:
+                shot_id, edge = owners[float(t)]
+                self.ledger.record_key(key, t, shot_id, edge)
+            changed += len(inserted) or int(AnimUtils.key_times(fc) != before)
+        return changed
+
+    @classmethod
+    def _pinnable(cls, fc, t: float, tol: float = 1e-4) -> bool:
+        """Whether :meth:`_insert_shape_keys` has a key to put at *t* on *fc*:
+        strictly inside its key range, no key already on it, and the span it
+        falls in splittable and not a hold."""
+        times = AnimUtils.key_times(fc)
+        if len(times) < 2 or not times[0] + tol < t < times[-1] - tol:
+            return False
+        i0, i1 = AnimUtils.window_indices(times, t - _SLOP, t + _SLOP)
+        if i1 > i0:
+            return False  # already keyed on the bound
+        i = max(j for j, k in enumerate(times) if k < t)
+        a, b = fc.keyframe_points[i], fc.keyframe_points[i + 1]
+        return a.interpolation in cls._SPLITTABLE and not cls._is_hold(a, b, tol)
+
     @staticmethod
     def _freeze_derived_handles(fc, tol: float = 1e-6) -> int:
         """Turn *fc*'s derived handles into FREE ones where they already sit.
@@ -1997,39 +2055,16 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         """
         if abs(delta) < _EPS:
             return 0
-        curves = self._fcurves_of(obj, attr)
         eps = 1e-3
         moved = 0
-        for fc in curves:
-            kt = AnimUtils.key_times(fc)
-            pairs = []
-            if times is not None:
-                present = []
-                for t in times:
-                    i0, i1 = AnimUtils.window_indices(kt, t - eps, t + eps)
-                    present.extend(kt[i0:i1])
-                    pairs.extend((t, f) for f in kt[i0:i1])
-            elif window is not None:
-                i0, i1 = AnimUtils.window_indices(kt, window[0] - eps, window[1] + eps)
-                present = list(kt[i0:i1])
-            else:
-                present = list(kt)
+        for fc in self._fcurves_of(obj, attr):
+            present, correction = self._named_keys(fc, times, window, eps)
             if not present:
                 continue
-            # The curve can answer with a key a fraction of a frame from the
-            # time the caller named (a near-duplicate left by an earlier move).
-            # Moving THAT key by the caller's delta lands it the same fraction
-            # off its target, and for a Move to Shot the target IS the
-            # destination's first frame: the key ends up just before it, in the
-            # gap, owned and drawn by nothing.  See mayatk's twin.
-            fc_delta = delta
-            if pairs:
-                named_t, found_t = min(pairs, key=lambda p: p[1])
-                fc_delta = delta + (named_t - found_t)
             self.move_curve_keys(
                 fc,
                 present,
-                fc_delta,
+                delta + correction,
                 eps=eps,
                 ledger=self.ledger,
                 ledger_key=_ShotSequencerInternal._fc_key(obj, fc),
@@ -2037,44 +2072,169 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
             moved += len(present)
         return moved
 
-    def move_stepped_keys(
+    def copy_attribute_keys(
         self,
         obj: str,
-        old_time: float,
-        new_time: float,
-        attr_name: Optional[str] = None,
-        eps: float = 1e-3,
-    ) -> None:
-        """Move the key(s) at *old_time* to *new_time*.
+        attr: Optional[str],
+        delta: float,
+        times: Optional[List[float]] = None,
+        window: Optional[tuple] = None,
+    ) -> int:
+        """Copy keys of *obj* *delta* frames on -- one attribute's, or all --
+        the originals left where they are (mirror of mayatk's).
 
-        A keyframe's interpolation travels with its point, so the "stepped"
-        character is preserved automatically.  *attr_name* scopes the move to
-        one channel — a ``translateX``-style label (via ``curves_for_attr``) or a
-        ``data_path`` substring; omit it to move every fcurve with a key there.
+        Names its keys as :meth:`move_attribute_keys` does
+        (:meth:`_named_keys`); what Copy to Shot sends.  Each copy carries the
+        whole key record (:attr:`_COPIED_KEY_PROPS`: value, both handles and
+        their types, interpolation, easing, key type) and is the animator's
+        key: a claim the shot system holds on a source key stays on that key.
+        The landing zone is cleared first, as a move clears it
+        (:meth:`_clear_destination`).
+
+        Returns:
+            The number of keys copied.
         """
-        delta = new_time - old_time
         if abs(delta) < _EPS:
-            return
+            return 0
+        eps = 1e-3
+        copied = 0
+        for fc in self._fcurves_of(obj, attr):
+            present, correction = self._named_keys(fc, times, window, eps)
+            if not present:
+                continue
+            d = delta + correction
+            wanted = set(present)
+            records = [
+                self._key_record(kp) for kp in fc.keyframe_points if kp.co[0] in wanted
+            ]
+            self._clear_destination(
+                fc,
+                present,
+                d,
+                eps=eps,
+                ledger=self.ledger,
+                ledger_key=_ShotSequencerInternal._fc_key(obj, fc),
+            )
+            for rec in records:
+                kp = self._insert_in_place(fc, rec["co"][0] + d, rec["co"][1])
+                for name in self._COPIED_KEY_PROPS[3:]:
+                    setattr(kp, name, rec[name])
+                # Types before positions: a positioned (FREE / ALIGNED) handle
+                # keeps what is written to it, a derived one re-derives.
+                kp.handle_left = (rec["handle_left"][0] + d, rec["handle_left"][1])
+                kp.handle_right = (rec["handle_right"][0] + d, rec["handle_right"][1])
+            fc.update()
+            copied += len(records)
+        return copied
+
+    #: What a copied key carries: its position and handles (offset by the
+    #: copy), then every setting -- written in this order.
+    _COPIED_KEY_PROPS = (
+        "co",
+        "handle_left",
+        "handle_right",
+        "interpolation",
+        "easing",
+        "back",
+        "amplitude",
+        "period",
+        "type",
+        "handle_left_type",
+        "handle_right_type",
+    )
+
+    @classmethod
+    def _key_record(cls, kp) -> dict:
+        """*kp*'s :attr:`_COPIED_KEY_PROPS`, its vectors as tuples: a point's
+        own vectors change under it as the curve is edited."""
+        rec = {name: getattr(kp, name) for name in cls._COPIED_KEY_PROPS}
+        for name in cls._COPIED_KEY_PROPS[:3]:
+            rec[name] = tuple(rec[name])
+        return rec
+
+    @staticmethod
+    def _named_keys(fc, times: Optional[List[float]], window: Optional[tuple], eps):
+        """``(present, correction)``: the key times of *fc* a move or a copy
+        names -- *times* matched within *eps*, else every key inside *window*,
+        else all -- and the shift that puts the first named one exactly where
+        the caller placed it.
+
+        The curve can answer with a key a fraction of a frame from the time
+        the caller named (a near-duplicate left by an earlier move).  Sending
+        THAT key by the caller's delta lands it the same fraction off its
+        target, and for a Move to Shot the target IS the destination's first
+        frame: the key ends up just before it, in the gap, owned and drawn by
+        nothing.  See mayatk's twin.
+        """
+        kt = AnimUtils.key_times(fc)
+        if times is None:
+            if window is None:
+                return list(kt), 0.0
+            i0, i1 = AnimUtils.window_indices(kt, window[0] - eps, window[1] + eps)
+            return list(kt[i0:i1]), 0.0
+        pairs = []
+        for t in times:
+            i0, i1 = AnimUtils.window_indices(kt, t - eps, t + eps)
+            pairs.extend((t, f) for f in kt[i0:i1])
+        if not pairs:
+            return [], 0.0
+        named_t, found_t = min(pairs, key=lambda p: p[1])
+        return [f for _t, f in pairs], named_t - found_t
+
+    def _point_clip_curves(
+        self,
+        obj: str,
+        t: float,
+        attr_name: Optional[str] = None,
+        shot=None,
+        eps: float = 1e-3,
+    ) -> list:
+        """The fcurves a point clip of *obj* at *t* stands for -- the pythontk
+        hook behind ``move_stepped_keys`` (mirror of mayatk's).
+
+        *attr_name* (a sub-row clip): that channel's fcurves
+        (``curves_for_attr``: a ``translateX``-style label or a ``data_path``
+        substring).  Otherwise the fcurves the mark was drawn from: the
+        content channels (:meth:`_transform_fcurves`) whose key at *t* is one
+        of the marks *shot* shows (:meth:`_animator_marks`), CONSTANT or not --
+        it used to be every fcurve keyed at *t*, channels the mark never drew
+        and the system's bound samples included.  Without *shot*, the content
+        channels with an animator's key at *t*.
+        """
         o = _ShotSequencerInternal._object(obj)
         if o is None:
-            return
+            return []
         if attr_name:
             from blendertk.anim_utils.shots.shot_sequencer.clip_motion import (
                 ClipMotionMixin,
             )
 
-            curves = ClipMotionMixin.curves_for_attr(obj, attr_name)
-        else:
-            curves = list(BlenderShotStore.iter_action_fcurves(o))
-        for fc in curves:
-            self.move_curve_keys(
-                fc,
-                [old_time],
-                delta,
-                eps=eps,
-                ledger=self.ledger,
-                ledger_key=_ShotSequencerInternal._fc_key(obj, fc),
-            )
+            return list(ClipMotionMixin.curves_for_attr(obj, attr_name))
+        out = []
+        for fc in _ShotSequencerInternal._transform_fcurves(o):
+            if shot is None:
+                marks = self._animator_key_times(obj, fc, (t - eps, t + eps))
+            else:
+                marks = self._animator_marks(obj, [fc], shot)
+            if any(abs(m - t) <= eps for m in marks):
+                out.append(fc)
+        return out
+
+    def _move_point_key(
+        self, obj: str, curve, old_time: float, new_time: float, eps: float = 1e-3
+    ) -> None:
+        """Move *curve*'s key at *old_time* to *new_time* -- the pythontk hook
+        behind ``move_stepped_keys``.  A keyframe's interpolation travels with
+        its point (:meth:`move_curve_keys`), so a CONSTANT key stays one, and
+        the ledger's claims ride along."""
+        self.move_curve_keys(
+            curve,
+            [old_time],
+            new_time - old_time,
+            eps=eps,
+            ledger=self.ledger,
+            ledger_key=_ShotSequencerInternal._fc_key(obj, curve),
+        )
 
     def _scale_keys(self, objects, old_start, old_end, new_start, new_end) -> None:
         """Linearly remap each object's keys in ``[old_start, old_end]`` onto ``[new_start, new_end]``.
@@ -2191,8 +2351,9 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         deleted or re-interpolated by hand cannot leave a permanent entry
         behind -- once a rename is ruled out: a renamed owner's claims are
         re-keyed first (:meth:`_follow_unresolved_claims`), not forgotten.
-        The WRITE is only taken back where the key is still there and still
-        ``CONSTANT`` — an animator who changed it since owns it now.
+        The WRITE is only taken back where the key is still the one the hold
+        made (``ShotEditLedger.is_same_key``) and still ``CONSTANT`` — an
+        animator who changed it since, or pasted a key over it, owns it now.
         """
         led = self.ledger
         self._follow_unresolved_claims(led.stepped_curves())
@@ -2206,6 +2367,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
             for t in led.step_times(key):
                 if any(abs(t - w) <= _SLOP for w in want):
                     continue  # still a seam — the hold still belongs here
+                claim = led.claimed_step(key, t)
                 types = led.release_step(key, t)
                 if types is None:
                     continue
@@ -2215,6 +2377,8 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
                 kp = fc.keyframe_points[idx]
                 if kp.interpolation != "CONSTANT":
                     continue  # re-authored since — not ours to take back
+                if not led.is_same_key(claim, kp.easing, kp.co[1]):
+                    continue  # written over since — the hold is the new key's
                 kp.interpolation = types[1] or "BEZIER"
                 fc.update()
                 restored += 1
@@ -2241,7 +2405,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
                 kp = fc.keyframe_points[idx]
                 if kp.interpolation == "CONSTANT":
                     continue
-                led.record_step(key, t, kp.easing, kp.interpolation)
+                led.record_step(key, t, kp.easing, kp.interpolation, kp.co[1])
                 kp.interpolation = "CONSTANT"
                 touched = True
                 held += 1
@@ -2539,7 +2703,9 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
                 for t in AnimUtils.key_times(fc):
                     if t > extent and not _owned_elsewhere(t):
                         extent = t
-        for events in self._read_all_audio_events().values():
+        from blendertk.audio_utils._audio_utils import AudioUtils
+
+        for events in AudioUtils.read_all_events().values():
             for _ev_start, ev_end in events:
                 if ev_end > extent:
                     extent = ev_end

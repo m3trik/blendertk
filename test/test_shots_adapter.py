@@ -442,6 +442,34 @@ def _run_shots_adapter_checks():
         f"users={parked.users} {[s.name for s in parked_store.stale_shots()]}",
     )
     bpy.data.actions.remove(parked)
+    # The shot system's own bound samples are its bookkeeping, not content, in
+    # the scene-wide scan too (``_members_keyed_windows`` already skipped them):
+    # with a gap, a New Shot -- naming nothing -- got a gap hold's start pin on
+    # every curve through it, read as keyed, and Delete Empty left it behind.
+    pinned = add_keyed_cube("EmptyPinned", [9400, 9440], 0.0)
+    pin_fc = next(iter(BlenderShotStore.iter_action_fcurves(pinned)))
+    pin_fc.keyframe_points.insert(9410.0, pin_fc.evaluate(9410.0))
+    pin_fc.update()
+    pin_key = BlenderShotStore.curve_key(
+        pinned.name, pin_fc.data_path, pin_fc.array_index
+    )
+    pin_store = BlenderShotStore()
+    pin_store.define_shot("PinnedShot", 9410, 9420, objects=[])
+    pin_store.edit_ledger.record_key(pin_key, 9410.0)
+    check(
+        "a claimed bound sample is not content: the shot naming nothing is empty",
+        [s.name for s in pin_store.empty_shots()] == ["PinnedShot"],
+        f"{[s.name for s in pin_store.empty_shots()]}",
+    )
+    pin_store.edit_ledger.release_key(pin_key, 9410.0)
+    check(
+        "... and the same key unclaimed is the animator's: the shot is keyed",
+        pin_store.empty_shots() == [],
+        f"{[s.name for s in pin_store.empty_shots()]}",
+    )
+    pin_action = pinned.animation_data.action
+    bpy.data.objects.remove(pinned, do_unlink=True)
+    bpy.data.actions.remove(pin_action)
 
     # ---- scene-swap invalidation lifecycle (C1) ---------------------------
     # BlenderScenePersistence must wire load_post (via ScriptJobManager) so a
@@ -662,6 +690,13 @@ def _run_shots_adapter_checks():
         and ns_store.resolve_member("nothing") == ("nothing", "missing"),
         f"{ns_store.resolve_member('twin')} {ns_store.resolve_member('CC:door_geo')}",
     )
+    check(
+        "member_nodes: every object a name answers to (duplicates to fix)",
+        sorted(ns_store.member_nodes("twin")) == ["AC:twin", "BC:twin"]
+        and ns_store.member_nodes("AC:door_geo") == ["AC:door_geo"]
+        and ns_store.member_nodes("CC:door_geo") == [],
+        f"{ns_store.member_nodes('twin')}",
+    )
     for ns_name in ("AC:door_geo", "AC:twin", "BC:twin"):
         bpy.data.objects.remove(bpy.data.objects[ns_name], do_unlink=True)
 
@@ -873,6 +908,146 @@ def _run_shots_adapter_checks():
     )
     AudioUtils.remove_all_clips()
     os.remove(xfer_wav)
+
+    # ---- release_replaced: a key Align / Invert overwrites loses its claims --
+    # Left on the frame, a fade's claim passed to the key that landed there,
+    # and the next Build deleted that animator key as a dropped behavior
+    # (BACKLOG 2026-10-04). A claim names an fcurve by OWNER (``curve_key``).
+    import blendertk as btk
+
+    def keyed_x(name, frames):
+        bpy.ops.mesh.primitive_cube_add()
+        obj = bpy.context.active_object
+        obj.name = name
+        for f in frames:
+            obj.location.x = float(f)
+            obj.keyframe_insert(data_path="location", index=0, frame=f)
+        return obj
+
+    def select_keys(obj, frames):
+        for fc in BlenderShotStore.iter_action_fcurves(obj):
+            for k in fc.keyframe_points:
+                k.select_control_point = any(abs(k.co.x - f) < 1e-3 for f in frames)
+
+    BlenderShotStore.clear_active()  # no backend: the stores below write nowhere
+    rel_store = BlenderShotStore()
+    led = rel_store.edit_ledger
+    align_obj = keyed_x("ClaimAlign", (10, 20, 30))
+    align_key = BlenderShotStore.curve_key(align_obj.name, "location", 0)
+    led.record_authored(align_key, 20.0, 0, "fade_in", align_obj.name)
+    led.record_step(align_key, 20.0, "AUTO", "BEZIER")
+    select_keys(align_obj, (10,))
+    btk.align_selected_keyframes(
+        align_obj, target_frame=20, on_replace=rel_store.release_replaced([align_obj])
+    )
+    check(
+        "release_replaced: Align drops every claim of the key it lands on",
+        not led.owns_any(align_key, 20.0) and not led.owns_step(align_key, 20.0),
+        str(led.to_dict()),
+    )
+
+    invert_obj = keyed_x("ClaimInvert", (10, 20, 30))
+    invert_key = BlenderShotStore.curve_key(invert_obj.name, "location", 0)
+    led.record_authored(invert_key, 20.0, 0, "fade_in", invert_obj.name)
+    # The reversed copy at 0 (absolute): t' = 30 - t, so 10's copy lands on 20.
+    btk.invert_keys(
+        invert_obj,
+        mode="time",
+        start_frame=0,
+        relative=False,
+        on_replace=rel_store.release_replaced([invert_obj.name]),
+    )
+    check(
+        "release_replaced: Invert's copy drops the claims of the key it lands on",
+        not led.owns_any(invert_key, 20.0),
+        str(led.to_dict()),
+    )
+
+    # Claims name the object as it was called when they were made: a rename
+    # since then is followed before the claims are resolved, as every shot
+    # edit does (``scene_edit``), or the release names a curve nobody claims.
+    renamed = keyed_x("ClaimOldName", (10, 20, 30))
+    ren_store = BlenderShotStore()  # has seen the object under its old name
+    ren_store.edit_ledger.record_authored(
+        BlenderShotStore.curve_key("ClaimOldName", "location", 0),
+        20.0,
+        0,
+        "fade_in",
+        "ClaimOldName",
+    )
+    renamed.name = "ClaimNewName"
+    select_keys(renamed, (10,))
+    btk.align_selected_keyframes(
+        renamed, target_frame=20, on_replace=ren_store.release_replaced([renamed])
+    )
+    check(
+        "release_replaced: a renamed object's claims are followed, then released",
+        not ren_store.edit_ledger.authored(),
+        str(ren_store.edit_ledger.to_dict()),
+    )
+
+    # ---- remap_moved: a claimed key Align / Invert MOVES keeps its claim -----
+    # The in-place Invert of {10, 15, 25, 30} with a fade claimed at 15: the
+    # claim rides to 25 with its key.  Left at 15 it passed to the animator key
+    # that arrived from 25, which the next Build deleted before keying the fade
+    # again beside its own key.
+    def value_at(obj, frame):
+        fc = next(iter(BlenderShotStore.iter_action_fcurves(obj)))
+        return next(k.co.y for k in fc.keyframe_points if abs(k.co.x - frame) < 1e-3)
+
+    moving = keyed_x("ClaimMoved", (10, 15, 25, 30))
+    moving_key = BlenderShotStore.curve_key(moving.name, "location", 0)
+    led.record_authored(moving_key, 15.0, 0, "fade_in", moving.name)
+    btk.invert_keys(
+        moving,
+        mode="time",
+        on_replace=rel_store.release_replaced([moving]),
+        on_move=rel_store.remap_moved([moving]),
+    )
+    check(
+        "remap_moved: Invert carries a claimed key's claim to its new frame",
+        led.authored(obj=moving.name) == [(moving_key, 25.0)]
+        and abs(value_at(moving, 25) - 15.0) < 1e-4,
+        str(led.to_dict()),
+    )
+    aligned = keyed_x("ClaimAligned", (10, 30))
+    aligned_key = BlenderShotStore.curve_key(aligned.name, "location", 0)
+    led.record_authored(aligned_key, 10.0, 0, "fade_in", aligned.name)
+    select_keys(aligned, (10,))
+    btk.align_selected_keyframes(
+        aligned,
+        target_frame=20,
+        on_replace=rel_store.release_replaced([aligned]),
+        on_move=rel_store.remap_moved([aligned]),
+    )
+    check(
+        "remap_moved: Align carries a claimed key's claim to its new frame",
+        led.authored(obj=aligned.name) == [(aligned_key, 20.0)],
+        str(led.to_dict()),
+    )
+
+    # The owners behind a claim are resolved lazily and ONCE per edit: building
+    # the hooks scans nothing; the first curve resolved follows renames and
+    # maps the owners for both hooks (claim_hooks shares one resolution).
+    lazy = keyed_x("ClaimLazy", (10, 20))
+    lazy_key = BlenderShotStore.curve_key(lazy.name, "location", 0)
+    lazy_store = BlenderShotStore()
+    lazy_store.edit_ledger.record_authored(lazy_key, 10.0, 0, "fade_in", lazy.name)
+    scans = []
+    real_follow = lazy_store.follow_renames
+    lazy_store.follow_renames = lambda: scans.append(1) or real_follow()
+    lazy_rep, lazy_mov = lazy_store.claim_hooks([lazy])
+    built = len(scans)
+    lazy_fc = next(iter(BlenderShotStore.iter_action_fcurves(lazy)))
+    lazy_mov(lazy_fc, [(10.0, 15.0)])
+    lazy_rep(lazy_fc, [20.0])
+    check(
+        "claim hooks: owners resolved once, lazily, for both hooks",
+        built == 0
+        and len(scans) == 1
+        and lazy_store.edit_ledger.authored(obj=lazy.name) == [(lazy_key, 15.0)],
+        f"built={built} scans={len(scans)} {lazy_store.edit_ledger.to_dict()}",
+    )
 
     # cleanup class state so a later suite in the same process starts clean
     BlenderShotStore.clear_active()

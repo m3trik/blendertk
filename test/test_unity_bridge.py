@@ -44,7 +44,7 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
@@ -216,6 +216,157 @@ try:
         check(
             "hand-off aborts with an empty selection",
             run_handoff(bridge, [], {}) is None,
+        )
+
+        # ---- the curve-proxy transport rides the bridge's FBX (2026-10-05) ----
+        # Unity's importers rebind <object>__<channel> and emissive-weight curve
+        # proxies; Blender stages them, and its exporter writes only what is
+        # selected, so they reached the Scene Exporter's FBX and no bridge's:
+        # fades and keyed weights imported static. Mirror of mayatk's bridge,
+        # which names the render_effects stager.
+        import pythontk as ptk
+        from blendertk.mat_utils.emissive_groups import EmissiveGroups
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        check(
+            "the Unity bridge stages the render-effect and emissive-weight transport",
+            {"render_effects", "emissive_groups"} <= set(UnityBridge.export_stagers),
+            f"{UnityBridge.export_stagers}",
+        )
+        reset()
+        for action in list(bpy.data.actions):
+            bpy.data.actions.remove(action)
+        bpy.context.scene.frame_start, bpy.context.scene.frame_end = 1, 10
+        bpy.ops.mesh.primitive_cube_add()
+        fader = bpy.context.active_object
+        fader.name = "BridgeFader"
+        for frame, alpha in ((1, 1.0), (10, 0.0)):
+            fader["opacity"] = alpha
+            fader.keyframe_insert('["opacity"]', frame=frame)
+        EmissiveGroups.add_group("glow", {"BridgeFader": [0]})
+        EmissiveGroups.make_weights_keyable(["glow"])
+        EmissiveGroups.key_weight("glow", value=1.0, frame=1)
+        EmissiveGroups.key_weight("glow", value=0.0, frame=10)
+        bpy.ops.object.select_all(action="DESELECT")
+        fader.select_set(True)
+        faded = run_handoff(
+            bridge,
+            [fader],
+            {"ASSET_NAME": "faded", "INCLUDE_ANIMATION": True},
+        )
+        marked = [
+            o.name
+            for o in bpy.data.objects
+            if o.get(ptk.MeshConvert.CURVE_PROXY_MARKER)
+        ]
+        if faded is None:
+            check("the animated hand-off returns a result", False)
+        else:
+            shipped = ptk.FbxFile.load(faded["asset"], raw_payloads=False)
+            models = shipped.object_names("Model")
+            check(
+                "the bridge's FBX carries the opacity proxy beside its object",
+                "BridgeFader__opacity" in models,
+                f"{sorted(models)}",
+            )
+            check(
+                "the bridge's FBX carries the keyed emissive weight's proxy",
+                "emissiveGroup_glow" in models and DataNodes.EXPORT in models,
+                f"{sorted(models)}",
+            )
+            check(
+                "the proxies arrive marked, so the importer finds and removes them",
+                len(shipped.user_properties(ptk.MeshConvert.CURVE_PROXY_MARKER)) >= 2,
+                f"{shipped.user_properties(ptk.MeshConvert.CURVE_PROXY_MARKER)}",
+            )
+        check("the send leaves no proxy in the scene", not marked, f"{marked}")
+
+        # ---- the bridge bakes animation with the panel's own params (2026-10-05) ----
+        # The Unity panel offers no animation knob, so INCLUDE_ANIMATION never
+        # reached the hand-off and Blender's exporter, which writes no take unless
+        # it bakes, shipped none: measured in Unity, the staged proxies arrived as
+        # static nodes. Mirror of mayatk's bridge, whose takes never split either.
+        check(
+            "the Unity bridge bakes animation unless a request says otherwise",
+            getattr(UnityBridge, "include_animation", None) is True,
+        )
+        panel_params = {"ASSETS_SUBDIR": "Bridge", "ASSET_NAME": "panel_send"}
+        sent = run_handoff(bridge, [fader], panel_params)
+        if sent is None:
+            check("the panel-params hand-off returns a result", False)
+        else:
+            sent_fbx = ptk.FbxFile.load(
+                sent["asset"], raw_payloads=False, span_arrays=("KeyTime",)
+            )
+            animated = {
+                target
+                for take in sent_fbx.take_curves().values()
+                for target, *_ in take
+            }
+            check(
+                "a send with the panel's params ships a take carrying the fade",
+                sent_fbx.take_names() and "BridgeFader__opacity" in animated,
+                f"takes={sent_fbx.take_names()} animated={sorted(animated)}",
+            )
+        still = run_handoff(
+            bridge,
+            [fader],
+            dict(panel_params, ASSET_NAME="still", INCLUDE_ANIMATION=False),
+        )
+        check(
+            "an explicit INCLUDE_ANIMATION=False still ships no take",
+            still is not None
+            and not ptk.FbxFile.load(still["asset"], raw_payloads=False).take_names(),
+        )
+
+        # ---- Include Materials off: the proxy rides the stripped copy ----
+        # The strip path exports shader-less copies; the staged proxy hung under
+        # the original, which stays out of the file, so the fade never shipped.
+        # Maya's strip copy carries its children. Unity binds a proxy by its
+        # parent's path, so it has to sit under the copy that ships.
+        def model_parents(path):
+            """``{Model name: parent Model name}`` of an FBX's hierarchy."""
+            from io_scene_fbx import parse_fbx
+
+            root, _version = parse_fbx.parse(path)
+            objects = next(e for e in root.elems if e.id == b"Objects")
+            conns = next(e for e in root.elems if e.id == b"Connections")
+            names = {
+                e.props[0]: e.props[1].split(b"\x00")[0].decode()
+                for e in objects.elems
+                if e.id == b"Model"
+            }
+            return {
+                names[c.props[1]]: names[c.props[2]]
+                for c in conns.elems
+                if c.props[0] == b"OO" and c.props[1] in names and c.props[2] in names
+            }
+
+        stripped = run_handoff(
+            bridge,
+            [fader],
+            dict(panel_params, ASSET_NAME="stripped", INCLUDE_MATERIALS=False),
+        )
+        left = sorted(
+            o.name
+            for o in bpy.data.objects
+            if o.get(ptk.MeshConvert.CURVE_PROXY_MARKER)
+            or o.name.startswith("BridgeFader.")
+        )
+        if stripped is None:
+            check("the stripped hand-off returns a result", False)
+        else:
+            stripped_parents = model_parents(stripped["asset"])
+            proxy_parent = stripped_parents.get("BridgeFader__opacity", "")
+            check(
+                "with materials stripped, the opacity proxy ships under the copy",
+                proxy_parent.startswith("BridgeFader."),
+                f"{stripped_parents}",
+            )
+        check(
+            "the stripped send leaves no copy and no proxy in the scene",
+            not left,
+            f"{left}",
         )
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

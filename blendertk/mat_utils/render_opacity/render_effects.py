@@ -752,7 +752,8 @@ class RenderEffects(ptk.LoggingMixin):
         its weights and the transport mayatk stages for the same channels, so
         Unity's ``RenderEffectsImporter`` rebinds both DCCs' files identically.
         Marked with :attr:`PROXY_MARKER`; :meth:`remove_export_proxies` deletes
-        them (the Scene Exporter stages the deferred restore). Stale proxies from
+        them -- the ``render_effects`` row of ``FbxUtils.STAGERS`` stages and
+        finishes both around every bracketed write. Stale proxies from
         an interrupted export are pre-cleaned here.
 
         Returns:
@@ -835,11 +836,15 @@ class RenderEffects(ptk.LoggingMixin):
             return
         for obj in cls._resolve(objects):
             cls._remove_legacy_drivers(obj, cls.ATTR_NAME)
-            # Opacity + mirrored visibility anim curves.
-            for dp in (f'["{cls.ATTR_NAME}"]', cls.VIS_PATH):
-                cls._remove_fc(obj, cls._fcurve(obj, dp))
-            if cls.ATTR_NAME in obj:
-                del obj[cls.ATTR_NAME]
+            cls._remove_fc(obj, cls._fcurve(obj, f'["{cls.ATTR_NAME}"]'))
+            if cls.ATTR_NAME not in obj:
+                # Not this channel's object (mayatk's ``has_channel`` gate): its
+                # visibility keys and its hidden-from-render flag are the user's.
+                continue
+            # The mirrored visibility curve, and the hidden state it may have left.
+            cls._remove_fc(obj, cls._fcurve(obj, cls.VIS_PATH))
+            obj.hide_render = False
+            del obj[cls.ATTR_NAME]
 
     # ------------------------------------------------------------------ keying
     #: The pulse brackets' floors, owned by the planner (``ptk.RampKeys``).

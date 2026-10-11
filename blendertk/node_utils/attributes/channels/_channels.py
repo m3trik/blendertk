@@ -404,13 +404,15 @@ class Channels:
         act = getattr(ad, "action", None)
         if not act:
             return
-        legacy = list(getattr(act, "fcurves", []) or [])
-        if legacy:
-            yield from legacy
+        layers = getattr(act, "layers", None)
+        if not layers:
+            # Legacy (pre-4.4) action. On 4.4-5.0 ``action.fcurves`` survives only
+            # as a proxy for the FIRST slot, so a layered action never reads it.
+            yield from getattr(act, "fcurves", []) or []
             return
         # Slotted-action API (Blender 4.4+): resolve the object's bound slot's channelbag.
         slot = getattr(ad, "action_slot", None)
-        for layer in getattr(act, "layers", []) or []:
+        for layer in layers:
             for strip in getattr(layer, "strips", []) or []:
                 cb = None
                 try:

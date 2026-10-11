@@ -11,10 +11,13 @@ Blender image datablock directly (Blender's bundled Python ships no PIL).
 """
 
 import contextlib
+import fnmatch
 import hashlib
 import logging
 import os
 import random
+import re
+from typing import Any, Dict, Optional, Tuple
 
 import pythontk as ptk
 
@@ -487,13 +490,23 @@ class _MatUtilsInternal:
                 found, ambiguous = hit(stem_index.get(match), "fuzzy")
         return found, ambiguous
 
+    #: Image sources whose ``filepath`` names a file the path tools manage: a
+    #: plain file, and a TILED (UDIM) set -- one image, as mayatk's editor lists a
+    #: UDIM file node, its existence judged over its tiles (``ptk.TiledPath.tiles``).
+    _FILE_SOURCES = ("FILE", "TILED")
+
     @staticmethod
     def _resolve_images(images):
-        """Coerce ``images`` (datablocks, names, or None=all) to a list of FILE image datablocks."""
+        """Coerce ``images`` (datablocks, names, or None=all) to a list of image
+        datablocks -- ``None`` is every FILE image and every TILED set."""
         import bpy
 
         if images is None:
-            return [i for i in bpy.data.images if i.source == "FILE"]
+            return [
+                i
+                for i in bpy.data.images
+                if i.source in _MatUtilsInternal._FILE_SOURCES
+            ]
         out = []
         for i in ptk.make_iterable(images):
             img = bpy.data.images.get(i) if isinstance(i, str) else i
@@ -545,6 +558,64 @@ class _MatUtilsInternal:
             return "relocated"
         except (OSError, shutil.Error):
             return "error"
+
+    @staticmethod
+    def _relocate(path, dest_dir, mode):
+        """Relocate the file *path* names into *dest_dir* -- one file, or EVERY tile
+        of a tile set (``rock.<UDIM>.png``) -- under :meth:`_safe_relocate`'s policy.
+
+        A set lands whole or not at all. A first pass writes nothing: a tile whose
+        destination holds ANOTHER file refuses the set before one tile is copied --
+        copied one by one, the tiles before it stayed in *dest_dir*, foreign to the
+        same-named set already there (review, 2026-10-05). A copy failing later
+        takes back the tiles this call wrote. A move removes the sources only once
+        every tile is at *dest_dir*, so a set is never split between two folders.
+        Returns ``_safe_relocate``'s verdict for the whole: ``"skip"`` / ``"error"``
+        when any file was refused (sources untouched, nothing left behind),
+        ``"relocated"`` when one was written, else ``"rebind"``.
+        """
+        if not ptk.TiledPath.has_token(path):
+            dst = os.path.join(dest_dir, os.path.basename(path))
+            return _MatUtilsInternal._safe_relocate(path, dst, mode)
+        pairs = [
+            (src, os.path.join(dest_dir, os.path.basename(src)))
+            for src in ptk.TiledPath.tiles(path)
+        ]
+        if not pairs:
+            return "error"  # nothing on disk to relocate
+        for src, dst in pairs:
+            if (
+                os.path.exists(dst)
+                and not ptk.FileUtils.is_same_file(src, dst)
+                and not ptk.FileUtils.has_same_content(src, dst)
+            ):
+                logging.getLogger(__name__).warning(
+                    f"'{os.path.basename(dst)}' already exists at destination with "
+                    f"different content; the set {os.path.basename(path)} is left "
+                    f"where it is: {dst}"
+                )
+                return "skip"
+        landed = []
+        for src, dst in pairs:
+            outcome = _MatUtilsInternal._safe_relocate(src, dst, "copy")
+            if outcome in ("skip", "error"):
+                for _src, written, how in landed:
+                    if how == "relocated":  # this call's copy, not a file it found
+                        try:
+                            os.remove(written)
+                        except OSError:
+                            pass
+                return outcome
+            landed.append((src, dst, outcome))
+        if mode == "move":
+            for src, dst, _outcome in landed:
+                if not ptk.FileUtils.is_same_file(src, dst):
+                    try:
+                        os.remove(src)
+                    except OSError:
+                        pass
+        relocated = any(outcome == "relocated" for _s, _d, outcome in landed)
+        return "relocated" if relocated else "rebind"
 
     @staticmethod
     def _html_escape(s):
@@ -632,6 +703,521 @@ class _MatUtilsInternal:
         img.pixels.foreach_set(buf)
         img.update()
 
+    # -- renaming a texture file, and the names that follow it (mirror of mayatk's
+    # ``_texture_files``) -----------------------------------------------------------
+
+    @staticmethod
+    def _file_name(stored):
+        """The file NAME a stored path ends in, split on either separator: a
+        ``//`` path keeps its tail (``os.path.basename`` reads ``//rock.png`` as a
+        UNC root and answers ``""``)."""
+        return re.split(r"[\\/]", str(stored or ""))[-1]
+
+    @staticmethod
+    def _synced_image_name(image_name, old_file, new_file, affix):
+        """The name an image takes when its texture is renamed *old_file* ->
+        *new_file*.
+
+        Named as Blender names a loaded image -- after its file, extension and
+        all -- while it still is (*image_name* is *old_file*, a ``.001`` twin
+        included) and no *affix* is asked for; otherwise after the file's stem
+        (``ptk.TiledPath.stem``) with *affix*, as mayatk names a file node
+        (``stone_Normal`` plus the suffix; no Maya-legal scrub, a Blender name
+        takes any character).
+        """
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        own = CoreUtils.strip_dup_suffix(image_name).lower() == old_file.lower()
+        if own and not any(affix):
+            return new_file
+        return ptk.StrUtils.apply_affix(ptk.TiledPath.stem(new_file), *affix)
+
+    @staticmethod
+    def _fixed_name(block):
+        """Whether datablock *block* cannot be renamed here: one linked from a
+        library, or a library override of one (the link names it) -- Blender's
+        counterpart of mayatk's default, locked or referenced node. Blender has
+        no default material or image to protect."""
+        return (
+            getattr(block, "library", None) is not None
+            or getattr(block, "override_library", None) is not None
+        )
+
+    @staticmethod
+    def _resolved(path):
+        """*path* (a stored spelling, ``//``-relative included) as an absolute,
+        normalized path; ``""`` for none."""
+        import bpy
+
+        if not path:
+            return ""
+        try:
+            return os.path.normpath(bpy.path.abspath(path))
+        except Exception:
+            return os.path.normpath(path)
+
+    @classmethod
+    def _texture_readers(cls, path):
+        """Every image datablock whose file is *path* (absolute; a tile pattern
+        names its set) -- what a rename of that file has to repoint."""
+        import bpy
+
+        key = os.path.normcase(os.path.normpath(path))
+        return [
+            img
+            for img in bpy.data.images
+            if img.source != "VIEWER"
+            and getattr(img, "filepath", "")
+            and os.path.normcase(cls._abspath(img)) == key
+        ]
+
+    @classmethod
+    def _linked_readers(cls, path):
+        """``"<image> (<library>)"`` for each LINKED image reading *path*: one a
+        rename would leave reading nothing, since its path is its library's."""
+        return [
+            f"{img.name} ({img.library.filepath})"
+            for img in cls._texture_readers(path)
+            if img.library is not None
+        ]
+
+    @classmethod
+    def _rename_texture_file(cls, path, new_name, images=None):
+        """Body of :meth:`MatUtils.rename_texture_file`, outside any undo step
+        (a caller's own step takes it -- :meth:`MatUtils.sync_material_names`)."""
+        old_abs = cls._resolved(path)
+        pairs = ptk.TiledPath.rename(old_abs, new_name, dry_run=True)  # raises
+        if not pairs:
+            return {"renamed": [], "images": []}
+        linked = cls._linked_readers(old_abs)
+        if linked:
+            raise ValueError(
+                f"{os.path.basename(old_abs)} is read by linked image(s) "
+                f"{', '.join(linked)}: their path is their library's, so a rename "
+                "would leave them reading nothing. Rename it in the library."
+            )
+        readers = cls._texture_readers(old_abs)
+        if images is not None:  # the caller's, of those that read it
+            wanted = {img.as_pointer() for img in cls._resolve_images(images)}
+            readers = [img for img in readers if img.as_pointer() in wanted]
+        ptk.TiledPath.rename(old_abs, new_name)
+        _FileRenameUndo.record(pairs)
+        repointed = []
+        for img in readers:
+            try:
+                # ``filepath_raw``: the bytes did not change, so no reload --
+                # which would also drop an image's unsaved paint.
+                img.filepath_raw = ptk.TiledPath.with_name(img.filepath, new_name)
+                repointed.append(img.name)
+            except (AttributeError, RuntimeError, TypeError) as e:
+                logging.getLogger(__name__).warning(
+                    f"{img.name}: renamed on disk, but not repointed: {e}"
+                )
+        return {"renamed": pairs, "images": repointed}
+
+    @classmethod
+    def _sync_material_names(
+        cls,
+        material,
+        images,
+        base,
+        material_affix,
+        image_affix,
+        dry_run,
+        lightmaps=None,
+    ):
+        """Body of :meth:`MatUtils.sync_material_names`."""
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+        from blendertk.env_utils._env_utils import EnvUtils
+
+        base = str(base or "").strip()
+        if not base or any(c in base for c in '\\/:*?"<>|'):
+            raise ValueError(f"Not a usable base name: {base!r}.")
+        mat = (
+            bpy.data.materials.get(material) if isinstance(material, str) else material
+        )
+        if material is not None and mat is None:
+            raise ValueError(f"No material {material!r}.")
+        project = EnvUtils.scene_project_root()
+        plan = {
+            "material": None,
+            "companions": [],
+            "textures": [],
+            "images": [],
+            "lightmaps": [],
+            "skipped": [],
+        }
+
+        def renameable(path: str, name: str) -> bool:
+            """Whether *path* is this project's to rename (and is there)."""
+            if not (project and ptk.FileUtils.is_under(os.path.abspath(path), project)):
+                plan["skipped"].append(
+                    f"{name}: outside this project -- another may read it, so it "
+                    "keeps its name"
+                )
+                return False
+            if not ptk.TiledPath.tiles(path):
+                plan["skipped"].append(f"{name}: not on disk to rename")
+                return False
+            linked = cls._linked_readers(path)
+            if linked:
+                plan["skipped"].append(
+                    f"{name}: read by linked image(s) {', '.join(linked)} -- it "
+                    "keeps its name"
+                )
+                return False
+            return True
+
+        errors = []
+        if mat is not None:
+            new = ptk.StrUtils.apply_affix(base, *material_affix)
+            if new != mat.name:
+                if cls._fixed_name(mat):
+                    errors.append(
+                        f"{mat.name} cannot be renamed (a linked or library-override "
+                        "material)"
+                    )
+                plan["material"] = (mat.name, new)
+        if images is None:
+            found = {}
+            tree = getattr(mat, "node_tree", None) if mat is not None else None
+            for _chain, node in cls._iter_image_nodes(tree) if tree else ():
+                found.setdefault(node.image.as_pointer(), node.image)
+            images = list(found.values())
+        else:
+            images = cls._resolve_images(images)
+
+        names = {img.name: cls._file_name(img.filepath) for img in images}
+        # The set the names follow is the one the baker names a lightmap after:
+        # an environment cube or a decal beside it is another set's, not this
+        # name's to change.
+        found_set = ptk.MapFactory.dominant_texture_set(
+            [n for n in names.values() if n]
+        )
+        old_base = found_set[0] if found_set else ""
+        # Each name's set, read against the others the way the vote read them:
+        # alone, a set named for a lobe (`Hero_Coat`) reads `Hero_Coat_Normal`
+        # as a coat map of `Hero` -- another set's, left unrenamed.
+        bases = {
+            name: base
+            for name, (_type, base) in ptk.MapFactory.classify_textures(
+                [n for n in names.values() if n]
+            ).items()
+        }
+        if not old_base and any(names.values()):
+            plan["skipped"].append(
+                "No texture names a map type, so there is no texture set to "
+                "follow; the textures keep their names"
+            )
+
+        planned, kept = set(), set()  # a texture several images read: once
+        foreign = []  # another set's maps: left alone, reported once below
+        for img in images:
+            name = names[img.name]
+            if not name:
+                plan["skipped"].append(f"{img.name}: no texture path")
+                continue
+            if not old_base:
+                continue  # no set to follow (reported above)
+            if bases[name].lower() != old_base.lower():
+                foreign.append(name)
+                continue
+            if not name.lower().startswith(old_base.lower()):
+                plan["skipped"].append(
+                    f"{name}: does not start with its base name {old_base!r}; "
+                    "left as it is"
+                )
+                continue
+            new_name = base + name[len(old_base) :]
+            old_abs = cls._abspath(img)
+            key = os.path.normcase(os.path.normpath(old_abs))
+            if new_name != name and key not in planned:
+                planned.add(key)
+                if not renameable(old_abs, name):
+                    kept.add(key)
+                else:
+                    try:
+                        ptk.TiledPath.rename(old_abs, new_name, dry_run=True)
+                        plan["textures"].append((old_abs, new_name))
+                    except (ValueError, OSError) as e:
+                        errors.append(str(e))
+            if key in kept:
+                new_name = name  # the image follows the file it reads
+            image_name = cls._synced_image_name(img.name, name, new_name, image_affix)
+            if not image_name or image_name == img.name:
+                continue
+            if cls._fixed_name(img):
+                plan["skipped"].append(f"{img.name}: an image that cannot be renamed")
+            else:
+                plan["images"].append((img.name, image_name))
+        foreign = list(dict.fromkeys(foreign))
+        if foreign:
+            plan["skipped"].append(
+                f"{', '.join(foreign)}: another texture set than {old_base!r} -- "
+                f"left as {'it is' if len(foreign) == 1 else 'they are'}"
+            )
+
+        # The set's lightmap follows the set: bound by name, it is named after it.
+        if plan["textures"] and lightmaps is not None:
+            for dep in lightmaps.lightmap_dependencies():
+                new_map = ptk.MapFactory.lightmap_for_base(dep["map"], old_base, base)
+                if not new_map or new_map == dep["map"]:
+                    continue
+                if not dep["path"]:
+                    plan["skipped"].append(f"{dep['map']}: not on disk to rename")
+                    continue
+                owners = [bpy.data.objects.get(o) for o in dep.get("objects") or []]
+                if any(o is not None and o.library is not None for o in owners):
+                    plan["skipped"].append(
+                        f"{dep['map']}: bound by a linked library's objects -- it "
+                        "keeps its name"
+                    )
+                    continue
+                if not renameable(dep["path"], dep["map"]):
+                    continue
+                try:
+                    ptk.TiledPath.rename(dep["path"], new_map, dry_run=True)
+                    plan["lightmaps"].append((dep["path"], dep["map"], new_map))
+                except (ValueError, OSError) as e:
+                    errors.append(str(e))
+        if errors:
+            raise ValueError("Names not synced -- " + "; ".join(errors))
+        if dry_run:
+            return plan
+
+        # The datablocks are held before anything is renamed: an image renamed
+        # onto a name another one planned to leave must not be found by it.
+        held = {old: bpy.data.images.get(old) for old, _new in plan["images"]}
+        bookmark = _FileRenameUndo.mark()
+        with CoreUtils.undo_chunk("Sync Material Names") as step:
+            done = []  # put back, newest first, should a later rename fail
+            try:
+                for old_abs, new_name in plan["textures"]:
+                    cls._rename_texture_file(old_abs, new_name)
+                    done.append((old_abs, new_name, None))
+                for path, old_map, new_map in plan["lightmaps"]:
+                    cls._rename_texture_file(path, new_map)
+                    done.append((path, new_map, None))
+                    lightmaps.rename_lightmap(old_map, new_map)
+                    done[-1] = (path, new_map, (old_map, new_map))
+            except Exception as error:
+                failed = cls._put_back_renames(done, lightmaps)
+                if not failed:
+                    # Every file is home: nothing changed, so no step lands -- and
+                    # the renames and put-backs come off the record, or an undo
+                    # would replay them on disk. A file still renamed is a change:
+                    # its step lands, and Ctrl+Z puts it back.
+                    _FileRenameUndo.rewind(bookmark)
+                    step.cancel()
+                raise ValueError(
+                    f"Names not synced -- {error}. The {len(done)} file(s) renamed "
+                    "before it were put back"
+                    + (f", except {', '.join(failed)}" if failed else "")
+                    + "."
+                ) from error
+            renamed = []
+            for old, new in plan["images"]:
+                img = held.get(old)
+                if img is not None:
+                    img.name = new
+                    renamed.append((old, img.name))  # Blender de-duplicates
+            plan["images"] = renamed
+            if plan["material"]:
+                old, new = plan["material"]
+                mat.name = new
+                plan["material"] = (old, mat.name)
+        return plan
+
+    @classmethod
+    def _put_back_renames(cls, done, lightmaps):
+        """Undo the renames a sync made before one failed, newest first.
+
+        *done* is ``[(old path, new name, (old map, new map) | None)]``: each file
+        is renamed back through :meth:`_rename_texture_file` -- so the images it
+        repointed follow it home and the undo follow stays paired -- and a
+        lightmap's markers are re-stamped back first. Returns the files that
+        could not be put back (still held open, say).
+        """
+        failed = []
+        for old_abs, new_name, restamped in reversed(done):
+            try:
+                if restamped is not None:
+                    lightmaps.rename_lightmap(restamped[1], restamped[0])
+                cls._rename_texture_file(
+                    ptk.TiledPath.with_name(old_abs, new_name),
+                    cls._file_name(old_abs),
+                )
+            except Exception as error:  # noqa: BLE001 -- report the rest
+                logging.getLogger(__name__).warning(
+                    f"Could not put back {new_name}: {error}"
+                )
+                failed.append(new_name)
+        return failed
+
+
+class _FileRenameUndo:
+    """Files renamed on disk follow Blender's undo and redo.
+
+    Blender's undo restores datablocks -- an image's ``filepath``, a lightmap
+    marker -- never the disk, so undoing a texture rename left every reader
+    naming a file that was no longer there, and a redo the reverse. mayatk puts
+    the file moves on Maya's own queue (``UndoRecorder``); Blender's takes no
+    callables. So each rename stamps a serial into the scene inside its own undo
+    step (:attr:`SERIAL_PROP`): memfile undo winds it back with the step, and
+    after any undo, redo or Undo History jump the serial says which side of each
+    rename the file should be on -- :meth:`follow` moves the files of a rename
+    whose side CHANGED, and no other. The renames are this session's, of the
+    scene they were stamped in: a file load starts another undo history and
+    forgets them (:meth:`forget`).
+    """
+
+    #: The scene property each rename stamps (a leading underscore keeps it
+    #: off the Custom Properties panel).
+    SERIAL_PROP = "_btk_texture_rename_serial"
+    #: Highest serial handed out this session: one past it and the scene's own,
+    #: so an undone rename's serial is never handed out again.
+    _serial_floor = 0
+    #: ``[{"serial", "scene" (session_uid), "pairs" [(old, new)], "applied"}]``,
+    #: oldest first. ``applied`` is the side its files were last moved to.
+    _renames: list = []
+    #: The ScriptJobManager the follow is subscribed on (``None``: not yet).
+    _manager = None
+
+    @staticmethod
+    def _scene(uid):
+        """The scene whose ``session_uid`` is *uid*, or ``None``."""
+        import bpy
+
+        return next((s for s in bpy.data.scenes if s.session_uid == uid), None)
+
+    @classmethod
+    def _serial(cls, scene) -> int:
+        return int(scene.get(cls.SERIAL_PROP, 0)) if scene is not None else 0
+
+    @classmethod
+    def record(cls, pairs) -> None:
+        """Stamp a rename of *pairs* (``[(old, new)]``, done) into the scene."""
+        import bpy
+
+        scene = bpy.context.scene or next(iter(bpy.data.scenes), None)
+        if scene is None or not pairs:
+            return
+        # A rename after an undo starts a new branch: Blender drops the redo
+        # steps, and with them the renames recorded beyond their scene's serial.
+        cls._renames = [
+            r
+            for r in cls._renames
+            if cls._serial(cls._scene(r["scene"])) >= r["serial"]
+        ]
+        serial = max(cls._serial_floor, cls._serial(scene)) + 1
+        cls._serial_floor = serial
+        scene[cls.SERIAL_PROP] = serial
+        cls._renames.append(
+            {
+                "serial": serial,
+                "scene": scene.session_uid,
+                "pairs": list(pairs),
+                "applied": True,
+            }
+        )
+        cls._subscribe()
+
+    @classmethod
+    def mark(cls):
+        """A bookmark for :meth:`rewind`: the recorded renames and each scene's
+        serial, as they stand."""
+        import bpy
+
+        return list(cls._renames), {
+            s.session_uid: s.get(cls.SERIAL_PROP) for s in bpy.data.scenes
+        }
+
+    @classmethod
+    def rewind(cls, bookmark) -> None:
+        """Back to *bookmark*: forget the renames recorded since.
+
+        For renames all put back inside one undo step that is then cancelled
+        (a sync failing part-way): they changed nothing, so an undo must not
+        replay them on disk -- and Blender, handed no step, still holds the redo
+        branch whose renames recording them had dropped.
+        """
+        import bpy
+
+        renames, serials = bookmark
+        cls._renames = renames
+        for scene in bpy.data.scenes:
+            if scene.session_uid not in serials:
+                continue
+            serial = serials[scene.session_uid]
+            if serial is not None:
+                scene[cls.SERIAL_PROP] = serial
+            elif cls.SERIAL_PROP in scene:
+                del scene[cls.SERIAL_PROP]
+
+    @classmethod
+    def _subscribe(cls) -> None:
+        """Follow undo / redo, and forget on a file load (once per manager)."""
+        from blendertk.core_utils.script_job_manager import ScriptJobManager
+
+        manager = ScriptJobManager.instance()
+        if manager is cls._manager:
+            return
+        for event in ("Undo", "Redo"):
+            manager.subscribe(event, cls.follow, owner=cls)
+        manager.subscribe("SceneOpened", cls.forget, owner=cls)
+        cls._manager = manager
+
+    @classmethod
+    def follow(cls) -> None:
+        """Move the files of each recorded rename whose side changed: undone
+        (its scene's serial fell below its own) or redone (back at or above).
+
+        Only a change moves anything. Every undo and redo in the file fires
+        this, and re-applying each rename to its side on every one of them
+        renamed whatever had come to carry the name since -- a rename undone,
+        its redo branch dropped by a new edit, then a fresh export writing the
+        renamed name: the next Ctrl+Z, of anything, renamed the fresh file
+        (review, 2026-10-05).
+        """
+        flips = []
+        for record in cls._renames:
+            scene = cls._scene(record["scene"])
+            if scene is None:
+                continue
+            want = cls._serial(scene) >= record["serial"]
+            if want != record["applied"]:
+                flips.append((record, want))
+        for record, _want in reversed([f for f in flips if not f[1]]):
+            # Undone, newest first.
+            cls._move([(new, old) for old, new in reversed(record["pairs"])])
+            record["applied"] = False
+        for record, _want in [f for f in flips if f[1]]:  # redone, oldest first
+            cls._move(record["pairs"])
+            record["applied"] = True
+
+    @staticmethod
+    def _move(steps) -> None:
+        """``os.rename`` each ``(src, dst)`` whose source is there and whose
+        target is free (or the same file: a case-only rename)."""
+        for src, dst in steps:
+            if not os.path.exists(src):
+                continue
+            if os.path.exists(dst) and not ptk.FileUtils.is_same_file(src, dst):
+                continue
+            try:
+                os.rename(src, dst)
+            except OSError as e:
+                logging.getLogger(__name__).warning(
+                    f"Could not rename {src} -> {dst}: {e}"
+                )
+
+    @classmethod
+    def forget(cls) -> None:
+        """Drop the recorded renames: a file load ends the undo history they belong to."""
+        cls._renames = []
+
 
 # ---------------------------------------------------------------------------------------------
 # Texture path management (backs the Texture Path Editor panel) — mirror of mayatk's
@@ -694,8 +1280,43 @@ _PBR_DIRECT = {
     "Metallic": ("Metallic", False),
     "Roughness": ("Roughness", False),
     "Specular": ("Specular IOR Level", False),
-    "Subsurface_Scattering": ("Subsurface Weight", False),
 }
+
+# OpenPBR lobe channel (``ptk.MapRegistry.LOBE_TYPE_CHANNELS``, the vocabulary mayatk's
+# ``ShaderAttributeMap`` wires openPBRSurface from) -> Principled input. Principled IS the
+# OpenPBR model (Blender's USD / MaterialX export writes it as ``open_pbr_surface``), so
+# this is the Blender half of one table rather than a parallel taxonomy. Absent channels
+# have no Principled input: transmission and subsurface take their colour from Base Color.
+# Thin film is wired apart (``create_pbr_material``): Principled takes its thickness in
+# nanometres and has no weight. ``Specular IOR Level`` takes the authored level as is
+# (0.5 = neutral), where Maya's weight slots need it doubled.
+_PRINCIPLED_LOBES = {
+    "diffuseRoughness": "Diffuse Roughness",
+    "specularWeight": "Specular IOR Level",
+    "specular": "Specular Tint",
+    "anisotropy": "Anisotropic",
+    "transmission": "Transmission Weight",
+    "subsurface": "Subsurface Weight",
+    "subsurfaceRadius": "Subsurface Scale",
+    "coat": "Coat Weight",
+    "coatColor": "Coat Tint",
+    "coatRoughness": "Coat Roughness",
+    "coatNormal": "Coat Normal",
+    "sheen": "Sheen Weight",
+    "sheenColor": "Sheen Tint",
+    "sheenRoughness": "Sheen Roughness",
+}
+
+# Lobe map types :meth:`MatUtils.create_pbr_material` wires: those with a Principled input,
+# plus thin film and the anisotropy angle (no OpenPBR channel; Principled has the input).
+_PBR_LOBE_TYPES = frozenset(
+    {
+        map_type
+        for map_type, channel in ptk.MapRegistry.LOBE_TYPE_CHANNELS.items()
+        if channel in _PRINCIPLED_LOBES
+    }
+    | {"Thin_Film", "Thin_Film_Thickness", "Anisotropy_Angle"}
+)
 
 # Every map-type key :meth:`MatUtils.create_pbr_material` knows how to consume. A texture that
 # classifies to a type OUTSIDE this set has no Principled input to land on, so it is *reported*
@@ -722,6 +1343,7 @@ _PBR_HANDLED = frozenset(
         "ORM",
         "MRAO",
         "Displacement",
+        *_PBR_LOBE_TYPES,
     }
 )
 
@@ -896,7 +1518,10 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
 
         # 5. Normalize the factory result to ``{set_name: [files]}`` keyed the same way
         #    ``group_textures_by_set`` keys the originals (a bare list == one set).
+        #    Each batch reads its files against each other (a set named for a lobe, ``Hero_Coat``,
+        #    keeps its base maps): the originals as one batch, each output set as one.
         orig_sets = ptk.MapFactory.group_textures_by_set(sorted(all_files))
+        orig_types = ptk.MapFactory.resolve_map_types(sorted(all_files))
         if isinstance(processed, list):
             set_name = next(iter(orig_sets), "__single__")
             processed = {set_name: processed}
@@ -905,10 +1530,12 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
             for set_name, files in orig_sets.items()
             for f in files
         }
-        out_by_set_type, out_by_type = {}, {}
+        out_by_set_type, out_by_type, out_types = {}, {}, {}
         for set_name, files in processed.items():
+            set_types = ptk.MapFactory.resolve_map_types(files)
+            out_types.update(set_types)
             for f in files:
-                mt = ptk.MapFactory.resolve_map_type(f, key=True)
+                mt = set_types[f]
                 if mt is None:
                     continue
                 out_by_set_type[(set_name, mt)] = f
@@ -925,7 +1552,7 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
                 in_to_outs.setdefault(src, []).append(out_type)
 
         def _matched_output(orig, set_name):
-            it = ptk.MapFactory.resolve_map_type(orig, key=True)
+            it = orig_types.get(orig) or ptk.MapFactory.resolve_map_type(orig, key=True)
             for ot in [it] + in_to_outs.get(it, []):
                 hit = out_by_set_type.get((set_name, ot))
                 if (
@@ -958,7 +1585,11 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
                     out_files.append(new)
                     updated += 1
                     if report:
-                        mt = ptk.MapFactory.resolve_map_type(new, key=True) or "?"
+                        mt = (
+                            out_types.get(new)
+                            or ptk.MapFactory.resolve_map_type(new, key=True)
+                            or "?"
+                        )
                         mat_log.append(f"{mt:<24} {os.path.basename(new)}")
                 else:
                     skipped += 1
@@ -1106,11 +1737,12 @@ class MatUtils(_MatUtilsInternal):
 
     @staticmethod
     def reload_textures():
-        """Reload every image datablock from disk (mirror of ``mtk.MatUtils.reload_textures``)."""
+        """Reload every file image -- a TILED set too -- from disk (mirror of
+        ``mtk.MatUtils.reload_textures``)."""
         import bpy
 
         for img in bpy.data.images:
-            if img.source == "FILE":
+            if img.source in _MatUtilsInternal._FILE_SOURCES:
                 try:
                     img.reload()
                 except RuntimeError:
@@ -1542,14 +2174,19 @@ class MatUtils(_MatUtilsInternal):
 
     @staticmethod
     def get_image_records():
-        """Every FILE-backed image datablock as a record for the Texture Path Editor:
+        """Every file-backed image datablock as a record for the Texture Path Editor:
         ``{name, image, filepath, abspath, exists, users}``. ``image`` is the live datablock
-        (repath/select use it); the rest are display/decision fields."""
+        (repath/select use it); the rest are display/decision fields.
+
+        A TILED (UDIM) set is one record -- its path the ``<UDIM>`` pattern, as mayatk lists
+        a UDIM file node -- and ``exists`` is judged over its tiles (``ptk.TiledPath.tiles``):
+        a pattern names no literal file, so the plain check read every set as missing.
+        """
         import bpy
 
         records = []
         for img in bpy.data.images:
-            if img.source != "FILE":
+            if img.source not in _MatUtilsInternal._FILE_SOURCES:
                 continue
             ap = _MatUtilsInternal._abspath(img)
             records.append(
@@ -1558,7 +2195,7 @@ class MatUtils(_MatUtilsInternal):
                     "image": img,
                     "filepath": getattr(img, "filepath", "") or "",
                     "abspath": ap,
-                    "exists": bool(ap and os.path.exists(ap)),
+                    "exists": bool(ap and ptk.TiledPath.tiles(ap)),
                     "users": img.users,
                 }
             )
@@ -1704,7 +2341,8 @@ class MatUtils(_MatUtilsInternal):
 
         ``images=None`` scans every FILE image in the .blend (the default); pass an explicit list to
         restrict the scan (the Texture Path Editor's selection-aware scope — mirrors mayatk's
-        ``file_nodes`` parameter on its Resolve Missing Textures command).
+        ``file_nodes`` parameter on its Resolve Missing Textures command). A TILED set (or any
+        token path) is never rebound: this binds ONE file, which would flatten the set.
 
         Returns the count resolved.
         """
@@ -1754,6 +2392,11 @@ class MatUtils(_MatUtilsInternal):
         resolved = 0
         for img in _MatUtilsInternal._resolve_images(images):
             ap = _MatUtilsInternal._abspath(img)
+            # A tile set is never rebound here, present or not: this binds ONE file,
+            # which would flatten the set to whichever lone tile matched its stem
+            # (mayatk skips token paths for the same reason).
+            if img.source == "TILED" or ptk.TiledPath.has_token(ap):
+                continue
             if ap and os.path.exists(ap):
                 continue
             # ``bpy.path.basename`` strips Blender's ``//`` relative prefix, which
@@ -1781,18 +2424,19 @@ class MatUtils(_MatUtilsInternal):
 
     @staticmethod
     def normalize_texture_paths(mode="relative", project_dir=None, images=None):
-        """Normalize FILE image paths — mirror of the Texture Path Editor's 'Normalize Paths'.
+        """Normalize file image paths — mirror of the Texture Path Editor's 'Normalize Paths'.
 
         ``mode``:
           * ``"relative"`` / ``"absolute"`` — rewrite each path relative to / absolute from the saved
             .blend (relative needs a saved file; no-op otherwise).
           * ``"copy"`` / ``"move"`` — bring *external* textures (outside ``project_dir``, default
             the workspace's texture folder — its ``sourceImages`` rule when marked, else
-            ``<blenddir>/textures``) into that folder and repath to them.
+            ``<blenddir>/textures``) into that folder and repath to them. A TILED set travels
+            whole, every tile (:meth:`_relocate`).
 
-        ``images=None`` targets every FILE image in the .blend (the default); pass an explicit list to
-        restrict the scope (the Texture Path Editor's selection-aware scope — mirrors mayatk's
-        ``file_nodes`` parameter on its Normalize Paths command).
+        ``images=None`` targets every FILE image and TILED set in the .blend (the default); pass an
+        explicit list to restrict the scope (the Texture Path Editor's selection-aware scope —
+        mirrors mayatk's ``file_nodes`` parameter on its Normalize Paths command).
 
         Returns the number of images changed.
         """
@@ -1819,7 +2463,7 @@ class MatUtils(_MatUtilsInternal):
             moved_this_run = {}
             for img in images:
                 ap = _MatUtilsInternal._abspath(img)
-                if not (ap and os.path.exists(ap)):
+                if not (ap and ptk.TiledPath.tiles(ap)):  # a set: any tile on disk
                     moved_rel = moved_this_run.get(os.path.normcase(ap)) if ap else None
                     if moved_rel is not None:
                         img.filepath = moved_rel
@@ -1832,7 +2476,10 @@ class MatUtils(_MatUtilsInternal):
                 if _MatUtilsInternal._is_within(ap, project_dir):
                     continue
                 dst = os.path.join(project_dir, os.path.basename(ap))
-                if _MatUtilsInternal._safe_relocate(ap, dst, mode) in ("skip", "error"):
+                if _MatUtilsInternal._relocate(ap, project_dir, mode) in (
+                    "skip",
+                    "error",
+                ):
                     continue  # different-size collision — don't clobber / wrong-rebind
                 img.filepath = MatUtils.to_project_relative(dst, blenddir)
                 if mode == "move":
@@ -1865,9 +2512,11 @@ class MatUtils(_MatUtilsInternal):
 
     @staticmethod
     def get_image_material_map():
-        """``{image-name: [material names]}`` for every FILE image referenced by a material's shader
-        graph — backs the Texture Path Editor's Material column + its selection helpers. Qt-free /
-        bpy-only, so it is unit-testable headless."""
+        """``{image-name: [material names]}`` for every image a material's shader graph reads --
+        node groups included (:meth:`_iter_image_nodes`): walking the top-level nodes only, a
+        texture inside a group read as unused in the Texture Path Editor's Material column, and
+        Keep Names In Sync found no material for it. Backs that column and its selection
+        helpers. Qt-free / bpy-only, so it is unit-testable headless."""
         import bpy
 
         mapping = {}
@@ -1875,9 +2524,8 @@ class MatUtils(_MatUtilsInternal):
             nt = getattr(mat, "node_tree", None)
             if not nt:
                 continue
-            for node in nt.nodes:
-                if node.type == "TEX_IMAGE" and node.image:
-                    mapping.setdefault(node.image.name, set()).add(mat.name)
+            for _chain, node in _MatUtilsInternal._iter_image_nodes(nt):
+                mapping.setdefault(node.image.name, set()).add(mat.name)
         return {k: sorted(v) for k, v in mapping.items()}
 
     @staticmethod
@@ -1950,18 +2598,38 @@ class MatUtils(_MatUtilsInternal):
         return changed
 
     @staticmethod
-    def set_texture_directory(images=None, target_dir=None, mode="rewrite"):
+    def set_texture_directory(
+        images: Any = None,
+        target_dir: Optional[str] = None,
+        mode: str = "rewrite",
+        allow_missing: bool = False,
+    ) -> int:
         """Repath each image so its file lives directly under ``target_dir`` — mirror of the Texture
         Path Editor's *Set Directory*.
 
         ``mode``: ``"rewrite"`` (path only), ``"copy"`` / ``"move"`` (relocate the file on disk first,
-        then repath). ``images=None`` targets every FILE image. A copy/move whose destination already
-        holds a different-size file is skipped (no overwrite, no wrong-file rebind). Returns the number
-        repathed.
+        then repath; a TILED set travels whole, every tile -- :meth:`_relocate`). ``images=None``
+        targets every FILE image and TILED set. A copy/move whose destination already holds a
+        different file is skipped (no overwrite, no wrong-file rebind).
+
+        An image is repathed only when its file is ACTUALLY at the target afterwards, tiles
+        resolved (``ptk.TiledPath.tiles``): the path pass used to rewrite every image whatever the
+        folder held, which only spelled a breakage differently -- a path-only pass at the wrong
+        folder filled the table with red rows. Those left on their path are logged.
+
+        Parameters:
+            images: Image datablocks or names (``None``: all, as above).
+            target_dir: The folder the files live (or will live) in.
+            mode: ``"rewrite"`` / ``"copy"`` / ``"move"``.
+            allow_missing: Repath even where the target holds no such file -- mayatk's Allow
+                Missing Targets: a batch aimed at a folder you are about to fill.
+
+        Returns:
+            The number of images repathed.
         """
         if not target_dir:
             return 0
-        count = 0
+        count, absent = 0, []
         for img in _MatUtilsInternal._resolve_images(images):
             ap = _MatUtilsInternal._abspath(img)
             old = getattr(img, "filepath", "") or ""
@@ -1971,15 +2639,30 @@ class MatUtils(_MatUtilsInternal):
             new = MatUtils.to_project_relative(dst)
             if new == old:
                 continue  # already there — nothing to relocate or rewrite (mirrors mayatk)
-            if mode in ("copy", "move") and ap and os.path.exists(ap):
-                if _MatUtilsInternal._safe_relocate(ap, dst, mode) in ("skip", "error"):
+            if mode in ("copy", "move") and ap and ptk.TiledPath.tiles(ap):
+                if _MatUtilsInternal._relocate(ap, target_dir, mode) in (
+                    "skip",
+                    "error",
+                ):
                     continue  # leave the image on its current (valid) path
+            # The target is what the image will READ: it has to hold the file (a texture
+            # already sitting there needs no copy and is still rebound).
+            if not (allow_missing or ptk.TiledPath.tiles(dst)):
+                absent.append(img.name)
+                continue
             img.filepath = new
             try:
                 img.reload()
             except RuntimeError:
                 pass
             count += 1
+        if absent:
+            logging.getLogger(__name__).warning(
+                f"Set Directory: {len(absent)} image(s) left on their current path -- "
+                f"{target_dir} holds no texture of that name ({', '.join(absent[:5])}"
+                f"{', ...' if len(absent) > 5 else ''}). Copy / move brings the files along; "
+                "allow_missing points them there anyway."
+            )
         return count
 
     @staticmethod
@@ -1999,6 +2682,11 @@ class MatUtils(_MatUtilsInternal):
         only for what does not resolve, and may be omitted entirely when nothing does. A
         resolving path outranks a walk hit of the same basename — it is the file the scene is
         rendering with.
+
+        A TILED set (its path a ``<UDIM>`` pattern) resolves when its tiles are on disk, and the
+        walk finds a missing one by the tiles its pattern spells, taken whole from ONE folder --
+        the one holding its newest tile -- so two copies' tiles are never mixed. Its record's
+        ``source`` / ``destination`` are patterns; the commit relocates every tile.
 
         Returns:
             list[dict]: one record per texture that would be relocated —
@@ -2027,7 +2715,7 @@ class MatUtils(_MatUtilsInternal):
                 hit = ""
                 for img in imgs:
                     path = _MatUtilsInternal._abspath(img)
-                    if path and os.path.isfile(path):
+                    if path and ptk.TiledPath.tiles(path):  # a set: its tiles
                         hit = path
                         break
                 if hit:
@@ -2036,25 +2724,45 @@ class MatUtils(_MatUtilsInternal):
                     unresolved[base] = imgs
 
         if unresolved and search_dir and os.path.isdir(search_dir):
+
+            def mtime_of(path):
+                try:
+                    return os.path.getmtime(path)
+                except OSError:
+                    return 0.0
+
             # basename -> (mtime, source path). NEWEST wins, matching mayatk's dedup: a recursive
             # walk routinely turns up versioned / archived / cloud-conflict copies of the same
             # filename, and taking whichever the walk reached first binds to an arbitrary stale one.
             found = {}
+            # A set's pattern -> the tiles it spells (each token's own glob), and per set
+            # {folder: its newest tile there}: the set is taken whole from one folder.
+            patterns = {
+                key: ptk.TiledPath.wildcard(key, None)
+                for key in unresolved
+                if ptk.TiledPath.has_token(key)
+            }
+            sets = {}
             for root, _dirs, files in ptk.FileDependencies.walk(search_dir):
                 for f in files:
                     key = f.lower()
-                    if key not in unresolved:
-                        continue
                     path = os.path.join(root, f)
-                    try:
-                        mtime = os.path.getmtime(path)
-                    except OSError:
-                        mtime = 0.0
-                    current = found.get(key)
-                    if current is None or mtime > current[0]:
-                        found[key] = (mtime, path)
+                    if key in unresolved:
+                        mtime = mtime_of(path)
+                        current = found.get(key)
+                        if current is None or mtime > current[0]:
+                            found[key] = (mtime, path)
+                        continue
+                    for set_key, pattern in patterns.items():
+                        if fnmatch.fnmatchcase(key, pattern):
+                            folders = sets.setdefault(set_key, {})
+                            folders[root] = max(folders.get(root, 0.0), mtime_of(path))
             for key, (_mtime, path) in found.items():
                 sources[key] = path
+            for key, folders in sets.items():
+                folder = max(sorted(folders), key=folders.get)
+                spelled = bpy.path.basename(unresolved[key][0].filepath)
+                sources[key] = os.path.join(folder, spelled)
 
         dest_key = os.path.normcase(os.path.abspath(dest_dir))
         return [
@@ -2076,8 +2784,9 @@ class MatUtils(_MatUtilsInternal):
         copy/move), then repath — mirror of the Texture Path Editor's *Find & Copy Textures*.
 
         Which file comes from where is decided by :func:`plan_find_and_copy_textures`; this
-        commits that plan. A match whose destination already holds a different-size file is
-        skipped (no overwrite, no wrong-file rebind). Returns the number of images repathed."""
+        commits that plan, a TILED set's every tile (:meth:`_relocate`). A match whose
+        destination already holds a different file is skipped (no overwrite, no wrong-file
+        rebind). Returns the number of images repathed."""
         plan = MatUtils.plan_find_and_copy_textures(
             images, search_dir, dest_dir, use_valid_paths
         )
@@ -2087,7 +2796,7 @@ class MatUtils(_MatUtilsInternal):
         count = 0
         for record in plan:
             dst = record["destination"]
-            if _MatUtilsInternal._safe_relocate(record["source"], dst, mode) in (
+            if _MatUtilsInternal._relocate(record["source"], dest_dir, mode) in (
                 "skip",
                 "error",
             ):
@@ -2100,6 +2809,127 @@ class MatUtils(_MatUtilsInternal):
                     pass
                 count += 1
         return count
+
+    @classmethod
+    def rename_texture_file(
+        cls, path: str, new_name: str, images: Any = None
+    ) -> Dict[str, Any]:
+        """Rename a texture file on disk and repoint every image reading it.
+
+        Mirror of mayatk's ``MatUtils.rename_texture_file`` (whose file nodes
+        are Blender's image datablocks). *path* is a stored (``//``-relative)
+        or absolute texture path; a tile / frame token renames every tile
+        (``ptk.TiledPath.rename`` -- *new_name* keeps the tokens, each tile
+        keeps its number). Nothing is renamed over another file, and a rename
+        failing part-way is put back. The images keep their path's spelling --
+        ``//``-relative stays relative -- with the new name, and are not
+        reloaded: the bytes are the same, and a reload would drop unsaved
+        paint. A file a LINKED image reads is refused: its path is its
+        library's, and it would read nothing.
+
+        One undo step, and Blender's undo / redo move the files back and
+        forth with the paths that name them (``_FileRenameUndo``).
+
+        Parameters:
+            path: The texture (stored spelling or absolute).
+            new_name: The new file NAME, no folder.
+            images: The images to repoint (datablocks or names). ``None``
+                (default): every image in the file that reads it -- one left
+                on the old name would read nothing.
+
+        Returns:
+            ``{"renamed": [(old, new)], "images": [repointed image name]}``;
+            empty lists when the name is unchanged.
+
+        Raises:
+            ValueError: See ``ptk.TiledPath.rename`` (bad name, token mismatch,
+                nothing on disk), or a linked image reads the file.
+            FileExistsError: A target is another existing file.
+        """
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        with CoreUtils.undo_chunk("Rename Texture File") as step:
+            try:
+                result = cls._rename_texture_file(path, new_name, images)
+            except Exception:
+                step.cancel()  # refused before anything changed
+                raise
+            if not result["renamed"]:
+                step.cancel()
+            return result
+
+    @classmethod
+    def sync_material_names(
+        cls,
+        material: Any,
+        base: str,
+        material_affix: Tuple[str, str] = ("", ""),
+        image_affix: Tuple[str, str] = ("", ""),
+        images: Any = None,
+        dry_run: bool = False,
+        lightmaps: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Name a material, its texture set, lightmap and images for ONE base.
+
+        Mirror of mayatk's ``MatUtils.sync_material_names`` -- its file nodes
+        are Blender's image datablocks (``file_node_affix`` / ``file_nodes`` ->
+        *image_affix* / *images*, the plan's ``"file_nodes"`` -> ``"images"``).
+        One name drives the set: the material becomes *base* with
+        *material_affix*. The texture set is the material's dominant one
+        (``ptk.MapFactory.dominant_texture_set`` -- what a bake names its
+        lightmap after); each of its textures keeps everything after the base
+        (map type, tile token, extension), so ``rock_Base_Color.<UDIM>.png``
+        follows ``stone`` as ``stone_Base_Color.<UDIM>.png``, and every image
+        reading one is repointed. Each image is named after its texture: its
+        file name, as Blender names a loaded image, while it still carries its
+        old file's name and no *image_affix* is asked for -- else the file's
+        stem with *image_affix*. The set's lightmap (``rock_Lightmap.exr``)
+        follows too, its bake markers re-stamped. Left alone, and reported in
+        ``skipped``: another set's map (an environment cube), a file outside
+        the scene's project, which another project may read -- its image named
+        after the file it still reads -- and anything a linked library brings.
+
+        Planned whole first: a rename that would collide with another file, or
+        a linked material, refuses the lot before anything changes; a rename
+        that fails anyway (a file held open) puts back the ones done before it.
+        Textures go through :meth:`rename_texture_file`, so every image reading
+        them follows. One undo chunk, the files following undo / redo.
+
+        Parameters:
+            material: The material (datablock or name; ``None``: only *images*).
+            base: The shared base name.
+            material_affix, image_affix: ``(prefix, suffix)`` each.
+            images: The images to sync. ``None``: those the material's node
+                tree reads (node groups included).
+            dry_run: Return the plan; change nothing.
+            lightmaps: The lightmap records the set's lightmap follows through
+                -- ``lightmap_dependencies()`` and ``rename_lightmap(old, new)``,
+                as ``LightmapRecords`` has them (the Texture Path Editor passes
+                the ones it holds). ``None``: the lightmap is not followed.
+                Passed in, not imported: mat_utils sits below light_utils.
+
+        Returns:
+            ``{"material": (old, new) | None, "companions": [], "textures":
+            [(old path, new name)], "images": [(old, new)], "lightmaps":
+            [(path, old map, new map)], "skipped": [reason]}``. ``companions``
+            stays empty: a Blender material has no shading group or renderer
+            twin named after it -- kept so the plan reads like mayatk's.
+
+        Raises:
+            ValueError: *base* is unusable, a rename would collide, or the
+                material is linked -- or a file rename failed part-way (a file
+                held open by another app), after the renames done before it
+                were put back; the message says so.
+        """
+        return cls._sync_material_names(
+            material=material,
+            images=images,
+            base=base,
+            material_affix=tuple(material_affix),
+            image_affix=tuple(image_affix),
+            dry_run=dry_run,
+            lightmaps=lightmaps,
+        )
 
     @staticmethod
     def format_texture_paths_html(records=None):
@@ -2168,6 +2998,17 @@ class MatUtils(_MatUtilsInternal):
         if not (material and getattr(material, "use_nodes", False) and nt):
             return {"nodes": [], "links": []}
 
+        # The graph's images are one set, read together (a set named for a lobe,
+        # ``Hero_Coat``, records its roughness as Roughness) -- the reading
+        # :func:`restore_material` gives the textures it rebinds by type.
+        image_types = ptk.MapFactory.resolve_map_types(
+            [
+                n.image.name
+                for n in nt.nodes
+                if n.bl_idname == "ShaderNodeTexImage" and getattr(n, "image", None)
+            ]
+        )
+
         nodes = []
         for n in nt.nodes:
             entry = {
@@ -2187,9 +3028,7 @@ class MatUtils(_MatUtilsInternal):
                 if hasattr(n, prop):
                     entry["props"][prop] = getattr(n, prop)
             if n.bl_idname == "ShaderNodeTexImage" and getattr(n, "image", None):
-                entry["map_type"] = ptk.MapFactory.resolve_map_type(
-                    n.image.name, key=True
-                )
+                entry["map_type"] = image_types[n.image.name]
                 entry["colorspace"] = n.image.colorspace_settings.name
             nodes.append(entry)
 
@@ -2247,11 +3086,14 @@ class MatUtils(_MatUtilsInternal):
         nt.nodes.clear()  # drop the default Principled + Output; the snapshot is authoritative
 
         by_type = {}  # map type -> texture path (first wins) for image rebinding
-        for tex in textures or []:
-            if tex and os.path.isfile(tex):
-                mt = ptk.MapFactory.resolve_map_type(tex, key=True)
-                if mt:
-                    by_type.setdefault(mt, tex)
+        files = [tex for tex in textures or [] if tex and os.path.isfile(tex)]
+        # One set, read together: a set named for a lobe (``Hero_Coat``) rebinds
+        # its roughness to the template's Roughness image.
+        file_types = ptk.MapFactory.resolve_map_types(files)
+        for tex in files:
+            mt = file_types[tex]
+            if mt:
+                by_type.setdefault(mt, tex)
 
         name_map = {}  # serialized node name -> created node (Blender may rename on collision)
         for nd in nodes_data:
@@ -2338,10 +3180,14 @@ class MatUtils(_MatUtilsInternal):
                 outcomes must read this, not ``by_type``.
         """
         by_type, unknown = {}, []
-        for tex in ptk.make_iterable(textures):
-            if not (tex and os.path.isfile(tex)):
-                continue
-            map_type = ptk.MapFactory.resolve_map_type(tex, key=True)
+        files = [
+            tex for tex in ptk.make_iterable(textures) if tex and os.path.isfile(tex)
+        ]
+        # The set read as ONE batch: a set named for a lobe (``Hero_Coat``) wires its
+        # ``Hero_Coat_Roughness`` as Roughness, an OpenPBR set its coat roughness as a lobe.
+        file_types = ptk.MapFactory.resolve_map_types(files)
+        for tex in files:
+            map_type = file_types[tex]
             if map_type:
                 by_type.setdefault(map_type, tex)  # first file per map type wins
             else:
@@ -2391,8 +3237,9 @@ class MatUtils(_MatUtilsInternal):
         ``GameShader.create_network`` (the auto-wire-a-shader-from-textures tool, distinct from the
         Shader Templates *parameter* presets).
 
-        Each texture is classified by map type via the SHARED ``ptk.MapFactory.resolve_map_type`` (the
-        same SSoT the Material Updater uses), loaded with the correct color space (sRGB for color maps,
+        Each texture is classified by map type via the SHARED ``ptk.MapFactory.resolve_map_types`` (the
+        same SSoT the Material Updater uses; the set read as one batch, so a set named for a lobe keeps
+        its base maps), loaded with the correct color space (sRGB for color maps,
         Non-Color for data), and wired into the right Principled input with the needed conversion nodes:
         Normal Map (with a green-flip for DirectX normals), glossiness/smoothness → invert → roughness,
         Ambient Occlusion multiplied into Base Color, Bump/Height → Bump, Displacement on the material
@@ -2584,8 +3431,16 @@ class MatUtils(_MatUtilsInternal):
             _enable_alpha_blend()
 
         # --- Direct single-channel maps ------------------------------------------
+        # An input an OpenPBR lobe map claims (Specular_Level's Specular IOR Level) is the
+        # lobe's: its section below would relink the input, and the image loaded here would
+        # be reported wired while driving nothing.
+        lobe_claimed = {
+            _PRINCIPLED_LOBES[channel]
+            for map_type, channel in ptk.MapRegistry.LOBE_TYPE_CHANNELS.items()
+            if map_type in by_type and channel in _PRINCIPLED_LOBES
+        }
         for map_type, (input_name, is_color) in _PBR_DIRECT.items():
-            if map_type in by_type:
+            if map_type in by_type and input_name not in lobe_claimed:
                 _set_input(
                     input_name,
                     _img(by_type[map_type], non_color=not is_color).outputs["Color"],
@@ -2614,10 +3469,31 @@ class MatUtils(_MatUtilsInternal):
         # drift — which it had. Explicitly tagged maps outrank the ambiguous
         # generic one, matching the green-flip test below; taking "Normal" first
         # handed an unknown-convention map to the combo when a labeled one existed.
+        def _tangent_normal(path, is_directx, y):
+            """A Normal Map node over *path* (green-flipped first for DirectX) -- the one
+            wiring the base normal and the coat normal share."""
+            normal_color = _img(path, non_color=True).outputs["Color"]
+            if is_directx:
+                sep = nt.nodes.new("ShaderNodeSeparateColor")
+                sep.location = (-650, y)
+                nt.links.new(normal_color, sep.inputs["Color"])
+                flip = nt.nodes.new("ShaderNodeInvert")
+                flip.location = (-500, y - 50)
+                nt.links.new(sep.outputs["Green"], flip.inputs["Color"])
+                comb = nt.nodes.new("ShaderNodeCombineColor")
+                comb.location = (-350, y)
+                nt.links.new(sep.outputs["Red"], comb.inputs["Red"])
+                nt.links.new(flip.outputs["Color"], comb.inputs["Green"])
+                nt.links.new(sep.outputs["Blue"], comb.inputs["Blue"])
+                normal_color = comb.outputs["Color"]
+            nmap = nt.nodes.new("ShaderNodeNormalMap")
+            nmap.location = (-200, y)
+            nt.links.new(normal_color, nmap.inputs["Color"])
+            return nmap.outputs["Normal"]
+
         normal_key = ptk.MapRegistry.select_normal_type(by_type)
         has_normal = normal_key is not None
         if has_normal:
-            normal_color = _img(by_type[normal_key], non_color=True).outputs["Color"]
             # An explicit tag in the FILENAME outranks the caller's setting: a map classified as
             # Normal_OpenGL is already OpenGL and must never be flipped just because the panel's
             # combo says DirectX (that would invert a correct map). The combo only decides the
@@ -2625,23 +3501,7 @@ class MatUtils(_MatUtilsInternal):
             is_directx = normal_key == "Normal_DirectX" or (
                 normal_key == "Normal" and normal_direction.lower() == "directx"
             )
-            if is_directx:
-                sep = nt.nodes.new("ShaderNodeSeparateColor")
-                sep.location = (-650, -100)
-                nt.links.new(normal_color, sep.inputs["Color"])
-                flip = nt.nodes.new("ShaderNodeInvert")
-                flip.location = (-500, -150)
-                nt.links.new(sep.outputs["Green"], flip.inputs["Color"])
-                comb = nt.nodes.new("ShaderNodeCombineColor")
-                comb.location = (-350, -100)
-                nt.links.new(sep.outputs["Red"], comb.inputs["Red"])
-                nt.links.new(flip.outputs["Color"], comb.inputs["Green"])
-                nt.links.new(sep.outputs["Blue"], comb.inputs["Blue"])
-                normal_color = comb.outputs["Color"]
-            nmap = nt.nodes.new("ShaderNodeNormalMap")
-            nmap.location = (-200, -100)
-            nt.links.new(normal_color, nmap.inputs["Color"])
-            _set_input("Normal", nmap.outputs["Normal"])
+            _set_input("Normal", _tangent_normal(by_type[normal_key], is_directx, -100))
 
         # --- Bump / Height → Bump (only when there's no normal map to own Normal) -
         bump_key = (
@@ -2738,6 +3598,84 @@ class MatUtils(_MatUtilsInternal):
                 _set_input("Roughness", mrao.outputs["Green"])
             if "Ambient_Occlusion" not in by_type:
                 _multiply_into_base(mrao.outputs["Blue"])
+
+        def _lobe_input(input_name, *map_types):
+            """The Principled input, or None when this Blender lacks it (Thin Film
+            before 4.2, Diffuse Roughness before 4.3) -- checked before any image
+            loads, and *map_types* then report as having no input: read as merely
+            unwired, the report blamed another map for an input that does not exist."""
+            sock = bsdf.inputs.get(input_name)
+            if sock is None:
+                for map_type in map_types:
+                    if map_type in by_type:
+                        plan.setdefault("unhandled", {})[map_type] = by_type[map_type]
+            return sock
+
+        # --- OpenPBR lobes: coat, sheen, transmission, subsurface, specular, ... ---
+        # Table-driven from the shared vocabulary (see _PRINCIPLED_LOBES).
+        lobes_wired = set()
+        for map_type, channel in ptk.MapRegistry.LOBE_TYPE_CHANNELS.items():
+            input_name = _PRINCIPLED_LOBES.get(channel)
+            if map_type not in by_type or not input_name:
+                continue
+            if _lobe_input(input_name, map_type) is None:
+                continue
+            if channel == "coatNormal":
+                # No convention tag on a coat normal: the panel's setting decides, as it
+                # does for the untagged "Normal".
+                socket = _tangent_normal(
+                    by_type[map_type], normal_direction.lower() == "directx", -850
+                )
+            else:
+                entry = ptk.MapRegistry().get(map_type)
+                srgb = entry is not None and entry.color_space == "sRGB"
+                socket = _img(by_type[map_type], non_color=not srgb).outputs["Color"]
+            _set_input(input_name, socket)
+            lobes_wired.add(channel)
+        # A lobe parameter on a lobe of weight 0 renders nothing (ptk.MapRegistry.LOBE_GATES):
+        # open the weight unless a weight map drives it or it was already set.
+        for channel in lobes_wired:
+            gate = bsdf.inputs.get(
+                _PRINCIPLED_LOBES.get(ptk.MapRegistry.LOBE_GATES.get(channel), "")
+            )
+            if gate is not None and not gate.is_linked and not gate.default_value:
+                gate.default_value = 1.0
+
+        # --- Anisotropy angle (turns; OpenPBR orients by tangent, Principled by angle) --
+        if "Anisotropy_Angle" in by_type and _lobe_input(
+            "Anisotropic Rotation", "Anisotropy_Angle"
+        ):
+            _set_input(
+                "Anisotropic Rotation",
+                _img(by_type["Anisotropy_Angle"], non_color=True).outputs["Color"],
+            )
+
+        # --- Thin film: OpenPBR thickness (micrometres) x weight -> Principled nanometres ---
+        # Principled has no thin-film weight (thickness 0 is off), so the weight scales the
+        # thickness; a weight map alone films at OpenPBR's default 0.5 um.
+        film = {"Thin_Film", "Thin_Film_Thickness"} & by_type.keys()
+        if film and _lobe_input("Thin Film Thickness", *film) is not None:
+            to_nm = nt.nodes.new("ShaderNodeMath")
+            to_nm.operation = "MULTIPLY"
+            to_nm.label = "Thin Film um -> nm"
+            to_nm.location = (-500, -1000)
+            to_nm.inputs[1].default_value = 1000.0
+            if "Thin_Film_Thickness" in film:
+                thickness = _img(by_type["Thin_Film_Thickness"], non_color=True)
+                nt.links.new(thickness.outputs["Color"], to_nm.inputs[0])
+            else:
+                to_nm.inputs[0].default_value = 0.5
+            socket = to_nm.outputs["Value"]
+            if "Thin_Film" in film:
+                weigh = nt.nodes.new("ShaderNodeMath")
+                weigh.operation = "MULTIPLY"
+                weigh.label = "Thin Film Weight"
+                weigh.location = (-350, -1000)
+                nt.links.new(socket, weigh.inputs[0])
+                weight = _img(by_type["Thin_Film"], non_color=True)
+                nt.links.new(weight.outputs["Color"], weigh.inputs[1])
+                socket = weigh.outputs["Value"]
+            _set_input("Thin Film Thickness", socket)
 
         # --- Displacement → material output --------------------------------------
         if "Displacement" in by_type and output is not None:

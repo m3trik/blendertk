@@ -335,11 +335,17 @@ A03.),Fuselage fades out,fuselage_geo,
     bpy.context.view_layer.layer_collection.children["VlgExcluded"].exclude = True
     bpy.context.view_layer.update()
 
+    from blendertk import BlenderShotStore
+
     footer_msgs = []
-    stub = SimpleNamespace(_set_footer=lambda text, **kw: footer_msgs.append(text))
+    stub = SimpleNamespace(
+        _active_store=BlenderShotStore,
+        _set_footer=lambda text, **kw: footer_msgs.append(text),
+    )
+    stub._reveal_targets = ShotManifestController._reveal_targets
     reveal_err = ""
     try:
-        ShotManifestController._show_in_outliner(stub, "VlgOutside")
+        ShotManifestController._show_in_outliner(stub, ["VlgOutside"])
         reveal_ok = True
     except RuntimeError as e:
         reveal_ok, reveal_err = False, repr(e)
@@ -353,12 +359,32 @@ A03.),Fuselage fades out,fuselage_geo,
         any("view layer" in m for m in footer_msgs),
         f"{footer_msgs}",
     )
-    ShotManifestController._show_in_outliner(stub, "aileron_geo")
+    ShotManifestController._show_in_outliner(stub, ["aileron_geo"])
     check(
         "_show_in_outliner: in-layer object selected + active",
         bpy.data.objects["aileron_geo"].select_get()
         and bpy.context.view_layer.objects.active is bpy.data.objects["aileron_geo"],
     )
+    # A name two objects answer to selects both (the duplicates to fix),
+    # with the other names, and says so.
+    for dup in ("AC:twin_geo", "BC:twin_geo"):
+        bpy.context.scene.collection.objects.link(bpy.data.objects.new(dup, None))
+    bpy.context.view_layer.update()  # a new link joins the layer's objects here
+    footer_msgs.clear()
+    ShotManifestController._show_in_outliner(stub, ["twin_geo", "wing_geo"])
+    check(
+        "_show_in_outliner: a shared name selects every object it answers to",
+        sorted(o.name for o in bpy.data.objects if o.select_get())
+        == ["AC:twin_geo", "BC:twin_geo", "wing_geo"],
+        f"{[o.name for o in bpy.data.objects if o.select_get()]}",
+    )
+    check(
+        "_show_in_outliner: a shared name is reported",
+        any("'twin_geo' (2)" in m for m in footer_msgs),
+        f"{footer_msgs}",
+    )
+    for dup in ("AC:twin_geo", "BC:twin_geo"):
+        bpy.data.objects.remove(bpy.data.objects[dup], do_unlink=True)
 
     # ---- scene walks: flat keys are boundary markers, not animation ------
     # (mirror of mayatk: only transform channels whose values VARY in range

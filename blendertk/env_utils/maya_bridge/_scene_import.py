@@ -46,6 +46,7 @@ from blendertk.env_utils.maya_bridge._maya_bridge import (
     _TEMPLATE_DIR,
     MayaBridge,
 )
+from blendertk.node_utils._node_utils import NodeUtils
 
 _IMPORT_TEMPLATE = _TEMPLATE_DIR / "_import_scene.py"
 _IMPORT_TEMPLATE_USD = _TEMPLATE_DIR / "_import_scene_usd.py"
@@ -76,6 +77,13 @@ SUPPORTED_EXTENSIONS = (".ma", ".mb")
 # so there is no conversion (and no Maya install/license) involved at all.
 USD_EXTENSIONS = ptk.USD_EXTENSIONS
 
+# glTF containers Blender imports natively -- the mirror of mayatk's BlenderSceneImport,
+# which has to convert them (Maya ships no glTF importer). No Maya, cache or manifest
+# involved; a file whose textures REQUIRE KHR_texture_basisu imports from a KTX2-decoded
+# copy, since Blender's importer refuses it whole.
+# Spelled out, not read off ``ptk.MeshConvert``: that loads the converter on import.
+GLTF_EXTENSIONS = (".glb", ".gltf")
+
 # Sources that ARE the bake's own input: an .fbx or a USD layer skips the headless-Maya
 # hop (and the Maya license checkout) entirely -- the bake imports it directly.
 _DIRECT_BAKE_EXTENSIONS = (".fbx", *USD_EXTENSIONS)
@@ -94,17 +102,12 @@ BAKE_SOURCE_SUFFIX = ".source.json"
 # and skips any startup toolkit the user's Blender autoloads), then our rendered script.
 _BAKE_LAUNCH_ARGS = ("--background", "--factory-startup", "--python")
 
-# Display size stamped on an imported Empty that was a Maya GROUP (shapeless
-# transform). A Maya group draws nothing in the viewport; Blender has no "no
-# display" Empty type, so the group is shrunk to the property's hard minimum
-# (``Object.empty_display_size`` clamps at 0.0001) -- sub-pixel at any working
-# zoom, yet still selectable (outliner / pick-walk), transformable, and showing
-# its origin dot when selected, exactly like a Maya group's pivot. Locators keep
-# the importer's size: Maya draws those. Deliberately NOT ``hide_viewport`` /
-# ``hide_set``: both make the Empty untransformable and would fight the animated
-# ``hide_viewport`` keys the visibility replay stamps. Kept in step by hand with
-# the dependency-free copy in mayatk's ``blender_bridge/templates/import.py``.
-MAYA_GROUP_EMPTY_DISPLAY_SIZE = 0.0001
+# Display size stamped on an imported Empty that was a Maya GROUP -- the one look
+# every Empty standing for a Maya group takes, so it lives with the node-type stamp
+# on ``NodeUtils`` (see ``NodeUtils.MAYA_GROUP_DISPLAY_SIZE`` for why size, not
+# visibility). mayatk's ``blender_bridge/templates/import.py`` hands its payload to
+# ``import_payload`` here, so there is no second copy to keep in step.
+MAYA_GROUP_EMPTY_DISPLAY_SIZE = NodeUtils.MAYA_GROUP_DISPLAY_SIZE
 
 # The FBX importer options every Maya payload imports with (see
 # ``MayaSceneImport.import_payload``): custom properties carry Maya's extra attributes,
@@ -503,7 +506,10 @@ class MayaSceneImport(ptk.LoggingMixin):
         manifest -- the same consumer the ``.blend`` bake and mayatk's send run.
 
         Parameters:
-            src_path: A ``.ma`` / ``.mb`` file — or an ``.fbx`` or USD file
+            src_path: A ``.ma`` / ``.mb`` file, a glTF container
+                (``.glb``/``.gltf``) -- imported natively with Blender's own
+                importer (KTX2-decoded first when its textures require it; every
+                option below is inert for it) -- or an ``.fbx`` or USD file
                 (``.usd``/``.usda``/``.usdc``/``.usdz``), which short-circuits
                 the round-trip entirely: it IS a payload, so no headless Maya,
                 license checkout, cache or conversion is involved, and
@@ -583,6 +589,13 @@ class MayaSceneImport(ptk.LoggingMixin):
 
         src = os.path.abspath(os.path.expanduser(os.path.expandvars(str(src_path))))
         ext = os.path.splitext(src)[1].lower()
+        if ext in GLTF_EXTENSIONS:
+            relay = ptk.ProgressRelay(progress, stages=1)
+            relay.report(0, 0, 1, "Blender: Importing the glTF")
+            imported = self._import_gltf(src)
+            relay.report(0, 1, 1, "Blender: Imported")
+            self.logger.info(f"Imported {len(imported)} object(s) from {src_path}.")
+            return imported
         if ext in _DIRECT_BAKE_EXTENSIONS:
             # Fast path: a USD layer or an .fbx IS a payload -- import it in place,
             # no headless-Maya round trip, through the consumer the .blend bake runs,
@@ -970,9 +983,10 @@ class MayaSceneImport(ptk.LoggingMixin):
         self.hide_relationship_lines()
         return imported
 
-    @staticmethod
-    def hide_relationship_lines() -> int:
-        """Turn off the viewports' Relationship Lines overlay; returns how many changed.
+    @classmethod
+    def hide_relationship_lines(cls) -> bool:
+        """Turn off the viewports' Relationship Lines overlay for the loaded file; True when
+        it is off now, False when it waits for ``UiState``'s pending re-apply.
 
         A Maya scene is a deep DAG -- the production module this was measured on
         parents ~1,600 of its 1,635 objects up to 8 levels deep -- and Blender draws a
@@ -980,7 +994,18 @@ class MayaSceneImport(ptk.LoggingMixin):
         lines Maya never shows. The overlay has no per-object switch, so a converted
         scene turns it off wherever it lands (an import, the bake a link or an open
         reads, the scene opened); Overlays > Relationship Lines brings it back.
+
+        Held through ``UiState.after_restore``: the user's saved overlays come back a
+        tick after a load (the Open; a link that closed the open scene first) and in
+        each other workspace on its first visit, and turned the lines back on.
         """
+        from blendertk.ui_utils.ui_state import UiState
+
+        return UiState.after_restore(cls._hide_relationship_lines_now)
+
+    @staticmethod
+    def _hide_relationship_lines_now() -> int:
+        """:meth:`hide_relationship_lines`' overlay change (one callable, held once)."""
         from blendertk.display_utils._display_utils import DisplayUtils
 
         return DisplayUtils.set_viewport_overlay(show_relationship_lines=False)
@@ -993,6 +1018,51 @@ class MayaSceneImport(ptk.LoggingMixin):
         return lambda done, total, text: relay.report(
             stage, done, total, f"{label}: {text}"
         )
+
+    def _import_gltf(self, src: str) -> List[Any]:
+        """Import the glTF at *src* with Blender's own importer; return the new objects.
+
+        A ``.glb`` whose textures reach their images only through
+        ``KHR_texture_basisu`` is imported from a copy with those images decoded to
+        PNG (:meth:`pythontk.MeshConvert.decode_glb_textures`): Blender's importer
+        refuses such a file outright, and it is every KTX2 deliverable the pipeline
+        ships. The importer packs every embedded image into the session, so the copy
+        is gone the moment the import returns.
+        """
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        if not os.path.isfile(src):
+            raise FileNotFoundError(f"glTF file not found: {src}")
+        tmp = ptk.TempArtifacts("btk_gltf_import", policy="scoped")
+        try:
+            path = src
+            if src.lower().endswith(".glb"):
+                # A file this cannot parse goes to the importer as it is, which
+                # says what is wrong with it; a missing ``ktx`` keeps its own error
+                # (the fix is to install KTX-Software), never Blender's refusal.
+                try:
+                    path = (
+                        ptk.MeshConvert.decode_glb_textures(
+                            src, tmp.path(extension=".glb"), overwrite=True
+                        )
+                        or src
+                    )
+                except ValueError as e:
+                    self.logger.warning(f"KTX2 textures not decoded: {e}")
+                if path != src:
+                    self.logger.info(
+                        "KTX2 textures decoded to PNG for Blender's glTF importer."
+                    )
+            before = set(bpy.data.objects)
+            # The importer reads context.window (it selects what it creates);
+            # driven from tentacle's Qt timer there is none without the override.
+            with CoreUtils.window_context_override():
+                bpy.ops.import_scene.gltf(filepath=path)
+            return [o for o in bpy.data.objects if o not in before]
+        finally:
+            tmp.cleanup()
 
     def _rig_mode_opts(self, script_opts: Dict[str, Any], rig_mode: str) -> None:
         """Surface *rig_mode* into the cache key and the render context on BOTH
@@ -1552,13 +1622,13 @@ class MayaSceneImport(ptk.LoggingMixin):
         which was which (``scene_node_types`` in the conversion template). The
         custom property persists in the .blend, so the send direction's
         ``empties`` manifest can restore each one as the CORRECT Maya node
-        type instead of guessing from the children heuristic. A ``group`` is
-        also shrunk to :data:`MAYA_GROUP_EMPTY_DISPLAY_SIZE` so it reads as
-        Maya's invisible group transform instead of a full-size axes cross
-        (see the constant for why size, not visibility); a ``locator`` keeps
-        the importer's display, since Maya draws those. Returns the number of
-        Empties tagged. Mirror of the tagging in mayatk's
-        ``blender_bridge/templates/import.py`` (the Maya->Blender send).
+        type instead of guessing from the children heuristic, and blendertk
+        reads it as the node type (``NodeUtils.get_maya_node_type``). The
+        stamp and the look come from ``NodeUtils.set_maya_node_type``: a
+        ``group`` is shrunk to Maya's invisible group transform instead of a
+        full-size axes cross; a ``locator`` keeps the importer's display,
+        since Maya draws those. Returns the number of Empties tagged. mayatk's
+        Maya->Blender send reaches this through :meth:`import_payload`.
         """
         import json
 
@@ -1574,11 +1644,7 @@ class MayaSceneImport(ptk.LoggingMixin):
             # Tolerate Blender's rename-on-collision suffix ("grp1.001").
             node_type = types.get(obj.name) or types.get(obj.name.rsplit(".", 1)[0])
             if node_type:
-                node_type = str(node_type)
-                obj["maya_node_type"] = node_type
-                if node_type == "group":
-                    obj.empty_display_size = MAYA_GROUP_EMPTY_DISPLAY_SIZE
-                tagged += 1
+                tagged += len(NodeUtils.set_maya_node_type(obj, str(node_type)))
         return tagged
 
     @staticmethod

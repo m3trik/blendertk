@@ -223,19 +223,27 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
     def type_key(cls, item) -> str:
         """Resolve an object (or Material / Image datablock) to its suffix-by-type key.
 
-        An EMPTY is a ``group`` when it has children, else a ``locator``; a
-        Material is ``material``, an Image / Texture is ``texture``; any other
-        object returns its Blender ``type`` (``MESH``, ``CURVE``, ...), which is
-        what ``SUFFIX_TYPES`` and a ``custom_suffixes`` mapping key on.
+        An EMPTY is the Maya node it stands for (``NodeUtils.get_maya_node_type``:
+        its stamp, else a ``group`` when it has children and a ``locator`` when
+        not); an image Empty, which stands for neither, reads by its children
+        alone; a Material is ``material``,
+        an Image / Texture is ``texture``; any other object returns its Blender
+        ``type`` (``MESH``, ``CURVE``, ...), which is what ``SUFFIX_TYPES`` and a
+        ``custom_suffixes`` mapping key on.
         """
         import bpy
+
+        from blendertk.node_utils._node_utils import NodeUtils
 
         if isinstance(item, bpy.types.Material):
             return "material"
         if isinstance(item, (bpy.types.Image, bpy.types.Texture)):
             return "texture"
         if getattr(item, "type", None) == "EMPTY":
-            return "group" if item.children else "locator"
+            # A locator rig's locator holds its object and is still a locator.
+            return NodeUtils.get_maya_node_type(item) or (
+                "group" if item.children else "locator"
+            )
         return getattr(item, "type", "") or type(item).__name__
 
     @classmethod

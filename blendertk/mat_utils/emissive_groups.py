@@ -486,7 +486,8 @@ class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin):
 
     @classmethod
     def create_export_curve_proxies(cls) -> List:
-        """Stage the keyed-weight FBX transport (called by the Scene Exporter).
+        """Stage the keyed-weight FBX transport (the ``emissive_groups`` row of
+        ``FbxUtils.STAGERS``, which every bracketed write stages and finishes).
 
         Blender's FBX exporter cannot ship custom-property animation, so each
         keyable group with a weight fcurve gets one transient Empty under the

@@ -34,7 +34,7 @@ assignment, context window required, diff-before-assign) — all routed through
 
 import json
 import os
-from typing import Dict, Iterable, List, Optional, Set
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set
 
 import pythontk as ptk
 
@@ -133,7 +133,8 @@ class UiState(_UiStateInternal):
     context window the first tick does it instead) and starts the tick timer; ``load_pre``
     suspends snapshots, ``load_post`` queues a re-apply; the tick applies what is pending,
     captures a newly visited workspace, and otherwise snapshots the active one and writes the
-    sidecar only when something changed.
+    sidecar only when something changed. A caller changing the loaded file's UI goes through
+    :meth:`after_restore`, which runs after each of those restores.
 
     A **maximized area** (Ctrl+Space / ``toggle_fullscreen_area``) swaps in a temporary
     one-area screen: every tick and apply skips while ``screen.show_fullscreen`` is set, or
@@ -154,6 +155,7 @@ class UiState(_UiStateInternal):
     _applied: Set[str] = set()  # workspaces applied this load
     _pending_apply = False
     _suspended = False
+    _after_restore: List = []  # held over the loaded file's restores (after_restore)
     _timer_fn = (
         None  # the ONE callable object registered (timers unregister by identity)
     )
@@ -320,6 +322,40 @@ class UiState(_UiStateInternal):
         cls.close_hidden(window, entry.get("hidden", ()))
         return True
 
+    @classmethod
+    def after_restore(cls, fn: Callable[[], Any]) -> bool:
+        """Hold ``fn`` over the loaded file's UI: run it after every restore of the saved state
+        until the next file load — the way to change a loaded file's UI so the change sticks.
+        ``load_post`` only queues the re-apply (the next tick, once the new screen is
+        drawable), and each other workspace is restored on its first visit, so a flag set
+        right after an open is overruled by the user's saved one a tick later, or wherever
+        they switch. ``fn`` runs now unless that re-apply is pending, so it must be
+        idempotent; one already held is not held twice. Uninstalled (headless) it runs once,
+        now.
+
+        Parameters:
+            fn: A zero-argument, idempotent change to the loaded file's UI.
+
+        Returns:
+            True when it ran now; False when it waits for the pending re-apply.
+        """
+        if cls._installed:
+            if fn not in cls._after_restore:
+                cls._after_restore.append(fn)
+            if cls._pending_apply:
+                return False
+        fn()
+        return True
+
+    @classmethod
+    def _run_after_restore(cls) -> None:
+        """Run the :meth:`after_restore` callbacks, in order; one failing never stops the rest."""
+        for fn in list(cls._after_restore):
+            try:
+                fn()
+            except Exception as error:
+                print(f"{__name__}: after_restore callback failed: {error!r}")
+
     # -- lifecycle ---------------------------------------------------------------------------
     @classmethod
     def install(cls) -> bool:
@@ -380,6 +416,7 @@ class UiState(_UiStateInternal):
             except ValueError:
                 pass
             cls._timer_fn = None
+        cls._after_restore = []
         cls._installed = False
 
     @staticmethod
@@ -392,9 +429,11 @@ class UiState(_UiStateInternal):
     def _on_load_post(*_args):
         # The loaded file's own layout just won (Load UI). Re-apply the saved state so the
         # user's preference outranks the file — the Maya model — on the next tick, once the
-        # new screen is drawable.
+        # new screen is drawable. What after_restore held was for the file just replaced (a
+        # failed load keeps it: that file is still open).
         UiState._pending_apply = True
         UiState._suspended = False
+        UiState._after_restore = []
 
     @staticmethod
     def _on_load_post_fail(*_args):
@@ -415,10 +454,12 @@ class UiState(_UiStateInternal):
                 cls._loaded, cls._applied = {}, set()
                 if cls.apply_workspace(window):  # else: no context window yet — retry
                     cls._pending_apply = False
+                    cls._run_after_restore()
                 return cls.INTERVAL
             name = window.workspace.name
             if name not in cls._applied:  # first visit this load: apply, don't snapshot
-                cls.apply_workspace(window)
+                if cls.apply_workspace(window):
+                    cls._run_after_restore()
                 return cls.INTERVAL
             entry = cls.snapshot_workspace(window)
             if entry != cls._state["workspaces"].get(name):

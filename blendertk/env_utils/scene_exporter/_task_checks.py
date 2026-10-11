@@ -569,11 +569,11 @@ class _TaskChecksMixin(_TaskDataMixin):
         * PACKED images are treated as valid — the FBX embeds them from memory,
           so a stale disk path is irrelevant (it used to fail the export over a
           file that never ships).
-        * TILED (UDIM) images never appear in ``get_image_records`` (FILE-only),
-          so a deleted tile set used to pass unseen.  They are validated here by
-          probing the first declared tile on disk (``<UDIM>`` collapsed via
-          ``tiles[0].number``, 1001 fallback — the same probe-tile collapse
-          mayatk applies).
+        * TILED (UDIM) images are validated here by probing the first declared
+          tile on disk (``<UDIM>`` collapsed via ``tiles[0].number``, 1001
+          fallback — the same probe-tile collapse mayatk applies); a deleted
+          tile set used to pass unseen.  (``get_image_records`` lists them too
+          since 2026-10-05, ``exists`` when any of their tiles is on disk.)
         """
         if not enabled:
             return True, []

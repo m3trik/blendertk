@@ -314,7 +314,7 @@ try:
         sorted(s["kind"] for s in seqs) == ["anim", "audio"],
         f"{seqs}",
     )
-    ctl._move_clips_to_shot(seqs, a_id)
+    ctl._send_to_shot(seqs, a_id)
     pump()
     a, b = store.shot_by_id(a_id), store.shot_by_id(b_id)
     check(
@@ -524,9 +524,11 @@ try:
         root = menu_rows(lane.list)
         by_text = {w.text(): w for w in lane.list._row_widgets() if hasattr(w, "text")}
         check(
-            "shot lane: Edit / New Shot / Split / Merge / Move To / Add Frames / Trim",
+            "shot lane: Edit / New Shot / Split / Merge / Move To / Add Frames / Trim"
+            " / Delete",
             root
             and root[0] == f'Edit "{lane_shot.name}"…'
+            and root[-1] == f'Delete "{lane_shot.name}"…'
             and all(
                 lbl in root
                 for lbl in (

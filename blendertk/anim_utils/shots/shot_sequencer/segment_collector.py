@@ -201,7 +201,7 @@ class SegmentCollector:
         return sorted(attrs)
 
     @staticmethod
-    def build_curve_preview(fcurve, t_start, t_end):
+    def build_curve_preview(fcurve, t_start, t_end, hidden_times=()):
         """Bézier shape data for one Blender fcurve, clipped to ``[t_start, t_end]``.
 
         Returns the DCC-agnostic ``{keys, segments, val_min, val_max}`` dict the shared
@@ -209,7 +209,9 @@ class SegmentCollector:
         shape to mayatk's, so the painter is unchanged.  A Blender keyframe's
         ``handle_right`` / ``handle_left`` are the bezier control points directly (in
         frame/value space), so no angle+weight reconstruction is needed.  *None* when
-        the curve has no usable data in range.
+        the curve has no usable data in range.  Keys on *hidden_times* are flagged
+        ``hidden`` (part of the curve, no dot): the shot system's claimed bound
+        samples, as mayatk flags them.
         """
         if fcurve is None:
             return None
@@ -298,6 +300,9 @@ class SegmentCollector:
             "keys": vis_keys,
             "segments": vis_segs,
             "broken": broken,
+            "hidden": [
+                any(abs(t - h) <= 1e-3 for h in hidden_times) for t, _v in vis_keys
+            ],
             # A Blender handle IS a position, so its length always means
             # something -- unlike Maya's unweighted tangents, which store an
             # angle and pin the control point a third of the span out.  The

@@ -19,7 +19,7 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
@@ -374,6 +374,75 @@ try:
     )
     keyed.keyframe_insert("location", frame=1)
     check("a keyed transform IS driven", btk.NodeUtils._transforms_driven(keyed))
+    # An NLA strip with no active action, or keys on the DELTA channels, re-write the
+    # transform just the same.
+    strip = cube("strip", (0, 0, 0))
+    strip.keyframe_insert("location", frame=1)
+    strip.animation_data.nla_tracks.new().strips.new(
+        "take", 1, strip.animation_data.action
+    )
+    strip.animation_data.action = None
+    check("an NLA-animated transform IS driven", btk.NodeUtils._transforms_driven(strip))
+    delta = cube("delta", (0, 0, 0))
+    delta.keyframe_insert("delta_location", frame=1)
+    check("a keyed delta transform IS driven", btk.NodeUtils._transforms_driven(delta))
+
+    # ---- is_locator / is_group / set_maya_node_type: the Maya node an Empty stands for --
+    # Maya has a locator SHAPE; Blender only the Empty. So the node type is read off the
+    # bridge's ``maya_node_type`` stamp when one is there, and off the hierarchy when not
+    # (a parent is a group, a leaf a locator -- the send direction's own rule). An image
+    # Empty is neither: it is Blender's image plane.
+    reset()
+
+    def empty(name, display="PLAIN_AXES"):
+        e = bpy.data.objects.new(name, None)
+        e.empty_display_type = display
+        bpy.context.collection.objects.link(e)
+        return e
+
+    leaf = empty("leaf")
+    holder = empty("holder")
+    cube("held", (0, 0, 0)).parent = holder
+    rig_loc = empty("rig_LOC")
+    cube("rigged", (0, 0, 0)).parent = rig_loc
+    btk.NodeUtils.set_maya_node_type(rig_loc, "locator")
+    bare_grp = empty("bare_GRP")
+    btk.NodeUtils.set_maya_node_type(bare_grp, "group")
+    plane = empty("plane", display="IMAGE")
+    mesh = bpy.data.objects["held"]
+    pool = [leaf, holder, rig_loc, bare_grp, plane, mesh]
+    check(
+        "is_locator: a leaf Empty, or one stamped a locator even with children",
+        btk.NodeUtils.is_locator(pool) == [True, False, True, False, False, False],
+        f"{btk.NodeUtils.is_locator(pool)}",
+    )
+    check(
+        "is_group: a parent Empty, or one stamped a group even childless",
+        btk.NodeUtils.is_group(pool) == [False, True, False, True, False, False],
+        f"{btk.NodeUtils.is_group(pool)}",
+    )
+    check(
+        "is_locator(filter=True) keeps the locators; a name resolves",
+        btk.NodeUtils.is_locator(pool, filter=True) == [leaf, rig_loc]
+        and btk.NodeUtils.is_locator("rig_LOC") is True,
+    )
+    check(
+        "set_maya_node_type: stamps the type; a group draws nothing, a locator keeps its look",
+        rig_loc["maya_node_type"] == "locator"
+        and bare_grp["maya_node_type"] == "group"
+        and abs(bare_grp.empty_display_size - btk.NodeUtils.MAYA_GROUP_DISPLAY_SIZE) < 1e-9
+        and rig_loc.empty_display_size == 1.0,
+        f"{bare_grp.empty_display_size} / {rig_loc.empty_display_size}",
+    )
+    kept = empty("kept_GRP", display="ARROWS")
+    btk.NodeUtils.set_maya_node_type(kept, "group", look=False)
+    check(
+        "set_maya_node_type(look=False): the type alone, the Empty's own display kept",
+        kept["maya_node_type"] == "group"
+        and kept.empty_display_type == "ARROWS"
+        and kept.empty_display_size == 1.0,
+        f"{kept.empty_display_size}",
+    )
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

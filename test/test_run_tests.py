@@ -13,13 +13,16 @@ harness therefore hands every child ``stdin=subprocess.DEVNULL``: ``isatty()``
 is then false and the consent seam answers no, exactly as its docstring
 promises for "nobody there to ask".
 
-Nor may a child work out its own temp dir: :class:`TestChildTempRoot`.
+Nor may a child work out its own temp dir: :class:`TestChildTempRoot`; nor
+reach the developer's live uitk settings: :class:`TestChildSettingsSandbox`.
 
-Run (the temp-root cases launch a real Blender when one is installed)::
+Run (the temp-root and settings cases launch a real Blender when one is
+installed)::
 
     .venv/Scripts/python.exe blendertk/test/test_run_tests.py
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -202,6 +205,8 @@ print(f"===RESULT: {'PASS' if passed == 2 else 'FAIL'}=== ({passed}/2)")
         """An unimportable pythontk leaves no root: the suite must then fail on
         its own, not on a pin that has nothing to pin."""
         runner = run_tests.BlenderTestRunner(blender="blender.exe")
+        # The pin alone: the settings prelude has its own cases.
+        runner.sandbox_settings = False
         calls = []
 
         def fake_run(cmd, **run_kwargs):
@@ -219,6 +224,121 @@ print(f"===RESULT: {'PASS' if passed == 2 else 'FAIL'}=== ({passed}/2)")
                 ["py.exe", str(self.suite)],
             ],
         )
+
+
+class TestChildSettingsSandbox(unittest.TestCase):
+    """Every child resolves uitk's settings stores inside the run's temp root.
+
+    A panel persists through two per-user stores: ``QSettings`` (the registry's
+    ``HKCU\\Software\\uitk`` on Windows) and the presets root. The runner
+    isolated only the temp dir, so a suite was kept off the developer's live
+    stores only if it happened to load uitk's conftest, and every other suite
+    that reached a ``SettingsManager`` -- the Shot Manifest controller builds
+    two -- wrote them. Headless Blender is no exception: it imports the PySide6
+    tentacle provisions into its addons/modules. So each child is handed uitk's
+    sandbox before its suite's first line, as it is handed the temp root.
+
+    Probed, never written: the child reports where ``QSettings("uitk",
+    "shared")`` and the presets root resolve, and a ``QSettings`` that is only
+    constructed and asked its file name reads and writes nothing.
+    """
+
+    PROBE = r"""
+import json, os
+
+report = {"presets": os.environ.get("UITK_PRESETS_ROOT")}
+try:
+    from qtpy import QtCore
+except ImportError:  # no binding in this host: no QSettings store to reach
+    report["qt"] = False
+else:
+    store = QtCore.QSettings("uitk", "shared")
+    report.update(
+        qt=True, ini=store.format() == QtCore.QSettings.IniFormat, file=store.fileName()
+    )
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "report.json"), "w") as fh:
+    json.dump(report, fh)
+print("OK   probed")
+print("===RESULT: PASS=== (1/1)")
+"""
+
+    def setUp(self):
+        self.work = os.path.join(HERE, "temp_tests", f"child_settings_{os.getpid()}")
+        os.makedirs(self.work, exist_ok=True)
+        self.addCleanup(shutil.rmtree, self.work, True)
+        self.root = os.path.join(self.work, "root")
+        os.makedirs(self.root, exist_ok=True)
+        self.suite = Path(self.work, "probe_suite.py")
+        self.suite.write_text(self.PROBE, encoding="utf-8")
+        self.report = os.path.join(self.work, "report.json")
+
+    _hosts = TestChildTempRoot._hosts
+    _blender = staticmethod(TestChildTempRoot._blender)
+
+    def _run(self, **kwargs):
+        """One suite child, launched as a real run launches it, with none of
+        this process's own redirects for it to inherit; returns its report."""
+        if os.path.exists(self.report):
+            os.remove(self.report)
+        runner = run_tests.BlenderTestRunner(blender=self._blender() or "blender")
+        runner.temp_root = self.root
+        env = {name: self.root for name in ("TMPDIR", "TEMP", "TMP")}
+        with mock.patch.dict(os.environ, env):
+            os.environ.pop("UITK_PRESETS_ROOT", None)
+            passed, ok, failed, _ = runner.run_suite(self.suite, **kwargs)
+        self.assertTrue(passed, f"the probe failed: {ok} ok / {failed} failed")
+        with open(self.report, encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def _assert_inside_root(self, path, what):
+        root = os.path.normcase(os.path.abspath(self.root)) + os.sep
+        self.assertTrue(
+            path and os.path.normcase(os.path.abspath(path)).startswith(root),
+            f"{what} resolved outside the run's temp root: {path!r}",
+        )
+
+    def test_each_child_resolves_the_settings_stores_inside_the_run(self):
+        probed_qsettings = []
+        for label, kwargs in self._hosts():
+            report = self._run(**kwargs)
+            with self.subTest(host=label, store="presets"):
+                self._assert_inside_root(report["presets"], "the presets root")
+            if report["qt"]:
+                probed_qsettings.append(label)
+                with self.subTest(host=label, store="QSettings"):
+                    self.assertTrue(report["ini"], f"a registry store: {report}")
+                    self._assert_inside_root(report["file"], "QSettings('uitk')")
+        if not probed_qsettings:
+            self.skipTest("no host here has a Qt binding: QSettings went unprobed")
+
+    def test_a_child_that_cannot_import_uitk_still_runs_its_suite(self):
+        """Best-effort: a pure-bpy suite runs where uitk does not import."""
+        fake = os.path.join(self.work, "no_uitk")
+        os.makedirs(os.path.join(fake, "uitk"))
+        with open(os.path.join(fake, "uitk", "__init__.py"), "w") as fh:
+            fh.write("raise ImportError('no uitk in this child')\n")
+        with mock.patch.object(
+            run_tests.BlenderTestRunner, "_SANDBOX_ROOTS", [fake], create=True
+        ):
+            for label, kwargs in self._hosts():
+                with self.subTest(host=label):
+                    self._run(**kwargs)  # asserts the suite ran and passed
+
+    def test_without_a_root_the_prelude_still_runs_and_nothing_stops_the_suite(self):
+        """No temp root (pythontk unimportable in the runner) leaves the
+        settings prelude in place, and only the pin may stop a child."""
+        runner = run_tests.BlenderTestRunner(blender="blender.exe")
+        blender_cmd = runner._child_command(self.suite)
+        python_cmd = runner._child_command(self.suite, python="py.exe")
+
+        self.assertNotIn("--python-exit-code", blender_cmd)
+        self.assertEqual(blender_cmd[-2:], ["--python", str(self.suite)])
+        prelude = blender_cmd[blender_cmd.index("--python-expr") + 1]
+        self.assertIn("TestSandbox.qsettings()", prelude)
+        self.assertNotIn("tempfile.tempdir", prelude)
+        self.assertEqual(python_cmd[:2], ["py.exe", "-c"])
+        self.assertIn(prelude, python_cmd[2])
+        self.assertEqual(python_cmd[-1], str(self.suite))
 
 
 if __name__ == "__main__":

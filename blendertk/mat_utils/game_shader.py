@@ -65,6 +65,8 @@ class _GameShaderInternal(object):
         "Height": ptk.MapRegistry.NORMAL_TYPES,
         "Glossiness": ("Roughness",),
         "Smoothness": ("Roughness",),
+        # A specular LEVEL claims Specular IOR Level ahead of a loose Specular.
+        "Specular": ("Specular_Level",),
     }
 
     @classmethod
@@ -320,9 +322,10 @@ class GameShader(ptk.LoggingMixin, _GameShaderInternal):
             return None
 
         if not name:
-            name = ptk.MapFactory.get_base_texture_name(
-                textures[0], prefix=prefix, suffix=suffix
-            )
+            # Read against the set: its own name may end in a lobe word.
+            name = ptk.MapFactory.classify_textures(
+                textures, prefix=prefix, suffix=suffix
+            )[textures[0]][1]
         # Idempotent affix application: strips any pre-existing occurrence of the configured
         # prefix/suffix from `name` before re-applying, so a filename like "Mat_brick_Albedo.png"
         # with prefix="Mat_" yields "Mat_brick", not "Mat_Mat_brick".

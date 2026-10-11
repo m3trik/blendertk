@@ -61,7 +61,7 @@ _PARAMS_STRUCT = """struct ShParams
     vec4 axisB;       // xyz, w = solid spans per column (K)
     vec4 axisUp;      // xyz, w = pyramid levels
     vec4 source;      // xyz world; w 1 = position, 0 = the direction it shines
-    vec4 sourceSize;  // x diameter, y angular diameter, z height scale, w opacity * intensity
+    vec4 sourceSize;  // x diameter, y angular diameter, z height scale, w opacity (carries the intensity)
     vec4 bounds;      // the footprint in the frame: a0, a1, b0, b1
     vec4 rect;        // the tile block inside its image: sx, sy, ox, oy
 };
@@ -583,9 +583,7 @@ class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin):
             src = [0.0, 0.0, -1.0, 0.0]  # no source: noon
         rect = horizon.get("rect") or [1.0, 1.0, 0.0, 0.0]
         bounds = horizon.get("bounds") or [-1.0, 1.0, -1.0, 1.0]
-        fade = float(plane.get(ShadowRig.OPACITY_ATTR, 1.0)) * float(
-            plane.get("shadowIntensity", 1.0)
-        )
+        fade = float(plane.get(ShadowRig.OPACITY_ATTR, 1.0))  # carries shadowIntensity
         params = [
             *origin,
             ground,

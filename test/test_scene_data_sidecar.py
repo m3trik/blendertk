@@ -28,11 +28,17 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
 tmp = tempfile.mkdtemp(prefix="scene_data_sidecar_test_")
+# The records live in a per-user store (SD.store_dir): a throwaway root keeps
+# the run off the user's settings even outside the runner's sandbox.
+from pythontk.core_utils.test_sandbox import TestSandbox
+
+_config = TestSandbox.user_config()
+_config.__enter__()
 try:
     import bpy
     from blendertk.env_utils.hierarchy_sync.scene_data_sidecar import (
@@ -91,7 +97,7 @@ try:
     )
     check("data-only change creates no .prev", not os.path.exists(mpath + ".prev"))
 
-    # 2c-bis. The sidecar ships beside the deliverable, so it records no
+    # 2c-bis. The record is treated as part of the export, so it records no
     #     authoring-machine paths. `lightmap_metadata.dir` is a build-time hint
     #     for the GLB converter; a recipient can do nothing with a path on
     #     someone else's drive but read the folder names in it.
@@ -147,6 +153,12 @@ try:
     check("rewrite updates the manifest", SD.read_manifest(export) == paths_b)
     check("rewrite creates no .prev", not os.path.exists(mpath + ".prev"))
     check("no stray .tmp left behind", not os.path.isfile(mpath + ".tmp"))
+    # 3a. Nothing beside the deliverable: the records live in the store.
+    check(
+        "the records stay out of the export folder",
+        os.listdir(tmp) == [] and os.path.dirname(mpath) == SD.store_dir(export),
+        str(os.listdir(tmp)),
+    )
 
     # 3b. last_diff: recorded when passed, dropped by the next clean write, invisible to reads.
     a_diff = {"missing": ["Grp|Gone"], "extra": ["Grp|New"], "reparented": []}
@@ -352,6 +364,7 @@ except Exception as e:
     check("test raised", False, repr(e))
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
+    _config.__exit__(None, None, None)
 
 passed = sum(1 for line in lines if line.startswith("OK"))
 for line in lines:

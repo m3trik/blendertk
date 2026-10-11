@@ -42,7 +42,7 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
@@ -669,6 +669,26 @@ try:
         "find_shadow_planes on a target alone finds nothing (planes_for_nodes follows the links)",
         ShadowRig.find_shadow_planes([c]) == []
         and ShadowRig.planes_for_nodes([c]) == [p],
+    )
+
+    # The record is export-scoped (mirror of mayatk's): a plane outside the
+    # export set would ship its silhouette with nothing to bind it to; an
+    # empty scope ships none (find_shadow_planes reads it as the file).
+    def _scoped_planes(scope):
+        rec = ShadowRig.export_record(ptk.ExportContext(scope=scope))
+        return [pl["name"] for pl in rec.payload["planes"]] if rec else []
+
+    check(
+        "a scoped export names only the export set's planes",
+        _scoped_planes((p.name,)) == [p.name]
+        and _scoped_planes((other.name,)) == []
+        and _scoped_planes(()) == []
+        and _scoped_planes(None) == [p.name],
+        (
+            _scoped_planes((p.name,)),
+            _scoped_planes((other.name,)),
+            _scoped_planes(None),
+        ),
     )
 
     # ============================ RECALCULATE ============================
@@ -1413,6 +1433,129 @@ try:
         record("Box_shadow")["horizon"]["size"] == 32,
         f"{record('Box_shadow')['horizon']}",
     )
+
+    # ============================ COMBINED RIGS ============================
+    # Mirror of mayatk's: the contact hangs on what moves EVERY target (their common
+    # parent, the target the others hang under, else the rig's own group at the world
+    # origin), a member moved on its own re-stales the rig and Recalculate re-fits it,
+    # and a member keyed on its own is warned about at create. Added: 2026-10-10.
+    reset()
+    setgrp = bpy.data.objects.new("Set", None)
+    bpy.context.collection.objects.link(setgrp)
+    c = cube("Box")
+    crate = cube("Crate", loc=(3, 0, 0))
+    c.parent = setgrp
+    crate.parent = setgrp
+    bpy.context.view_layer.update()
+    rig = ShadowRig.create([c, crate], texture_res=32)
+    check(
+        "combined: the contact hangs on the targets' common parent",
+        rig.contact.parent is setgrp,
+        rig.contact.parent.name if rig.contact.parent else None,
+    )
+    before = rig._contact_point()
+    setgrp.location = (0.0, 2.0, 0.0)
+    bpy.context.view_layer.update()
+    check(
+        "combined: moving the set carries the contact",
+        approx(rig._contact_point()[1] - before[1], 2.0, 1e-4),
+        rig._contact_point(),
+    )
+    # A set popping in from scale 0: Blender keeps the zero (Maya clamps it to
+    # 1e-12), so the contact's frame is singular. The stale check runs from Follow
+    # Source's handler and raised LinAlgError; the layout is unknowable instead.
+    setgrp.scale = (0.0, 0.0, 0.0)
+    bpy.context.view_layer.update()
+    try:
+        _zero = (rig._layout(), rig._layout_moved(), ShadowRig.silhouette_is_stale(rig.shadow_plane))
+        check("combined: a set scaled to nothing is unknowable, not an error",
+              _zero[0] == "" and _zero[1] is False, _zero)
+    except Exception as _err:  # noqa: BLE001 -- the check IS that nothing raises
+        check("combined: a set scaled to nothing is unknowable, not an error", False, repr(_err))
+    setgrp.scale = (1.0, 1.0, 1.0)
+    bpy.context.view_layer.update()
+    cup = cube("Cup", loc=(0.0, 0.0, 1.5))
+    cup.scale = (0.1, 0.1, 0.15)
+    cup.parent = c
+    bpy.context.view_layer.update()
+    on_table = ShadowRig.create([c, cup], texture_res=32, source_name="lamp")
+    check(
+        "combined: a prop on a table hangs it on the table",
+        on_table.contact.parent is c,
+        on_table.contact.parent.name if on_table.contact.parent else None,
+    )
+    ShadowRig.delete_rigs(None, delete_textures=True)
+
+    reset()
+    a = cube("Left")
+    b = cube("Right", loc=(4, 0, 0))
+    bpy.context.view_layer.update()
+    loose = ShadowRig.create(
+        [a, b], texture_res=32, rig_type="horizon", horizon_size=32, horizon_spans=2
+    )
+    check(
+        "combined: nothing shared hangs it in the rig's own group",
+        loose.contact.parent is loose.group,
+        loose.contact.parent.name if loose.contact.parent else None,
+    )
+    plane = loose.shadow_plane
+    check("combined: fresh after create", not ShadowRig.silhouette_is_stale(plane))
+    radius = float(plane["footprintRadius"])
+    baked = os.path.getmtime(loose.horizon_path)
+    b.location = (8.0, 0.0, 0.0)
+    bpy.context.view_layer.update()
+    check(
+        "combined: a member moved on its own is stale",
+        ShadowRig.silhouette_is_stale(plane),
+    )
+    check("combined: Recalculate takes it", ShadowRig.recalculate_stale() == [plane])
+    bpy.context.view_layer.update()
+    cp = ShadowRig.from_plane(plane)._contact_point()
+    check(
+        "combined: the contact back on the set's base",
+        approx(cp[0], 4.0, 1e-3)
+        and approx(cp[1], 0.0, 1e-3)
+        and approx(cp[2], -1.0, 1e-3),
+        cp,
+    )
+    check(
+        "combined: the bounding cylinder re-measured",
+        float(plane["footprintRadius"]) > radius + 1.5,
+        (radius, float(plane["footprintRadius"])),
+    )
+    check("combined: the map re-baked", os.path.getmtime(loose.horizon_path) > baked)
+    check("combined: fresh after", not ShadowRig.silhouette_is_stale(plane))
+    ShadowRig.delete_rigs(None, delete_textures=True)
+
+    reset()
+    import logging as _combined_logging
+
+    class _Grab(_combined_logging.Handler):
+        def __init__(self):
+            super().__init__(level=_combined_logging.WARNING)
+            self.messages = []
+
+        def emit(self, record):
+            self.messages.append(record.getMessage())
+
+    c = cube("Box")
+    crate = cube("Crate", loc=(3, 0, 0))
+    crate.keyframe_insert("location", index=0, frame=1)
+    crate.location.x = 6.0
+    crate.keyframe_insert("location", index=0, frame=10)
+    bpy.context.view_layer.update()
+    grab = _Grab()
+    ShadowRig.logger.addHandler(grab)
+    try:
+        ShadowRig.create([c, crate], texture_res=32)
+    finally:
+        ShadowRig.logger.removeHandler(grab)
+    check(
+        "combined: a member keyed on its own warns, naming Per object",
+        any("Crate" in m and "Per object" in m for m in grab.messages),
+        grab.messages,
+    )
+    ShadowRig.delete_rigs(None, delete_textures=True)
 
     # ============================ PER OBJECT + ATLAS ============================
     reset()

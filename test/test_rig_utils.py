@@ -24,14 +24,16 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
 try:
     import bpy
     from mathutils import Vector
+    from blendertk.node_utils._node_utils import NodeUtils
     from blendertk.rig_utils._rig_utils import RigUtils
+    from blendertk.xform_utils._xform_utils import XformUtils
 
     def reset():
         if (
@@ -172,6 +174,18 @@ try:
         f"{tuple(round(v, 2) for v in child.matrix_world.translation)}",
     )
     check("create_group parents the child", child.parent is grp)
+    # A group, never the locator a childless Empty reads as: typed a Maya group it stays
+    # one to selection, Suffix By Type and the Maya send (which reads an untyped ARROWS
+    # Empty as a locator), and it keeps its arrows as the handle it is grabbed by.
+    lone = RigUtils.create_group("lone_grp")
+    check(
+        "create_group types its Empty a Maya group, its arrows kept",
+        grp.get("maya_node_type") == "group"
+        and NodeUtils.is_group(lone)
+        and lone.empty_display_type == "ARROWS"
+        and abs(lone.empty_display_size - 1.0) < 1e-6,
+        f"{lone.get('maya_node_type')!r} / {lone.empty_display_size}",
+    )
 
     # ============================ _active_mode restores context ============================
     reset()
@@ -603,6 +617,44 @@ try:
         and tuple(_box.lock_rotation) == (True,) * 3
         and tuple(_box.lock_location) == (False,) * 3,
     )
+    # The rig is mayatk's, measured in a fresh mayapy: the group holds the object's pose
+    # at unit scale, the locator sits on it ZEROED, and the object is frozen under it --
+    # so clearing the locator's channels puts the rig back at rest (it used to carry the
+    # world in its channels, cancelled by its parent-inverse, and flew to the group's
+    # origin). Both Empties carry the node type the bridge restores in Maya; the new
+    # locator is selected, as mayatk selects it.
+    _ident = Matrix.Identity(4)
+    _grp0 = bpy.data.objects[_grp_name]
+    check(
+        "create_locator_at_object: the locator is zeroed -- identity channels and inverse",
+        _close(_locs[0].matrix_basis, _ident)
+        and _close(_locs[0].matrix_parent_inverse, _ident),
+        f"loc {tuple(_locs[0].location)} rot {tuple(_locs[0].rotation_euler)}",
+    )
+    check(
+        "create_locator_at_object: the group carries the object's pose, at unit scale",
+        _close(_grp0.matrix_basis, _world)  # unparented, unit scale: basis == world
+        and all(abs(s - 1.0) < 1e-6 for s in _grp0.scale),
+        f"scale {tuple(_grp0.scale)}",
+    )
+    check(
+        "create_locator_at_object: the object is frozen under the locator",
+        _close(_box.matrix_basis, _ident)
+        and _close(_box.matrix_parent_inverse, _ident),
+        f"loc {tuple(_box.location)} rot {tuple(_box.rotation_euler)}",
+    )
+    check(
+        "create_locator_at_object: the Empties carry the Maya node type they stand for",
+        _locs[0].get("maya_node_type") == "locator"
+        and _grp0.get("maya_node_type") == "group",
+        f"{_locs[0].get('maya_node_type')!r} / {_grp0.get('maya_node_type')!r}",
+    )
+    check(
+        "create_locator_at_object: the new locator is selected and active",
+        set(bpy.context.view_layer.objects.selected) == {_locs[0]}
+        and bpy.context.view_layer.objects.active == _locs[0],
+        f"{[o.name for o in bpy.context.view_layer.objects.selected]}",
+    )
     _crate = cube("Crate07")  # "_07" would be kept: underscore numbering is deliberate
     _l2 = RigUtils.create_locator_at_object(
         "Crate07", obj_suffix="_MSH", obj_affix_mode="suffix", strip_digits=True
@@ -611,6 +663,30 @@ try:
         "create_locator_at_object: a literal affix, digits stripped from the stem",
         _crate.name == "Crate_MSH" and _l2[0].name == _loc_name.replace("Box", "Crate"),
         f"{_crate.name} / {_l2[0].name}",
+    )
+    # A prop lifted on X then spun about its own Z keys ONE channel only when
+    # the order puts Z first (mayatk's SOCKET_WRENCH bug, mirrored).
+    from math import radians
+
+    _zloc = RigUtils.create_locator_at_object(cube("Wrench"), rotate_order="zyx")[0]
+    _zloc.rotation_euler = Euler((radians(98.3), radians(-6.4), radians(-0.15)), "ZYX")
+    _before = tuple(_zloc.rotation_euler)
+    _spun = (
+        _zloc.rotation_euler.to_matrix() @ Matrix.Rotation(radians(15), 3, "Z")
+    ).to_euler("ZYX", _zloc.rotation_euler)
+    try:
+        RigUtils.create_locator_at_object(cube("Bad"), rotate_order="abc")
+        _bad_raised = False
+    except ValueError:
+        _bad_raised = True
+    check(
+        "create_locator_at_object: rotate_order sets the Empty's Euler order",
+        _zloc.rotation_mode == "ZYX"
+        and abs(_spun.x - _before[0]) < 1e-5
+        and abs(_spun.y - _before[1]) < 1e-5
+        and abs(_spun.z - _before[2] - radians(15)) < 1e-5
+        and _bad_raised,
+        f"{_zloc.rotation_mode} {tuple(_spun)} vs {_before}",
     )
 
     _removed = RigUtils.remove_locator(_locs + [_box])
@@ -696,12 +772,14 @@ try:
         f"moved {_delta(_kid.matrix_world, _kw):.4f}",
     )
     check(
-        "create_locator_at_object: the group takes the object's place under its parent; "
-        "the object keeps its channels",
+        "create_locator_at_object: the group takes the object's place under its parent -- "
+        "its link, inverse and channels -- and the object is frozen under the locator",
         _kid.parent == _kloc
         and _kgrp is not None
         and _kgrp.parent == _holder
-        and _close(_kid.matrix_basis, _kl[5]),
+        and _close(_kgrp.matrix_parent_inverse, _kl[4])
+        and _close(_kgrp.matrix_basis, _kl[5])
+        and _close(_kid.matrix_basis, Matrix.Identity(4)),
         f"group parent {getattr(_kgrp, 'parent', None)}",
     )
     # The whole rig selected (group, locator, object -- a box-select): the object goes back.
@@ -926,8 +1004,9 @@ try:
         and _ggrp.get(RigUtils.LOCATOR_RIG_PROP) == "group",
         f"{_gloc.get(RigUtils.LOCATOR_RIG_PROP)!r} / {_ggrp.get(RigUtils.LOCATOR_RIG_PROP)!r}",
     )
-    for _o in (_gloc, _ggrp):
+    for _o in (_gloc, _ggrp):  # a rig from before both stamps: names alone
         del _o[RigUtils.LOCATOR_RIG_PROP]
+        _o.pop("maya_node_type", None)
         _o.name = _o.name + ".001"
     _gloc_name = _gloc.name
     check(
@@ -936,6 +1015,250 @@ try:
         and set(bpy.data.objects.keys()) == {_vase.name}
         and _vase.parent is None,
         f"{_tree()}",
+    )
+
+    # ---- a scaled object: the group carries its pose, never its scale --------------------
+    # mayatk's group is unit scale (its freeze bakes the scale into the shape). Taking the
+    # object's scale onto the group drew the locator squashed by it (a 2x3x1 box's locator
+    # was a 2x3x1 cross); the scale stays with the object, in its parent-inverse, so the
+    # mesh is untouched and turning the locator turns the object rigidly.
+    reset()
+    _sb = cube("Slab")
+    _sb.matrix_basis = Matrix.LocRotScale(
+        Vector((1, 2, 3)), Euler((0.4, 0.1, 0.6)).to_quaternion(), Vector((2, 3, 1))
+    )
+    bpy.context.view_layer.update()
+    _sbw = [list(r) for r in _sb.matrix_world]
+    _sbl0 = _link(_sb)
+    _sbco = [tuple(v.co) for v in _sb.data.vertices]
+    _sbloc = RigUtils.create_locator_at_object(_sb)[0]
+    bpy.context.view_layer.update()
+    _sbgrp = _sbloc.parent
+    check(
+        "create_locator_at_object: a scaled object stays put; its group is unit scale and "
+        "its locator draws at its own size",
+        _close(_sb.matrix_world, _sbw)
+        and all(abs(s - 1.0) < 1e-6 for s in _sbgrp.scale)
+        and all(abs(s - 1.0) < 1e-6 for s in _sbloc.matrix_world.to_scale()),
+        f"group scale {tuple(_sbgrp.scale)}, locator world scale "
+        f"{tuple(_sbloc.matrix_world.to_scale())}",
+    )
+    check(
+        "create_locator_at_object: a scaled object's channels freeze and its mesh is untouched",
+        _close(_sb.matrix_basis, Matrix.Identity(4))
+        and [tuple(v.co) for v in _sb.data.vertices] == _sbco,
+        f"scale {tuple(_sb.scale)}",
+    )
+    _sbloc.rotation_euler = (0.3, 0.5, 0.7)  # an animator turns the locator
+    bpy.context.view_layer.update()
+    _axes = [_sb.matrix_world.to_3x3().col[i].normalized() for i in range(3)]
+    _shear = max(abs(_axes[i].dot(_axes[j])) for i, j in ((0, 1), (0, 2), (1, 2)))
+    check(
+        "create_locator_at_object: turning the locator turns a scaled object rigidly",
+        _shear < 1e-5,
+        f"largest axis cosine {_shear:.6f}",
+    )
+    _sbloc.rotation_euler = (0.0, 0.0, 0.0)
+    RigUtils.remove_locator(_sbloc)
+    bpy.context.view_layer.update()
+    check(
+        "remove_locator: a frozen object gets its own channels back, scale included",
+        _same_link(_link(_sb), _sbl0) and _close(_sb.matrix_world, _sbw),
+        f"scale {tuple(_sb.scale)}, moved {_delta(_sb.matrix_world, _sbw):.4f}",
+    )
+
+    # ---- an animated object keeps playing its keys ---------------------------------------
+    # Its channels ARE its animation, so they are not frozen -- the parent-inverse cancels
+    # the pose the group took instead. mayatk freezes them and the keys then play offset
+    # by that pose (measured: world x 5 -> 10 at frame 1, 15 -> 20 at frame 10; BACKLOG).
+    def _plays(o, frames):
+        out = []
+        for f in frames:
+            bpy.context.scene.frame_set(f)
+            out.append(o.matrix_world.translation.copy())
+        return out
+
+    reset()
+    _an = cube("Anim")
+    for _f, _x in ((1, 5.0), (10, 15.0)):
+        _an.location = (_x, 0.0, 0.5 * _f)
+        _an.keyframe_insert("location", frame=_f)
+    _anw = _plays(_an, (1, 10))
+    bpy.context.scene.frame_set(1)
+    _anloc = RigUtils.create_locator_at_object(_an)[0]
+    _ana = _plays(_an, (1, 10))
+    check(
+        "create_locator_at_object: an animated object plays its keys in place",
+        all((a - b).length < 1e-5 for a, b in zip(_ana, _anw)),
+        f"{[tuple(v) for v in _ana]} vs {[tuple(v) for v in _anw]}",
+    )
+    check(
+        "create_locator_at_object: an animated object's locator is zeroed all the same",
+        _close(_anloc.matrix_basis, Matrix.Identity(4)),
+        f"loc {tuple(_anloc.location)}",
+    )
+    # Animated through an NLA strip alone (no active action) -- still animation.
+    reset()
+    _nl = cube("Stripped")
+    for _f, _x in ((1, 2.0), (10, 8.0)):
+        _nl.location = (_x, 1.0, 0.0)
+        _nl.keyframe_insert("location", frame=_f)
+    _nla_track = _nl.animation_data.nla_tracks.new()
+    _nla_track.strips.new("take", 1, _nl.animation_data.action)
+    _nl.animation_data.action = None
+    _nlw = _plays(_nl, (1, 10))
+    bpy.context.scene.frame_set(1)
+    RigUtils.create_locator_at_object(_nl)
+    _nla = _plays(_nl, (1, 10))
+    check(
+        "create_locator_at_object: an NLA-animated object plays its strip in place",
+        (_nlw[1] - _nlw[0]).length > 1.0
+        and all((a - b).length < 1e-5 for a, b in zip(_nla, _nlw)),
+        f"{[tuple(v) for v in _nla]} vs {[tuple(v) for v in _nlw]}",
+    )
+    bpy.context.scene.frame_set(1)
+
+    # ---- a group's rig sits on its contents, oriented like the group ----------------------
+    # mayatk's 2026-02-23 fix: a group at the origin with its children out at x=10 got its
+    # locator at the scene root. The rig goes on the world bounding-box centre of the
+    # group's contents, turned like the group; the group itself freezes under it, as
+    # mayatk leaves it.
+    reset()
+    _crt = _empty("Crate_grp", Matrix.Rotation(math.radians(45), 4, "Z"))
+    _btl = cube("Bottle")
+    _btl.parent = _crt
+    _btl.matrix_basis = Matrix.Translation((10, 0, 0))
+    bpy.context.view_layer.update()
+    _crtw = [list(r) for r in _crt.matrix_world]
+    _btlw = [list(r) for r in _btl.matrix_world]
+    _ctr = Vector(XformUtils.get_bounding_box([_btl], "center"))
+    _crtloc = RigUtils.create_locator_at_object(_crt)[0]
+    bpy.context.view_layer.update()
+    _turn = (
+        _crtloc.matrix_world.to_quaternion()
+        .rotation_difference(Matrix(_crtw).to_quaternion())
+        .angle
+    )
+    check(
+        "create_locator_at_object: a group's locator sits on its contents' centre, "
+        "turned like the group",
+        (_crtloc.matrix_world.translation - _ctr).length < 1e-5 and _turn < 1e-5,
+        f"{tuple(_crtloc.matrix_world.translation)} vs {tuple(_ctr)}, off by {_turn:.5f} rad",
+    )
+    check(
+        "create_locator_at_object: the group and its contents stay put; the group freezes "
+        "and keeps its name",
+        _close(_crt.matrix_world, _crtw)
+        and _close(_btl.matrix_world, _btlw)
+        and _close(_crt.matrix_basis, Matrix.Identity(4))
+        and _crt.name == "Crate_grp",
+        f"moved {_delta(_btl.matrix_world, _btlw):.4f}, name {_crt.name}",
+    )
+
+    # ---- an object named exactly its stem hands that name to its locator ----------------
+    # Blender names are global: built before the object was renamed, the locator found
+    # its stem taken and became "Vase.001" (measured, with a convention that disables the
+    # locator affix). mayatk's locator is "Vase".
+    reset()
+    _vs = cube("Vase")
+    _vsloc = RigUtils.create_locator_at_object(
+        _vs, loc_suffix="", obj_suffix="_GEO", obj_affix_mode="suffix"
+    )[0]
+    check(
+        "create_locator_at_object: an empty locator affix names the locator its bare stem",
+        _vsloc.name == "Vase" and _vs.name == "Vase_GEO",
+        f"{_vsloc.name} / {_vs.name}",
+    )
+
+    # ---- remove_locator takes any locator Maya sent across, as mayatk takes any locator ----
+    # A Maya locator arrives as an Empty stamped maya_node_type="locator" (the pull's
+    # tagging), with no rig stamp and, under a studio's names, no "_LOC" to go by.
+    reset()
+    _snap = _empty("snap_point", Matrix.Translation((0, 0, 4)))
+    _snap["maya_node_type"] = "locator"
+    _bolt = cube("bolt")
+    _bolt.parent = _snap
+    _bolt.matrix_basis = Matrix.Translation((1, 0, 0))
+    _asm = _empty("assembly")
+    _asm["maya_node_type"] = "group"
+    cube("part").parent = _asm
+    bpy.context.view_layer.update()
+    _boltw = [list(r) for r in _bolt.matrix_world]
+    _snap_removed = RigUtils.remove_locator([_snap, _asm])
+    bpy.context.view_layer.update()
+    check(
+        "remove_locator: a Maya-typed locator dissolves, its child kept in place; a "
+        "Maya-typed group is no locator",
+        _snap_removed == ["snap_point"]
+        and "snap_point" not in bpy.data.objects
+        and _bolt.parent is None
+        and _close(_bolt.matrix_world, _boltw)
+        and "assembly" in bpy.data.objects,
+        f"{_snap_removed} / {_tree()}",
+    )
+
+    # ---- the group draws nothing, as a Maya group (the look the Maya pull gives one) -----
+    reset()
+    _lamp_loc = RigUtils.create_locator_at_object(cube("Lamp"))[0]
+    check(
+        "create_locator_at_object: the group draws nothing, as a Maya group",
+        abs(_lamp_loc.parent.empty_display_size - NodeUtils.MAYA_GROUP_DISPLAY_SIZE)
+        < 1e-9,
+        f"{_lamp_loc.parent.empty_display_size}",
+    )
+
+    # ---- group_display="ring": a handle that never takes the locator's centre click ------
+    # The tiny group still sits under the locator's centre, so a second click there
+    # cycles to it; a circle clear of the locator's axes draws nothing at the centre.
+    reset()
+    _bell_loc = RigUtils.create_locator_at_object(
+        cube("Bell"), loc_scale=2.0, group_display="ring"
+    )[0]
+    _bell_grp = _bell_loc.parent
+    check(
+        "create_locator_at_object: group_display='ring' draws the group as a circle "
+        "clear of the locator's axes -- still a Maya group",
+        _bell_grp.empty_display_type == "CIRCLE"
+        and abs(_bell_grp.empty_display_size - 2.0 * RigUtils.LOCATOR_RING_SCALE) < 1e-6
+        and RigUtils.LOCATOR_RING_SCALE > 1.0
+        and NodeUtils.get_maya_node_type(_bell_grp) == "group"
+        and abs(_bell_loc.empty_display_size - 2.0) < 1e-6,
+        f"{_bell_grp.empty_display_type} {_bell_grp.empty_display_size}",
+    )
+    _gong = cube("Gong")
+    _count = len(bpy.data.objects)
+    try:
+        RigUtils.create_locator_at_object(_gong, group_display="halo")
+        _raised = False
+    except ValueError:
+        _raised = True
+    check(
+        "create_locator_at_object: an unknown group_display raises before anything moves",
+        _raised
+        and len(bpy.data.objects) == _count
+        and _gong.parent is None
+        and _gong.name == "Gong",
+        f"raised={_raised} {_tree()}",
+    )
+
+    # ---- freeze_object=False keeps the object's channels (mayatk's flag) -----------------
+    reset()
+    _kp = cube("Keep")
+    _kp.matrix_basis = Matrix.LocRotScale(
+        Vector((3, 0, 1)), Euler((0, 0, 0.5)).to_quaternion(), Vector((1, 1, 2))
+    )
+    bpy.context.view_layer.update()
+    _kpb = [list(r) for r in _kp.matrix_basis]
+    _kpw = [list(r) for r in _kp.matrix_world]
+    _kploc = RigUtils.create_locator_at_object(_kp, freeze_object=False)[0]
+    bpy.context.view_layer.update()
+    check(
+        "create_locator_at_object: freeze_object=False keeps the object's channels; the "
+        "locator is zeroed all the same",
+        _close(_kp.matrix_basis, _kpb)
+        and _close(_kp.matrix_world, _kpw)
+        and _close(_kploc.matrix_basis, Matrix.Identity(4)),
+        f"moved {_delta(_kp.matrix_world, _kpw):.4f}",
     )
 
 except Exception:

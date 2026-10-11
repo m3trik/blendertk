@@ -50,7 +50,13 @@ class BlenderExportMixin:
 
     #: ``FbxUtils.STAGERS`` names this bridge's write runs (mirror of mayatk's
     #: ``export_stagers``).  A stager mutates the scene for the write and undoes
-    #: it after; it produces no record.  Which RECORDS a hand-off refreshes is
+    #: it after; it produces no record.  A bridge whose consumer READS the
+    #: curve-proxy transport (the Unity importers rebind it) names
+    #: ``"render_effects"`` and ``"emissive_groups"``: each keyed channel or
+    #: weight is staged as one proxy Empty, which the write ships beside the
+    #: object it hangs under.  Not the default: a bake or DCC hand-off has no
+    #: consumer for a ``<node>__opacity`` child and would ship it as a stray
+    #: Empty.  Which RECORDS a hand-off refreshes is
     #: not a bridge decision: the write runs with a HANDOFF context, which
     #: refreshes exactly the ``ptk.Kind.DERIVED`` records (the visibility tracks
     #: read the curves themselves, which an artist edits between one push and
@@ -67,11 +73,24 @@ class BlenderExportMixin:
     #: very bones. Mirror of mayatk's flag of the same name.
     drop_rig_apparatus: bool = False
 
+    #: Bake the scene's animation (and split its declared takes) when the
+    #: request does not say: the ``INCLUDE_ANIMATION`` param wins whenever it is
+    #: given. A bridge whose consumer plays the FBX's animation and whose panel
+    #: offers no animation knob opts in -- the Unity bridge, whose importer
+    #: builds the clips from the FBX's takes (Blender's exporter writes no take
+    #: at all unless it bakes). Mirror of mayatk's flag of the same name.
+    include_animation: bool = False
+
     def _export_stagers(self) -> Tuple[str, ...]:
         """:attr:`export_stagers` as a tuple -- the stager names this bridge's
         write runs under (which RECORDS refresh is the context's call, not a
         bridge's; see :attr:`export_stagers`)."""
         return tuple(self.export_stagers)
+
+    def _includes_animation(self, params: Dict[str, Any]) -> bool:
+        """Whether this send carries animation: ``INCLUDE_ANIMATION`` when
+        *params* gives it, else :attr:`include_animation`."""
+        return bool(params.get("INCLUDE_ANIMATION", self.include_animation))
 
     def lightmap_search_dirs(self) -> List[str]:
         """Where Blender's map files live now (:class:`pythontk.PreviewBridge` hook).
@@ -320,7 +339,7 @@ class BlenderExportMixin:
             embed_textures=bool(params.get("EMBED_TEXTURES", True)),
             path_mode=("COPY" if params.get("EMBED_TEXTURES", True) else "AUTO"),
             use_triangles=bool(params.get("TRIANGULATE", False)),
-            bake_anim=bool(params.get("INCLUDE_ANIMATION", False)),
+            bake_anim=self._includes_animation(params),
             # One scene-range AnimStack with ABSOLUTE times: the exporter's default
             # multi-stack modes write one start-zeroed stack per action, so a clip
             # keyed at 10-90 arrives in the target at 0-80 (measured on the pull
@@ -354,21 +373,13 @@ class BlenderExportMixin:
         try:
             fbx_opts = self._fbx_options(params)
             carrier = self._data_export_carrier()
-            if carrier:
-                # Forced HERE rather than declared in _fbx_options, which subclasses
-                # override wholesale: the exporter drops custom properties by default and
-                # excluded object types outright, so either omission ships an Empty named
-                # `data_export` carrying nothing -- the failure that looks most like
-                # success. Shipping the carrier and shipping what makes it readable are
-                # one decision, so they cannot be separated by an override.
-                fbx_opts["use_custom_props"] = True
-                # Through the shared coercion, not a bare set(): a preset-sourced
-                # `object_types` can be a list or even a single string, and set("MESH")
-                # explodes into characters.
-                types = btk.FbxUtils._as_object_types(
-                    fbx_opts.get("object_types") or {"MESH"}
-                )
-                fbx_opts["object_types"] = types | {"EMPTY"}
+            # Forced HERE rather than declared in _fbx_options, which subclasses
+            # override wholesale: the exporter drops custom properties by default and
+            # excluded object types outright, so either omission ships an Empty named
+            # `data_export` carrying nothing -- the failure that looks most like
+            # success. The shared step the write itself takes too (it coerces a
+            # list- or string-shaped `object_types`, which set("MESH") would explode).
+            btk.FbxUtils._force_carrier_readability(carrier, fbx_opts)
             if self.drop_rig_apparatus:
                 # Forced here for the carrier's reason: _fbx_options is
                 # overridden wholesale, and the flag must survive that.
@@ -377,7 +388,7 @@ class BlenderExportMixin:
             # Guards the reset below on having ATTEMPTED the split rather than on
             # having armed one, mirroring mayatk: a raise inside ``apply_takes``
             # would otherwise leave armed state behind with nothing to clear it.
-            wants_animation = bool(params.get("INCLUDE_ANIMATION", False))
+            wants_animation = self._includes_animation(params)
             if wants_animation:
                 # Realize the shots the scene DECLARES as named AnimStacks, so every
                 # animated hand-off carries per-shot clips rather than one
@@ -448,7 +459,17 @@ class BlenderExportMixin:
                 for o in dup_of:
                     if o.parent in dup_of:
                         dup_of[o].parent = dup_of[o.parent]
+                # A curve proxy the open staging hung under a copied object
+                # rides the copy for the write, as Maya's strip copy carries
+                # its children: the write ships a staged node only beside its
+                # parent, and the original stays out of the file. Unity binds a
+                # proxy by its parent's path, so the fade lands on the copy.
+                moved = []  # (proxy, original parent)
                 try:
+                    for node in btk.FbxUtils._staged_nodes():
+                        if node.parent in dup_of:
+                            moved.append((node, node.parent))
+                            node.parent = dup_of[node.parent]
                     for obj, _ in dups:
                         data = getattr(obj, "data", None)
                         if data is not None and hasattr(data, "materials"):
@@ -459,6 +480,14 @@ class BlenderExportMixin:
                         **fbx_opts,
                     )
                 finally:
+                    # Back under its original before the copies go: the
+                    # bracket's finish removes it, but a proxy re-rooted by a
+                    # removed parent would sit at the world origin until then.
+                    for node, original in moved:
+                        try:
+                            node.parent = original
+                        except ReferenceError:
+                            pass
                     for obj, copied_data in dups:
                         try:
                             bpy.data.objects.remove(obj, do_unlink=True)
@@ -518,7 +547,7 @@ class BlenderExportMixin:
                 "CENTIMETERS" if params.get("APPLY_UNIT_SCALE", True) else "METERS"
             ),
         )
-        if bool(params.get("INCLUDE_ANIMATION", False)):
+        if self._includes_animation(params):
             frame_range = btk.UsdUtils.sampling_frame_range(objects)
             if frame_range:
                 options["export_animation"] = True
@@ -577,13 +606,16 @@ class BlenderExportMixin:
                     "userProperties; whether the target reads them is not yet "
                     "verified on this route."
                 )
-            btk.UsdUtils.export(
-                filepath=usd_path,
-                objects=list(objects) + carrier,
-                selection_only=True,
-                frame_range=frame_range,
-                **usd_opts,
-            )
+            # Shown for the write, as the Scene Exporter's USD write shows it: a
+            # carrier in a hidden or excluded collection cannot be selected.
+            with btk.FbxUtils._carriers_shippable(carrier):
+                btk.UsdUtils.export(
+                    filepath=usd_path,
+                    objects=list(objects) + carrier,
+                    selection_only=True,
+                    frame_range=frame_range,
+                    **usd_opts,
+                )
 
     @staticmethod
     def _linked_duplicates(objects) -> Dict[str, List[str]]:

@@ -192,6 +192,21 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
             self.ui.slots.controller._shot_display_mode, ("current", "adjacent", "all")
         )
 
+    def test_playhead_to_shot_start_is_a_header_option(self):
+        """One global option, on by default, that the controller follows
+        (mayatk mirror, 2026-10-07)."""
+        chk = getattr(self.ui, "chk_playhead_to_shot_start", None)
+        self.assertIsNotNone(chk, "the header menu has no Playhead to Shot Start")
+        ctrl = self.ui.slots.controller
+        self.assertTrue(chk.isChecked())
+        self.assertTrue(ctrl._playhead_to_shot_start)
+        chk.setChecked(False)
+        try:
+            self.assertFalse(ctrl._playhead_to_shot_start)
+        finally:
+            chk.setChecked(True)
+        self.assertTrue(ctrl._playhead_to_shot_start)
+
     def test_transport_controls_attached_once(self):
         """Footer carries ONE TransportControls row wired to the Blender play controller."""
         from uitk.widgets.sequencer import TransportControls
@@ -223,10 +238,11 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
         ):
             self.assertTrue(callable(getattr(self.ui.slots, name, None)), name)
 
-    def test_delete_stale_shots_is_offered_asks_and_drops_records(self):
-        """The shot list's Delete Stale Shots (mayatk mirror): offered while a
-        stale shot exists, asks with the names, drops records only.  No bpy
-        here, so the store's two scene hooks stand in for the file."""
+    def test_delete_shots_offers_each_scope_asks_and_drops_records(self):
+        """The shot list's Delete Shots (mayatk mirror): a row per scope, on
+        while that scope holds a shot; Stale asks with the names and drops
+        records only.  The store's three scene hooks stand in for the file,
+        so a Blender host answers as the .venv does."""
         from unittest import mock
         from qtpy import QtCore
         from uitk.widgets.context_menu import ContextMenu
@@ -239,12 +255,23 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
         store.define_shot("LiveShot", 200, 220, objects=["Live"])
         store._existing_objects = lambda names: {n for n in names if n == "Live"}
         store._keyed_windows = lambda windows: [a <= 210 <= b for a, b in windows]
+        # "Live" keys inside LiveShot; "Gone" resolves to nothing, so GoneShot
+        # holds nothing and is Empty too (2026-10-10: Empty is what holds
+        # nothing, whatever it names). Unstubbed, a Blender host's real hook
+        # answered while the .venv's pure model never calls a shot empty.
+        store._members_keyed_windows = lambda entries: [
+            True if "Live" in names else None for names, _w in entries
+        ]
         offered, asked = {}, []
 
         def shown(menu, *args, **kwargs):
             for row in menu.list.get_items():
                 if callable(getattr(row, "text", None)):
                     offered[row.text()] = row.isEnabled()
+                    if row.text() == "Delete Shots":
+                        for child in row.sublist._row_widgets():
+                            if hasattr(child, "text"):
+                                offered[f"> {child.text()}"] = child.isEnabled()
 
         def answer(*args, **kwargs):
             asked.append(args[2])
@@ -253,15 +280,21 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
         try:
             with mock.patch.object(ContextMenu, "exec_", new=shown):
                 self.ui.slots._cmb_context_menu(QtCore.QPoint(0, 0))
-            self.assertTrue(offered.get("Delete Stale Shots…"), offered)
+            self.assertTrue(offered.get("Delete Shots"), offered)
+            self.assertEqual(
+                [offered.get(f"> {s}…") for s in ("Stale", "Empty", "All")],
+                [True, True, True],
+                offered,
+            )
             with mock.patch.object(
                 QtWidgets.QMessageBox, "question", new=staticmethod(answer)
             ):
-                ctl.delete_stale_shots()
+                ctl.delete_shots("stale")
             self.assertIn("GoneShot [100–120]", asked[0])
             self.assertEqual([s.name for s in store.shots], ["LiveShot"])
         finally:
             del store._existing_objects, store._keyed_windows
+            del store._members_keyed_windows
             for shot in list(store.shots):
                 store.remove_shot(shot.shot_id)
 
@@ -343,7 +376,8 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
         for name in (
             "_build_audio_tracks",
             "_clips_to_sequences",
-            "_move_clips_to_shot",
+            "_send_to_shot",
+            "_add_send_to_shot_menu",
             "_set_show_internal_holds",
             "_ensure_sound_on_timeline",
             "_setup_transport_controls",

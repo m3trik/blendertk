@@ -164,6 +164,7 @@ class TubeRigSlots(ptk.LoggingMixin):
                 bundle = rig.build(
                     name,
                     progress=self.sb.progress_adapter(update),
+                    reverse=self.ui.chk000.isChecked(),
                     **self._collect_opts(),
                 )
         except Exception as e:  # surface the engine's reason (e.g. non-tube mesh)

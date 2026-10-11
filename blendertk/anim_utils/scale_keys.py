@@ -28,6 +28,8 @@ Divergence from mayatk (by design):
   simpler math.
 """
 
+import pythontk as ptk
+
 
 class _ScaleKeysInternal(object):
     """Internal helpers for ScaleKeys."""
@@ -119,6 +121,8 @@ class ScaleKeys(_ScaleKeysInternal):
         include_rotation=False,
         split_static=True,
         merge_touching=False,
+        on_replace=None,
+        on_move=None,
     ):
         """Scale (retime) keyframes uniformly or via motion-aware speed normalization — mirror of
         ``mtk.scale_keys``/``ScaleKeys``.
@@ -141,9 +145,15 @@ class ScaleKeys(_ScaleKeysInternal):
           merely touch (end == start); reuses ``stagger_keys``'s same option.
         * ``pivot`` — explicit pivot frame; overrides the per-group/per-object auto pivot (each
           group's/object's own range start) for every block.
-        * ``snap_mode`` — post-scale key rounding, composed via :func:`snap_keys`: ``"nearest"``,
-          ``"floor"``, ``"ceil"``, ``"half_up"``, ``"preferred"``, ``"aggressive_preferred"``, or
-          ``"none"`` (default — no snapping).
+        * ``snap_mode`` — key rounding in the same pass (mayatk's): each SCALED key goes
+          straight to ``round_value(p + (x - p) * factor)`` -- ``"nearest"``, ``"floor"``,
+          ``"ceil"``, ``"half_up"``, ``"preferred"``, ``"aggressive_preferred"``, or ``"none"``
+          (default — no snapping).  Keys the scale did not move are never snapped.
+        * ``on_replace`` / ``on_move`` — as ``align_selected_keyframes``'s: a scaled key landing
+          on a key that did not scale replaces it; of scaled keys landing on one frame the
+          least moved (nearest its exact scaled time; an exact tie to the later source) is
+          kept and the others are replaced, reported at their source frames
+          (:meth:`AnimUtils._merge_landed`, mayatk's ``_move_curve_keys`` rule).
 
         Returns the number of keys scaled (0 if nothing matched or ``factor``/computed motion was
         invalid)."""
@@ -239,23 +249,36 @@ class ScaleKeys(_ScaleKeysInternal):
                         (b["start"], b["end"], p, block_factor)
                     )
 
+        snap = snap_mode if snap_mode and snap_mode != "none" else None
         keys_scaled = 0
         for fc, spans in spans_by_fc.values():
-            touched = False
+            moves = []
             for k in fc.keyframe_points:
                 x = k.co.x
                 for s, e, p, block_factor in spans:
                     if s - 1e-6 <= x <= e + 1e-6:
-                        k.co.x = p + (x - p) * block_factor
-                        k.handle_left.x = p + (k.handle_left.x - p) * block_factor
-                        k.handle_right.x = p + (k.handle_right.x - p) * block_factor
+                        ideal = p + (x - p) * block_factor
+                        new = (
+                            float(ptk.MathUtils.round_value(ideal, mode=snap))
+                            if snap
+                            else ideal
+                        )
+                        shift = new - ideal  # the handles scale, then ride the snap
+                        k.co.x = new
+                        k.handle_left.x = (
+                            p + (k.handle_left.x - p) * block_factor + shift
+                        )
+                        k.handle_right.x = (
+                            p + (k.handle_right.x - p) * block_factor + shift
+                        )
                         keys_scaled += 1
-                        touched = True
+                        moves.append((float(x), k, ideal))
                         break
-            if touched:
+            if moves:
+                # A key that did not scale (outside every span) or another scaled
+                # one it lands on is replaced: two points never share a frame.
+                replaced, pairs = AnimUtils._merge_landed(fc, moves)
                 fc.update()
-
-        if keys_scaled and snap_mode and snap_mode != "none":
-            AnimUtils.snap_keys([u["object"] for u in units], method=snap_mode)
+                AnimUtils._report_edit(fc, replaced, pairs, on_replace, on_move)
 
         return keys_scaled

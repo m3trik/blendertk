@@ -404,10 +404,14 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
         intent: ``PLAIN_AXES`` (Blender's default) reads as "structure" -- a
         parent becomes a Maya group, a leaf a locator -- while any OTHER
         display type is a deliberate marker and stays a locator even with
-        children. A ``maya_node_type`` custom property (stamped by the pull
-        direction on round-tripped scenes) overrides both.
+        children. A ``maya_node_type`` custom property
+        (``NodeUtils.MAYA_NODE_TYPE_PROP``: stamped by the pull direction on
+        round-tripped scenes, and by blendertk's own builders -- locator rigs,
+        locators, groups) overrides both.
         """
         import bpy
+
+        from blendertk.node_utils._node_utils import NodeUtils
 
         empties = []
         for obj in objects:
@@ -415,7 +419,7 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
             if obj is None or obj.type != "EMPTY":
                 continue
             entry = {"name": obj.name, "display_type": obj.empty_display_type}
-            node_type = obj.get("maya_node_type")
+            node_type = obj.get(NodeUtils.MAYA_NODE_TYPE_PROP)
             if node_type:
                 entry["maya_node_type"] = str(node_type)
             empties.append(entry)
@@ -453,7 +457,14 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
     # Principled input -> the manifest's logical-channel vocabulary (resolved
     # Maya-side via ``ptk.MapRegistry.resolve_type_from_channel``). Both the 4.x/5.x
     # and legacy socket spellings are listed so this survives a Blender rename.
-    # ``Normal`` is absent deliberately -- see :meth:`_material_slots`.
+    # ``Normal`` is absent deliberately -- see :meth:`_material_slots` -- and so is
+    # ``Coat Normal``, for the same reason. A LITERAL, not derived: mayatk's pull
+    # templates carry a verbatim copy (the target's Blender may lack blendertk) under
+    # a drift guard. The OpenPBR lobe sockets mirror the Game Shader's
+    # ``_PRINCIPLED_LOBES`` (pinned by test_maya_bridge). The specular LEVEL --
+    # ``Specular IOR Level``, and Blender < 4.0's ``Specular`` (0.5 = neutral) -- is
+    # ``specularWeight``; filed under ``specular`` (the tint) as it was, the Maya
+    # side read a level map as the specular COLOUR.
     _PRINCIPLED_CHANNELS = {
         "Base Color": "baseColor",
         "Metallic": "metallic",
@@ -461,8 +472,20 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
         "Alpha": "opacity",
         "Emission Color": "emission",
         "Emission": "emission",
-        "Specular IOR Level": "specular",
-        "Specular": "specular",
+        "Specular IOR Level": "specularWeight",
+        "Specular": "specularWeight",
+        "Specular Tint": "specular",
+        "Diffuse Roughness": "diffuseRoughness",
+        "Anisotropic": "anisotropy",
+        "Transmission Weight": "transmission",
+        "Subsurface Weight": "subsurface",
+        "Subsurface Scale": "subsurfaceRadius",
+        "Coat Weight": "coat",
+        "Coat Tint": "coatColor",
+        "Coat Roughness": "coatRoughness",
+        "Sheen Weight": "sheen",
+        "Sheen Tint": "sheenColor",
+        "Sheen Roughness": "sheenRoughness",
     }
 
     @classmethod
@@ -629,7 +652,7 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
 
         ``-command`` runs MEL on startup; have it exec our rendered Python template in
         Maya's ``__main__``. It names no path: maya.exe decodes its command line in the
-        ANSI code page (measured on Maya 2025: "Жук" arrived as "???"), and the script
+        ANSI code page (measured on Maya 2025: Cyrillic arrived as "???"), and the script
         sits beside the payload under %TEMP%, which holds the user's name. The deliverer
         always carries the path in the child env (``ptk.AppLauncher.PYTHON_ARGV_VAR``,
         item 0), and the MEL reads it from there. The file is compiled from BYTES:

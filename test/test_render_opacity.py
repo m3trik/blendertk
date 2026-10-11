@@ -22,7 +22,7 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
@@ -287,13 +287,27 @@ try:
     c.data.materials.append(mat("Rm"))
     RenderEffects.create([c])
     RenderEffects.key_fade([c], start=1, end=10, direction="in")
+    bpy.context.scene.frame_set(1)  # before the fade-in: the mirror hides it
     RenderEffects.remove([c])
+    check("remove leaves the object rendered", c.hide_render is False)
     check("remove deletes the opacity prop", RenderEffects.ATTR_NAME not in c)
     check(
         "remove deletes opacity + visibility curves",
         fcurve(c, '["opacity"]') is None and fcurve(c, "hide_render") is None,
     )
     check("remove deletes the Alpha driver", alpha_driver(c.data.materials[0]) is None)
+    # An object in the scope that never carried the channel is the user's: remove
+    # un-hid it from render and dropped its own visibility keys (mayatk's remove
+    # touches only objects that have the channel). Added: 2026-10-10
+    plain = cube("RemPlain")
+    RenderEffects._set_key(plain, "hide_render", 1, 1.0, "CONSTANT")  # its own key
+    plain.hide_render = True
+    RenderEffects.remove([plain])
+    check(
+        "remove leaves an object without the channel hidden, its keys kept",
+        plain.hide_render is True and fcurve(plain, "hide_render") is not None,
+        f"hide_render={plain.hide_render}",
+    )
 
     # ==================== VISIBILITY TRACKS (glTF route) ====================
     # Mirror of mayatk's TestVisibilityTracksProducer. glTF animates only

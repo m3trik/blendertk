@@ -448,10 +448,11 @@ class LightmapRecords(ptk.LoggingMixin):
     def project_root() -> Optional[str]:
         """The project this file's lightmaps belong to; ``None`` without one
         (``EnvUtils.scene_project_root``: the workspace blendertk's workspace
-        tool names, the .blend's own project when a pin does not hold it).
-        Mirror of mayatk's. A bake writes no map outside it
-        (``LightmapBaker.beside_textures``) and sets none aside there
-        (:meth:`superseding`).
+        tool names, narrowed to the .blend's own marked project inside it; the
+        .blend's own project when a pin does not hold it; a foreign scene
+        opened as new resolved as its source). Mirror of mayatk's. A bake
+        writes no map outside it (``LightmapBaker.beside_textures``) and sets
+        none aside there (:meth:`superseding`).
         """
         from blendertk.env_utils._env_utils import EnvUtils
 
@@ -741,10 +742,12 @@ class LightmapRecords(ptk.LoggingMixin):
         and never writes.
 
         Parameters:
-            ctx: The export's decisions (unused: the manifest is a function of
-                the markers alone).
+            ctx: The export's decisions; only its ``scope`` is read. A scoped
+                export names the export set's objects alone (the record is
+                ``export_scoped``): a marker outside it ships its map with
+                nothing to bind it to.
         """
-        return cls._record()
+        return cls._record(ctx.scope)
 
     @classmethod
     def refresh_export_metadata(cls) -> Optional[str]:
@@ -777,16 +780,17 @@ class LightmapRecords(ptk.LoggingMixin):
         return record.text if record is not None else None
 
     @classmethod
-    def _record(cls) -> Optional[ptk.Record]:
+    def _record(cls, objects=None) -> Optional[ptk.Record]:
         """(Re)build the lightmap manifest record from the file's markers.
 
         One entry per marked object, or ``None`` when no lightmapped object
-        remains. camelCase keys match unitytk's ``LightmapRecord``. No
+        remains; *objects* scopes it like :meth:`_marker_records` (``None`` =
+        the file). camelCase keys match unitytk's ``LightmapRecord``. No
         ``hierarchy``: Blender object names are unique in the file, so the name
         alone tells objects apart.
         """
         entries: List[Dict[str, Any]] = []
-        for obj, info in cls._marker_records():
+        for obj, info in cls._marker_records(objects):
             # Publish the lightmap layer's REAL channel index (mirrors mayatk):
             # Unity's native lightmaps only sample uv2 (index 1), so anything
             # else is warned about instead of hidden behind a hardcoded 1.
@@ -1159,6 +1163,66 @@ class LightmapRecords(ptk.LoggingMixin):
         if count:
             cls._publish()
         return count
+
+    @classmethod
+    def rename_lightmap(cls, old_name: str, new_name: str) -> int:
+        """Re-stamp every record naming map *old_name* with *new_name*.
+
+        Mirror of mayatk's. A lightmap is bound by its file NAME: the markers
+        (``info["map"]``), this file's folder and writer records (keyed by the
+        lower-case name) and the manifest the deliverable ships all name it,
+        so a file renamed on disk read as a missing lightmap. The rename
+        follows the file -- which the caller renames
+        (``MatUtils.rename_texture_file``); files are never touched here.
+        Matched case-insensitively, file-wide (a map is one file whoever reads
+        it). One undo step. (mayatk's also re-stamps its reflection probe's
+        record; a Blender bake writes no probe yet.)
+
+        Parameters:
+            old_name: The map's file name (or path) as the records name it.
+            new_name: Its new file name (or path; only the name is kept).
+
+        Returns:
+            How many markers now name *new_name*.
+
+        Raises:
+            ValueError: A LINKED object's marker names the map -- its marker
+                is its library's, so the rename belongs there; nothing is
+                re-stamped.
+        """
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        old_key = cls._hint_key(old_name)
+        new_name = os.path.basename(str(new_name or ""))
+        if not old_key or not new_name or os.path.basename(str(old_name)) == new_name:
+            return 0
+        named = [
+            (obj, info)
+            for obj, info in cls._marker_records()
+            if cls._hint_key(info.get("map")) == old_key
+        ]
+        linked = [obj.name for obj, _info in named if obj.library is not None]
+        if linked:
+            raise ValueError(
+                f"{old_name} is bound by linked object(s) {', '.join(linked)}: "
+                "their markers are their library's -- rename it there."
+            )
+        with CoreUtils.undo_chunk("Rename Lightmap"):
+            for obj, info in named:
+                info["map"] = new_name
+                cls._write_marker(obj, info)
+            new_key = cls._hint_key(new_name)
+            for load, save in (
+                (cls._folder_hints, cls._save_folder_hints),
+                (cls._writers, cls._save_writers),
+            ):
+                record = load()
+                if old_key in record:
+                    record[new_key] = record.pop(old_key)
+                    save(record)
+            if named:
+                cls._publish()
+        return len(named)
 
     # --------------------------------------------------------- transfer
     @classmethod

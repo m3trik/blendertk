@@ -44,7 +44,8 @@ except ImportError:  # pragma: no cover - Qt absent (Blender's headless Python)
     TooltipFormat = None
     ShotManifestController = None
 
-_SLOTS = "blendertk.anim_utils.shots.shot_manifest.shot_manifest_slots"
+# Where _load_csv lives (and reads ManifestModel from).
+_SOURCE = "blendertk.anim_utils.shots.shot_manifest.manifest_source"
 
 
 def _make_stub_controller():
@@ -87,7 +88,7 @@ class LoadCsvUrlSourceTest(unittest.TestCase):
 
     def test_url_skips_the_file_gate_and_loads(self):
         ctrl = _make_stub_controller()
-        with patch(f"{_SLOTS}.ManifestModel.parse_csv", return_value=[]) as parse:
+        with patch(f"{_SOURCE}.ManifestModel.parse_csv", return_value=[]) as parse:
             ShotManifestController._load_csv(ctrl, self._URL)
 
         self.assertEqual(parse.call_args.args[0], self._URL)
@@ -97,7 +98,7 @@ class LoadCsvUrlSourceTest(unittest.TestCase):
     def test_fetch_failure_reports_the_fetch_not_the_disk(self):
         ctrl = _make_stub_controller()
         err = ptk.RemoteFile.Error("Can't fetch https://x: HTTP 404 Not Found.")
-        with patch(f"{_SLOTS}.ManifestModel.parse_csv", side_effect=err):
+        with patch(f"{_SOURCE}.ManifestModel.parse_csv", side_effect=err):
             ok = ShotManifestController._load_csv(ctrl, self._URL)
 
         self.assertFalse(ok)
@@ -117,7 +118,7 @@ class LoadCsvUrlSourceTest(unittest.TestCase):
     def test_fetch_failure_reason_reaches_the_tooltip_too(self):
         ctrl = _make_stub_controller()
         err = ptk.RemoteFile.Error("Can't fetch https://x: HTTP 404 Not Found.")
-        with patch(f"{_SLOTS}.ManifestModel.parse_csv", side_effect=err):
+        with patch(f"{_SOURCE}.ManifestModel.parse_csv", side_effect=err):
             ShotManifestController._load_csv(ctrl, self._URL)
 
         tip = ctrl.ui.txt_csv_path.setToolTip.call_args.args[0]

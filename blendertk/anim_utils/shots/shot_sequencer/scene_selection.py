@@ -8,8 +8,9 @@ and deleting tracks; mirroring clip, track, channel and key selections onto the
 scene (outliner, channels, Graph Editor); the track and header context menus.
 """
 
+import pythontk as ptk
+
 from blendertk.anim_utils._anim_utils import AnimUtils
-from blendertk.anim_utils.shots._shots import BlenderShotStore
 from blendertk.anim_utils.shots.shot_sequencer.clip_motion import ClipMotionMixin
 
 
@@ -223,6 +224,25 @@ class SceneSelectionMixin:
             for fc in ClipMotionMixin.curves_for_attrs(obj.name, attrs):
                 fc.select = True
 
+    def _select_key_objects(self, obj_names) -> None:
+        """Add the selected keys' objects to the object selection (mirror of
+        mayatk's): the Graph Editor lists only the selected objects' curves
+        (Only Show Selected), so a key on an unselected object is selected
+        where nobody can see it.  Added, not replaced -- a wider selection
+        stays -- and nothing is opened.
+        """
+        try:
+            import bpy
+        except ImportError:
+            return
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        with CoreUtils.window_context_override():
+            view_layer = bpy.context.view_layer
+            for obj in self._resolve_objects(obj_names):
+                if obj.name in view_layer.objects and not obj.select_get():
+                    obj.select_set(True)
+
     @staticmethod
     def _resolve_objects(names) -> list:
         """The ``bpy`` objects named by *names*, in order; missing ones dropped.
@@ -315,27 +335,17 @@ class SceneSelectionMixin:
     @staticmethod
     def _apply_key_selection(rows) -> int:
         """Select exactly the ``(obj, attr, times)`` *rows*' keys; return the
-        count.  Every keyframe point in the scene is deselected first, as
-        mayatk's ``selectKey(clear=True)`` clears every curve -- an emptied
-        panel selection must not leave keys selected on other objects for the
-        next Graph Editor / Dope Sheet operation to act on -- handles
-        included, or a stale handle selection outlives the edit."""
+        count.  Every keyframe point in the scene is deselected first
+        (``AnimUtils.clear_key_selection``, as mayatk's twin clears every
+        curve) -- an emptied panel selection must not leave keys selected on
+        other objects for the next Graph Editor / Dope Sheet operation to act
+        on -- handles included, or a stale handle selection outlives the
+        edit."""
         try:
-            import bpy
+            import bpy  # noqa: F401 -- no Blender, no keys to select
         except ImportError:
             return 0
-        for obj in bpy.data.objects:
-            for fc in BlenderShotStore.iter_action_fcurves(obj):
-                n = len(fc.keyframe_points)
-                if not n:
-                    continue
-                off = [False] * n
-                for prop in (
-                    "select_control_point",
-                    "select_left_handle",
-                    "select_right_handle",
-                ):
-                    fc.keyframe_points.foreach_set(prop, off)
+        AnimUtils.clear_key_selection()
         n = 0
         for obj_name, attr_name, times in rows:
             if not attr_name or not times:
@@ -364,6 +374,7 @@ class SceneSelectionMixin:
             # down.  Mirroring that would clear the user's Graph Editor key
             # selection on every refresh.
             return
+        self._show_key_selection(key_groups)
         widget = self._get_sequencer_widget()
         if widget is None:
             return
@@ -377,7 +388,9 @@ class SceneSelectionMixin:
             if not obj_name or not attr_name:
                 continue
             rows.append((obj_name, attr_name, group["times"]))
-        n = self._apply_key_selection(rows)
+        if rows:
+            self._select_key_objects([o for o, _a, _t in rows])
+        self._apply_key_selection(rows)
         if rows:
             # The picked keys' channels become the channel selection, as mayatk
             # mirrors them onto the Channel Box.  An EMPTIED key selection says
@@ -387,5 +400,25 @@ class SceneSelectionMixin:
                 list(dict.fromkeys(o for o, _a, _t in rows)),
                 list(dict.fromkeys(a for _o, a, _t in rows)),
             )
-        if n:
-            self._set_footer(f"{n} key{'s' if n != 1 else ''} selected")
+
+    def _show_key_selection(self, key_groups: list) -> None:
+        """Put the selected keys on the footer -- how many, their frame range,
+        on which channels of which objects
+        (``ShotSequencer.describe_key_selection``; 2026-10-10: "footer should
+        show key specific info when keys are selected like frame range,
+        etc").  An emptied key selection leaves the footer as it is: the clip
+        selection that outlives it already wrote it."""
+        widget = self._get_sequencer_widget()
+        if widget is None:
+            return
+        rows = []
+        for group in key_groups:
+            clip = widget.get_clip(group["clip_id"])
+            if clip is not None:
+                data = clip.data
+                rows.append(
+                    (data.get("obj") or "", data.get("attr_name"), group["times"])
+                )
+        text = ptk.ShotSequencer.describe_key_selection(rows)
+        if text:
+            self._set_footer(text)

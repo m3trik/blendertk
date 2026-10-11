@@ -12,7 +12,7 @@ for p in (REPO, os.path.join(MONO, "pythontk")):
 
 lines = []
 def check(name, cond, detail=""):
-    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}")
 
 def approx(a, b, tol=1e-3):
     return abs(a - b) <= tol
@@ -554,6 +554,57 @@ try:
     check("separate_objects(center_pivots) drops the stale T bake",
           btk.XformUtils.get_stored_transforms(s0) is None,
           f"{btk.XformUtils.get_stored_transforms(s0)}")
+
+    # ---------------------------------------------------------------- rotate order
+    # mayatk's SOCKET_WRENCH: lifted 98 on X, then turned 60 about its OWN Y. "auto"
+    # finds a Y-first order from the keys, keeps every key's pose, and the turn keys ry alone.
+    import math
+    from mathutils import Euler, Matrix
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add(); wr = bpy.context.active_object
+    wr.rotation_mode = "XYZ"
+    _lift = Euler((math.radians(98.3), math.radians(-6.4), math.radians(-0.15)), "XYZ")
+    _turn = (_lift.to_matrix() @ Matrix.Rotation(math.radians(60), 3, "Y")).to_euler("XYZ", _lift)
+    for _f, _e in ((1, Euler((0, 0, 0), "XYZ")), (10, _lift), (20, _turn)):
+        wr.rotation_euler = _e
+        wr.keyframe_insert("rotation_euler", frame=_f)
+
+    def _rot_at(o, f):
+        bpy.context.scene.frame_set(f)
+        return o.matrix_world.to_3x3().copy()
+
+    def _max_diff(a, b):
+        return max(abs(x - y) for ra, rb in zip(a, b) for x, y in zip(ra, rb))
+
+    _before = {f: _rot_at(wr, f) for f in (1, 10, 20)}
+    _changed = btk.XformUtils.set_rotate_order(wr, "auto")
+    check("set_rotate_order(auto): a Y turn gets a Y-first order",
+          len(_changed) == 1 and wr.rotation_mode[0] == "Y", wr.rotation_mode)
+    check("set_rotate_order(auto): every key keeps its pose",
+          all(_max_diff(_rot_at(wr, f), m) < 1e-4 for f, m in _before.items()))
+    bpy.context.scene.frame_set(10); _r10 = tuple(wr.rotation_euler)
+    bpy.context.scene.frame_set(20); _r20 = tuple(wr.rotation_euler)
+    check("set_rotate_order(auto): the turn moves one channel",
+          [abs(b - a) > 1e-4 for a, b in zip(_r10, _r20)].count(True) == 1, f"{_r10} -> {_r20}")
+    reset()
+    bpy.ops.mesh.primitive_cube_add(); hinge = bpy.context.active_object
+    for _f, _y in ((1, 0.0), (10, 1.2)):
+        hinge.rotation_euler = (0.0, _y, 0.0)
+        hinge.keyframe_insert("rotation_euler", frame=_f)
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0)); still = bpy.context.active_object
+    still.rotation_euler = (0.3, 0.6, 0.9)
+    check("set_rotate_order(auto): a hinge and an unkeyed object are left alone",
+          btk.XformUtils.set_rotate_order([hinge, still], "auto") == []
+          and hinge.rotation_mode == "XYZ" and still.rotation_mode == "XYZ")
+    # matrix_world is stale until an evaluation, on BOTH sides of the change: read
+    # before one, the baseline is the cube's creation pose, not (0.3, 0.6, 0.9).
+    bpy.context.view_layer.update()
+    _m = still.matrix_world.copy()
+    btk.XformUtils.set_rotate_order(still, "zyx")
+    bpy.context.view_layer.update()
+    check("set_rotate_order: an unkeyed object keeps its pose in the new order",
+          still.rotation_mode == "ZYX" and _max_diff(still.matrix_world, _m) < 1e-5)
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

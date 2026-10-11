@@ -20,7 +20,7 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
@@ -283,6 +283,121 @@ try:
         "assign to selection assigns the one material",
         list(target.data.materials) == [mat_a],
         f"{[m.name for m in target.data.materials if m]}",
+    )
+
+    # --- OpenPBR lobes: Principled IS the OpenPBR model -------------------------
+    # Twin of mayatk's openPBRSurface lobe wiring, from the same pythontk table.
+    # Before it, coat/sheen/transmission maps classified as base maps (a coat
+    # roughness WAS the roughness) or landed in "no matching Principled input".
+    import pythontk as ptk
+
+    grey = lambda x, y: (0.4, 0.4, 0.4, 1.0)  # noqa: E731
+    lobe_files = [
+        write_png(f"lobe_{t}.png", grey)
+        for t in (
+            "Base_Color",
+            "Roughness",
+            "Coat_Roughness",
+            "Coat_Normal",
+            "Sheen_Color",
+            "Transmission",
+            "Specular",
+            "Specular_Level",
+            "Thin_Film_Thickness",
+            "Anisotropy_Angle",
+        )
+    ]
+    lobe_plan = MatUtils.resolve_pbr_plan(lobe_files)
+    lobe_mat = MatUtils.create_pbr_material(lobe_files, name="gs_lobes", plan=lobe_plan)
+    lobe_bsdf = principled(lobe_mat)
+
+    def source_type(input_name):
+        """Map type of the image feeding *input_name*, through converter nodes."""
+        sock = lobe_bsdf.inputs.get(input_name)
+        frontier = [link.from_node for link in sock.links] if sock else []
+        seen = set()
+        while frontier:
+            node = frontier.pop()
+            if node.type == "TEX_IMAGE":
+                return ptk.MapFactory.resolve_map_type(
+                    os.path.basename(node.image.filepath)
+                )
+            if node.name in seen:
+                continue
+            seen.add(node.name)
+            for inp in node.inputs:
+                frontier.extend(link.from_node for link in inp.links)
+        return None
+
+    for input_name, expected in (
+        ("Roughness", "Roughness"),
+        ("Coat Roughness", "Clearcoat_Roughness"),
+        ("Coat Normal", "Clearcoat_Normal"),
+        ("Sheen Tint", "Sheen_Color"),
+        ("Transmission Weight", "Transmission"),
+        ("Specular IOR Level", "Specular_Level"),
+        ("Thin Film Thickness", "Thin_Film_Thickness"),
+        ("Anisotropic Rotation", "Anisotropy_Angle"),
+    ):
+        got = source_type(input_name)
+        check(f"lobe: {input_name} <- {expected}", got == expected, got)
+    check(
+        "lobe: a coat / sheen parameter opens its weight",
+        lobe_bsdf.inputs["Coat Weight"].default_value == 1.0
+        and lobe_bsdf.inputs["Sheen Weight"].default_value == 1.0,
+        (
+            lobe_bsdf.inputs["Coat Weight"].default_value,
+            lobe_bsdf.inputs["Sheen Weight"].default_value,
+        ),
+    )
+    check(
+        "lobe: a specular level outranks the loose Specular, which loads nothing",
+        "Specular" not in lobe_plan["wired"] and "Specular_Level" in lobe_plan["wired"],
+        sorted(lobe_plan["wired"]),
+    )
+    check(
+        "lobe: the loose Specular names what displaced it",
+        GameShaderSlots._shadowed_by("Specular", lobe_plan["by_type"])
+        == "Specular_Level already drives that input",
+        GameShaderSlots._shadowed_by("Specular", lobe_plan["by_type"]),
+    )
+    check(
+        "lobe: no lobe map is reported as having no Principled input",
+        not lobe_plan["unhandled"],
+        lobe_plan["unhandled"],
+    )
+    film = lobe_bsdf.inputs["Thin Film Thickness"].links[0].from_node
+    check(
+        "lobe: thin film micrometres reach Principled as nanometres",
+        film.type == "MATH" and film.inputs[1].default_value == 1000.0,
+        (film.type, film.inputs[1].default_value),
+    )
+
+    # --- A set named for a lobe word (``Hero_Coat``) wires BASE maps ------------
+    # Read file by file `Hero_Coat_Roughness` is a coat roughness of a set `Hero`;
+    # read with its set (`ptk.MapFactory.resolve_map_types`) it is the garment's
+    # own roughness, and the material keeps the set's whole name.
+    coat_files = [
+        write_png(f"Hero_Coat_{t}.png", grey)
+        for t in ("BaseColor", "Roughness", "Normal", "Color")
+    ]
+    coat_plan = MatUtils.resolve_pbr_plan(coat_files)
+    check(
+        "lobe-named set: its maps are base maps",
+        sorted(coat_plan["by_type"]) == ["Base_Color", "Normal", "Roughness"],
+        sorted(coat_plan["by_type"]),
+    )
+    coat_mat = MatUtils.create_pbr_material(coat_files, plan=coat_plan)
+    check(
+        "lobe-named set: the material keeps the set's whole name",
+        coat_mat is not None and coat_mat.name == "Hero_Coat",
+        getattr(coat_mat, "name", None),
+    )
+    coat_bsdf = principled(coat_mat)
+    check(
+        "lobe-named set: no coat input is driven",
+        not coat_bsdf.inputs["Coat Roughness"].is_linked
+        and not coat_bsdf.inputs["Coat Normal"].is_linked,
     )
 
 except Exception as e:

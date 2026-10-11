@@ -12,6 +12,7 @@ running Blender — the no-import-side-effects rule).
 """
 
 import os
+from typing import ClassVar, Dict, Optional
 
 import pythontk as ptk
 
@@ -134,6 +135,10 @@ class _EnvUtilsInternal(object):
 
 class EnvUtils(_EnvUtilsInternal):
     """Namespace mirror of mayatk's ``EnvUtils`` (helpers also exposed module-level)."""
+
+    #: Files opened in place of a source scene (the Reference Manager's open-as-new
+    #: scratch twins in temp): normcased path -> that source (:meth:`set_scene_source`).
+    _scene_sources: ClassVar[Dict[str, str]] = {}
 
     @staticmethod
     def find_blend_files(root_dir, recursive=True, filter_text=""):
@@ -467,6 +472,50 @@ class EnvUtils(_EnvUtilsInternal):
         ws = EnvUtils.current_workspace(path)
         return ws.root if ws else ""
 
+    @classmethod
+    def set_scene_source(
+        cls, scene: str, source: Optional[str] = None
+    ) -> Optional[str]:
+        """Record that the file *scene* stands in for the scene *source*; ``None``
+        forgets it.
+
+        A foreign scene the Reference Manager opens as new is a scratch copy in
+        temp (``ptk.ScratchTwins``), but the work in it belongs to its source's
+        project: :meth:`scene_project_root` resolves such a file as its source.
+        Held for the session, like the pin (:meth:`set_current_workspace`).
+        Mirror of mayatk's.
+
+        Parameters:
+            scene: The file opened in place of *source*.
+            source: The scene it stands in for; ``None`` forgets *scene*.
+
+        Returns:
+            The recorded source (absolute), or ``None``.
+        """
+        if not scene:
+            return None
+        key = os.path.normcase(os.path.abspath(scene))
+        if not source:
+            cls._scene_sources.pop(key, None)
+            return None
+        cls._scene_sources[key] = os.path.abspath(source)
+        return cls._scene_sources[key]
+
+    @classmethod
+    def scene_source(cls, scene: Optional[str] = None) -> Optional[str]:
+        """The scene the file *scene* (default: the open .blend) stands in for
+        (:meth:`set_scene_source`), or ``None``. Mirror of mayatk's."""
+        if scene is None:
+            try:
+                import bpy
+
+                scene = bpy.data.filepath
+            except ImportError:  # headless .venv -- no bpy, no open file
+                scene = ""
+        if not scene:
+            return None
+        return cls._scene_sources.get(os.path.normcase(os.path.abspath(scene)))
+
     @staticmethod
     def scene_project_root():
         """The project the open file's files belong to; ``None`` without one.
@@ -476,22 +525,30 @@ class EnvUtils(_EnvUtilsInternal):
         the .blend's own folder) -- a .blend rarely sits in a marked project, so the
         workspace a user pins is what names one. A pin that does not hold the saved
         file belongs to another project, and the file's own
-        (``DataNodes.project_root``) stands instead: a pin left on that project must
-        not open its folders to this file. The boundary a tool keeps when it writes,
-        renames or retires files (a lightmap bake).
+        (``DataNodes.project_root_of``) stands instead: a pin left on that project
+        must not open its folders to this file. A pin that holds the file's own
+        marked project (a ``workspace.mel`` strictly below the pin) yields to it:
+        a pin on a folder of several projects would open the others' folders. A
+        file opened in place of a source scene (:meth:`scene_source`, the
+        Reference Manager's open-as-new scratch in temp) is resolved as its
+        source, so the pin its source lies under holds it. The boundary a tool
+        keeps when it writes, renames or retires files (a lightmap bake).
         """
         from blendertk.node_utils.data_nodes import DataNodes
 
         root = EnvUtils.workspace_root()
         scene = DataNodes.scene_path()
-        if (
-            root
-            and scene
-            and not ptk.FileUtils.is_under(
-                os.path.abspath(scene), os.path.abspath(root)
-            )
-        ):
-            root = DataNodes.project_root()
+        scene = EnvUtils.scene_source(scene) or scene
+        if root and scene:
+            scene, root = os.path.abspath(scene), os.path.abspath(root)
+            if not ptk.FileUtils.is_under(scene, root):
+                root = DataNodes.project_root_of(scene)
+            else:
+                marked = ptk.Workspace.find_containing(scene)
+                if marked is not None and ptk.FileUtils.is_under(
+                    marked.root, root, inclusive=False
+                ):
+                    root = marked.root
         return os.path.abspath(root) if root else None
 
     @staticmethod

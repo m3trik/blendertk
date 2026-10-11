@@ -18,7 +18,7 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
@@ -1350,7 +1350,10 @@ try:
 
     # move_keys_to_frame: a=6-26, b=31-51 after stagger. Global (retain_spacing): earliest
     # key (6) lands on the target, b keeps its +25 offset; per-action: both start at target.
-    moved = btk.move_keys_to_frame([a, b], frame=100, retain_spacing=True)
+    # Start is stated: "auto" anchors the END here (the keys sit before frame 100).
+    moved = btk.move_keys_to_frame(
+        [a, b], frame=100, retain_spacing=True, align="start"
+    )
     check(
         "move_keys_to_frame retain_spacing keeps offsets",
         moved == 2 and key_times(a)[0] == 100.0 and key_times(b)[0] == 125.0,
@@ -1447,6 +1450,509 @@ try:
         key_times(rep) == [0.0, 7.0, 10.0] and replaced == [(True, [7.0])],
         f"{key_times(rep)} {replaced}",
     )
+    # The reversed COPY (start_frame) inserts, and Blender's insert overwrites
+    # a key on its frame: one the edit keeps is replaced and named; a key its
+    # own copy lands on is re-keyed, not replaced (mirror of mayatk's).
+    replaced.clear()
+    bpy.ops.mesh.primitive_cube_add()
+    rep = bpy.context.active_object
+    key_obj(rep, (0, 3, 10))
+    rep_fc = btk.get_fcurves(rep)[0]
+    # t' = 10 - t: the copies of 0 and 10 trade frames, 3's lands on the empty 7.
+    btk.invert_keys(
+        rep, mode="time", start_frame=0, relative=False, on_replace=_on_replace
+    )
+    check(
+        "invert_keys reversed copy: on_replace names the kept keys a copy replaced",
+        key_times(rep) == [0.0, 3.0, 7.0, 10.0] and replaced == [(True, [0.0, 10.0])],
+        f"{key_times(rep)} {replaced}",
+    )
+    replaced.clear()
+    # relative start 0: t' = 20 - t, so 10 is its own copy -- nothing replaced.
+    btk.invert_keys(rep, mode="time", start_frame=0, on_replace=_on_replace)
+    check(
+        "invert_keys reversed copy: a key's own copy landing on it is no replacement",
+        replaced == [],
+        f"{key_times(rep)} {replaced}",
+    )
+
+    # on_move: the (old, new) frames of the keys an edit MOVED, per fcurve --
+    # what the shot system carries its claims along on (mirror of mayatk's).
+    moved = []
+
+    def _on_move(fc, pairs):
+        moved.append((fc == rep_fc, sorted(pairs)))
+
+    def _moving(fn, *args, **kwargs):
+        try:
+            fn(*args, on_move=_on_move, **kwargs)
+        except TypeError as exc:  # no on_move parameter: the check fails, not the run
+            moved.append(repr(exc))
+
+    def _fresh(frames):
+        bpy.ops.mesh.primitive_cube_add()
+        obj = bpy.context.active_object
+        key_obj(obj, frames)
+        return obj, btk.get_fcurves(obj)[0]
+
+    rep, rep_fc = _fresh((0, 3, 7, 10))
+    _select([3])
+    _moving(btk.align_selected_keyframes, rep, target_frame=5)
+    check(
+        "align_selected_keyframes on_move names the key it moved",
+        key_times(rep) == [0.0, 5.0, 7.0, 10.0] and moved == [(True, [(3.0, 5.0)])],
+        f"{key_times(rep)} {moved}",
+    )
+    moved.clear()
+    rep, rep_fc = _fresh((0, 3, 7, 10))
+    _select([0, 3, 10])  # over [0, 10]; 7 is replaced, not moved
+    _moving(btk.invert_keys, rep, mode="time", selected_only=True)
+    check(
+        "invert_keys(selected_only) on_move names every key it mirrored",
+        moved == [(True, [(0.0, 10.0), (3.0, 7.0), (10.0, 0.0)])],
+        f"{key_times(rep)} {moved}",
+    )
+    moved.clear()
+    rep, rep_fc = _fresh((0, 3, 10))
+    _moving(btk.invert_keys, rep, mode="time")  # in place over [0, 10]
+    check(
+        "invert_keys in place: on_move names every key (all of them move)",
+        key_times(rep) == [0.0, 7.0, 10.0]
+        and moved == [(True, [(0.0, 10.0), (3.0, 7.0), (10.0, 0.0)])],
+        f"{key_times(rep)} {moved}",
+    )
+    moved.clear()
+    rep, rep_fc = _fresh((0, 3, 10))
+    _moving(btk.invert_keys, rep, mode="time", start_frame=20, relative=False)
+    check(
+        "invert_keys reversed copy that keeps its sources moves nothing",
+        moved == [],
+        f"{key_times(rep)} {moved}",
+    )
+    moved.clear()
+    rep, rep_fc = _fresh((0, 3, 10))
+    _moving(
+        btk.invert_keys,
+        rep,
+        mode="time",
+        start_frame=20,
+        relative=False,
+        delete_original=True,
+    )
+    check(
+        "invert_keys reversed copy with delete_original moves every source",
+        key_times(rep) == [20.0, 27.0, 30.0]
+        and moved == [(True, [(0.0, 30.0), (3.0, 27.0), (10.0, 20.0)])],
+        f"{key_times(rep)} {moved}",
+    )
+
+    # The other key edits that land a key on a keyed frame or move keys: each
+    # REPLACES what it lands on -- two points never share a frame -- and reports
+    # it as align / invert do (mirror of mayatk's).
+    def _hooks():
+        log = {"replaced": [], "moved": []}
+
+        def on_replace(_fc, frames):
+            log["replaced"].append(sorted(round(f, 3) for f in frames))
+
+        def on_move(_fc, pairs):
+            log["moved"].append(sorted((round(o, 3), round(n, 3)) for o, n in pairs))
+
+        return log, {"on_replace": on_replace, "on_move": on_move}
+
+    def _try(fn, *args, **kwargs):
+        try:
+            fn(*args, **kwargs)
+            return None
+        except TypeError as exc:  # no such hook parameter
+            return repr(exc)
+
+    def value_at(obj, frame):
+        """The value of *obj*'s key on *frame* (``nan`` when no key is there)."""
+        fc = btk.get_fcurves(obj)[0]
+        return next(
+            (k.co.y for k in fc.keyframe_points if abs(k.co.x - frame) < 1e-3),
+            float("nan"),
+        )
+
+    rep, rep_fc = _fresh((0, 3, 7, 10))
+    _select([3])
+    log, hooks = _hooks()
+    err = _try(btk.move_keys_to_frame, rep, frame=7, selected_keys_only=True, **hooks)
+    check(
+        "move_keys_to_frame(selected): a moved key replaces the key it lands on",
+        err is None
+        and key_times(rep) == [0.0, 7.0, 10.0]
+        and log == {"replaced": [[7.0]], "moved": [[(3.0, 7.0)]]},
+        f"{err} {key_times(rep)} {log}",
+    )
+    rep, rep_fc = _fresh((0, 10))
+    log, hooks = _hooks()
+    err = _try(btk.move_keys_to_frame, rep, frame=20, align="start", **hooks)
+    check(
+        "move_keys_to_frame(all keys): every key moves and is reported",
+        err is None and log == {"replaced": [], "moved": [[(0.0, 20.0), (10.0, 30.0)]]},
+        f"{err} {key_times(rep)} {log}",
+    )
+
+    rep, rep_fc = _fresh((0, 3, 7, 10))
+    log, hooks = _hooks()
+    err = _try(
+        btk.adjust_key_spacing, rep, spacing=-4, frame=7, relative=False, **hooks
+    )
+    check(
+        "adjust_key_spacing: a shifted key replaces the key it lands on",
+        err is None
+        and key_times(rep) == [0.0, 3.0, 6.0]
+        and log == {"replaced": [[3.0]], "moved": [[(7.0, 3.0), (10.0, 6.0)]]},
+        f"{err} {key_times(rep)} {log}",
+    )
+    # preserve_keys: the key at the adjustment point is keyed back there with
+    # what is held on it (no move), and the moved key that re-key lands on is
+    # replaced -- reported from its source frame.
+    rep, rep_fc = _fresh((0, 6, 8, 10))
+    log, hooks = _hooks()
+    err = _try(
+        btk.adjust_key_spacing,
+        rep,
+        spacing=-2,
+        frame=6,
+        relative=False,
+        preserve_keys=True,
+        **hooks,
+    )
+    check(
+        "adjust_key_spacing(preserve_keys): the anchored key keeps its place",
+        err is None
+        and key_times(rep) == [0.0, 4.0, 6.0, 8.0]
+        and abs(value_at(rep, 6) - 6.0) < 1e-4
+        and log == {"replaced": [[8.0]], "moved": [[(10.0, 8.0)]]},
+        f"{err} {key_times(rep)} {log}",
+    )
+
+    rep, rep_fc = _fresh((0, 3, 10))
+    pts_ = rep_fc.keyframe_points
+    pts_.insert(3.4, 9.0)
+    pts_.insert(7.6, 9.0)
+    rep_fc.update()
+    log, hooks = _hooks()
+    err = _try(btk.snap_keys, rep, on_move=hooks["on_move"])
+    check(
+        "snap_keys: a key whose frame is taken stays where it is (mayatk's contract)",
+        err is None
+        and [round(t, 3) for t in key_times(rep)] == [0.0, 3.0, 3.4, 8.0, 10.0]
+        and abs(value_at(rep, 3) - 3.0) < 1e-4
+        and log == {"replaced": [], "moved": [[(7.6, 8.0)]]},
+        f"{err} {key_times(rep)} {log}",
+    )
+    rep, rep_fc = _fresh((0, 10))
+    rep_fc.keyframe_points.insert(4.6, 1.0)
+    rep_fc.keyframe_points.insert(5.3, 2.0)
+    rep_fc.update()
+    log, hooks = _hooks()
+    err = _try(btk.snap_keys, rep, on_move=hooks["on_move"])
+    check(
+        "snap_keys: of two keys snapping onto one frame the later takes it, the "
+        "other stays",
+        err is None
+        and [round(t, 3) for t in key_times(rep)] == [0.0, 4.6, 5.0, 10.0]
+        and abs(value_at(rep, 5) - 2.0) < 1e-4
+        and log == {"replaced": [], "moved": [[(5.3, 5.0)]]},
+        f"{err} {key_times(rep)} {log}",
+    )
+    # A corrupt (NaN) key time is Repair's job: the whole-frame scan reads every
+    # key, selected or not, and int(nan) raised there -- an unselected corrupt
+    # key failed a Snap of the selected ones.
+    rep, rep_fc = _fresh((0, 10))
+    rep_fc.keyframe_points.insert(4.6, 1.0)
+    rep_fc.update()
+    rep_fc.keyframe_points[-1].co.x = float("nan")  # the key at 10
+    for k in rep_fc.keyframe_points:
+        k.select_control_point = abs(k.co.x - 4.6) < 1e-3
+    log, hooks = _hooks()
+    try:
+        btk.snap_keys(rep, selected_only=True, on_move=hooks["on_move"])
+        err = None
+    except (OverflowError, ValueError) as exc:
+        err = repr(exc)
+    check(
+        "snap_keys: a non-finite key time is skipped, not raised on",
+        err is None and log["moved"] == [[(4.6, 5.0)]],
+        f"{err} {log}",
+    )
+    nan_action = rep.animation_data.action
+    bpy.data.objects.remove(rep, do_unlink=True)  # no corrupt curve for later scans
+    bpy.data.actions.remove(nan_action)
+
+    # scale_keys with a snap: ONE pass over the scaled keys (mayatk's), each to
+    # its rounded frame.  0.7 and 1.4 both round to 1: the key that ended
+    # nearest its true time (0.7, off by 0.3) is kept; the other is replaced,
+    # reported at its source frame.
+    rep, rep_fc = _fresh((0, 2, 4))
+    log, hooks = _hooks()
+    err = _try(
+        btk.scale_keys,
+        rep,
+        factor=0.35,
+        snap_mode="nearest",
+        split_static=False,
+        **hooks,
+    )
+    check(
+        "scale_keys(snapped): one pass; of keys landing together the least moved is kept",
+        err is None
+        and key_times(rep) == [0.0, 1.0]
+        and abs(value_at(rep, 1) - 2.0) < 1e-4
+        and log == {"replaced": [[4.0]], "moved": [[(2.0, 1.0)]]},
+        f"{err} {key_times(rep)} {log}",
+    )
+    # The reviewers' probe: 3 and 4 scaled x0.3 about 0 -> 0.9 and 1.2, both -> 1;
+    # key 3 moved 0.1, key 4 moved 0.2, so 3 is kept (mayatk keeps the same).
+    rep, rep_fc = _fresh((3, 4))
+    log, hooks = _hooks()
+    err = _try(
+        btk.scale_keys,
+        rep,
+        factor=0.3,
+        pivot=0,
+        snap_mode="nearest",
+        split_static=False,
+        **hooks,
+    )
+    check(
+        "scale_keys(snapped): 0.9 and 1.2 both round to 1 -- the nearer (key 3) stays",
+        err is None
+        and key_times(rep) == [1.0]
+        and abs(value_at(rep, 1) - 3.0) < 1e-4
+        and log == {"replaced": [[4.0]], "moved": [[(3.0, 1.0)]]},
+        f"{err} {key_times(rep)} {log}",
+    )
+
+    bpy.ops.mesh.primitive_cube_add()
+    vis = bpy.context.active_object
+    for path in ("hide_viewport", "hide_render"):
+        setattr(vis, path, False)
+        vis.keyframe_insert(path, frame=1)
+    log, hooks = _hooks()
+    err = _try(
+        btk.set_visibility_keys,
+        vis,
+        visible=False,
+        frame=1,
+        on_replace=hooks["on_replace"],
+    )
+    first = dict(log)
+    log["replaced"] = []
+    err = err or _try(
+        btk.set_visibility_keys,
+        vis,
+        visible=False,
+        frame=1,
+        on_replace=hooks["on_replace"],
+    )
+    check(
+        "set_visibility_keys: a key of the other state is replaced, the same state re-keyed",
+        err is None and first["replaced"] == [[1.0], [1.0]] and log["replaced"] == [],
+        f"{err} {first} {log}",
+    )
+
+    rep, rep_fc = _fresh((0, 3, 10))
+    _select([10])
+    buf = btk.copy_keys(rep, mode="selected")
+    log, hooks = _hooks()
+    err = _try(
+        btk.paste_keys, [rep], buf, target_time=3, on_replace=hooks["on_replace"]
+    )
+    err = err or _try(
+        btk.paste_keys, [rep], buf, target_time=10, on_replace=hooks["on_replace"]
+    )
+    check(
+        "paste_keys(selected): a pasted key replaces a key of another value only",
+        err is None
+        and abs(value_at(rep, 3) - 10.0) < 1e-4
+        and log["replaced"] == [[3.0]],
+        f"{err} {key_times(rep)} {log}",
+    )
+    src, _src_fc = _fresh((0, 10))
+    dst, _dst_fc = _fresh((0, 5))
+    log, hooks = _hooks()
+    err = _try(
+        btk.paste_keys, [dst], btk.copy_keys(src), on_replace=hooks["on_replace"]
+    )
+    check(
+        "paste_keys(action): the target's keys the new action does not hold are replaced",
+        err is None and key_times(dst) == [0.0, 10.0] and log["replaced"] == [[5.0]],
+        f"{err} {key_times(dst)} {log}",
+    )
+    src, _src_fc = _fresh((0, 10))
+    dst, _dst_fc = _fresh((0, 5))
+    log, hooks = _hooks()
+    err = _try(btk.transfer_keyframes, [src, dst], on_replace=hooks["on_replace"])
+    check(
+        "transfer_keyframes: the target's keys the source's action replaces are reported",
+        err is None and key_times(dst) == [0.0, 10.0] and log["replaced"] == [[5.0]],
+        f"{err} {key_times(dst)} {log}",
+    )
+    # relative: the target ends with the source's values PLUS its own offset, so
+    # a replaced key is read against those (mayatk compares the values it writes).
+    # The bare source values equal the target's keys here: compared against them,
+    # nothing was reported although both keys changed value.
+    src, _src_fc = _fresh((0, 10))
+    dst, _dst_fc = _fresh((0, 10))
+    dst.location.x = 4.0  # the target's own pose: +4 over the source's first key
+    log, hooks = _hooks()
+    err = _try(
+        btk.transfer_keyframes,
+        [src, dst],
+        relative=True,
+        on_replace=hooks["on_replace"],
+    )
+    check(
+        "transfer_keyframes(relative): replaced keys are read against the offset values",
+        err is None
+        and abs(value_at(dst, 0) - 4.0) < 1e-4
+        and abs(value_at(dst, 10) - 14.0) < 1e-4
+        and log["replaced"] == [[0.0, 10.0]],
+        f"{err} {key_times(dst)} {value_at(dst, 0)} {log}",
+    )
+    src, src_fc = _fresh((0, 10, 20, 30))
+    for kp, v in zip(src_fc.keyframe_points, (1.0, 1.0, 1.0, 5.0)):
+        kp.co.y = v  # 0..20 a flat run: optimize drops 10
+    src_fc.update()
+    dst, _dst_fc = _fresh((0, 5))
+    xfer_deleted = []
+    err = _try(
+        btk.transfer_keyframes,
+        [src, dst],
+        optimize=True,
+        on_delete=lambda _fc, frames: xfer_deleted.append(
+            None if frames is None else sorted(round(f, 3) for f in frames)
+        ),
+    )
+    check(
+        "transfer_keyframes(optimize): the source keys the optimize drops are reported",
+        err is None and xfer_deleted == [[10.0]],
+        f"{err} {key_times(src)} {xfer_deleted}",
+    )
+
+    # Blender's insert REPLACES a key within 0.01 of its frame: an edit that
+    # inserts beside a key that close rewrote that key's value.
+    rep, rep_fc = _fresh((0, 20))
+    rep_fc.keyframe_points.insert(10.005, 10.005)
+    rep_fc.update()
+    btk.add_intermediate_keys(rep, step=1.0)
+    check(
+        "add_intermediate_keys leaves a key 0.005 off a sampled frame alone",
+        abs(value_at(rep, 10.005) - 10.005) < 1e-4,
+        f"{key_times(rep)}",
+    )
+    rep, rep_fc = _fresh((0, 20.005))
+    rep_fc.keyframe_points[0].interpolation = "CONSTANT"  # 0 holds until 20.005
+    btk.tie_keyframes(rep, frame_range=(0, 20))
+    check(
+        "tie_keyframes leaves a key 0.005 off the bound alone",
+        abs(value_at(rep, 20.005) - 20.005) < 1e-4 and len(key_times(rep)) == 2,
+        f"{key_times(rep)}",
+    )
+
+    # stagger: every key of a re-timed unit moves, and is reported (mayatk's twin).
+    rep, rep_fc = _fresh((5, 15))
+    log, hooks = _hooks()
+    err = _try(btk.stagger_keys, [rep], start_frame=20, **hooks)  # + on_replace
+    check(
+        "stagger_keys reports every key it re-times",
+        err is None
+        and key_times(rep) == [20.0, 30.0]
+        and log == {"replaced": [], "moved": [[(5.0, 20.0), (15.0, 30.0)]]},
+        f"{err} {key_times(rep)} {log}",
+    )
+
+    # on_delete: the frames of the keys a delete REMOVED, per fcurve -- what the
+    # shot system releases its claims on, as for a replaced key.
+    deleted = []
+
+    def _on_delete(_fc, frames):
+        # None: the whole fcurve went (every claim on it with it).
+        deleted.append(None if frames is None else sorted(round(f, 3) for f in frames))
+
+    rep, rep_fc = _fresh((0, 10, 20))
+    bpy.context.scene.frame_set(10)
+    err = _try(btk.delete_keys, [rep], time="current", on_delete=_on_delete)
+    check(
+        "delete_keys reports the keys it deletes",
+        err is None and key_times(rep) == [0.0, 20.0] and deleted == [[10.0]],
+        f"{err} {key_times(rep)} {deleted}",
+    )
+    deleted.clear()
+    rep, rep_fc = _fresh((0, 10, 20))
+    err = _try(btk.delete_keys, [rep], on_delete=_on_delete)  # the action goes
+    check(
+        "delete_keys (all) reports every key of the animation it clears",
+        err is None and deleted == [[0.0, 10.0, 20.0]],
+        f"{err} {deleted}",
+    )
+    deleted.clear()
+    rep, rep_fc = _fresh((0, 10, 20))
+    err = _try(btk.remove_intermediate_keys, [rep], on_delete=_on_delete)
+    check(
+        "remove_intermediate_keys reports the keys it deletes",
+        err is None and key_times(rep) == [0.0, 20.0] and deleted == [[10.0]],
+        f"{err} {key_times(rep)} {deleted}",
+    )
+    deleted.clear()
+    rep, rep_fc = _fresh((0, 10, 20))  # a straight ramp: 10 carries no shape
+    err = _try(btk.simplify_curve, [rep_fc], on_delete=_on_delete)
+    check(
+        "simplify_curve reports the keys it deletes",
+        err is None and key_times(rep) == [0.0, 20.0] and deleted == [[10.0]],
+        f"{err} {key_times(rep)} {deleted}",
+    )
+    deleted.clear()
+    rep, rep_fc = _fresh((0, 5, 10, 20))
+    err = _try(
+        btk.tie_keyframes, [rep], untie=True, frame_range=(0, 20), on_delete=_on_delete
+    )
+    check(
+        "tie_keyframes(untie) reports the bookends it deletes",
+        err is None and key_times(rep) == [5.0, 10.0] and deleted == [[0.0, 20.0]],
+        f"{err} {key_times(rep)} {deleted}",
+    )
+    deleted.clear()
+    rep, rep_fc = _fresh((0, 10, 20, 30))
+    for kp, v in zip(rep_fc.keyframe_points, (1.0, 1.0, 1.0, 5.0)):
+        kp.co.y = v  # 0..20 a flat run: 10 is its redundant interior
+    rep_fc.update()
+    rep.location.y = 3.0
+    for f in (0, 10):
+        rep.keyframe_insert(data_path="location", index=1, frame=f)  # static
+    err = _try(btk.optimize_keys, [rep], on_delete=_on_delete)
+    check(
+        "optimize_keys reports the keys it drops and the curves it deletes (None)",
+        err is None and sorted(deleted, key=str) == sorted([[10.0], None], key=str),
+        f"{err} {key_times(rep)} {deleted}",
+    )
+    deleted.clear()
+    rep, rep_fc = _fresh(tuple(range(21)))
+    for kp in rep_fc.keyframe_points:
+        kp.co.y = kp.co.x if kp.co.x <= 10 else 20 - kp.co.x  # a peak at 10
+    rep_fc.update()
+    err = _try(btk.reduce_to_extremes, [rep], on_delete=_on_delete)
+    kept = key_times(rep)
+    gone = [float(t) for t in range(21) if float(t) not in kept]
+    check(
+        "reduce_to_extremes reports the tweens it removes",
+        err is None and gone and deleted == [gone],
+        f"{err} {kept} {deleted}",
+    )
+    deleted.clear()
+    rep, rep_fc = _fresh((1, 10, 20))
+    rep_fc.keyframe_points[0].co.y = 1e9  # a corrupted value
+    err = _try(btk.repair_corrupted_curves, [rep], on_delete=_on_delete)
+    check(
+        "repair_corrupted_curves reports the keys it deletes",
+        err is None and key_times(rep) == [10.0, 20.0] and deleted == [[1.0]],
+        f"{err} {key_times(rep)} {deleted}",
+    )
 
     # intermediate keys: a = 60,70 -> sampled key on every frame between (61..69)
     added = btk.add_intermediate_keys(a)
@@ -1524,6 +2030,47 @@ try:
         check("select_keys unknown scope raises", True)
 
     sc.frame_set(frame_before)
+
+    # clear_key_selection: every key AND both handles, on every action -- a
+    # data-block's too, which no object-level reader reaches (mirror of
+    # mayatk's selectKey -clear); with nothing selected it is a plain no-op.
+    cs_cam = bpy.data.cameras.new("ClearSelCam")
+    cs_cam.keyframe_insert("lens", frame=1)
+    cs_cam.lens = 70.0
+    cs_cam.keyframe_insert("lens", frame=9)
+    cs_curves = btk.get_fcurves([a]) + btk.get_fcurves([cs_cam])
+    for fc in cs_curves:
+        for k in fc.keyframe_points:
+            k.select_control_point = True
+            k.select_left_handle = k.select_right_handle = True
+
+    def cs_flagged():
+        return [
+            (fc.data_path, k.co.x)
+            for fc in cs_curves
+            for k in fc.keyframe_points
+            if k.select_control_point or k.select_left_handle or k.select_right_handle
+        ]
+
+    cs_before = cs_flagged()
+    try:
+        btk.AnimUtils.clear_key_selection()
+        btk.AnimUtils.clear_key_selection()  # nothing selected: no raise
+        cs_err = None
+    except Exception as exc:
+        cs_err = repr(exc)
+    check(
+        "clear_key_selection deselects every key and handle, data-block actions too",
+        cs_err is None
+        and {path for path, _x in cs_before} == {"location", "lens"}
+        and not cs_flagged()
+        and btk.get_selected_key_times() == {},
+        f"{cs_err} before={cs_before} after={cs_flagged()}",
+    )
+    cs_act = cs_cam.animation_data.action if cs_cam.animation_data else None
+    bpy.data.cameras.remove(cs_cam)
+    if cs_act is not None:
+        bpy.data.actions.remove(cs_act)
 
     # set_visibility_keys: keys hide_viewport/hide_render at the frame
     keyed = btk.set_visibility_keys(b, visible=False, frame=42)

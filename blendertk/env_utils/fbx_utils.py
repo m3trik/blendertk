@@ -16,9 +16,11 @@ AnimationClip per declared take). Two intentional divergences from mayatk:
   strip/action*, so they cannot express a multi-object scene-time window (see
   ``export_fbx_bin.fbx_animations``). ``apply_takes`` therefore arms a pending-takes list
   (the Blender analogue of Maya's armed exporter state), and :meth:`FbxUtils.export`
-  consumes it right after the ``bpy.ops`` write by splitting the file's single scene-range
-  AnimStack into one windowed AnimStack per take (``_split_animation_takes``, built on the
-  FBX addon's own ``parse_fbx`` / ``encode_bin``). Like Maya's, the armed state applies to
+  consumes it right after the ``bpy.ops`` write by cloning the file's single scene-range
+  AnimStack into one windowed AnimStack per take, kept beside the whole timeline as Maya's
+  ``Take 001`` is (``_split_animation_takes``, built on the FBX addon's own ``parse_fbx`` /
+  ``encode_bin``; the same pass writes the keyed visibility the exporter cannot -- see
+  ``_add_visibility_curves``). Like Maya's, the armed state applies to
   every export until ``reset_takes`` — the Scene Exporter's ``apply_declared_takes`` task
   stages that reset. What has **no** Blender analogue is the kBeforeExport auto-export hook:
   ``bpy.app.handlers`` has no before-FBX-export event (the same reason ``ScriptJobManager``
@@ -34,9 +36,10 @@ as the selection-only convenience used by the Substance / Marmoset / RizomUV bri
 """
 
 import os
+import math
 import logging
 import contextlib
-from typing import Any, Callable, Dict, Iterable, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 import pythontk as ptk
 
@@ -64,6 +67,14 @@ _EXPORT_DEFAULTS = {
     "use_mesh_modifiers": True,
     "mesh_smooth_type": "FACE",
     "bake_anim": False,
+    # Exact baked keys, as Maya's bake: the exporter's default 1.0 thins them,
+    # and the thinned curve played back drifts (a 0-5 m ease-out was 1.47e-3 m
+    # off at frame 98). Not 0.0: that KEYS every channel of every shipped object,
+    # static ones included (``fbx_animations_do``: ``force_key = simplify_fac ==
+    # 0.0``), where this tolerance (1e-9 relative, under float32's own) keeps
+    # every sample that moves and drops the channels that never do. A caller's
+    # (or a preset's) own value wins.
+    "bake_anim_simplify_factor": 1e-6,
     "path_mode": "AUTO",
 }
 
@@ -121,6 +132,264 @@ class _FbxUtilsInternal(object):
                 passthrough["use_tspace"] = bool(value)
             # else: Maya MEL option with no Blender analogue — intentionally dropped.
         return passthrough
+
+    # ------------------------------------------------------------------
+    # The deliverable's own nodes: shipped, and shipped readable
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _resolved_objects(objects) -> List[Any]:
+        """*objects* as Blender objects: names resolved, the unresolvable
+        dropped (:meth:`FbxUtils.export`'s tolerance), order kept, each once."""
+        found, seen = [], set()
+        for o in ptk.make_iterable(objects) if objects is not None else ():
+            if isinstance(o, str):
+                import bpy
+
+                o = bpy.data.objects.get(o)
+            if o is None:
+                continue
+            try:
+                key = o.as_pointer()
+            except (AttributeError, ReferenceError):
+                continue
+            if key not in seen:
+                seen.add(key)
+                found.append(o)
+        return found
+
+    @staticmethod
+    def _is_transport_node(obj) -> bool:
+        """Is *obj* a node whose payload is its CUSTOM PROPERTIES -- the
+        ``data_export`` carrier, or a staged curve proxy
+        (``ptk.MeshConvert.CURVE_PROXY_MARKER``)?"""
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        try:
+            return obj.name == DataNodes.EXPORT or bool(
+                obj.get(ptk.MeshConvert.CURVE_PROXY_MARKER)
+            )
+        except (AttributeError, ReferenceError):
+            return False
+
+    @staticmethod
+    def _force_carrier_readability(objects, options: dict) -> List[str]:
+        """Force the options a shipped transport node needs to be READ.
+
+        The ``data_export`` carrier and a staged curve proxy carry their payload
+        as custom properties, which Blender's exporter drops by default, on an
+        Empty, which an ``object_types`` without ``EMPTY`` drops outright --
+        either way the node arrives holding nothing, or not at all, and nothing
+        says so: the failure that looks most like success. Shipping the node
+        and shipping what makes it readable are one decision, so no option set
+        separates them. The one shared step the Scene Exporter (before its
+        settings report), the hand-off bridges and :meth:`FbxUtils.export`
+        itself take, whatever its caller ran.
+
+        Parameters:
+            objects: What the write ships (objects or names).
+            options: ``export_scene.fbx`` kwargs, repaired in place. An absent
+                ``object_types`` is the operator's default, which admits Empties.
+
+        Returns:
+            The repairs made (``"use_custom_props=True"``,
+            ``"object_types+=EMPTY"``); empty when none was needed.
+        """
+        nodes = _FbxUtilsInternal._resolved_objects(objects)
+        if not any(_FbxUtilsInternal._is_transport_node(o) for o in nodes):
+            return []
+        repaired = []
+        if not options.get("use_custom_props"):
+            options["use_custom_props"] = True
+            repaired.append("use_custom_props=True")
+        if "object_types" in options:
+            types = _FbxUtilsInternal._as_object_types(options["object_types"])
+            if "EMPTY" not in types:
+                options["object_types"] = types | {"EMPTY"}
+                repaired.append("object_types+=EMPTY")
+        return repaired
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _carriers_shippable(objects):
+        """Make every local ``data_export`` carrier among *objects* selectable
+        for the block -- a write -- and put its hide state back after it.
+
+        A selection-based write ships only what it can select, and the carrier
+        is a metadata node whose hiding is incidental: hidden
+        (``hide_viewport``, the view layer's eye, ``hide_select``) it would be
+        dropped, and in a hidden or excluded collection it cannot be selected
+        at all (``select_set`` raises). So its flags are cleared and, where
+        that is not enough, it is linked to the scene's root collection for the
+        block. Lifted from the Scene Exporter's carrier task (2026-10-05), so
+        every writer ships the carrier the same way. A curve proxy staged under
+        the carrier (the keyed emissive weights) is linked into the carrier's
+        collections, so it is hidden or excluded with it and revealed with it;
+        any other hidden object stays the caller's to decide
+        (:meth:`FbxUtils.export` drops it, and says so).
+        """
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        view_layer = CoreUtils._active_view_layer()
+        undo = []
+        try:
+            for obj in _FbxUtilsInternal._resolved_objects(objects):
+                parent = obj.parent
+                is_carrier = obj.name == DataNodes.EXPORT
+                rides_carrier = (
+                    parent is not None
+                    and parent.name == DataNodes.EXPORT
+                    and bool(obj.get(ptk.MeshConvert.CURVE_PROXY_MARKER))
+                )
+                # A linked carrier is not this file's to edit.
+                if not (is_carrier or rides_carrier) or getattr(obj, "library", None):
+                    continue
+                undo.append(_FbxUtilsInternal._reveal_carrier(obj, view_layer))
+            yield
+        finally:
+            for restore in reversed(undo):
+                restore()
+
+    @staticmethod
+    def _reveal_carrier(carrier, view_layer) -> Callable[[], None]:
+        """Clear whatever hides *carrier* (or a curve proxy riding it) in
+        *view_layer*; return the undo.
+
+        The eye is per view layer -- the window's, the one the write selects in
+        (windowless, the bare calls read the scene's default layer).
+        """
+        import bpy
+
+        try:
+            layer_hidden = carrier.hide_get(view_layer=view_layer)
+        except RuntimeError:  # not in the layer
+            layer_hidden = False
+        state = (carrier.hide_select, carrier.hide_viewport, layer_hidden)
+        carrier.hide_select = False
+        carrier.hide_viewport = False
+        try:
+            if not carrier.visible_get(view_layer=view_layer):
+                carrier.hide_set(False, view_layer=view_layer)
+        except RuntimeError:  # not in the layer
+            pass
+        linked = None
+        try:
+            hidden = not carrier.visible_get(view_layer=view_layer)
+        except RuntimeError:  # not in the layer at all
+            hidden = True
+        scene = view_layer.id_data if view_layer is not None else bpy.context.scene
+        if hidden and carrier.name not in scene.collection.objects:
+            # Its collection is hidden or excluded, which no object flag
+            # overrides: link it to the root collection for the write.
+            linked = scene.collection
+            linked.objects.link(carrier)
+            if view_layer is not None:
+                view_layer.update()  # visible_get / select_set read the evaluated layer
+            try:
+                carrier.hide_set(False, view_layer=view_layer)
+            except RuntimeError:
+                pass
+        if any(state) or linked is not None:
+            logger.info(
+                "%s was hidden: shown for the write, hidden again after it.",
+                carrier.name,
+            )
+
+        def undo():
+            try:
+                if linked is not None:
+                    linked.objects.unlink(carrier)
+            except (RuntimeError, ReferenceError):
+                pass
+            try:
+                carrier.hide_select, carrier.hide_viewport = state[0], state[1]
+                if state[2]:
+                    carrier.hide_set(True, view_layer=view_layer)
+            except (RuntimeError, ReferenceError):
+                pass  # unlinked from the layer since, or freed
+
+        return undo
+
+    @staticmethod
+    def _shadow_source_names() -> Set[str]:
+        """The sources the stored shadow record (``ptk.SceneRecords.SHADOWS``)
+        has its planes follow."""
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        try:
+            record = ptk.SceneRecords.SHADOWS.load(DataNodes) or {}
+        except Exception:  # noqa: BLE001 -- a probe must not fail a write
+            return set()
+        planes = record.get("planes") if isinstance(record, dict) else None
+        return {
+            str(plane["source"])
+            for plane in planes or ()
+            if isinstance(plane, dict) and plane.get("source")
+        }
+
+    @staticmethod
+    def _admit_shadow_sources(objects, options: dict) -> List[Any]:
+        """Let the shadow sources among *objects* through a type filter that
+        excludes ``LIGHT``; return the other lights, which stay out.
+
+        The shadow record names the source each plane follows, and the engine
+        finds it by name (unitytk's ``ShadowPlaneController``; the GLB binds
+        it by node) -- but the exporter drops every object whose type the
+        filter excludes, so a SUN source never shipped and follow-source fell
+        back to the baked keys. ``LIGHT`` joins the filter for the sources the
+        record names; any other light in the set is left unselected, out as
+        the filter left it before.
+
+        Returns:
+            The lights to leave out of the write (empty when nothing changed).
+        """
+        types = options.get("object_types")
+        if types is None:
+            return []  # the operator's default admits every light
+        types = _FbxUtilsInternal._as_object_types(types)
+        if "LIGHT" in types:
+            return []
+        lights = [o for o in objects if getattr(o, "type", None) == "LIGHT"]
+        if not lights:
+            return []
+        sources = _FbxUtilsInternal._shadow_source_names()
+        admitted = [o for o in lights if o.name in sources]
+        if not admitted:
+            return []
+        options["object_types"] = types | {"LIGHT"}
+        logger.info(
+            "FBX export: the shadow source light(s) %s ship for the engine to "
+            "follow (LIGHT admitted for them alone).",
+            ", ".join(o.name for o in admitted),
+        )
+        return [o for o in lights if o.name not in sources]
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _range_covering(scene, takes):
+        """Widen *scene*'s frame range to cover every one of *takes* for the
+        block -- a write -- and give the scene its own range back after.
+
+        Blender bakes over the scene range, and the split clamps a take to the
+        span it baked, so a shot past the range shipped cut short. The Scene
+        Exporter's takes task widens the range up front; a hand-off arms the
+        same takes and did not, so the write guarantees it itself -- as Maya's
+        ``apply_takes`` sets its bake range to cover the takes. Widened, never
+        narrowed (:meth:`FbxUtils.bake_range`, the range the records describe).
+        """
+        original = (scene.frame_start, scene.frame_end)
+        start, end = original
+        for _name, take_start, take_end in FbxUtils._declared_take_bounds(takes):
+            start = min(start, int(math.floor(take_start)))
+            end = max(end, int(math.ceil(take_end)))
+        if (start, end) == original:
+            yield
+            return
+        scene.frame_start, scene.frame_end = start, end
+        try:
+            yield
+        finally:
+            scene.frame_start, scene.frame_end = original
 
     # ------------------------------------------------------------------
     # Animation-takes splitting (post-write AnimStack surgery)
@@ -227,7 +496,10 @@ class _FbxUtilsInternal(object):
         keys only at its ends). Keys inside the window are kept; when no key
         lands on a window edge, the edge value is linearly interpolated from
         the surrounding keys and a boundary key is synthesized — exact, because
-        the exporter writes these curves with linear tangents.
+        the exporter writes these curves with linear tangents. A stepped curve
+        (the Visibility curves :meth:`_add_visibility_curves` writes) holds its
+        last key across the edge instead: interpolating it would invent a
+        half-visible frame.
         """
         import numpy as np
 
@@ -242,6 +514,22 @@ class _FbxUtilsInternal(object):
 
         kt = np.asarray(kt_el.props[0], dtype=np.int64)
         kv = np.asarray(kv_el.props[0], dtype=np.float64)
+        flags_el = _FbxUtilsInternal._find_elem(clone, b"KeyAttrFlags")
+        stepped = (
+            flags_el is not None
+            and len(flags_el.props[0])
+            and all(
+                (int(f) & _FbxUtilsInternal._KEY_INTERPOLATION_BITS)
+                == _FbxUtilsInternal._KEY_CONSTANT
+                for f in flags_el.props[0]
+            )
+        )
+
+        def value_at(t):
+            if stepped:
+                return float(kv[max(int(np.searchsorted(kt, t, side="right")) - 1, 0)])
+            return float(np.interp(t, kt, kv))
+
         eps = int(ktime_per_frame * 1e-3)  # sub-millframe tolerance
         mask = (kt >= t0 - eps) & (kt <= t1 + eps)
         new_t = list(kt[mask])
@@ -251,10 +539,10 @@ class _FbxUtilsInternal(object):
         # tail extends at its held value.
         if not new_t or new_t[0] > t0 + eps:
             new_t.insert(0, t0)
-            new_v.insert(0, float(np.interp(t0, kt, kv)))
+            new_v.insert(0, value_at(t0))
         if new_t[-1] < t1 - eps:
             new_t.append(t1)
-            new_v.append(float(np.interp(t1, kt, kv)))
+            new_v.append(value_at(t1))
 
         import array as _array
 
@@ -320,51 +608,563 @@ class _FbxUtilsInternal(object):
             fps = r.fps / r.fps_base
         return fps, ktime
 
-    @staticmethod
-    def _split_animation_takes(filepath, takes) -> int:
-        """Rewrite *filepath* in place: one windowed AnimStack per declared take.
+    # ---- shared tree edits ---------------------------------------------------
 
-        The just-written file carries the exporter's single baked scene-range
+    @staticmethod
+    def _uid_allocator(objects_el):
+        """A ``new_uid()`` handing out uids no object of *objects_el* holds."""
+        existing = {
+            e.props[0]
+            for e in objects_el.elems
+            if e.props and isinstance(e.props[0], int)
+        }
+        counter = [max(existing) if existing else 1]
+
+        def new_uid():
+            while True:
+                counter[0] += 1
+                if counter[0] >= 2**63 - 1:
+                    counter[0] = 1
+                if counter[0] not in existing:
+                    break
+            existing.add(counter[0])
+            return counter[0]
+
+        return new_uid
+
+    @staticmethod
+    def _connection(parse_mod, kind, child_uid, parent_uid, prop=None):
+        """A ``Connections`` ``C`` element: ``OO``, or ``OP`` onto *prop*."""
+        props = [kind, child_uid, parent_uid]
+        if prop is not None:
+            props.append(prop)
+        return _FbxUtilsInternal._make_parsed(
+            parse_mod, b"C", props, b"SLLS" if prop is not None else b"SLL"
+        )
+
+    @staticmethod
+    def _take_element(parse_mod, name_b, t0, t1):
+        """A ``Takes`` entry for the stack *name_b* over ktime ``[t0, t1]``."""
+        make = _FbxUtilsInternal._make_parsed
+        return make(
+            parse_mod,
+            b"Take",
+            [name_b],
+            b"S",
+            [
+                make(parse_mod, b"FileName", [name_b + b".tak"], b"S"),
+                make(parse_mod, b"LocalTime", [t0, t1], b"LL"),
+                make(parse_mod, b"ReferenceTime", [t0, t1], b"LL"),
+            ],
+        )
+
+    #: What the exporter declares in ``Definitions`` for each animation object
+    #: type -- its property template as ``(type codes, values)`` rows, copied
+    #: from a Blender 5.1 write -- for a file it wrote with nothing animated,
+    #: where a stack added after the write has to be declared as the exporter
+    #: would have declared it.
+    _ANIM_TEMPLATES = {
+        b"AnimationStack": (
+            b"FbxAnimStack",
+            (
+                (b"SSSSS", (b"Description", b"KString", b"", b"", b"")),
+                (b"SSSSL", (b"LocalStart", b"KTime", b"Time", b"", 0)),
+                (b"SSSSL", (b"LocalStop", b"KTime", b"Time", b"", 0)),
+                (b"SSSSL", (b"ReferenceStart", b"KTime", b"Time", b"", 0)),
+                (b"SSSSL", (b"ReferenceStop", b"KTime", b"Time", b"", 0)),
+            ),
+        ),
+        b"AnimationLayer": (
+            b"FbxAnimLayer",
+            (
+                (b"SSSSD", (b"Weight", b"Number", b"", b"A", 100.0)),
+                (b"SSSSI", (b"Mute", b"bool", b"", b"", 0)),
+                (b"SSSSI", (b"Solo", b"bool", b"", b"", 0)),
+                (b"SSSSI", (b"Lock", b"bool", b"", b"", 0)),
+                (b"SSSSDDD", (b"Color", b"ColorRGB", b"Color", b"", 0.8, 0.8, 0.8)),
+                (b"SSSSI", (b"BlendMode", b"enum", b"", b"", 0)),
+                (b"SSSSI", (b"RotationAccumulationMode", b"enum", b"", b"", 0)),
+                (b"SSSSI", (b"ScaleAccumulationMode", b"enum", b"", b"", 0)),
+                (b"SSSSL", (b"BlendModeBypass", b"ULongLong", b"", b"", 0)),
+            ),
+        ),
+        b"AnimationCurveNode": (
+            b"FbxAnimCurveNode",
+            ((b"SSSS", (b"d", b"Compound", b"", b"")),),
+        ),
+        b"AnimationCurve": (None, ()),
+    }
+
+    @staticmethod
+    def _count_definitions(parse_mod, root, added) -> None:
+        """Keep ``Definitions`` honest after objects were added: each type's
+        ``Count`` and the total grow by *added* (``{object type: n}``), and a
+        type the file did not declare is declared with the exporter's
+        template (:attr:`_ANIM_TEMPLATES`)."""
+        find, make = _FbxUtilsInternal._find_elem, _FbxUtilsInternal._make_parsed
+        defs = find(root, b"Definitions")
+        if defs is None:
+            return
+        declared = {
+            ot.props[0]: ot
+            for ot in _FbxUtilsInternal._find_elems(defs, b"ObjectType")
+            if ot.props
+        }
+        total = 0
+        for kind, n in added.items():
+            if not n:
+                continue
+            total += n
+            ot = declared.get(kind)
+            if ot is not None:
+                count = find(ot, b"Count")
+                if count is not None:
+                    count.props[0] += n
+                continue
+            template, rows = _FbxUtilsInternal._ANIM_TEMPLATES.get(kind, (None, ()))
+            elems = [make(parse_mod, b"Count", [n], b"I")]
+            if template is not None:
+                props = [
+                    make(parse_mod, b"P", list(values), codes) for codes, values in rows
+                ]
+                elems.append(
+                    make(
+                        parse_mod,
+                        b"PropertyTemplate",
+                        [template],
+                        b"S",
+                        [make(parse_mod, b"Properties70", elems=props)],
+                    )
+                )
+            defs.elems.append(make(parse_mod, b"ObjectType", [kind], b"S", elems))
+        total_el = find(defs, b"Count")
+        if total_el is not None:
+            total_el.props[0] += total
+
+    @staticmethod
+    def _rewrite_animation(
+        filepath, takes=None, visibility=None, frame_range=None, scene_name=None
+    ) -> int:
+        """Rewrite *filepath* in place: the keyed visibility added
+        (:meth:`_add_visibility_curves`), then the armed takes split out
+        (:meth:`_split_animation_takes`) -- in that order, so every take
+        carries its window of the visibility -- through ONE parse and ONE
+        encode of the FBX addon's own ``parse_fbx`` / ``encode_bin``.
+
+        Returns:
+            The number of takes written (0: none armed, or nothing to split).
+        """
+        from io_scene_fbx import parse_fbx, encode_bin
+
+        root, version = parse_fbx.parse(filepath)
+        changed = False
+        if visibility:
+            changed = bool(
+                _FbxUtilsInternal._add_visibility_curves(
+                    parse_fbx, root, version, visibility, frame_range, scene_name
+                )
+            )
+        split = 0
+        if takes:
+            split = _FbxUtilsInternal._split_animation_takes(
+                parse_fbx, root, version, takes, os.path.basename(filepath)
+            )
+        if changed or split:
+            enc_root = encode_bin.FBXElem(b"")
+            for child in root.elems:
+                enc_root.elems.append(
+                    _FbxUtilsInternal._parsed_to_encode(child, encode_bin)
+                )
+            encode_bin.write(filepath, enc_root, version)
+        return split
+
+    # ---- keyed visibility: the FBX's own Visibility channel ------------------
+    #
+    # Blender's exporter bakes transforms, shape keys and camera lenses and
+    # writes NO visibility animation, so a keyed ``hide_render`` never left
+    # the file: the GLB rebuilds it from the ``visibility_tracks`` record, but
+    # Unity -- which imports a node's animated FBX ``Visibility`` as its
+    # Renderer's ``m_Enabled``, the curve Maya's exporter writes -- got
+    # nothing for an object with no opacity channel to carry it.
+
+    #: ``KeyAttrFlags`` of a stepped key: interpolation-mode bit 1
+    #: (``eInterpolationConstant``; linear is bit 2, cubic bit 3).
+    _KEY_CONSTANT = 1 << 1
+    #: The interpolation-mode bits of ``KeyAttrFlags``.
+    _KEY_INTERPOLATION_BITS = 0x0E
+    #: The per-key data words the exporter writes beside its flags
+    #: (``export_fbx_bin``): FBX expects four, whatever the mode reads.
+    _KEY_ATTR_DATA = (0.0, 0.0, 9.419963346924634e-30, 0.0)
+
+    @staticmethod
+    def _visibility_curves(objects, start, end) -> Dict[str, list]:
+        """``{FBX model name: [(frame, visible), ...]}`` for each of *objects*
+        whose render visibility is keyed.
+
+        ``hide_render`` is the channel -- the one the ``visibility_tracks``
+        record publishes and :class:`RenderEffects` mirrors an opacity onto --
+        read off the object's own action, sampled on every frame of
+        ``[start, end]`` (the frames the write baked) and reduced to the first
+        frame, each step and the last frame. 1.0 is visible, as FBX's
+        ``Visibility`` reads. Model names are the exporter's own
+        (``io_scene_fbx.fbx_utils.get_bid_name``).
+        """
+        from io_scene_fbx.fbx_utils import get_bid_name
+
+        from blendertk.anim_utils._anim_utils import AnimUtils
+
+        start, end = int(start), int(end)
+        curves: Dict[str, list] = {}
+        for obj in objects:
+            try:
+                fc = next(
+                    (
+                        f
+                        for f in AnimUtils.get_fcurves([obj])
+                        if f.data_path == "hide_render"
+                        and not f.mute
+                        and len(f.keyframe_points)
+                    ),
+                    None,
+                )
+                name = get_bid_name(obj)
+            except (AttributeError, ReferenceError):
+                continue  # not an object, or removed since
+            if fc is None:
+                continue
+            keys = []
+            for frame in range(start, end + 1):
+                visible = 0.0 if fc.evaluate(frame) >= 0.5 else 1.0
+                if not keys or keys[-1][1] != visible:
+                    keys.append((frame, visible))
+            if keys and keys[-1][0] != end:
+                keys.append((end, keys[-1][1]))
+            if keys:
+                curves[name] = keys
+        return curves
+
+    @staticmethod
+    def _scene_range_layer(parse_mod, root, frame_range, scene_name, per_frame):
+        """The layer of the file's one scene-range stack, or ``None``.
+
+        A write with nothing else animated holds no stack at all (the
+        exporter writes none), so one is added over *frame_range* -- named
+        *scene_name*, as the exporter names its own -- with its layer, its
+        ``Takes`` entry and its ``Definitions``. Several stacks (the
+        multi-stack modes :meth:`FbxUtils.scene_range_take` turns off) is not a
+        shape this extends.
+        """
+        find, finds = _FbxUtilsInternal._find_elem, _FbxUtilsInternal._find_elems
+        make = _FbxUtilsInternal._make_parsed
+        objects_el = find(root, b"Objects")
+        conns_el = find(root, b"Connections")
+        if objects_el is None or conns_el is None:
+            return None
+        stacks = finds(objects_el, b"AnimationStack")
+        if len(stacks) > 1:
+            return None
+        if stacks:
+            layers = {
+                e.props[0] for e in finds(objects_el, b"AnimationLayer") if e.props
+            }
+            stack_uid = stacks[0].props[0]
+            return next(
+                (
+                    c.props[1]
+                    for c in conns_el.elems
+                    if c.id == b"C"
+                    and len(c.props) > 2
+                    and c.props[0] == b"OO"
+                    and c.props[2] == stack_uid
+                    and c.props[1] in layers
+                ),
+                None,
+            )
+        if frame_range is None or not scene_name:
+            return None
+        new_uid = _FbxUtilsInternal._uid_allocator(objects_el)
+        t0 = int(round(frame_range[0] * per_frame))
+        t1 = int(round(frame_range[1] * per_frame))
+        name_b = str(scene_name).encode("utf-8")
+        stack_uid, layer_uid = new_uid(), new_uid()
+        objects_el.elems.append(
+            make(
+                parse_mod,
+                b"AnimationStack",
+                [stack_uid, name_b + b"\x00\x01AnimStack", b""],
+                b"LSS",
+                [
+                    _FbxUtilsInternal._timestamp_props(
+                        parse_mod,
+                        [
+                            (b"LocalStart", t0),
+                            (b"LocalStop", t1),
+                            (b"ReferenceStart", t0),
+                            (b"ReferenceStop", t1),
+                        ],
+                    )
+                ],
+            )
+        )
+        objects_el.elems.append(
+            make(
+                parse_mod,
+                b"AnimationLayer",
+                [layer_uid, name_b + b"\x00\x01AnimLayer", b""],
+                b"LSS",
+            )
+        )
+        conns_el.elems.append(
+            _FbxUtilsInternal._connection(parse_mod, b"OO", layer_uid, stack_uid)
+        )
+        takes_el = find(root, b"Takes")
+        if takes_el is not None:
+            takes_el.elems.append(
+                _FbxUtilsInternal._take_element(parse_mod, name_b, t0, t1)
+            )
+        _FbxUtilsInternal._count_definitions(
+            parse_mod, root, {b"AnimationStack": 1, b"AnimationLayer": 1}
+        )
+        return layer_uid
+
+    @staticmethod
+    def _add_visibility_curves(
+        parse_mod, root, version, curves, frame_range=None, scene_name=None
+    ) -> int:
+        """Animate each named Model's ``Visibility`` in the scene-range stack.
+
+        *curves* is :meth:`_visibility_curves`' ``{model name: [(frame,
+        visible), ...]}``. Each becomes one ``AnimationCurveNode`` and one
+        stepped ``AnimationCurve`` on the stack's layer -- the shape Maya's
+        exporter writes, so a take split clones and windows it like any other
+        curve (:meth:`_sliced_curve` holds a stepped one across a window edge)
+        -- and the Model's ``Visibility`` property is flagged animated.
+        Names the file carries no Model for (a type the filter dropped) are
+        skipped.
+
+        Returns:
+            The number of curves written.
+        """
+        import array
+
+        from io_scene_fbx import data_types
+        from io_scene_fbx.fbx_utils import FBX_ANIM_KEY_VERSION
+
+        find, finds = _FbxUtilsInternal._find_elem, _FbxUtilsInternal._find_elems
+        make = _FbxUtilsInternal._make_parsed
+        objects_el = find(root, b"Objects")
+        conns_el = find(root, b"Connections")
+        if objects_el is None or conns_el is None:
+            return 0
+        models = {}
+        for e in finds(objects_el, b"Model"):
+            if len(e.props) > 1 and isinstance(e.props[1], bytes):
+                label = e.props[1].split(b"\x00\x01")[0].decode("utf-8", "replace")
+                models.setdefault(label, e)
+        wanted = [
+            (models[name], keys) for name, keys in curves.items() if name in models
+        ]
+        if not wanted:
+            return 0
+
+        fps, ktime = _FbxUtilsInternal._file_frame_scale(root, version)
+        per_frame = ktime / fps
+        layer_uid = _FbxUtilsInternal._scene_range_layer(
+            parse_mod, root, frame_range, scene_name, per_frame
+        )
+        if layer_uid is None:
+            logger.warning(
+                "Keyed visibility not written: the FBX holds no single "
+                "scene-range AnimStack to carry it."
+            )
+            return 0
+
+        new_uid = _FbxUtilsInternal._uid_allocator(objects_el)
+        conn = _FbxUtilsInternal._connection
+        for model, keys in wanted:
+            first = float(keys[0][1])
+            node_uid, curve_uid = new_uid(), new_uid()
+            objects_el.elems.append(
+                make(
+                    parse_mod,
+                    b"AnimationCurveNode",
+                    [node_uid, b"Visibility\x00\x01AnimCurveNode", b""],
+                    b"LSS",
+                    [
+                        make(
+                            parse_mod,
+                            b"Properties70",
+                            elems=[
+                                make(
+                                    parse_mod,
+                                    b"P",
+                                    [b"d|Visibility", b"Number", b"", b"A", first],
+                                    b"SSSSD",
+                                )
+                            ],
+                        )
+                    ],
+                )
+            )
+            # Typecodes from the addon's data_types: encode_bin asserts on
+            # them, and they are platform-dependent (see _sliced_curve).
+            objects_el.elems.append(
+                make(
+                    parse_mod,
+                    b"AnimationCurve",
+                    [curve_uid, b"\x00\x01AnimCurve", b""],
+                    b"LSS",
+                    [
+                        make(parse_mod, b"Default", [first], b"D"),
+                        make(parse_mod, b"KeyVer", [FBX_ANIM_KEY_VERSION], b"I"),
+                        make(
+                            parse_mod,
+                            b"KeyTime",
+                            [
+                                array.array(
+                                    data_types.ARRAY_INT64,
+                                    [int(round(f * per_frame)) for f, _v in keys],
+                                )
+                            ],
+                            b"l",
+                        ),
+                        make(
+                            parse_mod,
+                            b"KeyValueFloat",
+                            [
+                                array.array(
+                                    data_types.ARRAY_FLOAT32,
+                                    [float(v) for _f, v in keys],
+                                )
+                            ],
+                            b"f",
+                        ),
+                        make(
+                            parse_mod,
+                            b"KeyAttrFlags",
+                            [
+                                array.array(
+                                    data_types.ARRAY_INT32,
+                                    [_FbxUtilsInternal._KEY_CONSTANT],
+                                )
+                            ],
+                            b"i",
+                        ),
+                        make(
+                            parse_mod,
+                            b"KeyAttrDataFloat",
+                            [
+                                array.array(
+                                    data_types.ARRAY_FLOAT32,
+                                    _FbxUtilsInternal._KEY_ATTR_DATA,
+                                )
+                            ],
+                            b"f",
+                        ),
+                        make(
+                            parse_mod,
+                            b"KeyAttrRefCount",
+                            [array.array(data_types.ARRAY_INT32, [len(keys)])],
+                            b"i",
+                        ),
+                    ],
+                )
+            )
+            model_uid = model.props[0]
+            # extend, never +=: the element is a namedtuple, and += rebinds it.
+            conns_el.elems.extend(
+                [
+                    conn(parse_mod, b"OO", node_uid, layer_uid),
+                    conn(parse_mod, b"OP", node_uid, model_uid, b"Visibility"),
+                    conn(parse_mod, b"OP", curve_uid, node_uid, b"d|Visibility"),
+                ]
+            )
+            # Flag the property animated ("A+", what the exporter writes for
+            # the transforms it animates), at the value the curve opens on.
+            props70 = find(model, b"Properties70")
+            if props70 is None:
+                props70 = make(parse_mod, b"Properties70")
+                model.elems.append(props70)
+            vis = next(
+                (
+                    p
+                    for p in props70.elems
+                    if p.id == b"P" and p.props and p.props[0] == b"Visibility"
+                ),
+                None,
+            )
+            if vis is None:
+                props70.elems.append(
+                    make(
+                        parse_mod,
+                        b"P",
+                        [b"Visibility", b"Visibility", b"", b"A+", first],
+                        b"SSSSD",
+                    )
+                )
+            else:
+                vis.props[3] = b"A+"
+                if len(vis.props) > 4 and vis.props_type[4] == ord("D"):
+                    vis.props[4] = first
+        _FbxUtilsInternal._count_definitions(
+            parse_mod,
+            root,
+            {b"AnimationCurveNode": len(wanted), b"AnimationCurve": len(wanted)},
+        )
+        logger.info(
+            "Keyed visibility written as the FBX Visibility channel: "
+            + ", ".join(
+                model.props[1].split(b"\x00\x01")[0].decode("utf-8", "replace")
+                for model, _keys in wanted
+            )
+        )
+        return len(wanted)
+
+    # ---- the take split ------------------------------------------------------
+
+    #: What the scene-range stack is renamed to when a declared take already
+    #: uses its name -- the name the GLB gives the same stack (pythontk's
+    #: ``GlbClips.SEQUENCE_CLIP``).
+    _SEQUENCE_STACK = b"FULL_SEQUENCE"
+
+    @staticmethod
+    def _split_animation_takes(parse_mod, root, version, takes, label="") -> int:
+        """Clone the scene-range AnimStack into one windowed stack per take.
+
+        The parsed file carries the exporter's single baked scene-range
         AnimStack (the ``_force_scene_range_take`` invariant). For each
         ``(name, start, end)`` take the stack graph — stack, layer(s), curve
         nodes, curves — is cloned with fresh uids, the curves' keys windowed to
         the take's span (kept in absolute scene time, as Maya's split takes
-        are), and the ``Takes`` index rebuilt; the original scene-range stack
-        is then removed, so the file ships exactly the declared takes.
+        are), and a ``Takes`` entry added.
 
-        That last part is where the two DCCs' ARTIFACTS differ, measured
-        2026-08-28 on Maya 2025 + FBX2glTF 0.13.1: Maya's own splitter keeps
-        its whole-timeline ``Take 001`` alongside the takes it was asked for,
-        so a Maya FBX (and the GLB converted from it) carries N+1 stacks where
-        this carries N. The public surface is still the mirror it claims to be
-        — same call, same declared takes, same names — and a consumer that
-        selects clips by name cannot tell the difference; one that plays the
-        FIRST clip can. ``MeshConvert.apply_glb_animations`` is what makes that
-        answerable from either file (it marks which clips a shot declared).
+        The scene-range stack STAYS, beside the takes cut from it, as Maya's
+        whole-timeline ``Take 001`` stays beside the takes its splitter writes
+        (2026-10-05; until then it was removed, so a Shots + Full Sequence
+        export shipped no whole timeline in either file): the GLB conversion
+        cuts every clip from it and keeps it as ``FULL_SEQUENCE``, Unity plays
+        the shots as windows of it, and Shots Only drops it from the FBX once
+        the GLB was cut (the Scene Exporter's ``ship_declared_takes``). A take
+        named like the stack would leave no take that no shot names, so the
+        stack is renamed :attr:`_SEQUENCE_STACK` then.
 
         Take windows are clamped to the baked span — content beyond
         it cannot exist in the source curves; the Scene Exporter's
         ``apply_declared_takes`` task widens the scene range up front so
         clamping never bites on that path.
 
-        Returns the number of takes written; 0 (file untouched) when the file
+        Returns the number of takes written; 0 (tree untouched) when the file
         holds no single baked AnimStack to split.
         """
-        from io_scene_fbx import parse_fbx, encode_bin
-
-        root, version = parse_fbx.parse(filepath)
-        objects_el = _FbxUtilsInternal._find_elem(root, b"Objects")
-        conns_el = _FbxUtilsInternal._find_elem(root, b"Connections")
-        takes_el = _FbxUtilsInternal._find_elem(root, b"Takes")
-        stacks = (
-            _FbxUtilsInternal._find_elems(objects_el, b"AnimationStack")
-            if objects_el
-            else []
-        )
+        find, finds = _FbxUtilsInternal._find_elem, _FbxUtilsInternal._find_elems
+        objects_el = find(root, b"Objects")
+        conns_el = find(root, b"Connections")
+        takes_el = find(root, b"Takes")
+        stacks = finds(objects_el, b"AnimationStack") if objects_el else []
         if conns_el is None or len(stacks) != 1:
             logger.warning(
                 f"Cannot split animation takes: expected one baked AnimStack in "
-                f"{os.path.basename(filepath)}, found {len(stacks)} "
+                f"{label or 'the FBX'}, found {len(stacks)} "
                 "(was the write made with bake_anim enabled?). File left as written."
             )
             return 0
@@ -389,16 +1189,13 @@ class _FbxUtilsInternal(object):
             ]
 
         def conn(kind, child_uid, parent_uid, prop=None):
-            props = [kind, child_uid, parent_uid]
-            if prop is not None:
-                props.append(prop)
-            return _FbxUtilsInternal._make_parsed(
-                parse_fbx, b"C", props, b"SLLS" if prop is not None else b"SLL"
+            return _FbxUtilsInternal._connection(
+                parse_mod, kind, child_uid, parent_uid, prop
             )
 
         layer_uids = [
             e.props[0]
-            for e in _FbxUtilsInternal._find_elems(objects_el, b"AnimationLayer")
+            for e in finds(objects_el, b"AnimationLayer")
             if e.props[0] in children_of(stack_uid, oo)
         ]
         by_uid = {e.props[0]: e for e in objects_el.elems if e.props}
@@ -419,31 +1216,14 @@ class _FbxUtilsInternal(object):
         # union of every curve's first/last key time.
         span_lo = span_hi = None
         for u in curve_uids:
-            kt_el = _FbxUtilsInternal._find_elem(by_uid[u], b"KeyTime")
+            kt_el = find(by_uid[u], b"KeyTime")
             if kt_el is None or not len(kt_el.props[0]):
                 continue
             lo, hi = int(kt_el.props[0][0]), int(kt_el.props[0][-1])
             span_lo = lo if span_lo is None else min(span_lo, lo)
             span_hi = hi if span_hi is None else max(span_hi, hi)
 
-        # ---- fresh uids ----
-        existing_uids = {
-            e.props[0]
-            for e in objects_el.elems
-            if e.props and isinstance(e.props[0], int)
-        }
-        uid_counter = max(existing_uids) if existing_uids else 1
-
-        def new_uid():
-            nonlocal uid_counter
-            while True:
-                uid_counter += 1
-                if uid_counter >= 2**63 - 1:
-                    uid_counter = 1
-                if uid_counter not in existing_uids:
-                    break
-            existing_uids.add(uid_counter)
-            return uid_counter
+        new_uid = _FbxUtilsInternal._uid_allocator(objects_el)
 
         # ---- build the per-take clones ----
         new_objects, new_conns, new_takes = [], [], []
@@ -462,13 +1242,13 @@ class _FbxUtilsInternal(object):
             s_uid = new_uid()
             new_objects.append(
                 _FbxUtilsInternal._make_parsed(
-                    parse_fbx,
+                    parse_mod,
                     b"AnimationStack",
                     [s_uid, name_b + b"\x00\x01AnimStack", b""],
                     b"LSS",
                     [
                         _FbxUtilsInternal._timestamp_props(
-                            parse_fbx,
+                            parse_mod,
                             [
                                 (b"LocalStart", t0),
                                 (b"LocalStop", t1),
@@ -481,7 +1261,7 @@ class _FbxUtilsInternal(object):
             )
             for luid in layer_uids:
                 l_uid = new_uid()
-                layer_clone = _FbxUtilsInternal._clone_parsed(parse_fbx, by_uid[luid])
+                layer_clone = _FbxUtilsInternal._clone_parsed(parse_mod, by_uid[luid])
                 layer_clone.props[0] = l_uid
                 layer_clone.props[1] = name_b + b"\x00\x01AnimLayer"
                 new_objects.append(layer_clone)
@@ -490,7 +1270,7 @@ class _FbxUtilsInternal(object):
                     if cnuid not in cn_uids:
                         continue
                     cn_uid = new_uid()
-                    cn_clone = _FbxUtilsInternal._clone_parsed(parse_fbx, by_uid[cnuid])
+                    cn_clone = _FbxUtilsInternal._clone_parsed(parse_mod, by_uid[cnuid])
                     cn_clone.props[0] = cn_uid
                     new_objects.append(cn_clone)
                     new_conns.append(conn(b"OO", cn_uid, l_uid))
@@ -501,7 +1281,7 @@ class _FbxUtilsInternal(object):
                         if cuid not in curve_uids:
                             continue
                         curve_clone = _FbxUtilsInternal._sliced_curve(
-                            parse_fbx, by_uid[cuid], t0, t1, ktime_per_frame
+                            parse_mod, by_uid[cuid], t0, t1, ktime_per_frame
                         )
                         c_uid = new_uid()
                         curve_clone.props[0] = c_uid
@@ -511,24 +1291,7 @@ class _FbxUtilsInternal(object):
                                 continue
                             new_conns.append(conn(b"OP", c_uid, cn_uid, c.props[3]))
 
-            take_el = _FbxUtilsInternal._make_parsed(
-                parse_fbx,
-                b"Take",
-                [name_b],
-                b"S",
-                [
-                    _FbxUtilsInternal._make_parsed(
-                        parse_fbx, b"FileName", [name_b + b".tak"], b"S"
-                    ),
-                    _FbxUtilsInternal._make_parsed(
-                        parse_fbx, b"LocalTime", [t0, t1], b"LL"
-                    ),
-                    _FbxUtilsInternal._make_parsed(
-                        parse_fbx, b"ReferenceTime", [t0, t1], b"LL"
-                    ),
-                ],
-            )
-            new_takes.append(take_el)
+            new_takes.append(_FbxUtilsInternal._take_element(parse_mod, name_b, t0, t1))
 
         if clamped:
             logger.warning(
@@ -536,56 +1299,47 @@ class _FbxUtilsInternal(object):
                 f"animation span and were clamped to it: {', '.join(clamped)}"
             )
 
-        # ---- swap the scene-range stack graph for the take clones ----
-        removed_uids = {stack_uid, *layer_uids, *cn_uids, *curve_uids}
-        objects_el.elems[:] = [
-            e for e in objects_el.elems if not (e.props and e.props[0] in removed_uids)
-        ] + new_objects
-        conns_el.elems[:] = [
-            c
-            for c in conns_el.elems
-            if not (
-                c.id == b"C"
-                and c.props
-                and (c.props[1] in removed_uids or c.props[2] in removed_uids)
+        # ---- the whole timeline keeps a name no take uses ----
+        stack_name = stack.props[1].split(b"\x00\x01")[0]
+        names = {name.encode("utf-8") for name, _s, _e in takes}
+        if stack_name in names:
+            renamed, suffix = _FbxUtilsInternal._SEQUENCE_STACK, 0
+            while renamed in names:
+                suffix += 1
+                renamed = b"%s_%d" % (_FbxUtilsInternal._SEQUENCE_STACK, suffix)
+            stack.props[1] = renamed + b"\x00\x01AnimStack"
+            for luid in layer_uids:
+                by_uid[luid].props[1] = renamed + b"\x00\x01AnimLayer"
+            for take in finds(takes_el, b"Take") if takes_el is not None else ():
+                if take.props and take.props[0] == stack_name:
+                    take.props[0] = renamed
+                    file_el = find(take, b"FileName")
+                    if file_el is not None:
+                        file_el.props[0] = renamed + b".tak"
+            logger.warning(
+                f"A declared take is named {stack_name.decode('utf-8', 'replace')!r}, "
+                "like the scene-range stack: the whole timeline ships as "
+                f"{renamed.decode()!r}."
             )
-        ] + new_conns
+
+        # ---- the take clones join the scene-range stack graph ----
+        objects_el.elems.extend(new_objects)
+        conns_el.elems.extend(new_conns)
         if takes_el is not None:
-            takes_el.elems[:] = [
-                e for e in takes_el.elems if e.id != b"Take"
-            ] + new_takes
-
-        # ---- keep the Definitions reference counts honest ----
+            takes_el.elems.extend(new_takes)
         n = len(takes)
-        counts = {
-            b"AnimationStack": n,
-            b"AnimationLayer": n * len(layer_uids),
-            b"AnimationCurveNode": n * len(cn_uids),
-            b"AnimationCurve": n * len(curve_uids),
-        }
-        defs_el = _FbxUtilsInternal._find_elem(root, b"Definitions")
-        delta = 0
-        for ot in (
-            _FbxUtilsInternal._find_elems(defs_el, b"ObjectType") if defs_el else []
-        ):
-            if ot.props and ot.props[0] in counts:
-                count_el = _FbxUtilsInternal._find_elem(ot, b"Count")
-                if count_el is not None:
-                    delta += counts[ot.props[0]] - count_el.props[0]
-                    count_el.props[0] = counts[ot.props[0]]
-        total_el = defs_el and _FbxUtilsInternal._find_elem(defs_el, b"Count")
-        if total_el is not None:
-            total_el.props[0] += delta
-
-        # ---- re-encode in place ----
-        enc_root = encode_bin.FBXElem(b"")
-        for child in root.elems:
-            enc_root.elems.append(
-                _FbxUtilsInternal._parsed_to_encode(child, encode_bin)
-            )
-        encode_bin.write(filepath, enc_root, version)
+        _FbxUtilsInternal._count_definitions(
+            parse_mod,
+            root,
+            {
+                b"AnimationStack": n,
+                b"AnimationLayer": n * len(layer_uids),
+                b"AnimationCurveNode": n * len(cn_uids),
+                b"AnimationCurve": n * len(curve_uids),
+            },
+        )
         logger.info(
-            f"Split animation into {n} take(s): "
+            f"Split animation into {n} take(s) beside the whole timeline: "
             + ", ".join(name for name, _s, _e in takes)
         )
         return n
@@ -646,10 +1400,32 @@ class FbxUtils(_FbxUtilsInternal):
     }
 
     #: Export stagers: name -> (module, class, prepare, finish); a ``None``
-    #: finish is a one-way stage.  The Scene Exporter stages Blender's curve
-    #: proxies in its own tasks (deferred restores); a stager registered for
-    #: the session runs in every bracket.
+    #: finish is a one-way stage; a stager registered for the session runs in
+    #: every bracket.  A ``prepare`` that RETURNS objects staged transport
+    #: nodes: they are recorded until its finish (:attr:`_staged`), and
+    #: :meth:`export` ships each one whose parent ships -- Blender writes only
+    #: what is selected, so a curve proxy hanging under an exported object
+    #: would otherwise stay behind (mayatk's exporter carries a child with its
+    #: parent).
     STAGERS: Dict[str, Tuple[str, str, str, Optional[str]]] = {
+        # The curve-proxy transport (mirror of mayatk's row): one child Empty
+        # per keyed render-effect channel, ``<object>__<channel>``, whose
+        # scale.x carries the curve Unity's RenderEffectsImporter rebinds.
+        "render_effects": (
+            "blendertk.mat_utils.render_opacity.render_effects",
+            "RenderEffects",
+            "stage_export_proxies",
+            "finish_export",
+        ),
+        # The same transport for keyed emissive weights (Blender only: Maya's
+        # FBX carries the carrier's custom-attribute curves itself), one Empty
+        # per keyed group under the data_export carrier.
+        "emissive_groups": (
+            "blendertk.mat_utils.emissive_groups",
+            "EmissiveGroups",
+            "create_export_curve_proxies",
+            "remove_export_curve_proxies",
+        ),
         # One-way: a marker baked before 2026-09-23 still carries its map's
         # folder, and markers ride every FBX -- lifted into the private record
         # before the write, so an old file ships clean without a re-bake.
@@ -675,6 +1451,12 @@ class FbxUtils(_FbxUtilsInternal):
     _bracket_stagers: Optional[
         Dict[str, Tuple[Optional[Callable], Optional[Callable]]]
     ] = None
+    #: Stager name -> the transport nodes its ``prepare`` returned, until its
+    #: ``finish`` runs.  While they stand, preparing that stager again is a
+    #: no-op: a Blender object is a reference, so re-staging (which pre-cleans
+    #: and rebuilds) would free the very nodes an export set already holds --
+    #: where mayatk's re-stage by name is harmless.
+    _staged: Dict[str, List[Any]] = {}
 
     @classmethod
     def producers(cls, only: Optional[Iterable[Any]] = None) -> Dict[Any, Callable]:
@@ -703,7 +1485,7 @@ class FbxUtils(_FbxUtilsInternal):
         cls, mode: str = ptk.ExportContext.PIPELINE, **decisions
     ) -> ptk.ExportContext:
         """A context for this file: provenance filled in, *decisions*
-        (``clip_mode``, ``clip_span``) as given."""
+        (``clip_mode``, ``clip_span``, ``rendering``, ``scope``) as given."""
         try:
             import bpy
 
@@ -805,20 +1587,67 @@ class FbxUtils(_FbxUtilsInternal):
     @staticmethod
     def _run_stagers(phase: str, table) -> None:
         """Run one *phase* (``"prepare"`` / ``"finish"``) of every stager in
-        *table*, each isolated; ``finish`` runs in reverse order (LIFO)."""
+        *table*, each isolated; ``finish`` runs in reverse order (LIFO).
+
+        The objects a ``prepare`` returns are recorded as staged
+        (:attr:`FbxUtils._staged`) and forgotten at its ``finish`` -- raising
+        or not; a stager whose staged nodes all still stand is not prepared
+        again (see :attr:`FbxUtils._staged`)."""
         items = list(table.items())
         if phase == "finish":
             items.reverse()
         for name, (prepare, finish) in items:
+            if phase == "prepare" and FbxUtils._staged_nodes((name,)):
+                continue  # staged and standing: the export set holds them
             fn = prepare if phase == "prepare" else finish
             if fn is None:
+                if phase == "finish":
+                    FbxUtils._staged.pop(name, None)
                 continue
             try:
-                fn()
+                result = fn()
             except Exception:  # one subsystem's failure must not block others
+                result = None
                 logger.warning(
                     "Export stager %r failed to %s.", name, phase, exc_info=True
                 )
+            if phase == "finish":
+                FbxUtils._staged.pop(name, None)
+                continue
+            nodes = FbxUtils._as_staged(result)
+            if nodes:
+                FbxUtils._staged[name] = nodes
+
+    @staticmethod
+    def _as_staged(result) -> List[Any]:
+        """The Blender objects among what a stager's ``prepare`` returned --
+        a count, a list of names or ``None`` stage no node."""
+        if not isinstance(result, (list, tuple)):
+            return []
+        try:
+            import bpy
+        except ImportError:
+            return []
+        return [n for n in result if isinstance(n, bpy.types.Object)]
+
+    @staticmethod
+    def _staged_nodes(names: Optional[Iterable[str]] = None) -> List[Any]:
+        """The standing transport nodes the named stagers (``None``: all)
+        staged; a stager one of whose nodes was removed since is forgotten,
+        so its next ``prepare`` stages afresh."""
+        found: List[Any] = []
+        for name in list(FbxUtils._staged) if names is None else names:
+            nodes = FbxUtils._staged.get(name)
+            if not nodes:
+                continue
+            try:
+                for node in nodes:
+                    node.name  # a removed object raises here
+            except ReferenceError:
+                FbxUtils._staged.pop(name, None)
+                continue
+            found.extend(nodes)
+        return found
 
     # -- the bracket -------------------------------------------------------
 
@@ -982,8 +1811,9 @@ class FbxUtils(_FbxUtilsInternal):
         in ``TASK_ORDER``), which is exactly why the widening has to be
         reproduced here rather than read off the scene: at publish time the
         scene does not yet carry it.  What the range source will then set is
-        not known yet either; the scene range stands in for it (the seed
-        ``_publish_scene_records`` names as an open contract question).
+        not known here either; the scene range stands in for it -- the seed
+        for a publish outside the Scene Exporter, whose own publish predicts
+        the range its Bake Range row will set (``_clip_origin_span``).
 
         Anyone describing the exported stack's ORIGIN needs this: a glTF
         converter rebases every stack onto its first key, so publishing the
@@ -1059,8 +1889,9 @@ class FbxUtils(_FbxUtilsInternal):
 
         EVERY subsequent :meth:`export` write consumes the armed state — it is
         sticky until :meth:`reset_takes`, mirroring Maya's global exporter
-        state — by splitting the file's single baked scene-range AnimStack into
-        windowed per-take stacks (see ``_split_animation_takes``).  The write
+        state — by cloning the file's single baked scene-range AnimStack into
+        windowed per-take stacks, kept beside it as Maya's ``Take 001`` is
+        (see ``_split_animation_takes``).  The write
         must go out with
         ``bake_anim`` enabled and a scene frame range covering every take —
         the Scene Exporter's ``apply_declared_takes`` task guarantees both.
@@ -1196,7 +2027,7 @@ class FbxUtils(_FbxUtilsInternal):
     ):
         """Export to an FBX file — the consolidated counterpart of mayatk's ``FbxUtils.export``.
 
-        Args:
+        Parameters:
             filepath: output ``.fbx`` path (``.fbx`` appended if missing; parent dirs created).
                 Defaults to ``<temp>/<blend-stem>_bridge.fbx``.
             objects: objects (datablocks or names) to export; ``None`` exports the current
@@ -1210,12 +2041,28 @@ class FbxUtils(_FbxUtilsInternal):
                 are collected instead and logged as a WARNING (count + first names):
                 content loss must never be silent. ``strict=True`` raises
                 ``RuntimeError`` with that list instead of exporting without them.
+                The ``data_export`` carrier (with any curve proxy staged under
+                it) is the exception: a metadata node, it is shown for the write
+                and hidden again after it.
             **fbx_opts: overrides merged over the defaults, forwarded to
                 ``bpy.ops.export_scene.fbx``.
 
+        What the deliverable's own nodes need is the write's to guarantee, not
+        the caller's: the carrier and every staged curve proxy ship readable
+        (``use_custom_props``, ``EMPTY`` -- forced, and said, over options
+        that would drop them); a proxy the open staging made ships with the
+        object it hangs under, and stays out with it when that object cannot
+        be selected (:attr:`STAGERS`); a light the shadow record names as a
+        plane's source passes a type filter without ``LIGHT``; and an animated
+        write carries each shipped object's keyed ``hide_render`` as its FBX
+        ``Visibility`` curve, which the exporter does not write.
+
         Returns:
-            str: the written FBX path. Raises ``RuntimeError`` when ``selection_only`` and nothing
-            is selected to export.
+            str: the written FBX path.
+
+        Raises:
+            RuntimeError: ``selection_only`` and nothing is selected to export,
+                or ``strict`` and a requested object cannot be selected.
         """
         import bpy
         import tempfile
@@ -1264,48 +2111,120 @@ class FbxUtils(_FbxUtilsInternal):
         # after a write that selected *objects* -- even when the write raises -- the
         # scope mayatk's export takes.
         with CoreUtils.window_context_override(), CoreUtils.preserved_selection():
-            dropped = []
+            # What ships: the objects asked for, else the selection -- plus
+            # each transport node the open staging made under one of them
+            # (STAGERS). A whole-scene write ships the scene, which the type
+            # filter alone narrows.
             if objects is not None:
-                bpy.ops.object.select_all(action="DESELECT")
-                for o in ptk.make_iterable(objects):
-                    obj = bpy.data.objects.get(o) if isinstance(o, str) else o
-                    if obj is None:
-                        continue
-                    # An unselectable object must not kill the whole export
-                    # (an excluded-collection member makes select_set RAISE),
-                    # but it will be silently absent from the FBX — a hidden
-                    # object "succeeds" without selecting. Compare requested
-                    # vs actually-selected and surface the difference below.
-                    try:
-                        obj.select_set(True)
-                        selected = obj.select_get()
-                    except RuntimeError:
-                        selected = False
-                    if not selected:
-                        dropped.append(obj.name)
+                shipping = _FbxUtilsInternal._resolved_objects(objects)
+            elif selection_only:
+                shipping = list(CoreUtils.selected_objects())
+            else:
+                shipping = None
+            riders = set()  # the staged nodes' pointers (see the selection below)
+            if selection_only and shipping:
+                staged = FbxUtils._staged_nodes()
+                riders = {node.as_pointer() for node in staged}
+                shipping += [
+                    node
+                    for node in staged
+                    if node.parent in shipping and node not in shipping
+                ]
+            written = (
+                shipping if selection_only else list(bpy.context.scene.objects)
+            ) or []
+            # The deliverable's own nodes ship readable whatever the caller
+            # passed (the shared step its callers also take for their reports).
+            repaired = FbxUtils._force_carrier_readability(written, opts)
+            if repaired:
+                overruled = [
+                    r for r in repaired if r.partition("=")[0].rstrip("+") in fbx_opts
+                ]
+                (logger.warning if overruled else logger.info)(
+                    "FBX export ships the data_export carrier or a curve proxy: "
+                    "forced %s%s.",
+                    ", ".join(repaired),
+                    " over the options given" if overruled else "",
+                )
+            left_out = (
+                FbxUtils._admit_shadow_sources(written, opts) if selection_only else []
+            )
 
-            if dropped:
-                shown = ", ".join(dropped[:10]) + (" …" if len(dropped) > 10 else "")
-                msg = (
-                    f"{len(dropped)} requested object(s) cannot be selected and "
-                    f"will be DROPPED from the FBX (hidden, selection-locked, or "
-                    f"outside the active view layer): {shown}"
-                )
-                if strict:
-                    raise RuntimeError(msg)
-                logger.warning(msg)
-            if selection_only and not CoreUtils.selected_objects():
-                raise RuntimeError("Nothing selected to export.")
-            bpy.ops.export_scene.fbx(filepath=filepath, **opts)
-            # Armed takes are consumed by every write until reset_takes —
-            # the Maya-parity sticky-state semantics (see apply_takes). A
-            # failing split raises: the promised per-shot clips are the
-            # write's contract, and the single-take file on disk saying
-            # otherwise must not pass as success.
-            if FbxUtils._pending_takes:
-                _FbxUtilsInternal._split_animation_takes(
-                    filepath, FbxUtils._pending_takes
-                )
+            with FbxUtils._carriers_shippable(shipping or ()):
+                dropped = []
+                if shipping is not None:
+                    bpy.ops.object.select_all(action="DESELECT")
+                    # Staged nodes last: each ships only beside the object it
+                    # hangs under, so one whose object was dropped (hidden,
+                    # say) stays out too -- re-rooted, its curve would reach
+                    # every Renderer in Unity. The drop is reported for the
+                    # object itself.
+                    for obj in sorted(shipping, key=lambda o: o.as_pointer() in riders):
+                        if obj in left_out:
+                            continue
+                        parent = obj.parent if obj.as_pointer() in riders else None
+                        if parent is not None:
+                            try:
+                                if not parent.select_get():
+                                    continue
+                            except RuntimeError:  # outside the layer
+                                continue
+                        # An unselectable object must not kill the whole export
+                        # (an excluded-collection member makes select_set RAISE),
+                        # but it will be silently absent from the FBX — a hidden
+                        # object "succeeds" without selecting. Compare requested
+                        # vs actually-selected and surface the difference below.
+                        try:
+                            obj.select_set(True)
+                            selected = obj.select_get()
+                        except RuntimeError:
+                            selected = False
+                        if not selected:
+                            dropped.append(obj.name)
+
+                if dropped:
+                    shown = ", ".join(dropped[:10]) + (
+                        " …" if len(dropped) > 10 else ""
+                    )
+                    msg = (
+                        f"{len(dropped)} requested object(s) cannot be selected and "
+                        f"will be DROPPED from the FBX (hidden, selection-locked, or "
+                        f"outside the active view layer): {shown}"
+                    )
+                    if strict:
+                        raise RuntimeError(msg)
+                    logger.warning(msg)
+                if selection_only and not CoreUtils.selected_objects():
+                    raise RuntimeError("Nothing selected to export.")
+                scene = bpy.context.scene
+                with _FbxUtilsInternal._range_covering(
+                    scene,
+                    (FbxUtils._pending_takes or ()) if opts.get("bake_anim") else (),
+                ):
+                    bpy.ops.export_scene.fbx(filepath=filepath, **opts)
+                    # One rewrite of the file for what the exporter cannot
+                    # write: the keyed visibility (_add_visibility_curves), and
+                    # the armed takes, consumed by every write until
+                    # reset_takes -- the Maya-parity sticky-state semantics (see
+                    # apply_takes). A failing rewrite raises: the promised
+                    # per-shot clips are the write's contract, and the
+                    # single-take file on disk saying otherwise must not pass
+                    # as success.
+                    visibility = (
+                        _FbxUtilsInternal._visibility_curves(
+                            written, scene.frame_start, scene.frame_end
+                        )
+                        if opts.get("bake_anim")
+                        else {}
+                    )
+                    if visibility or FbxUtils._pending_takes:
+                        _FbxUtilsInternal._rewrite_animation(
+                            filepath,
+                            FbxUtils._pending_takes,
+                            visibility,
+                            (scene.frame_start, scene.frame_end),
+                            scene.name,
+                        )
         return filepath
 
     @staticmethod
@@ -1420,3 +2339,54 @@ class FbxUtils(_FbxUtilsInternal):
             strict=strict,
             **fbx_opts,
         )
+
+    @staticmethod
+    def embed_dependencies(
+        file_path: str,
+        search_dirs: Optional[Iterable[str]] = None,
+        logger: Optional[logging.Logger] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Embed every file a written FBX's scene records name, in place.
+
+        The records name their files by file name -- ``lightmap_metadata`` its
+        maps and reflection probe, ``shadow_metadata`` its silhouette, atlas
+        and horizon maps -- and a lighting-only bake binds its maps to no
+        material, so the FBX carried none of them and every consumer had them
+        copied in beside it. ``ptk.FbxMedia.embed_dependencies`` puts each
+        inside the file under its name, the form Unity's importer extracts,
+        resolved where this scene keeps it: *search_dirs*, else
+        :meth:`LightmapRecords.search_dirs` -- the folders the GLB build joins
+        the same names against. The Scene Exporter runs it on its FBX after
+        the GLB conversion, which binds its own copies. Mirror of mayatk's.
+
+        Never raises -- a failure is a warning and the file stays as written.
+        A file that is not a binary FBX is left alone.
+
+        Parameters:
+            file_path: The FBX just written from this scene.
+            search_dirs: Folders to resolve the names against, in priority
+                order; ``None`` asks the scene.
+            logger: Where the outcome is said; this module's otherwise.
+
+        Returns:
+            ``ptk.FbxMedia.embed_dependencies``'s report (``"named"``,
+            ``"embedded"``, ``"present"``, ``"missing"``, ``"bytes"``), or
+            ``None`` when the file is not a binary FBX or the pass failed.
+        """
+        log = logger or logging.getLogger(__name__)
+        if not ptk.FbxFile.is_fbx(file_path):
+            return None
+        try:
+            if search_dirs is None:
+                from blendertk.light_utils.lightmap_baker.lightmap_records import (
+                    LightmapRecords,
+                )
+
+                search_dirs = LightmapRecords.search_dirs()
+            return ptk.FbxMedia.embed_dependencies(
+                file_path, search_dirs=list(search_dirs), logger=log
+            )
+        except Exception as error:  # noqa: BLE001 -- the deliverable already shipped
+            log.warning(f"FBX dependencies: not embedded -- the pass failed: {error}")
+            log.debug("Dependency pass failed.", exc_info=True)
+            return None

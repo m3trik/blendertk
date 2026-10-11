@@ -537,6 +537,43 @@ class UvUtils(_UvUtilsInternal):
         return uv.astype(np.float64).reshape(-1, 2)[loops].reshape(count, 3, 2)
 
     @staticmethod
+    def get_uv_world_triangles(obj, uv_set=None):
+        """*obj*'s UV-space triangles paired with the world-space corners they map —
+        mirror of mayatk's ``get_uv_world_triangles``.
+
+        The triangles of :meth:`get_uv_triangles` (Blender's loop triangulation, in
+        its order), each with its corners' world positions: what relates a layout to
+        the surface it covers. ``ptk.ImgUtils.uv_axis_scale`` reads from them how
+        much surface each UV axis spans (a layout stretched to fill its square shows
+        its stretch).
+
+        Parameters:
+            obj: A mesh object; its own ``matrix_world`` places the corners, so each
+                object sharing a mesh stands where it stands.
+            uv_set: UV layer name. The active layer when omitted.
+
+        Returns:
+            ``(uvs, points)``: ``(N, 3, 2)`` UV corners and ``(N, 3, 3)`` world
+            corners, row for row; both empty when the layer is missing or the mesh
+            has no faces.
+        """
+        import numpy as np
+
+        uvs = UvUtils.get_uv_triangles(obj, uv_set)
+        if not len(uvs):
+            return uvs, np.zeros((0, 3, 3), dtype=np.float64)
+        me = obj.data  # its loop triangles are current: get_uv_triangles built them
+        loops = np.empty(len(me.loop_triangles) * 3, dtype=np.int64)
+        me.loop_triangles.foreach_get("loops", loops)
+        vertex_of = np.empty(len(me.loops), dtype=np.int64)
+        me.loops.foreach_get("vertex_index", vertex_of)
+        co = np.empty(len(me.vertices) * 3, dtype=np.float32)
+        me.vertices.foreach_get("co", co)
+        w = np.array(obj.matrix_world, dtype=np.float64)
+        world = co.astype(np.float64).reshape(-1, 3) @ w[:3, :3].T + w[:3, 3]
+        return uvs, world[vertex_of[loops]].reshape(len(uvs), 3, 3)
+
+    @staticmethod
     def get_neighbor_shell_bounds(objects):
         """Per-island UV boxes that share *objects*' UV space, excluding their own —
         mirror of mayatk's ``get_neighbor_shell_bounds``.
@@ -1315,6 +1352,16 @@ class UvUtils(_UvUtilsInternal):
                             )
                         finally:
                             bpy.ops.object.mode_set(mode="OBJECT")
+                    # The regenerated layout answers to the check that sent it
+                    # here (mirror of mayatk's): an unwrap can still overlap, and
+                    # faces sharing texels mix each other's light. Named loudly.
+                    if not UvUtils._is_bakeable_lightmap(o, name):
+                        print(
+                            f"[lightmap-uv] {o.name}: the generated lightmap UVs "
+                            "still overlap or leave the 0-1 square; faces sharing "
+                            "texels mix each other's light. Unwrap it by hand (or "
+                            "with UvUtils.auto_unwrap) for a clean bake."
+                        )
                     done.append(o.name)
         finally:
             # preserved_selection has put the active object back: re-enter its mode

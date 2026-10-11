@@ -2,17 +2,12 @@
 # coding=utf-8
 """Constants, column layout, and pure helper functions for the Shot Manifest UI.
 
-Blender mirror of mayatk's ``shot_manifest.manifest_data``.  Everything here is
-pure Qt/data with two DCC swaps versus the Maya original:
-
-- the status palette is imported from the shared ``pythontk`` engine (single
-  source of truth) rather than a mayatk module;
-- :meth:`ManifestData.try_load_blender_icons` returns blendertk's
-  :class:`NodeIcons` (an ``Object.type`` → uitk named-icon map — Blender has no
-  ``:/`` node-type icon resources) when ``bpy`` is importable, else ``None``.
+Shared text: blendertk carries this module identical
+(``m3trik/scripts/check_dcc_twins.py``); mayatk's is the one edited, then
+copied over.  Only ``manifest_host.py`` differs between the two.
 """
 
-from pythontk.core_utils.engines.shots.manifest.range_resolver import (
+from pythontk.core_utils.engines.shots.manifest.range_resolver import (  # noqa: F401
     RangeResolver as _PyRangeResolver,
 )
 
@@ -21,7 +16,7 @@ prune_to_top_boundaries = _PyRangeResolver.prune_to_top_boundaries  # noqa: F401
 
 from pythontk import SHOT_PALETTE  # noqa: E402
 
-# Settings namespace (QSettings)
+# QSettings namespace
 SETTINGS_NS = "ShotManifest"
 
 # Column headers for the manifest tree widget
@@ -37,7 +32,7 @@ COL_END = 5
 
 STEP_ICON_COLOR = "#8E8E8E"  # neutral dark grey for parent step rows
 
-# Assessment status colours — shared palette from the pythontk engine (SSoT).
+# Assessment status colours — the pythontk engine's palette (single source of truth).
 PASTEL_STATUS = SHOT_PALETTE
 
 # Foreground colors for behavior issue states on child rows.
@@ -61,7 +56,9 @@ class ManifestData:
         return name.replace("_", " ").title() if name else ""
 
     @staticmethod
-    def format_behavior_html(behaviors, broken=(), status_color=None, stale=()) -> str:
+    def format_behavior_html(
+        behaviors, broken=(), status_color=None, stale=(), disabled=()
+    ) -> str:
         """Return rich-text HTML for a list of behavior names.
 
         Parameters:
@@ -74,10 +71,24 @@ class ManifestData:
                 in this colour (e.g. the error colour for missing objects).
             stale: Subset of *behaviors* keyed under an older effect recipe
                 (Build re-keys them), rendered in the ``stale`` colour.
+            disabled: Behavior types turned off (header menu): struck through
+                in the ``locked`` grey, whatever else applies.
         """
         if not behaviors:
             return ""
         spans = []
+        off = set(disabled)
+        if off:
+            grey = PASTEL_STATUS["locked"][0]
+            on = [b for b in behaviors if b not in off]
+            html = ManifestData.format_behavior_html(on, broken, status_color, stale)
+            struck = [
+                f'<span style="color:{grey};text-decoration:line-through">'
+                f"{ManifestData.fmt_behavior(b)}</span>"
+                for b in behaviors
+                if b in off
+            ]
+            return "  ".join(([html] if html else []) + struck)
         if status_color:
             for b in behaviors:
                 display = ManifestData.fmt_behavior(b)
@@ -95,13 +106,3 @@ class ManifestData:
                 else:
                     spans.append(display)
         return "  ".join(spans)
-
-    @staticmethod
-    def try_load_blender_icons():
-        """Return the :class:`NodeIcons` class if Blender is available, else ``None``."""
-        try:
-            from blendertk.ui_utils.node_icons import NodeIcons
-            import bpy  # noqa: F401 — availability check
-        except ImportError:
-            return None
-        return NodeIcons

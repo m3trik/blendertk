@@ -75,10 +75,6 @@ class TaskManager(
         "check_sheared_local_transforms": (
             "no Blender analogue: see flatten_sheared_chains"
         ),
-        "check_uv_snapshots": (
-            "no Blender analogue: the _uv_snap_* backup sets are mayatk Auto "
-            "Unwrap temporaries, and Blender's unwrap takes none"
-        ),
         "check_default_materials": (
             "not yet ported: objects on no material / the default material. "
             "TODO(blender-parity)"
@@ -298,6 +294,9 @@ class TaskManager(
                 # Where the maps are NOW: the manifest's recorded authoring
                 # folder goes stale the moment the project is reorganised.
                 lightmap_dirs=self._lightmap_search_dirs(),
+                # The DELIVERABLE's folders: the FBX converted here is a local
+                # staged copy, and "beside the FBX" is the stage.
+                shadow_dirs=ptk.MeshConvert.fbx_media_dirs(self.export_path),
                 texture_params=self.run.glb_texture_params(logger=self.logger),
                 # GLB Key Tolerance: the deviation bound, or None for the
                 # converter's per-frame keys.

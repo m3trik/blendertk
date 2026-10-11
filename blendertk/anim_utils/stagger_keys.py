@@ -35,6 +35,8 @@ class StaggerKeys(_StaggerKeysInternal):
         group_overlapping=False,
         merge_touching=False,
         smooth_tangents=False,
+        on_replace=None,
+        on_move=None,
     ):
         """Re-time selected objects so their animations play one after another (mirror of ``mtk``
         stagger-keys).
@@ -47,6 +49,10 @@ class StaggerKeys(_StaggerKeysInternal):
           (relative timing within the block is preserved); ``merge_touching`` also joins blocks whose
           ranges merely touch (end == start).
         * ``smooth_tangents`` — set auto-clamped bezier handles on the re-timed keys.
+        * ``on_move(fcurve, pairs)`` — hears the ``(old, new)`` frames of every key re-timed,
+          per fcurve (what the shot system carries its claims along on).
+        * ``on_replace`` — accepted for parity with mayatk's (whose split curves' segments can
+          land on one another); never called here: a unit moves whole, so no key is landed on.
 
         Returns the number of objects (actions) staggered."""
         from blendertk.anim_utils._anim_utils import AnimUtils
@@ -79,7 +85,17 @@ class StaggerKeys(_StaggerKeysInternal):
             offset = target_start - b_start
             if offset:
                 for u in block:
+                    moved = (
+                        {
+                            fc: [(t, t + offset) for t in AnimUtils.key_times(fc)]
+                            for fc in u["fcurves"]
+                        }
+                        if on_move is not None
+                        else {}
+                    )
                     AnimUtils._shift_fcurves(u["fcurves"], offset)
+                    for fc, pairs in moved.items():
+                        AnimUtils._report_edit(fc, [], pairs, None, on_move)
             cursor = target_start + (b_end - b_start) + spacing
 
         if smooth_tangents:

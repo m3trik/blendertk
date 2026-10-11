@@ -23,7 +23,7 @@ lines = []
 
 def check(name, cond, detail=""):
     lines.append(
-        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
     )
 
 
@@ -354,6 +354,58 @@ try:
                 p.material_index == [s.material for s in o.material_slots].index(new)
                 for p in o.data.polygons
             ),
+        )
+
+    # --- OpenPBR lobes ride the transfer ----------------------------------
+    # The copy drops every Principled link and the manifest restores the
+    # transferred maps -- a lobe the manifest did not know was lost, and a
+    # restored data map loaded as sRGB (Blender's PNG default).
+    reset()
+    o = plane("lobePlane")
+    mat = material("lobeMat", texture=checker_path)
+    nt = mat.node_tree
+    bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+    for socket in ("Coat Roughness", "Specular IOR Level"):
+        tex = nt.nodes.new("ShaderNodeTexImage")
+        tex.image = bpy.data.images.load(checker_path, check_existing=True)
+        nt.links.new(tex.outputs["Color"], bsdf.inputs[socket])
+    o.data.materials.append(mat)
+    rotate_uv_copy(o, "map2", 90)
+    TextureTransfer().transfer(
+        o,
+        source_uv_set="UVMap",
+        target_uv_set="map2",
+        size=16,
+        supersample=1,
+        output_dir=out_dir,
+        assign=True,
+    )
+    lobe_copy = bpy.data.materials.get("lobeMat_TRANSFER")
+    check("lobe: the transfer made its copy", lobe_copy is not None)
+    if lobe_copy is not None:
+        from blendertk.mat_utils.mat_manifest import MatManifest
+
+        maps = MatManifest._process_material(lobe_copy)
+        check(
+            "lobe: the coat roughness is re-baked onto the copy",
+            ptk.MapFactory.resolve_map_type(maps.get("coatRoughness", ""))
+            == "Clearcoat_Roughness",
+            str(maps),
+        )
+        check(
+            "lobe: the specular LEVEL is specularWeight, not the tint",
+            "specularWeight" in maps and "specular" not in maps,
+            str(maps),
+        )
+        copy_bsdf = next(
+            n for n in lobe_copy.node_tree.nodes if n.type == "BSDF_PRINCIPLED"
+        )
+        link = copy_bsdf.inputs["Coat Roughness"].links
+        check(
+            "lobe: a restored data map is Non-Color",
+            bool(link)
+            and link[0].from_node.image.colorspace_settings.name == "Non-Color",
+            link[0].from_node.image.colorspace_settings.name if link else "unlinked",
         )
 
     # --- one transfer material per shared UV map --------------------------
