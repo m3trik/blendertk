@@ -11083,7 +11083,7 @@
               "kind": "staticmethod",
               "signature": "(baked_path: str) -> Optional[str]",
               "summary": "The foreign scene *baked_path* was baked from, or None if it is not a bake.",
-              "line": 2909,
+              "line": 2915,
               "deprecated": false
             },
             {
@@ -11092,7 +11092,7 @@
               "kind": "staticmethod",
               "signature": "(maya_exe: str) -> Optional[str]",
               "summary": "Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.",
-              "line": 2924,
+              "line": 2930,
               "deprecated": false
             },
             {
@@ -11101,7 +11101,7 @@
               "kind": "staticmethod",
               "signature": "(src_path: str) -> bool",
               "summary": "Cheap pre-conversion probe: does the scene declare *driven* animation the",
-              "line": 2935,
+              "line": 2941,
               "deprecated": false
             },
             {
@@ -11110,7 +11110,7 @@
               "kind": "staticmethod",
               "signature": "(root_dir: str, recursive: bool = False, extensions: Optional[Sequence[str]] = None) -> List[str]",
               "summary": "Every importable Maya scene (``.ma`` / ``.mb``) under *root_dir* — sorted abs paths.",
-              "line": 2996,
+              "line": 3002,
               "deprecated": false
             }
           ]
