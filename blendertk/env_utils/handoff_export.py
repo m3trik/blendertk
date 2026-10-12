@@ -312,8 +312,14 @@ class BlenderExportMixin:
     ) -> None:
         """Export *objects* to *path* in the carrier its extension names -- the
         ONE dispatch, keyed on the extension (:meth:`pythontk.HandoffBridge.carrier_of`)
-        so a bridge that builds its own payload path only has to name it right."""
-        self._payload_writers()[self.carrier_of(path)](objects, path, params)
+        so a bridge that builds its own payload path only has to name it right.
+
+        A transient edit (``ShotStore.transient_edit``): the write stages,
+        bakes and puts the scene back, so the Shot Sequencer credits none of
+        its key edits to a shot -- a Unity send added a non-member keyed in
+        the active shot's frames to its members (2026-10-05)."""
+        with ptk.ShotStore.transient_edit():
+            self._payload_writers()[self.carrier_of(path)](objects, path, params)
 
     def _fbx_options(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Blender ``export_scene.fbx`` options derived from the bridge params.

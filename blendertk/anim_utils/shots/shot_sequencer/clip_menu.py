@@ -284,7 +284,7 @@ class ClipMenuMixin:
             return
         obj_names = {
             cd.data.get("obj")
-            for cd in widget._clips.values()
+            for cd in widget.clips()
             if cd.data.get("obj")
             and not getattr(cd, "sub_row", False)
             and not cd.data.get("read_only")
@@ -294,19 +294,19 @@ class ClipMenuMixin:
                 store.locked_objects.discard(o)
             else:
                 store.locked_objects.add(o)
-        for cid, cd in list(widget._clips.items()):
+        for cd in widget.clips():
             o = cd.data.get("obj")
             if o and not cd.data.get("read_only"):
-                widget.set_clip_locked(cid, o != keep_obj)
+                widget.set_clip_locked(cd.clip_id, o != keep_obj)
         self._sub_row_cache.clear()
 
     def _unlock_all(self, widget) -> None:
         store = self.sequencer.store if self.sequencer else None
         if store is not None:
             store.locked_objects.clear()
-        for cid, cd in list(widget._clips.items()):
+        for cd in widget.clips():
             if cd.locked and not cd.data.get("read_only"):
-                widget.set_clip_locked(cid, False)
+                widget.set_clip_locked(cd.clip_id, False)
         self._sub_row_cache.clear()
 
     def _delete_clip_keys(self, clip_ids: list) -> None:
@@ -530,17 +530,8 @@ class ClipMenuMixin:
         widget = self._get_sequencer_widget()
         if widget is None:
             return
-        from uitk import KeyframeItem
-
-        try:
-            items = widget._timeline._scene.selectedItems()
-        except RuntimeError:
-            items = []
-        by_clip: dict = {}
-        for item in items:
-            if isinstance(item, KeyframeItem):
-                cid = item._parent_clip._data.clip_id
-                by_clip.setdefault(cid, []).append(item._time)
+        # The widget's key selection, grouped by clip (``selected_keys``).
+        by_clip = {g["clip_id"]: list(g["times"]) for g in widget.selected_keys()}
 
         if by_clip:
             deleted = 0

@@ -490,11 +490,12 @@ class DataNodes(ptk.SceneStoreBase):
         """``rename(name)`` for a library made local: *before* is
         ``[(datablock, name while linked), ...]`` for its objects and actions,
         and each one the move renamed (Blender's ``.001`` clash suffix) maps
-        to its name now.  An ``object|data_path|index`` key -- the shot
-        ledger's -- maps through its object.  A name the move did not treat
-        alike for every datablock holding it -- an object kept it while an
-        action became ``.001`` -- is ambiguous and left alone: a record names
-        no type."""
+        to its name now.  A ``|``-joined key maps through its first field --
+        the shot ledger's ``action|slot|data_path|index`` through its action
+        (a format-1 ``object|data_path|index`` through its object).  A name
+        the move did not treat alike for every datablock holding it -- an
+        object kept it while an action became ``.001`` -- is ambiguous and
+        left alone: a record names no type."""
         renamed: Dict[str, set] = {}
         kept: set = set()
         for datablock, old in before:

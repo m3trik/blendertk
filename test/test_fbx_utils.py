@@ -477,7 +477,9 @@ try:
     check("reset_takes clears the armed state", FbxUtils._pending_takes is None)
 
     reset_anim()
-    FbxUtils.import_fbx(takes_out)
+    # The stock importer is the oracle of what the file holds: it makes an
+    # action per (take, object). import_fbx plays only the covering take.
+    bpy.ops.import_scene.fbx(filepath=takes_out, anim_offset=0.0)
 
     def action_fcurves(act):  # Blender 5.1 slotted-action walk
         layers = getattr(act, "layers", None)
@@ -1242,6 +1244,458 @@ try:
         "a caller's own simplify factor is honored",
         eased_error(thinned_out)[0] > 1e-4,
     )
+    scene.frame_start, scene.frame_end = 1, 30
+
+    # ---- a multi-take import carries ALL its animation (2026-10-11) ---------
+    # No importer merges takes: Blender's makes an action per (stack, object),
+    # assigns each object the FIRST stack's and parks the rest under a fake
+    # user -- a Shots Only file played its first shot, a whole-timeline take
+    # listed after its slices played the first slice. import_fbx reads the
+    # file's take layout (ptk.FbxFile.take_layout) and hands the importer ONE
+    # file holding exactly what plays (merged where the file splits it) and
+    # what is parked (each conflicting take whole, into Key Stash).
+    import logging as _logging
+
+    from blendertk.anim_utils.key_stash._key_stash import KeyStash
+
+    class _Records(_logging.Handler):
+        def __init__(self):
+            super().__init__(_logging.DEBUG)
+            self.records = []
+
+        def emit(self, record):
+            self.records.append((record.levelname, record.getMessage()))
+
+    fbx_log = _logging.getLogger(_fbx_module.__name__)
+
+    def import_logged(path, **kwargs):
+        """``(created, [(level, message)])`` of one ``import_fbx``."""
+        handler, level = _Records(), fbx_log.level
+        fbx_log.addHandler(handler)
+        fbx_log.setLevel(_logging.DEBUG)
+        try:
+            return FbxUtils.import_fbx(path, **kwargs), handler.records
+        finally:
+            fbx_log.removeHandler(handler)
+            fbx_log.setLevel(level)
+
+    def reset_stash():
+        backend = KeyStash._persistence
+        if backend is not None and hasattr(backend, "remove_callbacks"):
+            backend.remove_callbacks()
+        KeyStash._active = None
+        KeyStash.set_persistence(None)
+
+    def fresh():
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        reset_stash()
+
+    def shots_file(name, takes, drop=("Scene",)):
+        """A cube keyed every frame 1-100 (x = f / 10), written with *takes*
+        armed, then -- as the Scene Exporter's Shots Only does -- the
+        whole-timeline take dropped."""
+        fresh()
+        bpy.context.scene.frame_start, bpy.context.scene.frame_end = 1, 100
+        bpy.ops.mesh.primitive_cube_add()
+        cube = bpy.context.active_object
+        cube.name = "TkCube"
+        for f in range(1, 101):
+            cube.location.x = f * 0.1
+            cube.keyframe_insert("location", index=0, frame=f)
+        FbxUtils.apply_takes(takes)
+        path = os.path.join(tmp, name)
+        try:
+            FbxUtils.export(filepath=path, objects=[cube], bake_anim=True)
+        finally:
+            FbxUtils.reset_takes()
+        if drop:
+            ptk.FbxMedia.drop_takes(path, names=list(drop))
+        return path
+
+    def x_keys(action):
+        """``[(frame, value)]`` of *action*'s location.x curve."""
+        for fc in action_fcurves(action) if action is not None else ():
+            if fc.data_path == "location" and fc.array_index == 0:
+                return [(round(k.co.x, 3), k.co.y) for k in fc.keyframe_points]
+        return []
+
+    def played(name):
+        obj = bpy.data.objects.get(name)
+        ad = obj.animation_data if obj is not None else None
+        return ad.action if ad is not None else None
+
+    def importer_actions():
+        """The actions named ``<object>|<take>`` -- what the importer made."""
+        return sorted(a.name for a in bpy.data.actions if "|" in a.name)
+
+    # Shots Only: every take holds only its window, so ANY one take loses the
+    # rest; the union is the whole performance.
+    shots_only = shots_file("shots_only.fbx", [("early", 1, 30), ("late", 50, 70)])
+    fresh()
+    _created, logged = import_logged(shots_only)
+    keys = x_keys(played("TkCube"))
+    want = list(range(1, 31)) + list(range(50, 71))
+    check(
+        "Shots Only: the one action plays every shot's keys",
+        [f for f, _v in keys] == want,
+        f"{len(keys)} keys, {keys[:2]}..{keys[-2:]}",
+    )
+    check(
+        "Shots Only: each key keeps its value",
+        keys and all(abs(v - f * 0.1) < 1e-4 for f, v in keys),
+    )
+    check(
+        "Shots Only: no per-take action is left behind (one action, named for "
+        "the merged take)",
+        importer_actions() == ["TkCube|Take 001"],
+        importer_actions(),
+    )
+    info = [m for lvl, m in logged if lvl == "INFO" and "shots_only.fbx" in m]
+    check(
+        "Shots Only: one INFO line names the layout and the takes merged",
+        len(info) == 1
+        and "merged" in info[0]
+        and "early" in info[0]
+        and "late" in info[0],
+        logged,
+    )
+
+    # The scratch rewrite failing never refuses the import: the file lands as
+    # written (each object its first take), and a warning says why.
+    with _mock.patch.object(
+        ptk.FbxMedia, "merge_takes", side_effect=ValueError("no merge here")
+    ):
+        fresh()
+        created, logged = import_logged(shots_only)
+    check(
+        "a failed merge never refuses: the file imports as written, warned",
+        [o.name for o in created] == ["TkCube"]
+        and x_keys(played("TkCube"))
+        and any(lvl == "WARNING" and "no merge here" in m for lvl, m in logged),
+        logged,
+    )
+
+    # The layout read tripping on an odd file (a KeyError, not the reader's
+    # ValueError) never refuses either: the importer's own take rule runs, as
+    # it did before the layout was read (mayatk's twin, 2026-10-12).
+    with _mock.patch.object(ptk.FbxFile, "load", side_effect=KeyError("Takes")):
+        fresh()
+        try:
+            created, logged = import_logged(shots_only)
+            tripped = None
+        except Exception as exc:  # noqa: BLE001 -- the defect raised KeyError
+            created, logged, tripped = [], [], repr(exc)
+    check(
+        "a layout read that trips never refuses: the file imports, warned",
+        tripped is None
+        and [o.name for o in created] == ["TkCube"]
+        and any(lvl == "WARNING" and "Takes" in m for lvl, m in logged),
+        f"raised={tripped} {logged}",
+    )
+
+    # A whole-timeline take listed AFTER its slices: the stock importer hands
+    # every object the first stack's action -- a slice.
+    cover_last = shots_file(
+        "cover_last.fbx",
+        [("early", 1, 30), ("late", 50, 70), ("Whole", 1, 100)],
+    )
+    fresh()
+    import_logged(cover_last)
+    keys = x_keys(played("TkCube"))
+    check(
+        "covered, the cover listed last: the covering take plays",
+        [f for f, _v in keys] == list(range(1, 101)),
+        f"{len(keys)} keys, {keys[:1]}..{keys[-1:]}",
+    )
+    check(
+        "covered: no slice's action is left behind",
+        importer_actions() == ["TkCube|Whole"],
+        importer_actions(),
+    )
+
+    # A gap-0 seam: two shots share a frame; its key lands once.
+    seam = shots_file("seam.fbx", [("s1", 1, 30), ("s2", 30, 60)])
+    fresh()
+    import_logged(seam)
+    keys = x_keys(played("TkCube"))
+    check(
+        "gap-0 seam: both shots play, the shared frame keyed once",
+        [f for f, _v in keys] == list(range(1, 61))
+        and abs(dict(keys).get(30.0, 0.0) - 3.0) < 1e-4,
+        f"{len(keys)} keys",
+    )
+
+    # A clip library: alternatives keying the same channels over the same
+    # frames. Blender's all-actions mode writes one take per (object, action).
+    fresh()
+    bpy.ops.mesh.primitive_cube_add()
+    lib_cube = bpy.context.active_object
+    lib_cube.name = "LibCube"
+    bpy.ops.mesh.primitive_uv_sphere_add()
+    lib_ball = bpy.context.active_object
+    lib_ball.name = "LibBall"
+    for act_name, rate in (("Walk", 0.1), ("Run", 0.3)):
+        act = bpy.data.actions.new(act_name)
+        lib_cube.animation_data_create()
+        lib_cube.animation_data.action = act
+        for f in range(1, 21):
+            lib_cube.location.x = f * rate
+            lib_cube.keyframe_insert("location", index=0, frame=f)
+    # The exporter applies every action to every ANIMATED object.
+    lib_ball.animation_data_create()
+    lib_ball.animation_data.action = bpy.data.actions["Walk"]
+    library = os.path.join(tmp, "clip_library.fbx")
+    for o in (lib_cube, lib_ball):
+        o.select_set(True)
+    bpy.ops.export_scene.fbx(
+        filepath=library,
+        use_selection=True,
+        bake_anim=True,
+        bake_anim_use_all_actions=True,
+        bake_anim_use_nla_strips=False,
+    )
+    lib_layout = ptk.FbxFile.load(library).take_layout()
+    check(
+        "the clip library is conflicted: two takes play (one per object, so "
+        "they merge), the rest are alternatives",
+        lib_layout["kind"] == "conflicted"
+        and len(lib_layout["live"]) == 2
+        and lib_layout["stash"],
+        {k: lib_layout[k] for k in ("kind", "live", "stash")},
+    )
+    # The oracle: what the stock importer reads each take as.
+    fresh()
+    bpy.ops.import_scene.fbx(filepath=library, anim_offset=0.0)
+    oracle = {}
+    for take in lib_layout["live"] + lib_layout["stash"]:
+        for obj_name in ("LibCube", "LibBall"):
+            act = bpy.data.actions.get(f"{obj_name}|{take}")
+            if act is not None and x_keys(act):
+                oracle[take] = (obj_name, x_keys(act))
+    fresh()
+    _created, logged = import_logged(library)
+    for take in lib_layout["live"]:
+        obj_name, take_keys = oracle[take]
+        got = x_keys(played(obj_name))
+        check(
+            f"conflicted: live take {take!r} plays on {obj_name}",
+            got == take_keys,
+            f"{got[:2]} vs {take_keys[:2]}",
+        )
+    clips = {c.label: c for c in KeyStash.active().clips}
+    check(
+        "conflicted: one Key Stash clip per stashed take, named after it",
+        sorted(clips) == sorted(lib_layout["stash"]),
+        sorted(clips),
+    )
+    for take in lib_layout["stash"]:
+        clip = clips.get(take)
+        obj_name, take_keys = oracle[take]
+        recs = [
+            r for r in (clip.curves if clip else ()) if r["data_path"] == "location"
+        ]
+        rec = next((r for r in recs if r["array_index"] == 0), None)
+        parked = bpy.data.actions.get(rec["action"]) if rec else None
+        parked_keys = []
+        for fc in action_fcurves(parked) if parked else ():
+            if fc.data_path == "location" and fc.array_index == 0:
+                parked_keys = [(round(k.co.x, 3), k.co.y) for k in fc.keyframe_points]
+        check(
+            f"conflicted: clip {take!r} holds that take's keys on {obj_name}",
+            clip is not None
+            and clip.objects == [obj_name]
+            and parked_keys == take_keys
+            and clip.metadata
+            == {"source": "fbx", "path": "clip_library.fbx", "take": take},
+            f"{parked_keys[:2]} vs {take_keys[:2]} meta={clip and clip.metadata}",
+        )
+    check(
+        "conflicted: no importer action is left behind",
+        importer_actions() == ["LibBall|Take 001", "LibCube|Take 001"]
+        and len(bpy.data.actions) == 2 + len(clips),
+        [a.name for a in bpy.data.actions],
+    )
+    info = [m for lvl, m in logged if lvl == "INFO" and "clip_library.fbx" in m]
+    check(
+        "conflicted: the INFO line names the stashed takes and why",
+        len(info) == 1
+        and "conflicted" in info[0]
+        and all(t in info[0] for t in lib_layout["stash"]),
+        logged,
+    )
+
+    # A throwaway import (a staged comparison scene) must not write records:
+    # stash=False plays the same, parks nothing, and says -- to the caller's
+    # own logger -- what it left out (mirror of mayatk's import_scene).
+    fresh()
+    caller_log = _logging.getLogger("fbx_take_opt_out")
+    caller_records, caller_level = _Records(), caller_log.level
+    caller_log.addHandler(caller_records)
+    caller_log.setLevel(_logging.DEBUG)
+    try:
+        _created, logged = import_logged(library, stash=False, logger=caller_log)
+    finally:
+        caller_log.removeHandler(caller_records)
+        caller_log.setLevel(caller_level)
+    warned = [m for lvl, m in caller_records.records if lvl == "WARNING"]
+    check(
+        "stash=False: a WARNING to the caller's logger names every take left out",
+        len(warned) == 1
+        and all(t in warned[0] for t in lib_layout["stash"])
+        and not logged,
+        (caller_records.records, logged),
+    )
+    check(
+        "stash=False: no Key Stash clip, no stash action, no leftover",
+        not KeyStash.active().clips
+        and not [a for a in bpy.data.actions if a.name.startswith("keyStash")]
+        and importer_actions() == ["LibBall|Take 001", "LibCube|Take 001"],
+        [a.name for a in bpy.data.actions],
+    )
+    for take in lib_layout["live"]:
+        obj_name, take_keys = oracle[take]
+        check(
+            f"stash=False: live take {take!r} still plays on {obj_name}",
+            x_keys(played(obj_name)) == take_keys,
+        )
+
+    # A takeless file (a static export) imports as it is.
+    fresh()
+    bpy.ops.mesh.primitive_cube_add()
+    static_cube = bpy.context.active_object
+    static_cube.name = "StaticCube"
+    takeless = os.path.join(tmp, "takeless.fbx")
+    FbxUtils.export(filepath=takeless, objects=[static_cube])
+    fresh()
+    created, logged = import_logged(takeless)
+    check(
+        "takeless: the objects land, no action, no error",
+        [o.name for o in created] == ["StaticCube"]
+        and not len(bpy.data.actions)
+        and not [m for lvl, m in logged if lvl in ("WARNING", "ERROR")],
+        f"{[o.name for o in created]} {logged}",
+    )
+    reset_stash()
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    scene = bpy.context.scene
+    scene.frame_start, scene.frame_end = 1, 30
+
+    # ---- skins beside their armatures keep every motion (2026-10-11) --------
+    # A Maya payload leaves each skeleton at the scene root beside the mesh it
+    # deforms. Blender's importer binds such a mesh UNDER its armature at the
+    # FBX bind matrix and, by design, reads no animation on it -- a skinned
+    # mesh's own node transform is ignored by FBX and glTF skinning too (on the
+    # production assembly those channels were constant). What must not be lost
+    # is the skin's MOTION: every vertex, at every frame of every shot, where
+    # the skeleton puts it. Stock, half the sibling skins stayed unbound (no
+    # Armature modifier, frozen) and one shot played (SIBLING_ARMATURES + the
+    # take merge); measured on this fixture: 2.0 m and 1.54 m off.
+    import numpy as _np
+
+    def skin_scene(count=4):
+        fresh()
+        bpy.context.scene.frame_start, bpy.context.scene.frame_end = 1, 30
+        objects = []
+        for i in range(count):
+            data = bpy.data.armatures.new(f"Rig_{i}")
+            arm = bpy.data.objects.new(f"Rig_{i}", data)
+            bpy.context.scene.collection.objects.link(arm)
+            arm.location.x = i * 3.0
+            bpy.context.view_layer.objects.active = arm
+            bpy.ops.object.mode_set(mode="EDIT")
+            root = data.edit_bones.new("root")
+            root.head, root.tail = (0, 0, 0), (0, 0, 0.5)
+            tip = data.edit_bones.new("tip")
+            tip.head, tip.tail = (0, 0, 0.5), (0, 0, 1)
+            tip.parent = root
+            bpy.ops.object.mode_set(mode="OBJECT")
+            for frame, travel, bend in ((1, 0.0, 0.0), (30, 2.0, 0.8)):
+                arm.pose.bones["root"].location.y = travel
+                arm.pose.bones["root"].keyframe_insert("location", index=1, frame=frame)
+                arm.pose.bones["tip"].rotation_mode = "XYZ"
+                arm.pose.bones["tip"].rotation_euler.x = bend
+                arm.pose.bones["tip"].keyframe_insert(
+                    "rotation_euler", index=0, frame=frame
+                )
+            bpy.ops.mesh.primitive_cylinder_add(
+                vertices=8, radius=0.2, depth=1.0, location=(i * 3.0, 0, 0.5)
+            )
+            skin = bpy.context.active_object
+            skin.name = f"Loom_{i}"  # sorts ahead of its rig: the Maya root order
+            lower, upper = (
+                skin.vertex_groups.new(name="root"),
+                skin.vertex_groups.new(name="tip"),
+            )
+            for v in skin.data.vertices:
+                group = lower if (skin.matrix_world @ v.co).z < 0.5 else upper
+                group.add([v.index], 1.0, "REPLACE")
+            skin.modifiers.new("Armature", "ARMATURE").object = arm
+            objects += [arm, skin]
+        return objects
+
+    skin_frames = (1, 5, 10, 20, 25, 30)
+
+    def skin_positions(names):
+        found = {}
+        for frame in skin_frames:
+            bpy.context.scene.frame_set(frame)
+            graph = bpy.context.evaluated_depsgraph_get()
+            for name in names:
+                evaluated = bpy.data.objects[name].evaluated_get(graph)
+                mesh = evaluated.to_mesh()
+                world = _np.array(evaluated.matrix_world)
+                co = _np.array([v.co[:] for v in mesh.vertices])
+                found[(name, frame)] = co @ world[:3, :3].T + world[:3, 3]
+                evaluated.to_mesh_clear()
+        return found
+
+    skin_objects = skin_scene()
+    skins = [o.name for o in skin_objects if o.type == "MESH"]
+    skin_truth = skin_positions(skins)
+    skin_fbx = os.path.join(tmp, "sibling_skins.fbx")
+    FbxUtils.apply_takes([("a", 1, 10), ("b", 20, 30)])
+    try:
+        FbxUtils.export(
+            filepath=skin_fbx,
+            objects=skin_objects,
+            bake_anim=True,
+            object_types={"MESH", "ARMATURE", "EMPTY"},
+        )
+    finally:
+        FbxUtils.reset_takes()
+    ptk.FbxMedia.drop_takes(skin_fbx, names=["Scene"])  # Shots Only
+    fresh()
+    FbxUtils.import_fbx(skin_fbx)
+    bound = [
+        n
+        for n in skins
+        if n in bpy.data.objects
+        and any(
+            m.type == "ARMATURE" and m.object for m in bpy.data.objects[n].modifiers
+        )
+    ]
+    landed = skin_positions([n for n in skins if n in bpy.data.objects])
+    skin_error = {
+        n: max(
+            float(_np.abs(landed[(n, f)] - skin_truth[(n, f)]).max())
+            if (n, f) in landed and landed[(n, f)].shape == skin_truth[(n, f)].shape
+            else float("inf")
+            for f in skin_frames
+        )
+        for n in skins
+    }
+    check(
+        "sibling skins: every skin binds to its armature",
+        bound == skins,
+        f"{bound} of {skins}",
+    )
+    check(
+        "sibling skins: every vertex follows its skeleton through both shots",
+        all(err < 1e-4 for err in skin_error.values()),
+        {n: round(e, 5) for n, e in skin_error.items()},
+    )
+    fresh()
+    scene = bpy.context.scene
     scene.frame_start, scene.frame_end = 1, 30
 
     # ---- upstream patches: still needed, and still working ------------------

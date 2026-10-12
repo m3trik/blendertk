@@ -44,7 +44,7 @@ class ShotLaneMixin:
         if widget is None:
             return None
         menu = ContextMenu(parent=widget)
-        menu.add_entries(widget._timeline.default_context_entries(time))
+        menu.add_entries(widget.context_entries(time))
         return menu
 
     def _build_shot_lane_context_menu(self, time: float):
@@ -529,8 +529,16 @@ class ShotLaneMixin:
         idx = next(
             (i for i, sh in enumerate(sorted_s) if sh.shot_id == anchor_shot_id), 0
         )
-        with store.scene_edit("Insert Shot"):
-            shot = seq.new_shot(at_position=(idx + 1) if before else (idx + 2))
+        # Guarded: the store announces the new shot from inside the edit, and
+        # rebuilding on that drew the panel twice (0.75 s of a 2.8 s New Shot
+        # on a production assembly); ``_take_new_shot`` draws it once.
+        was_syncing = self._syncing
+        self._syncing = True
+        try:
+            with store.scene_edit("Insert Shot"):
+                shot = seq.new_shot(at_position=(idx + 1) if before else (idx + 2))
+        finally:
+            self._syncing = was_syncing
         self._take_new_shot(shot)
         self._set_footer(f"Inserted {shot.name} · {shot.start:.0f}–{shot.end:.0f}")
 
@@ -554,8 +562,16 @@ class ShotLaneMixin:
         # pairs with that restore point -- without one, the panel's undo also
         # popped the user's previous, unrelated Blender step.  The Shots
         # window's New Shot is the same call.
-        with store.scene_edit("New Shot"):
-            shot = self.sequencer.new_shot()
+        # Guarded: the store announces the new shot from inside the edit, and
+        # rebuilding on that drew the panel twice (0.75 s of a 2.8 s New Shot
+        # on a production assembly); ``_take_new_shot`` draws it once.
+        was_syncing = self._syncing
+        self._syncing = True
+        try:
+            with store.scene_edit("New Shot"):
+                shot = self.sequencer.new_shot()
+        finally:
+            self._syncing = was_syncing
         self._take_new_shot(shot)
         self._set_footer(f"Created {shot.name} · {shot.start:.0f}–{shot.end:.0f}")
 

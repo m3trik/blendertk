@@ -1013,12 +1013,23 @@ def _run_sequencer_checks():
     # treated the sample on the new bound as the dragged shot's, stranding the
     # neighbour's own pose in the gap; the clip paths landed first instead and
     # stacked the landed key on that pose.
+    _seam_objects: list = []
+
     def _seam_scene(name, shots, keys):
-        """A cube keyed on location.x, in every one of *shots*: (obj, store, seq)."""
+        """A cube keyed on location.x, in every one of *shots*: (obj, store, seq).
+
+        The previous seam scene's cube goes first: the sequencer moves (and
+        checks for collisions on) the scene's whole keyed content, so a cube
+        left keyed from the case before is part of the next one."""
         BlenderShotStore.clear_active()
+        while _seam_objects:
+            _old = bpy.data.objects.get(_seam_objects.pop())
+            if _old is not None:
+                bpy.data.objects.remove(_old, do_unlink=True)
         bpy.ops.mesh.primitive_cube_add()
         o = bpy.context.active_object
         o.name = name
+        _seam_objects.append(o.name)
         for f, v in keys:
             o.location = (float(v), 0.0, 0.0)
             o.keyframe_insert(data_path="location", index=0, frame=f)
@@ -1358,13 +1369,25 @@ def _run_sequencer_checks():
                     _da < 1e-3 and _db < 1e-3,
                     f"A {_da:.5f} B {_db:.5f}",
                 )
-    _carried = ((-30, 1), (50, 3), (70, 9), (90, 2))
+    # Keyed from the seam on, nothing before it: the seam sample is B's.
+    _carried = ((50, 3), (70, 9), (90, 2))
+    # Keyed before A and through B: A plays the ramp into the seam sample, so
+    # it is shared, copied, never carried (mirror of mayatk's, the one rule).
+    _played_into = ((-30, 1), (50, 3), (70, 9), (90, 2))
     for _handle in ("AUTO", "AUTO_CLAMPED", "VECTOR", "ALIGNED"):
         _fc, _da, _db = _split_case(f"Carried{_handle}", _carried, _handle, "move")
         check(
             f"a carried {_handle} opening pose: the following shot plays on",
-            _db < 1e-3,
-            f"B {_db:.5f}",
+            _da < 1e-4 and _db < 1e-3,
+            f"A {_da:.5f} B {_db:.5f}",
+        )
+        _fc, _da, _db = _split_case(
+            f"PlayedInto{_handle}", _played_into, _handle, "move"
+        )
+        check(
+            f"a {_handle} seam sample the preceding shot plays into is shared",
+            _da < 1e-4 and _db < 1e-3,
+            f"A {_da:.5f} B {_db:.5f}",
         )
     # A claimed carried sample (B's start-bound sample) leaves no claim behind
     # on the frame it was cut from (mirror of mayatk's).
@@ -1375,7 +1398,7 @@ def _run_sequencer_checks():
     _times = [round(kp.co[0], 3) for kp in _loc_x(_o).keyframe_points]
     check(
         "a carried sample leaves no claim behind at its old frame",
-        _times == [-30.0, 60.0, 80.0, 100.0] and _sq.ledger.key_times(_key) == [60.0],
+        _times == [60.0, 80.0, 100.0] and _sq.ledger.key_times(_key) == [60.0],
         f"{_times} claims={_sq.ledger.key_times(_key)}",
     )
     # ...and an UNCLAIMED one -- the animator's own opening pose -- lands
@@ -1387,7 +1410,7 @@ def _run_sequencer_checks():
     _times = [round(kp.co[0], 3) for kp in _loc_x(_o).keyframe_points]
     check(
         "a carried animator pose stays the animator's",
-        _times == [-30.0, 60.0, 80.0, 100.0] and _sq.ledger.key_times(_key) == [],
+        _times == [60.0, 80.0, 100.0] and _sq.ledger.key_times(_key) == [],
         f"{_times} claims={_sq.ledger.key_times(_key)}",
     )
     # So do a lossless merge's cut keys (mirror of mayatk's): closing gaps
@@ -1421,10 +1444,15 @@ def _run_sequencer_checks():
 
     # A seam the split did not move keeps its types; one it did is frozen,
     # the shot-facing half exactly where it was while shared.
+    # The original is the gap hold's now, its handles frozen flat where they
+    # sat (ledger format 2).
     _fc, _da, _db = _split_case("SplitGate", seam_keys, "AUTO_CLAMPED", "move")
+    _orig = _halves(_fc, 50)[2]
     check(
         "a split AUTO_CLAMPED extremum keeps its handle types",
-        _halves(_fc, 50)[:2] == _halves(_fc, 60)[:2] == ("AUTO_CLAMPED",) * 2,
+        _halves(_fc, 60)[:2] == ("AUTO_CLAMPED",) * 2
+        and abs(_orig.handle_left[1] - _orig.co[1]) < 1e-6
+        and abs(_orig.handle_right[1] - _orig.co[1]) < 1e-6,
         f"50 {_halves(_fc, 50)[:2]} 60 {_halves(_fc, 60)[:2]}",
     )
     _o, _st, _sq = _seam_scene(
@@ -1443,6 +1471,1338 @@ def _run_sequencer_checks():
         (_lt, _rt) == ("FREE", "FREE")
         and abs(_copy.handle_right[1] - _copy.co[1] - _roff) < 1e-4,
         f"{_lt}/{_rt} right {_copy.handle_right[1] - _copy.co[1]:.4f} vs {_roff:.4f}",
+    )
+
+    # ---- a keyless flush seam: every op that opens it keeps both shots -------
+    # BACKLOG 2026-10-07 (decided 2026-10-10; mirror of mayatk's
+    # TestAMidMotionSeamKeepsBothSides): with NO key on a flush seam the
+    # segment crossing it was both shots', so pulling B away re-timed it --
+    # A 1.47 off and B 1.20 for a 10-frame move (headless 5.1, AUTO_CLAMPED).
+    # The one rule: an op on one shot never changes what another plays inside
+    # its own span.  _reconcile_boundaries pins A's own pose on the seam
+    # (ShotPlanner.keyless_seam; _insert_shape_keys) before anything moves.
+    _kl_keys = ((0, 0), (40, 3), (100, 10))
+
+    def _keyless_case(label, handle, setup, op, b_shift=None):
+        o, st, sq = _seam_scene(
+            f"Keyless{label}{handle}", [("A", 0, 50), ("B", 50, 100)], _kl_keys
+        )
+        fc = _loc_x(o)
+        for kp in fc.keyframe_points:
+            kp.handle_left_type = kp.handle_right_type = handle
+        fc.update()
+        setup(sq, o, fc)
+        a, b = sq.sorted_shots()[0], sq.sorted_shots()[-1]
+        a_span, b_span = (a.start, a.end), (b.start, b.end)
+        a0 = [fc.evaluate(f) for f in range(int(a_span[0]), int(a_span[1]) + 1)]
+        b0 = [fc.evaluate(f) for f in range(int(b_span[0]), int(b_span[1]) + 1)]
+        op(sq, a.shot_id, b.shot_id)
+        shift = sq.shot_by_id(b.shot_id).start - b_span[0]
+        shift = shift if b_shift is None else b_shift
+        a1 = [fc.evaluate(f) for f in range(int(a_span[0]), int(a_span[1]) + 1)]
+        b1 = [fc.evaluate(f + shift) for f in range(int(b_span[0]), int(b_span[1]) + 1)]
+        da = max(abs(x - y) for x, y in zip(a0, a1))
+        db = max(abs(x - y) for x, y in zip(b0, b1))
+        return da, db, len(a0) + len(b0), (o, fc, st, sq)
+
+    def _kl_none(sq, o, fc):
+        pass
+
+    def _kl_split(sq, o, fc):
+        sq.store.remove_shot(sq.sorted_shots()[1].shot_id)
+        sq.store.update_shot(sq.sorted_shots()[0].shot_id, end=100)
+        sq.split_shot(sq.sorted_shots()[0].shot_id, 50)
+
+    def _kl_ctrl(sq, o, fc):
+        sq.set_shot_edge(sq.sorted_shots()[0].shot_id, new_end=45, push=True)
+        sq.reconcile_system_edits(follow=False)
+
+    def _kl_animator(sq, o, fc):
+        for t in (45, 55):
+            o.location = (fc.evaluate(t), 0.0, 0.0)
+            o.keyframe_insert(data_path="location", index=0, frame=t)
+
+    _kl_cases = (
+        (
+            "split then move the tail",
+            _kl_split,
+            lambda s, a, b: s.move_shot(b, 60),
+            None,
+        ),
+        ("move the second shot", _kl_none, lambda s, a, b: s.move_shot(b, 60), None),
+        ("Ctrl push then a move", _kl_ctrl, lambda s, a, b: s.move_shot(b, 55), None),
+        (
+            "insert a shot between",
+            _kl_none,
+            lambda s, a, b: s.insert_shot("N", 10, after_shot_id=a, gap=0),
+            None,
+        ),
+        (
+            "room at B's head",
+            _kl_none,
+            lambda s, a, b: s.add_shot_space(b, 10, edge="leading"),
+            10.0,
+        ),
+        (
+            "room at A's tail",
+            _kl_none,
+            lambda s, a, b: s.add_shot_space(a, 10, edge="trailing"),
+            None,
+        ),
+        (
+            "a plain grow of A",
+            _kl_none,
+            lambda s, a, b: s.resize_shot_bounds(a, 0, 60),
+            None,
+        ),
+        (
+            "an animator's keys across the seam, then a move",
+            _kl_animator,
+            lambda s, a, b: s.move_shot(b, 60),
+            None,
+        ),
+    )
+    for _handle in ("AUTO_CLAMPED", "AUTO", "VECTOR"):
+        for _label, _setup, _op, _shift in _kl_cases:
+            _da, _db, _n, _ = _keyless_case(_label, _handle, _setup, _op, _shift)
+            check(
+                f"flush keyless seam ({_handle}), {_label}: both shots play on",
+                _n > 0 and _da < 1e-4 and _db < 1e-4,
+                f"A {_da:.5f} B {_db:.5f} samples {_n}",
+            )
+        # split_shot(gap=10): A over [0, 50], B over [50, 100] shifted 10.
+        _o, _st, _sq = _seam_scene(f"KeylessGap{_handle}", [("S", 0, 100)], _kl_keys)
+        _fc = _loc_x(_o)
+        for _kp in _fc.keyframe_points:
+            _kp.handle_left_type = _kp.handle_right_type = _handle
+        _fc.update()
+        _before = [_fc.evaluate(f) for f in range(0, 101)]
+        _tail = _sq.split_shot(_sq.sorted_shots()[0].shot_id, 50, gap=10)
+        _da = max(abs(_before[f] - _fc.evaluate(f)) for f in range(0, 51))
+        _db = max(abs(_before[f] - _fc.evaluate(f + 10)) for f in range(50, 101))
+        check(
+            f"flush keyless seam ({_handle}), split_shot(gap=10): both shots play on",
+            _tail.start == 60.0 and _da < 1e-4 and _db < 1e-4,
+            f"tail {_tail.start} A {_da:.5f} B {_db:.5f}",
+        )
+        # Closing the gap again gives both shots back exactly.
+        _da, _db, _n, (_o, _fc, _st, _sq) = _keyless_case(
+            "close", _handle, _kl_none, lambda s, a, b: s.move_shot(b, 60)
+        )
+        _before = [round(_fc.evaluate(f), 6) for f in range(0, 51)]
+        _sq.move_shot(_sq.sorted_shots()[1].shot_id, 50)
+        _d = max(abs(_before[f] - _fc.evaluate(f)) for f in range(0, 51))
+        check(
+            f"flush keyless seam ({_handle}): closing the gap again gives A back",
+            _d < 1e-4,
+            f"{_d:.5f}",
+        )
+
+    # The pin is A's end, claimed ``stays``: a later plain grow of A's end
+    # disowns it where it is (followed, it re-timed A's last ramp).
+    _da, _db, _n, (_o, _fc, _st, _sq) = _keyless_case(
+        "stays", "AUTO_CLAMPED", _kl_none, lambda s, a, b: s.move_shot(b, 60)
+    )
+    _key = _ShotSequencerInternal._fc_key(_o.name, _fc)
+    _a_id = _sq.sorted_shots()[0].shot_id
+    _claimed = (50.0, _a_id, "end") in _sq.ledger.key_records(_key) and (
+        _sq.ledger.key_stays(_key, 50.0)
+    )
+    _a0 = [_fc.evaluate(f) for f in range(0, 51)]
+    _sq.resize_shot_bounds(_a_id, 0, 55)
+    _times = [round(kp.co[0], 3) for kp in _fc.keyframe_points]
+    _d = max(abs(x - _fc.evaluate(f)) for f, x in zip(range(0, 51), _a0))
+    check(
+        "a seam pin is A's end, stays: a plain grow disowns it in place",
+        _claimed
+        and 50.0 in _times
+        and 50.0 not in _sq.ledger.key_times(_key)
+        and _d < 1e-4,
+        f"claimed={_claimed} {_times} claims={_sq.ledger.key_times(_key)} A {_d:.5f}",
+    )
+    # A landing that fills the room (Move to Shot's expansion, pending_bounds)
+    # pins nothing in its way.
+    _o, _st, _sq = _seam_scene(
+        "KeylessPending", [("A", 0, 50), ("B", 50, 100)], _kl_keys
+    )
+    _a_id = _st.shot_by_name("A").shot_id
+    with _sq.pending_bounds({_a_id: (0.0, 60.0)}):
+        _sq.ripple_downstream(_a_id, 60.0, 10.0)
+    _times = [round(kp.co[0], 3) for kp in _loc_x(_o).keyframe_points]
+    _key = _ShotSequencerInternal._fc_key(_o.name, _loc_x(_o))
+    check(
+        "a landing that fills the room pins no keyless seam",
+        _times == [0.0, 40.0, 110.0] and _sq.ledger.key_times(_key) == [],
+        f"{_times} claims={_sq.ledger.key_times(_key)}",
+    )
+
+    # ---- every op closing a seam to gap 0: flush where the poses agree, one
+    # frame apart where they differ (maintainer 2026-10-11; mirror of mayatk's
+    # TestAClosingSeamStaysOneFrameApartWhereItsPosesDiffer).
+    def _closing_case(
+        name, shots, keys, op, spans, authored=(), handles=None, stepped=()
+    ):
+        # Alone in the scene: a respace moves -- and checks -- every keyed
+        # object, so a cube an earlier case left keyed is part of this one.
+        for _left in list(bpy.data.objects):
+            bpy.data.objects.remove(_left, do_unlink=True)
+        o, st, sq = _seam_scene(name, shots, keys)
+        # Every key's handles of one type (*handles*: "AUTO" smooths through
+        # an extreme, where the default clamps it flat); the keys at
+        # *stepped* hold (CONSTANT).
+        if handles or stepped:
+            fc = _loc_x(o)
+            for kp in fc.keyframe_points:
+                if handles:
+                    kp.handle_left_type = kp.handle_right_type = handles
+                if round(kp.co[0]) in stepped:
+                    kp.interpolation = "CONSTANT"
+            fc.update()
+        sq.reconcile_system_edits()
+        # Left handles to author (FREE where they sit) before anything is
+        # read: under CONT_ACCEL an edit re-solves the auto run beside it.
+        fc = _loc_x(o)
+        for kp in fc.keyframe_points:
+            if round(kp.co[0]) in authored:
+                kp.handle_left_type = "FREE"
+        fc.update()
+        before = {
+            n: [_loc_x(o).evaluate(f) for f in range(int(a), int(b) + 1)]
+            for n, (a, b) in spans.items()
+        }
+        op(sq, st)
+        offs = {}
+        for n, (a, b) in spans.items():
+            sh = st.shot_by_name(n)
+            fc = _loc_x(o)
+            offs[n] = max(
+                abs(x - fc.evaluate(f))
+                for f, x in zip(
+                    range(int(sh.start), int(sh.start) + 1 + int(b - a)), before[n]
+                )
+            )
+        return st, offs
+
+    _abc = [("A", 0, 50), ("B", 50, 100), ("C", 100, 150)]
+    _st, _offs = _closing_case(
+        "CloseDelete",
+        _abc,
+        ((0, 0), (40, 2), (50, 3), (70, 8), (100, 5), (130, 1)),
+        lambda sq, st: sq.delete_shot(st.shot_by_name("B").shot_id),
+        {"A": (0, 50), "C": (100, 150)},
+    )
+    _c = _st.shot_by_name("C")
+    check(
+        "a flush delete keeps the next shot's opening a frame apart",
+        (_c.start, _c.end) == (51.0, 101.0) and max(_offs.values()) < 1e-4,
+        f"C=({_c.start}, {_c.end}) {_offs}",
+    )
+    _st, _offs = _closing_case(
+        "CloseDeleteAgree",
+        _abc,
+        ((0, 0), (40, 2), (50, 3), (70, 8), (100, 3), (130, 1)),
+        lambda sq, st: sq.delete_shot(st.shot_by_name("B").shot_id),
+        {"C": (100, 150)},
+    )
+    check(
+        "a flush delete closes flush where the poses agree",
+        _st.shot_by_name("C").start == 50.0 and _offs["C"] < 1e-4,
+        f"C={_st.shot_by_name('C').start} {_offs}",
+    )
+
+    # The held key's handles are derived: the hold froze them (ledger format
+    # 2), so the next shot's move no longer re-derives them (the held tail).
+    _st, _offs = _closing_case(
+        "CloseHeld",
+        [("A", 0, 50), ("B", 60, 100)],
+        ((0, 0), (20, 5), (60, 9), (90, 2)),
+        lambda sq, st: sq.apply_gap(
+            0, scope="end", shot_id=st.shot_by_name("A").shot_id
+        ),
+        {"A": (0, 50), "B": (60, 100)},
+    )
+    _b = _st.shot_by_name("B")
+    check(
+        "a collapse onto a held tail keeps one frame",
+        (_b.start, _b.end) == (51.0, 91.0) and max(_offs.values()) < 1e-4,
+        f"B=({_b.start}, {_b.end}) {_offs}",
+    )
+
+    def _respace_twice(sq, st):
+        sq.respace(gap=0, start_frame=0)
+        sq.respace(gap=0, start_frame=0)
+
+    _st, _offs = _closing_case(
+        "CloseRespace",
+        [("A", 0, 40), ("B", 50, 90)],
+        ((10, 0.0), (40, 1.0), (50, 2.0), (70, 3.0)),
+        _respace_twice,
+        {"A": (0, 40), "B": (50, 90)},
+    )
+    _layout = [(s.start, s.end) for s in _st.sorted_shots()]
+    check(
+        "a respace to 0 keeps a disagreeing seam a frame apart, twice over",
+        _layout == [(0.0, 40.0), (41.0, 81.0)] and max(_offs.values()) < 1e-4,
+        f"{_layout} {_offs}",
+    )
+    # A gap holding the animator's key keeps a frame too, its poses agreeing:
+    # the retime refuses a zero-width gap (it would cut or stack the key), so
+    # closed flush the key stayed where it was and B played it.  Found on
+    # SOL_REPLACE_ASSEMBLY pulled with its stepped keys: A04 0.0012 off.
+    _st, _offs = _closing_case(
+        "CloseRespaceGapKey",
+        [("A", 0, 40), ("B", 50, 90)],
+        ((10, 0.0), (40, 1.0), (45, 5.0), (50, 1.0), (70, 3.0)),
+        lambda sq, st: sq.respace(gap=0, start_frame=0),
+        {"A": (0, 40), "B": (50, 90)},
+    )
+    _layout = [(s.start, s.end) for s in _st.sorted_shots()]
+    _gap_keys = [
+        round(kp.co[0], 3)
+        for kp in _loc_x(bpy.data.objects["CloseRespaceGapKey"]).keyframe_points
+        if 40.0 < kp.co[0] < 41.0
+    ]
+    check(
+        "a respace to 0 keeps a frame where the gap holds a key, the key in it",
+        _layout == [(0.0, 40.0), (41.0, 81.0)]
+        and max(_offs.values()) < 1e-4
+        and len(_gap_keys) == 1,
+        f"{_layout} {_offs} gap keys {_gap_keys}",
+    )
+    # A placement closing that gap onto the shot before it, the same
+    # (maintainer 2026-10-12, "same as respace"): the key is the STILL shot's,
+    # so the slid shot landed over it and played it -- B 0.5 where it played
+    # 1.0.  The seam keeps a frame and the key is retimed into it.
+    for _label, _op in (
+        ("band move", lambda sq, st: sq.move_shot(st.shot_by_name("B").shot_id, 60)),
+        (
+            "slide",
+            lambda sq, st: sq.slide_shot(
+                st.shot_by_name("B").shot_id, 60, direction=None
+            ),
+        ),
+        (
+            "start",
+            lambda sq, st: sq.set_shot_start(
+                st.shot_by_name("B").shot_id, 60, ripple=False
+            ),
+        ),
+    ):
+        _st, _offs = _closing_case(
+            "ClosePlaceGapKey",
+            [("A", 0, 60), ("B", 100, 160)],
+            ((90, 0.5), (100, 0.0), (110, 1.0)),
+            _op,
+            {"A": (0, 60), "B": (100, 160)},
+        )
+        _layout = [(s.start, s.end) for s in _st.sorted_shots()]
+        _times = [
+            round(kp.co[0], 3)
+            for kp in _loc_x(bpy.data.objects["ClosePlaceGapKey"]).keyframe_points
+        ]
+        check(
+            f"a {_label} closing a keyed gap keeps a frame, the key retimed into it",
+            _layout == [(0.0, 60.0), (61.0, 121.0)]
+            and max(_offs.values()) < 1e-4
+            and len([t for t in _times if 60.001 < t < 60.999]) == 1,
+            f"{_layout} {_offs} keys {_times}",
+        )
+    # A Shift edge (a retime) closing a keyed gap, the same (maintainer
+    # 2026-10-12, "same rule"): B retimed onto A's end was written across the
+    # gap's key and played it, and A played 0.0 for 0.5.  Each edge: B's start
+    # onto A, and A's end onto B (the gap's key then A's own tail).
+    for _label, _shots, _keys, _op, _spans, _want in (
+        (
+            "start",
+            [("A", 0, 60), ("B", 100, 160)],
+            ((90, 0.5), (100, 0.0), (110, 1.0)),
+            lambda sq, st: sq.set_shot_edge(
+                st.shot_by_name("B").shot_id, new_start=60, scale=True
+            ),
+            {"A": (0, 60)},
+            ([(0.0, 60.0), (61.0, 160.0)], (60.0, 61.0), [61.0, 77.5]),
+        ),
+        (
+            "end",
+            [("A", 0, 40), ("B", 50, 90)],
+            ((10, 0.0), (40, 1.0), (45, 5.0), (50, 1.0), (70, 3.0)),
+            lambda sq, st: sq.set_shot_edge(
+                st.shot_by_name("A").shot_id, new_end=50, scale=True
+            ),
+            {"B": (50, 90)},
+            ([(0.0, 49.0), (50.0, 90.0)], (49.0, 50.0), [12.25, 49.0]),
+        ),
+    ):
+        _st, _offs = _closing_case("CloseShiftGapKey", _shots, _keys, _op, _spans)
+        _layout = [(s.start, s.end) for s in _st.sorted_shots()]
+        _times = [
+            round(kp.co[0], 3)
+            for kp in _loc_x(bpy.data.objects["CloseShiftGapKey"]).keyframe_points
+        ]
+        _lo, _hi = _want[1]
+        _retimed = _st.sorted_shots()[1 if _label == "start" else 0]
+        _inside = [
+            t
+            for t in _times
+            if _retimed.start - 1e-3 <= t <= _retimed.end + 1e-3 and not _lo < t < _hi
+        ]
+        check(
+            f"a Shift {_label} edge closing a keyed gap keeps a frame, the key in it",
+            _layout == _want[0]
+            and max(_offs.values()) < 1e-4
+            and len([t for t in _times if _lo + 1e-3 < t < _hi - 1e-3]) == 1
+            and _inside == _want[2],
+            f"{_layout} {_offs} keys {_times} retimed {_inside}",
+        )
+
+    # ---- explicit placements follow the closing rule (maintainer 2026-10-11,
+    # "ALL of them"; mirror of mayatk's TestExplicitPlacementsFollowTheClosingRule)
+    # A's last key is the gap hold's, its handles derived and frozen by the
+    # hold (ledger format 2).
+    _ab = [("A", 0, 40), ("B", 50, 90)]
+    _keysets = {
+        "differ": (((0, 0), (40, 2), (50, 5), (90, 9)), ()),
+        "agree": (((0, 0), (40, 2), (50, 2), (90, 9)), ()),
+        "held": (((0, 0), (30, 5), (50, 9), (90, 2)), ()),
+    }
+    _ops = {
+        "band move": lambda sq, st: sq.move_shot(st.shot_by_name("B").shot_id, 40),
+        "slide": lambda sq, st: sq.slide_shot(
+            st.shot_by_name("B").shot_id, 40, direction=None
+        ),
+    }
+    for _op_name, _op in _ops.items():
+        for _kind, (_keys, _auth) in _keysets.items():
+            _st, _offs = _closing_case(
+                f"Place{_op_name.title().replace(' ', '')}{_kind.title()}",
+                _ab,
+                _keys,
+                _op,
+                {"A": (0, 40), "B": (50, 90)},
+                authored=_auth,
+            )
+            _want = 40.0 if _kind == "agree" else 41.0
+            _b = _st.shot_by_name("B")
+            check(
+                f"a {_op_name} lands B {'flush' if _kind == 'agree' else 'a frame short'}"
+                f" ({_kind} poses), both shots playing on",
+                _b.start == _want and max(_offs.values()) < 1e-4,
+                f"B={_b.start} {_offs}",
+            )
+    for _kind, (_keys, _auth) in _keysets.items():
+        _st, _offs = _closing_case(
+            f"PlaceCtrlEdge{_kind.title()}",
+            _ab,
+            _keys,
+            lambda sq, st: sq.set_shot_edge(
+                st.shot_by_name("A").shot_id, new_end=50, push=True
+            ),
+            {"A": (0, 49), "B": (50, 90)},
+            authored=_auth,
+        )
+        _want = 50.0 if _kind == "agree" else 49.0
+        _a = _st.shot_by_name("A")
+        check(
+            f"a ctrl edge ends A {'flush' if _kind == 'agree' else 'a frame short'}"
+            f" ({_kind} poses), both shots playing on",
+            _a.end == _want and max(_offs.values()) < 1e-4,
+            f"A end={_a.end} {_offs}",
+        )
+
+    # A merge keeps what each side played: Q +7 between flush P and R, R's
+    # copy of the shared sample merged with Q's original (mirror of mayatk's).
+    _st, _offs = _closing_case(
+        "MergeStep",
+        [("P", 0, 50), ("Q", 50, 100), ("R", 100, 150)],
+        ((60, 3), (100, 0), (120, 9)),
+        lambda sq, st: sq.move_shot(st.shot_by_name("Q").shot_id, 57),
+        {"R": (100, 150)},
+    )
+    check(
+        "a merge keeps what the later side played (R ripples, Q lands on its copy)",
+        _st.shot_by_name("R").start == 107.0 and _offs["R"] < 1e-4,
+        f"R={_st.shot_by_name('R').start} {_offs}",
+    )
+
+    _st, _offs = _closing_case(
+        "PlaceLanding",
+        [("A", 0, 40), ("B", 40, 80), ("C", 80, 120)],
+        ((10, 0), (25, 4), (40, -1), (55, 3), (80, 0), (95, 6), (120, 2)),
+        lambda sq, st: sq.move_sequences_to_shot(
+            [{"kind": "anim", "obj": "PlaceLanding", "start": 10.0, "end": 40.0}],
+            st.shot_by_name("B").shot_id,
+        ),
+        {"C": (80, 120)},
+    )
+    _b, _c = _st.shot_by_name("B"), _st.shot_by_name("C")
+    check(
+        "a Move to Shot landing on a flush seam keeps the next shot's opening",
+        _c.start - _b.end == 1.0 and _offs["C"] < 1e-4,
+        f"B end {_b.end} C start {_c.start} {_offs}",
+    )
+
+    # ---- Move to Shot's head landing (mirror of mayatk's) -----------------------
+    # P's run lands in front of Q's content; the block owns Q's start, a frame
+    # after P's end where P closes on a different pose; P's close is kept.
+    for _first, _want in ((0, 51.0), (5, 50.0)):
+        for _left in list(bpy.data.objects):
+            bpy.data.objects.remove(_left, do_unlink=True)
+        _o, _st, _sq = _seam_scene(
+            "HeadLand",
+            [("P", 0, 50), ("Q", 50, 100)],
+            ((10, _first), (20, 4), (30, 2), (50, 5), (70, 8), (100, 3)),
+        )
+        _sq.reconcile_system_edits()
+        _close = _loc_x(_o).evaluate(50)
+        _sq.move_sequences_to_shot(
+            [{"kind": "anim", "obj": _o.name, "start": 10.0, "end": 30.0}],
+            _st.shot_by_name("Q").shot_id,
+        )
+        _q = _st.shot_by_name("Q")
+        _fc = _loc_x(_o)
+        _landed = [round(_fc.evaluate(_q.start + d), 4) for d in (0, 10, 20)]
+        check(
+            f"a head landing {'keeps a frame' if _want > 50 else 'lands flush'}"
+            " and the shot before keeps its closing pose",
+            _q.start == _want
+            and abs(_fc.evaluate(50) - _close) < 1e-4
+            and _landed == [float(_first), 4.0, 2.0],
+            f"Q start {_q.start} close {_close:.4f}->{_fc.evaluate(50):.4f} {_landed}",
+        )
+
+    # The block lands clear of Q's end, nothing keys the curve after it until
+    # past R's start: R's opening is pinned (mirror of mayatk's).
+    _st, _offs = _closing_case(
+        "HeadNext",
+        [("P", 0, 50), ("Q", 50, 100), ("R", 100, 150)],
+        ((10, 9), (30, 8), (50, 0)),
+        lambda sq, st: sq.move_sequences_to_shot(
+            [{"kind": "anim", "obj": "HeadNext", "start": 10.0, "end": 30.0}],
+            st.shot_by_name("Q").shot_id,
+        ),
+        {"R": (100, 150)},
+    )
+    check(
+        "a head landing leaves the next shot its pose",
+        _offs["R"] < 1e-4,
+        f"{_offs}",
+    )
+
+    # A run from AFTER the destination, of an object it keys nothing of, is
+    # anchored to its start -- on a flush seam the shot before's last frame
+    # (mirror of mayatk's test_a_landing_from_after_*; SOL gap 0: B10_1's
+    # last frame 98.35 off).  The destination opens a frame later where the
+    # poses differ.
+    for _first, _want in ((9, 51.0), (0, 50.0)):
+        _st, _offs = _closing_case(
+            f"Anchored{_first}",
+            [("P", 0, 50), ("Q", 50, 100), ("R", 100, 150)],
+            ((10, 0), (105, _first), (125, 4)),
+            lambda sq, st, _n=f"Anchored{_first}": sq.move_sequences_to_shot(
+                [{"kind": "anim", "obj": _n, "start": 105.0, "end": 125.0}],
+                st.shot_by_name("Q").shot_id,
+            ),
+            {"P": (0, 50)},
+            stepped=(10,),
+        )
+        check(
+            f"a landing from after {'keeps a frame' if _want > 50 else 'lands flush'}"
+            " and the shot before keeps its close",
+            _st.shot_by_name("Q").start == _want and _offs["P"] < 1e-4,
+            f"Q start {_st.shot_by_name('Q').start} {_offs}",
+        )
+
+    # A leading pad slides Q's content on and puts its start back: the gap
+    # hold's stop pin on that start is the content's opening pose and stays
+    # with it (mirror of mayatk's TestALeadingPadKeepsTheShotsOpening; SOL
+    # harness: "A01_2" 1.65 off over 16 frames).
+    for _left in list(bpy.data.objects):
+        bpy.data.objects.remove(_left, do_unlink=True)
+    _o, _st, _sq = _seam_scene(
+        "LeadPad",
+        [("P", 0, 50), ("Q", 60, 110), ("R", 120, 170)],
+        ((10, 2), (90, 8), (150, 1)),
+    )
+    _st.gap = 10.0
+    _sq.reconcile_system_edits()
+    _p0 = [_loc_x(_o).evaluate(f) for f in range(0, 51)]
+    _q0 = [_loc_x(_o).evaluate(f) for f in range(60, 111)]
+    _sq.add_shot_space(_st.shot_by_name("Q").shot_id, 10.0, edge="leading")
+    _fc = _loc_x(_o)
+    _q = _st.shot_by_name("Q")
+    _p_off = max(abs(v - _fc.evaluate(f)) for f, v in enumerate(_p0))
+    _q_off = max(abs(v - _fc.evaluate(_q.start + 10 + i)) for i, v in enumerate(_q0))
+    check(
+        "a leading pad keeps the shot's opening pose with its content",
+        _q.start == 60.0 and _p_off < 1e-4 and _q_off < 1e-4,
+        f"Q start {_q.start} P off {_p_off:.5f} Q off {_q_off:.5f}",
+    )
+
+    # ---- a Shift retime keeps its flush neighbour (mirror of mayatk's) --------
+    # BACKLOG 2026-10-11: the ripple's copy and the retimed sample stacked on
+    # the seam; keyless, the next shot opened off; shrinking, its slope scaled.
+    _abc3 = [("A", 0, 50), ("B", 50, 100), ("C", 100, 150)]
+    for _label, _keys, _shot, _span, _watch, _wspan in (
+        (
+            "keyed grow",
+            ((0, 0), (40, 2), (50, 3), (100, 5)),
+            "A",
+            (0, 60),
+            "B",
+            (50, 100),
+        ),
+        ("keyless grow", ((0, 0), (40, 2), (100, 5)), "A", (0, 60), "B", (50, 100)),
+        (
+            "keyed shrink",
+            ((0, 0), (40, 2), (50, 3), (100, 5)),
+            "A",
+            (0, 45),
+            "B",
+            (50, 100),
+        ),
+        (
+            "start grow",
+            ((10, 0), (40, 2), (50, 3), (60, 4), (100, 5)),
+            "B",
+            (40, 100),
+            "A",
+            (0, 50),
+        ),
+    ):
+        _name = "Retime" + _label.title().replace(" ", "")
+        _st, _offs = _closing_case(
+            _name,
+            _abc3,
+            _keys,
+            lambda sq, st, _shot=_shot, _span=_span: sq.resize_shot(
+                st.shot_by_name(_shot).shot_id, *_span
+            ),
+            {_watch: _wspan},
+        )
+        _t = sorted(kp.co[0] for kp in _loc_x(bpy.data.objects[_name]).keyframe_points)
+        _stacked = [b for a, b in zip(_t, _t[1:]) if b - a < 0.01]
+        check(
+            f"a Shift retime ({_label}) stacks nothing and {_watch} plays on",
+            not _stacked and _offs[_watch] < 1e-4,
+            f"keys {[round(x, 3) for x in _t]} {_offs}",
+        )
+
+    # ---- a plain edge shrink closes its flush seam under the closing rule ------
+    # (mirror of mayatk's TestAPlainEdgeShrinkKeepsItsFlushNeighbour; BACKLOG
+    # 2026-10-11: a ramp crossing the seam keyless was compressed between the
+    # two shots' keys, SOL "C02_2" 0.096 off).  Each shot plays on from
+    # wherever it starts; the neighbour lands a frame short where it differs.
+    _ramp = ((10, 0), (30, 2), (80, 6), (120, 1))
+    _tail = {"A": (0, 46), "B": (50, 100), "C": (100, 150)}
+    for _label, _keys, _shot, _span, _layout_want, _spans, _handles in (
+        (
+            "keyless ramp, poses differ",
+            _ramp,
+            "A",
+            (0, 46),
+            [(0.0, 46.0), (47.0, 97.0), (97.0, 147.0)],
+            _tail,
+            None,
+        ),
+        (
+            # Symmetric about 48 as a whole: CONT_ACCEL solves the handles
+            # over the curve's whole run.
+            "keyless dip, poses agree",
+            ((6, 5), (26, 0), (70, 0), (90, 5)),
+            "A",
+            (0, 46),
+            [(0.0, 46.0), (46.0, 96.0), (96.0, 146.0)],
+            _tail,
+            "AUTO",
+        ),
+        (
+            "a keyed opening rides",
+            ((10, 2), (50, 2), (80, 6), (120, 1)),
+            "A",
+            (0, 46),
+            [(0.0, 46.0), (46.0, 96.0), (96.0, 146.0)],
+            _tail,
+            None,
+        ),
+        (
+            "head shrink",
+            _ramp,
+            "B",
+            (54, 100),
+            [(3.0, 53.0), (54.0, 100.0), (100.0, 150.0)],
+            {"A": (0, 50), "B": (54, 100), "C": (100, 150)},
+            None,
+        ),
+    ):
+        _name = "Shrink" + "".join(w.title() for w in _label.split(",")[0].split())
+        _st, _offs = _closing_case(
+            _name,
+            _abc3,
+            _keys,
+            lambda sq, st, _shot=_shot, _span=_span: sq.resize_shot_bounds(
+                st.shot_by_name(_shot).shot_id, *_span
+            ),
+            _spans,
+            handles=_handles,
+        )
+        _t = sorted(kp.co[0] for kp in _loc_x(bpy.data.objects[_name]).keyframe_points)
+        _stacked = [b for a, b in zip(_t, _t[1:]) if b - a < 0.01]
+        _layout = [(s.start, s.end) for s in _st.sorted_shots()]
+        check(
+            f"a plain edge shrink ({_label}) closes its seam and every shot plays on",
+            _layout == _layout_want and not _stacked and max(_offs.values()) < 1e-4,
+            f"{_layout} keys {[round(x, 3) for x in _t]} {_offs}",
+        )
+
+    # Across a gap (mirror of mayatk's test_a_trim / test_a_grow_across_a_gap):
+    # a ramp keyed at 5 and 200 crosses every shot, and Q's members leave it
+    # out -- the gap hold never steps Q's start pin, so Q|R stays a keyless
+    # crossing the ripple re-timed (SOL pull: trimming "A01_2" played "A02"
+    # 1.5 off).
+    for _label, _op, _q_to, _r_start in (
+        (
+            "a trim",
+            lambda sq, st: sq.trim_shot_to_content(
+                st.shot_by_name("Q").shot_id, edge="trailing"
+            ),
+            30,
+            100.0,
+        ),
+        (
+            "a grow",
+            lambda sq, st: sq.resize_shot_bounds(st.shot_by_name("Q").shot_id, 60, 116),
+            50,
+            126.0,
+        ),
+        (
+            # The gap hold ends the crossing on Q's own end and pins R's
+            # start (pythontk ``_through_pins``), so a ripple of R keeps Q.
+            "a slide of R",
+            lambda sq, st: sq.slide_shot(
+                st.shot_by_name("R").shot_id, 130, direction="downstream"
+            ),
+            50,
+            130.0,
+        ),
+    ):
+        for _left in list(bpy.data.objects):
+            bpy.data.objects.remove(_left, do_unlink=True)
+        BlenderShotStore.clear_active()
+        _mover = bpy.data.objects.new("GapMover", None)
+        bpy.context.scene.collection.objects.link(_mover)
+        for _f, _v in ((62, 0), (90, 5)):
+            _mover.location = (0.0, float(_v), 0.0)
+            _mover.keyframe_insert(data_path="location", index=1, frame=_f)
+        _ramp = bpy.data.objects.new("GapRamp", None)
+        bpy.context.scene.collection.objects.link(_ramp)
+        for _f, _v in ((5, 0), (200, 10)):
+            _ramp.location = (float(_v), 0.0, 0.0)
+            _ramp.keyframe_insert(data_path="location", index=0, frame=_f)
+        _st = BlenderShotStore()
+        _st.gap = 10.0
+        for _n, _s, _e, _objs in (
+            ("P", 0, 50, ["GapRamp"]),
+            ("Q", 60, 110, ["GapMover"]),
+            ("R", 120, 170, ["GapRamp"]),
+            ("S", 180, 230, ["GapRamp"]),
+        ):
+            _st.define_shot(_n, _s, _e, objects=_objs)
+        _sq = ShotSequencer(_st)
+        _sq.reconcile_system_edits()
+        _b = {
+            n: [_loc_x(_ramp).evaluate(f) for f in range(int(s), int(e) + 1)]
+            for n, s, e in (("Q", 60, 60 + _q_to), ("R", 120, 170), ("S", 180, 230))
+        }
+        _op(_sq, _st)
+        _fc = _loc_x(_ramp)
+        _off = {
+            n: max(
+                abs(v - _fc.evaluate(_st.shot_by_name(n).start + i))
+                for i, v in enumerate(vals)
+            )
+            for n, vals in _b.items()
+        }
+        check(
+            f"{_label} across a gap leaves the shot and the shots after playing on",
+            _st.shot_by_name("R").start == _r_start and max(_off.values()) < 1e-4,
+            f"R start {_st.shot_by_name('R').start} {_off}",
+        )
+
+    # A head shrink behind a held gap: the stop pin on Q's start is superseded
+    # by Q's pose pinned on its new start, and goes (mirror of mayatk's
+    # test_a_head_shrink_behind_a_held_gap_keeps_the_held_tail; SOL "A01_1").
+    for _left in list(bpy.data.objects):
+        bpy.data.objects.remove(_left, do_unlink=True)
+    _o, _st, _sq = _seam_scene(
+        "HeldGapHead",
+        [("P", 0, 50), ("Q", 60, 110), ("R", 120, 170)],
+        ((0, 0), (40, 5), (90, 9), (130, 1)),
+    )
+    _st.gap = 10.0
+    _sq.reconcile_system_edits()
+    _p0 = [_loc_x(_o).evaluate(f) for f in range(0, 51)]
+    _q0 = [_loc_x(_o).evaluate(f) for f in range(64, 111)]
+    _sq.resize_shot_bounds(_st.shot_by_name("Q").shot_id, 64, 110)
+    _fc = _loc_x(_o)
+    _p_off = max(abs(v - _fc.evaluate(4 + i)) for i, v in enumerate(_p0))
+    _q_off = max(abs(v - _fc.evaluate(64 + i)) for i, v in enumerate(_q0))
+    check(
+        "a head shrink behind a held gap keeps the shot before's held tail",
+        _st.shot_by_name("P").start == 4.0 and _p_off < 1e-4 and _q_off < 1e-4,
+        f"P start {_st.shot_by_name('P').start} P off {_p_off:.5f} Q off {_q_off:.5f}",
+    )
+
+    # ---- Move to Shot keeps what stays in the source (mirror of mayatk's
+    # TestMoveToShotKeepsWhatStaysInTheSource; BACKLOG 2026-10-11): the source
+    # plays the same up to its last stayed key (from its first, for a head
+    # run).  75 is no extreme: its handles come from both neighbours.  No
+    # shot on the source's far side: a neighbour pin there freezes the whole
+    # curve's handles (``_insert_shape_keys``), which would hide the case.
+    _tail_keys = ((55, 0), (65, 2), (75, 4), (85, 6), (95, 1), (110, 5), (140, 0))
+    _head_keys = ((10, 3), (55, 6), (65, 5), (75, 3), (85, 1), (95, 0))
+    for _label, _keys, _run, _dest, _gap, _from in (
+        ("a tail run", _tail_keys, (85.0, 95.0), "R", 0, 0),
+        ("a tail run across a gap", _tail_keys, (85.0, 95.0), "R", 10, 0),
+        ("a head run", _head_keys, (55.0, 65.0), "P", 0, 25),
+    ):
+        for _left in list(bpy.data.objects):
+            bpy.data.objects.remove(_left, do_unlink=True)
+        _name = "Stays" + _label.title().replace(" ", "")
+        _shots = (
+            [("Q", 50, 100), ("R", 100 + _gap, 150 + _gap)]
+            if _dest == "R"
+            else [("P", 0, 50), ("Q", 50, 100)]
+        )
+        _o, _st, _sq = _seam_scene(_name, _shots, _keys)
+        _st.gap = float(_gap)
+        _sq.reconcile_system_edits()
+        _span = range(26) if _from == 0 else range(25, 51)
+        _q0 = [_loc_x(_o).evaluate(50 + d) for d in _span]
+        _sq.move_sequences_to_shot(
+            [{"kind": "anim", "obj": _o.name, "start": _run[0], "end": _run[1]}],
+            _st.shot_by_name(_dest).shot_id,
+        )
+        _qs = _st.shot_by_name("Q").start
+        _fc = _loc_x(_o)
+        _off = max(abs(v - _fc.evaluate(_qs + d)) for d, v in zip(_span, _q0))
+        check(
+            f"Move to Shot of {_label} leaves the source playing its stayed keys",
+            _off < 1e-4,
+            f"Q off {_off:.5f}",
+        )
+
+    # ---- Move to Shot copies a shared seam sample (mirror of mayatk's) ----------
+    _pqr = [("P", 0, 50), ("Q", 50, 100), ("R", 100, 150)]
+    _st, _offs = _closing_case(
+        "SharedFirst",
+        _pqr,
+        ((50, 3), (70, 8), (90, 5)),
+        lambda sq, st: sq.move_sequences_to_shot(
+            [{"kind": "anim", "obj": "SharedFirst", "start": 50.0, "end": 70.0}],
+            st.shot_by_name("R").shot_id,
+        ),
+        {"P": (0, 50)},
+    )
+    check(
+        "a run opening on the curve's first key leaves it: the shot before plays on",
+        _offs["P"] < 1e-4,
+        f"{_offs}",
+    )
+    _st, _offs = _closing_case(
+        "SharedLast",
+        _pqr,
+        ((60, 1), (80, 4), (100, 7), (130, 2)),
+        lambda sq, st: sq.move_sequences_to_shot(
+            [{"kind": "anim", "obj": "SharedLast", "start": 60.0, "end": 100.0}],
+            st.shot_by_name("P").shot_id,
+        ),
+        {"R": (100, 150)},
+    )
+    check(
+        "a run closing on the next shot's opening leaves it: that shot plays on",
+        _offs["R"] < 1e-4,
+        f"{_offs}",
+    )
+
+    # ---- a released hold other shots play stays (mirror of mayatk's) -----------
+    for _left in list(bpy.data.objects):
+        bpy.data.objects.remove(_left, do_unlink=True)
+    _o, _st, _sq = _seam_scene(
+        "LegacyHold",
+        [("A", 0, 20), ("B", 30, 50), ("C", 60, 80), ("D", 90, 110)],
+        ((10, 0), (20, 10), (100, 0)),
+    )
+    _fc = _loc_x(_o)
+    _kp = next(k for k in _fc.keyframe_points if round(k.co[0]) == 20)
+    _key = _ShotSequencerInternal._fc_key(_o.name, _fc)
+    _sq.ledger.record_step(_key, 20.0, _kp.easing, _kp.interpolation, _kp.co[1])
+    _kp.interpolation = "CONSTANT"  # the old hold: no stop pin on B's start
+    _fc.update()
+    _before = {
+        s.name: [_fc.evaluate(f) for f in range(int(s.start), int(s.end) + 1)]
+        for s in _st.sorted_shots()
+    }
+    _sq.respace(gap=0, start_frame=0)
+    _layout = [(s.start, s.end) for s in _st.sorted_shots()]
+    _fc = _loc_x(_o)
+    _off = max(
+        abs(x - _fc.evaluate(f))
+        for s in _st.sorted_shots()
+        for f, x in zip(range(int(s.start), int(s.end) + 1), _before[s.name])
+    )
+    _sq.respace(gap=0, start_frame=0)
+    check(
+        "a released hold other shots play stays, and a respace settles in one pass",
+        _off < 1e-4 and [(s.start, s.end) for s in _st.sorted_shots()] == _layout,
+        f"{_off:.5f} {_layout}",
+    )
+
+    # ---- a respace keeps a held tail HOLDING (mirror of mayatk's) ----------
+    # BACKLOG 2026-10-05 (maintainer 2026-10-10): the respace pinned a tail
+    # the hold had not reached yet where the curve PLAYED ON (A 1.96 off its
+    # held playback); it now holds every gap before it pins.
+    _held_keys = ((0, 0), (30, 3), (70, 7), (90, 9))
+    _o, _st, _sq = _seam_scene("HeldRef", [("A", 0, 50), ("B", 60, 100)], _held_keys)
+    _sq.reconcile_system_edits()
+    _ref_a = [_loc_x(_o).evaluate(f) for f in range(0, 51)]
+    _ref_b = [_loc_x(_o).evaluate(f) for f in range(60, 101)]
+    _o, _st, _sq = _seam_scene("HeldResp", [("A", 0, 50), ("B", 60, 100)], _held_keys)
+    _sq.respace(gap=20, start_frame=0)
+    _da = max(abs(x - _loc_x(_o).evaluate(f)) for f, x in zip(range(0, 51), _ref_a))
+    _db = max(
+        abs(x - _loc_x(_o).evaluate(f + 10)) for f, x in zip(range(60, 101), _ref_b)
+    )
+    check(
+        "a respace holds a tail as every other op does",
+        _da < 1e-4 and _db < 1e-4 and _ref_a[30:] == [3.0] * 21,
+        f"A {_da:.5f} B {_db:.5f}",
+    )
+    _o, _st, _sq = _seam_scene(
+        "HeldIdent",
+        [("A", 0, 50), ("B", 60, 100)],
+        ((0, 0), (20, 5), (60, 9), (120, 30), (140, 40)),
+    )
+    _sq.reconcile_system_edits()
+    _a0 = [_loc_x(_o).evaluate(f) for f in range(0, 51)]
+    _b0 = [_loc_x(_o).evaluate(f) for f in range(60, 101)]
+    _sq.respace(gap=200, start_frame=0)
+    _da = max(abs(x - _loc_x(_o).evaluate(f)) for f, x in zip(range(0, 51), _a0))
+    _db = max(
+        abs(x - _loc_x(_o).evaluate(f + 190)) for f, x in zip(range(60, 101), _b0)
+    )
+    check(
+        "a held tail plays identically across a respace",
+        _da < 1e-4 and _db < 1e-4,
+        f"A {_da:.5f} B {_db:.5f}",
+    )
+
+    # ---- ledger format 2: a hold freezes its key's handles and knows its key
+    # by value + left handle (maintainer 2026-10-11; mirror of mayatk's
+    # TestAHoldKeepsWhatItHolds / TestGapHoldKeepsAPastedStep).
+    for _to, _was in ((70, "0.07"), (250, "0.69")):
+        _o, _st, _sq = _seam_scene(
+            f"HeldMove{_to}",
+            [("A", 0, 50), ("B", 60, 100)],
+            ((0, 0), (20, 5), (60, 9), (90, 2)),
+        )
+        _sq.reconcile_system_edits()  # 20 holds; B is keyed on its start
+        _a0 = [_loc_x(_o).evaluate(f) for f in range(0, 51)]
+        _sq.move_shot(_st.shot_by_name("B").shot_id, _to)
+        _da = max(abs(x - _loc_x(_o).evaluate(f)) for f, x in zip(range(0, 51), _a0))
+        check(
+            f"a held tail keeps its last segment as the next shot moves to {_to}",
+            _da < 1e-4,
+            f"A {_da:.5f} (was {_was} with the handles derived)",
+        )
+    _o, _st, _sq = _seam_scene(
+        "HeldPaste", [("A", 0, 50), ("B", 60, 100)], ((0, 0), (20, 5), (60, 9), (90, 2))
+    )
+    _sq.reconcile_system_edits()
+    _fc = _loc_x(_o)
+    _kp = next(p for p in _fc.keyframe_points if abs(p.co[0] - 20) < 1e-3)
+    _easing = _kp.easing
+    _kp.co[1] = 7.0  # a step pasted over the hold: another value, the same easing
+    _kp.handle_left[1] += 2.0
+    _kp.handle_right[1] += 2.0
+    _fc.update()
+    _o.location = (6.0, 0.0, 0.0)
+    _o.keyframe_insert(data_path="location", index=0, frame=45)  # a new seam
+    _sq.reconcile_system_edits()
+    _kp = next(p for p in _loc_x(_o).keyframe_points if abs(p.co[0] - 20) < 1e-3)
+    _key = _ShotSequencerInternal._fc_key(_o.name, _loc_x(_o))
+    # (45 comes in CONSTANT after a CONSTANT key: Blender's insert takes the
+    # previous key's interpolation, so it is the animator's hold, unclaimed.)
+    check(
+        "a step pasted over a held seam with the same easing is the animator's",
+        _kp.interpolation == "CONSTANT"
+        and _kp.easing == _easing
+        and 20.0 not in _sq.ledger.step_times(_key),
+        f"{_kp.interpolation} steps {_sq.ledger.step_times(_key)}",
+    )
+
+    # ---- the SOL gap-0 acceptance findings (mirror of mayatk's) -----------
+    # 2026-10-11, both in pythontk.  (1) Deleting an empty shot: D's new
+    # closed end only TOUCHED C's old closed start, C moved second and
+    # carried D's closing sample on (150 landed at 50, not 100).
+    _o, _st, _sq = _seam_scene(
+        "DelEmpty",
+        [("A", 0, 50), ("B", 50, 100), ("C", 100, 120), ("D", 120, 150)]
+        + [("E", 150, 200)],
+        ((0, 0), (110, 3), (150, -5), (180, 2)),
+    )
+    _b_id = _st.shot_by_name("B").shot_id
+    _st.update_shot(_b_id, objects=[])
+    _a0 = [_loc_x(_o).evaluate(f) for f in range(0, 51)]
+    _sq.delete_shot(_b_id)
+    _kps = [(round(k.co[0], 3), round(k.co[1], 3)) for k in _loc_x(_o).keyframe_points]
+    _da = max(abs(x - _loc_x(_o).evaluate(f)) for f, x in zip(range(0, 51), _a0))
+    # A closes mid-ramp, C opens elsewhere on it: C lands a frame after A
+    # (maintainer 2026-10-11), each pose pinned on its bound.
+    check(
+        "deleting an empty shot moves each key once",
+        [t for t, _v in _kps] == [0.0, 50.0, 51.0, 61.0, 101.0, 131.0]
+        and _kps[3:] == [(61.0, 3.0), (101.0, -5.0), (131.0, 2.0)]
+        and _da < 1e-4,
+        f"{_kps} A {_da:.5f}",
+    )
+    # (2) A run whose drawn extent ends on the next shot's claimed start pin
+    # (the system's sample, on the shared frame) read as content from AFTER
+    # the destination and was appended behind it, where C then played it.
+    _o, _st, _sq = _seam_scene(
+        "HeadPin",
+        [("A", 0, 50), ("B", 50, 100), ("C", 100, 150)],
+        ((0, 0), (20, 5), (40, 2), (70, 6), (90, 1)),
+    )
+    _ids = {n: _st.shot_by_name(n).shot_id for n in "ABC"}
+    _st.update_shot(_ids["C"], objects=[])
+    _fc = _loc_x(_o)
+    _key = _ShotSequencerInternal._fc_key(_o.name, _fc)
+    _pinned = _sq._pin_bound_keys({_key: [(50.0, _ids["B"], "start")]})
+    _c0 = [_fc.evaluate(f) for f in range(100, 151)]
+    _run = next(
+        s
+        for s in _sq.collect_shot_sequences(_ids["A"], include_audio=False)
+        if s["obj"] == _o.name
+    )
+    _run_end = _run["end"]
+    _sq.move_sequences_to_shot([_run], _ids["B"])
+    _c_start = int(_sq.shot_by_id(_ids["C"]).start)
+    _fc = _loc_x(_o)
+    _d = max(
+        abs(x - _fc.evaluate(f)) for f, x in zip(range(_c_start, _c_start + 51), _c0)
+    )
+    _first = round(_fc.keyframe_points[0].co[0], 3)
+    check(
+        "a head block ending on the next shot's pin lands in front",
+        _pinned == 1 and _run_end == 50.0 and _d < 1e-4 and _first == 50.0,
+        f"pinned={_pinned} run_end={_run_end} C {_d:.5f} first={_first}",
+    )
+    # (3) Content leaving a shot keeps its neighbours' poses (gap 10): the
+    # value its last key held over every shot after it, the ramp out of the
+    # previous shot's last key, a step held into the next shot, an object
+    # keyed only in the shot that goes.
+    BlenderShotStore.clear_active()
+    while _seam_objects:  # the last seam scene's cube is keyed content too
+        _old = bpy.data.objects.get(_seam_objects.pop())
+        if _old is not None:
+            bpy.data.objects.remove(_old, do_unlink=True)
+    bpy.ops.mesh.primitive_cube_add()
+    _o = bpy.context.active_object
+    _o.name = "Vacate"
+    _seam_objects.append(_o.name)
+    _shapes = {
+        ("location", 0): ((0, 0), (20, 5), (70, 3), (90, 8)),
+        ("location", 1): ((0, 0), (20, 5), (70, 3), (90, 8), (130, 2)),
+        ("location", 2): ((0, 0), (80, 4), (130, 9)),
+        ("rotation_euler", 0): ((70, 6), (90, 1)),
+    }
+    for (_path, _i), _keys in _shapes.items():
+        for _f, _v in _keys:
+            getattr(_o, _path)[_i] = float(_v)
+            _o.keyframe_insert(data_path=_path, index=_i, frame=_f)
+    _fcs = {
+        (fc.data_path, fc.array_index): fc
+        for fc in BlenderShotStore.iter_action_fcurves(_o)
+    }
+    for _kp in _fcs[("location", 2)].keyframe_points:
+        if round(_kp.co[0]) == 80:
+            _kp.interpolation = "CONSTANT"
+    _st = BlenderShotStore()
+    for _n, _s, _e in (("A", 0, 50), ("B", 60, 100), ("C", 110, 150)):
+        _st.define_shot(_n, _s, _e, objects=[_o.name])
+    _sq = ShotSequencer(_st)
+    _sq.reconcile_system_edits()
+    _a0 = {k: [fc.evaluate(f) for f in range(0, 51)] for k, fc in _fcs.items()}
+    _c0 = {k: [fc.evaluate(f) for f in range(110, 151)] for k, fc in _fcs.items()}
+    _sq.delete_shot(_st.shot_by_name("B").shot_id)
+    _c = _st.shot_by_name("C")
+    _offs = {}
+    for (_path, _i), _ in _shapes.items():
+        _fc = next(
+            (
+                fc
+                for fc in BlenderShotStore.iter_action_fcurves(_o)
+                if fc.data_path == _path and fc.array_index == _i
+            ),
+            None,
+        )
+        if _fc is None:
+            _offs[(_path, _i)] = "curve gone"
+            continue
+        _da = max(
+            abs(x - _fc.evaluate(f)) for f, x in zip(range(0, 51), _a0[(_path, _i)])
+        )
+        _dc = max(
+            abs(x - _fc.evaluate(f))
+            for f, x in zip(range(int(_c.start), int(_c.start) + 41), _c0[(_path, _i)])
+        )
+        if _da > 1e-4 or _dc > 1e-4:
+            _offs[(_path, _i)] = f"A {_da:.5f} C {_dc:.5f}"
+    check(
+        "deleting a shot keeps both neighbours playing",
+        (_c.start, _c.end) == (60.0, 100.0) and not _offs,
+        f"C=({_c.start}, {_c.end}) {_offs}",
+    )
+    # (4) A run sent out of B to A: B's start pin stays with B, and C keeps
+    # the value B's run held over it.
+    _o, _st, _sq = _seam_scene(
+        "SendOut",
+        [("A", 0, 50), ("B", 60, 100), ("C", 110, 150)],
+        ((10, 0), (30, 5), (70, 2), (90, 7)),
+    )
+    _ids = {n: _st.shot_by_name(n).shot_id for n in "ABC"}
+    _st.update_shot(_ids["C"], objects=[])
+    _fc = _loc_x(_o)
+    _key = _ShotSequencerInternal._fc_key(_o.name, _fc)
+    _pinned = _sq._pin_bound_keys({_key: [(60.0, _ids["B"], "start")]})
+    _sq.reconcile_system_edits()
+    _c0 = [_fc.evaluate(f) for f in range(110, 151)]
+    _sq.move_sequences_to_shot(
+        [{"kind": "anim", "obj": _o.name, "start": 70.0, "end": 90.0}], _ids["A"]
+    )
+    _c_start = int(_sq.shot_by_id(_ids["C"]).start)
+    _fc = _loc_x(_o)
+    _d = max(
+        abs(x - _fc.evaluate(f)) for f, x in zip(range(_c_start, _c_start + 41), _c0)
+    )
+    check(
+        "a run sent out of a shot keeps the next one playing",
+        _pinned == 1 and _d < 1e-4,
+        f"pinned={_pinned} C {_d:.5f}",
+    )
+    # (5) A shot a plan moves away from a key it does not take along keeps
+    # its boundary slopes (mayatk's production curve: "B06_1" SCREWDRIVER).
+    _o, _st, _sq = _seam_scene(
+        "Slopes",
+        [("A", 0, 111), ("B", 941, 1081)],
+        (
+            (12, 0.0),
+            (941, -46.6029),
+            (991, -51.0343),
+            (1012, -52.3835),
+            (1031, -53.384),
+            (1041, -53.772),
+            (1081, 0.0),
+        ),
+    )
+    _fc = _loc_x(_o)
+    for _kp in _fc.keyframe_points:
+        if round(_kp.co[0]) in (12, 1041, 1081):
+            _kp.interpolation = "CONSTANT"
+    _fc.update()
+    _sq.reconcile_system_edits()
+    _b0 = [_fc.evaluate(f) for f in range(941, 1082)]
+    _sq.add_shot_space(_st.shot_by_name("A").shot_id, -4.0, edge="trailing")
+    _b = _st.shot_by_name("B")
+    _fc = _loc_x(_o)
+    _d = max(abs(x - _fc.evaluate(f)) for f, x in zip(range(937, 1078), _b0))
+    check(
+        "a moved shot keeps its boundary slopes",
+        (_b.start, _b.end) == (937.0, 1077.0) and _d < 1e-4,
+        f"B=({_b.start}, {_b.end}) {_d:.5f}",
+    )
+    # ...and so does one slid alone, the drag mover's path (measured
+    # 2026-10-11 on this curve: 0.0009 off with no smoothing, 0.0001 with
+    # CONT_ACCEL, where the plan path was exact).
+    for _smoothing in ("NONE", "CONT_ACCEL"):
+        _o, _st, _sq = _seam_scene(
+            f"SlideSlopes{_smoothing}",
+            [("A", 0, 111), ("B", 941, 1081)],
+            (
+                (12, 0.0),
+                (941, -46.6029),
+                (991, -51.0343),
+                (1012, -52.3835),
+                (1031, -53.384),
+                (1041, -53.772),
+                (1081, 0.0),
+            ),
+        )
+        _fc = _loc_x(_o)
+        _fc.auto_smoothing = _smoothing
+        for _kp in _fc.keyframe_points:
+            if round(_kp.co[0]) in (12, 1041, 1081):
+                _kp.interpolation = "CONSTANT"
+        _fc.update()
+        _sq.reconcile_system_edits()
+        _b0 = [_fc.evaluate(f) for f in range(941, 1082)]
+        _sq.slide_shot(_st.shot_by_name("B").shot_id, 937, direction=None)
+        _fc = _loc_x(_o)
+        _d = max(abs(x - _fc.evaluate(f)) for f, x in zip(range(937, 1078), _b0))
+        check(
+            f"a shot slid alone keeps its boundary slopes ({_smoothing})",
+            _st.shot_by_name("B").start == 937.0 and _d < 1e-4,
+            f"B={_st.shot_by_name('B').start} {_d:.5f}",
+        )
+    # A plan moving a shot that holds ONE key: the keys it leaves behind keep
+    # their slopes.  The hold read only a run of two keys or more, so C's
+    # opening key re-derived its handles from where B's lone key went, and C
+    # played another curve (mayatk holds the halves a run leaves behind,
+    # whatever it holds; 2026-10-12).
+    _o, _st, _sq = _seam_scene(
+        "LoneKey",
+        [("A", 0, 10), ("B", 20, 30), ("C", 40, 50)],
+        ((20, 8.0), (40, 5.0), (50, 1.0)),
+    )
+    _sq.reconcile_system_edits()
+    _fc = _loc_x(_o)
+    _c0 = [_fc.evaluate(f) for f in range(40, 51)]
+    _sq.ripple_upstream(_st.shot_by_name("C").shot_id, 40, 3)  # A and B move
+    _fc = _loc_x(_o)
+    _dc = max(abs(x - _fc.evaluate(f)) for f, x in zip(range(40, 51), _c0))
+    check(
+        "a shot holding one key moved leaves the shot after it playing on",
+        (_st.shot_by_name("B").start, _st.shot_by_name("C").start) == (23.0, 40.0)
+        and _dc < 1e-4,
+        f"B={_st.shot_by_name('B').start} C={_st.shot_by_name('C').start} "
+        f"off {_dc:.5f}",
+    )
+    # (6) A ramp keyed only in the first and last of four flush shots runs
+    # keyless through the two between, which list neither it nor a key of
+    # it: pulling R away pins the seam it opens all the same.
+    _o, _st, _sq = _seam_scene(
+        "Ramp",
+        [("P", 0, 50), ("Q", 50, 100), ("R", 100, 150), ("S", 150, 200)],
+        ((10, -70.0), (190, 0.0)),
+    )
+    for _n in ("Q", "R"):
+        _st.update_shot(_st.shot_by_name(_n).shot_id, objects=[])
+    _sq.reconcile_system_edits()
+    _fc = _loc_x(_o)
+    _q0 = [_fc.evaluate(f) for f in range(50, 101)]
+    _r0 = [_fc.evaluate(f) for f in range(101, 151)]
+    _sq.move_shot(_st.shot_by_name("R").shot_id, 107)
+    _fc = _loc_x(_o)
+    _dq = max(abs(x - _fc.evaluate(f)) for f, x in zip(range(50, 101), _q0))
+    _dr = max(abs(x - _fc.evaluate(f)) for f, x in zip(range(108, 158), _r0))
+    check(
+        "a ramp through shots that do not key it is pinned where opened",
+        _st.shot_by_name("R").start == 107.0 and _dq < 1e-4 and _dr < 1e-4,
+        f"R={_st.shot_by_name('R').start} Q {_dq:.5f} R {_dr:.5f}",
+    )
+
+    # ---- the gap-hold pin pass offers only the gap an edit changed ---------
+    # BACKLOG 2026-10-05 perf note (mirror of mayatk's): every gap was offered
+    # its pin again on every edit -- 190 pin writes for one New Shot.
+    _o, _st, _sq = _seam_scene(
+        "PinScope",
+        [("A", 0, 50), ("B", 60, 100), ("C", 110, 150)],
+        ((0, 0), (30, 3), (70, 7), (90, 9), (130, 2), (140, 5)),
+    )
+    _fc = _loc_x(_o)
+    for _kp in _fc.keyframe_points:  # the animator's own holds on both seams
+        if round(_kp.co[0]) in (30, 90):
+            _kp.interpolation = "CONSTANT"
+    _fc.update()
+    _sq.reconcile_system_edits()
+
+    def _pt_keys(fc):
+        return [
+            (round(kp.co[0], 4), round(kp.co[1], 4), kp.interpolation)
+            + tuple(round(v, 4) for v in (*kp.handle_left, *kp.handle_right))
+            + (kp.handle_left_type, kp.handle_right_type)
+            for kp in fc.keyframe_points
+            if kp.co[0] < 105
+        ]
+
+    _untouched = _pt_keys(_fc)
+    _asked = []
+    _real_insert = _sq._insert_shape_keys
+    _sq._insert_shape_keys = lambda fc, times, **kw: (
+        _asked.extend(float(t) for t in times) or _real_insert(fc, times, **kw)
+    )
+    _sq.insert_shot("D", 20, gap=10)
+    del _sq._insert_shape_keys
+    check(
+        "a new shot writes no pin on an untouched gap; untouched shots' keys unchanged",
+        not ({60.0, 110.0} & set(_asked)) and _pt_keys(_fc) == _untouched,
+        f"pins written at {_asked}",
+    )
+    # Review 2026-10-11 (mirror of mayatk's): the pass keeps no memory, so a
+    # seam an undo unsettled -- the curve back without its pin, the ledger
+    # back without the claim -- is pinned again by the next op.
+    _o, _st, _sq = _seam_scene(
+        "PinUnsettled",
+        [("A", 0, 50), ("B", 60, 100), ("C", 110, 150)],
+        ((0, 0), (30, 3), (70, 7), (90, 9), (130, 2), (140, 5)),
+    )
+    _fc = _loc_x(_o)
+    _start = [
+        (kp.co[0], kp.co[1], kp.interpolation, tuple(kp.handle_left),
+         tuple(kp.handle_right), kp.handle_left_type, kp.handle_right_type)
+        for kp in _fc.keyframe_points
+    ]  # fmt: skip
+    _st.push_boundary_snapshot()
+    _sq.reconcile_system_edits()
+    _pinned = any(abs(kp.co[0] - 60.0) < 1e-3 for kp in _fc.keyframe_points)
+    _settled = [_fc.evaluate(f) for f in range(60, 101)]
+    while len(_fc.keyframe_points):  # the undo, by hand: the curve as it was
+        _fc.keyframe_points.remove(_fc.keyframe_points[0])
+    for _t, _v, _i, _hl, _hr, _lt, _rt in _start:
+        _kp = _fc.keyframe_points.insert(_t, _v)
+        _kp.interpolation = _i
+        _kp.handle_left_type, _kp.handle_right_type = _lt, _rt
+        _kp.handle_left, _kp.handle_right = _hl, _hr
+    _fc.update()
+    _st.restore_boundary_snapshot()
+    _sq.reconcile_system_edits()
+    _again = any(abs(kp.co[0] - 60.0) < 1e-3 for kp in _fc.keyframe_points)
+    _d = max(abs(x - _fc.evaluate(f)) for f, x in zip(range(60, 101), _settled))
+    check(
+        "a seam an undo unsettled is pinned again by the next op",
+        _pinned and _again and _d < 1e-4,
+        f"pinned={_pinned} again={_again} B {_d:.5f}",
+    )
+
+    # ---- a hold claimed in Maya releases to a Blender interpolation ----------
+    # ShotTransfer carries the ledger verbatim, so a scene pulled through the
+    # bridge holds claims naming Maya tangent types; written straight onto
+    # kp.interpolation, "auto" raised TypeError on the first edit that moved a
+    # seam (2026-10-11, SOL_REPLACE_ASSEMBLY pulled into Blender 5.1).
+    _o, _st, _sq = _seam_scene(
+        "ForeignHold",
+        [("A", 0, 50), ("B", 60, 100)],
+        ((0, 0), (30, 3), (70, 7), (90, 9)),
+    )
+    _fc = _loc_x(_o)
+    _key = _ShotSequencerInternal._fc_key(_o.name, _fc)
+    _sq.reconcile_system_edits()
+    _held = _sq.ledger.step_times(_key) == [30.0]
+    _claim = _sq.ledger.claimed_step(_key, 30.0)
+    _sq.ledger.release_step(_key, 30.0)
+    _sq.ledger.record_step(_key, 30.0, "auto", "auto", _claim[2] if _claim else None)
+    _o.location = (4.0, 0.0, 0.0)
+    _o.keyframe_insert(data_path="location", index=0, frame=45)  # the seam moves on
+    try:
+        _sq.reconcile_system_edits()
+        _err = None
+    except Exception as _exc:  # noqa: BLE001 -- the defect raised TypeError
+        _err = repr(_exc)
+    _kp = next(k for k in _fc.keyframe_points if abs(k.co[0] - 30.0) < 1e-3)
+    check(
+        "a hold claimed in Maya releases to a Blender interpolation",
+        _held and _err is None and _kp.interpolation == "BEZIER",
+        f"held={_held} err={_err} interp={_kp.interpolation}",
     )
 
     # ---- Copy to Shot (mayatk 2026-10-07): Move's placement, originals kept --
@@ -1481,7 +2841,9 @@ def _run_sequencer_checks():
     # Mirror of mayatk's test_a_head_block_owns_the_contiguous_seam_it_lands_on
     # (BACKLOG 2026-09-19, decided 2026-09-23): the leading room's split left
     # the source's closing-pose copy on the seam, where the block's first key
-    # landed, and the copy was pushed to 290.1 -- a stray sixth key.
+    # landed, and the copy was pushed to 290.1 -- a stray sixth key.  The
+    # block owns S1's start, a frame after S0's closing 7 (the closing rule at
+    # the head, maintainer 2026-10-11).
     block = [110.7, 150.0, 199.8]
     o, st, sq = _seam_scene(
         "SeamHead",
@@ -1504,7 +2866,9 @@ def _run_sequencer_checks():
     got = [(round(kp.co[0], 3), round(kp.co[1], 3)) for kp in _loc_x(o).keyframe_points]
     check(
         "Move to Shot: a head block owns the contiguous seam (no stray key)",
-        got == [(200.0, 0.0), (239.3, 5.0), (289.1, 2.0), (290.0, 7.0), (320.0, 1.0)],
+        got
+        == [(200.0, 7.0), (201.0, 0.0), (240.3, 5.0), (290.1, 2.0)]
+        + [(291.0, 7.0), (321.0, 1.0)],
         f"{got}",
     )
     # The same move as a whole-object sequence (mayatk's fixture), which lands
@@ -1521,8 +2885,10 @@ def _run_sequencer_checks():
     got = [(round(kp.co[0], 3), round(kp.co[1], 3)) for kp in _loc_x(o).keyframe_points]
     check(
         "Move to Shot: a whole-object head block owns the contiguous seam too",
-        got == [(200.0, 0.0), (239.3, 5.0), (289.1, 2.0), (290.0, 7.0), (320.0, 1.0)]
-        and [(s.start, s.end) for s in st.sorted_shots()] == [(100, 200), (200, 330)],
+        got
+        == [(200.0, 7.0), (201.0, 0.0), (240.3, 5.0), (290.1, 2.0)]
+        + [(291.0, 7.0), (321.0, 1.0)]
+        and [(s.start, s.end) for s in st.sorted_shots()] == [(100, 200), (201, 331)],
         f"{got} {[(s.start, s.end) for s in st.sorted_shots()]}",
     )
     # ...and on a curve of just the block's key and the seam pose: "never below
@@ -1551,7 +2917,7 @@ def _run_sequencer_checks():
     got = [(round(kp.co[0], 3), round(kp.co[1], 3)) for kp in _loc_x(o).keyframe_points]
     check(
         "Move to Shot: a head block owns the seam on a two-key curve too",
-        got == [(200.0, 5.0)],
+        got == [(200.0, 7.0), (201.0, 5.0)],
         f"{got}",
     )
 
@@ -1790,32 +3156,12 @@ def _run_sequencer_checks():
         [1],
     )
 
-    from types import SimpleNamespace
-
-    class _SelKey:  # stands in for uitk's KeyframeItem (no Qt in Blender)
-        def __init__(self, time):
-            self._time = time
-            self._parent_clip = SimpleNamespace(_data=SimpleNamespace(clip_id=1))
-
     dk_widget = _FakeWidget(_FakeClip(da_sub))
-    dk_widget._timeline = SimpleNamespace(
-        _scene=SimpleNamespace(selectedItems=lambda: [_SelKey(40.0)])
-    )
+    # The widget's key selection, as ``SequencerWidget.selected_keys`` reports it.
+    dk_widget.selected_keys = lambda: [{"clip_id": 1, "times": [40.0]}]
     dk_host = _KeysHost(dk_widget, sequencer=da_seq)
     dk_host.active_shot_id = None
-    import types
-
-    fake_uitk = types.ModuleType("uitk")  # a module: import hooks read __name__
-    fake_uitk.KeyframeItem = _SelKey
-    saved_uitk = sys.modules.get("uitk")
-    sys.modules["uitk"] = fake_uitk
-    try:
-        ShotSequencerController._delete_selected_clip_keys(dk_host)
-    finally:
-        if saved_uitk is not None:
-            sys.modules["uitk"] = saved_uitk
-        else:
-            sys.modules.pop("uitk", None)
+    ShotSequencerController._delete_selected_clip_keys(dk_host)
     da_times = [round(kp.co[0], 3) for kp in _loc_x(da_obj).keyframe_points]
     check(
         "Delete Key: every claim on a deleted key goes, a behavior's too (3 paths)",
@@ -2207,10 +3553,24 @@ def _run_sequencer_checks():
         seq.move_sequences_to_shot(seqs, a_id)
         a, b = store.shot_by_name("A"), store.shot_by_name("B")
         strip_after = AudioUtils.get_clip(strip_name)["frame_start"]
+
+        def moved_times(name):
+            """*name*'s keys less the system's bound samples: C's start keeps
+            the pose B's run held over it, claimed (the one rule)."""
+            out: set = set()
+            for fc in BlenderShotStore.iter_action_fcurves(bpy.data.objects[name]):
+                claimed = seq.ledger.key_times(_ShotSequencerInternal._fc_key(name, fc))
+                out |= {
+                    round(float(kp.co[0]), 3)
+                    for kp in fc.keyframe_points
+                    if not any(abs(kp.co[0] - c) <= 1e-3 for c in claimed)
+                }
+            return sorted(out)
+
         check(
             "move_sequences_to_shot: B's anim now lives in A's range",
-            all(a.start <= t <= a.end for t in key_times("B")),
-            f"A=({a.start},{a.end}) B keys={key_times('B')[:2]}..",
+            all(a.start <= t <= a.end for t in moved_times("B")),
+            f"A=({a.start},{a.end}) B keys={moved_times('B')[:2]}..",
         )
         check(
             "move_sequences_to_shot: audio strip now inside A's range",
@@ -2224,8 +3584,8 @@ def _run_sequencer_checks():
         )
         check(
             "move_sequences_to_shot: extend-to-fit grew A to enclose the move",
-            a.end >= max(key_times("B")),
-            f"A.end={a.end} max={max(key_times('B'))}",
+            a.end >= max(moved_times("B")),
+            f"A.end={a.end} max={max(moved_times('B'))}",
         )
         check(
             "move_sequences_to_shot: separation exceeds the inter-shot gap",
@@ -2328,9 +3688,24 @@ def _run_sequencer_checks():
 
     tx = channel_times("A", "location", 0)
     ty = channel_times("A", "location", 1)
+    # 40 is C's opening pose, pinned: the landed 22 became the last key before
+    # C, which played key 10's extrapolation (the head landing's next-shot pin).
     check(
         "move_attribute_keys: only the named keys of the named channel moved",
-        2.0 not in tx and 4.0 not in tx and 3.0 in tx and len(tx) == 11,
+        2.0 not in tx
+        and 4.0 not in tx
+        and 3.0 in tx
+        and len(tx) == 12
+        and 40.0 in tx
+        and abs(
+            next(
+                fc
+                for fc in BlenderShotStore.iter_action_fcurves(bpy.data.objects["A"])
+                if fc.data_path == "location" and fc.array_index == 0
+            ).evaluate(45)
+            - 1.0
+        )
+        < 1e-4,
         f"tx={tx}",
     )
     check(
@@ -2343,7 +3718,9 @@ def _run_sequencer_checks():
     check(
         "move_attribute_keys: the keys landed inside the destination",
         all(
-            b.start <= t <= b.end for t in tx if t not in [float(i) for i in range(11)]
+            b.start <= t <= b.end
+            for t in tx
+            if t not in [float(i) for i in range(11)] + [40.0]
         ),
         f"B=({b.start},{b.end}) tx={tx}",
     )
@@ -3090,11 +4467,15 @@ def _run_sequencer_checks():
     hkey = _SSI._fc_key("holdB", fc_of(obs["holdB"]))
     sq.ledger.record_key(hkey, 100.0, s0.shot_id, "end")
     sq.trim_shot_to_content(s0.shot_id, edge="trailing")
+    # A member flat through the shot: its end sample holds nothing, at the
+    # new bound either, so it is cut as the bound leaves it, claim and all --
+    # mayatk's rule (``test_a_trim_cuts_the_end_sample_of_a_member_flat_
+    # through_the_shot``; BACKLOG 2026-09-19, mayatk is the reference).
     check(
-        "trim: the end sample follows the bound onto a free frame, claim intact",
+        "trim: the end sample of a member flat through the shot is cut, claim released",
         (s0.start, s0.end, s1.start, s1.end) == (0, 50, 65, 150)
-        and times_of(obs["holdB"]) == [10.0, 50.0, 65.0, 90.0]
-        and sorted(sq.ledger.key_times(hkey)) == [50.0],
+        and times_of(obs["holdB"]) == [10.0, 65.0, 90.0]
+        and sorted(sq.ledger.key_times(hkey)) == [],
         f"bounds={(s0.start, s0.end, s1.start, s1.end)} times={times_of(obs['holdB'])} "
         f"claims={sorted(sq.ledger.key_times(hkey))}",
     )
@@ -3557,7 +4938,8 @@ def _run_sequencer_checks():
     )
     check(
         "fractional content: Move to Shot's head room clears the whole block",
-        hkv == [(200.0, 0), (239.4, 5), (289.35, 2), (290.2, 7), (320.0, 1)],
+        hkv
+        == [(200.0, 2), (201.0, 0), (240.4, 5), (290.35, 2), (291.2, 7), (321.0, 1)],
         f"keys={hkv}",
     )
     # A key dragged past the end (to 50.4): the shot grows AROUND it.
@@ -3815,14 +5197,21 @@ def _run_sequencer_checks():
     st, sq, obs = fresh(
         {"delA": {1: 0, 20: 1}, "delB": {40: 0, 60: 1}, "delC": {80: 0, 100: 1}}
     )
-    sq.define_shot("A", 1, 20, objects=["delA"])
+    sa = sq.define_shot("A", 1, 20, objects=["delA"])
     sb = sq.define_shot("B", 40, 60, objects=["delB"])
-    sq.define_shot("C", 80, 100, objects=["delC"])
+    sc = sq.define_shot("C", 80, 100, objects=["delC"])
     res = sq.delete_shot(sb.shot_id)
+    _fc = fc_of(obs["delB"])
+    _key = _SSI._fc_key("delB", _fc)
+    # B's own keys go; A and C keep the poses delB stood in beside it (0
+    # through A, 1 through C), each pinned on its bound and claimed.
     check(
-        "delete_shot: B's keys are gone",
-        len(fc_of(obs["delB"]).keyframe_points) == 0,
-        f"{times_of(obs['delB'])}",
+        "delete_shot: B's keys are gone, its neighbours keep their poses",
+        times_of(obs["delB"]) == [20.0, 40.0]
+        and [round(kp.co[1], 4) for kp in _fc.keyframe_points] == [0.0, 1.0]
+        and sorted(sq.ledger.key_records(_key))
+        == [(20.0, sa.shot_id, "end"), (40.0, sc.shot_id, "start")],
+        f"{times_of(obs['delB'])} claims={sq.ledger.key_records(_key)}",
     )
     check(
         "delete_shot: the timeline closed by 40",
@@ -3977,17 +5366,25 @@ def _run_sequencer_checks():
     st, sq, obs = fresh({"ldA": {0: 0, 40: 5}, "ldB": {45: -2, 62: -1, 80: 0, 100: 5}})
     s0 = sq.define_shot("S0", 0, 50, objects=["ldA"])
     s1 = sq.define_shot("S1", 70, 120, objects=["ldB"])
+    s0_before = [fc_of(obs["ldB"]).evaluate(f) for f in range(0, 51)]
     head, tail = sq.extend_shot_to_fit(s1.shot_id, reach=10)
     s0, s1 = sq.shot_by_id(s0.shot_id), sq.shot_by_id(s1.shot_id)
+    s0_off = max(
+        abs(v - fc_of(obs["ldB"]).evaluate(f)) for f, v in zip(range(-8, 43), s0_before)
+    )
+    # 45 rode with S0, and S0's closing pose was pinned first (42 now): the
+    # ramp from 45 to 62 crossed the gap keyless, and S0 played it stretched
+    # over its last frames (the one rule; mirror of mayatk's).
     check(
         "extend reach: the leading gap counts, the previous shot's span never",
         (head, tail) == (-8, 0)
         and s1.start == 62
-        and times_of(obs["ldB"]) == [37, 62, 80, 100]
+        and times_of(obs["ldB"]) == [37, 42, 62, 80, 100]
         and (s0.start, s0.end) == (-8, 42)
-        and times_of(obs["ldA"]) == [-8, 32],
+        and times_of(obs["ldA"]) == [-8, 32]
+        and s0_off < 1e-4,
         f"{(head, tail)} S1.start={s1.start} B={times_of(obs['ldB'])} "
-        f"S0={(s0.start, s0.end)} A={times_of(obs['ldA'])}",
+        f"S0={(s0.start, s0.end)} A={times_of(obs['ldA'])} S0 off {s0_off}",
     )
     st, sq, obs = fresh({"noA": {0: 0, 40: 5}, "noB": {62: -1, 80: 0, 100: 5}})
     sq.define_shot("S0", 0, 50, objects=["noA"])
@@ -4177,10 +5574,12 @@ def _run_sequencer_checks():
         )
 
     km_footers = []
+    km_selected = []  # what each paste asked the widget to select
 
     class _KmWidget:
         @staticmethod
-        def select_keys(_wanted):
+        def select_keys(wanted):
+            km_selected.append(list(wanted))
             return 0
 
     class _KeyHost(_Ctrl):
@@ -4189,7 +5588,6 @@ def _run_sequencer_checks():
             self._sub_row_cache = {}
             self._audio_segments_cache = None
             self._syncing = False
-            self._copied_keys = {}
             self.sequencer = seq
 
         def _get_sequencer_widget(self):
@@ -4445,8 +5843,9 @@ def _run_sequencer_checks():
     # hold stepped is copied with its pre-hold interpolation.  A key written
     # over the held one since (a Graph Editor paste) is the animator's, its
     # CONSTANT with it -- mirror of mayatk's ``is_same_key`` copy guard.  The
-    # pasted key here differs in value AND easing: Blender's in side is the
-    # easing, and with the claim's easing ``is_same_key`` matches on it alone.
+    # pasted key keeps the easing (a paste copies it): the hold's claim (ledger
+    # format 2) knows its key by value + left handle, so the new value tells
+    # (BACKLOG 2026-10-10: on the easing alone it read as the hold's).
     km_gh = keyed_x("kmGapHold", [(0, 0.0), (20, 9.0), (40, 1.0)])
     gh_key = _SSI._fc_key("kmGapHold", fc_of(km_gh))
 
@@ -4455,30 +5854,140 @@ def _run_sequencer_checks():
 
     def gh_copied():
         kh._copy_selected_keys([("kmGapHold", "translateX", [20.0], None)])
-        buf = kh._copied_keys.get("kmGapHold") or {}
-        tans = buf.get("tangents", {}).get(("location", 0), [])
-        return [t["interpolation"] for t in tans]
+        rows = type(kh)._key_clipboard.get("rows") or []
+        return [kd["interpolation"] for _o, _a, keys in rows for kd in keys]
 
-    gh_kp = gh_point()
-    kh.sequencer.ledger.record_step(
-        gh_key, 20.0, gh_kp.easing, gh_kp.interpolation, gh_kp.co[1]
-    )
-    gh_kp.interpolation = "CONSTANT"
+    kh.sequencer._apply_gap_holds({gh_key: [20.0]})  # the hold, as a pass writes it
     held_copy = gh_copied()
     check(
         "key menu: Copy gives a held seam back its pre-hold interpolation",
-        held_copy == ["BEZIER"],
+        held_copy == ["BEZIER"] and gh_point().interpolation == "CONSTANT",
         f"{held_copy}",
     )
     gh_kp = gh_point()
+    gh_easing = gh_kp.easing
     gh_kp.co = (20.0, 3.0)
-    gh_kp.easing = "EASE_IN"
     fc_of(km_gh).update()
+    check(
+        "key menu: the key written over the hold keeps the hold's easing",
+        gh_point().easing == gh_easing,
+        f"{gh_point().easing} vs {gh_easing}",
+    )
     over_copy = gh_copied()
     check(
         "key menu: Copy keeps the CONSTANT of a key written over a held seam since",
         over_copy == ["CONSTANT"] and kh.sequencer.ledger.owns_step(gh_key, 20.0),
         f"{over_copy} {kh.sequencer.ledger.to_dict()}",
+    )
+    # The held VALUE pasted back with another slope is the animator's too: the
+    # claim knows its key by value and its frozen left handle (ledger format
+    # 2), and the copy asked by value alone (2026-10-12).
+    gh_kp = gh_point()
+    gh_kp.handle_left_type = "FREE"
+    gh_kp.co = (20.0, 9.0)
+    gh_kp.handle_left = (16.0, 11.0)
+    fc_of(km_gh).update()
+    slope_copy = gh_copied()
+    check(
+        "key menu: Copy keeps the CONSTANT of the held value pasted with another slope",
+        slope_copy == ["CONSTANT"],
+        f"{slope_copy} left={tuple(gh_point().handle_left)} "
+        f"{kh.sequencer.ledger.to_dict()}",
+    )
+    # A hold claimed in Maya: ShotTransfer carries the claim's Maya tangent
+    # types verbatim, so the copy read "auto" back as the pre-hold
+    # interpolation and the paste wrote it onto kp.interpolation (TypeError),
+    # as the release did before it mapped them (2026-10-11).
+    km_mh = keyed_x("kmMayaHold", [(0, 0.0), (20, 9.0), (40, 1.0)])
+    mh_key = _SSI._fc_key("kmMayaHold", fc_of(km_mh))
+    fc_of(km_mh).keyframe_points[1].interpolation = "CONSTANT"
+    fc_of(km_mh).update()
+    kh.sequencer.ledger.record_step(mh_key, 20.0, "auto", "auto", 9.0)
+    kh._copy_selected_keys([("kmMayaHold", "translateX", [20.0], None)])
+    mh_copied = [
+        kd["interpolation"]
+        for _o, _a, keys in type(kh)._key_clipboard.get("rows") or []
+        for kd in keys
+    ]
+    bpy.context.scene.frame_set(50)
+    try:
+        kh._paste_selected_keys([("kmMayaHold", "translateX", [20.0], None)])
+        mh_err = None
+    except Exception as exc:  # noqa: BLE001 -- the defect raised TypeError
+        mh_err = repr(exc)
+    mh_pasted = next(
+        (k for k in fc_of(km_mh).keyframe_points if abs(k.co[0] - 50) < 1e-3), None
+    )
+    check(
+        "key menu: Copy gives a hold claimed in Maya a Blender interpolation",
+        mh_copied == ["BEZIER"]
+        and mh_err is None
+        and mh_pasted is not None
+        and mh_pasted.interpolation == "BEZIER",
+        f"copied={mh_copied} err={mh_err} "
+        f"pasted={mh_pasted and mh_pasted.interpolation}",
+    )
+
+    # -- the panel's clipboard: per attribute row, as mayatk's (2026-10-11) -----
+    # Bug: Blender's Ctrl+C rewrote the Blender key selection to copy it and
+    # kept one buffer per OBJECT on the controller; Ctrl+V landed each
+    # object's earliest key on the playhead (the spacing between objects
+    # lost), selected nothing, and a fresh controller had no clipboard.
+    # mayatk's rows (``ShotSequencer.paste_pairs``) now drive both.
+    type(kh)._key_clipboard = {}
+    cb_a = keyed_x("cbA", [(0, 0.0), (40, 5.0)])
+    cb_b = keyed_x("cbB", [(60, 0.0), (100, 5.0)])
+    for k in fc_of(cb_a).keyframe_points:
+        k.select_control_point = False  # no Blender key selection at all
+    km_footers.clear()
+    kh._copy_selected_keys([("cbA", "translateX", [40.0], None)])
+    copied_footer = km_footers[-1:]
+    kh_fresh = _KeyHost(sq)  # a slots re-init keeps the clipboard
+    bpy.context.scene.frame_set(80)
+    kh_fresh._paste_selected_keys([("cbB", "translateX", [60.0], None)])
+    check(
+        "clipboard: Ctrl+C reads the rows (no Blender selection), a fresh "
+        "controller pastes onto another object",
+        copied_footer == ["Copied 1 key"]
+        and pts(cb_b) == [(60.0, 0.0), (80.0, 5.0), (100.0, 5.0)]
+        and not any(k.select_control_point for k in fc_of(cb_a).keyframe_points),
+        f"{copied_footer} {pts(cb_b)}",
+    )
+    km_footers.clear()
+    km_selected.clear()
+    kh._copy_selected_keys(
+        [("cbA", "translateX", [40.0], None), ("cbB", "translateX", [100.0], None)]
+    )
+    bpy.context.scene.frame_set(10)
+    kh._paste_selected_keys([])  # nothing selected: back onto the copied rows
+    check(
+        "clipboard: rows keep their spacing, nothing selected pastes back, and "
+        "the pasted keys are selected",
+        [t for t, _v in pts(cb_a)] == [0.0, 10.0, 40.0]
+        and (70.0, 5.0) in pts(cb_b)
+        and km_footers[-1:] == ["Pasted 2 keys onto 2 rows"]
+        and sorted(
+            (w["data"]["obj"], tuple(w["times"])) for w in (km_selected or [[]])[-1]
+        )
+        == [("cbA", (10.0,)), ("cbB", (70.0,))],
+        f"{pts(cb_a)} {pts(cb_b)} {km_footers[-1:]} {km_selected[-1:]}",
+    )
+    kh._copy_selected_keys([("cbA", "translateX", [40.0], None)])
+    bpy.data.objects.remove(cb_a, do_unlink=True)
+    km_footers.clear()
+    kh._paste_selected_keys([])
+    check(
+        "clipboard: a paste onto rows gone since the copy says nothing pasted",
+        km_footers[-1:] and km_footers[-1].startswith("Nothing pasted"),
+        f"{km_footers[-1:]}",
+    )
+    type(kh)._key_clipboard = {}
+    km_footers.clear()
+    kh._paste_selected_keys([("cbB", "translateX", [60.0], None)])
+    check(
+        "clipboard: nothing copied pastes nothing",
+        km_footers[-1:] and km_footers[-1].startswith("Nothing copied here"),
+        f"{km_footers[-1:]}",
     )
 
     # -- key selection mirror: scene-wide clear + channel scope -----------------
@@ -4784,8 +6293,10 @@ def _run_sequencer_checks():
     # A merge retires the keeper's END sample in place, as it does the removed
     # shots': left to the reconcile it FOLLOWED the merged end across every key
     # the merge took in (found 2026-10-05 on a respace's pins: 84 frames of the
-    # curve changed).
-    st, sq, obs = fresh({"mgA": {0: 0.0, 10: 4.0, 50: 9.0, 55: 2.0}})
+    # curve changed).  A key in the gap (30): A's tail ramps toward it rather
+    # than holding, so the respace pins A's end (a held tail is a hold, which
+    # it no longer pins -- BACKLOG 2026-10-05).
+    st, sq, obs = fresh({"mgA": {0: 0.0, 10: 4.0, 30: 6.0, 50: 9.0, 55: 2.0}})
     mg_fc = fc_of(obs["mgA"])
     for kp in mg_fc.keyframe_points:
         kp.handle_left_type = kp.handle_right_type = "AUTO_CLAMPED"
@@ -4798,7 +6309,7 @@ def _run_sequencer_checks():
     mg_keys = times_of(obs["mgA"])
     mg_frames = [t for t in range(-10, 111) if not 20 < t < 45]  # held span out
     mg_before = [mg_fc.evaluate(t) for t in mg_frames]
-    sq.merge_shots([mg_a.shot_id, mg_b.shot_id])  # no gap: the hold on 20 goes
+    sq.merge_shots([mg_a.shot_id, mg_b.shot_id])  # no gap: the gap key's hold goes
     mg_fc = fc_of(obs["mgA"])
     mg_changed = [
         t for t, v in zip(mg_frames, mg_before) if abs(mg_fc.evaluate(t) - v) > 1e-4
@@ -4949,11 +6460,13 @@ def _run_sequencer_checks():
         changed and sq.shot_by_id(rn_shot.shot_id).objects == ["rnKeep", "rnNew"],
         f"{changed} {sq.shot_by_id(rn_shot.shot_id).objects}",
     )
+    # A claim names its CURVE (ledger format 2): the object's rename leaves
+    # the key standing, under either name.
     check(
-        "reconcile: the claims and the hidden flag follow the rename",
+        "reconcile: the claims stay with the curve and the hidden flag follows",
         sq.ledger.key_records(_SSI._fc_key("rnNew", fc_of(obs["rnOld"])))
         == [(10.0, rn_shot.shot_id, "end")]
-        and not sq.ledger.key_records(rn_key)
+        and _SSI._fc_key("rnNew", fc_of(obs["rnOld"])) == rn_key
         and st.is_object_hidden("rnNew")
         and not st.is_object_hidden("rnOld"),
         f"{sq.ledger.key_records(rn_key)} hidden={st.hidden_objects}",
@@ -5007,7 +6520,10 @@ def _run_sequencer_checks():
     sq.define_shot("BB", 20, 30, objects=["rfRig"])
     with st.scene_edit("Hold Gaps"):  # as the panel brackets it
         sq._enforce_gap_holds()
-    bone_held = sq.ledger.owns_step(f'rfRig|pose.bones["{rf_bone}"].location|0', 10.0)
+    bone_held = sq.ledger.owns_step(
+        BlenderShotStore.curve_key("rfRig", f'pose.bones["{rf_bone}"].location', 0),
+        10.0,
+    )
     rf_rig.data.bones[rf_bone].name = "rfBone_L"
     ShotSequencer(store=st).respace(gap=0.0, start_frame=0.0)
     bone_fc = next(
@@ -5279,6 +6795,51 @@ def _run_sequencer_checks():
     finally:
         uh._unregister_scene_callbacks()
 
+    # -- the STORE follows Blender's undo, no Shot Sequencer open (BACKLOG -----
+    # 2026-10-05 / 2026-10-07): only the panel's undo_post handler applied the
+    # restore points, so an edit made with no panel this session -- a Shots
+    # window resize, a key edit's claims -- was undone in its keys and kept in
+    # its bounds and claims (measured: claims stayed [9] after an Align undo).
+    st, sq, obs = fresh({"nsA": {0: 0, 10: 5, 20: 9}})
+    ns_shot = sq.define_shot("NS", 0, 30, objects=["nsA"])
+    ns_key = BlenderShotStore.curve_key("nsA", "location", 0)
+    st.edit_ledger.record_authored(ns_key, 10.0, 0, "fade_in", "nsA")
+    bpy.ops.ed.undo_push(message="baseline")
+    with st.scene_edit("Shots Window End"):
+        st.update_shot(ns_shot.shot_id, end=40.0)
+        st.edit_ledger.remap(ns_key, [(10.0, 15.0)])
+    edited = (sq.shot_by_id(ns_shot.shot_id).end, st.edit_ledger.owns_any(ns_key, 15.0))
+    bpy.ops.ed.undo()
+    undone = (
+        sq.shot_by_id(ns_shot.shot_id).end,
+        st.edit_ledger.owns_any(ns_key, 10.0),
+        st.edit_ledger.owns_any(ns_key, 15.0),
+    )
+    bpy.ops.ed.redo()
+    redone = sq.shot_by_id(ns_shot.shot_id).end
+    check(
+        "no panel: Blender's own undo restores the bounds and claims, redo re-applies",
+        edited == (40.0, True) and undone == (30.0, True, False) and redone == 40.0,
+        f"edited={edited} undone={undone} redone={redone}",
+    )
+    names = {"undo_pre", "redo_pre", "undo_post", "redo_post"}
+    installed = {
+        n
+        for n, fn in BlenderShotStore.__dict__.get("_native_undo_handlers", ())
+        if fn in getattr(bpy.app.handlers, n)
+    }
+    BlenderShotStore.clear_active()
+    left = {
+        n
+        for n, fn in BlenderShotStore.__dict__.get("_native_undo_handlers", ())
+        if fn in getattr(bpy.app.handlers, n)
+    }
+    check(
+        "the store's undo handlers: set_active attaches all four, clear_active detaches",
+        installed == names and not left,
+        f"installed={sorted(installed)} left={sorted(left)}",
+    )
+
     # -- a key edit that raises keeps its restore point (BTK-SHOTS-8) ----------
     # ``scene_edit`` has pushed and tagged its step by then: dropped, the point
     # left an undo of that step reverting the keys but not the bounds.
@@ -5416,6 +6977,113 @@ def _run_sequencer_checks():
         f"added={cap_added} members={sq.shot_by_id(re_shot.shot_id).objects}",
     )
 
+    # -- the sequencer's own members are no hand edit (BACKLOG 2026-10-10) -----
+    # Filling a shot that names no object the scene holds, when it is shown,
+    # and the keying epilogue's additions read as a hand edit to the Shot
+    # Manifest, so every later Build kept that shot, doc changes and all.  Both
+    # tag what they add (ShotStore.SYSTEM_MEMBERS); a hand's add still counts.
+    from blendertk.anim_utils.shots.shot_manifest._shot_manifest import (
+        BlenderShotManifest,
+    )
+    from pythontk.core_utils.engines.shots.manifest.manifest_model import (
+        BuilderObject,
+        BuilderStep,
+    )
+
+    sm_st, sm_sq, _sm_obs = fresh({"smMover": {5: 0, 20: 5}, "smKeyed": {5: 1, 20: 3}})
+    sm_step = BuilderStep("A01", "A", "SEC A", "", [BuilderObject("smGhost")])
+    BlenderShotManifest(sm_st).update([sm_step], initial_shot_length=30)
+    sm_shot = sm_st.shot_by_name("A01")
+    sm_edited = lambda: BlenderShotManifest(sm_st).edited_by_hand(sm_shot)  # noqa: E731
+    sm_built = sm_edited()
+    sm_segments = sm_sq.collect_object_segments(sm_shot.shot_id)
+    sm_members = list(sm_st.shot_by_id(sm_shot.shot_id).objects)
+    sm_filled = sm_edited()
+    sm_step.objects.append(BuilderObject("smDocAdded"))  # a doc change
+    sm_action = BlenderShotManifest(sm_st).update([sm_step], remove_missing=False)
+    check(
+        "empty-shot fill: no hand edit, the doc's name stays and its changes apply",
+        not sm_built
+        and sm_segments
+        and "smGhost" in sm_members
+        and "smMover" in sm_members
+        and not sm_filled
+        and sm_action == {"A01": "patched"},
+        f"built={sm_built} filled={sm_filled} members={sm_members} {sm_action}",
+    )
+
+    sm_st, sm_sq, _sm_obs = fresh({"smMember": {5: 0, 20: 5}, "smKeyed": {5: 1, 20: 3}})
+    sm_step = BuilderStep("A01", "A", "SEC A", "", [BuilderObject("smMember")])
+    BlenderShotManifest(sm_st).update([sm_step], initial_shot_length=30)
+    sm_shot = sm_st.shot_by_name("A01")
+    sm_host = _RebuildHost(sm_sq)
+    sm_host._edited_objects = {"smKeyed"}
+    sm_added = sm_host._auto_add_keyed_objects(sm_shot.shot_id)
+    sm_keyed = sm_edited()
+    sm_st.update_shot(sm_shot.shot_id, objects=["smMember"])  # a hand removes it
+    sm_st.update_shot(sm_shot.shot_id, objects=["smMember", "smKeyed"])  # and back
+    check(
+        "keying epilogue: its addition is no hand edit; a hand's add still is",
+        sm_added and not sm_keyed and sm_edited(),
+        f"added={sm_added} keyed_edited={sm_keyed} members={sm_shot.objects}",
+    )
+
+    # -- an export's own key edits join and grow no shot (2026-10-11) -----------
+    # Bug (measured 2026-10-05 on a Unity send): the write's bake and proxy
+    # Actions banked every animated object, and the keying epilogue added a
+    # non-member keyed in the active shot's frames to its members -- after the
+    # scene had been put back.  Both producers now hold
+    # ``ShotStore.transient_edit`` and the depsgraph listener banks nothing
+    # inside one.
+    sys.path.insert(0, os.path.join(MONO, "unitytk"))  # the Unity send's deliverer
+    from blendertk.env_utils.scene_exporter._scene_exporter import SceneExporter
+    from blendertk.env_utils.unity_bridge._unity_bridge import UnityBridge
+
+    for tr_via in ("export", "send"):
+        tr_st, sq_tr, obs_tr = fresh({"trMem": {0: 0, 20: 5}, "trOther": {0: 1, 20: 3}})
+        tr_shot = sq_tr.define_shot("TR", 0, 20, objects=["trMem"])
+        tr_st.set_active_shot(tr_shot.shot_id)
+        for ob in bpy.context.scene.objects:
+            ob.select_set(False)
+        tr_host = _RebuildHost(sq_tr)
+
+        def _tr_listen(scene, depsgraph, host=tr_host):
+            _on_depsgraph(host, scene, depsgraph)
+
+        bpy.app.handlers.depsgraph_update_post.append(_tr_listen)
+        try:
+            with ptk.TempArtifacts(prefix="btk_transient_") as tr_tmp:
+                if tr_via == "export":
+                    tr_ok = SceneExporter().perform_export(
+                        export_dir=str(tr_tmp.dir_path()),
+                        objects=[obs_tr["trMem"]],
+                        output_name="transient",
+                        export_visible=False,
+                    )
+                else:
+                    tr_bridge = UnityBridge(project_path=str(tr_tmp.dir_path()))
+                    tr_payload = tr_bridge._produce(  # the defaults: it bakes
+                        [obs_tr["trMem"]], ptk.HandoffRequest(mode="send_to")
+                    )
+                    tr_ok = bool(tr_payload and tr_payload.primary)
+                    if tr_ok and os.path.isfile(tr_payload.primary):
+                        os.remove(tr_payload.primary)
+            bpy.context.view_layer.update()  # the next redraw's evaluation
+        finally:
+            bpy.app.handlers.depsgraph_update_post.remove(_tr_listen)
+        tr_banked = sorted(tr_host._edited_objects)
+        tr_host.fire()
+        tr_now = sq_tr.shot_by_id(tr_shot.shot_id)
+        check(
+            f"{'an export' if tr_via == 'export' else 'a send'}'s own key edits "
+            "join and grow no shot",
+            tr_ok
+            and tr_banked == []
+            and (tr_now.objects, tr_now.start, tr_now.end) == (["trMem"], 0.0, 20.0),
+            f"ok={tr_ok} banked={tr_banked} members={tr_now.objects} "
+            f"range={tr_now.start}-{tr_now.end}",
+        )
+
     # -- the view's playback range is the PREVIEW range, never the render range --
     pr_st, pr_sq, _pr_obs = fresh({})
     pr_a = pr_sq.define_shot("PA", 10, 40)
@@ -5439,6 +7107,240 @@ def _run_sequencer_checks():
         ranges == {"locked": (True, 10, 40), "follows_view": (True, 10, 90)}
         and (pr_scene.frame_start, pr_scene.frame_end) == pr_render,
         f"{ranges} render={(pr_scene.frame_start, pr_scene.frame_end)} was {pr_render}",
+    )
+
+    # -- Compact's object-row ticks: real keys, never the system's samples ----
+    from blendertk.anim_utils.shots.shot_sequencer.segment_collector import (
+        SegmentCollector,
+    )
+
+    _sm_st, sm_sq, sm_obs = fresh({"sumCube": {1: 1, 20: 20, 50: 50}})
+    sm_ob = sm_obs["sumCube"]
+    for _f in (1, 50):
+        sm_ob.location.y = _f
+        sm_ob.keyframe_insert(data_path="location", index=1, frame=_f)
+    sm_fcs = {
+        fc.array_index: fc
+        for fc in BlenderShotStore.iter_action_fcurves(sm_ob)
+        if fc.data_path == "location"
+    }
+    sm_seg = {"curves": [sm_fcs[0], sm_fcs[1]], "keyframes": [1.0, 20.0, 50.0]}
+
+    def sm_summary():
+        return SegmentCollector.summary_times(
+            [sm_seg],
+            lambda fc: sm_sq.ledger.key_times(_SSI._fc_key("sumCube", fc)),
+        )
+
+    sm_runs = [sm_summary()]
+    sm_sq.ledger.record_key(_SSI._fc_key("sumCube", sm_fcs[0]), 20.0, 0, "end")
+    sm_runs.append(sm_summary())
+    sm_sq.ledger.record_key(_SSI._fc_key("sumCube", sm_fcs[0]), 50.0, 0, "end")
+    sm_runs.append(sm_summary())
+    sm_sq.ledger.record_key(_SSI._fc_key("sumCube", sm_fcs[1]), 50.0, 0, "end")
+    sm_runs.append(sm_summary())
+    check(
+        "summary ticks: unclaimed all tick; a lone-curve claim drops; a claim "
+        "beside another channel's key stays; claimed on every keyed curve drops",
+        sm_runs
+        == [
+            [1.0, 20.0, 50.0],
+            [1.0, 50.0],
+            [1.0, 50.0],
+            [1.0],
+        ],
+        f"{sm_runs}",
+    )
+
+    # ---- linked duplicates share ONE curve (BACKLOG 2026-10-05) ---------------
+    # A claim was keyed by OWNER (``object|data_path|index``) while the curve is
+    # its action slot's: with LinkA keyed 10/20 and an Alt+D LinkB sharing its
+    # action, every op walking owner by owner moved, scaled or pinned the
+    # shared curve once per sharer -- LinkB a member or not (measured 7 of 15
+    # ops: a slide landed [20, 30] for [15, 25], set_shot_duration [10, 12.5]
+    # for [10, 15]).  Ledger format 2 keys a claim by the curve's identity.
+    # Each op runs on a control (LinkA alone) and with LinkB sharing.
+    def ld_scene(share, member):
+        st, sq, obs = fresh({"ldA": {10: 0.0, 20: 5.0}, "ldOther": {30: 1.0, 40: 7.0}})
+        if share:
+            ld_b = obs["ldA"].copy()  # Alt+D: a new object, the action shared
+            ld_b.name = "ldB"
+            bpy.context.scene.collection.objects.link(ld_b)
+        ld_a = sq.define_shot(
+            "LA", 10, 20, objects=["ldA", "ldB"] if member else ["ldA"]
+        )
+        ld_o = sq.define_shot("LB", 30, 40, objects=["ldOther"])
+        return st, sq, ld_a, ld_o
+
+    def ld_played(sq):
+        fc = fc_of(bpy.data.objects["ldA"])
+        claims = sq.ledger.key_records(_SSI._fc_key("ldA", fc))
+        return (
+            [(round(kp.co[0], 3), round(kp.co[1], 3)) for kp in fc.keyframe_points],
+            sorted((round(t, 3), edge) for t, _owner, edge in claims),
+        )
+
+    def ld_sequences(sq, shot_id):
+        return [
+            s
+            for s in sq.collect_shot_sequences(shot_id, include_audio=False)
+            if s.get("obj") in ("ldA", "ldB")
+        ]
+
+    ld_ops = {
+        "move_shot": lambda sq, a, b: sq.move_shot(a.shot_id, 15),
+        "slide_shot": lambda sq, a, b: sq.slide_shot(a.shot_id, 15),
+        "ripple_downstream": lambda sq, a, b: sq.ripple_downstream(a.shot_id, 10, 5),
+        "set_shot_duration": lambda sq, a, b: sq.set_shot_duration(a.shot_id, 5),
+        "resize_shot": lambda sq, a, b: sq.resize_shot(a.shot_id, 10, 15),
+        "add_shot_space": lambda sq, a, b: sq.add_shot_space(a.shot_id, 5, "leading"),
+        "split, tail slid": lambda sq, a, b: sq.slide_shot(
+            sq.split_shot(a.shot_id, 15).shot_id, 19
+        ),
+        "respace": lambda sq, a, b: sq.respace(gap=2, start_frame=10),
+        "Move to Shot": lambda sq, a, b: sq.move_sequences_to_shot(
+            ld_sequences(sq, a.shot_id), b.shot_id
+        ),
+        "delete_shot": lambda sq, a, b: sq.delete_shot(a.shot_id),
+    }
+    ld_diff = []
+    for ld_label, ld_op in ld_ops.items():
+        ld_runs = []
+        for share, member in ((False, False), (True, True), (True, False)):
+            st, sq, ld_a, ld_o = ld_scene(share, member)
+            sq._enforce_gap_holds()
+            ld_op(sq, ld_a, ld_o)
+            ld_runs.append(ld_played(sq))
+        if not ld_runs[0] == ld_runs[1] == ld_runs[2]:
+            ld_diff.append(f"{ld_label}: {ld_runs}")
+    check(
+        "linked duplicates: every op plays the shared curve as it plays one owner's",
+        not ld_diff,
+        " | ".join(ld_diff),
+    )
+
+    # One curve, one key: a claim rides a key moved through EITHER sharer, and
+    # an edit through either releases it (it is one key the two play).
+    st, sq, ld_a, ld_o = ld_scene(True, True)
+    ld_fa = fc_of(bpy.data.objects["ldA"])
+    ld_fb = fc_of(bpy.data.objects["ldB"])
+    ld_key = _SSI._fc_key("ldA", ld_fa)
+    sq.ledger.record_key(ld_key, 20.0, ld_a.shot_id, "end")
+    sq.move_attribute_keys("ldB", None, 3.0, times=[20.0])
+    ld_moved = sq.ledger.key_times(_SSI._fc_key("ldB", ld_fb))
+    st.release_replaced(["ldB"])(ld_fb, [23.0])
+    check(
+        "linked duplicates: one key per curve; a claim rides and releases through "
+        "either sharer",
+        _SSI._fc_key("ldB", ld_fb) == ld_key
+        and ld_key.startswith(f"{ld_fa.id_data.name}|")
+        and ld_moved == [23.0]
+        and not sq.ledger.key_times(ld_key),
+        f"keys {ld_key} / {_SSI._fc_key('ldB', ld_fb)} moved={ld_moved} "
+        f"{sq.ledger.to_dict()}",
+    )
+
+    # A key drag over both sharers' clips: one curve, moved once.  The gesture
+    # plan told curves apart by ``id()`` of a wrapper bpy hands out fresh per
+    # access, so the shared curve took the drag once per clip.
+    st, sq, ld_a, ld_o = ld_scene(True, True)
+    ld_host = _KeysHost(
+        _MultiWidget(
+            {
+                1: _FakeClip(
+                    {"obj": "ldA", "attr_name": "translateX", "shot_id": None}
+                ),
+                2: _FakeClip(
+                    {"obj": "ldB", "attr_name": "translateX", "shot_id": None}
+                ),
+            }
+        )
+    )
+    ld_drag = [(10.0, 20.0), (20.0, 30.0)]
+    ld_host.on_keys_batch_moved([(1, ld_drag), (2, ld_drag)])
+    check(
+        "linked duplicates: a key drag over both sharers' clips moves the curve once",
+        ld_played(sq)[0] == [(20.0, 0.0), (30.0, 5.0)],
+        f"{ld_played(sq)[0]}",
+    )
+    # A key edit over both sharers' rows: one curve, edited once.  The key
+    # menu's curves were read per object, so the shared curve came twice and
+    # an Invert ran twice -- mirrored back where it was.
+    st, sq, ld_a, ld_o = ld_scene(True, True)
+    _KeyHost(sq)._invert_selected_keys(
+        [
+            ("ldA", "translateX", [10.0, 20.0], None),
+            ("ldB", "translateX", [10.0, 20.0], None),
+        ]
+    )
+    check(
+        "linked duplicates: a key edit over both sharers' rows edits the curve once",
+        ld_played(sq)[0] == [(10.0, 5.0), (20.0, 0.0)],
+        f"{ld_played(sq)[0]}",
+    )
+
+    # A format-1 ledger (claims by OWNER) is re-keyed on load: each claim on
+    # its curve's identity, a linked pair's merged onto the curve they share,
+    # one naming nothing kept as stored -- and it plays on as before: the
+    # migrated hold is still the system's to release when its gap closes.
+    st, sq, obs = fresh({"v1A": {1: 0.0, 10: 4.0, 20: 9.0}, "v1B": {40: 9.0, 50: 3.0}})
+    v1_a = sq.define_shot("V1A", 1, 20, objects=["v1A"])
+    v1_b = sq.define_shot("V1B", 40, 50, objects=["v1B"])
+    sq._enforce_gap_holds()  # v1A@20 CONSTANT
+    v1_link = obs["v1A"].copy()
+    v1_link.name = "v1Link"
+    bpy.context.scene.collection.objects.link(v1_link)
+    v1_data = st.to_dict()
+    v1_data["edit_ledger"] = {  # what a format-1 save wrote: no version
+        "steps": {"v1A|location|0": [[20.0, "BEZIER", "BEZIER"]]},
+        "keys": {
+            "v1A|location|0": [[10.0, v1_a.shot_id, "end"]],
+            "v1Link|location|0": [[1.0, v1_a.shot_id, "start"]],
+        },
+        "authored": {"v1Gone|location|0": [[5.0, 0, "fade_in", "v1Gone"]]},
+    }
+    v1_store = BlenderShotStore.from_dict(v1_data)
+    v1_led = v1_store.edit_ledger
+    v1_key = _SSI._fc_key("v1A", fc_of(obs["v1A"]))
+    check(
+        "format 1: claims load on their curves' identities, a linked pair's merged",
+        v1_led.step_times(v1_key) == [20.0]
+        and v1_led.key_times(v1_key) == [1.0, 10.0]
+        and v1_led.authored() == [("v1Gone|location|0", 5.0)]
+        and v1_led.curves == {v1_key, "v1Gone|location|0"}
+        and v1_led.source_version == v1_led.FORMAT_VERSION,
+        str(v1_led.to_dict()),
+    )
+    BlenderShotStore.set_active(v1_store)
+    v1_store.update_shot(v1_b.shot_id, start=20.0)  # the gap closes
+    ShotSequencer(store=v1_store)._enforce_gap_holds()
+    check(
+        "format 1: a migrated hold is still the system's, released when its gap closes",
+        interp_at(obs["v1A"], 20) != "CONSTANT" and v1_led.step_count == 0,
+        f"@20={interp_at(obs['v1A'], 20)} {v1_led.to_dict()}",
+    )
+
+    # An ACTION renamed since a claim was made: the claim names the action
+    # now.  One the store never saw is read off Blender's default spelling
+    # (``<object>Action``, its slot named after the object); one it saw, by
+    # session_uid, as an object's rename is.
+    st, sq, obs = fresh({"arA": {0: 0.0, 10: 5.0}})
+    ar_shot = sq.define_shot("AR", 0, 10, objects=["arA"])
+    sq.ledger.record_key(
+        _SSI._fc_key("arA", fc_of(obs["arA"])), 10.0, ar_shot.shot_id, "end"
+    )
+    ar_follows = []
+    for ar_name in ("arWalk", "arRun"):
+        obs["arA"].animation_data.action.name = ar_name
+        ar_follows.append(st.follow_renames())
+    ar_key = _SSI._fc_key("arA", fc_of(obs["arA"]))
+    check(
+        "rename follow: a renamed action's claims follow it, unseen or seen",
+        ar_follows == [True, True]
+        and ar_key.startswith("arRun|")
+        and sq.ledger.key_records(ar_key) == [(10.0, ar_shot.shot_id, "end")]
+        and sq.ledger.curves == {ar_key},
+        f"followed={ar_follows} {sq.ledger.to_dict()}",
     )
 
     BlenderShotStore.clear_active()

@@ -346,12 +346,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
                 if not block:
                     continue
 
-                # Anchor: use override if provided, else the template's, else
-                # phase-based default for backward compatibility.
-                if anchor_override is not None:
-                    block = dict(block, anchor=anchor_override)
-                elif "anchor" not in block:
-                    block = dict(block, anchor="start" if phase == "in" else "end")
+                block = Behaviors.anchored(block, phase, anchor_override)
 
                 for k in Behaviors.resolve_keys(block, start, end):
                     interp = _INTERP.get(str(k["tangent"]).lower(), "BEZIER")
@@ -471,12 +466,8 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
                     ):
                         return False
                 else:
-                    # Mirror apply_behavior's anchor precedence exactly:
-                    # override > template > phase-based default.
-                    if anchor_override is not None:
-                        block = dict(block, anchor=anchor_override)
-                    elif "anchor" not in block:
-                        block = dict(block, anchor="start" if phase == "in" else "end")
+                    # apply_behavior's anchor precedence: the one rule.
+                    block = Behaviors.anchored(block, phase, anchor_override)
                     for k in Behaviors.resolve_keys(block, start, end):
                         if not keyframe_fn(node, attr_name, k["time"]):
                             return False
@@ -612,8 +603,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
         except ImportError:
             bpy = None  # type: ignore[assignment]
 
-        def _is_audio(entry):
-            return (entry.get("kind") == "audio") or bool(entry.get("source_path"))
+        _is_audio = Behaviors.is_audio_entry
 
         def _default_exists(obj_name, entry=None):
             if entry is not None and _is_audio(entry):

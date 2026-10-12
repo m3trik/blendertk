@@ -709,7 +709,7 @@ def _run_shots_adapter_checks():
     add_keyed_cube("XferCube", [1, 10, 20], 0.0)
     add_keyed_cube("XferMate", [1, 20], 5.0)
     xfer_shot = xfer_store.define_shot("Xfer", 1, 20, objects=["XferCube", "XferMate"])
-    xfer_key = "XferCube|location|0"
+    xfer_key = BlenderShotStore.curve_key("XferCube", "location", 0)
     xfer_store.edit_ledger.record_key(xfer_key, 20.0, xfer_shot.shot_id, "end")
     xfer_store.edit_ledger.record_key(xfer_key, 15.0, xfer_shot.shot_id, "end")
     xfer_store.set_object_hidden("XferMate", True)
@@ -741,16 +741,16 @@ def _run_shots_adapter_checks():
         str(scoped),
     )
     check(
-        "_curve_ref: a ledger key becomes object + mayatk label",
-        BlenderShotStore._curve_ref("XferCube|location|0") == ("XferCube", "translateX")
-        and BlenderShotStore._curve_ref("X|rotation_euler|1") == ("X", "rotateY"),
-        str(BlenderShotStore._curve_ref("XferCube|location|0")),
+        "_curve_ref: a ledger key becomes each owner + mayatk label",
+        BlenderShotStore._curve_ref(xfer_key) == [("XferCube", "translateX")]
+        and BlenderShotStore._curve_ref("X|rotation_euler|1") == [("X", "rotateY")],
+        str(BlenderShotStore._curve_ref(xfer_key)),
     )
     check(
         "_curve_ref: a scalar channel carries no axis, visibility is aliased",
-        BlenderShotStore._curve_ref("X|hide_render|0") == ("X", "visibility")
+        BlenderShotStore._curve_ref("X|hide_render|0") == [("X", "visibility")]
         and BlenderShotStore._curve_ref('X|["audio_trigger"]|0')
-        == ("X", "audio_trigger"),
+        == [("X", "audio_trigger")],
         str(BlenderShotStore._curve_ref("X|hide_render|0")),
     )
     check(
@@ -818,11 +818,69 @@ def _run_shots_adapter_checks():
     swapped = BlenderShotStore.apply_transfer(
         swapped_section, replace=True, converted=lambda name: name == "XferRoot"
     )
+    root_key = BlenderShotStore.curve_key("XferRoot", "location", 1)
     check(
         "apply_transfer: a converted root's translateZ claim lands on location[1]",
-        plain.edit_ledger.key_times("XferRoot|location|1") == []
-        and swapped.edit_ledger.key_times("XferRoot|location|1") == [20.0],
+        plain.edit_ledger.key_times(root_key) == []
+        and swapped.edit_ledger.key_times(root_key) == [20.0],
         str((plain.edit_ledger.to_dict(), swapped.edit_ledger.to_dict())),
+    )
+
+    # ---- a format-1 ledger loads by curve identity (ledger format 2) ---------
+    # A scene saved with claims named by OWNER (``object|data_path|index``)
+    # loads each on its curve's ``action|slot|data_path|index`` -- linked
+    # duplicates' merged onto the one curve they share (BACKLOG 2026-10-05),
+    # one naming nothing kept as stored -- and the record stays as stored:
+    # opening the file changes nothing in it.
+    BlenderShotStore.clear_active()
+    clear_stored()
+    v1_obj = add_keyed_cube("V1Cube", [1, 20], 0.0)
+    v1_link = v1_obj.copy()  # Alt+D: its action shared
+    v1_link.name = "V1Link"
+    scene.collection.objects.link(v1_link)
+    v1_store = BlenderShotStore.active()
+    v1_shot = v1_store.define_shot("V1", 1, 20, objects=["V1Cube", "V1Link"])
+    v1_id = v1_shot.shot_id
+    v1_data = v1_store.to_dict()
+    v1_data["edit_ledger"] = {
+        "keys": {
+            "V1Cube|location|0": [[20.0, v1_id, "end"]],
+            "V1Link|location|0": [[1.0, v1_id, "start"]],
+            "V1Gone|location|0": [[5.0, v1_id, "end"]],
+        },
+        "steps": {"V1Cube|location|1": [[20.0, "BEZIER", "BEZIER"]]},
+    }
+    BlenderShotStore._persistence.save(v1_data)
+    v1_raw = stored()
+    BlenderShotStore.invalidate()
+    v1_led = BlenderShotStore.active().edit_ledger
+    v1_key = BlenderShotStore.curve_key("V1Cube", "location", 0)
+    check(
+        "format 1 load: claims land on their curve's identity, a linked pair's merged",
+        v1_key == BlenderShotStore.curve_key("V1Link", "location", 0)
+        and v1_led.key_records(v1_key) == [(1.0, v1_id, "start"), (20.0, v1_id, "end")]
+        and v1_led.step_times(BlenderShotStore.curve_key("V1Cube", "location", 1))
+        == [20.0]
+        and v1_led.key_times("V1Gone|location|0") == [5.0],
+        str(v1_led.to_dict()),
+    )
+    check("format 1 load: the record stays as stored", stored() == v1_raw)
+    # A curve linked duplicates share crosses for EACH sharer -- the carrier
+    # bakes one curve per object -- and lands once on a curve both share.
+    v1_section = BlenderShotStore.export_transfer()
+    v1_keys = v1_section["ledger"]["keys"]
+    v1_wanted = {"translateX": [[1.0, v1_id, "start"], [20.0, v1_id, "end"]]}
+    check(
+        "export_transfer: a linked pair's shared claims cross for each sharer",
+        v1_keys.get("V1Cube") == v1_wanted and v1_keys.get("V1Link") == v1_wanted,
+        str(v1_keys),
+    )
+    v1_landed = BlenderShotStore.apply_transfer(v1_section, replace=True)
+    check(
+        "apply_transfer: a curve two arrivals share takes each claim once",
+        [(t, e) for t, _o, e in v1_landed.edit_ledger.key_records(v1_key)]
+        == [(1.0, "start"), (20.0, "end")],
+        str(v1_landed.edit_ledger.to_dict()),
     )
 
     # ---- channels + audio through the transfer -----------------------------
@@ -1048,6 +1106,40 @@ def _run_shots_adapter_checks():
         and lazy_store.edit_ledger.authored(obj=lazy.name) == [(lazy_key, 15.0)],
         f"built={built} scans={len(scans)} {lazy_store.edit_ledger.to_dict()}",
     )
+
+    # ---- a never-keyed HOLD member renamed, then saved (BACKLOG 2026-10-11) --
+    # Nothing names a never-keyed object's old name in a later session (no
+    # action slot; session_uid is per session), so a rename the store had not
+    # followed when the file was saved left its hold shot stale on reopen,
+    # and the export dropped its take.  The store follows the session's
+    # renames before it is written (``save_pre``).  Last: it loads a file.
+    BlenderShotStore.clear_active()
+    clear_stored()
+    hold_obj = bpy.data.objects.new("HoldProp", None)
+    scene.collection.objects.link(hold_obj)
+    hold_store = BlenderShotStore.active()
+    hold_store.define_shot("HoldShot", 500, 520, objects=["HoldProp"])
+    hold_store.save()  # the record names HoldProp
+    hold_obj.name = "HoldPropRenamed"
+    with ptk.TempArtifacts("btk_hold_rename", policy="scoped") as hold_tmp:
+        hold_blend = hold_tmp.path(extension=".blend")
+        bpy.ops.wm.save_as_mainfile(filepath=hold_blend)
+        bpy.ops.wm.open_mainfile(filepath=hold_blend)  # the next session
+        reopened = BlenderShotStore.active()
+        reopened.publish_export_view()
+        hold_meta = DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.SHOT_METADATA)
+        hold_shots = json.loads(hold_meta)["shots"] if hold_meta else []
+        hold_clips = [s.get("clip") for s in hold_shots]
+        check(
+            "a renamed never-keyed hold member is followed before the save: its "
+            "shot is live on reopen, its take declared",
+            [s.objects for s in reopened.shots] == [["HoldPropRenamed"]]
+            and reopened.stale_shots() == []
+            and hold_clips == ["HoldShot"],
+            f"{[(s.name, s.objects) for s in reopened.shots]} "
+            f"stale={[s.name for s in reopened.stale_shots()]} clips={hold_clips}",
+        )
+        bpy.ops.wm.read_factory_settings(use_empty=True)  # release the file
 
     # cleanup class state so a later suite in the same process starts clean
     BlenderShotStore.clear_active()

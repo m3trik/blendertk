@@ -1111,6 +1111,136 @@ class AnimUtils(_AnimUtilsInternal):
         fc.keyframe_points.foreach_get("interpolation", out)
         return out
 
+    #: A Cycles modifier's ``mode_before`` / ``mode_after`` -> KeyCurve infinity.
+    _KEY_CURVE_CYCLES = {
+        "REPEAT": "cycle",
+        "REPEAT_OFFSET": "cycle_offset",
+        "MIRROR": "oscillate",
+    }
+
+    @staticmethod
+    def get_key_curves(fcurves) -> list:
+        """Read fcurves as host-free :class:`pythontk.KeyCurve` s (mirror of mayatk).
+
+        A keyframe's ``handle_left`` / ``handle_right`` ARE its control points,
+        so the handle vectors are those minus ``co`` (``weighted`` is always
+        True).  ``CONSTANT`` spans hold, ``LINEAR`` ones are lines, ``BEZIER``
+        ones cubics; an eased span (SINE, BACK, BOUNCE...) carries
+        ``samples`` of ``fcurve.evaluate``.  Infinity is the fcurve's
+        extrapolation, or an unmuted Cycles modifier's modes.
+
+        Parameters:
+            fcurves: FCurve objects. An empty or dead one is skipped.
+
+        Returns:
+            One ``KeyCurve`` per readable fcurve: ``curve_id`` is
+            ``"<action>|<data_path>|<index>"``, ``label`` ``data_path[index]``.
+        """
+        out = []
+        for fc in fcurves:
+            try:
+                kps = fc.keyframe_points
+                n = len(kps)
+            except ReferenceError:  # died with an undo / action swap
+                continue
+            if not n:
+                continue
+            co, hl, hr = ([0.0] * (2 * n) for _ in range(3))
+            kps.foreach_get("co", co)
+            kps.foreach_get("handle_left", hl)
+            kps.foreach_get("handle_right", hr)
+            keys = []
+            for i, kp in enumerate(kps):
+                t, v = co[2 * i], co[2 * i + 1]
+                name = kp.interpolation
+                interp = {"CONSTANT": "step", "LINEAR": "linear"}.get(name, "bezier")
+                samples = None
+                if name not in ("CONSTANT", "LINEAR", "BEZIER"):
+                    interp = "linear"
+                    if i + 1 < n and co[2 * i + 2] > t:
+                        t1 = co[2 * i + 2]
+                        count = max(8, min(48, int((t1 - t) * 2)))
+                        samples = [
+                            (st, fc.evaluate(st))
+                            for st in (
+                                t + (t1 - t) * j / (count + 1)
+                                for j in range(1, count + 1)
+                            )
+                        ]
+                keys.append(
+                    ptk.CurveKey(
+                        time=t,
+                        value=v,
+                        in_handle=(hl[2 * i] - t, hl[2 * i + 1] - v),
+                        out_handle=(hr[2 * i] - t, hr[2 * i + 1] - v),
+                        interpolation=interp,
+                        in_type=kp.handle_left_type,
+                        out_type=kp.handle_right_type,
+                        broken="FREE" in (kp.handle_left_type, kp.handle_right_type),
+                        breakdown=kp.type == "BREAKDOWN",
+                        samples=samples,
+                    )
+                )
+            pre = post = (
+                "linear" if getattr(fc, "extrapolation", "") == "LINEAR" else "constant"
+            )
+            for mod in getattr(fc, "modifiers", ()):
+                if mod.type == "CYCLES" and not mod.mute:
+                    cycles = AnimUtils._KEY_CURVE_CYCLES
+                    pre = cycles.get(mod.mode_before, pre)
+                    post = cycles.get(mod.mode_after, post)
+            action = getattr(fc, "id_data", None)
+            label = f"{fc.data_path}[{fc.array_index}]"
+            out.append(
+                ptk.KeyCurve(
+                    keys,
+                    curve_id=f"{getattr(action, 'name', '')}|{fc.data_path}|"
+                    f"{fc.array_index}",
+                    label=label,
+                    weighted=True,
+                    pre_infinity=pre,
+                    post_infinity=post,
+                )
+            )
+        return out
+
+    @staticmethod
+    def shift_key_values(edits) -> int:
+        """Offset key VALUES in place: ``{fcurve: [(time, delta), ...]}`` (mirror of mayatk).
+
+        The value half of a graph-editor move; the key and both its handles
+        rise together, so the curve's shape around the key is kept.  A key is
+        matched within 1e-3 frames of *time*.
+
+        Returns:
+            The number of keys changed.
+        """
+        changed = 0
+        for fc, pairs in edits.items():
+            n = len(fc.keyframe_points)
+            if not n:
+                continue
+            arrays = {}
+            for prop in ("co", "handle_left", "handle_right"):
+                arrays[prop] = [0.0] * (2 * n)
+                fc.keyframe_points.foreach_get(prop, arrays[prop])
+            times = arrays["co"][0::2]
+            touched = 0
+            for t, dv in pairs:
+                if abs(dv) <= 1e-12:
+                    continue
+                i0, i1 = AnimUtils.window_indices(times, t - 1e-3, t + 1e-3)
+                for i in range(i0, i1):
+                    for prop in arrays:
+                        arrays[prop][2 * i + 1] += dv
+                    touched += 1
+            if touched:
+                for prop, values in arrays.items():
+                    fc.keyframe_points.foreach_set(prop, values)
+                fc.update()
+                changed += touched
+        return changed
+
     @staticmethod
     def window_indices(times, lo, hi, inclusive_hi: bool = True):
         """``(i0, i1)`` slice bounds of the keys of sorted *times* inside ``[lo, hi]``.
@@ -2585,6 +2715,41 @@ class AnimUtils(_AnimUtilsInternal):
             if gone:
                 out.append((fc, gone))
         return out
+
+    @staticmethod
+    def euler_filter(objects) -> list:
+        """Unwrap Euler rotation curves -- mirror of ``mtk.AnimUtils.euler_filter``.
+        Returns the fcurves changed.
+
+        Each ``rotation_euler`` channel's keys are brought within half a turn
+        of the key before them by whole turns, both handles with the key: the
+        360-degree jumps a bake or a constraint leaves between keys go, by
+        values alone (no key moves).  Maya's filter also resolves gimbal flips
+        across the three channels; the parity contract is the verb, the scope
+        (rotation channels only, each whole) and the jumps it removes.
+        """
+        import math
+
+        tau = math.tau
+        changed = []
+        for fc in _AnimUtilsInternal._fcurves(objects):
+            if not fc.data_path.endswith("rotation_euler"):
+                continue
+            prev, moved = None, False
+            for key in sorted(fc.keyframe_points, key=lambda k: k.co.x):
+                if prev is not None:
+                    turns = round((key.co.y - prev) / tau)
+                    if turns:
+                        shift = -turns * tau
+                        key.co.y += shift
+                        key.handle_left.y += shift
+                        key.handle_right.y += shift
+                        moved = True
+                prev = key.co.y
+            if moved:
+                fc.update()
+                changed.append(fc)
+        return changed
 
     @staticmethod
     def simplify_curve(

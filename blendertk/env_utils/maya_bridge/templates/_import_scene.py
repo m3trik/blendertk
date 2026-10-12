@@ -713,6 +713,7 @@ def write_manifest(
     scene_data=None,
     rig=None,
     machinery=None,
+    stepped=None,
 ):
     """The ONE conversion sidecar, consumed by MayaSceneImport: ``materials`` =
     textures FBX cannot carry; ``visibility`` = smart-bake's baked visibility
@@ -724,7 +725,9 @@ def write_manifest(
     mesh's skinning method (see :func:`skinning_methods`); ``bones`` = the joint
     hierarchy the skin pre-pass flattened away (see
     :func:`_export_ready_skins`); ``machinery`` = the rig apparatus the bake
-    left inert, for the consumer to drop (see :func:`_classify_rig_machinery`).
+    left inert, for the consumer to drop (see :func:`_classify_rig_machinery`);
+    ``stepped_keys`` = the authored keys whose out tangent steps (see
+    :func:`stepped_keys`).
     One file — same
     producer, same consumer, same lifecycle — not a sidecar per concern.
     Always written: every scene has a time setup.
@@ -744,6 +747,7 @@ def write_manifest(
         "bones": bones or {},
         **({"rig": rig} if rig else {}),
         **({"machinery": machinery} if machinery else {}),
+        **({"stepped_keys": stepped} if stepped else {}),
     }
     # Absent = nothing to say; the consumer gates on presence.
     data.update(scene_data or {})
@@ -1084,6 +1088,33 @@ def _authored_visibility_curves(cmds):
     return curves
 
 
+def stepped_keys(spell):
+    """The manifest's ``stepped_keys``: ``{node: {channel: [frames]}}`` -- the
+    keys whose out tangent is ``step`` (mayatk's
+    ``MayaExportMixin.stepped_keys``, the one collector the Blender bridge's
+    send uses too), read off the ORIGINAL scene before a bake rewrites the
+    curves.  FBX carries the key but Blender's importer makes every key
+    LINEAR, so a hold arrived as a ramp to the next key (SOL_REPLACE_ASSEMBLY:
+    SCREWDRIVER steps at 12 and holds to 731; pulled, it moved the whole way).
+    Guarded like :func:`scene_data_sections`: without mayatk on
+    ``PYTHONPATH`` nothing is carried, and a printed line says so.
+    """
+    try:
+        from mayatk.env_utils.handoff_export import MayaExportMixin
+    except Exception as error:  # noqa: BLE001 -- degrade, never fail the conversion
+        print("stepped keys: mayatk unavailable ({}); not carried.".format(error))
+        return {}
+    try:
+        out = MayaExportMixin.stepped_keys(spell=spell)
+    except Exception:  # noqa: BLE001
+        print("stepped keys: could not read the curves; not carried:")
+        traceback.print_exc()
+        return {}
+    if out:
+        print("stepped keys: {} object(s) carried.".format(len(out)))
+    return out
+
+
 class _SkipWholeScene(Exception):
     """Internal: the caller scoped its own bake, so skip the whole-scene pass
     without skipping the visibility collection that follows it."""
@@ -1245,6 +1276,10 @@ def main():
     # its curves: the sections describe what the artist authored. FBX writes the
     # short name with its namespace.
     scene_data = scene_data_sections(cmds, lambda name: name.split("|")[-1])
+    # The authored steps, before a bake rewrites the curves (stepped_keys).
+    stepped = (
+        stepped_keys(lambda name: name.split("|")[-1]) if INCLUDE_ANIMATION else {}
+    )
     # Read off the ORIGINAL skins: the skin pass keeps the skinClusters, and the
     # manifest describes what the artist bound.
     skins = skinning_methods(cmds)
@@ -1333,6 +1368,7 @@ def main():
         scene_data=scene_data,
         rig=rig,
         machinery=machinery,
+        stepped=stepped,
     )
     _progress(6, 6, "Converted")
 

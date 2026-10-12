@@ -21,7 +21,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`anim_utils/shots/_shots.py`](#anim_utils--shots--_shots) — Blender shot-store adapter — the DCC layer over ``pythontk``'s shots engine.
 - [`anim_utils/shots/shot_manifest/_shot_manifest.py`](#anim_utils--shots--shot_manifest--_shot_manifest) — Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
 - [`anim_utils/shots/shot_manifest/behaviors/_behaviors.py`](#anim_utils--shots--shot_manifest--behaviors--_behaviors) — Behaviors — Blender appliers over the engine's pure keying-recipe core.
-- [`anim_utils/shots/shot_manifest/export_menu.py`](#anim_utils--shots--shot_manifest--export_menu) — The Shot Manifest's Export button (beside Assess) and its option menu: the
+- [`anim_utils/shots/shot_manifest/export_preview.py`](#anim_utils--shots--shot_manifest--export_preview) — The Shot Manifest's Export button (beside Assess): a live preview of the
 - [`anim_utils/shots/shot_manifest/header_menu.py`](#anim_utils--shots--shot_manifest--header_menu) — The Shot Manifest's header menu: display options (Long Names, Hide Missing
 - [`anim_utils/shots/shot_manifest/manifest_data.py`](#anim_utils--shots--shot_manifest--manifest_data) — Constants, column layout, and pure helper functions for the Shot Manifest UI.
 - [`anim_utils/shots/shot_manifest/manifest_editor.py`](#anim_utils--shots--shot_manifest--manifest_editor) — Local Edits for the Shot Manifest panel: change the table, never the sheet.
@@ -39,6 +39,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`anim_utils/shots/shot_sequencer/clip_menu.py`](#anim_utils--shots--shot_sequencer--clip_menu) — Clip context menus and clip-level key operations.
 - [`anim_utils/shots/shot_sequencer/clip_motion.py`](#anim_utils--shots--shot_sequencer--clip_motion) — Clip motion, resize, and key-scaling logic for the shot sequencer (Blender).
 - [`anim_utils/shots/shot_sequencer/gap_manager.py`](#anim_utils--shots--shot_sequencer--gap_manager) — Gap and range-highlight handlers for the shot sequencer controller (Blender).
+- [`anim_utils/shots/shot_sequencer/graph_sync.py`](#anim_utils--shots--shot_sequencer--graph_sync) — Graph editor glue: the shot sequencer's curves in uitk's graph editor (Blender).
 - [`anim_utils/shots/shot_sequencer/key_menu.py`](#anim_utils--shots--shot_sequencer--key_menu) — Key context menus and key-selection edits.
 - [`anim_utils/shots/shot_sequencer/marker_manager.py`](#anim_utils--shots--shot_sequencer--marker_manager) — Marker persistence for the shot sequencer controller (Blender).
 - [`anim_utils/shots/shot_sequencer/scene_callbacks.py`](#anim_utils--shots--shot_sequencer--scene_callbacks) — Blender scene handlers for the shot sequencer.
@@ -242,6 +243,8 @@ Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror 
   - `AnimUtils.key_arrays(fc)` *(static)* — ``(times, values)`` of *fc*'s keyframe points as plain float lists (time order).
   - `AnimUtils.key_times(fc)` *(static)* — Key times of *fc* as a plain float list (time order).
   - `AnimUtils.key_interpolations(fc)` *(static)* — Per-key ``interpolation`` enum ints of *fc* (see :meth:`interpolation_value`).
+  - `AnimUtils.get_key_curves(fcurves) -> list` *(static)* — Read fcurves as host-free :class:`pythontk.KeyCurve` s (mirror of mayatk).
+  - `AnimUtils.shift_key_values(edits) -> int` *(static)* — Offset key VALUES in place: ``{fcurve: [(time, delta), ...]}`` (mirror of mayatk).
   - `AnimUtils.window_indices(times, lo, hi, inclusive_hi: bool = True)` *(static)* — ``(i0, i1)`` slice bounds of the keys of sorted *times* inside ``[lo, hi]``.
   - `AnimUtils.shift_keys_in_window(fc, lo, hi, delta: float, inclusive_hi: bool = True) -> int` *(static)* — Translate *fc*'s keys (and both handles) inside ``[lo, hi]`` by *delta*.
   - `AnimUtils.remap_keys_in_window(fc, lo, hi, old_start, old_end, new_start, new_end) -> int` *(static)* — Linearly remap *fc*'s keys (and handles) in ``[lo, hi]`` from one span to another.
@@ -272,6 +275,7 @@ Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror 
   - `AnimUtils.transfer_keyframes(objects, relative=False, optimize=False, on_replace=None, on_delete=None)` *(static)* — Transfer keyframes from the first object (source) onto the rest (targets) — mirror of
   - `AnimUtils.reduce_to_extremes(objects=None, value_tolerance=0.001, stats=None, max_error=None, on_delete=None)` *(static)* — Reduce baked fcurves to their shape-defining keys and refit the handles —
   - `AnimUtils.get_redundant_flat_keys(objects, value_tolerance=1e-05, remove=False, time_range=None, selected_only=False)` *(static)* — Interior keys of a flat run — mirror of ``mtk.AnimUtils.get_redundant_flat_keys``.
+  - `AnimUtils.euler_filter(objects) -> list` *(static)* — Unwrap Euler rotation curves -- mirror of ``mtk.AnimUtils.euler_filter``.
   - `AnimUtils.simplify_curve(objects, value_tolerance=0.001, time_range=None, selected_only=False, on_delete=None)` *(static)* — Drop the keys that do not contribute to a curve's shape — mirror of
   - `AnimUtils.optimize_keys(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None, max_error=None, on_delete=None)` *(static)* — Remove redundant animation data — mirror of ``mtk.AnimUtils.optimize_keys``.
   - `AnimUtils.repair_corrupted_curves(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0, on_delete=None)` *(static)* — Detect and repair corrupted animation fcurves — mirror of
@@ -465,15 +469,16 @@ Shot-region detection — Blender scene acquisition over the pure engine math.
 
 Blender shot-store adapter — the DCC layer over ``pythontk``'s shots engine.
 
-- **[`class BlenderScenePersistence`](blendertk/blendertk/anim_utils/shots/_shots.py#L111)** — Persist the store as a JSON string in a private scene record.
+- **[`class BlenderScenePersistence`](blendertk/blendertk/anim_utils/shots/_shots.py#L116)** — Persist the store as a JSON string in a private scene record.
   - `BlenderScenePersistence.store_cls(self)` *(property)* — The store class this backend serves (resolved lazily: the shot store
   - `BlenderScenePersistence.remove_callbacks(self) -> None` — Tear down every SJM subscription + msgbus watch owned by this backend.
   - `BlenderScenePersistence.save(self, data: Dict[str, Any]) -> None`
   - `BlenderScenePersistence.load(self) -> Optional[Dict[str, Any]]` — The stored document, or ``None`` when the scene holds none.
   - `BlenderScenePersistence.record_changed(self) -> bool` — Whether the channel differs from what this backend last wrote or read.
-- **[`class BlenderShotStore(pythontk.ShotStore, _BlenderShotStoreInternal)`](blendertk/blendertk/anim_utils/shots/_shots.py#L646)** — :class:`pythontk.ShotStore` with the scene hooks bound to Blender.
+- **[`class BlenderShotStore(pythontk.ShotStore, _BlenderShotStoreInternal)`](blendertk/blendertk/anim_utils/shots/_shots.py#L863)** — :class:`pythontk.ShotStore` with the scene hooks bound to Blender.
+  - `BlenderShotStore.from_dict(cls, data: Dict[str, Any]) -> 'BlenderShotStore'` *(class)* — :meth:`pythontk.ShotStore.from_dict`, a format-1 ledger's claims
   - `BlenderShotStore.member_nodes(self, name: str) -> List[str]` — Names of every object answering to a doc object *name*.
-  - `BlenderShotStore.curve_key(obj_name: str, data_path: str, index: int = 0) -> str` *(static)* — Stable ledger key for an fcurve: owner plus channel identity.
+  - `BlenderShotStore.curve_key(obj_name: str, data_path: str, index: int = 0) -> str` *(static)* — Ledger key of the fcurve driving *obj_name*'s ``data_path[index]``.
   - `BlenderShotStore.follow_renames(self) -> bool` — Re-point everything this store names an object by at its new name.
   - `BlenderShotStore.edit_serial(cls) -> int` *(class)* — The current scene's edit serial (0 before any shot edit, or no bpy).
   - `BlenderShotStore.scene_edit(self, label: str = 'edit', snapshot: bool = True)` — Run a shot edit as one undo step with a boundary restore point.
@@ -515,13 +520,13 @@ Behaviors — Blender appliers over the engine's pure keying-recipe core.
   - `Behaviors.compute_duration(behavior_entries: List[Dict[str, str]], fallback: float = 30, fps: Optional[float] = None) -> float` *(static)* — Derive duration from the behavior templates in *behavior_entries*.
   - `Behaviors.apply_to_shots(shots: list, apply_fn, exists_fn=None, has_keys_fn=None, store=None, resolve_fn=None, conflict_fn=None, release_fn=None, skip_behaviors=()) -> Dict[str, list]` *(static)* — Apply declared behaviors from shot metadata to Blender objects.
 
-<a id="anim_utils--shots--shot_manifest--export_menu"></a>
-### `anim_utils/shots/shot_manifest/export_menu.py`
+<a id="anim_utils--shots--shot_manifest--export_preview"></a>
+### `anim_utils/shots/shot_manifest/export_preview.py`
 
-The Shot Manifest's Export button (beside Assess) and its option menu: the
+The Shot Manifest's Export button (beside Assess): a live preview of the
 
-- **[`class ExportMenuMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/export_menu.py#L24)** — The Export button, mixed into ``ShotManifestController``.
-  - `ExportMenuMixin.export(self) -> None` — Export the manifest's rows the way the option menu says.
+- **[`class ExportPreviewMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/export_preview.py#L25)** — The Export button's preview, mixed into ``ShotManifestController``.
+  - `ExportPreviewMixin.export(self) -> None` — Open the preview of the export (or bring the open one up): its
 
 <a id="anim_utils--shots--shot_manifest--header_menu"></a>
 ### `anim_utils/shots/shot_manifest/header_menu.py`
@@ -535,36 +540,36 @@ The Shot Manifest's header menu: display options (Long Names, Hide Missing
 
 Constants, column layout, and pure helper functions for the Shot Manifest UI.
 
-- [`SETTINGS_NS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L20) — constant
-- [`HEADERS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L23) — constant
-- [`COL_STEP`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L26) — constant
-- [`COL_SECTION`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L27) — constant
-- [`COL_DESC`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L28) — constant
-- [`COL_BEHAVIORS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L29) — constant
-- [`COL_START`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L30) — constant
-- [`COL_END`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L31) — constant
-- [`STEP_ICON_COLOR`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L33) — constant
-- [`PASTEL_STATUS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L36) — constant
-- [`BEHAVIOR_STATUS_COLORS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L40) — constant
-- [`ERROR_COLOR`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L47) — constant
-- **[`class ManifestData`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L50)** — ManifestData — module namespace.
-  - `ManifestData.fmt_behavior(name: str) -> str` *(static)* — ``'fade_in'`` → ``'Fade In'``.
-  - `ManifestData.format_behavior_html(behaviors, broken=(), status_color=None, stale=(), disabled=()) -> str` *(static)* — Return rich-text HTML for a list of behavior names.
+- [`SETTINGS_NS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L23) — constant
+- [`HEADERS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L26) — constant
+- [`COL_STEP`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L29) — constant
+- [`COL_SECTION`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L30) — constant
+- [`COL_DESC`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L31) — constant
+- [`COL_BEHAVIORS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L32) — constant
+- [`COL_START`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L33) — constant
+- [`COL_END`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L34) — constant
+- [`STEP_ICON_COLOR`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L36) — constant
+- [`PASTEL_STATUS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L39) — constant
+- [`BEHAVIOR_STATUS_COLORS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L43) — constant
+- [`ERROR_COLOR`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L50) — constant
+- **[`class ManifestData`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L53)** — ManifestData — module namespace.
+  - `ManifestData.fmt_behavior(name: str) -> str` *(static)* — ``'fade_in'`` → ``'Fade In'`` (``Behaviors.label``: the marker
+  - `ManifestData.format_behavior_html(behaviors, broken=(), status_color=None, stale=(), disabled=(), marked=()) -> str` *(static)* — Return rich-text HTML for a list of behavior names.
 
 <a id="anim_utils--shots--shot_manifest--manifest_editor"></a>
 ### `anim_utils/shots/shot_manifest/manifest_editor.py`
 
 Local Edits for the Shot Manifest panel: change the table, never the sheet.
 
-- **[`class ManifestEditor`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_editor.py#L41)** — One panel's Local Edits: its edit layer, its cell editors, and the
+- **[`class ManifestEditor`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_editor.py#L42)** — One panel's Local Edits: its edit layer, its cell editors, and the
   - `ManifestEditor.enabled(self) -> bool` *(property)* — Whether the edits are in force -- applied and editable: always,
   - `ManifestEditor.add_header_options(self, menu) -> None` — Add View Original Sheet and Reset Local Edits to *menu*.
   - `ManifestEditor.view_original(self, on: bool = True) -> None` — Show the sheet as delivered (*on*), or the manifest with its edits.
   - `ManifestEditor.refuse_viewing(self, to: str = 'edit') -> bool` — Say so and return ``True`` while the original sheet is viewed:
   - `ManifestEditor.reset(self, confirm: bool = True) -> None` — Drop every edit of the current source, after asking.
-  - `ManifestEditor.source_key(self) -> str` *(property)* — The key this source's edits are saved under: the sheet's path, or
-  - `ManifestEditor.load(self) -> None` — Read the current source's edits from the scene.
-  - `ManifestEditor.save(self) -> None` — Write the current source's edits to the scene.
+  - `ManifestEditor.source_key(self) -> str` *(property)* — The source the edits belong to: the sheet's path, or ``""`` for
+  - `ManifestEditor.load(self) -> None` — Read the current source's edits from the scene -- a sheet moved
+  - `ManifestEditor.save(self) -> None` — Write the current source's edits to the scene, under the sheet's
   - `ManifestEditor.apply(self, steps: List[ptk.BuilderStep]) -> List[ptk.BuilderStep]` — *steps* with the edits applied -- as delivered while the original
   - `ManifestEditor.stale(self) -> List[str]` — The edits the loaded sheet gives no place to (``ManifestEdits.stale``).
   - `ManifestEditor.refresh(self) -> None` — Re-apply the edits to the loaded steps and redraw the table.
@@ -642,9 +647,9 @@ The Shot Manifest rows' context menus and what they do: a step row's (colour
 
 The Shot Manifest panel's controller: its state, the steps the table shows,
 
-- **[`class ShotManifestController(ManifestTableMixin, RangeColumnMixin, StoreFollowMixin, ManifestSourceMixin, MappingPickerMixin, RowMenusMixin, HeaderMenuMixin, ExportMenuMixin, pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_manifest/shot_manifest_controller.py#L39)** — Business logic for the Shot Manifest UI (see the module docstring).
+- **[`class ShotManifestController(ManifestTableMixin, RangeColumnMixin, StoreFollowMixin, ManifestSourceMixin, MappingPickerMixin, RowMenusMixin, HeaderMenuMixin, ExportPreviewMixin, pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_manifest/shot_manifest_controller.py#L40)** — Business logic for the Shot Manifest UI (see the module docstring).
   - `ShotManifestController.build(self) -> None` — Build or update shots in the store from loaded steps.
-  - `ShotManifestController.assess(self, skip_key_check: bool = False) -> None` — Compare the steps against the scene's shots and colour the tree.
+  - `ShotManifestController.assess(self, skip_key_check: bool = False, note: str = '') -> None` — Compare the steps against the scene's shots and colour the tree.
 
 <a id="anim_utils--shots--shot_manifest--shot_manifest_slots"></a>
 ### `anim_utils/shots/shot_manifest/shot_manifest_slots.py`
@@ -665,7 +670,7 @@ Switchboard slots for the Shot Manifest panel: the ``.ui``'s widgets routed to
 
 The Shot Manifest panel following the scene's store: its events (a shot
 
-- **[`class StoreFollowMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/store_follow.py#L27)** — Store events and scene swaps, mixed into ``ShotManifestController``.
+- **[`class StoreFollowMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/store_follow.py#L28)** — Store events and scene swaps, mixed into ``ShotManifestController``.
   - `StoreFollowMixin.remove_callbacks(self) -> None` — Remove the ShotStore listener and the invalidation subscription,
 
 <a id="anim_utils--shots--shot_manifest--table_presenter"></a>
@@ -682,7 +687,7 @@ The Shot Manifest tree's rows: populating them (``ShotPairing.rows``: steps,
 
 Blender shot sequencer engine — ripple editing + key motion over the shared planner.
 
-- **[`class ShotSequencer(_ShotSequencerInternal, pythontk.ShotSequencer)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/_shot_sequencer.py#L254)** — Manages a :class:`BlenderShotStore` and provides ripple editing and
+- **[`class ShotSequencer(_ShotSequencerInternal, pythontk.ShotSequencer)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/_shot_sequencer.py#L249)** — Manages a :class:`BlenderShotStore` and provides ripple editing and
   - `ShotSequencer.slide_shot(self, shot_id: int, new_start: float, direction: str = 'downstream', _enforce: bool = True) -> None` — Slide a shot intact to *new_start*, rippling only in *direction*.
   - `ShotSequencer.split_shot(self, shot_id: int, at_frame: float, name: Optional[str] = None, gap: float = 0.0)` — Cut a shot in two at *at_frame*, leaving its content where it is.
   - `ShotSequencer.reconcile_all_shots(self) -> bool` — Follow objects renamed since they were stored, NEVER dropping one.
@@ -737,13 +742,34 @@ Gap and range-highlight handlers for the shot sequencer controller (Blender).
   - `GapManagerMixin.on_gap_lock_all(self) -> None` — Lock all gaps so they are preserved during respace.
   - `GapManagerMixin.on_gap_unlock_all(self) -> None` — Unlock all gaps so they follow the global gap value.
 
+<a id="anim_utils--shots--shot_sequencer--graph_sync"></a>
+### `anim_utils/shots/shot_sequencer/graph_sync.py`
+
+Graph editor glue: the shot sequencer's curves in uitk's graph editor (Blender).
+
+- **[`class GraphSync`](blendertk/blendertk/anim_utils/shots/shot_sequencer/graph_sync.py#L45)** — Feeds the sequencer's graph editor and commits its edits (module docstring).
+  - `GraphSync.detach(self) -> None` — Disconnect everything (a panel re-init builds a new one).
+  - `GraphSync.sync(self, full: bool = False) -> None` — Bring the graph in line with the scene.
+  - `GraphSync.outline(self) -> List[dict]` — The visible shots' objects keyed across their window, and their curves.
+  - `GraphSync.key_targets(self, groups=None) -> list` — ``[(obj, attr, [times], shot_id), ...]`` for the graph's key
+  - `GraphSync.on_key_menu(self, menu, groups) -> None` — The track view's key edits and Move / Copy to Shot, on the graph's
+  - `GraphSync.on_keys_edited(self, edits) -> None` — Commit a move / scale / typed stat: ``[(curve, [(t, dt, dv), ...])]``.
+  - `GraphSync.on_tangents_edited(self, rows) -> None` — Commit dragged handles: ``[(curve, [(t, side, dt, dv, broken), ...])]``,
+  - `GraphSync.on_keys_deleted(self, groups) -> None` — Remove keys: ``[(curve, [time, ...])]``;
+  - `GraphSync.on_keys_inserted(self, items) -> None` — Key ``[(curve, time), ...]`` on the curve as it runs there (Blender
+  - `GraphSync.on_tangent_type(self, type_id: str, groups) -> None`
+  - `GraphSync.on_tangents_broken(self, broken: bool, groups) -> None`
+  - `GraphSync.on_infinity(self, side: str, mode: str, curves) -> None` — Pre / post infinity.
+  - `GraphSync.on_key_selection(self, groups) -> None` — Mirror the graph's key selection into Blender's (not an undo step).
+
 <a id="anim_utils--shots--shot_sequencer--key_menu"></a>
 ### `anim_utils/shots/shot_sequencer/key_menu.py`
 
 Key context menus and key-selection edits.
 
-- **[`class KeyMenuMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/key_menu.py#L17)** — Key context menus, tangent edits and drags, and the key-selection edits.
+- **[`class KeyMenuMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/key_menu.py#L19)** — Key context menus, tangent edits and drags, and the key-selection edits.
   - `KeyMenuMixin.on_key_menu(self, menu, key_groups: list) -> None` — Add the key actions to a key's context menu.
+  - `KeyMenuMixin.register_key_targets(self, editor_name: str, source) -> None` — Resolve the key shortcuts' targets through *source* while the
   - `KeyMenuMixin.place_dragged_handle(kp, side: str, dt: float, dv: float, broken: bool = False) -> None` *(static)* — Put one handle of keyframe point *kp* at ``co + (dt, dv)``.
   - `KeyMenuMixin.on_keys_tangent_dragged(self, groups: list, side: str, broken: bool) -> None` — Write the handles a dragged tangent grab point asks for (see
 
@@ -752,7 +778,7 @@ Key context menus and key-selection edits.
 
 Marker persistence for the shot sequencer controller (Blender).
 
-- **[`class MarkerManagerMixin(_MarkerManagerMixinInternal)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/marker_manager.py#L33)** — Mixin supplying marker CRUD persistence.
+- **[`class MarkerManagerMixin(_MarkerManagerMixinInternal)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/marker_manager.py#L40)** — Mixin supplying marker CRUD persistence.
   - `MarkerManagerMixin.on_marker_added(self, marker_id: int, time: float) -> None` — Persist a newly added marker.
   - `MarkerManagerMixin.on_marker_moved(self, marker_id: int, new_time: float) -> None` — Update persisted marker time.
   - `MarkerManagerMixin.on_marker_changed(self, marker_id: int) -> None` — Update persisted marker note/color.
@@ -763,7 +789,7 @@ Marker persistence for the shot sequencer controller (Blender).
 
 Blender scene handlers for the shot sequencer.
 
-- **[`class SceneCallbacksMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/scene_callbacks.py#L15)** — Scene event hooks: undo/redo, key edits and time changes refresh the widget.
+- **[`class SceneCallbacksMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/scene_callbacks.py#L16)** — Scene event hooks: undo/redo, key edits and time changes refresh the widget.
   - `SceneCallbacksMixin.remove_callbacks(self) -> None` — Detach all scene handlers + listeners (call on teardown).
 
 <a id="anim_utils--shots--shot_sequencer--scene_selection"></a>
@@ -797,7 +823,8 @@ Segment collection and attribute extraction for the shot sequencer (Blender).
   - `SegmentCollector.collect_segments(sequencer, shot, visible_shots, segment_cache, shifted_out_keys, logger)` *(static)* — Collect per-object animation segments for visible shots.
   - `SegmentCollector.active_object_set(shot, segments_by_shot) -> set` *(static)* — Objects that have actual animation segments in the active shot.
   - `SegmentCollector.extract_attributes(segments) -> list` *(static)* — Transform-channel labels (``translateX``…) keyed within the segments.
-  - `SegmentCollector.build_curve_preview(fcurve, t_start, t_end, hidden_times=())` *(static)* — Bézier shape data for one Blender fcurve, clipped to ``[t_start, t_end]``.
+  - `SegmentCollector.summary_times(segments, claimed_times) -> list` *(static)* — Every key time an object row ticks in the flat key style.
+  - `SegmentCollector.build_curve_preview(fcurve, t_start, t_end, hidden_times=())` *(static)* — Bezier shape data for one Blender fcurve, clipped to ``[t_start, t_end]``.
 
 <a id="anim_utils--shots--shot_sequencer--shot_lane"></a>
 ### `anim_utils/shots/shot_sequencer/shot_lane.py`
@@ -1753,7 +1780,7 @@ Launch a FRESH headless Blender to run a script / code string and capture its ou
 
 FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.fbx_utils``
 
-- **[`class FbxUtils(_FbxUtilsInternal)`](blendertk/blendertk/env_utils/fbx_utils.py#L1348)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
+- **[`class FbxUtils(_FbxUtilsInternal)`](blendertk/blendertk/env_utils/fbx_utils.py#L1589)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
   - `FbxUtils.producers(cls, only: Optional[Iterable[Any]] = None) -> Dict[Any, Callable]` *(class)* — :attr:`PRODUCERS` resolved to callables, unimportable ones skipped;
   - `FbxUtils.export_context(cls, mode: str = ptk.ExportContext.PIPELINE, **decisions) -> ptk.ExportContext` *(class)* — A context for this file: provenance filled in, *decisions*
   - `FbxUtils.publish(cls, ctx: Optional[ptk.ExportContext] = None, only: Optional[Iterable[Any]] = None) -> ptk.ExportSnapshot` *(class)* — Assemble every producer's record and commit the carrier ONCE
@@ -1775,7 +1802,7 @@ FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.
   - `FbxUtils.stage_curve_proxy(name: str, parent, fcurve, *markers: str)` *(static)* — Stage one transient Empty whose ``scale.x`` carries *fcurve*, for an FBX write.
   - `FbxUtils.apply_takes_from_node(node=None, attr=None) -> int` *(static)* — Arm the takes the scene declares for the next write.
   - `FbxUtils.export(filepath=None, objects=None, selection_only=True, strict=False, **fbx_opts)` *(static)* — Export to an FBX file — the consolidated counterpart of mayatk's ``FbxUtils.export``.
-  - `FbxUtils.import_fbx(filepath, **fbx_opts)` *(static)* — Import an FBX file (wrapper over ``bpy.ops.import_scene.fbx``).
+  - `FbxUtils.import_fbx(filepath, stash=True, logger=None, **fbx_opts)` *(static)* — Import an FBX file -- ALL of its animation (over ``bpy.ops.import_scene.fbx``).
   - `FbxUtils.scene_settings(filepath)` *(static)* — The time setup an FBX file itself carries, as a (partial) ``scene`` record
   - `FbxUtils.export_selection_fbx(filepath=None, objects=None, strict=False, **fbx_opts)` *(static)* — Export the selection (or ``objects``) to an FBX file for an external-app hand-off.
   - `FbxUtils.embed_dependencies(file_path: str, search_dirs: Optional[Iterable[str]] = None, logger: Optional[logging.Logger] = None) -> Optional[Dict[str, Any]]` *(static)* — Embed every file a written FBX's scene records name, in place.
@@ -1794,16 +1821,17 @@ Blender-side selection + export hooks shared by the hand-off bridge engines.
 
 Convert an FBX reference to a standalone ``.blend`` inside a FRESH headless Blender.
 
-- [`main() -> int`](blendertk/blendertk/env_utils/hierarchy_sync/_fbx_stage_worker.py#L31) — Stage the FBX named on the command line;
+- [`main() -> int`](blendertk/blendertk/env_utils/hierarchy_sync/_fbx_stage_worker.py#L42) — Stage the FBX named on the command line;
+- [`WARNING_PREFIX`](blendertk/blendertk/env_utils/hierarchy_sync/_fbx_stage_worker.py#L39) — constant
 
 <a id="env_utils--hierarchy_sync--_hierarchy_sync"></a>
 ### `env_utils/hierarchy_sync/_hierarchy_sync.py`
 
 Hierarchy Sync core engine — mirror of mayatk's ``env_utils.hierarchy_sync._hierarchy_sync``.
 
-- **[`class HierarchyMapBuilder`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L54)** — Builds hierarchy path maps for Blender objects (mirror of mayatk's ``HierarchyMapBuilder``).
+- **[`class HierarchyMapBuilder`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L58)** — Builds hierarchy path maps for Blender objects (mirror of mayatk's ``HierarchyMapBuilder``).
   - `HierarchyMapBuilder.build_path_map(objects) -> Dict[str, Any]` *(static)* — Map every object in ``objects`` to its hierarchy path (see :func:`build_path`).
-- **[`class HierarchySync(pythontk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L69)** — Core hierarchy analysis and repair manager (mirror of mayatk's ``HierarchySync``).
+- **[`class HierarchySync(pythontk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L73)** — Core hierarchy analysis and repair manager (mirror of mayatk's ``HierarchySync``).
   - `HierarchySync.analyze_hierarchies(self, current_objects, reference_objects, filter_meshes: bool = True, filter_cameras: bool = False, filter_lights: bool = False) -> Dict[str, Any]` — Analyze differences between the current scene and a reference object set.
   - `HierarchySync.create_stubs(self, paths: Optional[List[str]] = None) -> List[str]` — Create empty placeholder Empties for missing hierarchy paths.
   - `HierarchySync.quarantine_extras(self, group: str = '_QUARANTINE', paths: Optional[List[str]] = None, skip_animated: bool = True) -> List[str]` — Move extra (scene-only) items to a root-level quarantine Empty.
@@ -1814,7 +1842,7 @@ Hierarchy Sync core engine — mirror of mayatk's ``env_utils.hierarchy_sync._hi
   - `HierarchySync.build_path(obj) -> str` *(static)* — Pipe-joined hierarchy path from the root down to ``obj`` (e.g.
   - `HierarchySync.delete_objects(objects) -> List[str]` *(static)* — Delete *objects* AND all their descendants from the blend data;
   - `HierarchySync.should_keep_node_by_type(obj, node_types: List[str], exclude: bool = True) -> bool` *(static)* — Filter by Blender object type — mirror of mayatk's shape-type filter.
-- **[`class ObjectSwapper(pythontk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L988)** — Pull matched reference objects into the current scene (mirror of mayatk's ``ObjectSwapper``).
+- **[`class ObjectSwapper(pythontk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L1002)** — Pull matched reference objects into the current scene (mirror of mayatk's ``ObjectSwapper``).
   - `ObjectSwapper.pull_objects_from_reference(self, target_paths: List[str], source_file, reference_path_map: Dict[str, Any]) -> bool` — Append the reference objects at *target_paths* into the current scene.
 
 <a id="env_utils--hierarchy_sync--hierarchy_baseline"></a>
@@ -2004,10 +2032,11 @@ Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
 - [`skinning_methods(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L612) — ``{mesh transform name: skinning method}`` for the manifest's ``skins``
 - [`scene_node_types(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L633) — ``{leaf name: "locator" | "group"}`` -- the node-type sidecar section.
 - [`scene_settings(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L677) — The scene's time setup -- the manifest's ``scene`` section, the one part of a
-- [`write_manifest(entries, visibility, node_types, scene, path, lights=(), skins=None, bones=None, scene_data=None, rig=None, machinery=None)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L704) — The ONE conversion sidecar, consumed by MayaSceneImport: ``materials`` =
-- [`scene_lights(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L766) — The manifest's ``lights`` section: every light in the scene, as data.
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1228)
-- [`scene_data_sections(cmds, spell)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1340) — The scene's portable records as manifest sections (``shots``,
+- [`write_manifest(entries, visibility, node_types, scene, path, lights=(), skins=None, bones=None, scene_data=None, rig=None, machinery=None, stepped=None)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L704) — The ONE conversion sidecar, consumed by MayaSceneImport: ``materials`` =
+- [`scene_lights(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L770) — The manifest's ``lights`` section: every light in the scene, as data.
+- [`stepped_keys(spell)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1091) — The manifest's ``stepped_keys``: ``{node: {channel: [frames]}}`` -- the
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1259)
+- [`scene_data_sections(cmds, spell)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1376) — The scene's portable records as manifest sections (``shots``,
 - [`SRC_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L48) — constant
 - [`OUT_FBX`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L49) — constant
 - [`EMBED_TEXTURES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L50) — constant
@@ -2053,11 +2082,13 @@ Import the bridged FBX into a headless ``mayapy`` and save it as a Maya scene.
 - [`import_usd(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L93) — Import a USD payload through mayaUsd's file translator;
 - [`import_payload(cmds, mel, engine)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L110) — Run the importer the payload's extension names (FBX or USD).
 - [`restore_usd_locators(cmds, engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L117) — Give point-marker Empties their locator shape back (USD carrier) -- the
-- [`import_fbx(cmds, mel, engine)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L144) — Import the payload deterministically;
-- [`restore_empty_groups(cmds, engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L176) — Restore imported Empties as the correct Maya node types (see module docstring).
-- [`rebuild_materials(engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L206) — Replay the sidecar manifest through mayatk's applier (see module docstring).
-- [`rebuild_scene_data(engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L224) — Land the sent scene's records -- its shots, its emissive groups -- from the
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L240)
+- [`covering_take(mel, path)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L144) — ``(index, names)``: the 1-based index of the take whose span covers every
+- [`fallback_take(mel, path, warn)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L168) — The take the bare import plays (``FBXImportSetTake -ti``): :func:`covering_take`'s,
+- [`import_fbx(cmds, mel, engine)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L190) — Import the payload deterministically;
+- [`restore_empty_groups(cmds, engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L225) — Restore imported Empties as the correct Maya node types (see module docstring).
+- [`rebuild_materials(engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L255) — Replay the sidecar manifest through mayatk's applier (see module docstring).
+- [`rebuild_scene_data(engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L273) — Land the sent scene's records -- its shots, its emissive groups -- from the
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L289)
 - [`BRIDGE_MODES`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L39) — constant
 - [`FBX_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L50) — constant
 - [`USD_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L51) — constant
@@ -2072,14 +2103,16 @@ Import the bridged FBX into a headless ``mayapy`` and save it as a Maya scene.
 
 Import the bridged payload (FBX or USD) into Maya, with optional clean-slate and
 
-- [`import_fbx()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L73) — Import the payload deterministically;
-- [`import_usd()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L103) — Import a USD payload through mayaUsd's file translator;
-- [`import_payload()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L124) — Run the importer the payload's extension names (FBX or USD).
-- [`restore_usd_locators(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L133) — Give the Empties that mark a point their locator shape back (USD carrier).
-- [`restore_empty_groups(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L167) — Strip the locator shape from imported Empties that are groups (FBX carrier).
-- [`rebuild_materials(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L209) — Replay the sidecar manifest through mayatk's applier (see module docstring).
-- [`rebuild_scene_data(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L231) — Land the sent scene's records -- its shots, its emissive groups -- from the
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L257)
+- [`covering_take(mel, path)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L73) — ``(index, names)``: the 1-based index of the take whose span covers every
+- [`fallback_take(mel, path, warn)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L97) — The take the bare import plays (``FBXImportSetTake -ti``): :func:`covering_take`'s,
+- [`import_fbx()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L119) — Import the payload deterministically;
+- [`import_usd()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L159) — Import a USD payload through mayaUsd's file translator;
+- [`import_payload()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L180) — Run the importer the payload's extension names (FBX or USD).
+- [`restore_usd_locators(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L189) — Give the Empties that mark a point their locator shape back (USD carrier).
+- [`restore_empty_groups(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L223) — Strip the locator shape from imported Empties that are groups (FBX carrier).
+- [`rebuild_materials(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L265) — Replay the sidecar manifest through mayatk's applier (see module docstring).
+- [`rebuild_scene_data(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L287) — Land the sent scene's records -- its shots, its emissive groups -- from the
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L313)
 - [`BRIDGE_MODES`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L36) — constant
 - [`FBX_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L52) — constant
 - [`USD_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L53) — constant
@@ -2128,7 +2161,7 @@ Reference Manager tool panel — Switchboard slot wiring for the co-located ``re
 
 Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 
-- **[`class SceneExporter(pythontk.SceneExporterBase)`](blendertk/blendertk/env_utils/scene_exporter/_scene_exporter.py#L126)** — Blender's Scene Exporter: the export write, its scope and its FBX
+- **[`class SceneExporter(pythontk.SceneExporterBase)`](blendertk/blendertk/env_utils/scene_exporter/_scene_exporter.py#L127)** — Blender's Scene Exporter: the export write, its scope and its FBX
   - `SceneExporter.perform_export(self, export_dir: str, objects: Optional[Union[List, Callable]] = None, preset_name: Optional[str] = None, output_name: Optional[str] = None, export_visible: bool = True, create_log_file: bool = False, timestamp: bool = False, name_regex: Optional[str] = None, log_level: Optional[str] = None, hide_log_file: Optional[bool] = None, log_handler: Optional[object] = None, tasks: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None, progress_callback: Optional[Callable[[int, int, Optional[str]], Any]] = None) -> bool` — Perform the export operation, including initialization and task management.
   - `SceneExporter.name_context(self, name_regex: Optional[str] = None) -> Dict[str, str]` — Live value for every token in :attr:`NAME_TOKENS` but the counter.
   - `SceneExporter.resolve_export_path(self, pattern: Optional[str] = None, export_dir: Optional[str] = None, output_format: str = 'fbx', name_regex: Optional[str] = None, report: bool = True, version_format: str = '', timestamp: bool = False) -> Dict[str, Any]` — Resolve the Output Filename field into the file(s) an export writes.

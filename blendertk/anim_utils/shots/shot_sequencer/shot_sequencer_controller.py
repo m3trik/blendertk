@@ -164,8 +164,6 @@ class ShotSequencerController(
         # Move / Copy to Shot's toggle: a pick copies while it is on (mayatk).
         self._copy_to_shot: bool = False
         self._extend_reach: float = self.EXTEND_REACH_FRAMES
-        # Keys copied from the key menu, awaiting a paste.
-        self._copied_keys = None
         self._prev_action = None
         self._next_action = None
         self._view_mode_action = None
@@ -173,7 +171,6 @@ class ShotSequencerController(
         self._playback_range_mode = "follows_view"
         self._track_order_scope = "visible"
         self._show_internal_holds = False  # flat-key spans in attribute sub-rows
-        self._holds_action = None  # OptionBox action for the holds toggle
         self._cmb_mode = "shots"
         self._transport_controls = None
 
@@ -278,7 +275,6 @@ class ShotSequencerController(
         # STORE, so the new scene's store starts with a fresh one.
         self._edited_objects.clear()
         self._shifted_out_keys.clear()
-        self._copied_keys = None  # keyed by object NAME; the names are gone
         self._bind_store_listener()
         # Blender clears non-persistent app-handlers on File ▸ New/Open, so
         # re-attach them here (idempotent) or the live playhead/keyframe refresh
@@ -297,6 +293,10 @@ class ShotSequencerController(
             # did not make it.  This one redraws after each of its own edits,
             # and another panel's reaches it through the events that edit
             # raises: rebuilding here too drew every sequencer edit twice.
+            return
+        if getattr(self.sequencer.store, "following_native_step", False) is True:
+            # The store putting back a restore point for Blender's own undo:
+            # _on_native_step redraws once when it is done (mayatk).
             return
         self._drop_caches()
         if (

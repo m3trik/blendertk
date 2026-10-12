@@ -10,6 +10,9 @@
     <height>230</height>
    </rect>
   </property>
+  <property name="accessibleDescription">
+   <string>Add, move and trim scene sound clips, and fit the frame range to them.</string>
+  </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="verticalLayout">
     <property name="spacing">

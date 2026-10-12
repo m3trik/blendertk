@@ -118,11 +118,21 @@ try:
     )
     # FBXResetImport restores Maya 2025's factory "No Animation" take selector, so a
     # reset with no take re-select drops every animCurve (probed: 0 curves before,
-    # 1 after). Index -1 resolves per file; a FIXED index aborts a takeless import
-    # and returns no nodes at all -- pin the exact form, not just the command name.
+    # 1 after); a FIXED index aborts a takeless import and returns no nodes at all.
+    # `-ti -1` alone (the last take) played ONE shot of every animated push, which
+    # writes the whole timeline first and a take per shot after it (2026-10-11), so
+    # the engine imports every take, and the bare fallback the take covering the
+    # rest (else -1) -- pin the recipe, never a literal index.
     check(
-        "import template: reset re-selects the take (-ti -1, never a fixed index)",
-        "FBXImportSetTake -ti -1" in import_txt,
+        "import template: the FBX import runs through the paired engine first",
+        'BlenderSceneImport(log_level="WARNING")._import_fbx(FBX_PATH)' in import_txt,
+    )
+    check(
+        "import template: the fallback re-selects the covering take (else -1)",
+        "fallback_take(mel, FBX_PATH, cmds.warning)" in import_txt
+        and '"FBXImportSetTake -ti {}".format(take)' in import_txt
+        and "FBXGetTakeLocalTimeSpan" in import_txt
+        and "FBXImportSetTake -ti -1" not in import_txt,
     )
 
     # ---- MEL command builder (Qt-free) --------------------------------------
@@ -214,9 +224,57 @@ try:
         "_apply_texture_manifest" in save_txt and "restore_empty_groups" in save_txt,
     )
     check(
-        "save template: bare-mayapy fallback re-selects the take (see import twin)",
-        "FBXImportSetTake -ti -1" in save_txt,
+        "save template: bare-mayapy fallback re-selects the covering take (see import twin)",
+        "fallback_take(mel, FBX_PATH, cmds.warning)" in save_txt
+        and '"FBXImportSetTake -ti {}".format(take)' in save_txt
+        and "FBXImportSetTake -ti -1" not in save_txt,
     )
+    # One rule, two copies: the fallback cannot import mayatk (that is what makes it
+    # the fallback), so each template carries the covering-take rule -- held
+    # token-identical here, docstring aside (the precedent: mayatk's
+    # test_scene_import holds the locator / empty-group fallback loops the same way).
+    import ast as _take_ast
+
+    def _covering(text, name="covering_take"):
+        fn = next(
+            (
+                n
+                for n in _take_ast.walk(_take_ast.parse(text))
+                if isinstance(n, _take_ast.FunctionDef) and n.name == name
+            ),
+            None,
+        )
+        if fn is None:
+            return None
+        if isinstance(fn.body[0], _take_ast.Expr):  # the docstring
+            fn.body = fn.body[1:]
+        if name.endswith("covering_take"):  # mayatk's is a staticmethod
+            fn.name, fn.decorator_list = "covering_take", []
+        return _take_ast.dump(fn)
+
+    check(
+        "covering_take is one rule: token-identical in the import and save templates",
+        _covering(import_txt) is not None
+        and _covering(import_txt) == _covering(save_txt),
+    )
+    check(
+        "fallback_take is one rule: token-identical in the import and save templates",
+        _covering(import_txt, "fallback_take") is not None
+        and _covering(import_txt, "fallback_take")
+        == _covering(save_txt, "fallback_take"),
+    )
+    # mayatk is the reference: the vendored covering_take is its
+    # FbxUtils._covering_take, docstring aside (mayatk's own bake template is held
+    # to the same body by its test_scene_import). Read from the sibling checkout;
+    # an install without one has nothing to drift from.
+    _mtk_fbx = os.path.join(MONO, "mayatk", "mayatk", "env_utils", "fbx_utils.py")
+    if os.path.isfile(_mtk_fbx):
+        with open(_mtk_fbx, encoding="utf-8") as _fh:
+            _mtk_rule = _covering(_fh.read(), "_covering_take")
+        check(
+            "covering_take is mayatk's FbxUtils._covering_take, token for token",
+            _mtk_rule is not None and _covering(import_txt) == _mtk_rule,
+        )
     # The two Maya-side scripts share ONE recipe -- the same repairs, in the same
     # order -- and each says so in prose; this is what holds them to it. Only the
     # calls to the scripts' own recipe steps are compared: the setup around them
@@ -396,6 +454,140 @@ try:
         else:
             os.environ["MAYAPY_EXE"] = sa_orig_mayapy_env
         shutil.rmtree(sa_dir, ignore_errors=True)
+
+    # ---- the take a Maya-side import plays (2026-10-11; real mayapy) --------------
+    # A multi-take FBX keeps ONE take in Maya (FBXImportSetTake). The bare fallback
+    # cannot merge, so it plays the take covering every other -- wherever it sits --
+    # else the last, and names what it left out. Executed from the template's own
+    # source in a fresh mayapy, then imported with the take it picked.
+    if mayapys:
+        import json as _json
+
+        tk_dir = os.path.join(HERE, "temp_tests", f"maya_takes_{os.getpid()}")
+        os.makedirs(tk_dir, exist_ok=True)
+        try:
+
+            def tk_write(name, takes, drop=()):
+                reset()
+                for a in list(bpy.data.actions):
+                    bpy.data.actions.remove(a)
+                bpy.context.scene.frame_start, bpy.context.scene.frame_end = 1, 100
+                bpy.ops.mesh.primitive_cube_add()
+                cube = bpy.context.active_object
+                cube.name = "TkCube"
+                for f in range(1, 101):
+                    cube.location.x = f * 0.1
+                    cube.keyframe_insert("location", index=0, frame=f)
+                path = os.path.join(tk_dir, name)
+                if takes:
+                    btk.FbxUtils.apply_takes(takes)
+                try:
+                    btk.FbxUtils.export(
+                        filepath=path, objects=[cube], bake_anim=bool(takes)
+                    )
+                finally:
+                    btk.FbxUtils.reset_takes()
+                if drop:
+                    ptk.FbxMedia.drop_takes(path, names=list(drop))
+                return path
+
+            shots = [("early", 1, 30), ("late", 50, 70)]
+            tk_files = {
+                "push": tk_write("push.fbx", shots),
+                "shots": tk_write("shots.fbx", shots, drop=("Scene",)),
+                "cover_last": tk_write(
+                    "cover_last.fbx", shots + [("Whole", 1, 100)], drop=("Scene",)
+                ),
+                "static": tk_write("static.fbx", []),
+            }
+            tk_out = os.path.join(tk_dir, "result.json")
+            tk_script = os.path.join(tk_dir, "probe.py")
+            with open(tk_script, "w", encoding="utf-8") as fh:
+                fh.write(
+                    "import ast, json, os, sys\n"
+                    "import maya.standalone\n"
+                    "maya.standalone.initialize(name='python')\n"
+                    "import maya.cmds as cmds, maya.mel as mel\n"
+                    "cmds.loadPlugin('fbxmaya', quiet=True)\n"
+                    f"sys.path.insert(0, {os.path.join(MONO, 'pythontk')!r})\n"
+                    f"TEMPLATE = {str(_TEMPLATE_DIR / 'import.py')!r}\n"
+                    f"FILES = {tk_files!r}\n"
+                    "tree = ast.parse(open(TEMPLATE, encoding='utf-8').read())\n"
+                    "fns = [n for n in tree.body if isinstance(n, ast.FunctionDef)"
+                    " and n.name in ('covering_take', 'fallback_take')]\n"
+                    "ns = {'os': os}\n"
+                    "exec(compile(ast.Module(body=fns, type_ignores=[]), TEMPLATE,"
+                    " 'exec'), ns)\n"
+                    "out = {}\n"
+                    "for key, path in FILES.items():\n"
+                    "    warned = []\n"
+                    "    take = ns['fallback_take'](mel, path, warned.append)\n"
+                    "    cmds.file(new=True, force=True)\n"
+                    "    for c in ('FBXResetImport', 'FBXImportMode -v add',"
+                    " 'FBXImportSetTake -ti {}'.format(take)):\n"
+                    "        mel.eval(c)\n"
+                    "    nodes = cmds.file(path.replace(chr(92), '/'), i=True,"
+                    " type='FBX', ignoreVersion=True, returnNewNodes=True) or []\n"
+                    "    times = cmds.keyframe('TkCube', attribute='translateX',"
+                    " query=True, timeChange=True) or []\n"
+                    "    out[key] = {'take': take, 'warned': warned,"
+                    " 'nodes': len(nodes), 'keys': [round(t) for t in times]}\n"
+                    f"json.dump(out, open({tk_out!r}, 'w'))\n"
+                    "sys.stdout.flush()\n"
+                    "from pythontk.core_utils.process_exit import ProcessExit\n"
+                    "ProcessExit.hard_exit(0)\n"
+                )
+            tk_run = subprocess.run(
+                [mayapys[-1], tk_script],
+                capture_output=True,
+                text=True,
+                timeout=600,
+            )
+            tk_seen = {}
+            if os.path.isfile(tk_out):
+                with open(tk_out, encoding="utf-8") as fh:
+                    tk_seen = _json.load(fh)
+            tk_detail = ascii(
+                {
+                    k: (v.get("take"), len(v.get("keys") or ()), v.get("warned"))
+                    for k, v in tk_seen.items()
+                }
+                or (tk_run.returncode, tk_run.stderr[-600:])
+            )
+            whole = list(range(1, 101))
+            push = tk_seen.get("push", {})
+            check(
+                "fallback (mayapy): the push's whole-timeline take plays -- every frame",
+                push.get("take") == 1
+                and push.get("keys") == whole
+                and not push.get("warned"),
+                tk_detail,
+            )
+            cover = tk_seen.get("cover_last", {})
+            check(
+                "fallback (mayapy): a cover listed LAST still plays",
+                cover.get("take") == 3 and cover.get("keys") == whole,
+                tk_detail,
+            )
+            split = tk_seen.get("shots", {})
+            check(
+                "fallback (mayapy): no cover -- the last take plays, the rest named",
+                split.get("take") == -1
+                and split.get("keys") == list(range(50, 71))
+                and len(split.get("warned") or ()) == 1
+                and "early" in split["warned"][0],
+                tk_detail,
+            )
+            static = tk_seen.get("static", {})
+            check(
+                "fallback (mayapy): a takeless file still imports (-1), silently",
+                static.get("take") == -1
+                and static.get("nodes", 0) > 0
+                and not static.get("warned"),
+                tk_detail,
+            )
+        finally:
+            shutil.rmtree(tk_dir, ignore_errors=True)
 
     # ---- FBX export via _export_objects (bpy; plain params dict, no Qt) ------
     captured = {}

@@ -1344,6 +1344,247 @@ class _FbxUtilsInternal(object):
         )
         return n
 
+    # ---- import: every take's animation -----------------------------------
+
+    #: The ID collection behind each ``ActionSlot.target_id_type`` the FBX
+    #: importer animates (objects; shape keys, cameras and materials on data).
+    _ANIMATED_ID_COLLECTIONS = {
+        "OBJECT": "objects",
+        "KEY": "shape_keys",
+        "CAMERA": "cameras",
+        "MATERIAL": "materials",
+    }
+
+    @staticmethod
+    def _take_layout(filepath: str, log: logging.Logger) -> Optional[Dict[str, Any]]:
+        """``ptk.FbxFile.take_layout()`` of *filepath*, or ``None`` where the
+        reader cannot read it -- an ASCII or damaged file reaches the importer
+        as it is, and the importer reports it.  Whatever the read trips on
+        (a parser error on an odd file, not only the reader's ``ValueError``):
+        the layout only refines the import, so the importer's own take rule
+        runs, as before the layout was read (mayatk's ``_take_layout``)."""
+        if not ptk.FbxFile.is_fbx(filepath):
+            return None
+        try:
+            return ptk.FbxFile.load(
+                filepath, decode_arrays=ptk.FbxFile.CURVE_ARRAYS, raw_payloads=False
+            ).take_layout()
+        except Exception as error:  # noqa: BLE001 - only refines the import
+            log.warning(
+                f"FBX {os.path.basename(filepath)}: its takes cannot be read "
+                f"({error}); it imports as written.",
+                exc_info=not isinstance(error, ValueError),
+            )
+            return None
+
+    @staticmethod
+    def _take_source(
+        filepath: str,
+        layout: Dict[str, Any],
+        parked: List[str],
+        scratch: Callable[[], str],
+    ) -> Tuple[str, Optional[str]]:
+        """``(file the importer reads, the take that plays in it)``.
+
+        That file holds exactly the takes that matter: the live ones as ONE
+        (``ptk.FbxMedia.merge_takes`` where the file splits them), then each
+        *parked* take whole as its own stack (``keep=``). Anything else -- a
+        covering take's slices, an empty take, a take left out -- is dropped
+        from a *scratch* copy (``drop_takes``), so the importer builds no action
+        only to have it thrown away. The file itself when nothing is to go.
+        """
+        live = list(layout["live"])
+        if not live:
+            return filepath, None
+        if len(live) > 1:
+            name = ptk.FbxMedia.MERGED_TAKE
+            if name in parked:  # a parked take already bears it
+                name = None
+            report = ptk.FbxMedia.merge_takes(
+                filepath, scratch(), takes=live, name=name, keep=parked
+            )
+            return report["path"], report["take"]
+        drop = [
+            row["name"]
+            for row in layout["takes"]
+            if row["name"] not in live and row["name"] not in parked
+        ]
+        if not drop:
+            return filepath, live[0]
+        path = scratch()
+        ptk.FbxMedia.drop_takes(filepath, path, names=drop)
+        return path, live[0]
+
+    @classmethod
+    def _take_actions(
+        cls, actions: Iterable[Any], takes: Iterable[str]
+    ) -> Tuple[Dict[str, List[Tuple[Any, Any]]], List[Any]]:
+        """``({take: [(id, action)]}, unmatched)`` for actions the importer made.
+
+        It names each ``<id>|<take>`` (``<id>|<take>|<layer>`` where the layer
+        is named otherwise; Blender suffixes ``.001`` on a clash) and gives it
+        one slot of the animated ID's type -- which names the collection the
+        prefix resolves in, so an object and its mesh sharing a name never mix.
+        """
+        import re
+        import bpy
+
+        takes = sorted(set(takes), key=len, reverse=True)
+        found: Dict[str, List[Tuple[Any, Any]]] = {take: [] for take in takes}
+        unmatched: List[Any] = []
+        for action in actions:
+            slots = getattr(action, "slots", None)
+            id_type = slots[0].target_id_type if slots and len(slots) else "OBJECT"
+            pool = getattr(
+                bpy.data, cls._ANIMATED_ID_COLLECTIONS.get(id_type, ""), None
+            )
+            hit = None
+            for name in dict.fromkeys(
+                (action.name, re.sub(r"\.\d+$", "", action.name))
+            ):
+                for take in takes if pool is not None else ():
+                    marker = f"|{take}"
+                    at = name.find(marker)
+                    while at > 0 and hit is None:
+                        rest = name[at + len(marker) :]
+                        owner = pool.get(name[:at])
+                        if owner is not None and (not rest or rest.startswith("|")):
+                            hit = (take, owner)
+                        at = name.find(marker, at + 1)
+                    if hit:
+                        break
+                if hit:
+                    break
+            if hit:
+                found[hit[0]].append((hit[1], action))
+            else:
+                unmatched.append(action)
+        return found, unmatched
+
+    @classmethod
+    def _settle_takes(
+        cls,
+        filepath: str,
+        new_actions: List[Any],
+        play: Optional[str],
+        parked: List[str],
+        log: logging.Logger,
+    ) -> List[str]:
+        """After the import: every animated ID plays *play*'s action, and each
+        *parked* take is stashed WHOLE into Key Stash, its actions removed.
+
+        The importer assigned each ID the first stack (in file order) keying it
+        -- a parked take where it precedes the live one. Returns the parked
+        takes Key Stash took (one clip each).
+        """
+        from blendertk.anim_utils.key_stash._key_stash import KeyStash
+
+        by_take, unmatched = cls._take_actions(new_actions, [play] + parked)
+        # IDs hash by their pointer; a wrapper is fresh on every access, so
+        # never compare them by identity.
+        live = {owner for owner, _a in by_take.get(play, ())}
+        for owner, action in by_take.get(play, ()):
+            ad = owner.animation_data or owner.animation_data_create()
+            ad.action = action
+            ad.action_slot = action.slots[0]
+        for take in parked:  # keyed ONLY by a parked take: plays nothing
+            for owner, action in by_take[take]:
+                ad = owner.animation_data
+                if owner not in live and ad is not None and ad.action == action:
+                    ad.action = None
+
+        import bpy
+
+        stashed: List[str] = []
+        store = KeyStash.active() if parked else None
+        for take in parked:
+            pairs = [
+                (o, a) for o, a in by_take[take] if isinstance(o, bpy.types.Object)
+            ]
+            others = [
+                o.name for o, _a in by_take[take] if not isinstance(o, bpy.types.Object)
+            ]
+            if others:
+                log.warning(
+                    f"FBX {os.path.basename(filepath)}: take {take!r} also keys "
+                    f"{', '.join(sorted(others))}; Key Stash parks object "
+                    "animation only, so those keys are not imported."
+                )
+            held = []
+            for obj, action in pairs:
+                ad = obj.animation_data or obj.animation_data_create()
+                held.append((obj, ad.action, ad.action_slot))
+                ad.action = action
+                ad.action_slot = action.slots[0]
+            try:
+                clip = (
+                    store.stash(
+                        targets=[(o, None, *a.frame_range) for o, a in pairs],
+                        label=take,
+                        metadata={
+                            "source": "fbx",
+                            "path": os.path.basename(filepath),
+                            "take": take,
+                        },
+                    )
+                    if pairs
+                    else None
+                )
+            finally:
+                for obj, action, slot in held:
+                    obj.animation_data.action = action
+                    if action is not None and slot is not None:
+                        obj.animation_data.action_slot = slot
+            if clip is not None:
+                stashed.append(take)
+            for _owner, action in by_take[take]:
+                bpy.data.actions.remove(action)
+        if unmatched:
+            log.warning(
+                f"FBX {os.path.basename(filepath)}: action(s) "
+                f"{', '.join(sorted(a.name for a in unmatched))} match no take "
+                "and are left as the importer made them."
+            )
+        return stashed
+
+    @staticmethod
+    def _log_takes(
+        filepath: str,
+        layout: Dict[str, Any],
+        play: Optional[str],
+        stashed: List[str],
+        left_out: List[str],
+        log: logging.Logger,
+    ) -> None:
+        """One INFO line per import: the layout, what plays, what was parked
+        (and why); a WARNING naming what a ``stash=False`` import left out."""
+        base = os.path.basename(filepath)
+        live = layout["live"]
+        conflicts = layout.get("conflicts") or {}
+
+        def why(names):
+            return ", ".join(f"{t} ({conflicts.get(t, 'conflicts')})" for t in names)
+
+        if len(live) > 1:
+            plays = f"{', '.join(live)} play as one take, {play!r}"
+        elif live:
+            plays = f"{live[0]!r} plays"
+        else:
+            plays = "no take keys anything"
+        parts = [f"FBX {base}: {layout['kind']} -- {plays}"]
+        if layout.get("redundant"):
+            parts.append(
+                f"left out as covered or empty: {', '.join(layout['redundant'])}"
+            )
+        if stashed:
+            parts.append(f"stashed in Key Stash: {why(stashed)}")
+        log.info("; ".join(parts))
+        if left_out:
+            log.warning(
+                f"FBX {base}: takes left out of this import, nothing parked "
+                f"(stash=False): {why(left_out)}"
+            )
+
 
 class FbxUtils(_FbxUtilsInternal):
     """FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface)."""
@@ -2228,16 +2469,45 @@ class FbxUtils(_FbxUtilsInternal):
         return filepath
 
     @staticmethod
-    def import_fbx(filepath, **fbx_opts):
-        """Import an FBX file (wrapper over ``bpy.ops.import_scene.fbx``).
+    def import_fbx(filepath, stash=True, logger=None, **fbx_opts):
+        """Import an FBX file -- ALL of its animation (over ``bpy.ops.import_scene.fbx``).
 
         Args:
             filepath: the ``.fbx`` to import (``$VARS`` expanded). Raises ``FileNotFoundError`` if
                 absent.
+            stash: Park each take that disagrees with the takes that play WHOLE as a Key
+                Stash clip named after it (``btk.KeyStash``: retrievable, previewable,
+                export-inert) -- the default. ``False`` plays the same animation, parks
+                nothing and WARNS naming each take left out: for a throwaway import (a
+                staged comparison scene) that must not write Key Stash records.
+            logger: Where the import reports (the INFO line, the warnings); default this
+                module's logger.
             **fbx_opts: forwarded to ``bpy.ops.import_scene.fbx``.
 
         Returns:
             list: the objects created by the import (those newly added to ``bpy.data.objects``).
+
+        Raises:
+            FileNotFoundError: *filepath* does not exist.
+
+        No importer merges takes: Blender's makes an action per (take, object), hands each
+        object the FIRST take keying it and parks the rest under a fake user, so a Shots
+        Only file played its first shot and a whole-timeline take listed after its slices
+        played a slice. ``ptk.FbxFile.take_layout`` sorts the file's takes, and the importer
+        reads ONE file holding exactly what plays and what is parked:
+
+        * no animation / one take -- the file as it is;
+        * covered (a whole-timeline take beside its slices) -- the covering take alone,
+          the slices dropped from a scratch copy;
+        * merged (Shots Only windows, per-object takes, gap-0 seams) -- the takes merged
+          into one (``ptk.FbxMedia.merge_takes``) in a scratch copy;
+        * conflicted (a clip library: takes keying the same channels differently) -- the
+          file's current take, plus every take agreeing with it, plays; each other take
+          rides the same scratch copy whole and is stashed after the import.
+
+        No ``<object>|<take>`` action is left behind, the scratch copy is deleted, and one
+        INFO line says what happened. The twin of mayatk's ``FbxUtils.import_scene`` (same
+        ``stash`` / ``logger``), which plays the same takes through ``FBXImportSetTake``.
 
         ``anim_offset`` defaults to 0.0 here, not Blender's 1.0: an imported curve keeps
         the frames it was authored on, which is what Maya's own importer does.
@@ -2248,6 +2518,7 @@ class FbxUtils(_FbxUtilsInternal):
         """
         import bpy
 
+        log = logger or logging.getLogger(__name__)
         filepath = os.path.abspath(os.path.expandvars(filepath))
         if not os.path.isfile(filepath):
             raise FileNotFoundError(f"FBX not found: {filepath}")
@@ -2257,14 +2528,54 @@ class FbxUtils(_FbxUtilsInternal):
         # 3847/4740). Maya's importer shifts nothing, so 0.0 is what makes the two
         # agree. A caller that wants the shift still passes it.
         fbx_opts.setdefault("anim_offset", 0.0)
-        before = set(bpy.data.objects)
-        # Same contract as export above: io_scene_fbx reads context internally
-        # (it selects the imported objects), so a window must be in context —
-        # driven bare from tentacle's Qt event-pump timer, context.window is
-        # None and the op raises.
-        with CoreUtils.window_context_override(), SIBLING_ARMATURES.applied():
-            bpy.ops.import_scene.fbx(filepath=filepath, **fbx_opts)
-        return [o for o in bpy.data.objects if o not in before]
+        layout = _FbxUtilsInternal._take_layout(filepath, log)
+        alternatives = list(layout["stash"]) if layout else []
+        parked = alternatives if stash else []
+        with ptk.TempArtifacts("btk_fbx_takes", policy="scoped") as scratch:
+            source, play = filepath, None
+            if layout is not None:
+                try:
+                    source, play = _FbxUtilsInternal._take_source(
+                        filepath,
+                        layout,
+                        parked,
+                        lambda: scratch.path(extension=".fbx"),
+                    )
+                except (ValueError, OSError) as error:  # never refuse the import
+                    log.warning(
+                        f"FBX {os.path.basename(filepath)}: its takes could not be "
+                        f"combined ({error}); it imports as written, each object "
+                        "playing the first take that keys it."
+                    )
+                    layout, parked, alternatives = None, [], []
+            before = set(bpy.data.objects)
+            before_actions = set(bpy.data.actions)
+            # Same contract as export above: io_scene_fbx reads context internally
+            # (it selects the imported objects), so a window must be in context —
+            # driven bare from tentacle's Qt event-pump timer, context.window is
+            # None and the op raises.
+            with CoreUtils.window_context_override(), SIBLING_ARMATURES.applied():
+                bpy.ops.import_scene.fbx(filepath=source, **fbx_opts)
+            created = [o for o in bpy.data.objects if o not in before]
+        stashed: List[str] = []
+        if parked:
+            stashed = _FbxUtilsInternal._settle_takes(
+                filepath,
+                [a for a in bpy.data.actions if a not in before_actions],
+                play,
+                parked,
+                log,
+            )
+        if layout is not None:
+            _FbxUtilsInternal._log_takes(
+                filepath,
+                layout,
+                play,
+                stashed,
+                [] if stash else alternatives,
+                log,
+            )
+        return created
 
     @staticmethod
     def scene_settings(filepath):

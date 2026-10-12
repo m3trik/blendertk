@@ -201,114 +201,68 @@ class SegmentCollector:
         return sorted(attrs)
 
     @staticmethod
-    def build_curve_preview(fcurve, t_start, t_end, hidden_times=()):
-        """Bézier shape data for one Blender fcurve, clipped to ``[t_start, t_end]``.
+    def summary_times(segments, claimed_times) -> list:
+        """Every key time an object row ticks in the flat key style.
 
-        Returns the DCC-agnostic ``{keys, segments, val_min, val_max}`` dict the shared
-        widget painter renders with ``QPainterPath.cubicTo`` / ``lineTo`` — identical
-        shape to mayatk's, so the painter is unchanged.  A Blender keyframe's
-        ``handle_right`` / ``handle_left`` are the bezier control points directly (in
-        frame/value space), so no angle+weight reconstruction is needed.  *None* when
-        the curve has no usable data in range.  Keys on *hidden_times* are flagged
-        ``hidden`` (part of the curve, no dot): the shot system's claimed bound
-        samples, as mayatk flags them.
+        The segments' own ``keyframes`` (already collected upstream), minus
+        the shot system's claimed bound samples: a time drops only when every
+        curve of its segment that is keyed there holds it as a claimed sample.
+        A claim on one channel beside an animator key on another keeps the
+        tick -- the object has a real key there.
+
+        Parameters:
+            segments: Segment dicts of one object (``curves``, ``keyframes``).
+            claimed_times: ``curve -> [time, ...]``, the samples the shot
+                system created on that curve (the ledger).
+
+        Returns:
+            Ascending, de-duplicated times.
+        """
+        out: set = set()
+        for seg in segments:
+            curves = list(seg.get("curves") or [])
+            claims = {id(c): list(claimed_times(c) or ()) for c in curves}
+            for t in seg.get("keyframes") or ():
+                claimers = [
+                    c for c in curves if any(abs(t - h) <= 1e-3 for h in claims[id(c)])
+                ]
+                if not claimers or any(
+                    SegmentCollector._has_key_at(c, t)
+                    for c in curves
+                    if all(c is not k for k in claimers)
+                ):
+                    out.add(float(t))
+        return sorted(out)
+
+    @staticmethod
+    def _has_key_at(curve, t: float) -> bool:
+        """Whether *curve* carries a key at *t* (within 1e-3 frames)."""
+        try:
+            i0, i1 = AnimUtils.window_indices(
+                AnimUtils.key_times(curve), t - _EPS, t + _EPS
+            )
+        except ReferenceError:  # the fcurve died with an undo / action swap
+            return False
+        return i1 > i0
+
+    @staticmethod
+    def build_curve_preview(fcurve, t_start, t_end, hidden_times=()):
+        """Bezier shape data for one Blender fcurve, clipped to ``[t_start, t_end]``.
+
+        The fcurve read as a host-free ``pythontk.KeyCurve``
+        (:meth:`AnimUtils.get_key_curves`, mirror of mayatk) and windowed by
+        ``KeyCurve.to_preview``: the DCC-agnostic ``{keys, segments, broken,
+        hidden, weighted, val_min, val_max}`` dict the shared widget painter
+        renders.  A keyframe's ``handle_left`` / ``handle_right`` are the
+        control points directly; an eased span (SINE/QUAD/BOUNCE...) is drawn
+        through ``samples`` of the curve itself and stays a ``"linear"``
+        segment (no handles to grab).  *None* when the curve has no usable
+        data in range.  Keys on *hidden_times* are flagged ``hidden`` (part of
+        the curve, no dot): the shot system's claimed bound samples.
         """
         if fcurve is None:
             return None
-        kps = getattr(fcurve, "keyframe_points", None)
-        if not kps:
+        curves = AnimUtils.get_key_curves([fcurve])
+        if not curves:
             return None
-        times = AnimUtils.key_times(fcurve)
-        n = len(times)
-
-        # Visible key indices, plus one bounding key each side for edge segments.
-        first_vis = last_vis = None
-        for i, t in enumerate(times):
-            if t_start - 0.001 <= t <= t_end + 0.001:
-                if first_vis is None:
-                    first_vis = i
-                last_vis = i
-        if first_vis is None:
-            before = [i for i, t in enumerate(times) if t < t_start]
-            after = [i for i, t in enumerate(times) if t > t_end]
-            if not before or not after:
-                return None
-            first_vis, last_vis = before[-1], after[0]
-        else:
-            if first_vis > 0:
-                first_vis -= 1
-            if last_vis < n - 1:
-                last_vis += 1
-
-        vis_keys = []
-        vis_segs = []
-        all_vals = []
-        broken = []  # per visible key: a FREE handle on either side
-        for i in range(first_vis, last_vis + 1):
-            kp = kps[i]
-            vis_keys.append((kp.co[0], kp.co[1]))
-            all_vals.append(kp.co[1])
-            broken.append("FREE" in (kp.handle_left_type, kp.handle_right_type))
-
-        for i in range(first_vis, last_vis):
-            k0, k1 = kps[i], kps[i + 1]
-            t0, v0 = k0.co[0], k0.co[1]
-            t1, v1 = k1.co[0], k1.co[1]
-            interp = getattr(k0, "interpolation", "BEZIER")
-            # Only true BEZIER keys have meaningful handles; the easing modes
-            # (SINE/QUAD/BOUNCE/…) don't evaluate through them, so drawing their
-            # handles as control points renders a wrong curve.  Those are drawn
-            # through samples of the curve itself (``samples``, which the
-            # shared painter follows), as mayatk draws each of its own tangent
-            # types faithfully; the segment stays "linear" for every consumer
-            # that reads the type (no handles to grab on an eased span).
-            out_type = {"CONSTANT": "step", "LINEAR": "linear", "BEZIER": "bezier"}.get(
-                interp, "linear"
-            )
-            cp1 = cp2 = None
-            samples = None
-            if out_type == "bezier":
-                cp1 = (k0.handle_right[0], k0.handle_right[1])
-                cp2 = (k1.handle_left[0], k1.handle_left[1])
-                all_vals.extend([cp1[1], cp2[1]])
-            elif interp not in ("CONSTANT", "LINEAR") and t1 > t0:
-                n_samples = max(8, min(48, int((t1 - t0) * 2)))
-                samples = [
-                    (t, fcurve.evaluate(t))
-                    for t in (
-                        t0 + (t1 - t0) * j / (n_samples + 1)
-                        for j in range(1, n_samples + 1)
-                    )
-                ]
-                all_vals.extend(v for _t, v in samples)
-            seg = {
-                "t0": t0,
-                "v0": v0,
-                "t1": t1,
-                "v1": v1,
-                "out_type": out_type,
-                "cp1": cp1,
-                "cp2": cp2,
-            }
-            if samples:
-                seg["samples"] = samples
-            vis_segs.append(seg)
-
-        if not vis_keys:
-            return None
-        return {
-            "keys": vis_keys,
-            "segments": vis_segs,
-            "broken": broken,
-            "hidden": [
-                any(abs(t - h) <= 1e-3 for h in hidden_times) for t, _v in vis_keys
-            ],
-            # A Blender handle IS a position, so its length always means
-            # something -- unlike Maya's unweighted tangents, which store an
-            # angle and pin the control point a third of the span out.  The
-            # widget reads this to swing an aligned key's other side exactly
-            # where ``place_dragged_handle`` will leave it.
-            "weighted": True,
-            "val_min": min(all_vals),
-            "val_max": max(all_vals),
-        }
+        return curves[0].to_preview(t_start, t_end, hidden_times)

@@ -314,8 +314,9 @@ class _TextureTasksMixin(_TaskDataMixin):
         with ``convert_textures``): temp, a ``TempArtifacts`` dir deleted by
         that restore, when the deliverable carries its own copies (every FBX
         and GLB); for a USD layer, which references them, durable in
-        ``textures/`` beside it and kept (``check_existing=True`` makes
-        re-exports incremental).
+        ``textures/`` beside it and kept. Either way a repeat export encodes
+        nothing it encoded before: ``stage_maps`` caches each encode on the
+        source file and the settings.
 
         **Write-back mode** (Texture Output at "Scene Files (In Place)"): the
         optimization is written over the scene's own texture files (originals

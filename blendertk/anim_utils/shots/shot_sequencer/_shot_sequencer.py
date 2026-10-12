@@ -24,14 +24,14 @@ DCC swaps versus the Maya original (by design, not gaps):
     * **Gap holds** set the last key before each inter-shot gap to
       ``interpolation="CONSTANT"`` (Maya: ``step`` out-tangent).  Both are
       claimed in the shared edit ledger so they can be RELEASED again; an
-      fcurve has no node name, so a claim is keyed by
-      ``"<object>|<data_path>|<array_index>"`` (:meth:`_fc_key`).
+      fcurve has no node name, so a claim is keyed by the curve's identity,
+      ``"<action>|<slot handle>|<data_path>|<array_index>"`` (:meth:`_fc_key`).
     * **Reorder** goes through the pure ``plan_reorder`` + park/land apply
       (Maya hand-rolls the park loop; same result).
     * **Renames, not DAG paths, are reconciled.**  Blender object names are
       flat and unique, so there is no path to re-resolve -- but a rename
-      leaves the store naming an object that is gone, members and ledger
-      claims alike, which :meth:`reconcile_all_shots` follows through
+      leaves the store naming an object that is gone (members; ledger claims
+      name the action), which :meth:`reconcile_all_shots` follows through
       ``BlenderShotStore.follow_renames``.
     * **Undo pairing by serial, not by name.** mayatk tags each boundary
       restore point with the undo chunk its edit landed under and checks that
@@ -39,7 +39,7 @@ DCC swaps versus the Maya original (by design, not gaps):
       names, so ``BlenderShotStore.scene_edit`` stamps a scene serial inside
       the step and tags the point with it; memfile undo winds the serial with
       the steps, which is how the undo/redo handlers tell our step from any
-      other (``UndoLedgerMixin._native_event_is_ours``).  A no-op edit
+      other (``BlenderShotStore._native_step_crossed``).  A no-op edit
       cancels its step (``scene_edit``'s handle), the twin of Maya discarding
       an empty chunk.
 """
@@ -47,7 +47,7 @@ DCC swaps versus the Maya original (by design, not gaps):
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from pythontk import ShotPlanner, ShotStore
+from pythontk import KeyCurve, ShotPlanner, ShotStore
 from pythontk import ShotSequencer as _ShotSequencerCore
 from pythontk.core_utils.engines.shots.shot_apply import ShotApply
 
@@ -79,6 +79,10 @@ _FLAT_SPAN_INTERPOLATIONS = ("CONSTANT", "LINEAR")
 # a run of keys auto on BOTH sides is solved together, so a new neighbour
 # reshapes the whole run; a key that is not auto on both sides ends one.
 _DERIVED_HANDLES = ("AUTO", "AUTO_CLAMPED")
+
+# Every handle type a neighbour moving re-computes: the auto ones and VECTOR,
+# which points at its neighbours.  What a freeze or a hold puts back.
+_NEIGHBOUR_HANDLES = _DERIVED_HANDLES + ("VECTOR",)
 
 # Handle types whose position Blender keeps as authored (VECTOR is re-derived
 # from the neighbours on every update, like an auto handle).
@@ -153,11 +157,13 @@ class _ShotSequencerInternal(object):
 
     @staticmethod
     def _fc_key(obj_name: str, fc) -> str:
-        """Stable ledger key for an fcurve.
+        """Stable ledger key for fcurve *fc* of object *obj_name*.
 
         Maya claims are keyed by animCurve NODE name; a Blender fcurve is not
-        a node and has no name, so its owner plus channel identity stands in.
-        Same shape, same uniqueness; a rename of the object (or of a bone,
+        a node and has no name, so its identity stands in: the action and
+        slot animating the object, plus the channel
+        (``BlenderShotStore.curve_key``) -- one key per curve, however many
+        linked duplicates play it.  A rename of the action (or of a bone,
         which rewrites the path) is followed by re-keying the claims
         (``BlenderShotStore.follow_renames``).
         """
@@ -168,18 +174,7 @@ class _ShotSequencerInternal(object):
     @staticmethod
     def _fcurve_for_key(key: str):
         """Resolve a :meth:`_fc_key` back to a live fcurve, or ``None``."""
-        try:
-            obj_name, data_path, index = key.rsplit("|", 2)
-            index = int(index)
-        except (ValueError, AttributeError):
-            return None
-        obj = _ShotSequencerInternal._object(obj_name)
-        if obj is None:
-            return None
-        for fc in BlenderShotStore.iter_action_fcurves(obj):
-            if fc.data_path == data_path and fc.array_index == index:
-                return fc
-        return None
+        return BlenderShotStore._fcurve_for_key(key)
 
     @staticmethod
     def _key_index_at(fc, t: float, eps: float = _SLOP):
@@ -337,6 +332,9 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
             raise ValueError(f"No shot with id {shot_id}")
         old_start, old_end = shot.start, shot.end
         new_start = self._clamp_slide_start(shot, self.store.snap(new_start), direction)
+        # The closing rule, as pythontk's: a frame short of a neighbour whose
+        # pose differs from the one landing beside it.
+        new_start = self._closing_slide_start(shot, new_start, direction)
         delta = new_start - old_start
         if abs(delta) < _EPS:
             return
@@ -456,26 +454,24 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         return bool(follow()) if follow is not None else False
 
     def _follow_unresolved_claims(self, keys) -> bool:
-        """Follow renames when a claim among *keys* names an owner that is gone.
+        """Follow renames when a claim among *keys* names what a rename left.
 
         The passes that FORGET a claim they cannot resolve
         (:meth:`_release_gap_holds`, :meth:`_reconcile_boundary_keys`) call
-        this first, so a renamed object's (or bone's) claims are re-keyed
-        instead of lost.  Only a name test per key -- the object, and a pose
-        bone's channel's bone -- so a pass with nothing renamed pays nothing
-        more.  Returns ``True`` if anything was re-pointed.
+        this first, so a renamed action's (or bone's) claims -- and a
+        format-1 claim still naming its object -- are re-keyed instead of
+        lost.  Only a name test per key (``BlenderShotStore._key_stale``), so
+        a pass with nothing renamed pays nothing more.  Returns ``True`` if
+        anything was re-pointed.
         """
         try:
-            import bpy
+            import bpy  # noqa: F401
         except ImportError:
             return False
+        keys = list(keys)
+        owners = BlenderShotStore._slot_owners() if keys else None
         for key in keys:
-            try:
-                obj_name, data_path, _index = key.rsplit("|", 2)
-            except ValueError:
-                continue
-            obj = bpy.data.objects.get(obj_name)
-            if obj is None or BlenderShotStore._bone_gone(obj, data_path):
+            if BlenderShotStore._key_stale(key, owners):
                 return self._follow_store_renames()
         return False
 
@@ -510,10 +506,11 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
             return []
         nodes = self._shot_nodes(shot)
         if not nodes:
+            # The system's own fill, not a hand edit (the manifest's
+            # edited_by_hand reads past it); unresolved members stay (mayatk).
             discovered = self._find_keyed_transforms(shot.start, shot.end)
             if discovered:
-                shot.objects = sorted(set(discovered))
-                self.store.update_shot(shot.shot_id, objects=shot.objects)
+                self.store.add_system_members(shot.shot_id, discovered)
                 nodes = self._shot_nodes(shot)
             if not nodes:
                 return []
@@ -830,26 +827,20 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         lo = (env_lo + _SLOP) if lo_open else (env_lo - _SLOP)
         hi = (env_hi + _SLOP) if hi_closed else (env_hi - _SLOP)
         led = self.ledger
-        for name in objects:
-            obj = _ShotSequencerInternal._object(name)
-            if obj is None:
+        for name, fc in self._named_fcurves(objects):
+            times = AnimUtils.key_times(fc)
+            i0, i1 = AnimUtils.window_indices(times, lo, hi, hi_closed)
+            if i1 <= i0:
                 continue
-            for fc in BlenderShotStore.iter_action_fcurves(obj):
-                times = AnimUtils.key_times(fc)
-                i0, i1 = AnimUtils.window_indices(times, lo, hi, hi_closed)
-                if i1 <= i0:
-                    continue
-                AnimUtils.shift_keys_in_window(
-                    fc, lo, hi, delta, inclusive_hi=hi_closed
-                )
-                # A claim is a (curve, time) pair, so it travels with the KEYS
-                # that moved -- exactly those, never a bound sample the
-                # fencepost rule left in place (a window shift, inflated by
-                # the ledger's own epsilon, reached it; mirrors mayatk).
-                led.remap(
-                    _ShotSequencerInternal._fc_key(name, fc),
-                    [(t, t + delta) for t in times[i0:i1]],
-                )
+            AnimUtils.shift_keys_in_window(fc, lo, hi, delta, inclusive_hi=hi_closed)
+            # A claim is a (curve, time) pair, so it travels with the KEYS
+            # that moved -- exactly those, never a bound sample the
+            # fencepost rule left in place (a window shift, inflated by
+            # the ledger's own epsilon, reached it; mirrors mayatk).
+            led.remap(
+                _ShotSequencerInternal._fc_key(name, fc),
+                [(t, t + delta) for t in times[i0:i1]],
+            )
 
     def _batch_move_keys(
         self,
@@ -874,22 +865,18 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
             return
         lo = (env_lo + _SLOP) if lo_open else (env_lo - _SLOP)
         hi = (env_hi + _SLOP) if hi_closed else (env_hi - _SLOP)
-        for name in objects:
-            obj = _ShotSequencerInternal._object(name)
-            if obj is None:
+        for name, fc in self._named_fcurves(objects):
+            times = AnimUtils.key_times(fc)
+            i0, i1 = AnimUtils.window_indices(times, lo, hi, hi_closed)
+            if i1 <= i0:
                 continue
-            for fc in list(BlenderShotStore.iter_action_fcurves(obj)):
-                times = AnimUtils.key_times(fc)
-                i0, i1 = AnimUtils.window_indices(times, lo, hi, hi_closed)
-                if i1 <= i0:
-                    continue
-                self.move_curve_keys(
-                    fc,
-                    list(times[i0:i1]),
-                    delta,
-                    ledger=self.ledger,
-                    ledger_key=_ShotSequencerInternal._fc_key(name, fc),
-                )
+            self.move_curve_keys(
+                fc,
+                list(times[i0:i1]),
+                delta,
+                ledger=self.ledger,
+                ledger_key=_ShotSequencerInternal._fc_key(name, fc),
+            )
 
     @staticmethod
     def _shift_audio(old_start: float, old_end: float, delta: float) -> None:
@@ -949,17 +936,25 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
 
     @staticmethod
     def _named_fcurves(names) -> list:
-        """``[(object_name, fcurve), ...]`` for the named objects, in name order.
+        """``[(object_name, fcurve), ...]`` for the named objects, in *names*
+        order, each fcurve ONCE.
 
-        The owner comes along because an fcurve carries no name: its ledger
-        key is built from the object plus the channel (:meth:`_fc_key`).
+        Linked duplicates share an action slot, so an op walking owner by
+        owner moved, scaled or pinned one curve once per sharer; the first
+        owner carries it.  The owner comes along because an fcurve knows
+        its action, not the slot its ledger key names (:meth:`_fc_key`).
         """
         out: list = []
+        seen: set = set()
         for name in names or ():
             obj = _ShotSequencerInternal._object(name)
             if obj is None:
                 continue
-            out.extend((name, fc) for fc in BlenderShotStore.iter_action_fcurves(obj))
+            for fc in BlenderShotStore.iter_action_fcurves(obj):
+                ptr = fc.as_pointer()
+                if ptr not in seen:
+                    seen.add(ptr)
+                    out.append((name, fc))
         return out
 
     @staticmethod
@@ -1024,15 +1019,36 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
                 facing.append((original, "handle_left", loff))
             if not any(cls._handle_moved(fc, t, side, off) for t, side, off in facing):
                 return
-            for t, side, off in facing:
-                kp = cls._key_at(fc, t)
-                if kp is None:
-                    continue
-                kp.handle_left_type = kp.handle_right_type = "FREE"
-                setattr(kp, side, (kp.co[0] + off[0], kp.co[1] + off[1]))
-            fc.update()
+            cls._free_handles(
+                fc,
+                [
+                    (kp, off, None) if side == "handle_left" else (kp, None, off)
+                    for t, side, off in facing
+                    if (kp := cls._key_at(fc, t)) is not None
+                ],
+            )
         except (RuntimeError, TypeError, ValueError, AttributeError):
             pass  # a locked or linked curve keeps what the split gave it
+
+    @staticmethod
+    def _free_handles(fc, points) -> int:
+        """Set each ``(point, left offset, right offset)`` of *points* FREE at
+        those offsets from its key (``None``: that side stays where it is),
+        then update *fc* once.  Every type first, every position after:
+        typing a side re-derives the other.  The ONE handle hold of the shot
+        system -- a freeze, a split's facing halves, a plan's moved runs.
+        Returns the number of points set."""
+        for kp, _left, _right in points:
+            kp.handle_left_type = kp.handle_right_type = "FREE"
+        for kp, left, right in points:
+            co = kp.co
+            if left is not None:
+                kp.handle_left = (co[0] + left[0], co[1] + left[1])
+            if right is not None:
+                kp.handle_right = (co[0] + right[0], co[1] + right[1])
+        if points:
+            fc.update()
+        return len(points)
 
     @classmethod
     def _handle_moved(cls, fc, t: float, side: str, offset) -> bool:
@@ -1087,14 +1103,13 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         return None if i is None else fc.keyframe_points[i]
 
     def _plan_curves(self, plan) -> list:
-        """``[(ledger key, fcurve, [time, ...]), ...]`` for every curve *plan* moves."""
-        names: set = set()
-        for shot_id, move in plan.moves.items():
-            if not move.moves:
-                continue
-            shot = self.shot_by_id(shot_id)
-            if shot is not None:
-                names.update(self._shot_nodes(shot))
+        """``[(ledger key, fcurve, [time, ...]), ...]`` for every curve *plan* moves:
+        the writer's own set (:meth:`_content_objects`), not the moving shots'
+        members (mirror of mayatk's, which carries the production case); a
+        conflict on any of them is refused."""
+        if not any(move.moves for move in plan.moves.values()):
+            return []
+        names = self._content_objects()
         out: list = []
         for name, fc in self._named_fcurves(sorted(names)):
             times = AnimUtils.key_times(fc)
@@ -1102,6 +1117,163 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
                 key = _ShotSequencerInternal._fc_key(name, fc)
                 out.append((key, fc, sorted(times)))
         return out
+
+    def _pin_keyless_seams(self, opened) -> int:
+        """Key the preceding shot's own pose on every KEYLESS seam *opened*
+        pulls apart (``[(prev_id, shot_id, boundary, new_start), ...]``,
+        :meth:`_opened_seams`) without changing what the curve plays, and
+        claim each pin as that shot's end, ``stays``.
+
+        Mirror of mayatk's ``_pin_keyless_seams`` (the one rule, maintainer
+        2026-10-10: an op on one shot never changes what another plays inside
+        its own span; the rule in ``ShotPlanner.keyless_seam``).  The writer
+        is the respace pin's (:meth:`_insert_shape_keys`: derived handles
+        frozen where they sit, the segment split exactly; a hold declined),
+        called only where :meth:`_pinnable` says it has a key to put.  Every
+        content fcurve is offered (:meth:`_content_objects`), not the two
+        shots' members: a segment can cross the seam from a key shots away
+        (mayatk's docstring carries the production ramp).
+
+        Returns the number of pins inserted.
+        """
+        pinned = 0
+        named = None
+        for prev_id, shot_id, boundary, _new_start in opened:
+            if self.shot_by_id(prev_id) is None or self.shot_by_id(shot_id) is None:
+                continue
+            if named is None:  # read once, only when a seam opens
+                named = self._named_fcurves(self._content_objects())
+            for obj_name, fc in named:
+                if not ShotPlanner.keyless_seam(
+                    AnimUtils.key_times(fc), boundary, _SLOP
+                ) or not self._pinnable(fc, boundary):
+                    continue
+                key = _ShotSequencerInternal._fc_key(obj_name, fc)
+                for t in self._insert_shape_keys(
+                    fc, [boundary], ledger=self.ledger, ledger_key=key
+                ):
+                    self.ledger.record_key(key, t, prev_id, "end", stays=True)
+                    pinned += 1
+        return pinned
+
+    def _pose_collisions(self, plan, retimes=()):
+        """``(conflicts, merges)`` of the keys *plan* lands on one frame
+        (mirror of mayatk's): ``conflicts`` ``[(label, frame, values), ...]``
+        where two different poses meet, ``merges`` ``[(fcurve, frame, movers,
+        still, ledger key), ...]`` where they agree -- the first mover
+        survives, the rest are cut -- every refusal's analysis.
+
+        *retimes* names the gaps a later stage RESCALES into their new width:
+        a key strictly inside one lands strictly inside the new gap, disjoint
+        from every shot, so it cannot collide with a shot's sample (analysed
+        with the rest, a shrinking gap's key read as landing on the next shot
+        and refused the respace).  Open intervals: a shot's own bookend ON a
+        bound is still analysed.
+        """
+        windows = ShotPlanner.move_windows(plan)
+        if not windows:
+            return [], []
+        deferred = [(g.lo, g.hi) for g in retimes]
+        conflicts: list = []
+        merges: list = []
+        for key, fc, keyed in self._plan_curves(plan):
+            times = [t for t in keyed if not any(lo < t < hi for lo, hi in deferred)]
+            for dest, movers, still in ShotPlanner.key_collisions(windows, times):
+                vals = {}
+                for t in movers + still:
+                    kp = self._key_at(fc, t)
+                    if kp is not None:
+                        vals[t] = float(kp.co[1])
+                if not vals:
+                    continue
+                if max(vals.values()) - min(vals.values()) > _POSE_TOL:
+                    label = f"{getattr(fc.id_data, 'name', '?')}.{fc.data_path}"
+                    conflicts.append((label, float(dest), sorted(vals.values())))
+                else:  # lossless: keep one mover, clear what it lands on
+                    merges.append((fc, float(dest), list(movers), list(still), key))
+        return conflicts, merges
+
+    @classmethod
+    def _merge_handles(cls, merges, held_steps=None) -> list:
+        """``[(fcurve, frame, left offset, right offset, interpolation), ...]``
+        a lossless merge puts on the key it keeps, for each ``(fcurve, frame,
+        movers, still, key)`` of *merges*: the left handle of the EARLIEST key
+        landing on the frame, the right handle and interpolation (the segment
+        after it) of the LATEST, read before anything moves (mirror of
+        mayatk's ``_merge_halves``, which carries the measurements).  The
+        surviving mover's own handles face the gap it crossed; the shot on
+        each side plays the handle its own key had there.  A survivor a gap
+        hold claims (*held_steps*: ``(ledger key, time) -> bool``) is left to
+        the hold's own release."""
+        held: list = []
+        for fc, dest, movers, still, key in merges:
+            if held_steps is not None and held_steps(key, movers[0]):
+                continue
+            times = movers + still
+            first, last = cls._key_at(fc, min(times)), cls._key_at(fc, max(times))
+            if first is None or last is None:
+                continue
+            left = cls._handle_snapshot(first)[2]
+            right = cls._handle_snapshot(last)[3]
+            held.append((fc, dest, left, right, last.interpolation))
+        # A run of auto keys is solved together: freed where they sit, the
+        # curve's other keys play on around the merge.
+        for fc in {m[0].as_pointer(): m[0] for m in merges}.values():
+            cls._freeze_derived_handles(fc)
+        return held
+
+    def _poses_differ(self, pairs, objects=None) -> List[bool]:
+        """Per ``(frame_a, frame_b)`` of *pairs*: whether any content fcurve
+        -- or *objects*' (``[(obj, attr or None), ...]``) -- plays a different
+        value at the two frames, beyond :data:`_POSE_TOL`, keyed or not
+        (``fcurve.evaluate``; mirror of mayatk's) -- the pythontk hook behind
+        the gap-0 closing rule."""
+        if _ShotSequencerInternal._scene() is None or not pairs:
+            return [False] * len(pairs)
+        if objects is None:
+            fcs = [
+                fc for _name, fc in self._named_fcurves(sorted(self._content_objects()))
+            ]
+        else:
+            fcs = [fc for obj, attr in objects for fc in self._fcurves_of(obj, attr)]
+        return [
+            any(
+                abs(float(fc.evaluate(a)) - float(fc.evaluate(b))) > _POSE_TOL
+                for fc in fcs
+            )
+            for a, b in pairs
+        ]
+
+    def _gaps_keyed(self, windows) -> List[bool]:
+        """Per ``(start, end)`` window: whether a content fcurve -- the curves
+        a respace retimes (:meth:`_retime_gaps`) -- keys a frame inside it
+        that is not one of the system's bound samples (``edit_ledger``).  The
+        pythontk hook behind the respace's closing rule (mirror of
+        mayatk's)."""
+        out = [False] * len(windows)
+        if _ShotSequencerInternal._scene() is None or not windows:
+            return out
+        led = self.ledger
+        for name, fc in self._named_fcurves(sorted(self._content_objects())):
+            times = AnimUtils.key_times(fc)
+            key = None
+            for i, (lo, hi) in enumerate(windows):
+                if out[i] or hi <= lo:
+                    continue
+                i0, i1 = AnimUtils.window_indices(times, lo, hi)
+                if i1 <= i0:
+                    continue
+                key = key or _ShotSequencerInternal._fc_key(name, fc)
+                out[i] = any(not led.owns_key(key, t) for t in times[i0:i1])
+        return out
+
+    def _retime_closing_gaps(self, retimes) -> int:
+        """The pythontk hook behind a slide's closed gap: the shrink stage
+        of :meth:`_retime_gaps` over the scene's content, before anything
+        moves (mirror of mayatk's)."""
+        if _ShotSequencerInternal._scene() is None or not retimes:
+            return 0
+        return self._retime_gaps(retimes, self._content_objects(), after_move=False)
 
     def _reconcile_boundaries(self, plan, retimes=()):
         """Keep fencepost samples whole across boundaries *plan* changes.
@@ -1118,11 +1290,12 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         writes anything.  Mirrors mayatk — see that docstring for the full
         rationale.
 
-        Assumes membership is already complete (the back-fill runs
-        first): a collision is predicted for every key inside a moving
-        window, and that only matches what the writer does because the
-        writer moves each shot's OWN objects and every object keyed in
-        the window has just been adopted into it.
+        Every stage reads the curves the writer moves -- the whole keyed
+        content (:meth:`_content_objects`), not the moving shots' members:
+        a collision is predicted for every key inside a moving window, and
+        that only matches what the writer does over the same set.  (It once
+        read the members, back-filled with everything keyed in the window;
+        the back-fill went and the narrower read stayed, 2026-10-11.)
 
         Returns a callable to invoke after the plan has been applied.
         """
@@ -1140,35 +1313,26 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
             return _noop
 
         # ---- merges: detect every conflict BEFORE cutting anything -------
-        # *retimes* names the gaps a later stage RESCALES into their new width
-        # (mirror of mayatk): a key strictly inside one lands strictly inside
-        # the new gap, disjoint from every shot, so it cannot collide with a
-        # shot's sample -- analysed with the rest, a shrinking gap's key read
-        # as landing on the next shot and refused the respace.  Open intervals:
-        # a shot's own bookend ON a bound is still analysed.
-        deferred = [(g.lo, g.hi) for g in retimes]
-        conflicts: list = []
-        losers: list = []
-        for key, fc, times in self._plan_curves(plan):
-            times = [t for t in times if not any(lo < t < hi for lo, hi in deferred)]
-            for dest, movers, still in ShotPlanner.key_collisions(windows, times):
-                vals = {}
-                for t in movers + still:
-                    kp = self._key_at(fc, t)
-                    if kp is not None:
-                        vals[t] = float(kp.co[1])
-                if not vals:
-                    continue
-                if max(vals.values()) - min(vals.values()) > _POSE_TOL:
-                    label = f"{getattr(fc.id_data, 'name', '?')}.{fc.data_path}"
-                    conflicts.append((label, float(dest), sorted(vals.values())))
-                else:  # lossless: keep one mover, clear what it lands on
-                    losers.extend((fc, t, key) for t in movers[1:] + still)
+        conflicts, merges = self._pose_collisions(plan, retimes)
         if conflicts:
             raise ShotBoundaryConflict(conflicts)
+        losers = [
+            (fc, t, key)
+            for fc, _d, movers, still, key in merges
+            for t in movers[1:] + still
+        ]
+        merged = self._merge_handles(merges, self.ledger.owns_step)
+
+        # ---- keyless seams: pin the preceding shot's own pose first --------
+        # (mirror of mayatk's): a seam the split opens with NO key on it is a
+        # segment both shots share; pinned, the capture below copies it.
+        self._pin_keyless_seams(self._opened_seams(plan))
 
         # ---- splits: capture while the shared sample still exists ---------
+        # Over every content fcurve, not the following shot's members (mirror
+        # of mayatk's): a shot PLAYS a segment it keys nothing of.
         captures: list = []
+        content_fcurves = None
         for prev_id, shot_id, boundary, new_start in ShotPlanner.boundary_splits(
             self.store, plan
         ):
@@ -1182,28 +1346,44 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
             prev_delta = (
                 prev_move.delta if prev_move is not None and prev_move.moves else 0.0
             )
-            for obj_name, fc in self._named_fcurves(self._shot_nodes(shot)):
+            # A following shot's window reaching back over the seam takes the
+            # sample with it (mirror of mayatk's).
+            next_move = plan.moves.get(shot_id)
+            if next_move is not None and not next_move.moves:
+                next_move = None
+            if content_fcurves is None:
+                content_fcurves = self._named_fcurves(self._content_objects())
+            for obj_name, fc in content_fcurves:
                 kp = self._key_at(fc, boundary)
                 if kp is None:
                     continue  # this curve has no pose on the shared sample
+                if next_move is not None and ShotPlanner.in_window(
+                    float(kp.co[0]),
+                    next_move.env_start,
+                    next_move.env_end,
+                    next_move.env_lo_open,
+                    next_move.env_hi_closed,
+                    _SLOP,
+                ):
+                    continue  # it rides the following shot's own window
                 times = AnimUtils.key_times(fc) or []
-                if not any(boundary + _SLOP < t <= shot.end + _SLOP for t in times):
-                    continue  # the following shot does not animate this curve
-                # Shared only where the PRECEDING shot animates this curve
-                # too.  Where it does not, the sample was never a shared
-                # fencepost — it is the following shot's opening pose alone,
-                # so it travels with that shot instead of being duplicated
-                # and left behind on a curve its neighbour has no stake in.
-                shared = any(
-                    prev_shot.start - _SLOP <= t < boundary - _SLOP for t in times
-                )
+                if not any(t > boundary + _SLOP for t in times):
+                    continue  # nothing after: the curve holds the pose on
+                # Shared wherever the PRECEDING shot plays into it -- a key
+                # before it, however far back (mirror of mayatk's, the one
+                # rule).  With nothing before it the sample was never shared
+                # -- it is the following shot's opening pose alone, so it
+                # travels with that shot instead of being duplicated and left
+                # behind on a curve its neighbour has no stake in.
+                shared = any(t < boundary - _SLOP for t in times)
                 key = _ShotSequencerInternal._fc_key(obj_name, fc)
                 key_t = float(kp.co[0])
                 if shared and self.ledger.owns_key(key, key_t):
                     # It stays the preceding shot's closing pose, so a claim on
                     # it serves THAT shot's end from here (mirror of mayatk's).
+                    stays = self.ledger.key_stays(key, key_t)
                     self.ledger.release_key(key, key_t)
-                    self.ledger.record_key(key, key_t, prev_id, "end")
+                    self.ledger.record_key(key, key_t, prev_id, "end", stays=stays)
                 captures.append(
                     (
                         fc,
@@ -1240,12 +1420,18 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
                     continue  # locked or library-linked curve — leave it as it was
                 self.ledger.release(key, t)
 
-        if not captures:
+        if not captures and not merged:
             return _noop
 
         led = self.ledger
 
         def _finish():
+            # A merged key closes the earlier side and opens the later one.
+            for fc, dest, left, right, interp in merged:
+                kp = self._key_at(fc, dest)
+                if kp is not None:
+                    kp.interpolation = interp
+                    self._free_handles(fc, [(kp, left, right)])
             for (
                 fc,
                 frame,
@@ -1348,6 +1534,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
                 self.ledger.record_key(
                     _ShotSequencerInternal._fc_key(name, fc), frame, owner, edge
                 )
+        hold_slopes = self._hold_moved_boundary_handles(plan, content)
         finish = self._reconcile_boundaries(plan, retimes)
         if retimes:
             self._retime_gaps(retimes, content, after_move=False)
@@ -1361,6 +1548,116 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         finish()
         if retimes:
             self._retime_gaps(retimes, content, after_move=True)
+        hold_slopes()
+
+    def _hold_moved_boundary_handles(self, plan, content):
+        """Snapshot the derived handles of every fcurve a run *plan* moves
+        has derived handles on its ends, and return the restore, which puts
+        back -- FREE, where they sat relative to their keys -- every handle of
+        a curve on which one came out re-derived.
+
+        Mirror of mayatk's ``_hold_moved_boundary_slopes`` (the plan writer's
+        form of the drag's tangent hold): a shot moved away from a key it does
+        not take along re-derives the handle facing its own content (measured
+        2026-10-11 on a production curve, Maya: "B06_1" 0.003 to 0.1 off over
+        46 frames).  Compared after the whole plan, so a neighbour moved by
+        the same delta (every ripple) leaves nothing changed
+        (:meth:`_held_handles`, :meth:`_put_back_handles`).
+
+        Returns the restore; it returns the number of points put back.
+        """
+        windows = [w for w in ShotPlanner.move_windows(plan) if abs(w[4]) >= 1e-6]
+        if not windows or not content:
+            return lambda: 0
+        spans = [
+            (
+                lo + _SLOP if lo_open else lo - _SLOP,
+                hi + _SLOP if hi_closed else hi - _SLOP,
+                d,
+            )
+            for lo, hi, lo_open, hi_closed, d in windows
+        ]
+
+        held: list = []
+        for name, fc in self._named_fcurves(content):
+            key = _ShotSequencerInternal._fc_key(name, fc)
+            snap = self._held_handles(fc, spans, self.ledger.step_times(key))
+            if snap:
+                held.append((key, snap))
+
+        def _restore() -> int:
+            return sum(
+                self._put_back_handles(fc, snap)
+                for key, snap in held
+                if (fc := _ShotSequencerInternal._fcurve_for_key(key)) is not None
+            )
+
+        return _restore
+
+    @classmethod
+    def _held_handles(cls, fc, spans, steps=(), whole: bool = True) -> list:
+        """``[(landing time, left offset, right offset), ...]`` for the points
+        of *fc* with a neighbour-derived handle (:data:`_NEIGHBOUR_HANDLES`),
+        read before a move of the runs in *spans* (``(lo, hi, delta)``) --
+        and only when one of those runs has such a handle on an end, the
+        halves a move away from a neighbour re-derives.  *whole*: every such
+        point of the curve, since a run of auto keys may be solved together
+        (:meth:`_freeze_derived_handles`); else the runs' own points only.
+        With *whole*, the keys a run leaves behind count too, a lone key's
+        included: they re-derive from where it went (mayatk's still halves;
+        2026-10-12, the shot after a one-key shot played 0.06 off).  Keys at
+        *steps* (a gap hold's) are left alone (BACKLOG 2026-10-11, the held
+        tail).  What :meth:`_put_back_handles` restores."""
+        times = AnimUtils.key_times(fc)
+        kps = fc.keyframe_points
+        ends = []
+        for a, b, _d in spans:
+            i0, i1 = AnimUtils.window_indices(times, a, b)
+            if i1 - i0 >= 2:
+                ends += [kps[i0].handle_right_type, kps[i1 - 1].handle_left_type]
+            if whole and i1 > i0:
+                if i0 > 0:
+                    ends.append(kps[i0 - 1].handle_left_type)
+                if i1 < len(times):
+                    ends.append(kps[i1].handle_right_type)
+        if not any(kind in _NEIGHBOUR_HANDLES for kind in ends):
+            return []
+        held = []
+        for kp in kps:
+            t = kp.co[0]
+            delta = next((d for a, b, d in spans if a <= t <= b), None)
+            if delta is None and not whole:
+                continue
+            if (
+                kp.handle_left_type in _NEIGHBOUR_HANDLES
+                or kp.handle_right_type in _NEIGHBOUR_HANDLES
+            ) and not any(abs(t - s) <= _SLOP for s in steps):
+                held.append((t + (delta or 0.0),) + cls._handle_snapshot(kp)[2:])
+        return held
+
+    @classmethod
+    def _put_back_handles(cls, fc, held) -> int:
+        """Put every point of *held* (:meth:`_held_handles`) back FREE where
+        its handles sat relative to it (:meth:`_free_handles`) once any handle
+        still derived no longer does -- a handle set outright since (a pin's
+        split) is its own.  Returns the number of points put back."""
+        points = [
+            (kp, left, right)
+            for t, left, right in held
+            if (kp := cls._key_at(fc, t)) is not None
+        ]
+        if not any(
+            max(
+                abs(a - b)
+                for a, b in zip(sum(cls._handle_snapshot(kp)[2:], ()), left + right)
+            )
+            > _HANDLE_MOVED_TOL
+            for kp, left, right in points
+            if kp.handle_left_type in _NEIGHBOUR_HANDLES
+            or kp.handle_right_type in _NEIGHBOUR_HANDLES
+        ):
+            return 0
+        return cls._free_handles(fc, points)
 
     def _pin_shot_bounds(self, content) -> list:
         """Give every shot a key on both of its bounds, changing nothing.
@@ -1434,6 +1731,124 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
             changed += len(inserted) or int(AnimUtils.key_times(fc) != before)
         return changed
 
+    def _pin_bound_poses(
+        self, objects, window, pins, attr=None, crossing: bool = False
+    ) -> int:
+        """Key the pose each of *objects*' (*attr*'s) fcurves plays on every
+        bound frame *pins* names (``[(frame, shot_id, edge), ...]``), on the
+        fcurves keyed inside *window* -- content about to LEAVE a shot, so the
+        shots beside it keep what it gave them (the pythontk hook behind
+        ``ShotSequencer._hold_neighbour_poses``).  Mirror of mayatk's: the
+        respace pin's writer where the curve has shape on the bound
+        (:meth:`_insert_shape_keys`), the held or extrapolated pose keyed
+        outright where it has none (:meth:`_key_held_pose`), every key
+        claimed for its bound, ``stays``.  Returns the number of keys put in.
+        """
+        lo, hi = window
+        pinned = 0
+        seen: set = set()  # each curve once: linked duplicates share one
+        for obj in objects or ():
+            for fc in self._fcurves_of(obj, attr):
+                if fc.as_pointer() in seen:
+                    continue
+                seen.add(fc.as_pointer())
+                times = AnimUtils.key_times(fc)
+                if not any(lo <= t <= hi for t in times) and not (
+                    crossing and times and times[0] < lo and times[-1] > hi
+                ):
+                    continue  # nothing of this curve leaves, nor runs across
+                key = _ShotSequencerInternal._fc_key(obj, fc)
+                steps = self.ledger.step_times(key)
+                for frame, shot_id, edge in pins:
+                    frame = float(frame)
+                    times = AnimUtils.key_times(fc)
+                    if any(abs(t - frame) <= _KEY_MERGE for t in times):
+                        # Keyed: the pose is its own, but its derived handles
+                        # re-derive from whatever replaces the keys leaving --
+                        # frozen where they sit (mirror of mayatk's; a gap
+                        # hold's stepped key excepted, BACKLOG 2026-10-11).
+                        if not any(abs(frame - t) <= _SLOP for t in steps):
+                            self._freeze_derived_handles(fc)
+                        continue
+                    put = bool(
+                        self._pinnable(fc, frame)
+                        and self._insert_shape_keys(
+                            fc, [frame], ledger=self.ledger, ledger_key=key
+                        )
+                    ) or self._key_held_pose(fc, frame, edge, times)
+                    if put:
+                        self.ledger.record_key(key, frame, shot_id, edge, stays=True)
+                        pinned += 1
+        return pinned
+
+    def _freeze_left_behind(self, objects, window, attr=None) -> int:
+        """Hold the derived handles of the keys a run inside *window* leaves
+        behind, on each of *objects*' (*attr*'s) fcurves keyed there (the
+        pythontk hook behind Move to Shot; mirror of mayatk's).  Under the
+        default ``CONT_ACCEL`` smoothing a run of auto keys is solved
+        together, so the whole curve's derived handles are frozen where they
+        sit (:meth:`_freeze_derived_handles`) -- a gap hold's stepped key
+        excepted (BACKLOG 2026-10-11, the held tail).  Returns the points
+        frozen."""
+        lo, hi = window
+        held = 0
+        seen: set = set()  # each curve once: linked duplicates share one
+        for obj in objects or ():
+            for fc in self._fcurves_of(obj, attr):
+                if fc.as_pointer() in seen:
+                    continue
+                seen.add(fc.as_pointer())
+                if not any(lo <= t <= hi for t in AnimUtils.key_times(fc)):
+                    continue  # nothing of this curve leaves
+                key = _ShotSequencerInternal._fc_key(obj, fc)
+                steps = self.ledger.step_times(key)
+                held += self._free_handles(
+                    fc,
+                    [
+                        (kp,) + self._handle_snapshot(kp)[2:]
+                        for kp in fc.keyframe_points
+                        if (
+                            kp.handle_left_type in _NEIGHBOUR_HANDLES
+                            or kp.handle_right_type in _NEIGHBOUR_HANDLES
+                        )
+                        and not any(abs(kp.co[0] - s) <= _SLOP for s in steps)
+                    ],
+                )
+        return held
+
+    @classmethod
+    def _key_held_pose(cls, fc, frame: float, edge: str, times: list) -> bool:
+        """Key on *fc* at *frame* the value it holds there with no shape to
+        split -- a hold, or constant extrapolation -- for a ``"start"`` bound
+        inside or past its keys, or an ``"end"`` bound before its first
+        (mirror of mayatk's).  True when a key went in."""
+        if not times:
+            return False
+        if times[0] < frame < times[-1]:
+            if edge != "start":
+                return False
+        elif frame > times[-1]:
+            if edge != "start" or fc.extrapolation != "CONSTANT" or len(fc.modifiers):
+                return False
+        elif edge != "end" or fc.extrapolation != "CONSTANT" or len(fc.modifiers):
+            return False
+        value = fc.evaluate(frame)
+        before = [i for i, t in enumerate(times) if t < frame]
+        held = bool(before) and (
+            fc.keyframe_points[before[-1]].interpolation == "CONSTANT"
+        )
+        cls._freeze_derived_handles(fc)  # every other key keeps its slopes
+        try:
+            kp = cls._insert_in_place(fc, frame, value)
+        except (RuntimeError, TypeError):
+            return False  # locked or library-linked curve -- left as it was
+        kp.interpolation = "CONSTANT" if held else "BEZIER"
+        kp.handle_left_type = kp.handle_right_type = "FREE"
+        kp.handle_left = (frame - 1.0, value)
+        kp.handle_right = (frame + 1.0, value)
+        fc.update()
+        return True
+
     @classmethod
     def _pinnable(cls, fc, t: float, tol: float = 1e-4) -> bool:
         """Whether :meth:`_insert_shape_keys` has a key to put at *t* on *fc*:
@@ -1449,8 +1864,8 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         a, b = fc.keyframe_points[i], fc.keyframe_points[i + 1]
         return a.interpolation in cls._SPLITTABLE and not cls._is_hold(a, b, tol)
 
-    @staticmethod
-    def _freeze_derived_handles(fc, tol: float = 1e-6) -> int:
+    @classmethod
+    def _freeze_derived_handles(cls, fc, tol: float = 1e-6) -> int:
         """Turn *fc*'s derived handles into FREE ones where they already sit.
 
         The Blender form of mayatk's ``_hold_interior_tangents`` for an edit
@@ -1465,21 +1880,15 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         :meth:`_insert_shape_keys`, so only for a curve a shot bound crosses.
         Returns the number of points frozen.
         """
-        derived = _DERIVED_HANDLES + ("VECTOR",)
-        kps = fc.keyframe_points
-        targets = [
-            (i, tuple(kp.handle_left), tuple(kp.handle_right))
-            for i, kp in enumerate(kps)
-            if kp.handle_left_type in derived or kp.handle_right_type in derived
-        ]
-        if not targets:
-            return 0
-        for i, _hl, _hr in targets:
-            kps[i].handle_left_type = kps[i].handle_right_type = "FREE"
-        for i, hl, hr in targets:
-            kps[i].handle_left, kps[i].handle_right = hl, hr
-        fc.update()
-        return len(targets)
+        return cls._free_handles(
+            fc,
+            [
+                (kp,) + cls._handle_snapshot(kp)[2:]
+                for kp in fc.keyframe_points
+                if kp.handle_left_type in _NEIGHBOUR_HANDLES
+                or kp.handle_right_type in _NEIGHBOUR_HANDLES
+            ],
+        )
 
     #: Interpolations a key can be inserted INTO without changing the curve:
     #: a bezier splits exactly (de Casteljau), a straight line trivially.  An
@@ -1613,32 +2022,15 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         return True
 
     @staticmethod
-    def _bezier_param_at(x0, x1, x2, x3, t, iterations: int = 60):
-        """The parameter ``u`` in ``[0, 1]`` where the cubic's x equals *t*.
-
-        Bisection on the x polynomial, which is monotonic for a well-formed
-        fcurve segment; ``None`` when *t* is outside ``[x0, x3]``.
+    def _bezier_param_at(x0, x1, x2, x3, t):
+        """The parameter ``u`` in ``[0, 1]`` where the cubic's x equals *t*
+        (``KeyCurve.bezier_parameter``: bisection on the x polynomial, which
+        is monotonic for a well-formed fcurve segment); ``None`` when *t* is
+        outside ``[x0, x3]``.
         """
         if not (min(x0, x3) - 1e-9 <= t <= max(x0, x3) + 1e-9):
             return None
-
-        def x_at(u):
-            v = 1.0 - u
-            return (
-                v * v * v * x0
-                + 3 * v * v * u * x1
-                + 3 * v * u * u * x2
-                + u * u * u * x3
-            )
-
-        lo, hi = 0.0, 1.0
-        for _ in range(iterations):
-            mid = 0.5 * (lo + hi)
-            if x_at(mid) < t:
-                lo = mid
-            else:
-                hi = mid
-        return 0.5 * (lo + hi)
+        return KeyCurve.bezier_parameter(t, x0, x1, x2, x3)
 
     def _retime_gaps(self, retimes, content, after_move: bool) -> int:
         """Scale each changed gap's content into the width the plan gives it.
@@ -1878,26 +2270,32 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         keys.  Maya derives the key from the animCurve node name; an fcurve
         has no name, so the caller supplies it (:meth:`_fc_key`).
 
-        NO twin of mayatk's ``_hold_interior_tangents`` here, deliberately.
-        Over there a derived tangent is recomputed from the keys on both
-        sides, so sliding a run away from what precedes it reshapes the run's
-        own interior motion.  A Blender handle is stored ON its point and
-        travels with it, so the same slide leaves the shape alone: measured
-        across four curve shapes x AUTO/AUTO_CLAMPED, seven came through
-        byte-identical and the eighth moved by 0.016 on a 20-unit curve --
-        residue from Blender re-deriving the ADJACENT point's handle, which
-        pinning the boundary cannot reach (measured 0.01608 held vs 0.016076
-        free).  Mirroring the guard would rewrite an AUTO_CLAMPED handle to
-        FREE for no measurable gain, so it is not mirrored.
+        The run's derived handles are held as the plan writer's are (mayatk's
+        ``_hold_interior_tangents``): a run slid away from a key it leaves
+        behind re-derives its end handles, and under ``CONT_ACCEL`` smoothing
+        the run with them.  An earlier note judged that residue unmeasurable
+        (seven of eight shapes byte-identical, the eighth 0.016 off); on a
+        production curve a shot slid alone 4 frames played 0.0009 off with
+        no smoothing and 0.0001 with ``CONT_ACCEL`` (2026-10-11), where the
+        plan path, holding, was exact.  Snapshot before the landing zone is
+        cleared, the run's own points only (:meth:`_held_handles`).
         """
         if not times or abs(delta) < _EPS:
             return
+        held = cls._held_handles(
+            crv,
+            [(min(times) - eps, max(times) + eps, delta)],
+            ledger.step_times(ledger_key) if ledger is not None and ledger_key else (),
+            whole=False,
+        )
         cls._clear_destination(
             crv, times, delta, eps=eps, ledger=ledger, ledger_key=ledger_key
         )
         cls._commit_curve_move(
             crv, times, delta, eps=eps, ledger=ledger, ledger_key=ledger_key
         )
+        if held:
+            cls._put_back_handles(crv, held)
 
     @classmethod
     def _commit_curve_move(
@@ -2250,24 +2648,22 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
             return
 
         lo, hi = old_start - _SLOP, old_end + _SLOP
-        for name in objects:
-            o = _ShotSequencerInternal._object(name)
-            if o is None:
-                continue
-            for fc in BlenderShotStore.iter_action_fcurves(o):
-                # The claims ride with the keys (_retime_fcurve): mirror of
-                # mayatk's scale_object_keys.
-                _ShotSequencerInternal._retime_fcurve(
-                    fc,
-                    lo,
-                    hi,
-                    old_start,
-                    old_end,
-                    new_start,
-                    new_end,
-                    ledger=self.ledger,
-                    key=_ShotSequencerInternal._fc_key(name, fc),
-                )
+        # Each curve once (_named_fcurves): a linked duplicate's shared one
+        # was scaled once per sharer.
+        for name, fc in self._named_fcurves(objects):
+            # The claims ride with the keys (_retime_fcurve): mirror of
+            # mayatk's scale_object_keys.
+            _ShotSequencerInternal._retime_fcurve(
+                fc,
+                lo,
+                hi,
+                old_start,
+                old_end,
+                new_start,
+                new_end,
+                ledger=self.ledger,
+                key=_ShotSequencerInternal._fc_key(name, fc),
+            )
 
     def scale_object_keys(
         self,
@@ -2315,33 +2711,29 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         # on every curve that crosses it, and membership is a motion label
         # -- an object posed once in a shot is not listed there, while its
         # curve still interpolates across the gap toward its next key.
-        content = self._content_objects()
+        # Every fcurve, not just transforms -- Maya steps every animCurve on
+        # the object, so custom-prop and visibility channels hold through the
+        # gap too -- and each once (a linked duplicate's is shared).
+        named = self._named_fcurves(self._content_objects())
         for i in range(len(sorted_s) - 1):
             pre, nxt = sorted_s[i], sorted_s[i + 1]
             if nxt.start - pre.end < _EPS:
                 continue
             lo, hi = pre.start - _SLOP, nxt.start - _SLOP
-            for name in content:
-                obj = _ShotSequencerInternal._object(name)
-                if obj is None:
+            for name, fc in named:
+                times = AnimUtils.key_times(fc)
+                i0, i1 = AnimUtils.window_indices(times, lo, hi)
+                if i1 <= i0:
                     continue
-                # Every fcurve, not just transforms — Maya steps every
-                # animCurve on the object, so custom-prop and visibility
-                # channels hold through the gap too.
-                for fc in BlenderShotStore.iter_action_fcurves(obj):
-                    times = AnimUtils.key_times(fc)
-                    i0, i1 = AnimUtils.window_indices(times, lo, hi)
-                    if i1 <= i0:
-                        continue
-                    if float(times[i0]) > pre.end + _SLOP:
-                        continue  # starts inside the gap: lead-in, not overhang
-                    last_t = float(times[i1 - 1])
-                    key = _ShotSequencerInternal._fc_key(name, fc)
-                    got = seams.setdefault(key, [])
-                    # Two shots can share a seam; record it once so the claim
-                    # count matches the number of held keys.
-                    if not any(abs(last_t - t) <= _SLOP for t in got):
-                        got.append(last_t)
+                if float(times[i0]) > pre.end + _SLOP:
+                    continue  # starts inside the gap: lead-in, not overhang
+                last_t = float(times[i1 - 1])
+                key = _ShotSequencerInternal._fc_key(name, fc)
+                got = seams.setdefault(key, [])
+                # Two shots can share a seam; record it once so the claim
+                # count matches the number of held keys.
+                if not any(abs(last_t - t) <= _SLOP for t in got):
+                    got.append(last_t)
         return seams
 
     def _release_gap_holds(self, seams: Dict[str, list]) -> int:
@@ -2377,12 +2769,49 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
                 kp = fc.keyframe_points[idx]
                 if kp.interpolation != "CONSTANT":
                     continue  # re-authored since — not ours to take back
-                if not led.is_same_key(claim, kp.easing, kp.co[1]):
-                    continue  # written over since — the hold is the new key's
-                kp.interpolation = types[1] or "BEZIER"
+                left_now = self._handle_snapshot(kp)[2]
+                if not led.is_same_key(claim, kp.easing, kp.co[1], in_half=left_now):
+                    continue  # written over or re-posed since — the animator's
+                later = [
+                    k for k in AnimUtils.key_times(fc) if k > float(kp.co[0]) + _SLOP
+                ]
+                if self._hold_runs_through_shots(
+                    float(kp.co[0]), min(later) if later else None
+                ):
+                    continue  # other shots play this hold: it stays, unclaimed
+                kp.interpolation = self._own_interpolation(types[1])
+                types_held = str(claim[0]).split("|")
+                if claim.in_half is not None and len(types_held) == 2:
+                    # The hold froze derived handles: no longer a seam, they
+                    # derive again (format 2, maintainer 2026-10-11).
+                    if any(h in _NEIGHBOUR_HANDLES for h in types_held):
+                        kp.handle_left_type, kp.handle_right_type = types_held
                 fc.update()
                 restored += 1
         return restored
+
+    #: Blender's keyframe interpolations: what a hold's claim restores.
+    _INTERPOLATIONS = (
+        "CONSTANT", "LINEAR", "BEZIER", "SINE", "QUAD", "CUBIC", "QUART",
+        "QUINT", "EXPO", "CIRC", "BACK", "BOUNCE", "ELASTIC",
+    )  # fmt: skip
+
+    @classmethod
+    def _own_interpolation(cls, recorded: Optional[str]) -> str:
+        """The interpolation a released hold restores, from the type its claim
+        recorded.  A claim can come from Maya: ``ShotTransfer`` carries the
+        ledger verbatim, so a pulled scene's holds name Maya tangent types --
+        written straight onto ``kp.interpolation``, ``"auto"`` raised
+        TypeError on the first edit that moved a seam (2026-10-11, SOL pulled
+        through the bridge).  A foreign type maps by kind: a step holds
+        (CONSTANT), linear stays LINEAR, every derived or authored slope is a
+        BEZIER segment."""
+        if recorded in cls._INTERPOLATIONS:
+            return recorded
+        kind = str(recorded or "").lower()
+        if kind in ("step", "stepnext"):
+            return "CONSTANT"
+        return "LINEAR" if kind == "linear" else "BEZIER"
 
     def _apply_gap_holds(self, seams: Dict[str, list]) -> int:
         """Hold every seam that is not already held.
@@ -2405,7 +2834,27 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
                 kp = fc.keyframe_points[idx]
                 if kp.interpolation == "CONSTANT":
                     continue
-                led.record_step(key, t, kp.easing, kp.interpolation, kp.co[1])
+                # Ledger format 2 (maintainer 2026-10-11): derived handles are
+                # frozen where they sit -- the left one re-derived from the
+                # next shot's every move and re-shaped the held shot's last
+                # segment (BACKLOG 2026-10-11, the held tail), and a key not
+                # auto on both sides ends the CONT_ACCEL run there.  The claim
+                # records both handles' types ("LEFT|RIGHT") and offsets, and
+                # knows its key by value + left handle, not by easing (a
+                # paste copies the easing: BACKLOG 2026-10-10).
+                ltype, rtype, loff, roff = self._handle_snapshot(kp)
+                if ltype in _NEIGHBOUR_HANDLES or rtype in _NEIGHBOUR_HANDLES:
+                    self._free_handles(fc, [(kp, loff, roff)])
+                    kp = fc.keyframe_points[idx]
+                led.record_step(
+                    key,
+                    t,
+                    f"{ltype}|{rtype}",
+                    kp.interpolation,
+                    kp.co[1],
+                    in_half=loff,
+                    out_half=roff,
+                )
                 kp.interpolation = "CONSTANT"
                 touched = True
                 held += 1
@@ -2518,9 +2967,10 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
     ) -> Tuple[int, int]:
         """Make every claimed boundary sample follow — or leave — its bound.
 
-        Mirror of mayatk's: the sample follows a bound that moved, is dropped
-        when the key is already gone, and is cut only where that is provably a
-        no-op; otherwise it is disowned and left where it is.
+        Mirror of mayatk's: the sample follows a bound that moved -- unless it
+        holds nothing (a flat plateau, provably), when it is cut instead --
+        is dropped when the key is already gone, and is cut only where that is
+        provably a no-op; otherwise it is disowned and left where it is.
 
         *bounds* (``{shot_id: (start, end)}``) narrows the pass to those shots
         and resolves their claims against the bounds given instead of the ones
@@ -2531,7 +2981,9 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         *follow* ``False`` never MOVES a sample (the Ctrl edge drag: the bound
         moves and nothing else does -- a followed pin re-times its ramp, and
         can slide past another key); one whose bound moved is cut when
-        provably redundant and disowned in place otherwise.
+        provably redundant and disowned in place otherwise.  A claim made
+        ``stays`` (a split's seam pin, :meth:`_pin_keyless_seams`) takes that
+        rule under every gesture.
 
         Returns ``(moved, removed)``.
         """
@@ -2577,7 +3029,46 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
                     bound is not None
                     and _ShotSequencerInternal._key_index_at(fc, bound) is not None
                 )
-                if follow and bound is not None and not occupied:
+                key_t = float(fc.keyframe_points[idx].co[0])
+                given_up = bound is not None and (
+                    (edge == "end" and key_t > bound + _SLOP)
+                    or (edge == "start" and key_t < bound - _SLOP)
+                )
+                if (
+                    occupied
+                    and (given_up or not led.key_stays(key, t))
+                    and any(
+                        abs(rt - bound) <= _SLOP and (ro, re) == (owner, edge)
+                        for rt, ro, re in led.key_records(key)
+                    )
+                    and len(fc.keyframe_points) > 2
+                ):
+                    # Superseded: the bound already has its own sample claimed
+                    # for this very edge, pinned before the bound moved -- this
+                    # one is a duplicate fencepost (a ``stays`` one too, once it
+                    # sits on frames the shot gave up; mirror of mayatk's:
+                    # disowned in place it became the gap's last key, and the
+                    # gap hold moved onto it, or the neighbour rippled onto it).
+                    try:
+                        fc.keyframe_points.remove(fc.keyframe_points[idx])
+                        fc.update()
+                    except (RuntimeError, TypeError):
+                        pass  # locked/linked curve — leave it as it was
+                    else:
+                        removed += 1
+                        led.release(key, t)
+                        continue
+                # A seam pin is the shot's own pose: disowned in place, as
+                # follow=False leaves every sample; and a sample in a flat
+                # plateau holds nothing at the new bound either, so it is cut
+                # below instead of carried (mirror of mayatk's).
+                if (
+                    follow
+                    and bound is not None
+                    and not occupied
+                    and not led.key_stays(key, t)
+                    and not self._sample_is_redundant(fc, idx)
+                ):
                     kp = fc.keyframe_points[idx]
                     d = bound - kp.co[0]
                     kp.co[0] = bound
@@ -2616,43 +3107,40 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         env = self._shot_envelope(shot_id)
         if shot is None or env is None or _ShotSequencerInternal._scene() is None:
             return 0
-        lo, hi, lo_open, hi_closed = env
+        lo, hi, lo_open, _hi_closed = env
         # The LAST shot's envelope runs to +INF so its trailing content belongs
         # to it.  Right ownership for a delete too, but the sentinel itself
         # must not reach the key walk -- cap it the way the audio shifter does.
         if hi >= ShotPlanner.UNBOUNDED:
             hi = lo + 1.0e7
-        window = (
-            lo + _SLOP if lo_open else lo - _SLOP,
-            hi + _SLOP if hi_closed else hi - _SLOP,
-        )
+        # A closing sample shared with a flush next shot is that shot's
+        # opening pose, and the next shot's alone once this one is gone: it
+        # stays, and the closing rule decides how the next shot lands
+        # (mirror of mayatk's, maintainer 2026-10-11).
+        window = (lo + _SLOP if lo_open else lo - _SLOP, hi - _SLOP)
         led = self.ledger
         cut = 0
-        for name in list(shot.objects):
-            obj = _ShotSequencerInternal._object(name)
-            if obj is None:
+        for name, fc in self._named_fcurves(list(shot.objects)):
+            times = AnimUtils.key_times(fc)
+            i0, i1 = AnimUtils.window_indices(times, window[0], window[1])
+            if i1 <= i0:
                 continue
-            for fc in BlenderShotStore.iter_action_fcurves(obj):
-                times = AnimUtils.key_times(fc)
-                i0, i1 = AnimUtils.window_indices(times, window[0], window[1])
-                if i1 <= i0:
-                    continue
-                removed = 0
-                for i in range(i1 - 1, i0 - 1, -1):
-                    try:
-                        fc.keyframe_points.remove(fc.keyframe_points[i])
-                        removed += 1
-                    except (RuntimeError, TypeError):
-                        break  # locked/linked curve
-                if not removed:
-                    # Nothing came off (a locked curve): neither counted nor
-                    # released, as mayatk skips a curve its cutKey refused --
-                    # its keys still stand, and so do their claims.
-                    continue
-                fc.update()
-                cut += 1
-                key = _ShotSequencerInternal._fc_key(name, fc)
-                led.release(key, window[0], window[1])
+            removed = 0
+            for i in range(i1 - 1, i0 - 1, -1):
+                try:
+                    fc.keyframe_points.remove(fc.keyframe_points[i])
+                    removed += 1
+                except (RuntimeError, TypeError):
+                    break  # locked/linked curve
+            if not removed:
+                # Nothing came off (a locked curve): neither counted nor
+                # released, as mayatk skips a curve its cutKey refused --
+                # its keys still stand, and so do their claims.
+                continue
+            fc.update()
+            cut += 1
+            key = _ShotSequencerInternal._fc_key(name, fc)
+            led.release(key, window[0], window[1])
         return cut
 
     def scale_shot_keys(
@@ -2672,8 +3160,79 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         named.  The one retime under :meth:`resize_shot`,
         :meth:`set_shot_duration` and the gap handles' Shift drag.
         """
-        for obj in self._content_objects():
-            self.scale_object_keys(obj, old_start, old_end, new_start, new_end)
+        content = self._content_objects()
+        restore = self._hold_retimed_bounds(
+            content, old_start, old_end, new_start, new_end
+        )
+        # One pass over the content, each curve once: a linked duplicate's
+        # shared curve, retimed per sharer, landed scaled twice.
+        self._scale_keys(content, old_start, old_end, new_start, new_end)
+        restore()
+
+    def _hold_retimed_bounds(self, objects, old_start, old_end, new_start, new_end):
+        """Before a retime of ``[old_start, old_end]``: what the neighbours
+        play across its bounds, to put back once it is done (mirror of
+        mayatk's, which carries the measurements).  The key on each bound
+        faces OUT of the shot with one handle -- the next shot's opening on
+        its end (with its interpolation), the previous shot's closing on its
+        start -- and the remap scaled it with the shot's own.  A neighbour's
+        copy already sitting where the shot's own sample lands (the ripple
+        split the seam) is cut first, its handle the one put back.  A gap
+        hold's stepped key is the hold's.  The curve's derived handles are
+        freed where they sit first: ``CONT_ACCEL`` solves an auto run
+        together.  Returns the restore."""
+        held: list = []
+        for name, fc in self._named_fcurves(objects):
+            key = _ShotSequencerInternal._fc_key(name, fc)
+            steps = self.ledger.step_times(key)
+            times = AnimUtils.key_times(fc)
+            inside = [t for t in times if old_start - _SLOP <= t <= old_end + _SLOP]
+            for bound, dest, side in (
+                (old_end, new_end, "right"),
+                (old_start, new_start, "left"),
+            ):
+                own = next((t for t in inside if abs(t - bound) <= _SLOP), None)
+                if own is None or any(abs(own - s) <= _SLOP for s in steps):
+                    continue
+                src = self._key_at(fc, own)
+                stack = next(
+                    (t for t in times if abs(t - dest) <= _SLOP and t not in inside),
+                    None,
+                )
+                other = self._key_at(fc, stack) if stack is not None else None
+                use_stack = (
+                    other is not None and abs(other.co[1] - src.co[1]) <= _POSE_TOL
+                )
+                if use_stack:
+                    src = other
+                snap = self._handle_snapshot(src)
+                offset = snap[3] if side == "right" else snap[2]
+                held.append((fc, dest, side, offset, src.interpolation))
+                self._freeze_derived_handles(fc)
+                if use_stack and len(fc.keyframe_points) > 1:
+                    doomed = self._key_at(fc, stack)  # a fresh wrapper, post-freeze
+                    try:
+                        fc.keyframe_points.remove(doomed)
+                        fc.update()
+                    except (RuntimeError, TypeError):
+                        continue  # locked or library-linked curve
+                    self.ledger.release(key, stack)
+
+        def restore() -> int:
+            done = 0
+            for fc, dest, side, offset, interp in held:
+                kp = self._key_at(fc, dest)
+                if kp is None:
+                    continue
+                if side == "right":
+                    kp.interpolation = interp
+                    self._free_handles(fc, [(kp, None, offset)])
+                else:
+                    self._free_handles(fc, [(kp, offset, None)])
+                done += 1
+            return done
+
+        return restore
 
     def _trailing_content_extent(self, shot) -> float:
         """Last frame of *shot*'s content past its end (keys and strips).

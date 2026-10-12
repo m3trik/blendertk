@@ -56,6 +56,12 @@ def _make_stub_controller():
     ctrl._refresh_ranges = MagicMock()
     ctrl._fill_missing_assets = MagicMock()
     ctrl._recent_csv_option = MagicMock()
+    # The controller's MappingPickerMixin hook: the scene's template and
+    # options for this sheet, applied before the parse.
+    ctrl._adopt_sheet_options = MagicMock()
+    # ...and its undo when the sheet does not load.
+    ctrl._sheet_read_state = MagicMock(return_value=())
+    ctrl._restore_sheet_read_state = MagicMock()
     ctrl._active_mapping = None
     ctrl._column_map = ColumnMap()
     ctrl._csv_path = ""
@@ -88,12 +94,25 @@ class LoadCsvUrlSourceTest(unittest.TestCase):
 
     def test_url_skips_the_file_gate_and_loads(self):
         ctrl = _make_stub_controller()
-        with patch(f"{_SOURCE}.ManifestModel.parse_csv", return_value=[]) as parse:
+        steps = [ptk.BuilderStep("A01", "A", "Doors", "d")]
+        with patch(f"{_SOURCE}.ManifestModel.parse_csv", return_value=steps) as parse:
             ShotManifestController._load_csv(ctrl, self._URL)
 
         self.assertEqual(parse.call_args.args[0], self._URL)
         ctrl._load_data.assert_called_once()
         ctrl.ui.txt_csv_path.reset_action_color.assert_called_once()
+
+    def test_a_sheet_reading_no_steps_is_reported_not_loaded(self):
+        """Mirror of mayatk's ``LoadCsvNoStepsTest``: nothing stands in for a
+        sheet the template reads no step of."""
+        ctrl = _make_stub_controller()
+        with patch(f"{_SOURCE}.ManifestModel.parse_csv", return_value=[]):
+            ok = ShotManifestController._load_csv(ctrl, self._URL)
+
+        self.assertFalse(ok)
+        ctrl._load_data.assert_not_called()
+        ctrl.ui.txt_csv_path.set_action_color.assert_called_with("invalid")
+        self.assertIn("Step IDs", ctrl._set_footer.call_args.args[0])
 
     def test_fetch_failure_reports_the_fetch_not_the_disk(self):
         ctrl = _make_stub_controller()

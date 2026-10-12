@@ -44,6 +44,7 @@ engine API -- see that module's docstring.
 ``import bpy`` is deferred into call bodies (no import side effects).
 """
 
+import contextlib
 import os
 import json
 import shutil
@@ -378,6 +379,12 @@ class SceneExporter(ptk.SceneExporterBase):
         # Progress (mirror of mayatk): the pipeline's entries, then the write,
         # a GLB conversion and the sidecar -- one count for the run.
         self._progress_begin(progress_callback, tasks, phases=2 + int(run.create_glb))
+        # A transient edit until the restores are done (``ShotStore.
+        # transient_edit``, mirror of mayatk's run scope): the run's bake,
+        # snap and tie are put back, so the Shot Sequencer credits none of
+        # their keys to the active shot.
+        transient = contextlib.ExitStack()
+        transient.enter_context(ptk.ShotStore.transient_edit())
         try:
             self._progress_note("Preparing export…")
             # Each failed check is decided where it fails (mirror of mayatk:
@@ -425,7 +432,10 @@ class SceneExporter(ptk.SceneExporterBase):
             return False
         finally:
             self._progress_end()
-            self.task_manager.run_deferred_restores()
+            try:
+                self.task_manager.run_deferred_restores()
+            finally:
+                transient.close()
             # The bake session is among what run_deferred_restores just
             # unwound: smart_bake stages its restore after every earlier
             # task's, so LIFO undoes it first (it used to be a hand-rolled
