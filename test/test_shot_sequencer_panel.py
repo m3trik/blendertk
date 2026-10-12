@@ -183,9 +183,10 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
         cmb = self.assertPromoted("cmb_shot", "option_box")
         opts = getattr(cmb, "_shot_nav_options", None)
         self.assertIsNotNone(opts, "shot-nav options were not built (swallowed?)")
-        for key in ("prev", "next", "add", "view", "holds", "refresh"):
+        for key in ("prev", "next", "add", "view", "views"):
             self.assertIsNotNone(opts.get(key), f"missing shot-nav option: {key}")
-        # holds toggle state is adopted (mirror of mayatk's Show Internal Holds)
+        # Show Internal Holds moved to the track view's Options menu; its
+        # state is still adopted (mirror of mayatk)
         self.assertIsInstance(self.ui.slots.controller._show_internal_holds, bool)
         # the view cycle is adopted into the controller's display mode
         self.assertIn(
@@ -298,6 +299,29 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
             for shot in list(store.shots):
                 store.remove_shot(shot.shot_id)
 
+    def test_the_view_button_the_header_refresh_and_the_track_options(self):
+        """The view cycles beside the scope; Refresh is the header's; Show
+        Internal Holds is the track view's Options row."""
+        cmb = self.ui.cmb_shot
+        views = cmb._shot_nav_options["views"]
+        self.assertEqual(len(views._state_cycle.states), 3)
+        self.assertNotIn("holds", cmb._shot_nav_options)
+        self.assertNotIn("refresh", cmb._shot_nav_options)
+        self.assertFalse(hasattr(self.ui, "cmb_view"))
+        header = self.ui.header
+        self.assertIn("refresh", header.buttons)
+        dismiss = {"pin", "hide"} & set(header.buttons)
+        self.assertEqual(len(dismiss), 1, f"one dismissal button: {dismiss}")
+        self.assertEqual(header.help_url(), self.ui.slots.HELP_URL, "the guide")
+        seq = self.ui.slots.controller._get_sequencer_widget()
+        labels = [row["label"] for row in seq.editor("tracks").options()]
+        self.assertIn("Show Internal Holds", labels)  # beside uitk's own rows
+        ctl = self.ui.slots.controller
+        ctl._set_view("compact")
+        self.assertTrue(seq.row_metrics.flat_keys)
+        ctl._set_view("standard")
+        self.assertFalse(seq.row_metrics.flat_keys)
+
     def test_key_edit_rows_mirror_mayatk(self):
         """The Edit submenu's rows, Simplify included, and their handlers."""
         from qtpy import QtWidgets
@@ -311,6 +335,7 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
                 "Snap Fractional Keys",
                 "Invert Keys",
                 "Align Keys",
+                "Euler Filter",
             ],
         )
         for _label, method in ctl._KEY_EDITS:

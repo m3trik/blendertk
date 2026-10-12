@@ -436,11 +436,20 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
                 # moment and "splits" a sample that was never shared.  The
                 # planner never cuts into the neighbour, so a bound on its
                 # keyed start (or inside it) moves it whole, boundary pose
-                # included (mirrors mayatk).
-                if abs(start_delta) > 1e-6:
-                    self.sequencer.ripple_upstream(shot_id, expanded_start, start_delta)
-                if abs(end_delta) > 1e-6:
-                    self.sequencer.ripple_downstream(shot_id, expanded_end, end_delta)
+                # included (mirrors mayatk).  The room is the landing's:
+                # declared, the ripple's moment of gap is no split, and no
+                # keyless seam is pinned in its way (mirror of mayatk's).
+                with self.sequencer.pending_bounds(
+                    {shot_id: (expanded_start, expanded_end)}
+                ):
+                    if abs(start_delta) > 1e-6:
+                        self.sequencer.ripple_upstream(
+                            shot_id, expanded_start, start_delta
+                        )
+                    if abs(end_delta) > 1e-6:
+                        self.sequencer.ripple_downstream(
+                            shot_id, expanded_end, end_delta
+                        )
                 self.sequencer.store.update_shot(
                     shot_id, start=expanded_start, end=expanded_end
                 )
@@ -555,8 +564,11 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         share fcurves; committing them as separate groups lets one group's
         landed key be re-grabbed by the next group's window.  All queries
         run against the PRISTINE fcurves — nothing has been committed yet.
+        A curve is keyed by its data pointer: bpy hands out a fresh wrapper per
+        access, so ``id()`` told one curve apart from itself -- and linked
+        duplicates' clips name one shared curve, which moved once per clip.
         """
-        curve_moves: dict = {}  # id(fc) -> {"fc": fc, "pairs": [(o, n, sid)]}
+        curve_moves: dict = {}  # fc pointer -> {"fc": fc, "pairs": [(o, n, sid)]}
         shot_extents: dict = {}
         labels: list = []
         moved = 0
@@ -575,7 +587,7 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
             clip_applied: dict = {}
             for fc in curves:
                 entry = curve_moves.setdefault(
-                    id(fc), {"fc": fc, "obj": obj_name, "pairs": []}
+                    fc.as_pointer(), {"fc": fc, "obj": obj_name, "pairs": []}
                 )
                 known = entry["pairs"]
                 kt = AnimUtils.key_times(fc)

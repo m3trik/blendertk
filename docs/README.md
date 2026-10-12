@@ -1,7 +1,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![PyPI](https://img.shields.io/pypi/v/blendertk.svg)](https://pypi.org/project/blendertk/)
 [![Blender](https://img.shields.io/badge/Blender-4.x+-orange.svg)](https://www.blender.org/)
-[![Tests](https://img.shields.io/badge/Tests-6710%20passed-brightgreen.svg)](../test/)
+[![Tests](https://img.shields.io/badge/Tests-6929%20passed-brightgreen.svg)](../test/)
 ![Platform](https://img.shields.io/badge/Platform-Windows%2C%20Linux-lightgrey.svg)
 
 # blendertk
@@ -74,6 +74,7 @@ Nothing in blendertk attaches to a running Blender. Tests and headless tooling a
 ## Guides
 
 - **[Scene data nodes](data_nodes.md)** — the `data_internal` / `data_export` carriers and how their metadata rides into the FBX (Blender delta of [mayatk's owner doc](https://github.com/m3trik/mayatk/blob/main/docs/data_nodes.md))
+- **[Shot Sequencer](https://github.com/m3trik/mayatk/blob/main/docs/shot_sequencer.md)** (mayatk, one guide for both hosts) — the per-shot animation timeline and its graph view; the panel's `?` help links here
 - **[Emissive groups → Unity](https://github.com/m3trik/mayatk/blob/main/docs/emissive_groups.md)** (mayatk, cross-package SSoT) — runtime-toggleable emissive regions; blendertk's `EmissiveGroups` stores membership as per-group boolean face attributes
 - **[Live WebXR preview](https://github.com/m3trik/pythontk/blob/main/docs/webxr_preview.md)** (pythontk) — the shared DCC → glTF → headset pipeline behind `btk.WebXrPreview`
 

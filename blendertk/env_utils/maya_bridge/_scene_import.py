@@ -961,6 +961,17 @@ class MayaSceneImport(ptk.LoggingMixin):
             ),
             when=bool(scene_settings),
         )
+        # Before the reduction: a stepped key holds again, and the reducer
+        # leaves a curve with one as it is (it refit the ramp as a bezier).
+        plan.add(
+            manifest.STEPPED_KEYS,
+            "Restoring stepped keys",
+            lambda: self._apply_stepped_keys(
+                manifest, imported, frame_offset=frame_offset
+            ),
+            when=not is_usd,
+            best_effort=True,
+        )
         plan.add(None, "Reducing baked keys", reduce, when=bool(reduction))
         # The light rebuild replaces objects the steps above still hold.
         plan.add(manifest.LIGHTS, "Rebuilding lights", rebuild_lights)
@@ -2493,6 +2504,74 @@ class MayaSceneImport(ptk.LoggingMixin):
                 "(hide_render / hide_viewport)."
             )
 
+    #: A Maya transform family (``HandoffManifest.STEPPED_KEYS``) -> the data
+    #: paths its channels land on; any other channel is a custom property.
+    _STEP_FAMILY_PATHS = {
+        "translate": ("location",),
+        "rotate": ("rotation_euler", "rotation_quaternion", "rotation_axis_angle"),
+        "scale": ("scale",),
+    }
+
+    def _apply_stepped_keys(
+        self, manifest: Any, imported: List[Any], frame_offset: float = 0.0
+    ) -> int:
+        """Make the keys the source stepped CONSTANT again -- the manifest's
+        ``stepped_keys`` (``HandoffManifest.STEPPED_KEYS``, written by the
+        conversion off the authored curves).
+
+        Blender's FBX importer makes every key LINEAR, so a Maya hold arrived
+        as a ramp to the next key: SOL_REPLACE_ASSEMBLY's SCREWDRIVER steps at
+        12 and holds to 731, and pulled it moved the whole way (then the key
+        reduction refit the ramp as a bezier).  Runs before the reduction,
+        which leaves a curve with a stepped key as it is.  Only a key whose
+        next key is more than a frame away is stepped: a curve the conversion
+        baked already holds frame by frame, and stays reducible.  Objects match
+        by SHORT name, as the other sections' replays do; *frame_offset* is the
+        importer's ``anim_offset``.
+
+        Returns:
+            How many keys were stepped.
+        """
+        section = manifest.get(manifest.STEPPED_KEYS) or {}
+        if not section:
+            return 0
+        from blendertk.anim_utils._anim_utils import AnimUtils
+
+        by_short: Dict[str, List[Any]] = {}
+        for obj in imported:
+            by_short.setdefault(obj.name.split(".")[0], []).append(obj)
+        stepped = 0
+        for short, channels in section.items():
+            for obj in by_short.get(short, []):
+                fcurves = AnimUtils.get_fcurves([obj])
+                for channel, frames in (channels or {}).items():
+                    paths = self._STEP_FAMILY_PATHS.get(channel, (f'["{channel}"]',))
+                    wanted = [float(f) + frame_offset for f in frames]
+                    for fc in fcurves:
+                        if fc.data_path not in paths:
+                            continue
+                        # The frames looked up in the bulk-read times: a
+                        # baked curve holds thousands of keys, the section a
+                        # few frames.
+                        times = AnimUtils.key_times(fc)
+                        hits = set()
+                        for f in wanted:
+                            i0, i1 = AnimUtils.window_indices(times, f - 1e-3, f + 1e-3)
+                            if i1 <= i0 or i0 + 1 >= len(times):
+                                continue  # not keyed there, or the last key
+                            if times[i0 + 1] - times[i0] <= 1.0 + 1e-6:
+                                continue  # baked: the samples hold already
+                            hits.add(i0)
+                        if hits:
+                            points = fc.keyframe_points
+                            for i in hits:
+                                points[i].interpolation = "CONSTANT"
+                            fc.update()
+                            stepped += len(hits)
+        if stepped:
+            self.logger.info(f"Restored {stepped} stepped key(s) (CONSTANT).")
+        return stepped
+
     @staticmethod
     def _step_visibility_fcurves(obj: Any) -> None:
         """Force CONSTANT interpolation on *obj*'s ``hide_*`` fcurves — visibility is
@@ -2770,19 +2849,25 @@ class MayaSceneImport(ptk.LoggingMixin):
                 "Maya: "
                 + ("reused the cached conversion" if conversion.hit else "converted"),
             )
-            sidecar = ptk.HandoffManifest.path_for(inter_path)
-            if via == "usd" and not os.path.isfile(sidecar):
-                # The v2 conversion always writes the sidecar; without it the
-                # bake could silently cache a flattened .blend (see the bake
-                # template's apply_instances).
-                raise RuntimeError(
-                    f"USD conversion sidecar missing: {sidecar}. "
-                    "Refusing to bake (a flat bake could silently lose "
-                    "instancing); clear the conversion cache or bake via FBX."
-                )
+        sidecar = ptk.HandoffManifest.path_for(inter_path)
+        has_sidecar = os.path.isfile(sidecar)
+        if not direct and via == "usd" and not has_sidecar:
+            # The v2 conversion always writes the sidecar; without it the
+            # bake could silently cache a flattened .blend (see the bake
+            # template's apply_instances).
+            raise RuntimeError(
+                f"USD conversion sidecar missing: {sidecar}. "
+                "Refusing to bake (a flat bake could silently lose "
+                "instancing); clear the conversion cache or bake via FBX."
+            )
 
         bake_stage = stages - 1
         key_files = [inter_path, _BAKE_TEMPLATE, _BAKE_ENGINE]
+        # The manifest the bake applies is an input too: a payload can land before
+        # its sidecar (a synced drive), and a bake cached in that window would
+        # replay the sidecar-less scene after the sidecar arrived.
+        if has_sidecar:
+            key_files.append(sidecar)
         if level:
             key_files.append(_anim_utils.__file__)
         got = ptk.CachedArtifact("maya_bake_btk", extension=".blend").get(

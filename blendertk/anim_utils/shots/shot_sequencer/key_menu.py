@@ -9,6 +9,8 @@ the edits run over a key selection: simplify, thin, snap, invert, align, copy /
 paste and stash.
 """
 
+import pythontk as ptk
+
 from blendertk.anim_utils._anim_utils import AnimUtils
 from blendertk.anim_utils.shots.shot_sequencer.clip_motion import ClipMotionMixin
 from blendertk.core_utils._core_utils import CoreUtils
@@ -116,6 +118,12 @@ class KeyMenuMixin:
         act_unify = menu.addAction(f"Unify Tangents{suffix}")
         act_unify.triggered.connect(lambda: self._lock_key_tangents(targets, True))
 
+        self._add_selection_key_actions(menu, targets, suffix)
+
+    def _add_selection_key_actions(self, menu, targets: list, suffix: str = "") -> None:
+        """The key menu's rows past the tangents -- the key edits
+        (:meth:`_add_key_edit_actions`) and Move / Copy to Shot -- for a
+        selection from any view: the graph's menu offers them too."""
         self._add_key_edit_actions(menu, targets, suffix)
 
         if self.sequencer:
@@ -137,6 +145,7 @@ class KeyMenuMixin:
         ("Snap Fractional Keys", "_snap_selected_keys"),
         ("Invert Keys", "_invert_selected_keys"),
         ("Align Keys", "_align_selected_keys"),
+        ("Euler Filter", "_euler_filter_selected_keys"),
     )
 
     def _add_key_edit_actions(self, menu, targets, suffix) -> None:
@@ -185,12 +194,14 @@ class KeyMenuMixin:
         for obj, attr, _times, _sid in targets:
             by_obj.setdefault(obj, []).append(attr)
         # Each curve once (mayatk de-dupes): two segments of one channel are
-        # one curve, and a simplify handed it twice ran an extra pass.
-        return [
-            fc
-            for obj, attrs in by_obj.items()
-            for fc in ClipMotionMixin.curves_for_attrs(obj, attrs)
-        ]
+        # one curve, and a simplify handed it twice ran an extra pass -- as are
+        # linked duplicates' rows, which share one action slot (an Invert over
+        # both ran twice, mirroring the keys back).
+        curves: dict = {}
+        for obj, attrs in by_obj.items():
+            for fc in ClipMotionMixin.curves_for_attrs(obj, attrs):
+                curves.setdefault(fc.as_pointer(), fc)
+        return list(curves.values())
 
     @staticmethod
     def _target_span(targets: list) -> tuple:
@@ -330,6 +341,27 @@ class KeyMenuMixin:
                 f"Snapped {n or 0} key{'s' if n != 1 else ''} to whole frames"
             )
 
+    def _euler_filter_selected_keys(self, targets) -> None:
+        """Unflip the selected channels' rotation curves (``AnimUtils.euler_filter``).
+
+        Whole curves, as the Graph Editor's Curves > Euler Filter filters
+        them: unwrapping a span alone would leave a new jump at its edge.
+        Values only -- no key moves, so no claim changes hands.
+        """
+        curves = self._target_curves(targets)
+        ran, done = self._key_selection_edit(
+            targets,
+            "eulerfilter",
+            lambda _objects, _span: AnimUtils.euler_filter(curves),
+        )
+        if ran:
+            n = len(done or ())
+            self._set_footer(
+                f"Euler filter: {n} rotation curve{'s' if n != 1 else ''}"
+                if n
+                else "Euler filter: no rotation curve among the selected keys"
+            )
+
     def _claims_follow(self, objects) -> dict:
         """The ``on_replace`` / ``on_move`` a key edit over *objects* takes: a
         key it REPLACES takes its claims with it (``ShotStore.release_replaced``,
@@ -378,12 +410,38 @@ class KeyMenuMixin:
                 f"Aligned {n} key{'s' if n != 1 else ''}" if n else "Nothing to align"
             )
 
+    #: ``{editor name: callable() -> targets}`` -- how a key shortcut finds
+    #: the selection while a view other than the track rows shows
+    #: (:meth:`register_key_targets`).  Replaced, never mutated in place:
+    #: the class default is shared.
+    _key_target_sources: dict = {}
+
+    def register_key_targets(self, editor_name: str, source) -> None:
+        """Resolve the key shortcuts' targets through *source* while the
+        editor *editor_name* shows (``None`` drops it).
+
+        *source* returns ``[(obj, attr, [times], shot_id), ...]``, the shape
+        :meth:`_key_targets` reads from the track rows: the graph's
+        ``GraphSync`` registers its curve-keyed selection here, so Ctrl+C /
+        Ctrl+V act on what the graph has selected.
+        """
+        sources = dict(self._key_target_sources)
+        if source is None:
+            sources.pop(editor_name, None)
+        else:
+            sources[editor_name] = source
+        self._key_target_sources = sources
+
     def _selected_key_targets(self) -> list:
         """The key menu's ``targets`` for whatever is selected right now --
         what a SHORTCUT has to resolve for itself."""
         widget = self._get_sequencer_widget()
         if widget is None:
             return []
+        editor = getattr(widget, "active_editor", None)
+        source = self._key_target_sources.get(getattr(editor, "name", None))
+        if source is not None:
+            return source()
         return self._key_targets(widget, widget.selected_keys())
 
     def _copy_keys_shortcut(self) -> None:
@@ -394,112 +452,216 @@ class KeyMenuMixin:
         """Ctrl+V over the sequencer: paste them at the playhead."""
         self._paste_selected_keys(self._selected_key_targets())
 
-    def _copy_selected_keys(self, targets) -> None:
-        """Copy the selected keys (frames and values) for a later paste.
+    #: The panel's key clipboard (:meth:`_copy_selected_keys`, mirror of
+    #: mayatk's): ``{"rows": [(obj, attr, [key dict, ...]), ...], "start":
+    #: frame, "paths": {(obj, attr): (data_path, index)}}``.  On the class, so
+    #: a slots re-init -- a fresh controller -- keeps it; it outlives the
+    #: scene (a row whose object is gone pastes nothing).
+    _key_clipboard: dict = {}
 
-        As the animator left them: a seam the gap hold made ``CONSTANT`` is
-        copied with the interpolation it had before (:meth:`_drop_gap_holds`,
-        mirror of mayatk's panel clipboard).
+    #: What a copied key carries besides its frame and value: the shape the
+    #: animator gave it (``AnimUtils.copy_keys``' tangent detail).
+    _KEY_SHAPE = (
+        "interpolation",
+        "easing",
+        "handle_left_type",
+        "handle_right_type",
+        "handle_left",
+        "handle_right",
+    )
+
+    def _copy_selected_keys(self, targets) -> None:
+        """Copy the selected keys onto the panel's own clipboard, one row per
+        attribute row (mirror of mayatk's).
+
+        Its own, not Blender's: each key is copied as the animator left it --
+        a seam the gap hold made ``CONSTANT`` with the interpolation it had
+        before (:meth:`_capture_key_rows`) -- keeping its value, interpolation,
+        easing, handle types and handles.  The curves are read directly: no
+        Blender key selection is needed or changed, and nothing is undone.
         """
-        if not targets:
+        if not targets or self.sequencer is None:
             return
-        self._select_target_keys(targets)
-        objects = self._target_objects(targets)
-        try:
-            import bpy
-        except ImportError:
-            return
-        # One buffer per object: Blender's copy_keys takes a single source,
-        # where Maya's takes the whole selection at once.
-        buffers = {}
-        for name in objects:
-            obj = bpy.data.objects.get(name)
-            if obj is None:
-                continue
-            buf = AnimUtils.copy_keys(obj, mode="selected")
-            if buf is not None:
-                self._drop_gap_holds(name, buf)
-                buffers[name] = buf
-        if not buffers:
+        rows, paths = self._capture_key_rows(targets)
+        if not rows:
             self._set_footer("Nothing to copy")
             return
-        self._copied_keys = buffers
-        n = sum(len(pts) for buf in buffers.values() for pts in buf["keys"].values())
+        type(self)._key_clipboard = {
+            "rows": rows,
+            "start": min(kd["frame"] for _o, _a, keys in rows for kd in keys),
+            "paths": paths,
+        }
+        n = sum(len(keys) for _o, _a, keys in rows)
         self._set_footer(f"Copied {n} key{'s' if n != 1 else ''}")
 
-    def _drop_gap_holds(self, name: str, buf: dict) -> None:
-        """Give each key of *buf* the gap hold claimed back its pre-hold
-        interpolation (``ShotEditLedger.claimed_step``): the ``CONSTANT`` the
-        hold wrote is the shot system's, and a paste carried it as if the
-        animator had keyed it (2026-10-10, found in Maya's Graph Editor).
+    def _capture_key_rows(self, targets) -> tuple:
+        """``(rows, paths)`` for *targets*' keys: ``rows`` ``[(obj, attr,
+        [key dict, ...]), ...]`` -- each key's ``frame``, ``value`` and
+        :attr:`_KEY_SHAPE` -- and ``paths`` ``{(obj, attr): (data_path,
+        index)}``, the curve each row was copied from.
 
-        Only while the key is still the one the hold stepped
-        (``ShotEditLedger.is_same_key``, as ``ShotSequencer._release_gap_holds``
-        reads it): a key written over the held one since -- a Graph Editor
-        paste -- is the animator's, its ``CONSTANT`` with it.  Mirror of
-        mayatk's ``_capture_key_rows``."""
+        A key the gap hold stepped is read back to its pre-hold interpolation
+        (``ShotEditLedger.claimed_step``): the ``CONSTANT`` the hold wrote is
+        the shot system's, and a paste carried it as if the animator had keyed
+        it (2026-10-10).  Only while the key is still the one the hold stepped
+        (``ShotEditLedger.is_same_key``, by value and left handle): a key
+        written over the held one since -- a Graph Editor paste, the held
+        value with another slope included -- is the animator's, its
+        ``CONSTANT`` with it.  Mirror of mayatk's.  A claim made in Maya (a
+        pulled scene) names Maya tangent types, read back as the release
+        reads them (``ShotSequencer._own_interpolation``).
+        """
         from blendertk.anim_utils.shots._shots import BlenderShotStore
 
-        if self.sequencer is None:
-            return
         ledger = self.sequencer.ledger
-        tangents = buf.get("tangents") or {}
-        for (path, index), points in (buf.get("keys") or {}).items():
-            key = BlenderShotStore.curve_key(name, path, index)
-            for (frame, value), tan in zip(points, tangents.get((path, index)) or []):
-                claim = ledger.claimed_step(key, frame)
+        rows, paths = [], {}
+        for obj, attr, times, _sid in targets:
+            fcurves = ClipMotionMixin.curves_for_attr(obj, attr)
+            if not fcurves:
+                continue
+            fc = fcurves[0]
+            curve = BlenderShotStore.curve_key(obj, fc.data_path, fc.array_index)
+            key_times, points = AnimUtils.key_times(fc), fc.keyframe_points
+            keys = []
+            for t in times:
+                i0, i1 = AnimUtils.window_indices(key_times, t - 1e-4, t + 1e-4)
+                if i1 <= i0:
+                    continue
+                kp = points[i0]
+                kd = {
+                    "frame": float(kp.co.x),
+                    "value": float(kp.co.y),
+                    "interpolation": kp.interpolation,
+                    "easing": kp.easing,
+                    "handle_left_type": kp.handle_left_type,
+                    "handle_right_type": kp.handle_right_type,
+                    "handle_left": (
+                        kp.handle_left.x - kp.co.x,
+                        kp.handle_left.y - kp.co.y,
+                    ),
+                    "handle_right": (
+                        kp.handle_right.x - kp.co.x,
+                        kp.handle_right.y - kp.co.y,
+                    ),
+                }
+                claim = ledger.claimed_step(curve, kd["frame"])
                 if (
                     claim is not None
-                    and tan.get("interpolation") == "CONSTANT"
-                    and ledger.is_same_key(claim, tan.get("easing"), value)
+                    and kd["interpolation"] == "CONSTANT"
+                    and ledger.is_same_key(
+                        claim, kd["easing"], kd["value"], in_half=kd["handle_left"]
+                    )
                 ):
-                    tan["interpolation"] = claim[1] or "BEZIER"
+                    kd["interpolation"] = self.sequencer._own_interpolation(claim[1])
+                keys.append(kd)
+            if keys:
+                rows.append((obj, attr, keys))
+                paths[(obj, attr)] = (fc.data_path, fc.array_index)
+        return rows, paths
 
     def _paste_selected_keys(self, targets) -> None:
-        """Paste the copied keys onto the selection at the current frame."""
-        if not self._copied_keys:
-            self._set_footer("Nothing copied yet \u2014 use Copy Keys first")
+        """Paste the panel's clipboard at the playhead (:meth:`_copy_selected_keys`,
+        mirror of mayatk's).
+
+        The earliest copied key lands on the playhead and every other keeps
+        its distance from it, across rows.  The destination is the rows the
+        selected keys are on (``ShotSequencer.paste_pairs``: a lone row onto
+        each, else each row onto its attribute's), or -- nothing selected --
+        the rows the keys were copied from.  A pasted key replaces the one on
+        its frame, which takes its claims with it; the rest of the curve
+        stays.  One undo step; the pasted keys are selected after it.
+        Blender's own key clipboard is never read, as mayatk's panel never
+        reads Maya's.
+        """
+        clip = type(self)._key_clipboard
+        if not clip:
+            self._set_footer(
+                "Nothing copied here \u2014 Ctrl+C keys in the sequencer first"
+            )
+            return
+        if self.sequencer is None:
             return
         try:
             import bpy
         except ImportError:
             return
-        names = self._target_objects(targets)
-        if not names:
-            self._set_footer("Select some keys to paste onto")
+        rows = clip["rows"]
+        if targets:
+            destinations = list(dict.fromkeys((o, a) for o, a, _t, _s in targets))
+        else:
+            destinations = [(o, a) for o, a, _k in rows]
+        pairs = ptk.ShotSequencer.paste_pairs(rows, destinations)
+        if not pairs:
+            self._set_footer("Nothing copied for the selected rows' attributes")
+            return
+        now = self._current_time()
+        if now is None:
             return
         shot_id = next((sid for _o, _a, _t, sid in targets if sid is not None), None)
-        # target_time is passed, not defaulted: blendertk's default pastes at the
-        # buffer's OWN frames where mayatk's is the current frame, and the two
-        # panels have to mean the same thing.
-        now = self._current_time()
+        if shot_id is None:
+            shot = self._find_shot_at_time(now)
+            shot_id = shot.shot_id if shot is not None else None
+        on_replace = self._claims_follow([o for o, _a, _k in pairs])["on_replace"]
+        copied_paths = clip.get("paths") or {}
+        # The rows a paste keyed: a row whose object is gone since the copy
+        # keys nothing, and is neither counted nor selected.
+        landed = []
 
-        def _paste():
-            pasted = set()
-            # A pasted key replaces the one on its frame, and takes its claims.
-            on_replace = self._claims_follow(names)["on_replace"]
-            for name in names:
-                obj = bpy.data.objects.get(name)
+        def _run():
+            for obj_name, attr, keys in pairs:
+                obj = bpy.data.objects.get(obj_name)
                 if obj is None:
                     continue
-                # The buffer copied FROM this object when there is one, else
-                # any single buffer -- pasting one object's keys onto another
-                # is the whole point of a clipboard.
-                buf = self._copied_keys.get(name) or next(
-                    iter(self._copied_keys.values())
+                # The destination's own curve for the row; a row copied from
+                # a curve deleted since lands on the path it was copied from.
+                fcurves = ClipMotionMixin.curves_for_attr(obj_name, attr)
+                path = (
+                    (fcurves[0].data_path, fcurves[0].array_index)
+                    if fcurves
+                    else next(
+                        (p for (o, a), p in copied_paths.items() if a == attr), None
+                    )
                 )
-                done_on = AnimUtils.paste_keys(
-                    [obj], buf, target_time=now, on_replace=on_replace
-                )
-                for done in done_on or ():
-                    pasted.add(getattr(done, "name", done))
-            return len(pasted)
+                if path is None:
+                    continue
+                buffer = {
+                    "mode": "selected",
+                    "keys": {path: [(kd["frame"], kd["value"]) for kd in keys]},
+                    "tangents": {
+                        path: [{f: kd[f] for f in self._KEY_SHAPE} for kd in keys]
+                    },
+                }
+                first = min(kd["frame"] for kd in keys)
+                if AnimUtils.paste_keys(
+                    [obj],
+                    buffer,
+                    target_time=now + (first - clip["start"]),
+                    on_replace=on_replace,
+                ):
+                    landed.append((obj_name, attr, keys))
+            return len(landed)
 
-        n = self._key_scene_edit("Paste Keys", _paste, shot_id=shot_id)
+        n = self._key_scene_edit("Paste Keys", _run, shot_id=shot_id) or 0
+        if not n:
+            self._set_footer(
+                "Nothing pasted: the copied rows' objects or attributes are gone"
+            )
+            return
+        widget = self._get_sequencer_widget()
+        if widget is not None:
+            widget.select_keys(
+                [
+                    {
+                        "data": {"obj": obj, "attr_name": attr},
+                        "times": [now + kd["frame"] - clip["start"] for kd in keys],
+                    }
+                    for obj, attr, keys in landed
+                ]
+            )
+        keys_n = sum(len(keys) for _o, _a, keys in landed)
         self._set_footer(
-            f"Pasted onto {n or 0} object{'s' if n != 1 else ''}"
-            if n
-            else "Nothing pasted \u2014 no matching properties on the selection"
+            f"Pasted {keys_n} key{'s' if keys_n != 1 else ''} onto "
+            f"{n} row{'s' if n != 1 else ''}"
         )
 
     def _stash_key_targets(self, targets: list) -> None:

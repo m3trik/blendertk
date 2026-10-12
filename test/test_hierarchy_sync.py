@@ -608,6 +608,95 @@ try:
         )
         os.remove(collide_temp)
 
+    # ------------------------------------------------------------------ FBX staging: every take
+    # The worker imports through FbxUtils.import_fbx, so a split file stages ALL its animation
+    # (a Pull appends the staged object WITH its action) -- and, the staged .blend being a
+    # throwaway, with stash=False: nothing parked in Key Stash, the takes left out named in a
+    # warning the parent relays.
+    import pythontk as ptk
+    from blendertk.env_utils.fbx_utils import FbxUtils
+
+    reset()
+    bpy.context.scene.frame_start, bpy.context.scene.frame_end = 1, 100
+    tk = cube("TkBody")
+    for f in range(1, 101):
+        tk.location.x = f * 0.1
+        tk.keyframe_insert("location", index=0, frame=f)
+    shots_fbx = os.path.join(tmp, "shots_only.fbx")
+    FbxUtils.apply_takes([("early", 1, 30), ("late", 50, 70)])
+    try:
+        FbxUtils.export(filepath=shots_fbx, objects=[tk], bake_anim=True)
+    finally:
+        FbxUtils.reset_takes()
+    ptk.FbxMedia.drop_takes(shots_fbx, names=["Scene"])
+    # A clip library beside it: Walk and Run key the same channel differently.
+    walk = tk.animation_data.action
+    run = bpy.data.actions.new("Run")
+    tk.animation_data.action = run
+    for f in range(1, 21):
+        tk.location.x = -f
+        tk.keyframe_insert("location", index=0, frame=f)
+    library_fbx = os.path.join(tmp, "library.fbx")
+    bpy.ops.export_scene.fbx(
+        filepath=library_fbx,
+        use_selection=False,
+        bake_anim=True,
+        bake_anim_use_all_actions=True,
+        bake_anim_use_nla_strips=False,
+    )
+    tk.animation_data.action = walk
+
+    class _Log:
+        def __init__(self):
+            self.seen = []
+
+        def __getattr__(self, level):
+            return lambda msg: self.seen.append((level, msg))
+
+    def staged_actions(path, log=None):
+        """``{action: [key frames]}`` of the .blend *path* stages to."""
+        _blend, staged = HierarchySync.stage_reference_blend(path, logger=log)
+        if not staged:
+            return None
+        with bpy.data.libraries.load(staged, link=False) as (src, dst):
+            dst.actions = list(src.actions)
+        found = {}
+        for act in dst.actions:
+            frames = []
+            for layer in act.layers:
+                for strip in layer.strips:
+                    for bag in strip.channelbags:
+                        for fc in bag.fcurves:
+                            if fc.data_path == "location" and fc.array_index == 0:
+                                frames = [round(k.co.x) for k in fc.keyframe_points]
+            found[act.name] = frames
+            bpy.data.actions.remove(act)
+        os.remove(staged)
+        return found
+
+    reset()
+    shots = staged_actions(shots_fbx)
+    check(
+        "a Shots Only FBX stages with every shot's keys on one action",
+        shots is not None
+        and list(shots) == ["TkBody|Take 001"]
+        and shots["TkBody|Take 001"] == list(range(1, 31)) + list(range(50, 71)),
+        detail=str({k: len(v) for k, v in (shots or {}).items()}),
+    )
+    log = _Log()
+    reset()
+    library = staged_actions(library_fbx, log)
+    left_out = [m for lvl, m in log.seen if lvl == "warning" and "left out" in m]
+    check(
+        "a clip-library FBX stages with stash=False: no Key Stash action, the take left "
+        "out named in a relayed warning",
+        library is not None
+        and not [n for n in library if n.startswith("keyStash")]
+        and len(library) == 1
+        and len(left_out) == 1,
+        detail=f"{library} {log.seen}",
+    )
+
     # ------------------------------------------------------------------ delete_objects: cascade
     # Maya parity (slot b018): cmds.delete removes the whole subtree, but a bare
     # bpy.data.objects.remove() re-roots the children — leaving them in the scene (and shifting

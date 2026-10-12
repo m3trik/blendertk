@@ -1054,6 +1054,65 @@ try:
         str(sorted(o.name for o in _kept)),
     )
 
+    # ---- stepped keys: a Maya hold arrives CONSTANT (2026-10-12) --------------
+    # Bug: Blender's FBX importer makes every key LINEAR, so a Maya stepped key
+    # (SOL_REPLACE_ASSEMBLY's SCREWDRIVER: steps at 12, holds to 731) arrived as
+    # a ramp to the next key, and the reduction refit it as a bezier.  The
+    # conversion now carries the steps (``stepped_keys``) and the import makes
+    # those keys CONSTANT before the reduction -- a baked curve, which holds
+    # frame by frame already, left as it is.
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _held = bpy.data.objects.new("stepper", None)
+    _baked = bpy.data.objects.new("baker", None)
+    for _o in (_held, _baked):
+        bpy.context.scene.collection.objects.link(_o)
+    for _f, _v in ((1, 0.0), (12, 0.0), (731, -65.0)):
+        _held.location.z = _v
+        _held.keyframe_insert("location", index=2, frame=_f)
+    for _f in range(10, 15):
+        _baked.location.x = 0.0 if _f < 14 else 5.0
+        _baked.keyframe_insert("location", index=0, frame=_f)
+    from blendertk.anim_utils._anim_utils import AnimUtils as _AU
+
+    for _o in (_held, _baked):
+        for _fc in _AU.get_fcurves([_o]):
+            for _k in _fc.keyframe_points:
+                _k.interpolation = "LINEAR"  # as Blender's FBX importer leaves them
+    _section = {"stepper": {"translate": [12.0]}, "baker": {"translate": [12.0]}}
+    _n = MayaSceneImport()._apply_stepped_keys(
+        ptk.HandoffManifest({"stepped_keys": _section}), [_held, _baked]
+    )
+    _fc_held = next(iter(_AU.get_fcurves([_held])))
+    _fc_baked = next(iter(_AU.get_fcurves([_baked])))
+    check(
+        "stepped keys: a stepped key is CONSTANT again and the hold plays",
+        _n == 1
+        and _fc_held.keyframe_points[1].interpolation == "CONSTANT"
+        and abs(_fc_held.evaluate(400)) < 1e-6,
+        f"stepped={_n} @400={_fc_held.evaluate(400):.3f}",
+    )
+    check(
+        "stepped keys: a baked curve (a key every frame) is left as it is",
+        all(_k.interpolation == "LINEAR" for _k in _fc_baked.keyframe_points),
+        [_k.interpolation for _k in _fc_baked.keyframe_points],
+    )
+    _payload_src = _inspect.getsource(MayaSceneImport.import_payload)
+    check(
+        "stepped keys: restored before the key reduction",
+        0
+        < _payload_src.find("_apply_stepped_keys")
+        < _payload_src.find('"Reducing baked keys"'),
+    )
+    _tpl_src = _IMPORT_TEMPLATE.read_text(encoding="utf-8")
+    check(
+        "stepped keys: the conversion reads them off the original scene and ships them",
+        "MayaExportMixin.stepped_keys(spell=spell)" in _tpl_src
+        and 0
+        < _tpl_src.find("stepped_keys(lambda name")
+        < _tpl_src.find("_run_smart_bake(cmds)")
+        and '"stepped_keys": stepped' in _tpl_src,
+    )
+
     # Rig mode must still carry VISIBILITY. The FBX writes the curve and
     # Blender's importer drops it, so a scene's authored opacity fades reach
     # Blender only through the manifest's `visibility` section -- which only
@@ -1864,6 +1923,40 @@ try:
         for p in [baked_path, baked_path + BAKE_SOURCE_SUFFIX] if baked_path else []:
             if os.path.exists(p):
                 os.remove(p)
+    # The cached bake is keyed on the manifest it applies: a payload can land before
+    # its sidecar (a synced drive), and a bake cached in that window replayed the
+    # sidecar-less scene after the sidecar arrived.
+    _key_tmp = ptk.TempArtifacts("btk_bake_key_test", policy="scoped")
+    _key_src = _key_tmp.path(extension=".fbx")
+    _key_baked = []
+    try:
+        with open(_key_src, "wb") as fh:
+            fh.write(b"fbx-bytes")
+        _key_runs = []
+        for _with_sidecar in (False, False, True):
+            if _with_sidecar:
+                ptk.HandoffManifest({"machinery": {"|ctrl": "control"}}).write(
+                    ptk.HandoffManifest.path_for(_key_src)
+                )
+            _bake_cap.clear()
+            _key_baked.append(BakeCapture().bake_scene(_key_src, use_cache=True))
+            _key_runs.append("script" in _bake_cap)
+        check(
+            "bake_scene: a sidecar arriving after a cached bake bakes again",
+            _key_runs == [True, False, True],
+            f"baked per call: {_key_runs}",
+        )
+    finally:
+        from blendertk.env_utils.maya_bridge._scene_import import BAKE_SOURCE_SUFFIX
+
+        for p in set(_key_baked):
+            for q in (p, p + BAKE_SOURCE_SUFFIX):
+                if os.path.exists(q):
+                    os.remove(q)
+        _key_sidecar = ptk.HandoffManifest.path_for(_key_src)
+        if os.path.exists(_key_sidecar):
+            os.remove(_key_sidecar)
+        _key_tmp.cleanup()
     # rig_mode applies to BOTH routes (schema 15.1): the same helper surfaces it
     # into the cache key and render context from import_scene AND bake_scene,
     # and the old FBX-only gating of the alias is gone.
@@ -4210,23 +4303,34 @@ try:
     # its pivot), and every light's ground line orange. Maya opens a scene with
     # nothing selected. A real child bake of a parented pair, read back by append
     # (which keeps the saved bases' select / active state).
+    # Production (2026-10-12, SOL_REPLACE_ASSEMBLY): the import removed 80 rig
+    # objects through ``bpy.data.objects.remove``, which leaves each view layer a
+    # base with no object until it resyncs -- and a ``view_layer.objects`` walk does
+    # not resync, so the selection clear met ``None`` and no .blend was saved. The
+    # manifest here names a control the import strips the same way.
     from blendertk.env_utils.maya_bridge._scene_import import BAKE_SOURCE_SUFFIX
 
     _sel_tmp = ptk.TempArtifacts("btk_bake_selection_test", policy="scoped")
-    _sel_baked = None
+    _sel_baked = _sel_sidecar = None
     try:
         _sel_mesh = bpy.data.meshes.new("SelBox")
         _sel_mesh.from_pydata([(0, 0, 0), (1, 0, 0), (0, 1, 0)], [], [(0, 1, 2)])
         _sel_grp = bpy.data.objects.new("SEL_GRP", None)
         _sel_box = bpy.data.objects.new("SEL_BOX", _sel_mesh)
-        _sel_box.parent = _sel_grp
-        for _o in (_sel_grp, _sel_box):
+        _sel_ctrl = bpy.data.objects.new("SEL_CTRL", None)
+        _sel_box.parent = _sel_ctrl.parent = _sel_grp
+        for _o in (_sel_grp, _sel_box, _sel_ctrl):
             bpy.context.scene.collection.objects.link(_o)
         _sel_fbx = _sel_tmp.path(extension=".fbx")
         bpy.ops.export_scene.fbx(filepath=_sel_fbx)
+        _sel_sidecar = ptk.HandoffManifest(
+            {"machinery": {"|SEL_GRP|SEL_CTRL": "control"}}
+        ).write(ptk.HandoffManifest.path_for(_sel_fbx))
         _sel_baked = MayaSceneImport().bake_scene(_sel_fbx, use_cache=False)
         with bpy.data.libraries.load(_sel_baked) as (_sel_src, _sel_dst):
             _sel_dst.scenes = list(_sel_src.scenes)
+            # As saved: the append renames each to ".001" beside the originals.
+            _sel_names = set(_sel_src.objects)
         _sel_vls = [vl for scn in _sel_dst.scenes for vl in scn.view_layers]
         _sel_pairs = [(vl, o) for vl in _sel_vls for o in vl.objects]
         _sel_on = [o.name for vl, o in _sel_pairs if o.select_get(view_layer=vl)]
@@ -4236,10 +4340,16 @@ try:
             len(_sel_pairs) >= 2 and not _sel_on and not _sel_active,
             f"objects={len(_sel_pairs)} selected={_sel_on} active={_sel_active}",
         )
+        check(
+            "bake: the manifest's rig control was stripped before the save",
+            "SEL_CTRL" not in _sel_names and "SEL_BOX" in _sel_names,
+            str(sorted(_sel_names)),
+        )
     finally:
         bpy.ops.wm.read_factory_settings(use_empty=True)
         # An uncached bake lives in scratch by design (the caller links it).
-        for _p in [_sel_baked, _sel_baked + BAKE_SOURCE_SUFFIX] if _sel_baked else []:
+        _sel_out = [_sel_baked, _sel_baked + BAKE_SOURCE_SUFFIX] if _sel_baked else []
+        for _p in _sel_out + ([_sel_sidecar] if _sel_sidecar else []):
             if os.path.exists(_p):
                 os.remove(_p)
         _sel_tmp.cleanup()

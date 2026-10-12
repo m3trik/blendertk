@@ -3959,7 +3959,48 @@ try:
             f"staged={tb_recompressed}",
         )
         tb_tm.run_deferred_restores()
-        tb_tm.run = tb_tm.run.replace(output_format="glb")
+
+        # An FBX run stages into a throwaway dir, so every export encoded every
+        # map again (measured 2026-10-10); pythontk's encode cache serves the
+        # second run: no encode, the same bytes staged. Mirrors mayatk,
+        # 2026-10-11. The cache's temp dir is the suite's own.
+        tb_cache_src = os.path.join(tmp, "cache_src_Normal.png")
+        _PILImage.new("RGB", (256, 256), (128, 128, 128)).convert("P").save(
+            tb_cache_src
+        )
+        tb_tex_node.image = bpy.data.images.load(tb_cache_src)
+        tb_prev_export_path = tb_tm.run.export_path
+        tb_tm.run = tb_tm.run.replace(
+            output_format="fbx", export_path=os.path.join(tmp, "cache.fbx")
+        )
+        tb_cache_root = os.path.join(tmp, "cache_tmp")
+        os.makedirs(tb_cache_root, exist_ok=True)
+        tb_runs = []
+        with _patch.object(tempfile, "tempdir", tb_cache_root):
+            for _ in range(2):
+                with _patch.object(
+                    ptk.MapOptimizer,
+                    "optimize_map",
+                    wraps=ptk.MapOptimizer.optimize_map,
+                ) as _encode:
+                    tb_tm.optimize_textures(True)
+                _staged = bpy.path.abspath(tb_tex_node.image.filepath)
+                with open(_staged, "rb") as _fh:
+                    tb_runs.append((_encode.call_count, _staged, _fh.read()))
+                tb_tm.run_deferred_restores()
+        check(
+            "texture cache: a second FBX export encodes nothing and stages the "
+            "same bytes",
+            [run[0] for run in tb_runs] == [1, 0]
+            and tb_runs[0][1] != tb_runs[1][1]
+            and tb_runs[0][2] == tb_runs[1][2]
+            and not os.path.exists(tb_runs[1][1]),
+            f"encodes={[run[0] for run in tb_runs]} "
+            f"staged={[run[1] for run in tb_runs]}",
+        )
+        tb_tm.run = tb_tm.run.replace(
+            output_format="glb", export_path=tb_prev_export_path
+        )
 
     # ---- tiled-token substitution: <uvtile>/<f> must not collapse onto "1001" -------------
     # Bug: the single-token substitution used "1001" for every token kind. <udim> -> "1001"
@@ -4163,11 +4204,15 @@ try:
     imported = FbxUtils.import_fbx(takes_file, use_custom_props=True)
     take_actions = sorted(a.name for a in bpy.data.actions)
     # True is "both": the shots AND the whole-timeline stack they were cut
-    # from, as Maya's Take 001 ships beside its takes (2026-10-05).
+    # from, as Maya's Take 001 ships beside its takes (2026-10-05). Read from
+    # the file: import_fbx plays the covering whole-timeline take alone, its
+    # slices adding nothing (2026-10-11).
+    shipped = ptk.FbxFile.load(takes_file).take_names()
     check(
         "Shots + Full Sequence ships one AnimStack per shot beside the whole timeline",
-        take_actions == ["ShotCube|Scene", "ShotCube|close", "ShotCube|open"],
-        f"{take_actions}",
+        sorted(shipped) == ["Scene", "close", "open"]
+        and take_actions == ["ShotCube|Scene"],
+        f"{shipped} {take_actions}",
     )
     icarrier2 = next((o for o in imported if o.name.startswith(DataNodes.EXPORT)), None)
     meta_raw = icarrier2.get("shot_metadata") if icarrier2 else None

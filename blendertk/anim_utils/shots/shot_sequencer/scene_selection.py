@@ -261,7 +261,7 @@ class SceneSelectionMixin:
         widget = self._get_sequencer_widget()
         if widget is None or self.sequencer is None:
             return
-        clip = widget._clips.get(clip_id)
+        clip = widget.get_clip(clip_id)
         if clip is None:
             return
         obj_name = clip.data.get("obj")
@@ -272,9 +272,9 @@ class SceneSelectionMixin:
             store.locked_objects.add(obj_name)
         else:
             store.locked_objects.discard(obj_name)
-        for cid, cd in widget._clips.items():
+        for cd in widget.clips():
             if cd.data.get("obj") == obj_name:
-                widget.set_clip_locked(cid, locked)
+                widget.set_clip_locked(cd.clip_id, locked)
         self._sub_row_cache.clear()
 
     def on_track_menu(self, menu, track_names) -> None:

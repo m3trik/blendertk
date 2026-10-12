@@ -73,9 +73,13 @@ def main():
     # The importer selects all it imports; a document opens with nothing selected (Maya's
     # file -open). Saved selected, a large scene opens as a field of origin dots. A walk
     # of a list: the import links and unlinks collections around operators, and a
-    # select_set inside a live ``view_layer.objects`` walk then skips objects.
+    # select_set inside a live ``view_layer.objects`` walk then skips objects. Synced
+    # first: the import removes objects through ``bpy.data`` (the baked rig), which
+    # leaves each view layer a base with no object, and the walk does not resync -- it
+    # yields None for every removed object (Blender 5.1).
     for scene in bpy.data.scenes:
         for view_layer in scene.view_layers:
+            view_layer.update()
             for obj in list(view_layer.objects):
                 obj.select_set(False, view_layer=view_layer)
             view_layer.objects.active = None

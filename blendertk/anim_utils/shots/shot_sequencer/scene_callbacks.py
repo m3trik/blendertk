@@ -3,10 +3,11 @@
 """Blender scene handlers for the shot sequencer.
 
 Provides :class:`SceneCallbacksMixin` -- mixed into
-:class:`~.shot_sequencer_controller.ShotSequencerController`.
-``bpy.app.handlers`` undo/redo, frame-change and depsgraph handlers: new keys
-join the active shot (and grow it, when that option is on) through a debounced
-refresh, and the playhead follows the scene frame.
+:class:`~.shot_sequencer_controller.ShotSequencerController`. A redraw after
+the shot store followed Blender's undo/redo, and ``bpy.app.handlers``
+frame-change and depsgraph handlers: new keys join the active shot (and grow
+it, when that option is on) through a debounced refresh, and the playhead
+follows the scene frame.
 """
 
 from blendertk.anim_utils.shots._shots import BlenderShotStore
@@ -18,9 +19,12 @@ class SceneCallbacksMixin:
     # ---- Blender scene callbacks (bpy.app.handlers) ----------------------
 
     def _register_scene_callbacks(self) -> None:
-        """(Re-)register undo/redo, frame-change, and depsgraph handlers.
+        """(Re-)register the undo/redo redraw, frame-change, and depsgraph handlers.
 
-        Replaces mayatk's OpenMaya undo/redo + DG-time + anim-keyframe callbacks.
+        Replaces mayatk's DG-time + anim-keyframe callbacks.  Undo and redo are
+        the STORE's to follow (``BlenderShotStore.follow_native_step``, with
+        this panel open or not); the panel only redraws after it
+        (:meth:`_on_native_step`), as mayatk's does.
         Idempotent: detaches any it previously attached first, so it can be
         re-run after a scene swap — Blender clears non-``@persistent`` handlers on
         File ▸ New/Open, which would otherwise silently kill the sequencer's live
@@ -33,6 +37,7 @@ class SceneCallbacksMixin:
             return
 
         self._unregister_scene_callbacks()
+        BlenderShotStore.add_native_step_listener(self._on_native_step)
 
         def _add(handler_list, fn):
             handler_list.append(fn)
@@ -40,10 +45,6 @@ class SceneCallbacksMixin:
 
         h = bpy.app.handlers
         _add(h.frame_change_post, self._on_frame_change)
-        _add(h.undo_pre, self._on_undo_pre)
-        _add(h.redo_pre, self._on_redo_pre)
-        _add(h.undo_post, self._on_undo_post)
-        _add(h.redo_post, self._on_redo_post)
         _add(h.depsgraph_update_post, self._on_depsgraph_update)
 
         # An object rename (no app handler reports one): a rebuild re-points
@@ -66,6 +67,7 @@ class SceneCallbacksMixin:
 
     def _unregister_scene_callbacks(self) -> None:
         """Detach the tracked bpy.app handlers (tolerates ones Blender already cleared)."""
+        BlenderShotStore.remove_native_step_listener(self._on_native_step)
         try:
             import bpy
 
@@ -177,53 +179,25 @@ class SceneCallbacksMixin:
         except Exception:
             self.logger.debug("frame-change handler failed", exc_info=True)
 
-    def _on_undo_pre(self, *_args) -> None:
-        """Note the edit serial before the step runs (see ``_native_event_is_ours``)."""
-        self._serial_before_native = BlenderShotStore.edit_serial()
+    def _on_native_step(self, event) -> None:
+        """The store followed a Blender undo or redo (putting back the restore
+        points of every edit of ours it crossed): redraw once.
 
-    def _on_redo_pre(self, *_args) -> None:
-        """Note the edit serial before the step runs (see ``_native_event_is_ours``)."""
-        self._serial_before_native = BlenderShotStore.edit_serial()
-
-    def _on_undo_post(self, *_args) -> None:
-        """Restore the restore points of OUR edits the undo just took back.
-
-        Only those (mirror of mayatk's ``_on_maya_undo``): consuming a restore
-        point for somebody else's step would silently revert a boundary
-        change the user never undid -- and every one of them, since an Undo
-        History jump runs several steps under this one call
-        (``_apply_native_jump``).  The widget refreshes either way, with a
-        rename reconcile (an undo can take a rename back) -- Blender has no
-        per-key callback to report what an unrelated undo did to the keys on
-        screen, where mayatk's keyframe callback does.
+        Whether or not it applied any (mayatk redraws only when it did): the
+        refresh carries a rename reconcile (an undo can take a rename back),
+        and Blender has no per-key callback to report what an unrelated undo
+        did to the keys on screen, where mayatk's keyframe callback does.  The
+        store's own events during the restore are skipped
+        (``_on_store_event``), so a Ctrl+Z is one rebuild -- including the
+        dropdown, which lists the shots in order and paints their bounds: an
+        undone reorder left it showing the order that had just been undone.
+        Only for the store this panel shows (a panel left behind by a scene
+        swap or a reload must not redraw for it).
         """
         if self._syncing:
             return
-        self._syncing = True
-        try:
-            self._apply_native_jump()
-        finally:
-            self._syncing = False
-        # The dropdown lists the shots in order and paints their bounds, so
-        # it goes as stale as the timeline does -- an undone reorder left it
-        # showing the order that had just been undone.
-        self._after_shot_change()
-
-    def _on_redo_post(self, *_args) -> None:
-        # Redo re-applies the scene keys; the ledger's redo direction
-        # re-applies the bounds the matching undo stepped back from, so the
-        # two stay paired through undo→redo cycles (every one a redo jump
-        # crossed: ``_apply_native_jump``).
-        if self._syncing:
+        if event.store is not getattr(self._sequencer, "store", None):
             return
-        self._syncing = True
-        try:
-            self._apply_native_jump(redo=True)
-        finally:
-            self._syncing = False
-        # The dropdown lists the shots in order and paints their bounds, so
-        # it goes as stale as the timeline does -- an undone reorder left it
-        # showing the order that had just been undone.
         self._after_shot_change()
 
     def _on_depsgraph_update(self, *args) -> None:
@@ -245,8 +219,13 @@ class SceneCallbacksMixin:
         Try-wrapped: a raise here would spam the console on every scene edit
         and break the live refresh — Blender does NOT auto-remove a raising
         handler, it just prints the traceback each time.
+
+        Deaf inside a transient edit (``ShotStore.transient_edit``: an export
+        or a bridge send, which puts the scene back): its bake banked every
+        animated object, and the keying epilogue added a non-member keyed in
+        the active shot's frames to its members (2026-10-05, a Unity send).
         """
-        if self._syncing:
+        if self._syncing or BlenderShotStore.in_transient_edit():
             return
         try:
             import bpy
@@ -429,6 +408,7 @@ class SceneCallbacksMixin:
         }
         if not new_objects:
             return False
-        merged = sorted(existing | new_objects)
-        self.sequencer.store.update_shot(shot_id, objects=merged)
+        # The system's own addition, not a hand edit: the manifest's
+        # edited_by_hand reads past it (ShotStore.SYSTEM_MEMBERS; mayatk).
+        self.sequencer.store.add_system_members(shot_id, new_objects)
         return True

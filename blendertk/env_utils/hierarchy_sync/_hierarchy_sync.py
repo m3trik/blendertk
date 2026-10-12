@@ -37,12 +37,16 @@ import pythontk as ptk
 
 from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.display_utils.color_id import ColorId
+from blendertk.env_utils.hierarchy_sync._fbx_stage_worker import (
+    WARNING_PREFIX as _FBX_STAGE_WARNING,  # the line prefix the caller relays
+)
 from blendertk.node_utils._node_utils import NodeUtils
 
 
 #: Worker run in a fresh headless Blender to convert an FBX reference into a standalone ``.blend``
 #: (see :func:`stage_reference_blend`). Committed beside this module and run **by path** as a
-#: subprocess — not imported here (but it is import-safe; slot discovery walks the package).
+#: subprocess (imported only for its warning prefix: it is import-safe, as slot discovery,
+#: which walks the package, requires).
 _FBX_STAGE_WORKER = os.path.join(os.path.dirname(__file__), "_fbx_stage_worker.py")
 
 
@@ -919,10 +923,16 @@ class HierarchySync(ptk.LoggingMixin):
                 pass
             return None, None
 
+        # Blender ignores PYTHONPATH: the worker imports through FbxUtils.import_fbx
+        # (every take's animation), so hand it the roots that make the toolkit importable.
+        roots = (
+            ptk.HandoffBridge.import_roots("blendertk", "pythontk")
+            + ptk.HandoffBridge.child_sys_path()
+        )
         try:
             result = BlenderConnection(blender_exe=bpy.app.binary_path).run_script(
                 _FBX_STAGE_WORKER,
-                script_args=[os.path.abspath(reference_path), temp_blend],
+                script_args=[os.path.abspath(reference_path), temp_blend, *roots],
                 timeout=300,
             )
         except Exception as e:  # noqa: BLE001 — launch/timeout failures reported cleanly, never raised
@@ -938,6 +948,10 @@ class HierarchySync(ptk.LoggingMixin):
                 f"Reference FBX staging failed (rc={result.returncode}). "
                 + " | ".join(tail)
             )
+        # What the import left out (takes parked nowhere in a throwaway stage).
+        for line in (result.stdout or "").splitlines():
+            if line.startswith(_FBX_STAGE_WARNING):
+                _log("warning", line[len(_FBX_STAGE_WARNING) :])
 
         return temp_blend, temp_blend
 

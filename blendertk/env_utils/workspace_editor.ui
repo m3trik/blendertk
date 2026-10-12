@@ -13,6 +13,9 @@
     <height>380</height>
    </rect>
   </property>
+  <property name="accessibleDescription">
+   <string>Set up a project workspace: choose its root folder and edit its file rules.</string>
+  </property>
   <widget class="QWidget" name="central_widget">
    <property name="minimumSize">
     <size>

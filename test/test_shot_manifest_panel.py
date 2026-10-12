@@ -110,10 +110,10 @@ class TestShotManifestPanelLoads(unittest.TestCase):
         missing = [w for w in expected if not hasattr(self.ui, w)]
         self.assertEqual(missing, [])
 
-    def test_export_sits_before_assess_with_its_option_menu(self):
+    def test_export_sits_before_assess_and_opens_its_preview(self):
         """Export (2026-10-10, in place of the header menu's Copy Asset Names)
-        sits in the footer before Assess and Build, its options in its own
-        menu, and a click exports."""
+        sits in the footer before Assess and Build; it has no option menu --
+        a click opens a live preview whose rows set the options (2026-10-11)."""
         from unittest import mock
 
         footer, ctrl = self.ui.footer, self.ui.slots.controller
@@ -125,9 +125,7 @@ class TestShotManifestPanelLoads(unittest.TestCase):
 
         self.assertLess(place(self.ui.b004), place(self.ui.b002))
         self.assertLess(place(self.ui.b002), place(self.ui.b003))
-        menu = self.ui.b004.option_box.menu
-        for widget in ctrl._export_widgets.values():
-            self.assertTrue(menu.isAncestorOf(widget))
+        self.assertIsNone(getattr(self.ui.b004, "_option_box_manager", None))
         self.assertIsNone(getattr(self.ui, "btn_copy_asset_names", None))
         with mock.patch.object(ctrl, "export") as export:
             self.ui.b004.click()
@@ -204,6 +202,199 @@ class TestShotManifestPanelLoads(unittest.TestCase):
         # Saved per template: a rebuild shows the values just chosen.
         ctrl._build_option_rows()
         self.assertTrue(find("opt_fill_missing_assets").isChecked())
+
+    def test_a_sheets_options_are_the_scenes_a_new_sheet_takes_the_users(self):
+        """Bug: a sheet's template options were kept per user, so a scene
+        reopened on its sheet read it another way than it was built.
+        Fixed: 2026-10-12 (maintainer) -- per sheet, on the scene; the user's
+        own only seed a sheet the scene never read (mirror of mayatk's
+        ``TestTheSheetsOptionsLiveOnTheScene``)."""
+        import pythontk as ptk
+        from blendertk import BlenderShotStore
+
+        ctrl = self.ui.slots.controller
+        BlenderShotStore.clear_active()
+        store = BlenderShotStore.active()
+        self.addCleanup(BlenderShotStore.clear_active)
+        self.addCleanup(setattr, ctrl, "_store", ctrl._store)
+        ctrl._store = store
+        ctrl._apply_mapping("default", persist=False)
+        self.addCleanup(ctrl._apply_mapping, "default", False)  # runs second
+        self.addCleanup(ctrl._settings.setValue, "mapping_options/default", "")
+        ctrl._settings.setValue("mapping_options/default", "")
+
+        def names():
+            return [o.name for o in ctrl._steps[0].objects]
+
+        with ptk.TempArtifacts(prefix="btk_sheet_options") as tmp:
+            sheets = []
+            for name in ("sheet.csv", "other.csv"):
+                path = os.path.join(tmp.dir_path(), name)
+                with open(path, "w", encoding="utf-8", newline="") as fh:
+                    fh.write(
+                        "Step,Step Contents,Asset Names\nA01.),Red Door fades in,\n"
+                    )
+                sheets.append(path)
+            sheet, other = sheets
+            self.assertTrue(ctrl._load_csv(sheet))
+            self.assertEqual(names(), ["Red_Door"])
+            ctrl._on_option_changed("object_case", "upper")
+            self.assertEqual(
+                store.manifest_options[sheet]["values"]["object_case"], "upper"
+            )
+            ctrl._settings.setValue("mapping_options/default", "")  # reset since
+            self.assertTrue(ctrl._load_csv(sheet))
+            self.assertEqual(names(), ["RED_DOOR"], "read as the scene reads it")
+            self.assertTrue(ctrl._load_csv(other))
+            self.assertEqual(names(), ["Red_Door"], "a new sheet: the user's own")
+
+    SHEET_CSV = "Step,Step Contents,Asset Names\nA01.),Red Door fades in,\n"
+
+    def _sheet_options_case(self):
+        """The controller on a fresh scene store, the default template and no
+        options of the user's, a sheet beside a scratch folder: ``(ctrl,
+        store, sheet, folder)``.  What the cases below change is put back."""
+        import pythontk as ptk
+        from blendertk import BlenderShotStore
+
+        ctrl = self.ui.slots.controller
+        BlenderShotStore.clear_active()
+        store = BlenderShotStore.active()
+        self.addCleanup(BlenderShotStore.clear_active)
+        for attr in ("_store", "_csv_path", "_source", "_sheet_values"):
+            self.addCleanup(setattr, ctrl, attr, getattr(ctrl, attr))
+        ctrl._store = store
+        field = ctrl.ui.txt_csv_path
+        self.addCleanup(field.setText, field.text())
+        ctrl._apply_mapping("default", persist=False)
+        self.addCleanup(ctrl._apply_mapping, "default", False)  # runs late
+        self.addCleanup(ctrl._settings.setValue, "mapping_options/default", "")
+        ctrl._settings.setValue("mapping_options/default", "")
+        tmp = ptk.TempArtifacts("btk_sheet_options", policy="scoped")
+        self.addCleanup(tmp.cleanup)
+        folder = tmp.dir_path()
+        sheet = os.path.join(folder, "sheet.csv")
+        with open(sheet, "w", encoding="utf-8", newline="") as fh:
+            fh.write(self.SHEET_CSV)
+        return ctrl, store, sheet, folder
+
+    @staticmethod
+    def _user(ctrl, values):
+        """The user's own options for the default template."""
+        import json
+
+        ctrl._settings.setValue("mapping_options/default", json.dumps(values))
+
+    def _open(self, ctrl, sheet):
+        """The panel opening on *sheet*: the default template, read with the
+        user's options as they are now (mayatk's fresh controller)."""
+        ctrl._apply_mapping("default", persist=False)
+        self.assertTrue(ctrl._load_csv(sheet))
+
+    @staticmethod
+    def _other_sheet(ctrl, folder, text):
+        """A second sheet beside the first, browsed to as the user would."""
+        path = os.path.join(folder, "other.csv")
+        with open(path, "w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+        ctrl.ui.txt_csv_path.setText(path)  # the field holds it
+        return path
+
+    def test_a_sheet_the_scene_never_read_takes_the_users_template(self):
+        """Bug: a template switched in for one sheet's record stayed current,
+        so the next sheet -- one the scene had never read -- was read with it,
+        not with the user's own (mirror of mayatk's).
+        Fixed: 2026-10-12"""
+        import shutil
+        import pythontk as ptk
+        from pythontk.core_utils.engines.shots.manifest import mapping
+
+        ctrl, store, sheet, folder = self._sheet_options_case()
+        templates = os.path.join(folder, "templates")
+        os.makedirs(templates)
+        default = os.path.join(os.path.dirname(mapping.__file__), "default.json")
+        for name in ("mine", "theirs"):
+            shutil.copy(default, os.path.join(templates, f"{name}.json"))
+        self.addCleanup(setattr, ctrl, "_mapping_dir", ctrl._mapping_dir)
+        ctrl._mapping_dir = templates
+        ctrl._apply_mapping("mine", persist=False)
+        ptk.ManifestEdits.set_sheet_options(store, sheet, "theirs", {})
+        self.assertTrue(ctrl._load_csv(sheet))
+        self.assertEqual(ctrl._mapping_name, "theirs", "precondition: its record")
+
+        self.assertTrue(ctrl._load_csv(self._other_sheet(ctrl, folder, self.SHEET_CSV)))
+        self.assertEqual(ctrl._mapping_name, "mine")
+
+    def test_a_sheet_that_fails_to_load_leaves_the_shown_sheets_record(self):
+        """Bug: a sheet that read no step was refused, but its own options
+        stayed adopted, so a Build then recorded them on the sheet still
+        shown (Object Case upper -> As written) (mirror of mayatk's).
+        Fixed: 2026-10-12"""
+        ctrl, store, sheet, folder = self._sheet_options_case()
+        self._user(ctrl, {"object_case": "upper"})
+        self._open(ctrl, sheet)
+        # What a Build records on the sheet it read (Build itself needs bpy).
+        ctrl._record_sheet_options(store)
+        self._user(ctrl, {})  # the user's own since: As written
+        other = self._other_sheet(ctrl, folder, "Step,Step Contents,Asset Names\n")
+        self.assertFalse(ctrl._load_csv(other), "precondition: no step read")
+        ctrl._record_sheet_options(store)
+        self.assertEqual(
+            store.manifest_options[sheet]["values"].get("object_case"), "upper"
+        )
+
+    def test_an_option_set_after_a_sheet_read_no_step_reads_that_sheet(self):
+        """Bug: the field said to set the sheet's Step IDs, but the option
+        change read the sheet shown before again and recorded it there
+        (mirror of mayatk's).
+        Fixed: 2026-10-12"""
+        ctrl, store, sheet, folder = self._sheet_options_case()
+        self._user(ctrl, {"step_ids": "classic"})  # reads the A01.) sheet shown
+        self._open(ctrl, sheet)
+        other = self._other_sheet(
+            ctrl, folder, "Step,Step Contents,Asset Names\nIN_01,Red Door fades in,\n"
+        )
+        self.assertFalse(ctrl._load_csv(other), "precondition: no step read")
+        ctrl._on_option_changed("step_ids", "numbered")
+        self.assertEqual(ctrl._csv_path, other)
+        self.assertEqual([s.step_id for s in ctrl._steps], ["IN_01"])
+        self.assertNotIn(sheet, store.manifest_options, "not that sheet's")
+
+    def test_the_preview_follows_a_shot_moved_in_the_sequencer(self):
+        """Bug: an open export preview kept the frames it opened with when a
+        shot moved (``_refresh_timing``) or a range was typed
+        (``_refresh_ranges``) (mirror of mayatk's).
+        Fixed: 2026-10-12"""
+        from pythontk import BuilderObject, BuilderStep
+
+        ctrl = self.ui.slots.controller
+        store = self._fresh_store(ctrl)
+        self.addCleanup(
+            ctrl._settings.setValue,
+            "export_options",
+            ctrl._settings.value("export_options"),
+        )
+        ctrl._settings.setValue("export_options", "")
+        self.addCleanup(setattr, ctrl, "_active_mapping", ctrl._active_mapping)
+        ctrl._active_mapping = None
+        store.define_shot("A01_1", 0, 111, objects=["KEYS"], metadata={"step": "A01"})
+        store.define_shot("A02", 241, 321, objects=["obj_A02"])
+        steps = [
+            BuilderStep(sid, "A", "Section A", "", [BuilderObject(f"obj_{sid}")])
+            for sid in ("A01", "A02", "A03")
+        ]
+        ctrl._load_data(steps, csv_path="X:/sheet.csv")
+        for _ in range(3):
+            self.app.processEvents()
+        ctrl._set_export_option("columns", ["step", "start"])
+        ctrl.export()
+        preview = ctrl._export_preview
+        self.addCleanup(preview.close)
+        self.assertIn("A02,241", preview.text_edit.toPlainText())
+        shot = store.shot_by_name("A02")
+        store.update_shot(shot.shot_id, start=251, end=331)
+        ctrl._refresh_timing()
+        self.assertIn("A02,251", preview.text_edit.toPlainText())
 
     def test_object_name_pickers_offer_the_strutils_cases_and_rules(self):
         """The case and legal-name pickers list exactly what pythontk's
@@ -504,27 +695,32 @@ class TestShotManifestPanelLoads(unittest.TestCase):
         self.assertEqual(cells("Extra"), ("300", "330"))
 
     def test_build_options_reach_the_engine(self):
-        """Rebuild Edited Shots (off by default) and the behavior toggles
-        (mayatk mirror), kept per user."""
+        """Rebuild Edited Shots (off by default) and the Key / Marker / Off
+        choice per behavior (mayatk mirror), kept per user."""
         from blendertk.anim_utils.shots.shot_manifest.behaviors import Behaviors
 
         ctrl = self.ui.slots.controller
         self.addCleanup(ctrl._settings.clear, "rebuild_edited")
         self.addCleanup(ctrl._settings.clear, "disabled_behaviors")
+        self.addCleanup(ctrl._settings.clear, "marked_behaviors")
         self.assertFalse(ctrl._chk_rebuild_edited.isChecked())
-        self.assertEqual(
-            sorted(ctrl._behavior_checks), sorted(Behaviors.list_behaviors())
-        )
+        modes = ctrl._behavior_modes
+        self.assertEqual(sorted(modes), sorted(Behaviors.list_behaviors()))
         ctrl._chk_rebuild_edited.setChecked(True)
-        ctrl._behavior_checks["highlight"].setChecked(False)
+        modes["highlight"].setCurrentIndex(modes["highlight"].findData("off"))
+        modes["fade_in"].setCurrentIndex(modes["fade_in"].findData("marker"))
         try:
             mani = ctrl._manifest()
             self.assertTrue(mani.rebuild_edited)
             self.assertEqual(mani.disabled_behaviors, frozenset({"highlight"}))
+            self.assertEqual(mani.marked_behaviors, frozenset({"fade_in"}))
         finally:
             ctrl._chk_rebuild_edited.setChecked(False)
-            ctrl._behavior_checks["highlight"].setChecked(True)
-        self.assertEqual(ctrl._manifest().disabled_behaviors, frozenset())
+            for name in ("highlight", "fade_in"):
+                modes[name].setCurrentIndex(modes[name].findData("key"))
+        mani = ctrl._manifest()
+        self.assertEqual(mani.disabled_behaviors, frozenset())
+        self.assertEqual(mani.marked_behaviors, frozenset())
 
     def test_a_reapply_that_keys_nothing_says_so_and_the_focused_key_raises(self):
         """Bug: ``_reapply_behavior`` ignored ``reapply_object``'s ``False``
@@ -838,6 +1034,30 @@ class TestShotManifestLocalEdits(unittest.TestCase):
         self.ctrl._load_data(self._sheet(), csv_path="other.csv")
         self.assertEqual(self.ctrl._steps, self._sheet())
 
+    def test_a_moved_sheet_keeps_its_edits_and_the_next_edit_re_keys_them(self):
+        """Bug: the layer was found by the sheet's exact path, so a sheet
+        moved or opened through another mount lost its edits silently.
+        Fixed: 2026-10-11 -- the path, else the one layer of that file name;
+        a save re-keys it to where the sheet is now."""
+        from blendertk.anim_utils.shots.shot_manifest.manifest_data import (
+            COL_DESC,
+            COL_STEP,
+        )
+
+        self._load()
+        self._type_into(self._child("A01", "bolt01"), COL_DESC, "bolt_01")
+        moved = "C:/moved/to/" + self.SHEET
+        self.ctrl._load_data(self._sheet(), csv_path=moved)
+        self.assertEqual(
+            [o.name for o in self.ctrl._steps[0].objects], ["door", "bolt_01"]
+        )
+        self._type_into(self._row("A02"), COL_STEP, "Unhook")
+        self.assertEqual(list(self.store.manifest_edits), [moved])
+        self.assertEqual(
+            self.store.manifest_edits[moved]["objects"],
+            {"A01": {"bolt01": {"name": "bolt_01"}}},
+        )
+
     def test_reset_drops_every_edit_and_the_scenes_record(self):
         from blendertk.anim_utils.shots.shot_manifest.manifest_data import COL_STEP
 
@@ -951,14 +1171,111 @@ class TestShotManifestLocalEdits(unittest.TestCase):
             [o.name for o in self.ctrl._steps[0].objects], ["door", "bolt01"]
         )
 
-        self._trigger(self._row("A02"), "Hide 'A02'")
+        self._trigger(self._row("A02"), "Hide > 'A02'")
         self.assertEqual([s.step_id for s in self.ctrl._steps], ["A01"])
         self._trigger(self._row("A01"), "Show Hidden Steps (1) > A02")
         self.assertEqual([s.step_id for s in self.ctrl._steps], ["A01", "A02"])
 
         # A built step stays: Build never removes a shot.
         ptk.ShotManifest(self.store).update(self.ctrl._steps, initial_shot_length=50)
-        self.assertFalse(self._actions(self._row("A01"))["Hide 'A01'"].isEnabled())
+        self.assertFalse(self._hide_actions(self._row("A01"))["'A01'"].isEnabled())
+
+    def _hide_actions(self, item, selected=()):
+        """The row's Hide flyout, by text -- its action held while the flyout
+        is read: a menu taken off a dropped action's wrapper is dead."""
+        self._hide_action = self._actions(item, selected)["Hide"]
+        hide = self._hide_action.menu()
+        return {act.text(): act for act in hide.actions() if act.text()}
+
+    def test_the_hide_flyout_hides_the_selection_or_the_section(self):
+        """2026-10-11: "a flyout from hide shot x that exposes more shot hide
+        options" -- the step, the selected steps, its section."""
+        import pythontk as ptk
+
+        self._load()
+        self.assertEqual(
+            list(self._hide_actions(self._row("A01"), ["A01", "A02"])),
+            [
+                "'A01'",
+                "2 Selected Steps",
+                "Section 'A: Access'",
+                "Steps Without a Shot",
+            ],
+        )
+        self._trigger(self._row("A01"), "Hide > 2 Selected Steps", ["A01", "A02"])
+        self.assertEqual(self.ctrl._steps, [])
+        self.ctrl._editor.reset(confirm=False)
+        self._settle()
+
+        # A built step of the section stays; the flyout says so and hides the rest.
+        ptk.ShotManifest(self.store).update(
+            self.ctrl._steps[:1], initial_shot_length=50
+        )
+        self.ctrl._redraw()
+        self._trigger(self._row("A02"), "Hide > Section 'A: Access' (1 not built)")
+        self.assertEqual([s.step_id for s in self.ctrl._steps], ["A01"])
+
+    def test_the_flyouts_steps_without_a_shot_is_hide_missing_shots(self):
+        self.addCleanup(self.ctrl._settings.setValue, "hide_missing", False)
+        self.addCleanup(self.ctrl._chk_hide_missing.setChecked, False)
+        self._load()
+        self._trigger(self._row("A01"), "Hide > Steps Without a Shot")
+        self.assertTrue(self.ctrl._hide_missing)
+        self.assertTrue(self.ctrl._chk_hide_missing.isChecked())
+        self.assertTrue(
+            self._hide_actions(self._row("A01"))["Steps Without a Shot"].isChecked()
+        )
+
+    def test_an_edit_runs_a_showing_assessment_again(self):
+        """Bug: a Local Edit -- a hide above all -- left the last Assess up,
+        judged over the old steps, and marked Build due whatever it said: the
+        user re-ran Assess after every hide ("once I hide shots, I have to
+        re-assess every time").
+        Fixed: 2026-10-11"""
+        from unittest import mock
+        from pythontk import StepStatus
+
+        self._load()
+        with mock.patch.object(self.ctrl, "_reassess_soon") as soon:
+            self._trigger(self._row("A02"), "Hide > 'A02'")
+            soon.assert_not_called()  # none showing: nothing to keep current
+            self.ctrl._last_results = [StepStatus(step_id="A01", built=False)]
+            self._trigger(self._row("A01"), "Show Hidden Steps (1) > A02")
+        soon.assert_called_once_with(note="Showed 1 step(s).")
+
+    def test_a_reload_keeps_a_showing_assessment_and_a_scene_swap_drops_it(self):
+        from unittest import mock
+        from pythontk import StepStatus
+
+        self._load()
+        self.ctrl._last_results = [StepStatus(step_id="A01", built=False)]
+        with mock.patch.object(self.ctrl, "_reassess_soon") as soon:
+            self.ctrl._load_data(self._sheet(), csv_path=self.SHEET, footer="Read.")
+        soon.assert_called_once_with(note="Read.")
+        self.ctrl._last_results = [StepStatus(step_id="A01", built=False)]
+        with (
+            mock.patch.object(self.ctrl, "_reassess_soon") as soon,
+            mock.patch.object(self.ctrl, "_open_scene_source"),
+        ):
+            self.ctrl._on_scene_changed()
+        self.assertEqual(self.ctrl._last_results, [])
+        soon.assert_not_called()
+
+    def test_a_reassessment_owed_to_the_old_scene_is_dropped(self):
+        """Bug: a re-assessment pending (or owed to a hidden panel) when the
+        scene changed ran on the next scene, which opens unassessed (mirror
+        of mayatk's).
+        Fixed: 2026-10-12"""
+        self.addCleanup(setattr, self.ctrl, "_first_shown", self.ctrl._first_shown)
+        self.ctrl._first_shown = False  # no repopulate: only the drop is under test
+        self.ctrl._reassess_soon(note="Hid 2 step(s).")
+        self.ctrl._reassess_on_show = True
+
+        self.ctrl._on_scene_changed()
+
+        self.assertFalse(self.ctrl._reassess_timer.isActive(), "timer still pending")
+        self.assertFalse(self.ctrl._reassess_on_show)
+        self.assertEqual(self.ctrl._reassess_note, "")
 
     def test_a_reloaded_sheet_shows_an_added_steps_shot_range(self):
         """Bug: ``_load_csv`` seeded the built steps' Start/End from the
@@ -1026,7 +1343,6 @@ class TestShotManifestLocalEdits(unittest.TestCase):
         door = self.ctrl._steps[0].objects[0]  # the redrawn table's
         self.assertEqual(door.behaviors, [])
         self.assertEqual(door.sheet, {"behaviors": ["fade_in"]})
-        self.assertTrue(self.ctrl._edited_since_assess)
         self.assertEqual(
             self.store.manifest_edits[self.SHEET]["objects"]["A01"]["door"],
             {"behaviors": []},
@@ -1240,6 +1556,21 @@ class TestShotManifestUnlistedShots(unittest.TestCase):
         a01 = self._row("A01")
         self.assertEqual(
             [a01.child(j).text(2) for j in range(a01.childCount())], ["KEYS", "LOCK"]
+        )
+
+    def test_a_split_shot_shows_the_section_of_the_step_it_was_split_from(self):
+        """Bug: a split-off shot had no relation to its step: no section in
+        its row or its export.  Linked by its ``A01_2`` name
+        (``ShotPairing.links``), never paired.
+        Fixed: 2026-10-11"""
+        from blendertk.anim_utils.shots.shot_manifest.manifest_data import (
+            COL_SECTION,
+        )
+
+        self._load()
+        self.assertEqual(self._row("A01_2").text(COL_SECTION), "A: Access")
+        self.assertIn(
+            self.store.shot_by_name("A01_2"), self.ctrl._orphan_shots(), "not paired"
         )
 
     def test_adding_the_shot_makes_it_a_step(self):

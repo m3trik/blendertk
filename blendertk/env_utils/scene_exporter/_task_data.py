@@ -244,8 +244,8 @@ class _TaskDataMixin:
     def _assess_optimization(self, path, template):
         """What the optimization pass would do to *path* (mirror of mayatk's).
 
-        The one criterion the task (skip already-optimal sources, re-verify a
-        reused staged file) and the check (name residuals) share, via
+        The one criterion the task (skip already-optimal sources) and the
+        check (name residuals) share, via
         ``ptk.MapOptimizer.assess``: the per-map-type pass (mode / bit depth),
         plus the *template*'s per-map-type container when one is active, plus
         the size ceiling when one is set

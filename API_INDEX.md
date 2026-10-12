@@ -7,7 +7,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `anim_utils/_anim_utils.py` — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 - `class AnimUtils(_AnimUtilsInternal)`
-  - methods: normalize_optimize_level, resolve_optimize_level, key_arrays, key_times, key_interpolations, window_indices, shift_keys_in_window, remap_keys_in_window, step_last_key_in_window, evaluable_override, get_fcurves, get_animated_extent, has_nla_or_data_animation, scene_has_animation, set_current_frame, shift_keys, move_keys_to_frame, adjust_key_spacing, align_selected_keyframes, set_visibility_keys, add_intermediate_keys, remove_intermediate_keys, select_keys, invert_keys, snap_keys, set_interpolation, set_stepped, step_visibility_keys, delete_keys, fit_playback_range, copy_keys, paste_keys, transfer_keyframes, reduce_to_extremes, get_redundant_flat_keys, simplify_curve, optimize_keys, repair_corrupted_curves, tie_keyframes, bake_keys, bake_blend_shapes, get_animation_info, format_animation_info_csv, format_animation_info_html, configure_render_output, clear_key_selection, get_selected_key_times, get_timeline_selection, create_preview_layer, remove_preview_layer, interpolation_value
+  - methods: normalize_optimize_level, resolve_optimize_level, key_arrays, key_times, key_interpolations, get_key_curves, shift_key_values, window_indices, shift_keys_in_window, remap_keys_in_window, step_last_key_in_window, evaluable_override, get_fcurves, get_animated_extent, has_nla_or_data_animation, scene_has_animation, set_current_frame, shift_keys, move_keys_to_frame, adjust_key_spacing, align_selected_keyframes, set_visibility_keys, add_intermediate_keys, remove_intermediate_keys, select_keys, invert_keys, snap_keys, set_interpolation, set_stepped, step_visibility_keys, delete_keys, fit_playback_range, copy_keys, paste_keys, transfer_keyframes, reduce_to_extremes, get_redundant_flat_keys, euler_filter, simplify_curve, optimize_keys, repair_corrupted_curves, tie_keyframes, bake_keys, bake_blend_shapes, get_animation_info, format_animation_info_csv, format_animation_info_html, configure_render_output, clear_key_selection, get_selected_key_times, get_timeline_selection, create_preview_layer, remove_preview_layer, interpolation_value
 
 ### `anim_utils/blendshape_animator/_blendshape_animator.py` — Main workflow facade for shape-key morph creation, editing, and export — mirror of mayatk's
 - `class BlendshapeAnimator(pythontk.LoggingMixin)`
@@ -66,7 +66,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class BlenderScenePersistence`
   - methods: store_cls, remove_callbacks, save, load, record_changed
 - `class BlenderShotStore(pythontk.ShotStore, _BlenderShotStoreInternal)`
-  - methods: member_nodes, curve_key, follow_renames, edit_serial, scene_edit, active, rescale_to_fps, has_animation, detect_regions, assess, publish_export_view, export_transfer, apply_transfer, transfer_out, transfer_in, merge_carrier, discard_carrier, iter_action_fcurves, collect_transform_segments, collect_selected_key_entries
+  - methods: from_dict, member_nodes, curve_key, follow_renames, edit_serial, scene_edit, active, rescale_to_fps, has_animation, detect_regions, assess, publish_export_view, export_transfer, apply_transfer, transfer_out, transfer_in, merge_carrier, discard_carrier, iter_action_fcurves, collect_transform_segments, collect_selected_key_entries
 
 ### `anim_utils/shots/shot_manifest/_shot_manifest.py` — Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
 - `class BlenderShotManifest(ShotManifest, _ShotManifestInternal)`
@@ -76,8 +76,8 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class Behaviors(pythontk.core_utils.engines.shots.manifest.behaviors.Behaviors, _BehaviorsInternal)`
   - methods: apply_behavior, verify_behavior, apply_audio_clip, compute_duration, apply_to_shots
 
-### `anim_utils/shots/shot_manifest/export_menu.py` — The Shot Manifest's Export button (beside Assess) and its option menu: the
-- `class ExportMenuMixin`
+### `anim_utils/shots/shot_manifest/export_preview.py` — The Shot Manifest's Export button (beside Assess): a live preview of the
+- `class ExportPreviewMixin`
   - methods: export
 
 ### `anim_utils/shots/shot_manifest/header_menu.py` — The Shot Manifest's header menu: display options (Long Names, Hide Missing
@@ -114,7 +114,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class RowMenusMixin`
 
 ### `anim_utils/shots/shot_manifest/shot_manifest_controller.py` — The Shot Manifest panel's controller: its state, the steps the table shows,
-- `class ShotManifestController(ManifestTableMixin, RangeColumnMixin, StoreFollowMixin, ManifestSourceMixin, MappingPickerMixin, RowMenusMixin, HeaderMenuMixin, ExportMenuMixin, pythontk.LoggingMixin)`
+- `class ShotManifestController(ManifestTableMixin, RangeColumnMixin, StoreFollowMixin, ManifestSourceMixin, MappingPickerMixin, RowMenusMixin, HeaderMenuMixin, ExportPreviewMixin, pythontk.LoggingMixin)`
   - methods: build, assess
 
 ### `anim_utils/shots/shot_manifest/shot_manifest_slots.py` — Switchboard slots for the Shot Manifest panel: the ``.ui``'s widgets routed to
@@ -147,9 +147,13 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class GapManagerMixin`
   - methods: on_range_highlight_changed, on_gap_resized, on_gap_left_resized, on_gap_moved, on_gap_lock_changed, on_gap_lock_all, on_gap_unlock_all
 
+### `anim_utils/shots/shot_sequencer/graph_sync.py` — Graph editor glue: the shot sequencer's curves in uitk's graph editor (Blender).
+- `class GraphSync`
+  - methods: detach, sync, outline, key_targets, on_key_menu, on_keys_edited, on_tangents_edited, on_keys_deleted, on_keys_inserted, on_tangent_type, on_tangents_broken, on_infinity, on_key_selection
+
 ### `anim_utils/shots/shot_sequencer/key_menu.py` — Key context menus and key-selection edits.
 - `class KeyMenuMixin`
-  - methods: on_key_menu, place_dragged_handle, on_keys_tangent_dragged
+  - methods: on_key_menu, register_key_targets, place_dragged_handle, on_keys_tangent_dragged
 
 ### `anim_utils/shots/shot_sequencer/marker_manager.py` — Marker persistence for the shot sequencer controller (Blender).
 - `class MarkerManagerMixin(_MarkerManagerMixinInternal)`
@@ -166,7 +170,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `anim_utils/shots/shot_sequencer/segment_collector.py` — Segment collection and attribute extraction for the shot sequencer (Blender).
 - constants: KEY_PROXIMITY_EPS
 - `class SegmentCollector`
-  - methods: label_for, attr_label, abbreviate_attrs, collect_segments, active_object_set, extract_attributes, build_curve_preview
+  - methods: label_for, attr_label, abbreviate_attrs, collect_segments, active_object_set, extract_attributes, summary_times, build_curve_preview
 
 ### `anim_utils/shots/shot_sequencer/shot_lane.py` — The shot lane: its context menu and the shot structure edits.
 - `class ShotLaneMixin`
@@ -437,6 +441,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/hierarchy_sync/_fbx_stage_worker.py` — Convert an FBX reference to a standalone ``.blend`` inside a FRESH headless Blender.
 - `main() -> int`
+- constants: WARNING_PREFIX
 
 ### `env_utils/hierarchy_sync/_hierarchy_sync.py` — Hierarchy Sync core engine — mirror of mayatk's ``env_utils.hierarchy_sync._hierarchy_sync``.
 - `class HierarchyMapBuilder`
@@ -496,8 +501,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `skinning_methods(cmds)`
 - `scene_node_types(cmds)`
 - `scene_settings(cmds)`
-- `write_manifest(entries, visibility, node_types, scene, path, lights=(), skins=None, bones=None, scene_data=None, rig=None, machinery=None)`
+- `write_manifest(entries, visibility, node_types, scene, path, lights=(), skins=None, bones=None, scene_data=None, rig=None, machinery=None, stepped=None)`
 - `scene_lights(cmds)`
+- `stepped_keys(spell)`
 - `main()`
 - `scene_data_sections(cmds, spell)`
 - constants: SRC_PATH, OUT_FBX, EMBED_TEXTURES, INCLUDE_ANIMATION, SMART_BAKE, RIG_MODE, RIG_CAPABILITY, MODERN_SHADER_TYPES, STINGRAY_SHADER_TYPES, STINGRAY_TEX_SLOTS, STINGRAY_SLOT_CHANNELS
@@ -519,6 +525,8 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `import_usd(cmds)`
 - `import_payload(cmds, mel, engine)`
 - `restore_usd_locators(cmds, engine, new_nodes)`
+- `covering_take(mel, path)`
+- `fallback_take(mel, path, warn)`
 - `import_fbx(cmds, mel, engine)`
 - `restore_empty_groups(cmds, engine, new_nodes)`
 - `rebuild_materials(engine, new_nodes)`
@@ -527,6 +535,8 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - constants: BRIDGE_MODES, FBX_PATH, USD_EXTENSIONS, CARRIER, OUT_FILE, EXTRA_SYS_PATH, SHADER_TYPE, USD_IMPORT_OPTIONS
 
 ### `env_utils/maya_bridge/templates/import.py` — Import the bridged payload (FBX or USD) into Maya, with optional clean-slate and
+- `covering_take(mel, path)`
+- `fallback_take(mel, path, warn)`
 - `import_fbx()`
 - `import_usd()`
 - `import_payload()`

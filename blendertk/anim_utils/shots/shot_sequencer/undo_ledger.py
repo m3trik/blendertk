@@ -24,7 +24,7 @@ class UndoLedgerMixin:
         No production path calls this: every edit brackets through
         ``BlenderShotStore.scene_edit``, which tags the point with the edit
         serial its step carries.  An untagged point reads as "always ours" to
-        :meth:`_native_event_is_ours` (mayatk's pre-pairing behaviour), so a
+        ``BlenderShotStore._native_step_crossed`` (mayatk's pre-pairing behaviour), so a
         caller that pushes one gives up the pairing.  Prefer ``scene_edit``.
         """
         if self.sequencer is not None:
@@ -51,78 +51,22 @@ class UndoLedgerMixin:
         if self.sequencer is not None:
             self.sequencer.store.redo_boundary_snapshot()
 
-    #: The scene's edit serial as the undo/redo handler found it BEFORE the
-    #: native step ran (``_on_undo_pre`` / ``_on_redo_pre``).
-    _serial_before_native = None
-
-    def _native_event_is_ours(self, redo: bool = False, first: bool = True) -> bool:
-        """True when the undo/redo Blender JUST performed passed over the edit
-        whose restore point is next in that direction.
-
-        Mirror of mayatk's: Blender fires its undo/redo handlers for every step
-        in the session, and consuming a restore point for someone else's step
-        reverted shot bounds whose keys Blender had left where they were.
-        mayatk reads the step's NAME off the queue; Blender's undo exposes no
-        names, so each edit stamps :attr:`BlenderShotStore.EDIT_SERIAL_PROP`
-        inside its own step (``scene_edit``) and the restore point records it.
-        Memfile undo winds that property with the steps, and serials only
-        grow, so the point's marker says whether the jump crossed its edit:
-
-        * an undo crossed it when ``after < marker <= before``;
-        * a redo crossed it when ``before < marker <= after``.
-
-        One step, or an Undo History jump over several, which fires the
-        handlers ONCE (:meth:`_apply_native_jump` asks again per point).  Any
-        other step leaves the serial where it was.  An untagged restore point
-        (a legacy push) keeps the pre-pairing "always ours" behaviour, for the
-        *first* point of an event only.
-        """
-        store = self.sequencer.store if self.sequencer is not None else None
-        if store is None or not store.has_boundary_snapshot(redo=redo):
-            return False
-        tag = store.peek_boundary_tag(redo=redo)
-        if not isinstance(tag, tuple):
-            return first
-        paired, marker = tag
-        before, after = self._serial_before_native, store.edit_serial()
-        if not paired or before is None or before == after:
-            return False
-        lo, hi = (before, after) if redo else (after, before)
-        return lo < marker <= hi
-
-    def _apply_native_jump(self, redo: bool = False) -> int:
-        """Apply every restore point the undo/redo Blender just performed
-        crossed (:meth:`_native_event_is_ours`), newest first for an undo and
-        oldest first for a redo -- the order the stacks hold them.  An Undo
-        History jump runs many steps under ONE handler call, and restoring
-        only the newest point left the bounds and claims of every earlier edit
-        it undid behind, while a redo jump re-applied none.
-
-        Returns the number of points applied.
-        """
-        n = 0
-        while self._native_event_is_ours(redo=redo, first=n == 0):
-            if redo:
-                self._redo_shot_state()
-            else:
-                self._restore_shot_state()
-            n += 1
-        return n
-
     def on_undo(self) -> None:
         """Widget undo_requested -- Blender's undo; the restore point follows
         only when the step it undid was ours.
 
         mayatk decides up front from the queue's step names (``_undo_plan``);
         with no names to read, Blender decides from what the undo did: the
-        ``undo_post`` handler checks :meth:`_native_event_is_ours` and applies
-        the restore point for our own step alone.  An unrelated step on top is
-        undone by itself, as mayatk's plan passes it straight through.
+        store follows it (``BlenderShotStore.follow_native_step``, its
+        ``undo_post`` handler -- the same path as a Ctrl+Z in a viewport, with
+        this panel open or not) and applies the restore point for our own step
+        alone.  An unrelated step on top is undone by itself, as mayatk's plan
+        passes it straight through.
         """
         self._native_undo("undo")
 
     def on_redo(self) -> None:
-        """Widget redo_requested -- Blender's redo; ``redo_post`` re-applies the
+        """Widget redo_requested -- Blender's redo; the store re-applies the
         redo-side bounds only when the step it redid was ours (see :meth:`on_undo`)."""
         self._native_undo("redo")
 

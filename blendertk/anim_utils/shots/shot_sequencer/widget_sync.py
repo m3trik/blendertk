@@ -128,6 +128,11 @@ class WidgetSyncMixin:
             return
 
         h_scroll, zoom, expanded_names = self._save_viewport_state(widget)
+        if self._content_stale:
+            # The rows were not built while another editor showed: the
+            # expansion to put back is the one they had before.
+            expanded_names = expanded_names or set(self._stale_expanded)
+        self._stale_expanded = frozenset(expanded_names)
         visible_shots = self._visible_shots(shot)
 
         # bulk_updates defers the per-add scene-rect recompute (which
@@ -218,14 +223,8 @@ class WidgetSyncMixin:
 
     def _save_viewport_state(self, widget):
         """Capture scroll, zoom, and expanded tracks for later restoration."""
-        h_scroll = widget._timeline.horizontalScrollBar().value()
-        zoom = widget._timeline.pixels_per_unit
-        expanded_names = set()
-        for tid in list(widget._expanded_tracks):
-            td = widget.get_track(tid)
-            if td is not None:
-                expanded_names.add(td.name)
-        return h_scroll, zoom, expanded_names
+        state = widget.viewport_state()
+        return state["h_scroll"], state["zoom"], set(state["expanded"])
 
     def _rebuild_content(self, widget, shot, visible_shots) -> None:
         """Clear widget and rebuild tracks + clips from segments (expensive)."""
@@ -252,6 +251,16 @@ class WidgetSyncMixin:
                     self._segment_cache.clear()
                 self._reconcile_needed = False
 
+            # The rows are hidden while another editor (the graph) shows:
+            # collecting every object's segments for them is the expensive
+            # half of a rebuild, so it waits for the switch back
+            # (``_on_editor_changed``).
+            editor = getattr(widget, "active_editor", None)
+            if editor is not None and editor.name != "tracks":
+                self._content_stale = True
+                return
+            self._content_stale = False
+
             segments_by_shot, all_objects = SegmentCollector.collect_segments(
                 self.sequencer,
                 shot,
@@ -276,6 +285,25 @@ class WidgetSyncMixin:
             self._build_audio_tracks(widget, shot, visible_shots)
         finally:
             self._syncing = was_syncing
+
+    #: The track rows were skipped by a rebuild while another editor showed.
+    _content_stale = False
+    #: The rows' expansion as it was before they went stale.
+    _stale_expanded = frozenset()
+
+    def _on_editor_changed(self, name: str) -> None:
+        """Follow the widget's editor however it was switched -- the view
+        button, a host call -- so a rebuild puts back the view on screen, not
+        a stale one; and build the rows a rebuild skipped once the track
+        editor shows again."""
+        if name != "tracks":
+            self._view = name
+        elif self._view not in ("standard", "compact"):
+            widget = self._get_sequencer_widget()
+            flat = widget is not None and widget.row_metrics.flat_keys
+            self._view = "compact" if flat else "standard"
+        if name == "tracks" and self._content_stale and not self._syncing:
+            self._sync_to_widget()
 
     def _rebuild_decoration(self, widget, shot, visible_shots) -> None:
         scene = self._scene()
@@ -306,6 +334,7 @@ class WidgetSyncMixin:
                 style=m.get("style", "triangle"),
                 line_style=m.get("line_style", "dashed"),
                 opacity=m.get("opacity", 1.0),
+                data=m.get("data"),
             )
         for i in range(len(all_sorted) - 1):
             left, right = all_sorted[i], all_sorted[i + 1]
@@ -341,12 +370,10 @@ class WidgetSyncMixin:
         frame = frame or not self._viewport_framed
         self._viewport_framed = True
         if frame:
-            widget._timeline._refresh_all()
+            widget.refresh()
             widget.frame_shot()
         else:
-            widget._timeline._pixels_per_unit = zoom
-            widget._timeline._refresh_all()
-            widget._timeline.horizontalScrollBar().setValue(h_scroll)
+            widget.restore_viewport_state({"zoom": zoom, "h_scroll": h_scroll})
 
         widget.sub_row_provider = self._provide_sub_rows
 
@@ -354,6 +381,39 @@ class WidgetSyncMixin:
             for td in widget.tracks():
                 if td.name in expanded_names:
                     widget.expand_track(td.track_id)
+
+    #: The window's views, ``(name, label, icon)`` in the view button's cycle
+    #: order.  Standard and Compact are row densities of the track editor
+    #: (``uitk.RowMetrics`` presets of the same names); Graph is the graph
+    #: editor (``GraphSync`` feeds it).
+    VIEWS = (
+        ("standard", "Standard", "list"),
+        ("compact", "Compact", "menu"),
+        ("graph", "Graph", "activity"),
+    )
+    #: The view showing (:meth:`_set_view`), put back on every rebuild.
+    _view = "standard"
+
+    def _set_view(self, view: str) -> None:
+        """Show *view* (a name in :attr:`VIEWS`): the view button's verb."""
+        self._view = view
+        self._apply_view(self._get_sequencer_widget(), view)
+
+    def _apply_view(self, widget, view) -> None:
+        """Put *widget* in the named View (an entry of :attr:`VIEWS`).
+
+        A name the widget knows nothing of -- a menu not built yet answers
+        with its placeholder -- changes nothing: this runs on every rebuild.
+        """
+        from uitk import RowMetrics
+
+        if widget is None:
+            return
+        if view in RowMetrics.preset_names():
+            widget.set_editor("tracks")
+            widget.row_metrics = RowMetrics.preset(view)
+        elif view in widget.editor_names():
+            widget.set_editor(view)
 
     def _sync_header_settings(self, widget) -> None:
         spn_snap = getattr(self.ui, "spn_snap", None)
@@ -539,6 +599,12 @@ class WidgetSyncMixin:
                         orig_start=s,
                         orig_end=e,
                         attributes=attrs,
+                        summary_times=SegmentCollector.summary_times(
+                            m["segs"],
+                            lambda fc, o=obj_name: self.sequencer.ledger.key_times(
+                                self.sequencer._fc_key(o, fc)
+                            ),
+                        ),
                         **clip_extra,
                     )
 

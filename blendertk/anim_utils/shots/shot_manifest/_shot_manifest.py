@@ -145,7 +145,8 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
         from blendertk.anim_utils.shots.shot_manifest.behaviors import Behaviors
 
         # Shots a build keeps (locked, or edited by hand) get no behavior
-        # pass, and turned-off behavior types are neither keyed nor released.
+        # pass, and behavior types turned off or marked are neither keyed nor
+        # released (``sync`` marks the marked ones).
         return Behaviors.apply_to_shots(
             self._behavior_shots(),
             apply_fn=functools.partial(
@@ -157,7 +158,7 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
             release_fn=lambda shot, name, b: self.release_authored(
                 shot.shot_id, name, b
             ),
-            skip_behaviors=self.disabled_behaviors,
+            skip_behaviors=self.unkeyed_behaviors,
         )
 
     @staticmethod
@@ -245,25 +246,22 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
 
     def _delete_keys(self, curve: str, times: List[float]) -> None:
         try:
-            import bpy
+            import bpy  # noqa: F401
         except ImportError:
             return
         from blendertk.anim_utils.shots._shots import BlenderShotStore
 
-        obj_name, data_path, index = curve.rsplit("|", 2)
-        node = bpy.data.objects.get(obj_name)
-        if node is None:
+        # The curve by its identity (``BlenderShotStore.curve_key``).
+        fc = BlenderShotStore._fcurve_for_key(curve)
+        if fc is None:
             return
-        for fc in BlenderShotStore.iter_action_fcurves(node):
-            if fc.data_path != data_path or str(fc.array_index) != index:
-                continue
-            doomed = [
-                kp
-                for kp in fc.keyframe_points
-                if any(abs(kp.co[0] - t) <= 1e-3 for t in times)
-            ]
-            for kp in reversed(doomed):
-                fc.keyframe_points.remove(kp)
+        doomed = [
+            kp
+            for kp in fc.keyframe_points
+            if any(abs(kp.co[0] - t) <= 1e-3 for t in times)
+        ]
+        for kp in reversed(doomed):
+            fc.keyframe_points.remove(kp)
 
     def _is_asset_candidate(self, name: str) -> bool:
         """An object a doc would list: not a camera, light, armature or speaker."""

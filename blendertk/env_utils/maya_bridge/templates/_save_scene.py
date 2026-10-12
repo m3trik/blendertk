@@ -141,27 +141,76 @@ def restore_usd_locators(cmds, engine, new_nodes):
         cmds.createNode("locator", name=short + "Shape", parent=transform)
 
 
+def covering_take(mel, path):
+    """``(index, names)``: the 1-based index of the take whose span covers every
+    other take's span, else ``-1`` (the importer's own pick: the last take); *names*
+    are the file's takes, in file order. Vendored from mayatk
+    ``FbxUtils._covering_take`` -- the fallback cannot import mayatk, which is what
+    makes it the fallback -- and held token-identical to it (docstring aside) by
+    blendertk's ``test_maya_bridge``.
+    """
+    mel.eval('FBXRead -f "{}"'.format(path.replace("\\", "/")))
+    try:
+        count = int(mel.eval("FBXGetTakeCount") or 0)
+        names = [mel.eval("FBXGetTakeName {}".format(i)) for i in range(1, count + 1)]
+        spans = [
+            mel.eval("FBXGetTakeLocalTimeSpan {}".format(i))
+            for i in range(1, count + 1)
+        ]
+    finally:
+        mel.eval("FBXClose")
+    for index, (start, end) in enumerate(spans, 1):
+        if count > 1 and all(start <= s and e <= end for s, e in spans):
+            return index, names
+    return -1, names
+
+
+def fallback_take(mel, path, warn):
+    """The take the bare import plays (``FBXImportSetTake -ti``): :func:`covering_take`'s,
+    warning when the file's takes cannot be read or none covers the rest. The fallback
+    cannot merge takes, so a file whose animation is split across them (a Shots Only
+    export) needs mayatk for all of it. Held token-identical in ``import.py`` and
+    ``_save_scene.py`` by blendertk's ``test_maya_bridge``.
+    """
+    try:
+        take, names = covering_take(mel, path)
+    except Exception as error:
+        warn("FBX takes unreadable ({}); importing the last take.".format(error))
+        return -1
+    if take == -1 and len(names) > 1:
+        warn(
+            "No take of {} covers the others, and without mayatk they cannot be "
+            "merged: the import plays the last, {!r}; not imported: {}.".format(
+                os.path.basename(path), names[-1], ", ".join(names[:-1])
+            )
+        )
+    return take
+
+
 def import_fbx(cmds, mel, engine):
     """Import the payload deterministically; return ALL new nodes.
 
     All nodes, not just transforms: the manifest rebuild needs the shading engines.
-    The FBX plugin's import options are global and sticky, and the factory "merge" mode
-    can RETARGET animation onto same-named nodes -- the engine's ``_import_fbx`` resets
-    them; the fallback below repeats that reset inline for a bare mayapy.
+    The engine's ``_import_fbx`` imports EVERY take's animation (the push writes the
+    whole timeline beside one take per shot; a plain import plays the last take, one
+    shot) and resets the FBX plugin's global, sticky import options, whose factory
+    "merge" mode can RETARGET animation onto same-named nodes; the fallback below
+    repeats that reset inline for a bare mayapy.
 
     The reset restores Maya 2025's factory "No Animation" take selector, so it must be
-    followed by a take re-select or every animCurve is dropped. Index ``-1`` resolves
-    per file at import time (last take, or none when the file has none); a FIXED index
-    aborts a takeless import. See mayatk ``FbxUtils.reset_import``.
+    followed by a take re-select or every animCurve is dropped: the take
+    :func:`covering_take` names (``-1``, the last, where none covers -- a FIXED index
+    would abort a takeless import). See mayatk ``FbxUtils.reset_import``.
     """
     if engine is not None:
         return engine._import_fbx(FBX_PATH)
     if not cmds.pluginInfo("fbxmaya", query=True, loaded=True):
         cmds.loadPlugin("fbxmaya")
+    take = fallback_take(mel, FBX_PATH, cmds.warning)
     for command in (
         "FBXResetImport",
         "FBXImportMode -v add",
-        "FBXImportSetTake -ti -1",
+        "FBXImportSetTake -ti {}".format(take),
     ):
         try:
             mel.eval(command)

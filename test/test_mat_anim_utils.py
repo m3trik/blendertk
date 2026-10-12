@@ -2806,6 +2806,126 @@ try:
         and sc.render.image_settings.quality == 50,
     )
 
+    # get_key_curves reads what Blender evaluates (mirror of mayatk's test):
+    # KeyCurve.evaluate against fcurve.evaluate inside the keys, across every
+    # interpolation and handle type, and out past both ends.
+    def kc_curve(name, interps, handle_types=("AUTO_CLAMPED", "AUTO_CLAMPED")):
+        bpy.ops.mesh.primitive_cube_add()
+        ob = bpy.context.active_object
+        ob.name = name
+        for f, v in ((0, 0.0), (8, 6.0), (15, -2.0), (24, 3.0)):
+            ob.location.x = v
+            ob.keyframe_insert(data_path="location", index=0, frame=f)
+        fc = (
+            ob.animation_data.action.fcurves[0]
+            if hasattr(ob.animation_data.action, "fcurves")
+            else btk.get_fcurves([ob])[0]
+        )
+        for kp, interp in zip(fc.keyframe_points, interps):
+            kp.interpolation = interp
+            kp.handle_left_type, kp.handle_right_type = handle_types
+        fc.update()
+        return fc
+
+    def kc_worst(fc, lo=-30.0, hi=60.0, step=0.37):
+        curve = btk.AnimUtils.get_key_curves([fc])[0]
+        worst, t = 0.0, lo
+        while t <= hi:
+            worst = max(worst, abs(curve.evaluate(t) - fc.evaluate(t)))
+            t += step
+        return worst, curve
+
+    kc_cases = {
+        "bezier/auto-clamped": (("BEZIER",) * 4, ("AUTO_CLAMPED",) * 2),
+        "bezier/auto": (("BEZIER",) * 4, ("AUTO",) * 2),
+        "bezier/vector": (("BEZIER",) * 4, ("VECTOR",) * 2),
+        "mixed linear/constant/bezier": (
+            ("LINEAR", "CONSTANT", "BEZIER", "BEZIER"),
+            ("AUTO_CLAMPED",) * 2,
+        ),
+    }
+    kc_errors = {}
+    for kc_name, (kc_interps, kc_types) in kc_cases.items():
+        kc_errors[kc_name] = round(
+            kc_worst(kc_curve(kc_name, kc_interps, kc_types))[0], 6
+        )
+    check(
+        "get_key_curves: KeyCurve.evaluate == fcurve.evaluate for every span type",
+        all(e < 1e-4 for e in kc_errors.values()),
+        kc_errors,
+    )
+
+    kc_free = kc_curve("kcFree", ("BEZIER",) * 4, ("FREE", "FREE"))
+    kc_free.keyframe_points[1].handle_right = (14.0, 12.0)  # overreaching handle
+    kc_free.keyframe_points[2].handle_left = (9.0, -9.0)
+    kc_free.update()
+    kc_free_err, kc_free_curve = kc_worst(kc_free, 0, 24, 0.25)
+    check(
+        "get_key_curves: FREE, overreaching handles evaluate as Blender corrects them",
+        kc_free_err < 1e-4 and kc_free_curve.keys[1].broken,
+        f"err={kc_free_err}",
+    )
+
+    kc_eased = kc_curve("kcEased", ("SINE",) * 4)
+    kc_eased_err, kc_eased_curve = kc_worst(kc_eased, 0, 24, 0.25)
+    check(
+        "get_key_curves: an eased span is drawn through samples of the curve",
+        kc_eased_err < 0.05 and kc_eased_curve.keys[0].samples,
+        f"err={kc_eased_err}",
+    )
+
+    kc_inf = {}
+    for kc_mode in ("CONSTANT", "LINEAR"):
+        kc_fc = kc_curve(f"kcExt{kc_mode}", ("BEZIER",) * 4)
+        kc_fc.extrapolation = kc_mode
+        kc_inf[kc_mode] = round(kc_worst(kc_fc)[0], 6)
+    for kc_mode in ("REPEAT", "REPEAT_OFFSET", "MIRROR"):
+        kc_fc = kc_curve(f"kcCyc{kc_mode}", ("BEZIER",) * 4)
+        kc_mod = kc_fc.modifiers.new("CYCLES")
+        kc_mod.mode_before = kc_mod.mode_after = kc_mode
+        kc_err, kc_c = kc_worst(kc_fc)
+        kc_inf[kc_mode] = (round(kc_err, 6), kc_c.post_infinity)
+    check(
+        "get_key_curves: extrapolation and Cycles modes evaluate past both ends",
+        all((v if isinstance(v, float) else v[0]) < 1e-4 for v in kc_inf.values())
+        and kc_inf["REPEAT_OFFSET"][1] == "cycle_offset"
+        and kc_inf["MIRROR"][1] == "oscillate",
+        kc_inf,
+    )
+
+    kc_shift = kc_curve("kcShift", ("BEZIER",) * 4)
+    kc_hr = tuple(kc_shift.keyframe_points[1].handle_right)
+    kc_n = btk.AnimUtils.shift_key_values({kc_shift: [(8.0, 1.5), (24.0, -1.0)]})
+    kc_vals = [round(kp.co[1], 6) for kp in kc_shift.keyframe_points]
+    check(
+        "shift_key_values: the named keys rise with both handles",
+        kc_n == 2
+        and kc_vals == [0.0, 7.5, -2.0, 2.0]
+        and abs(kc_shift.keyframe_points[1].handle_right[1] - (kc_hr[1] + 1.5)) < 1e-6,
+        f"n={kc_n} vals={kc_vals}",
+    )
+
+    bpy.ops.mesh.primitive_cube_add()
+    eu = bpy.context.active_object
+    eu.name = "eulerCube"
+    for f, v in ((0, 3.0), (10, -3.0), (20, -2.6)):
+        eu.rotation_euler.x = v
+        eu.location.x = v
+        eu.keyframe_insert(data_path="rotation_euler", index=0, frame=f)
+        eu.keyframe_insert(data_path="location", index=0, frame=f)
+    eu_done = btk.AnimUtils.euler_filter([eu])
+    eu_rot = [fc for fc in btk.get_fcurves([eu]) if fc.data_path == "rotation_euler"][0]
+    eu_loc = [fc for fc in btk.get_fcurves([eu]) if fc.data_path == "location"][0]
+    eu_vals = [round(kp.co[1], 5) for kp in eu_rot.keyframe_points]
+    check(
+        "euler_filter: a rotation channel unwraps by whole turns, location is untouched",
+        eu_done == [eu_rot]
+        and eu_vals
+        == [3.0, round(-3.0 + 6.283185307179586, 5), round(-2.6 + 6.283185307179586, 5)]
+        and [round(kp.co[1], 5) for kp in eu_loc.keyframe_points] == [3.0, -3.0, -2.6],
+        f"done={len(eu_done)} vals={eu_vals}",
+    )
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())
