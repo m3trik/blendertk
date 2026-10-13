@@ -28,7 +28,10 @@ scene hooks:
   :meth:`BlenderShotStore.curve_key` -- what a build claims as its own and
   releases;
 - ``rewire_audio`` → no-op (a VSE strip is its own playback node; Maya needs
-  the compositor to materialise DG audio nodes from keyed tracks).
+  the compositor to materialise DG audio nodes from keyed tracks);
+- ``_sequencer`` → Blender's ``ShotSequencer``, which ``insert_planned``
+  inserts through: the shots an insert moves take their keys and VSE strips
+  with them.
 
 One divergence, kept on purpose: an audio behavior claims nothing and
 ``_placed_clip_keys`` keeps the engine's ``[]``.  A clip here is one VSE strip,
@@ -119,6 +122,16 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
     def _measure_audio(self, obj: BuilderObject) -> Optional[float]:
         """Audio-clip length in frames via source path or placed strip."""
         return _ShotManifestInternal._measure_audio_obj(obj, self._resolve_fps())
+
+    def _sequencer(self):
+        """Blender's ``ShotSequencer``: an insert moves the later shots' keys
+        and strips with them.  Imported on use, like the store edits that
+        need it."""
+        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
+            ShotSequencer,
+        )
+
+        return ShotSequencer(store=self.store)
 
     def _audio_grow_duration(self, audio_objs: List[BuilderObject]) -> float:
         """Content-driven duration for an existing audio step.

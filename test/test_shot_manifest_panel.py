@@ -132,22 +132,36 @@ class TestShotManifestPanelLoads(unittest.TestCase):
         export.assert_called_once_with()
 
     def test_header_menu_widgets_exist(self):
-        """The controller's _setup_header_menu / _setup_mapping_combo build the
-        option-box actions, which uitk registers on the ui by objectName."""
+        """The controller's _setup_header_menu builds the option-box actions,
+        which uitk registers on the ui by objectName; the view row (Select ...
+        Show) is the .ui's, and the CSV mapping has its own popup on the
+        build sheet field."""
         missing = [
             name
             for name in (
-                "btn_expand_missing",
-                "btn_expand_extra",
                 "btn_manifest_colors",
                 "btn_audio_clips",
                 "btn_render_effects",
                 "btn_settings",
-                "cmb_csv_mapping",
+                "cmb_select",
+                "cmb_expand",
+                "cmb_collapse",
+                "cmb_hide",
+                "cmb_show",
             )
             if getattr(self.ui, name, None) is None
         ]
         self.assertEqual(missing, [])
+        ctrl = self.ui.slots.controller
+        menu = ctrl._mapping_menu
+        self.assertIsNot(menu, self.ui.header.menu)
+        self.assertIs(
+            menu.findChild(QtWidgets.QComboBox, "cmb_csv_mapping"), ctrl._cmb_mapping
+        )
+        for gone in ("btn_expand_missing", "btn_expand_extra", "chk_hide_missing"):
+            self.assertIsNone(
+                self.ui.header.menu.findChild(QtWidgets.QWidget, gone), gone
+            )
 
     def test_render_effects_entry_opens_its_panel(self):
         """The header's Render Effects entry opens that panel the way Audio
@@ -162,7 +176,7 @@ class TestShotManifestPanelLoads(unittest.TestCase):
 
     def test_mapping_combo_populated(self):
         """The mapping combo lists the shipped built-in templates ('(none)' + default…)."""
-        cmb = getattr(self.ui, "cmb_csv_mapping", None)
+        cmb = self.ui.slots.controller._cmb_mapping
         self.assertIsNotNone(cmb)
         data = [cmb.itemData(i) for i in range(cmb.count())]
         self.assertIn(None, data, f"expected a '(none)' entry: {data}")
@@ -182,11 +196,11 @@ class TestShotManifestPanelLoads(unittest.TestCase):
 
     def test_template_options_render_and_apply(self):
         """The template declares its settings: the default's options appear as
-        rows in the header menu, and acting on one changes the template in
+        rows in its popup, and acting on one changes the template in
         effect -- no option is hard-coded in the panel."""
         ctrl = self.ui.slots.controller
         ctrl._apply_mapping("default", persist=False)
-        menu = self.ui.header.menu
+        menu = ctrl._mapping_menu
         find = lambda name: menu.findChild(QtWidgets.QWidget, name)  # noqa: E731
         for name in ("opt_step_ids", "opt_audio", "opt_fill_missing_assets"):
             self.assertIsNotNone(find(name), name)
@@ -406,7 +420,7 @@ class TestShotManifestPanelLoads(unittest.TestCase):
         ctrl._apply_mapping("default", persist=False)
         self.addCleanup(ctrl._apply_mapping, "default", False)  # runs second
         self.addCleanup(ctrl._settings.setValue, "mapping_options/default", "")
-        find = lambda name: self.ui.header.menu.findChild(QtWidgets.QWidget, name)  # noqa: E731
+        find = lambda name: ctrl._mapping_menu.findChild(QtWidgets.QWidget, name)  # noqa: E731
         case, rule = find("opt_object_case"), find("opt_object_name_rule")
         self.assertEqual(
             [case.itemData(i) for i in range(case.count())],
@@ -695,31 +709,36 @@ class TestShotManifestPanelLoads(unittest.TestCase):
         self.assertEqual(cells("Extra"), ("300", "330"))
 
     def test_build_options_reach_the_engine(self):
-        """Rebuild Edited Shots (off by default) and the Key / Marker / Off
-        choice per behavior (mayatk mirror), kept per user."""
+        """Edits' Keep / Rebuild Hand-Edited Shots (Keep by default) and the
+        Key / Marker / Off choice per behavior (Off by default; mayatk
+        mirror), kept per user."""
         from blendertk.anim_utils.shots.shot_manifest.behaviors import Behaviors
 
         ctrl = self.ui.slots.controller
         self.addCleanup(ctrl._settings.clear, "rebuild_edited")
-        self.addCleanup(ctrl._settings.clear, "disabled_behaviors")
+        self.addCleanup(ctrl._settings.clear, "keyed_behaviors")
         self.addCleanup(ctrl._settings.clear, "marked_behaviors")
-        self.assertFalse(ctrl._chk_rebuild_edited.isChecked())
+        every = frozenset(Behaviors.list_behaviors())
+        edits = ctrl._editor._cmb_edits
+        self.assertEqual(edits.currentData(), "keep")
         modes = ctrl._behavior_modes
-        self.assertEqual(sorted(modes), sorted(Behaviors.list_behaviors()))
-        ctrl._chk_rebuild_edited.setChecked(True)
-        modes["highlight"].setCurrentIndex(modes["highlight"].findData("off"))
+        self.assertEqual(sorted(modes), sorted(every))
+        self.assertEqual({c.currentData() for c in modes.values()}, {"off"})
+        edits.setCurrentIndex(edits.findData("rebuild"))
+        modes["highlight"].setCurrentIndex(modes["highlight"].findData("key"))
         modes["fade_in"].setCurrentIndex(modes["fade_in"].findData("marker"))
         try:
             mani = ctrl._manifest()
             self.assertTrue(mani.rebuild_edited)
-            self.assertEqual(mani.disabled_behaviors, frozenset({"highlight"}))
+            self.assertEqual(mani.disabled_behaviors, every - {"highlight", "fade_in"})
             self.assertEqual(mani.marked_behaviors, frozenset({"fade_in"}))
         finally:
-            ctrl._chk_rebuild_edited.setChecked(False)
+            edits.setCurrentIndex(edits.findData("keep"))
             for name in ("highlight", "fade_in"):
-                modes[name].setCurrentIndex(modes[name].findData("key"))
+                modes[name].setCurrentIndex(modes[name].findData("off"))
         mani = ctrl._manifest()
-        self.assertEqual(mani.disabled_behaviors, frozenset())
+        self.assertFalse(mani.rebuild_edited)
+        self.assertEqual(mani.disabled_behaviors, every)
         self.assertEqual(mani.marked_behaviors, frozenset())
 
     def test_a_reapply_that_keys_nothing_says_so_and_the_focused_key_raises(self):
@@ -854,7 +873,7 @@ class TestShotManifestLocalEdits(unittest.TestCase):
         self.store = BlenderShotStore()
         BlenderShotStore.set_active(self.store)
         ctrl._store = self.store
-        self.addCleanup(ctrl._editor._chk.setChecked, False)
+        self.addCleanup(self._mode, "keep")
         self.footers = []
         from unittest import mock
 
@@ -866,10 +885,17 @@ class TestShotManifestLocalEdits(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
+    def _mode(self, mode: str):
+        """Pick the header menu's Edits *mode* (``keep``, ``rebuild``,
+        ``compare``)."""
+        cmb = self.ctrl._editor._cmb_edits
+        cmb.setCurrentIndex(cmb.findData(mode))
+        self._settle()
+
     def _load(self, on: bool = True):
-        """Load the sheet; *on* False views the original sheet (the header
-        menu's View Original Sheet, checked)."""
-        self.ctrl._editor._chk.setChecked(not on)
+        """Load the sheet; *on* False compares to the original sheet (the
+        header menu's Edits > Compare to Original Sheet)."""
+        self._mode("keep" if on else "compare")
         self.ctrl._load_data(self._sheet(), csv_path=self.SHEET)
         self._settle()
 
@@ -991,7 +1017,16 @@ class TestShotManifestLocalEdits(unittest.TestCase):
         from blendertk.anim_utils.shots.shot_manifest.manifest_data import COL_STEP
 
         self.assertTrue(self.ctrl._editor.enabled)
-        self.assertEqual(self.ctrl._editor._chk.text(), "View Original Sheet")
+        cmb = self.ctrl._editor._cmb_edits
+        self.assertEqual(cmb.currentData(), "keep")
+        self.assertEqual(
+            [cmb.itemText(i) for i in range(cmb.count())],
+            [
+                "Keep All Edits",
+                "Rebuild Hand-Edited Shots",
+                "Compare to Original Sheet",
+            ],
+        )
         self._load(on=False)
         self.assertIs(self.ctrl._steps, self.ctrl._sheet_steps)
         row = self._row("A01")
@@ -1008,15 +1043,13 @@ class TestShotManifestLocalEdits(unittest.TestCase):
         self.assertEqual(self._row("A01").text(COL_STEP), "Door_Open")
         self.assertTrue(self.ctrl._editor._btn_reset.isEnabled())
 
-        self.ctrl._editor._chk.setChecked(True)
-        self._settle()
+        self._mode("compare")
         self.assertEqual(self._row("A01").text(COL_STEP), "A01")
         self.assertEqual(self.ctrl._steps, self._sheet())
         self.assertFalse(self.ctrl._editor._btn_reset.isEnabled())
         self.assertFalse(self.ui.b003.isEnabled(), "Build is off in the view")
 
-        self.ctrl._editor._chk.setChecked(False)
-        self._settle()
+        self._mode("keep")
         self.assertEqual(self._row("A01").text(COL_STEP), "Door_Open")
 
     def test_edits_live_on_the_scene_and_survive_a_reload(self):
@@ -1215,16 +1248,25 @@ class TestShotManifestLocalEdits(unittest.TestCase):
         self._trigger(self._row("A02"), "Hide > Section 'A: Access' (1 not built)")
         self.assertEqual([s.step_id for s in self.ctrl._steps], ["A01"])
 
-    def test_the_flyouts_steps_without_a_shot_is_hide_missing_shots(self):
-        self.addCleanup(self.ctrl._settings.setValue, "hide_missing", False)
-        self.addCleanup(self.ctrl._chk_hide_missing.setChecked, False)
+    def test_the_flyouts_steps_without_a_shot_is_the_view_rows(self):
+        """The row's Hide flyout and the view row's Hide / Show turn the same
+        view on and off."""
+        self.addCleanup(self.ctrl._set_hide_missing, False)
         self._load()
         self._trigger(self._row("A01"), "Hide > Steps Without a Shot")
         self.assertTrue(self.ctrl._hide_missing)
-        self.assertTrue(self.ctrl._chk_hide_missing.isChecked())
         self.assertTrue(
             self._hide_actions(self._row("A01"))["Steps Without a Shot"].isChecked()
         )
+        show = self.ui.cmb_show
+        show.before_popup_shown.emit()
+        index = next(
+            i for i in range(show.count()) if show.itemText(i) == "Steps Without a Shot"
+        )
+        self.assertTrue(show.model().item(index).isEnabled())
+        show.setCurrentIndex(index)
+        self.assertFalse(self.ctrl._hide_missing)
+        self.assertEqual(show.currentIndex(), -1, "its title again")
 
     def test_an_edit_runs_a_showing_assessment_again(self):
         """Bug: a Local Edit -- a hide above all -- left the last Assess up,
@@ -1299,7 +1341,7 @@ class TestShotManifestLocalEdits(unittest.TestCase):
         self.store.manifest_edits[sheet] = edits.to_dict()
         self.store.define_shot("A01", 1, 20, metadata={"step": "A01"})
         self.store.define_shot("Inspect", 30, 45, metadata={"step": new})
-        self.ctrl._editor._chk.setChecked(False)
+        self._mode("keep")
         self.assertTrue(self.ctrl._load_csv(sheet))
         self.assertEqual([s.step_id for s in self.ctrl._steps], ["A01", new, "A02"])
         self.assertEqual(self.ctrl._user_ranges[new], (30, 45))
@@ -1589,6 +1631,235 @@ class TestShotManifestUnlistedShots(unittest.TestCase):
     def test_steps_with_no_shot_hide(self):
         self._load(hide_missing=True)
         self.assertEqual(self._names(), ["A01", "A01_2", "A02"])
+
+
+@unittest.skipIf(QtWidgets is None, "Qt not available (Blender headless Python)")
+class TestShotManifestIncrementalPlacement(unittest.TestCase):
+    """mayatk's ``TestIncrementalPlacement`` on the real panel: on a built
+    timeline Build inserts a new step's shot in sheet order -- after its
+    previous step's shot -- and the later shots move out of its way, after
+    the user confirms how many move; the table previews where, and keeps
+    previewing the timeline as it is.  The Build runs the twin controller
+    over blendertk's ``BlenderShotManifest``; with no scene here (no
+    ``bpy``) its inserts go through pythontk's bounds-only ``ShotSequencer``
+    and the undo step is skipped -- ``test_shot_manifest.py`` moves real keys
+    and strips through Blender's, under one undo.
+
+    Bug: Build with Hide Missing Shots off left overlapping, zero-length,
+    out-of-order shots (SOL: 37 new shots).
+    Fixed: 2026-10-12
+    """
+
+    SHEET = "incremental_sheet.csv"  # a source key only: nothing reads it
+
+    @classmethod
+    def setUpClass(cls):
+        TestShotManifestPanelLoads.setUpClass.__func__(cls)
+
+    @classmethod
+    def tearDownClass(cls):
+        TestShotManifestPanelLoads.tearDownClass.__func__(cls)
+
+    def setUp(self):
+        from unittest import mock
+
+        from blendertk import BlenderShotStore
+        from blendertk.anim_utils.shots.shot_manifest.manifest_host import (
+            ManifestHost,
+        )
+
+        self.ctrl = ctrl = self.ui.slots.controller
+        self.tree = self.ui.tbl_steps
+        self.addCleanup(BlenderShotStore.clear_active)
+        self.addCleanup(setattr, ctrl, "_store", ctrl._store)
+        self.addCleanup(setattr, ctrl, "_active_mapping", ctrl._active_mapping)
+        self.addCleanup(setattr, ctrl, "_first_shown", ctrl._first_shown)
+        self.addCleanup(
+            ctrl._settings.setValue,
+            "hide_missing",
+            ctrl._settings.value("hide_missing"),
+        )
+        ctrl._settings.setValue("hide_missing", False)
+        BlenderShotStore.clear_active()
+        self.store = BlenderShotStore()
+        BlenderShotStore.set_active(self.store)
+        ctrl._store = self.store
+        ctrl._active_mapping = None
+        self.store.gap = 0.0
+        self.store.define_shot("A01", 1, 100, objects=["obj_A01"])
+        self.store.define_shot("A02", 100, 200, objects=["obj_A02"])
+        self.store.define_shot("A03", 200, 300, objects=["obj_A03"])
+        self.footers = []
+        import contextlib
+
+        import pythontk as ptk
+        from blendertk.anim_utils.shots.shot_manifest._shot_manifest import (
+            BlenderShotManifest,
+        )
+
+        for target, attr, kwargs in (
+            (ManifestHost, "available", {"return_value": True}),  # no bpy here
+            (  # Blender's moves keys and strips: no scene here, bounds only
+                BlenderShotManifest,
+                "_sequencer",
+                {"new": lambda mani: ptk.ShotSequencer(store=mani.store)},
+            ),
+            (  # its undo step needs bpy
+                self.store,
+                "scene_edit",
+                {"new": lambda *_a, **_k: contextlib.nullcontext()},
+            ),
+            (
+                ctrl,
+                "_set_footer",
+                {"side_effect": lambda text, **_kw: self.footers.append(text)},
+            ),
+        ):
+            patcher = mock.patch.object(target, attr, **kwargs)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.box = mock.patch.object(ctrl.sb, "message_box", return_value="Insert")
+        self.message_box = self.box.start()
+        self.addCleanup(self.box.stop)
+
+    @staticmethod
+    def _steps(*ids):
+        from pythontk import BuilderObject, BuilderStep
+
+        return [
+            BuilderStep(
+                sid, "A", "Access", f"Content for {sid}", [BuilderObject(f"obj_{sid}")]
+            )
+            for sid in ids
+        ]
+
+    def _load(self, *ids):
+        self.ctrl._load_data(self._steps(*ids), csv_path=self.SHEET)
+        for _ in range(3):
+            self.app.processEvents()
+
+    def _build(self, *ids, answer="Insert"):
+        self._load(*ids)
+        self.message_box.return_value = answer
+        self.ctrl.build()
+
+    def _layout(self):
+        return [(s.name, s.start, s.end) for s in self.store.sorted_shots()]
+
+    def _row(self, step_id):
+        return self.ctrl._step_items([step_id])[0]
+
+    def test_a_new_step_goes_after_its_previous_step_and_the_rest_ripple(self):
+        length = self.ctrl._initial_shot_length
+        self._build("A01", "A02", "B01", "A03")
+        self.assertEqual(
+            self._layout(),
+            [
+                ("A01", 1, 100),
+                ("A02", 100, 200),
+                ("B01", 200, 200 + length),
+                ("A03", 200 + length, 300 + length),
+            ],
+        )
+        self.message_box.assert_called_once()
+        self.assertIn("1 existing shot(s)", self.message_box.call_args.args[0])
+
+    def test_consecutive_new_steps_keep_their_sheet_order(self):
+        length = self.ctrl._initial_shot_length
+        self._build("A01", "B01", "B02", "A02", "A03")
+        rows = self._layout()
+        self.assertEqual([r[0] for r in rows], ["A01", "B01", "B02", "A02", "A03"])
+        for (_a, _s, end), (_b, start, _e) in zip(rows, rows[1:]):
+            self.assertLessEqual(end, start, "no overlap")
+        self.assertEqual(rows[1][1:], (100, 100 + length))
+
+    def test_a_new_first_step_takes_the_head(self):
+        length = self.ctrl._initial_shot_length
+        self._build("B01", "A01", "A02", "A03")
+        self.assertEqual(
+            self._layout()[:2],
+            [("B01", 1, 1 + length), ("A01", 1 + length, 100 + length)],
+        )
+
+    def test_cancel_moves_nothing(self):
+        before = self._layout()
+        self._build("A01", "B01", "A02", "A03", answer="Cancel")
+        self.assertEqual(self._layout(), before)
+
+    def test_appending_after_the_last_shot_asks_nothing(self):
+        self._build("A01", "A02", "A03", "B01")
+        self.message_box.assert_not_called()
+        self.assertEqual(self._layout()[-1][:2], ("B01", 300))
+
+    def test_the_table_previews_where_build_inserts(self):
+        from blendertk.anim_utils.shots.shot_manifest.manifest_data import (
+            COL_END,
+            COL_START,
+        )
+
+        length = self.ctrl._initial_shot_length
+        self._load("A01", "A02", "B01", "A03")
+        resolved = {r[0]: r for r in self.ctrl._refresh_ranges()}
+        self.assertEqual(resolved["B01"], ("B01", 200, 200 + length, False))
+        self.assertEqual(self.ctrl._projected, {"B01": "after shot 'A02'"})
+        self.ctrl._redraw()
+        row = self._row("B01")
+        self.assertEqual(
+            (row.text(COL_START), row.text(COL_END)), ("200", f"{200 + length:.0f}")
+        )
+        self.assertIn("after shot 'A02'", row.toolTip(COL_START))
+
+    def test_a_step_whose_shot_was_deleted_is_inserted_not_put_back(self):
+        self.ctrl._user_ranges["A02"] = self.ctrl._seeded_ranges["A02"] = (100, 200)
+        self.ctrl._user_ranges["A04"] = (900, 950)  # typed
+        self.assertEqual(self.ctrl._typed_ranges(), {"A04": (900, 950)})
+
+    def test_after_a_build_the_table_shows_what_was_built(self):
+        from blendertk.anim_utils.shots.shot_manifest.manifest_data import COL_START
+
+        length = self.ctrl._initial_shot_length
+        self._load("A01", "A02", "B01", "A03")
+        self.ctrl._refresh_ranges()
+        self.ctrl.build()
+        self.assertEqual(self._row("B01").toolTip(COL_START), f"{length:.0f}f")
+        self.assertEqual(self._row("A01").toolTip(COL_START), "99f")
+        self.assertEqual(self.ctrl._projected, {})
+
+    def test_hidden_steps_mark_no_overlap(self):
+        self.ctrl._settings.setValue("hide_missing", True)
+        self._load("A01", "A02", "B01", "B02", "A03")
+        self.ctrl._refresh_ranges()
+        self.assertEqual(self.ctrl._range_issues, {})
+
+    def test_a_shot_resized_elsewhere_moves_the_preview(self):
+        from blendertk.anim_utils.shots.shot_manifest.manifest_data import COL_START
+
+        self.ctrl._first_shown = True
+        self._load("A01", "A02", "B01", "A03")
+        self.ctrl._refresh_ranges()
+        self.store.update_shot(self.store.shot_by_name("A02").shot_id, end=250)
+        self.ctrl._follow_store()
+        self.assertEqual(self._row("B01").text(COL_START), "250")
+
+    def test_a_typed_range_rides_the_inserts_before_it(self):
+        """A range typed in the timeline's current frames moves with the
+        shots an insert moves (maintainer 2026-10-12)."""
+        self.store.gap = 10.0
+        self.store.initial_shot_length = 50
+        self.store.remove_shot(self.store.shot_by_name("A02").shot_id)
+        self.store.update_shot(self.store.shot_by_name("A01").shot_id, start=0)
+        self.store.update_shot(
+            self.store.shot_by_name("A03").shot_id, start=110, end=210
+        )
+        self._load("A01", "A02", "A03", "A04")
+        self.ctrl._user_ranges["A04"] = (220.0, 270.0)
+        resolved = {r[0]: r for r in self.ctrl._refresh_ranges()}
+        self.assertEqual(resolved["A04"], ("A04", 280, 330, True))
+        self.ctrl.build()
+        self.assertEqual(
+            self._layout(),
+            [("A01", 0, 100), ("A02", 110, 160), ("A03", 170, 270), ("A04", 280, 330)],
+        )
 
 
 if __name__ == "__main__":

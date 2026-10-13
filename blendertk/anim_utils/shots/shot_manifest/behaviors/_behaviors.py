@@ -76,7 +76,18 @@ class _BehaviorsInternal(object):
         source headlessly — Blender's bundled ``aud`` decoder first (any format
         Blender can play), the stdlib ``wave`` reader as the fallback outside
         Blender.  Returns ``(0.0, file_path)`` when no readable audio is found.
+        Read once per file as it is on disk
+        (``pythontk.AudioUtils.memo_duration``: a replaced file reads again).
         """
+        import pythontk as ptk
+
+        return ptk.AudioUtils.memo_duration(
+            file_path, fps, _BehaviorsInternal._read_audio_duration_frames
+        )
+
+    @staticmethod
+    def _read_audio_duration_frames(file_path: str, fps: float) -> Tuple[float, str]:
+        """:meth:`_audio_duration_frames`' reading, every time."""
         if not file_path or not Path(file_path).is_file():
             return 0.0, file_path
         seconds = 0.0
