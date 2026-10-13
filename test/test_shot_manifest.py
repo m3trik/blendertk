@@ -632,9 +632,139 @@ A03.),Fuselage fades out,fuselage_geo,
         f"{door_keys(hl_path)}",
     )
 
+    _insert_in_sheet_order_checks(check, _BS, _BO)
+
     BlenderShotStore.clear_active()
     BlenderShotStore._prefs_dir_override = None
     return lines
+
+
+def _insert_in_sheet_order_checks(check, _BS, _BO):
+    """A Build on a built timeline inserts a new step's shot in sheet order
+    through Blender's ``ShotSequencer``, as the panel's Build does: the shots
+    after it move with their fcurve keys and VSE strips, and ONE undo puts
+    keys, strips and shots back (mayatk's ``TestIncrementalPlacement`` ran
+    only the bounds; 2026-10-12)."""
+    import struct
+    import wave
+
+    import bpy
+
+    import pythontk as ptk
+    from blendertk import BlenderShotStore
+    from blendertk.anim_utils.shots.shot_manifest._shot_manifest import (
+        BlenderShotManifest,
+    )
+    from blendertk.audio_utils._audio_utils import AudioUtils
+
+    def keyed_cube(name, frames):
+        bpy.ops.mesh.primitive_cube_add()
+        obj = bpy.context.active_object
+        obj.name = name
+        for i, frame in enumerate(frames):
+            obj.location.x = float(i)
+            obj.keyframe_insert(data_path="location", index=0, frame=frame)
+
+    def key_times(name):
+        obj = bpy.data.objects[name]  # memfile undo replaces objects: by name
+        return sorted(
+            kp.co[0]
+            for fc in BlenderShotStore.iter_action_fcurves(obj)
+            for kp in fc.keyframe_points
+        )
+
+    def strip_start():
+        clip = AudioUtils.get_clip("ins_vo")
+        return clip["frame_start"] if clip else None
+
+    def layout():
+        return [(s.name, s.start, s.end) for s in store.sorted_shots()]
+
+    tmp = ptk.TempArtifacts("btk_manifest_insert", policy="scoped")
+    try:
+        wav_path = tmp.path(".wav")
+        with wave.open(wav_path, "w") as w:  # 1 s of silence: 24 frames
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(48000)
+            w.writeframes(b"".join(struct.pack("<h", 0) for _ in range(48000)))
+        keyed_cube("ins_a", [10, 40])
+        keyed_cube("ins_b", [70, 100])
+
+        BlenderShotStore.clear_active()
+        store = BlenderShotStore()
+        BlenderShotStore.set_active(store)
+        store.gap = 10.0
+        mani = BlenderShotManifest(store)
+        step_a = _BS("A", "A", "t", "", [_BO("ins_a")])
+        step_b = _BS(
+            "B",
+            "A",
+            "t",
+            "",
+            [
+                _BO("ins_b"),
+                _BO(
+                    "ins_vo", behaviors=["set_clip"], kind="audio", source_path=wav_path
+                ),
+            ],
+        )
+        step_n = _BS("N", "A", "t", "", [])
+        mani.sync([step_a, step_b], ranges={"A": (1.0, 51.0), "B": (61.0, 111.0)})
+        before = (layout(), key_times("ins_a"), key_times("ins_b"), strip_start())
+        check(
+            "insert: built A, B; B's keys and strip in it",
+            before[0] == [("A", 1.0, 51.0), ("B", 61.0, 111.0)]
+            and before[2] == [70.0, 100.0]
+            and before[3] == 61,
+            f"{before}",
+        )
+
+        bpy.ops.ed.undo_push(message="before the build")
+        steps = [step_a, step_n, step_b]
+        plans = mani.plan_insertions(steps, initial_shot_length=50)
+        check(
+            "insert: N is planned after A, moving B 60 frames",
+            [(p.step.step_id, p.start, p.end, p.push) for p in plans]
+            == [("N", 61.0, 111.0, 60.0)],
+            f"{[(p.step.step_id, p.start, p.end, p.push) for p in plans]}",
+        )
+        with store.scene_edit("manifest_build"), store.batch_update():  # the panel's
+            inserted = mani.insert_planned(plans)
+            shots = {sid: (s.start, s.end) for sid, s in mani.pair(steps).shots.items()}
+            ranges = ptk.RangeResolver.incremental_ranges(steps, shots)
+            mani.sync(
+                steps, ranges=ranges, remove_missing=False, zero_duration_fallback=True
+            )
+        check(
+            "insert: N lands between A and B, B moved by its length",
+            inserted == {"N": "created"}
+            and layout() == [("A", 1.0, 51.0), ("N", 61.0, 111.0), ("B", 121.0, 171.0)],
+            f"{inserted} {layout()}",
+        )
+        check(
+            "insert: B's fcurve keys and VSE strip moved with it, A's stayed",
+            key_times("ins_b") == [130.0, 160.0]
+            and key_times("ins_a") == [10.0, 40.0]
+            and strip_start() == 121,
+            f"b={key_times('ins_b')} a={key_times('ins_a')} strip={strip_start()}",
+        )
+        n_meta = store.shot_by_name("N").metadata or {}
+        check(
+            "insert: N is recorded as a build's (its step, the name it gave)",
+            n_meta.get("step") == "N" and n_meta.get(mani.BUILD_NAME) == "N",
+            f"{n_meta}",
+        )
+
+        bpy.ops.ed.undo()
+        after = (layout(), key_times("ins_a"), key_times("ins_b"), strip_start())
+        check(
+            "insert: ONE undo puts the shots, keys and strip back",
+            after == before,
+            f"{after} != {before}",
+        )
+    finally:
+        tmp.cleanup()
 
 
 if __name__ == "__main__":

@@ -1,42 +1,24 @@
 # blendertk — API Changes
 
-_Diff vs the last release (origin/main @ bf6b0b2)._
+_Diff vs the last release (origin/main @ 65a7623)._
 
-## Removed (2)
+## Removed (3)
 
-- `anim_utils/shots/shot_manifest/export_menu.py::ExportMenuMixin` — was `(class)`
-- `anim_utils/shots/shot_manifest/export_menu.py::ExportMenuMixin.export` — was `(self) -> None`
+- `anim_utils/shots/shot_manifest/manifest_data.py::BEHAVIOR_STATUS_COLORS` — was `(constant)`
+- `anim_utils/shots/shot_manifest/shot_manifest_slots.py::ShotManifestSlots.btn_expand_extra` — was `(self)`
+- `anim_utils/shots/shot_manifest/shot_manifest_slots.py::ShotManifestSlots.btn_expand_missing` — was `(self)`
 
-## Added (28)
+## Added (9)
 
-- `anim_utils/_anim_utils.py::AnimUtils.euler_filter(objects) -> list`
-- `anim_utils/_anim_utils.py::AnimUtils.get_key_curves(fcurves) -> list`
-- `anim_utils/_anim_utils.py::AnimUtils.shift_key_values(edits) -> int`
-- `anim_utils/shots/_shots.py::BlenderShotStore.from_dict(cls, data: Dict[str, Any]) -> 'BlenderShotStore'`
-- `anim_utils/shots/shot_manifest/export_preview.py::ExportPreviewMixin(class)`
-- `anim_utils/shots/shot_manifest/export_preview.py::ExportPreviewMixin.export(self) -> None`
-- `anim_utils/shots/shot_sequencer/graph_sync.py::GraphSync(class)`
-- `anim_utils/shots/shot_sequencer/graph_sync.py::GraphSync.detach(self) -> None`
-- `anim_utils/shots/shot_sequencer/graph_sync.py::GraphSync.key_targets(self, groups=None) -> list`
-- `anim_utils/shots/shot_sequencer/graph_sync.py::GraphSync.on_infinity(self, side: str, mode: str, curves) -> None`
-- `anim_utils/shots/shot_sequencer/graph_sync.py::GraphSync.on_key_menu(self, menu, groups) -> None`
-- `anim_utils/shots/shot_sequencer/graph_sync.py::GraphSync.on_key_selection(self, groups) -> None`
-- `anim_utils/shots/shot_sequencer/graph_sync.py::GraphSync.on_keys_deleted(self, groups) -> None`
-- `anim_utils/shots/shot_sequencer/graph_sync.py::GraphSync.on_keys_edited(self, edits) -> None`
-- `anim_utils/shots/shot_sequencer/graph_sync.py::GraphSync.on_keys_inserted(self, items) -> None`
-- `anim_utils/shots/shot_sequencer/graph_sync.py::GraphSync.on_tangent_type(self, type_id: str, groups) -> None`
-- `anim_utils/shots/shot_sequencer/graph_sync.py::GraphSync.on_tangents_broken(self, broken: bool, groups) -> None`
-- `anim_utils/shots/shot_sequencer/graph_sync.py::GraphSync.on_tangents_edited(self, rows) -> None`
-- `anim_utils/shots/shot_sequencer/graph_sync.py::GraphSync.outline(self) -> List[dict]`
-- `anim_utils/shots/shot_sequencer/graph_sync.py::GraphSync.sync(self, full: bool = False) -> None`
-- `anim_utils/shots/shot_sequencer/key_menu.py::KeyMenuMixin.register_key_targets(self, editor_name: str, source) -> None`
-- `anim_utils/shots/shot_sequencer/segment_collector.py::SegmentCollector.summary_times(segments, claimed_times) -> list`
-- `env_utils/hierarchy_sync/_fbx_stage_worker.py::WARNING_PREFIX(constant)`
-- `env_utils/maya_bridge/templates/_import_scene.py::stepped_keys(spell)`
-- `env_utils/maya_bridge/templates/_save_scene.py::covering_take(mel, path)`
-- `env_utils/maya_bridge/templates/_save_scene.py::fallback_take(mel, path, warn)`
-- `env_utils/maya_bridge/templates/import.py::covering_take(mel, path)`
-- `env_utils/maya_bridge/templates/import.py::fallback_take(mel, path, warn)`
+- `anim_utils/shots/shot_manifest/manifest_data.py::ManifestData.glyph_html(status: str) -> str`
+- `anim_utils/shots/shot_manifest/manifest_data.py::ManifestData.issues_html(issues: Iterable[Tuple[str, str]]) -> str`
+- `anim_utils/shots/shot_manifest/manifest_data.py::ManifestData.level(status: str) -> str`
+- `anim_utils/shots/shot_manifest/manifest_data.py::ManifestData.status_color(status: str) -> Optional[str]`
+- `anim_utils/shots/shot_manifest/manifest_data.py::ManifestData.worst(statuses: Iterable[str]) -> Optional[str]`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.edits_mode(self) -> str`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.show_hidden_objects(self) -> None`
+- `anim_utils/shots/shot_manifest/manifest_editor.py::ManifestEditor.unlocked_hidden_objects(self) -> List[Tuple[str, str]]`
+- `anim_utils/shots/shot_manifest/view_combos.py::ViewCombosMixin(class)`
 
 ## Deprecations (17)
 
@@ -59,18 +41,3 @@ _Live retirement debt, earliest deadline first. An **EXPIRED** row has outlived 
 - **HELD** `anim_utils/shots/shots_slots.py::ShotsController.confirm_stale_removal` — remove in 0.16.0, not before 2026-11-06
 - **HELD** `anim_utils/shots/shots_slots.py::ShotsController.on_delete_all_shots` — remove in 0.16.0, not before 2026-11-06
 - **HELD** `anim_utils/shots/shots_slots.py::ShotsController.on_delete_stale_shots` — remove in 0.16.0, not before 2026-11-06
-
-## Signature changed (4)
-
-- `anim_utils/shots/shot_manifest/manifest_data.py::ManifestData.format_behavior_html`
-  - was: `(behaviors, broken=(), status_color=None, stale=(), disabled=()) -> str`
-  - now: `(behaviors, broken=(), status_color=None, stale=(), disabled=(), marked=()) -> str`
-- `anim_utils/shots/shot_manifest/shot_manifest_controller.py::ShotManifestController.assess`
-  - was: `(self, skip_key_check: bool = False) -> None`
-  - now: `(self, skip_key_check: bool = False, note: str = '') -> None`
-- `env_utils/fbx_utils.py::FbxUtils.import_fbx`
-  - was: `(filepath, **fbx_opts)`
-  - now: `(filepath, stash=True, logger=None, **fbx_opts)`
-- `env_utils/maya_bridge/templates/_import_scene.py::write_manifest`
-  - was: `(entries, visibility, node_types, scene, path, lights=(), skins=None, bones=None, scene_data=None, rig=None, machinery=None)`
-  - now: `(entries, visibility, node_types, scene, path, lights=(), skins=None, bones=None, scene_data=None, rig=None, machinery=None, stepped=None)`

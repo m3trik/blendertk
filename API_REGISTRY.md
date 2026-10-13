@@ -22,12 +22,12 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`anim_utils/shots/shot_manifest/_shot_manifest.py`](#anim_utils--shots--shot_manifest--_shot_manifest) — Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
 - [`anim_utils/shots/shot_manifest/behaviors/_behaviors.py`](#anim_utils--shots--shot_manifest--behaviors--_behaviors) — Behaviors — Blender appliers over the engine's pure keying-recipe core.
 - [`anim_utils/shots/shot_manifest/export_preview.py`](#anim_utils--shots--shot_manifest--export_preview) — The Shot Manifest's Export button (beside Assess): a live preview of the
-- [`anim_utils/shots/shot_manifest/header_menu.py`](#anim_utils--shots--shot_manifest--header_menu) — The Shot Manifest's header menu: display options (Long Names, Hide Missing
+- [`anim_utils/shots/shot_manifest/header_menu.py`](#anim_utils--shots--shot_manifest--header_menu) — The Shot Manifest's header menu: Long Names, Local Edits' Edits mode and
 - [`anim_utils/shots/shot_manifest/manifest_data.py`](#anim_utils--shots--shot_manifest--manifest_data) — Constants, column layout, and pure helper functions for the Shot Manifest UI.
 - [`anim_utils/shots/shot_manifest/manifest_editor.py`](#anim_utils--shots--shot_manifest--manifest_editor) — Local Edits for the Shot Manifest panel: change the table, never the sheet.
 - [`anim_utils/shots/shot_manifest/manifest_host.py`](#anim_utils--shots--shot_manifest--manifest_host) — What the Shot Manifest panel needs from Blender: its store, engine and
 - [`anim_utils/shots/shot_manifest/manifest_source.py`](#anim_utils--shots--shot_manifest--manifest_source) — Where the Shot Manifest's steps come from: a build sheet (a CSV path or link,
-- [`anim_utils/shots/shot_manifest/mapping_picker.py`](#anim_utils--shots--shot_manifest--mapping_picker) — The Shot Manifest's mapping template: the picker in the header menu (built-in
+- [`anim_utils/shots/shot_manifest/mapping_picker.py`](#anim_utils--shots--shot_manifest--mapping_picker) — The Shot Manifest's mapping template: its own popup on the build sheet
 - [`anim_utils/shots/shot_manifest/range_column.py`](#anim_utils--shots--shot_manifest--range_column) — The Shot Manifest table's Start / End column: what a step's range is
 - [`anim_utils/shots/shot_manifest/range_resolver.py`](#anim_utils--shots--shot_manifest--range_resolver) — Range resolution for the Shot Manifest build pipeline (Blender-bound facade).
 - [`anim_utils/shots/shot_manifest/row_menus.py`](#anim_utils--shots--shot_manifest--row_menus) — The Shot Manifest rows' context menus and what they do: a step row's (colour
@@ -35,6 +35,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`anim_utils/shots/shot_manifest/shot_manifest_slots.py`](#anim_utils--shots--shot_manifest--shot_manifest_slots) — Switchboard slots for the Shot Manifest panel: the ``.ui``'s widgets routed to
 - [`anim_utils/shots/shot_manifest/store_follow.py`](#anim_utils--shots--shot_manifest--store_follow) — The Shot Manifest panel following the scene's store: its events (a shot
 - [`anim_utils/shots/shot_manifest/table_presenter.py`](#anim_utils--shots--shot_manifest--table_presenter) — The Shot Manifest tree's rows: populating them (``ShotPairing.rows``: steps,
+- [`anim_utils/shots/shot_manifest/view_combos.py`](#anim_utils--shots--shot_manifest--view_combos) — The Shot Manifest's view row, above the table: Select, Expand, Collapse,
 - [`anim_utils/shots/shot_sequencer/_shot_sequencer.py`](#anim_utils--shots--shot_sequencer--_shot_sequencer) — Blender shot sequencer engine — ripple editing + key motion over the shared planner.
 - [`anim_utils/shots/shot_sequencer/clip_menu.py`](#anim_utils--shots--shot_sequencer--clip_menu) — Clip context menus and clip-level key operations.
 - [`anim_utils/shots/shot_sequencer/clip_motion.py`](#anim_utils--shots--shot_sequencer--clip_motion) — Clip motion, resize, and key-scaling logic for the shot sequencer (Blender).
@@ -503,7 +504,7 @@ Blender shot-store adapter — the DCC layer over ``pythontk``'s shots engine.
 
 Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
 
-- **[`class BlenderShotManifest(ShotManifest, _ShotManifestInternal)`](blendertk/blendertk/anim_utils/shots/shot_manifest/_shot_manifest.py#L98)** — :class:`pythontk.ShotManifest` with the scene hooks bound to Blender.
+- **[`class BlenderShotManifest(ShotManifest, _ShotManifestInternal)`](blendertk/blendertk/anim_utils/shots/shot_manifest/_shot_manifest.py#L101)** — :class:`pythontk.ShotManifest` with the scene hooks bound to Blender.
   - `BlenderShotManifest.apply_behaviors(self) -> Dict[str, list]` — Apply detected behaviors to Blender objects (fades, highlights,
   - `BlenderShotManifest.rewire_audio(tracks: Optional[List[str]] = None) -> Dict[str, List[str]]` *(static)* — Reconcile audio playback nodes with keyed track state — no-op in Blender.
   - `BlenderShotManifest.from_csv(cls, filepath, store=None, columns=None, post_process=None)` *(class)* — Parse a CSV and return a ready-to-build engine.
@@ -513,7 +514,7 @@ Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
 
 Behaviors — Blender appliers over the engine's pure keying-recipe core.
 
-- **[`class Behaviors(pythontk.core_utils.engines.shots.manifest.behaviors.Behaviors, _BehaviorsInternal)`](blendertk/blendertk/anim_utils/shots/shot_manifest/behaviors/_behaviors.py#L229)** — Behaviors — module namespace.
+- **[`class Behaviors(pythontk.core_utils.engines.shots.manifest.behaviors.Behaviors, _BehaviorsInternal)`](blendertk/blendertk/anim_utils/shots/shot_manifest/behaviors/_behaviors.py#L240)** — Behaviors — module namespace.
   - `Behaviors.apply_behavior(obj: str, behavior_name: str, start: float, end: float, attrs: Optional[List[str]] = None, search_path: Optional[Path] = None, source_path: str = '', anchor_override: Optional[str] = None, recipe: Optional[Any] = None, fps: Optional[float] = None) -> List[Tuple[str, float]]` *(static)* — Apply a named behavior template to an object over a time range.
   - `Behaviors.verify_behavior(obj: str, behavior_name: str, start: float, end: float, search_path: Optional[Path] = None, keyframe_fn: Optional[Any] = None, anchor_override: Optional[Any] = None, recipe: Optional[Any] = None, fps: Optional[float] = None) -> bool` *(static)* — Check whether expected behavior keyframes exist on an object.
   - `Behaviors.apply_audio_clip(obj: str, start: float, end: float, source_path: str = '') -> None` *(static)* — Place (or re-place) the sound strip *obj* at *start*.
@@ -525,34 +526,38 @@ Behaviors — Blender appliers over the engine's pure keying-recipe core.
 
 The Shot Manifest's Export button (beside Assess): a live preview of the
 
-- **[`class ExportPreviewMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/export_preview.py#L25)** — The Export button's preview, mixed into ``ShotManifestController``.
+- **[`class ExportPreviewMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/export_preview.py#L27)** — The Export button's preview, mixed into ``ShotManifestController``.
   - `ExportPreviewMixin.export(self) -> None` — Open the preview of the export (or bring the open one up): its
 
 <a id="anim_utils--shots--shot_manifest--header_menu"></a>
 ### `anim_utils/shots/shot_manifest/header_menu.py`
 
-The Shot Manifest's header menu: display options (Long Names, Hide Missing
+The Shot Manifest's header menu: Long Names, Local Edits' Edits mode and
 
-- **[`class HeaderMenuMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/header_menu.py#L18)** — The header menu, mixed into ``ShotManifestController``.
+- **[`class HeaderMenuMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/header_menu.py#L21)** — The header menu, mixed into ``ShotManifestController``.
 
 <a id="anim_utils--shots--shot_manifest--manifest_data"></a>
 ### `anim_utils/shots/shot_manifest/manifest_data.py`
 
 Constants, column layout, and pure helper functions for the Shot Manifest UI.
 
-- [`SETTINGS_NS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L23) — constant
-- [`HEADERS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L26) — constant
-- [`COL_STEP`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L29) — constant
-- [`COL_SECTION`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L30) — constant
-- [`COL_DESC`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L31) — constant
-- [`COL_BEHAVIORS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L32) — constant
-- [`COL_START`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L33) — constant
-- [`COL_END`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L34) — constant
-- [`STEP_ICON_COLOR`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L36) — constant
-- [`PASTEL_STATUS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L39) — constant
-- [`BEHAVIOR_STATUS_COLORS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L43) — constant
-- [`ERROR_COLOR`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L50) — constant
-- **[`class ManifestData`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L53)** — ManifestData — module namespace.
+- [`SETTINGS_NS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L28) — constant
+- [`HEADERS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L31) — constant
+- [`COL_STEP`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L34) — constant
+- [`COL_SECTION`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L35) — constant
+- [`COL_DESC`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L36) — constant
+- [`COL_BEHAVIORS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L37) — constant
+- [`COL_START`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L38) — constant
+- [`COL_END`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L39) — constant
+- [`STEP_ICON_COLOR`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L41) — constant
+- [`PASTEL_STATUS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L45) — constant
+- [`ERROR_COLOR`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L48) — constant
+- **[`class ManifestData`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L51)** — ManifestData — module namespace.
+  - `ManifestData.level(status: str) -> str` *(static)* — *status*'s severity (``SHOT_STATUS_LEVELS``);
+  - `ManifestData.status_color(status: str) -> Optional[str]` *(static)* — *status*'s colour in this panel's palette, or ``None`` for none.
+  - `ManifestData.worst(statuses: Iterable[str]) -> Optional[str]` *(static)* — The status of *statuses* at the worst severity (the first of
+  - `ManifestData.glyph_html(status: str) -> str` *(static)* — *status*'s glyph in its colour, as rich text (``""``: no severity).
+  - `ManifestData.issues_html(issues: Iterable[Tuple[str, str]]) -> str` *(static)* — ``(status, text)`` *issues* as rich text, a line each: its glyph,
   - `ManifestData.fmt_behavior(name: str) -> str` *(static)* — ``'fade_in'`` → ``'Fade In'`` (``Behaviors.label``: the marker
   - `ManifestData.format_behavior_html(behaviors, broken=(), status_color=None, stale=(), disabled=(), marked=()) -> str` *(static)* — Return rich-text HTML for a list of behavior names.
 
@@ -561,9 +566,10 @@ Constants, column layout, and pure helper functions for the Shot Manifest UI.
 
 Local Edits for the Shot Manifest panel: change the table, never the sheet.
 
-- **[`class ManifestEditor`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_editor.py#L42)** — One panel's Local Edits: its edit layer, its cell editors, and the
+- **[`class ManifestEditor`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_editor.py#L45)** — One panel's Local Edits: its edit layer, its cell editors, and the
   - `ManifestEditor.enabled(self) -> bool` *(property)* — Whether the edits are in force -- applied and editable: always,
-  - `ManifestEditor.add_header_options(self, menu) -> None` — Add View Original Sheet and Reset Local Edits to *menu*.
+  - `ManifestEditor.add_header_options(self, menu) -> None` — Add the Local Edits row to *menu*: the Edits combo
+  - `ManifestEditor.edits_mode(self) -> str` *(property)* — The Edits mode in force: ``"keep"``, ``"rebuild"`` or ``"compare"``.
   - `ManifestEditor.view_original(self, on: bool = True) -> None` — Show the sheet as delivered (*on*), or the manifest with its edits.
   - `ManifestEditor.refuse_viewing(self, to: str = 'edit') -> bool` — Say so and return ``True`` while the original sheet is viewed:
   - `ManifestEditor.reset(self, confirm: bool = True) -> None` — Drop every edit of the current source, after asking.
@@ -582,6 +588,8 @@ Local Edits for the Shot Manifest panel: change the table, never the sheet.
   - `ManifestEditor.add_shot(self, shot, after: str) -> Optional[str]` — Take a shot no step pairs with into the manifest: a step of its own
   - `ManifestEditor.remove_step(self, step) -> None` — Remove an added step;
   - `ManifestEditor.hide_steps(self, step_ids: List[str], hidden: bool = True) -> None` — Hide (or show) steps.
+  - `ManifestEditor.unlocked_hidden_objects(self) -> List[Tuple[str, str]]` — The hidden objects :meth:`show_hidden_objects` shows, as
+  - `ManifestEditor.show_hidden_objects(self) -> None` — Show every object the edits hide, wherever it sits -- but in a
   - `ManifestEditor.hide_object(self, home: str, sheet_name: str, hidden: bool = True) -> None` — Hide (or show) an object: a hidden one leaves its step, and Build
   - `ManifestEditor.move_object(self, step, obj, target) -> None` — Move *obj* from *step* to *target* (to the end of its objects).
   - `ManifestEditor.rename_all(self, name: str, new: Optional[str] = None) -> int` — Point every step listing *name* at *new* (asked for when
@@ -610,22 +618,22 @@ What the Shot Manifest panel needs from Blender: its store, engine and
 
 Where the Shot Manifest's steps come from: a build sheet (a CSV path or link,
 
-- **[`class ManifestSourceMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_source.py#L23)** — The panel's sources, mixed into ``ShotManifestController``.
+- **[`class ManifestSourceMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_source.py#L25)** — The panel's sources, mixed into ``ShotManifestController``.
   - `ManifestSourceMixin.detect(self, gap: Optional[float] = None) -> None` — Detect animation regions in the scene and populate the table.
 
 <a id="anim_utils--shots--shot_manifest--mapping_picker"></a>
 ### `anim_utils/shots/shot_manifest/mapping_picker.py`
 
-The Shot Manifest's mapping template: the picker in the header menu (built-in
+The Shot Manifest's mapping template: its own popup on the build sheet
 
-- **[`class MappingPickerMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/mapping_picker.py#L19)** — The mapping template, mixed into ``ShotManifestController``.
+- **[`class MappingPickerMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/mapping_picker.py#L22)** — The mapping template, mixed into ``ShotManifestController``.
 
 <a id="anim_utils--shots--shot_manifest--range_column"></a>
 ### `anim_utils/shots/shot_manifest/range_column.py`
 
 The Shot Manifest table's Start / End column: what a step's range is
 
-- **[`class RangeColumnMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/range_column.py#L25)** — The Start / End column, mixed into ``ShotManifestController``.
+- **[`class RangeColumnMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/range_column.py#L27)** — The Start / End column, mixed into ``ShotManifestController``.
 
 <a id="anim_utils--shots--shot_manifest--range_resolver"></a>
 ### `anim_utils/shots/shot_manifest/range_resolver.py`
@@ -640,14 +648,14 @@ Range resolution for the Shot Manifest build pipeline (Blender-bound facade).
 
 The Shot Manifest rows' context menus and what they do: a step row's (colour
 
-- **[`class RowMenusMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/row_menus.py#L24)** — The rows' context menus, mixed into ``ShotManifestController``.
+- **[`class RowMenusMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/row_menus.py#L26)** — The rows' context menus, mixed into ``ShotManifestController``.
 
 <a id="anim_utils--shots--shot_manifest--shot_manifest_controller"></a>
 ### `anim_utils/shots/shot_manifest/shot_manifest_controller.py`
 
 The Shot Manifest panel's controller: its state, the steps the table shows,
 
-- **[`class ShotManifestController(ManifestTableMixin, RangeColumnMixin, StoreFollowMixin, ManifestSourceMixin, MappingPickerMixin, RowMenusMixin, HeaderMenuMixin, ExportPreviewMixin, pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_manifest/shot_manifest_controller.py#L40)** — Business logic for the Shot Manifest UI (see the module docstring).
+- **[`class ShotManifestController(ManifestTableMixin, RangeColumnMixin, StoreFollowMixin, ManifestSourceMixin, MappingPickerMixin, RowMenusMixin, HeaderMenuMixin, ViewCombosMixin, ExportPreviewMixin, pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_manifest/shot_manifest_controller.py#L44)** — Business logic for the Shot Manifest UI (see the module docstring).
   - `ShotManifestController.build(self) -> None` — Build or update shots in the store from loaded steps.
   - `ShotManifestController.assess(self, skip_key_check: bool = False, note: str = '') -> None` — Compare the steps against the scene's shots and colour the tree.
 
@@ -656,10 +664,8 @@ The Shot Manifest panel's controller: its state, the steps the table shows,
 
 Switchboard slots for the Shot Manifest panel: the ``.ui``'s widgets routed to
 
-- **[`class ShotManifestSlots(pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_manifest/shot_manifest_slots.py#L17)** — Switchboard slot class — routes UI events to the controller.
+- **[`class ShotManifestSlots(pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_manifest/shot_manifest_slots.py#L19)** — Switchboard slot class — routes UI events to the controller.
   - `ShotManifestSlots.header_init(self, widget)` — Header menu is configured once in controller.__init__.
-  - `ShotManifestSlots.btn_expand_missing(self)` — Expand all step rows that have missing objects or behaviors.
-  - `ShotManifestSlots.btn_expand_extra(self)` — Expand all step rows that have scene-discovered extra objects.
   - `ShotManifestSlots.btn_settings(self)` — Open the shared shots settings panel.
   - `ShotManifestSlots.b002(self)` — Assess the steps against the scene.
   - `ShotManifestSlots.b003(self)` — Build shots from loaded steps (or auto-detect from scene).
@@ -670,7 +676,7 @@ Switchboard slots for the Shot Manifest panel: the ``.ui``'s widgets routed to
 
 The Shot Manifest panel following the scene's store: its events (a shot
 
-- **[`class StoreFollowMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/store_follow.py#L28)** — Store events and scene swaps, mixed into ``ShotManifestController``.
+- **[`class StoreFollowMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/store_follow.py#L30)** — Store events and scene swaps, mixed into ``ShotManifestController``.
   - `StoreFollowMixin.remove_callbacks(self) -> None` — Remove the ShotStore listener and the invalidation subscription,
 
 <a id="anim_utils--shots--shot_manifest--table_presenter"></a>
@@ -678,9 +684,16 @@ The Shot Manifest panel following the scene's store: its events (a shot
 
 The Shot Manifest tree's rows: populating them (``ShotPairing.rows``: steps,
 
-- **[`class ManifestTableMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/table_presenter.py#L53)** — Presentation methods for the manifest tree widget.
-  - `ManifestTableMixin.expand_missing(self) -> None` — Expand all step rows that have missing objects, behaviors, or additional objects.
-  - `ManifestTableMixin.expand_extra(self) -> None` — Expand all step rows that have scene-discovered extra objects.
+- **[`class ManifestTableMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/table_presenter.py#L54)** — Presentation methods for the manifest tree widget.
+  - `ManifestTableMixin.expand_missing(self) -> None` — Expand the step rows the shown assessment found something in
+  - `ManifestTableMixin.expand_extra(self) -> None` — Expand the step rows holding an object the step does not list
+
+<a id="anim_utils--shots--shot_manifest--view_combos"></a>
+### `anim_utils/shots/shot_manifest/view_combos.py`
+
+The Shot Manifest's view row, above the table: Select, Expand, Collapse,
+
+- **[`class ViewCombosMixin`](blendertk/blendertk/anim_utils/shots/shot_manifest/view_combos.py#L28)** — The view row, mixed into ``ShotManifestController``.
 
 <a id="anim_utils--shots--shot_sequencer--_shot_sequencer"></a>
 ### `anim_utils/shots/shot_sequencer/_shot_sequencer.py`

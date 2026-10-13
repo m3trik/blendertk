@@ -1795,7 +1795,7 @@
         {
           "name": "BlenderShotManifest",
           "summary": ":class:`pythontk.ShotManifest` with the scene hooks bound to Blender.",
-          "line": 98,
+          "line": 101,
           "bases": [
             "ShotManifest",
             "_ShotManifestInternal"
@@ -1807,7 +1807,7 @@
               "kind": "method",
               "signature": "(self) -> Dict[str, list]",
               "summary": "Apply detected behaviors to Blender objects (fades, highlights,",
-              "line": 136,
+              "line": 149,
               "deprecated": false
             },
             {
@@ -1816,7 +1816,7 @@
               "kind": "staticmethod",
               "signature": "(tracks: Optional[List[str]] = None) -> Dict[str, List[str]]",
               "summary": "Reconcile audio playback nodes with keyed track state — no-op in Blender.",
-              "line": 165,
+              "line": 178,
               "deprecated": false
             },
             {
@@ -1825,7 +1825,7 @@
               "kind": "classmethod",
               "signature": "(cls, filepath, store=None, columns=None, post_process=None)",
               "summary": "Parse a CSV and return a ready-to-build engine.",
-              "line": 418,
+              "line": 431,
               "deprecated": false
             }
           ]
@@ -1841,7 +1841,7 @@
         {
           "name": "Behaviors",
           "summary": "Behaviors — module namespace.",
-          "line": 229,
+          "line": 240,
           "bases": [
             "pythontk.core_utils.engines.shots.manifest.behaviors.Behaviors",
             "_BehaviorsInternal"
@@ -1853,7 +1853,7 @@
               "kind": "staticmethod",
               "signature": "(obj: str, behavior_name: str, start: float, end: float, attrs: Optional[List[str]] = None, search_path: Optional[Path] = None, source_path: str = '', anchor_override: Optional[str] = None, recipe: Optional[Any] = None, fps: Optional[float] = None) -> List[Tuple[str, float]]",
               "summary": "Apply a named behavior template to an object over a time range.",
-              "line": 239,
+              "line": 250,
               "deprecated": false
             },
             {
@@ -1862,7 +1862,7 @@
               "kind": "staticmethod",
               "signature": "(obj: str, behavior_name: str, start: float, end: float, search_path: Optional[Path] = None, keyframe_fn: Optional[Any] = None, anchor_override: Optional[Any] = None, recipe: Optional[Any] = None, fps: Optional[float] = None) -> bool",
               "summary": "Check whether expected behavior keyframes exist on an object.",
-              "line": 380,
+              "line": 391,
               "deprecated": false
             },
             {
@@ -1871,7 +1871,7 @@
               "kind": "staticmethod",
               "signature": "(obj: str, start: float, end: float, source_path: str = '') -> None",
               "summary": "Place (or re-place) the sound strip *obj* at *start*.",
-              "line": 477,
+              "line": 488,
               "deprecated": false
             },
             {
@@ -1880,7 +1880,7 @@
               "kind": "staticmethod",
               "signature": "(behavior_entries: List[Dict[str, str]], fallback: float = 30, fps: Optional[float] = None) -> float",
               "summary": "Derive duration from the behavior templates in *behavior_entries*.",
-              "line": 523,
+              "line": 534,
               "deprecated": false
             },
             {
@@ -1889,7 +1889,7 @@
               "kind": "staticmethod",
               "signature": "(shots: list, apply_fn, exists_fn=None, has_keys_fn=None, store=None, resolve_fn=None, conflict_fn=None, release_fn=None, skip_behaviors=()) -> Dict[str, list]",
               "summary": "Apply declared behaviors from shot metadata to Blender objects.",
-              "line": 580,
+              "line": 591,
               "deprecated": false
             }
           ]
@@ -1905,7 +1905,7 @@
         {
           "name": "ExportPreviewMixin",
           "summary": "The Export button's preview, mixed into ``ShotManifestController``.",
-          "line": 25,
+          "line": 27,
           "bases": [],
           "members": [
             {
@@ -1914,7 +1914,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Open the preview of the export (or bring the open one up): its",
-              "line": 231,
+              "line": 233,
               "deprecated": false
             }
           ]
@@ -1924,13 +1924,13 @@
     },
     {
       "relpath": "anim_utils/shots/shot_manifest/header_menu.py",
-      "summary": "The Shot Manifest's header menu: display options (Long Names, Hide Missing",
+      "summary": "The Shot Manifest's header menu: Long Names, Local Edits' Edits mode and",
       "functions": [],
       "classes": [
         {
           "name": "HeaderMenuMixin",
           "summary": "The header menu, mixed into ``ShotManifestController``.",
-          "line": 18,
+          "line": 21,
           "bases": [],
           "members": []
         }
@@ -1945,16 +1945,61 @@
         {
           "name": "ManifestData",
           "summary": "ManifestData — module namespace.",
-          "line": 53,
+          "line": 51,
           "bases": [],
           "members": [
+            {
+              "name": "level",
+              "qualname": "ManifestData.level",
+              "kind": "staticmethod",
+              "signature": "(status: str) -> str",
+              "summary": "*status*'s severity (``SHOT_STATUS_LEVELS``);",
+              "line": 73,
+              "deprecated": false
+            },
+            {
+              "name": "status_color",
+              "qualname": "ManifestData.status_color",
+              "kind": "staticmethod",
+              "signature": "(status: str) -> Optional[str]",
+              "summary": "*status*'s colour in this panel's palette, or ``None`` for none.",
+              "line": 80,
+              "deprecated": false
+            },
+            {
+              "name": "worst",
+              "qualname": "ManifestData.worst",
+              "kind": "staticmethod",
+              "signature": "(statuses: Iterable[str]) -> Optional[str]",
+              "summary": "The status of *statuses* at the worst severity (the first of",
+              "line": 86,
+              "deprecated": false
+            },
+            {
+              "name": "glyph_html",
+              "qualname": "ManifestData.glyph_html",
+              "kind": "staticmethod",
+              "signature": "(status: str) -> str",
+              "summary": "*status*'s glyph in its colour, as rich text (``\"\"``: no severity).",
+              "line": 98,
+              "deprecated": false
+            },
+            {
+              "name": "issues_html",
+              "qualname": "ManifestData.issues_html",
+              "kind": "staticmethod",
+              "signature": "(issues: Iterable[Tuple[str, str]]) -> str",
+              "summary": "``(status, text)`` *issues* as rich text, a line each: its glyph,",
+              "line": 107,
+              "deprecated": false
+            },
             {
               "name": "fmt_behavior",
               "qualname": "ManifestData.fmt_behavior",
               "kind": "staticmethod",
               "signature": "(name: str) -> str",
               "summary": "``'fade_in'`` → ``'Fade In'`` (``Behaviors.label``: the marker",
-              "line": 57,
+              "line": 118,
               "deprecated": false
             },
             {
@@ -1963,7 +2008,7 @@
               "kind": "staticmethod",
               "signature": "(behaviors, broken=(), status_color=None, stale=(), disabled=(), marked=()) -> str",
               "summary": "Return rich-text HTML for a list of behavior names.",
-              "line": 67,
+              "line": 128,
               "deprecated": false
             }
           ]
@@ -1976,7 +2021,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 23,
+          "line": 28,
           "deprecated": false
         },
         {
@@ -1985,7 +2030,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 26,
+          "line": 31,
           "deprecated": false
         },
         {
@@ -1994,7 +2039,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 29,
+          "line": 34,
           "deprecated": false
         },
         {
@@ -2003,7 +2048,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 30,
+          "line": 35,
           "deprecated": false
         },
         {
@@ -2012,7 +2057,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 31,
+          "line": 36,
           "deprecated": false
         },
         {
@@ -2021,7 +2066,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 32,
+          "line": 37,
           "deprecated": false
         },
         {
@@ -2030,7 +2075,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 33,
+          "line": 38,
           "deprecated": false
         },
         {
@@ -2039,7 +2084,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 34,
+          "line": 39,
           "deprecated": false
         },
         {
@@ -2048,7 +2093,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 36,
+          "line": 41,
           "deprecated": false
         },
         {
@@ -2057,16 +2102,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 39,
-          "deprecated": false
-        },
-        {
-          "name": "BEHAVIOR_STATUS_COLORS",
-          "qualname": "BEHAVIOR_STATUS_COLORS",
-          "kind": "constant",
-          "signature": "",
-          "summary": "",
-          "line": 43,
+          "line": 45,
           "deprecated": false
         },
         {
@@ -2075,7 +2111,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 50,
+          "line": 48,
           "deprecated": false
         }
       ]
@@ -2088,7 +2124,7 @@
         {
           "name": "ManifestEditor",
           "summary": "One panel's Local Edits: its edit layer, its cell editors, and the",
-          "line": 42,
+          "line": 45,
           "bases": [],
           "members": [
             {
@@ -2097,7 +2133,7 @@
               "kind": "property",
               "signature": "(self) -> bool",
               "summary": "Whether the edits are in force -- applied and editable: always,",
-              "line": 66,
+              "line": 96,
               "deprecated": false
             },
             {
@@ -2105,8 +2141,17 @@
               "qualname": "ManifestEditor.add_header_options",
               "kind": "method",
               "signature": "(self, menu) -> None",
-              "summary": "Add View Original Sheet and Reset Local Edits to *menu*.",
-              "line": 71,
+              "summary": "Add the Local Edits row to *menu*: the Edits combo",
+              "line": 101,
+              "deprecated": false
+            },
+            {
+              "name": "edits_mode",
+              "qualname": "ManifestEditor.edits_mode",
+              "kind": "property",
+              "signature": "(self) -> str",
+              "summary": "The Edits mode in force: ``\"keep\"``, ``\"rebuild\"`` or ``\"compare\"``.",
+              "line": 153,
               "deprecated": false
             },
             {
@@ -2115,7 +2160,7 @@
               "kind": "method",
               "signature": "(self, on: bool = True) -> None",
               "summary": "Show the sheet as delivered (*on*), or the manifest with its edits.",
-              "line": 110,
+              "line": 175,
               "deprecated": false
             },
             {
@@ -2124,7 +2169,7 @@
               "kind": "method",
               "signature": "(self, to: str = 'edit') -> bool",
               "summary": "Say so and return ``True`` while the original sheet is viewed:",
-              "line": 142,
+              "line": 203,
               "deprecated": false
             },
             {
@@ -2133,7 +2178,7 @@
               "kind": "method",
               "signature": "(self, confirm: bool = True) -> None",
               "summary": "Drop every edit of the current source, after asking.",
-              "line": 154,
+              "line": 215,
               "deprecated": false
             },
             {
@@ -2142,7 +2187,7 @@
               "kind": "property",
               "signature": "(self) -> str",
               "summary": "The source the edits belong to: the sheet's path, or ``\"\"`` for",
-              "line": 174,
+              "line": 235,
               "deprecated": false
             },
             {
@@ -2151,7 +2196,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Read the current source's edits from the scene -- a sheet moved",
-              "line": 180,
+              "line": 241,
               "deprecated": false
             },
             {
@@ -2160,7 +2205,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Write the current source's edits to the scene, under the sheet's",
-              "line": 186,
+              "line": 247,
               "deprecated": false
             },
             {
@@ -2169,7 +2214,7 @@
               "kind": "method",
               "signature": "(self, steps: List[ptk.BuilderStep]) -> List[ptk.BuilderStep]",
               "summary": "*steps* with the edits applied -- as delivered while the original",
-              "line": 197,
+              "line": 258,
               "deprecated": false
             },
             {
@@ -2178,7 +2223,7 @@
               "kind": "method",
               "signature": "(self) -> List[str]",
               "summary": "The edits the loaded sheet gives no place to (``ManifestEdits.stale``).",
-              "line": 202,
+              "line": 263,
               "deprecated": false
             },
             {
@@ -2187,7 +2232,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Re-apply the edits to the loaded steps and redraw the table.",
-              "line": 206,
+              "line": 267,
               "deprecated": false
             },
             {
@@ -2196,7 +2241,7 @@
               "kind": "method",
               "signature": "(self, step) -> bool",
               "summary": "Say so and return ``True`` when *step* is locked (:meth:`_locked`).",
-              "line": 256,
+              "line": 317,
               "deprecated": false
             },
             {
@@ -2205,7 +2250,7 @@
               "kind": "method",
               "signature": "(self, item, column: int) -> bool",
               "summary": "Open an editor on a step's name or description, or an object's",
-              "line": 275,
+              "line": 336,
               "deprecated": false
             },
             {
@@ -2214,7 +2259,7 @@
               "kind": "method",
               "signature": "(self, item, column: int) -> bool",
               "summary": "Record the edit a cell editor committed;",
-              "line": 327,
+              "line": 388,
               "deprecated": false
             },
             {
@@ -2223,7 +2268,7 @@
               "kind": "method",
               "signature": "(self, step_id: str, obj, behaviors: List[str]) -> bool",
               "summary": "Record *obj*'s ticked *behaviors* in step *step_id*;",
-              "line": 419,
+              "line": 480,
               "deprecated": false
             },
             {
@@ -2232,7 +2277,7 @@
               "kind": "method",
               "signature": "(self, menu, item, selected: List[str] = ()) -> None",
               "summary": "Add Local Edits' actions for the row at *item* (``None``: empty",
-              "line": 434,
+              "line": 495,
               "deprecated": false
             },
             {
@@ -2241,7 +2286,7 @@
               "kind": "method",
               "signature": "(self, after: str) -> str",
               "summary": "Add a step after step *after* (``\"\"``: at the top) and open its",
-              "line": 561,
+              "line": 621,
               "deprecated": false
             },
             {
@@ -2250,7 +2295,7 @@
               "kind": "method",
               "signature": "(self, shot, after: str) -> Optional[str]",
               "summary": "Take a shot no step pairs with into the manifest: a step of its own",
-              "line": 573,
+              "line": 633,
               "deprecated": false
             },
             {
@@ -2259,7 +2304,7 @@
               "kind": "method",
               "signature": "(self, step) -> None",
               "summary": "Remove an added step;",
-              "line": 600,
+              "line": 660,
               "deprecated": false
             },
             {
@@ -2268,7 +2313,25 @@
               "kind": "method",
               "signature": "(self, step_ids: List[str], hidden: bool = True) -> None",
               "summary": "Hide (or show) steps.",
-              "line": 611,
+              "line": 671,
+              "deprecated": false
+            },
+            {
+              "name": "unlocked_hidden_objects",
+              "qualname": "ManifestEditor.unlocked_hidden_objects",
+              "kind": "method",
+              "signature": "(self) -> List[Tuple[str, str]]",
+              "summary": "The hidden objects :meth:`show_hidden_objects` shows, as",
+              "line": 683,
+              "deprecated": false
+            },
+            {
+              "name": "show_hidden_objects",
+              "qualname": "ManifestEditor.show_hidden_objects",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Show every object the edits hide, wherever it sits -- but in a",
+              "line": 694,
               "deprecated": false
             },
             {
@@ -2277,7 +2340,7 @@
               "kind": "method",
               "signature": "(self, home: str, sheet_name: str, hidden: bool = True) -> None",
               "summary": "Hide (or show) an object: a hidden one leaves its step, and Build",
-              "line": 623,
+              "line": 703,
               "deprecated": false
             },
             {
@@ -2286,7 +2349,7 @@
               "kind": "method",
               "signature": "(self, step, obj, target) -> None",
               "summary": "Move *obj* from *step* to *target* (to the end of its objects).",
-              "line": 630,
+              "line": 710,
               "deprecated": false
             },
             {
@@ -2295,7 +2358,7 @@
               "kind": "method",
               "signature": "(self, name: str, new: Optional[str] = None) -> int",
               "summary": "Point every step listing *name* at *new* (asked for when",
-              "line": 641,
+              "line": 721,
               "deprecated": false
             },
             {
@@ -2304,7 +2367,7 @@
               "kind": "method",
               "signature": "(self, step) -> None",
               "summary": "Drop *step*'s own edits (name, description);",
-              "line": 673,
+              "line": 753,
               "deprecated": false
             },
             {
@@ -2313,7 +2376,7 @@
               "kind": "method",
               "signature": "(self, home: str, sheet_name: str, name: str = '') -> None",
               "summary": "Drop an object's edits: the sheet's name, step and behaviors.",
-              "line": 678,
+              "line": 758,
               "deprecated": false
             },
             {
@@ -2322,7 +2385,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Mark the edited cells -- italic, the sheet's value in the tooltip --",
-              "line": 685,
+              "line": 765,
               "deprecated": false
             }
           ]
@@ -2435,7 +2498,7 @@
         {
           "name": "ManifestSourceMixin",
           "summary": "The panel's sources, mixed into ``ShotManifestController``.",
-          "line": 23,
+          "line": 25,
           "bases": [],
           "members": [
             {
@@ -2444,7 +2507,7 @@
               "kind": "method",
               "signature": "(self, gap: Optional[float] = None) -> None",
               "summary": "Detect animation regions in the scene and populate the table.",
-              "line": 53,
+              "line": 55,
               "deprecated": false
             }
           ]
@@ -2454,13 +2517,13 @@
     },
     {
       "relpath": "anim_utils/shots/shot_manifest/mapping_picker.py",
-      "summary": "The Shot Manifest's mapping template: the picker in the header menu (built-in",
+      "summary": "The Shot Manifest's mapping template: its own popup on the build sheet",
       "functions": [],
       "classes": [
         {
           "name": "MappingPickerMixin",
           "summary": "The mapping template, mixed into ``ShotManifestController``.",
-          "line": 19,
+          "line": 22,
           "bases": [],
           "members": []
         }
@@ -2475,7 +2538,7 @@
         {
           "name": "RangeColumnMixin",
           "summary": "The Start / End column, mixed into ``ShotManifestController``.",
-          "line": 25,
+          "line": 27,
           "bases": [],
           "members": []
         }
@@ -2515,7 +2578,7 @@
         {
           "name": "RowMenusMixin",
           "summary": "The rows' context menus, mixed into ``ShotManifestController``.",
-          "line": 24,
+          "line": 26,
           "bases": [],
           "members": []
         }
@@ -2530,7 +2593,7 @@
         {
           "name": "ShotManifestController",
           "summary": "Business logic for the Shot Manifest UI (see the module docstring).",
-          "line": 40,
+          "line": 44,
           "bases": [
             "ManifestTableMixin",
             "RangeColumnMixin",
@@ -2539,6 +2602,7 @@
             "MappingPickerMixin",
             "RowMenusMixin",
             "HeaderMenuMixin",
+            "ViewCombosMixin",
             "ExportPreviewMixin",
             "pythontk.LoggingMixin"
           ],
@@ -2549,7 +2613,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Build or update shots in the store from loaded steps.",
-              "line": 404,
+              "line": 471,
               "deprecated": false
             },
             {
@@ -2558,7 +2622,7 @@
               "kind": "method",
               "signature": "(self, skip_key_check: bool = False, note: str = '') -> None",
               "summary": "Compare the steps against the scene's shots and colour the tree.",
-              "line": 609,
+              "line": 739,
               "deprecated": false
             }
           ]
@@ -2574,7 +2638,7 @@
         {
           "name": "ShotManifestSlots",
           "summary": "Switchboard slot class — routes UI events to the controller.",
-          "line": 17,
+          "line": 19,
           "bases": [
             "pythontk.LoggingMixin"
           ],
@@ -2585,25 +2649,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Header menu is configured once in controller.__init__.",
-              "line": 30,
-              "deprecated": false
-            },
-            {
-              "name": "btn_expand_missing",
-              "qualname": "ShotManifestSlots.btn_expand_missing",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Expand all step rows that have missing objects or behaviors.",
-              "line": 34,
-              "deprecated": false
-            },
-            {
-              "name": "btn_expand_extra",
-              "qualname": "ShotManifestSlots.btn_expand_extra",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Expand all step rows that have scene-discovered extra objects.",
-              "line": 38,
+              "line": 32,
               "deprecated": false
             },
             {
@@ -2612,7 +2658,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the shared shots settings panel.",
-              "line": 42,
+              "line": 36,
               "deprecated": false
             },
             {
@@ -2621,7 +2667,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Assess the steps against the scene.",
-              "line": 48,
+              "line": 42,
               "deprecated": false
             },
             {
@@ -2630,7 +2676,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Build shots from loaded steps (or auto-detect from scene).",
-              "line": 52,
+              "line": 46,
               "deprecated": false
             },
             {
@@ -2639,7 +2685,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Export the manifest's rows (the option menu says how).",
-              "line": 56,
+              "line": 50,
               "deprecated": false
             }
           ]
@@ -2655,7 +2701,7 @@
         {
           "name": "StoreFollowMixin",
           "summary": "Store events and scene swaps, mixed into ``ShotManifestController``.",
-          "line": 28,
+          "line": 30,
           "bases": [],
           "members": [
             {
@@ -2664,7 +2710,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Remove the ShotStore listener and the invalidation subscription,",
-              "line": 79,
+              "line": 81,
               "deprecated": false
             }
           ]
@@ -2680,7 +2726,7 @@
         {
           "name": "ManifestTableMixin",
           "summary": "Presentation methods for the manifest tree widget.",
-          "line": 53,
+          "line": 54,
           "bases": [],
           "members": [
             {
@@ -2688,8 +2734,8 @@
               "qualname": "ManifestTableMixin.expand_missing",
               "kind": "method",
               "signature": "(self) -> None",
-              "summary": "Expand all step rows that have missing objects, behaviors, or additional objects.",
-              "line": 801,
+              "summary": "Expand the step rows the shown assessment found something in",
+              "line": 845,
               "deprecated": false
             },
             {
@@ -2697,11 +2743,26 @@
               "qualname": "ManifestTableMixin.expand_extra",
               "kind": "method",
               "signature": "(self) -> None",
-              "summary": "Expand all step rows that have scene-discovered extra objects.",
-              "line": 846,
+              "summary": "Expand the step rows holding an object the step does not list",
+              "line": 865,
               "deprecated": false
             }
           ]
+        }
+      ],
+      "constants": []
+    },
+    {
+      "relpath": "anim_utils/shots/shot_manifest/view_combos.py",
+      "summary": "The Shot Manifest's view row, above the table: Select, Expand, Collapse,",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ViewCombosMixin",
+          "summary": "The view row, mixed into ``ShotManifestController``.",
+          "line": 28,
+          "bases": [],
+          "members": []
         }
       ],
       "constants": []
