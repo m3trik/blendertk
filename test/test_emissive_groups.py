@@ -269,9 +269,36 @@ try:
     manifest = EmissiveGroups.bake_mask(output_path=mask_path, resolution=64)
     check("mask written", os.path.isfile(mask_path))
     check("mask manifest encoding", manifest["encoding"] == "channels", manifest)
-    check("mask manifest sidecar", os.path.isfile(os.path.join(tmp, "eg_EMask.json")))
+    check(
+        "no mask manifest sidecar (published via the scene records)",
+        not os.path.exists(os.path.join(tmp, "eg_EMask.json")),
+    )
     payload = ptk.SceneRecords.EMISSIVE_GROUPS.load(DataNodes)
     check("export carrier switched to channels", payload["encoding"] == "channels")
+
+    # No path: the file's project texture folder (mayatk's folder for a scene
+    # in that project), never temp -- an unsaved file uses the workspace set.
+    from blendertk.env_utils._env_utils import EnvUtils
+
+    _prev_pin = EnvUtils.workspace_root() or None
+    ws = tempfile.mkdtemp()
+    EnvUtils.set_current_workspace(ws)
+    try:
+        EmissiveGroups.bake_mask(resolution=32)
+        default_mask = os.path.join(ws, "sourceimages", "untitled_EMask.png")
+        check(
+            "default mask lands in the workspace's texture folder, not temp",
+            os.path.isfile(default_mask),
+            os.listdir(ws),
+        )
+        EnvUtils.set_current_workspace(None)
+        try:
+            EmissiveGroups.bake_mask(resolution=32)
+            check("an unsaved file with no workspace refuses a default mask", False)
+        except ValueError:
+            check("an unsaved file with no workspace refuses a default mask", True)
+    finally:
+        EnvUtils.set_current_workspace(_prev_pin)
 
     # --- teardown hygiene -------------------------------------------------
     for name in list(EmissiveGroups.list_groups()):

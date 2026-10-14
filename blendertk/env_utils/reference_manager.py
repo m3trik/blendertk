@@ -17,7 +17,8 @@ Mapping (Maya → Blender), all backed by :mod:`blendertk.EnvUtils`:
     *import references* → ``make_library_local``; *update* → reload; *un-reference* → remove.
   * per-reference **display override** (normal / reference / template) → the linked objects'
     ``display_type`` + ``hide_select`` (``set_reference_display_mode``).
-  * **Notes** column → per-file comments persisted in the panel's settings (DCC-agnostic);
+  * **Notes** column → per-file comments kept with the project (``ptk.SceneNotes``: one
+    ``<data>/scene_notes.json`` both DCCs' panels share);
     hidden by default with a *Show Notes Column* toggle, like Maya.
   * Naming presets (**case** / **suffix** / **subfolder** structure) drive *Save Scene*.
   * **Filter / Display** (header menu) → filter by name / notes (ignore-case + a target combo) or by
@@ -124,7 +125,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         self._recursive = (
             True  # search sub-folders too by default — mirrors Maya's chk000 (checked)
         )
-        self._notes = dict(self.ui.settings.value("reference_notes") or {})
+        self._scene_notes = ptk.SceneNotes()
         self._suppress_note_save = False  # guard programmatic table edits
         self._listing = None  # (files shown, files hidden by the filter) for the footer
         # Guard programmatic selection changes (a rebuild's clear(), the reference->selection
@@ -241,18 +242,55 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         path looked up by one always finds what another recorded."""
         return os.path.normpath(path).lower()
 
+    @property
+    def scene_notes(self):
+        """The Notes column's store (:class:`pythontk.SceneNotes`: one file per
+        project, shared with mayatk's panel), its unmarked projects resolved
+        under the workspace being browsed."""
+        notes = self.__dict__.get("_scene_notes")
+        if notes is None:
+            notes = self._scene_notes = ptk.SceneNotes()
+        try:
+            notes.session_root = self._workspace_dir() or None
+        except Exception:  # noqa: BLE001 - a panel without its workspace widgets
+            notes.session_root = None
+        return notes
+
+    def _note(self, path):
+        """*path*'s note ('' without one; never raises into a listing)."""
+        try:
+            return self.scene_notes.get(path)
+        except Exception:  # noqa: BLE001 - a note never fails the listing
+            return ""
+
+    def _migrate_settings_notes(self):
+        """Move the notes this panel kept in its settings (before 2026-10-13,
+        keyed by path) into each scene's project store; a note whose scene is
+        gone or whose project cannot be written stays in the settings.
+
+        Run by the listing (:meth:`_refresh_table_content`), so it resolves an
+        unmarked project under the same session root the listing reads its
+        notes with -- in ``__init__`` the workspace combo is not populated
+        yet, and the bare root folder stood in for it."""
+        try:
+            legacy = dict(self.ui.settings.value("reference_notes") or {})
+        except (TypeError, ValueError):
+            return
+        if not legacy:
+            return
+        kept = self.scene_notes.import_notes(legacy)
+        self.ui.settings.setValue("reference_notes", kept)
+
     def _carry_note(self, old, new=None):
         """Move *old*'s note to *new* (a rename) or drop it (*new* None: a delete).
 
-        Notes are keyed by path, so without this a renamed file loses its note and
-        a deleted one leaves a stale entry behind (mayatk's ``.metadata.json``
-        sidecar travels with its file the same way)."""
-        note = self._notes.pop(self._path_key(old), None)
-        if note is None:
-            return
+        Notes are keyed by the scene's project-relative path, so without this a
+        renamed file loses its note and a deleted one leaves a stale entry behind
+        (mayatk's panel carries them the same way)."""
         if new:
-            self._notes[self._path_key(new)] = note
-        self.ui.settings.setValue("reference_notes", self._notes)
+            self.scene_notes.move(old, new)
+        else:
+            self.scene_notes.remove(old)
 
     def _current_scene_file(self):
         """RAW path of the currently-open .blend ('' — needs bpy). Unlike
@@ -561,7 +599,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
                     "scene, the <b>display</b> icon to cycle Normal → Reference → Template.",
                     "<b>Double-click</b> the name to rename; right-click for the action menu "
                     "(Open, Rename, Delete, Reference / Unreference, Unlink and Import, …).",
-                    "<b>Double-click</b> the <b>Notes</b> column to annotate a file (saved with the panel).",
+                    "<b>Double-click</b> the <b>Notes</b> column to annotate a file (saved with the project).",
                 ],
                 sections=[
                     (
@@ -1392,10 +1430,77 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         if table:
             table.init_slot()
 
+    def _bake_project_root(self):
+        """The project a foreign row's bake goes in: the open file's
+        (``EnvUtils.scene_project_root``), else the workspace being browsed;
+        None when neither resolves -- the engine then refuses the bake (a bake a
+        saved file links is a project file, never a temp one) and the panel
+        shows its reason like any other bake error."""
+        try:
+            root = btk.EnvUtils.scene_project_root() or self._workspace_dir()
+        except Exception:  # noqa: BLE001 - a panel without its workspace widgets
+            root = None
+        return root if root and os.path.isdir(root) else None
+
+    def _rehome_temp_bakes(self):
+        """Relink every library that reads a bake in temp (made before
+        2026-10-13, which the temp sweep reclaims) onto the project's bake of
+        its source (``MayaSceneImport.rehome_bake``), ``//``-relative. Returns
+        the libraries moved. Mirror of mayatk's ``_follow_bake_sources``
+        re-home."""
+        if not self._has_bpy():
+            return []
+        import bpy
+
+        from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
+
+        moved = []
+        engine = None
+        for lib in list(bpy.data.libraries):
+            path = bpy.path.abspath(lib.filepath) if lib.filepath else ""
+            if not (path and btk.EnvUtils._in_temp(path)):
+                continue
+            if not MayaSceneImport.bake_source(path):
+                continue
+            project = btk.EnvUtils.scene_project_root() or self._workspace_dir()
+            if not project:
+                continue
+            engine = engine or MayaSceneImport()
+            try:
+                target = engine.rehome_bake(path, project=project)
+            except (OSError, RuntimeError) as e:
+                self.logger.warning(f"Could not move {path} out of temp: {e}")
+                continue
+            if not target:
+                continue
+            # //-relative where a relative path reaches it (never across drives).
+            lib.filepath = btk.EnvUtils._blend_relpath(target)
+            lib.reload()
+            moved.append(lib)
+        if moved:
+            self.logger.info(f"Moved {len(moved)} linked bake(s) out of temp.")
+        return moved
+
+    def purge_unused_bakes(self, dry_run=False):
+        """Remove the bakes in the open file's project that no file links
+        (``MayaSceneImport.purge_unused_bakes``: the project's files are scanned
+        as bytes, none is opened). Returns the paths removed. Mirror of mayatk's."""
+        from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
+
+        project = btk.EnvUtils.scene_project_root() or self._workspace_dir()
+        return MayaSceneImport().purge_unused_bakes(project=project, dry_run=dry_run)
+
     def _refresh_table_content(self, widget):
         """Scan the workspace, apply the header filter / display options, and (re)build the
         File · Status · Notes table (mirror of mayatk's filtered file list)."""
         from qtpy import QtWidgets
+
+        # A library reading a bake in temp moves into the project first (mirror of
+        # mayatk's refresh, which re-homes before it lists).
+        self._rehome_temp_bakes()
+        # The notes this panel kept in its settings move into the project
+        # stores under the session root the listing reads them with.
+        self._migrate_settings_notes()
 
         workspace = self._workspace_dir()
         opt = self._filter_options()
@@ -1480,7 +1585,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
                         "",
                         "",
                         "",
-                        self._notes.get(self._path_key(p), ""),
+                        self._note(p),
                     ]
                     for p in files
                 ]
@@ -1660,7 +1765,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             for f in files:
                 ok = include_files and os.path.basename(f) in name_matches
                 if not ok and include_notes:
-                    note = self._notes.get(self._path_key(f), "")
+                    note = self._note(f)
                     ok = bool(note) and self._note_matches(
                         note, patterns, opt["ignore_case"]
                     )
@@ -1804,13 +1909,12 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         path = item.data(self.sb.QtCore.Qt.UserRole)
         if not path:
             return
-        key = self._path_key(path)
         text = item.text().strip()
-        if text:
-            self._notes[key] = text
-        else:
-            self._notes.pop(key, None)
-        self.ui.settings.setValue("reference_notes", self._notes)
+        try:
+            self.scene_notes.set(path, text)
+        except OSError as e:
+            store = self.scene_notes.store_path(path)
+            self.logger.warning(f"Could not save the note to {store or path}: {e}")
 
     # ------------------------------------------------------------------ selection = references
     def _on_selection_changed(self):
@@ -2090,9 +2194,12 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
 
         name = os.path.basename(path)
+        project = self._bake_project_root()
         try:
             with self._conversion_progress(f"Opening {name}") as progress:
-                baked = MayaSceneImport().bake_scene(path, progress=progress, **conv)
+                baked = MayaSceneImport().bake_scene(
+                    path, progress=progress, project=project, **conv
+                )
         except ptk.OperationCancelled:
             self._footer_status(f"Stopped opening {name}.")
             return
@@ -2107,13 +2214,20 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             return
 
         # Deterministic scratch twin so a second Open click resolves this row as 'current'
-        # and closes it (see _is_current / _foreign_scratch_path); the cached bake itself
-        # is opened only when the copy can't be written.
+        # and closes it (see _is_current / _foreign_scratch_path). Never the project's
+        # bake itself: a save of it would write into the bake cache every linking
+        # file reads.
         try:
             scratch = _scratch_twins().create(path, baked)
-        except OSError:
-            scratch = baked
+        except OSError as e:
+            self._error_box(
+                "Can't open", name, f"no scratch copy could be written ({e})"
+            )
+            return
         if btk.open_scene(scratch):
+            # A copy of the bake opened as a document of its own is no bake: its
+            # record goes (else it rides along into whatever the user saves).
+            MayaSceneImport._strip_bake_record()
             self._discard_stale_scratches()
             # The scratch stands in for its source: the pin the source lies under holds
             # it, so a lightmap bake's project is the source's, not the temp folder
@@ -2406,6 +2520,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
                 plan.append((path, conv))
         if not plan:
             return False
+        project = self._bake_project_root()
 
         linked = 0
         for path, conv in plan:
@@ -2413,9 +2528,11 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             try:
                 with self._conversion_progress(f"Referencing {name}") as progress:
                     baked = MayaSceneImport().bake_scene(
-                        path, progress=progress, **conv
+                        path, progress=progress, project=project, **conv
                     )
-                linked += btk.link_blend_file(baked, link=True)
+                # A project file: linked ``//``-relative, so the scene keeps it
+                # when the project moves.
+                linked += btk.link_blend_file(baked, link=True, relative=True)
             except ptk.OperationCancelled:
                 self._footer_status(f"Stopped referencing {name}.")
                 break

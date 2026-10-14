@@ -820,7 +820,7 @@ class ShadowRig(ptk.LoggingMixin):
         self.texture_path = (
             str(path)
             if path
-            else os.path.join(self._output_dir(), f"{self._base}_shadow.png")
+            else os.path.join(self.default_texture_dir(), f"{self._base}_shadow.png")
         )
         # Row 0 of the array is the light-side edge; Blender's pixel rows run
         # bottom-up, so it lands on V = 0 — the plane's local -Y (near) edge.
@@ -878,17 +878,24 @@ class ShadowRig(ptk.LoggingMixin):
         return out
 
     @staticmethod
-    def _output_dir():
-        """Where the silhouette PNG is written — a ``sourceimages`` next to the .blend if saved,
-        else a temp dir."""
-        import tempfile
-        import bpy
+    def default_texture_dir():
+        """Where a rig's maps go when no path names one: the open file's project
+        texture folder (``DataNodes.scene_source_images_dir``; the same folder
+        mayatk writes for a scene in that project). Created. Never a temp
+        folder: a saved .blend would reference a file the temp sweep deletes.
+        Mirror of mayatk's.
 
-        if bpy.data.filepath:
-            d = os.path.join(os.path.dirname(bpy.data.filepath), "sourceimages")
-        else:
-            d = os.path.join(tempfile.gettempdir(), "blendertk_shadows")
-        os.makedirs(d, exist_ok=True)
+        Raises:
+            ValueError: The file has no project (unsaved, no workspace set).
+        """
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        d = DataNodes.scene_source_images_dir(create=True)
+        if not d:
+            raise ValueError(
+                "ShadowRig: the file has no project to write its maps into; "
+                "save the .blend or set a workspace."
+            )
         return d
 
     # ------------------------------------------------------------------ image IO
@@ -1633,7 +1640,7 @@ class ShadowRig(ptk.LoggingMixin):
         )
         own = cls._plane_prop(plane, cls._SILHOUETTE_PROP, "")
         if own and cls.plane_is_atlased(plane):
-            folder = os.path.dirname(bound) if bound else cls._output_dir()
+            folder = os.path.dirname(bound) if bound else cls.default_texture_dir()
             return os.path.join(folder, own).replace("\\", "/")
         return bound
 
@@ -2268,7 +2275,7 @@ class ShadowRig(ptk.LoggingMixin):
         folder = (
             os.path.dirname(self.texture_path)
             if self.texture_path
-            else self._output_dir()
+            else self.default_texture_dir()
         )
         return os.path.join(folder, f"{self._base}_horizon.png").replace("\\", "/")
 
@@ -2381,7 +2388,7 @@ class ShadowRig(ptk.LoggingMixin):
         if not name:
             return None
         tex = cls._plane_texture_path(plane)
-        folder = os.path.dirname(tex) if tex else cls._output_dir()
+        folder = os.path.dirname(tex) if tex else cls.default_texture_dir()
         return os.path.join(folder, name).replace("\\", "/")
 
     @classmethod
@@ -2468,7 +2475,9 @@ class ShadowRig(ptk.LoggingMixin):
 
     @classmethod
     def _atlas_path(cls, kind, folder=None):
-        return os.path.join(folder or cls._output_dir(), cls.ATLAS_BASENAMES[kind])
+        return os.path.join(
+            folder or cls.default_texture_dir(), cls.ATLAS_BASENAMES[kind]
+        )
 
     @classmethod
     def _set_plane_uvs(cls, plane, rect):

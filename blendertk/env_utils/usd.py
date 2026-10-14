@@ -243,7 +243,9 @@ class UsdUtils(_UsdUtilsInternal):
                 packaged archive: the export and its post-passes run into a
                 scratch text layer (pxr cannot save into a package), which
                 ``ptk.UsdzPackager.from_layer`` packages. Defaults to
-                ``<temp>/<blend-stem>_bridge.usd``.
+                ``<blend-stem>_bridge.usd`` in a fresh ``ptk.TempArtifacts``
+                folder (``btk_bridge``), the textures the writer exports
+                beside it in that folder.
             objects: objects (datablocks or names) to export; ``None`` exports the
                 current selection. When given, they are selected first and the prior
                 selection is restored afterward.
@@ -273,13 +275,13 @@ class UsdUtils(_UsdUtilsInternal):
             ``selection_only`` and nothing is selected to export.
         """
         import bpy
-        import tempfile
 
         if not filepath:
             stem = (
                 os.path.splitext(os.path.basename(bpy.data.filepath))[0] or "untitled"
             )
-            filepath = os.path.join(tempfile.gettempdir(), f"{stem}_bridge.usd")
+            folder = ptk.TempArtifacts("btk_bridge").dir_path()
+            filepath = os.path.join(folder, f"{stem}_bridge.usd")
         if os.path.splitext(filepath)[1].lower() not in USD_EXTENSIONS:
             filepath += ".usd"
         os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)

@@ -30,7 +30,7 @@ AnimationClip per declared take). Two intentional divergences from mayatk:
   ``load_preset`` because its FBX options are set out-of-band via MEL; Blender's exporter takes its
   options as direct ``bpy.ops`` keyword args, so callers just pass ``**fbx_opts``.
 
-``import bpy`` (and ``tempfile``) are deferred into the call bodies so resolving the package
+``import bpy`` is deferred into the call bodies so resolving the package
 surface never requires a running Blender. ``export_selection_fbx`` stays exported (module-level)
 as the selection-only convenience used by the Substance / Marmoset / RizomUV bridges.
 """
@@ -2270,7 +2270,9 @@ class FbxUtils(_FbxUtilsInternal):
 
         Parameters:
             filepath: output ``.fbx`` path (``.fbx`` appended if missing; parent dirs created).
-                Defaults to ``<temp>/<blend-stem>_bridge.fbx``.
+                Defaults to ``<blend-stem>_bridge.fbx`` in a fresh
+                ``ptk.TempArtifacts`` folder (``btk_bridge``; a hand-off the
+                age sweep reclaims).
             objects: objects (datablocks or names) to export; ``None`` exports the current
                 selection. When given, they are selected first and the prior selection is
                 restored afterward.
@@ -2306,13 +2308,13 @@ class FbxUtils(_FbxUtilsInternal):
                 or ``strict`` and a requested object cannot be selected.
         """
         import bpy
-        import tempfile
 
         if not filepath:
             stem = (
                 os.path.splitext(os.path.basename(bpy.data.filepath))[0] or "untitled"
             )
-            filepath = os.path.join(tempfile.gettempdir(), f"{stem}_bridge.fbx")
+            folder = ptk.TempArtifacts("btk_bridge").dir_path()
+            filepath = os.path.join(folder, f"{stem}_bridge.fbx")
         if not filepath.lower().endswith(".fbx"):
             filepath += ".fbx"
         os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)

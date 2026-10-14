@@ -56,6 +56,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from qtpy import QtCore, QtGui, QtWidgets
+from uitk import StyleSheet
 
 import pythontk as ptk
 
@@ -1186,6 +1187,7 @@ class HierarchySyncSlots(ptk.LoggingMixin):
         recent = CoreUtils.get_recent_files()
 
         menu = QtWidgets.QMenu(self.ui.tree001)
+        StyleSheet.cast_shadow(menu)
         menu.setToolTipsVisible(True)
         if not recent:
             empty_action = menu.addAction("(No recent scenes)")
@@ -1804,6 +1806,7 @@ class HierarchySyncSlots(ptk.LoggingMixin):
         recent = self.controller.get_recent_reference_scenes()
 
         menu = QtWidgets.QMenu(self.ui.tree000)
+        StyleSheet.cast_shadow(menu)
         menu.setToolTipsVisible(True)
         if not recent:
             empty_action = menu.addAction("(No recent files)")

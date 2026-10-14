@@ -45,6 +45,13 @@ EXTRA_SYS_PATH = __EXTRA_SYS_PATH__
 # How the dense per-frame keys a conversion carries are reduced before the save: an
 # ``AnimUtils.OPTIMIZE_LEVELS`` key, or None to keep every key.
 REDUCE_KEYS = __REDUCE_KEYS__
+# The bake's record (the source it holds and that source version's content key),
+# written into it as one small Text: the parent reads it back without opening the
+# file -- MayaSceneImport.bake_info.
+BAKE_INFO = __BAKE_INFO__
+# Where a USD payload in temp that deformers still stream points from is copied
+# ("" = leave it).
+STREAM_HOME = r"__STREAM_HOME__"
 
 
 def _extend_sys_path():
@@ -68,8 +75,14 @@ def main():
     # Empty scene: the factory startup cube/camera/light must not enter the library.
     bpy.ops.wm.read_factory_settings(use_empty=True)
     imported = MayaSceneImport(log_level="INFO").import_payload(
-        SRC_FILE, scene_settings=True, reduce_keys=REDUCE_KEYS, progress=progress
+        SRC_FILE,
+        scene_settings=True,
+        reduce_keys=REDUCE_KEYS,
+        progress=progress,
+        stream_home=STREAM_HOME or None,
     )
+    # A stream still read from temp fails the bake; the one beside it goes //-relative.
+    MayaSceneImport._seal_bake_streams(STREAM_HOME or None)
     # The importer selects all it imports; a document opens with nothing selected (Maya's
     # file -open). Saved selected, a large scene opens as a field of origin dots. A walk
     # of a list: the import links and unlinks collections around operators, and a
@@ -83,6 +96,7 @@ def main():
             for obj in list(view_layer.objects):
                 obj.select_set(False, view_layer=view_layer)
             view_layer.objects.active = None
+    MayaSceneImport._write_bake_record(BAKE_INFO or {})
     print(ptk.ProgressRelay.line(1, 1, "Saving the .blend"), flush=True)
     # relative_remap off: the .blend lives in the cache dir, so relative texture paths
     # would be unresolvable for whoever links it (the absolute-path rule the FBX export

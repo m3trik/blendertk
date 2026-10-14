@@ -21,6 +21,8 @@ from uitk.bridge.spec import KindFactory
 from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
 
 from blendertk.mat_utils.substance_bridge._substance_bridge import (
+    ROUND_TRIP,
+    SEND_TO,
     SubstanceBridge,
     _TEMPLATE_DIR,
 )
@@ -41,14 +43,17 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
     UI_NAME = "substance_bridge"
     PRESETS_ROOT = _PRESETS_ROOT
     LOG_TAG = "substance_bridge"
-    # Fall back to a self-cleaning temp folder when no .blend/workspace dir resolves
-    # (unsaved file) — the FBX + staged maps are transient hand-off artifacts Painter
-    # reads once, so the user shouldn't be forced to pick a path.
-    TEMP_OUTPUT_FALLBACK = True
+    # A blank field is never filled in by the panel, in either mode: the
+    # bridge puts the mesh Painter's project is built from (and a reimport
+    # overwrites) in the scene project's cache/substance, and the manifest +
+    # staged texture copies in a fresh temp folder per send. A panel-made
+    # session temp folder was deleted when the host exited, while the Painter
+    # project still pointed into it.
+    TRANSIENT_OUTPUT_MODES = (SEND_TO, ROUND_TRIP)
 
     # The Output Dir is a per-run hand-off location, not durable config: leaving
-    # it blank resolves to the current .blend file's folder (or a temp dir), which is
-    # right far more often than whatever was typed in some earlier session. A
+    # it blank leaves the destinations to the bridge (above), which is right
+    # far more often than whatever was typed in some earlier session. A
     # restored path silently outranks that per-run default, so the field starts
     # blank each session -- the recent-values button still holds the history.
     OUTPUT_DIR_PERSISTS = False
@@ -127,7 +132,8 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
         """Base buttons (recent history + browse) plus a clear button.
 
         Blank is a *meaningful* state for this field -- ``require_output_dir``
-        reads it as "use the .blend file folder, or a temp dir" -- so unlike a
+        reads it as "the bridge decides" (the project cache for the mesh, temp
+        for the rest) -- so unlike a
         browse-only path field the clear button reaches a real setting rather
         than just breaking the value. Pairs with ``OUTPUT_DIR_PERSISTS = False``:
         clearing it is how the user gets back to the per-run default within a
@@ -232,7 +238,7 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
             self.bridge.logger.error(self.bridge.APP.not_found_message)
             return
 
-        output_dir = self.require_output_dir()
+        output_dir = self.require_output_dir(mode)
         if output_dir is None:
             return
 

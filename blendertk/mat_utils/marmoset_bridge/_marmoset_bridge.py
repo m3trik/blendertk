@@ -279,32 +279,60 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
             objects = btk.selected_objects()
         return objects or []
 
-    #: Subfolder next to the saved ``.blend`` that bake roundtrips write their
-    #: maps into -- blendertk's own convention (``TextureBaker`` uses the same
-    #: name), and the mirror of mayatk's ``sourceimages/baked``. A subfolder,
-    #: not the .blend dir itself: a bake's output for material ``M`` carries
-    #: the SAME ``<material>_<map>`` name as the source maps that fed it.
-    BAKED_TEXTURE_SUBDIR = "baked_textures"
+    #: Subfolder of the file project's texture folder that bake roundtrips
+    #: write their maps into -- mayatk's ``sourceimages/baked``, one folder for
+    #: both DCCs. A subfolder, not the texture folder itself: a bake's output
+    #: for material ``M`` carries the SAME ``<material>_<map>`` name as the
+    #: source maps that fed it.
+    BAKED_TEXTURE_SUBDIR = "baked"
 
     @classmethod
     def baked_texture_dir(cls) -> str:
-        """``<blend dir>/baked_textures`` -- where a roundtrip's maps land.
+        """``<file project>/sourceimages/baked`` -- where a roundtrip's maps land.
 
         Baked maps are production textures the .blend's materials reference,
-        so they belong beside it rather than in with the transient hand-off
-        artifacts. Returns ``""`` when the .blend is unsaved (no directory to
-        be beside); the engine then falls back to the run's ``output_dir``.
-        Mirror of mayatk's ``MarmosetBridge.baked_texture_dir``.
+        so they belong in its project's texture folder
+        (``DataNodes.scene_source_images_dir``) rather than in with the
+        transient hand-off artifacts. Returns ``""`` without a project (an
+        unsaved file, no workspace set); the engine then falls back to the
+        run's ``output_dir``. Mirror of mayatk's
+        ``MarmosetBridge.baked_texture_dir``.
         """
-        import bpy
+        from blendertk.node_utils.data_nodes import DataNodes
 
-        from blendertk.mat_utils.texture_baker import TextureBaker
-
-        if not bpy.data.filepath:
-            return ""
-        return TextureBaker.default_output_dir(cls.BAKED_TEXTURE_SUBDIR).replace(
+        return DataNodes.scene_source_images_dir(cls.BAKED_TEXTURE_SUBDIR).replace(
             "\\", "/"
         )
+
+    #: The folder, under the file project's export rule (``data/``), where a
+    #: roundtrip with no Output Dir saves its Toolbag scene.
+    TOOLBAG_SCENE_SUBDIR = "marmoset"
+
+    @classmethod
+    def toolbag_scene_dir(cls) -> str:
+        """``<file project>/data/marmoset`` -- where a roundtrip's ``.tbscene``
+        goes when its hand-off is scratch (``ptk.Workspace.export_dir``).
+        ``""`` without a project. Mirror of mayatk's."""
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        ws = DataNodes.scene_workspace()
+        if ws is None:
+            return ""
+        return os.path.join(ws.export_dir(), cls.TOOLBAG_SCENE_SUBDIR).replace(
+            "\\", "/"
+        )
+
+    def _produce_scene_dir(self, request) -> None:
+        """Point a roundtrip whose hand-off is scratch (no Output Dir named) at
+        :meth:`toolbag_scene_dir` for its saved Toolbag scene -- the one
+        artifact of the run a user opens again, which the scratch cleanup
+        would otherwise take. A send_to saves no scene. Mirror of mayatk's."""
+        if (
+            request.mode == ROUND_TRIP
+            and not request.get("output_dir")
+            and not request.get("scene_dir")
+        ):
+            request.extras["scene_dir"] = self.toolbag_scene_dir() or None
 
     # Both carriers: Toolbag imports USD (UsdPreviewSurface) beside FBX. Flat is
     # fine here -- a bake wants every duplicate's own textures anyway, and
@@ -402,6 +430,7 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
         explicit classification, no name suffixes needed. Without the set, the
         single-file suffix-pairing flow applies. Mirror of mayatk's.
         """
+        self._produce_scene_dir(request)
         output_dir = request.get("output_dir") or self._scratch_dir(request, "handoff")
         os.makedirs(output_dir, exist_ok=True)
         base = request.get("output_name") or self._scene_base_name()

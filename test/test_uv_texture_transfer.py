@@ -1195,16 +1195,31 @@ try:
 
     # ---------------------------------------------------- output dir rules
     # The panel's Output Folder field: blank = the default subfolder, a
-    # relative entry lands under the .blend's textures folder (the portable
-    # spelling a browse writes back), "//" and full paths win outright.
+    # relative entry lands under the file project's texture folder (the
+    # portable spelling a browse writes back), "//" and full paths win.
     reset()
+    TT = btk.TextureTransfer
+    _pin = btk.EnvUtils.workspace_root() or None
+    btk.EnvUtils.set_current_workspace(None)
+    try:
+        TT.default_output_dir()
+        raised = False
+    except ValueError:
+        raised = True
+    finally:
+        btk.EnvUtils.set_current_workspace(_pin)
+    check(
+        "an unsaved file with no workspace has no default folder (never temp)",
+        raised,
+    )
     blend = os.path.join(tmp, "outdir_probe.blend")
     bpy.ops.wm.save_as_mainfile(filepath=blend)
-    TT = btk.TextureTransfer
     base = os.path.normpath(TT.output_base_dir())
     check(
-        "output_base_dir is the .blend's textures folder",
-        base == os.path.normpath(os.path.join(os.path.dirname(blend), "textures")),
+        "output_base_dir is the file project's texture folder (mayatk's rule)",
+        base
+        == os.path.normpath(os.path.join(os.path.dirname(blend), "sourceimages"))
+        == os.path.normpath(btk.EnvUtils.scene_source_images_dir()),
         base,
     )
     check(

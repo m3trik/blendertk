@@ -252,11 +252,35 @@ try:
     reset()
     check("empty selection -> {}", baker.bake([]) == {})
 
-    # ---- default_output_dir is generic + parameterized ----------------------
-    d = TextureBaker.default_output_dir()
-    check("default_output_dir defaults to baked_textures", d.endswith("baked_textures"), d)
-    check("default_output_dir takes a subdir",
-          TextureBaker.default_output_dir("baked_lighting").endswith("baked_lighting"))
+    # ---- default_output_dir: the file project's texture folder + a kind -----
+    # One rule in both DCCs (EnvUtils.scene_source_images_dir); never temp: an
+    # unsaved file with no workspace has nowhere permanent and says so.
+    from blendertk.env_utils._env_utils import EnvUtils as _Env
+
+    _pin = _Env.workspace_root() or None
+    _Env.set_current_workspace(None)
+    try:
+        TextureBaker.default_output_dir()
+        check("an unsaved file with no workspace has no default folder", False)
+    except ValueError:
+        check("an unsaved file with no workspace has no default folder", True)
+    _ws = os.path.join(tmp, "ws")
+    os.makedirs(_ws, exist_ok=True)
+    _Env.set_current_workspace(_ws)
+    try:
+        d = TextureBaker.default_output_dir()
+        check(
+            "default_output_dir is <texture folder>/baked",
+            os.path.normcase(d)
+            == os.path.normcase(os.path.join(_ws, "sourceimages", "baked")),
+            d,
+        )
+        check(
+            "default_output_dir takes a subdir",
+            TextureBaker.default_output_dir("lightmaps").endswith("lightmaps"),
+        )
+    finally:
+        _Env.set_current_workspace(_pin)
 
     import shutil
     shutil.rmtree(tmp, ignore_errors=True)

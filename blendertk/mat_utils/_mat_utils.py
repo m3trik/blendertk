@@ -830,7 +830,7 @@ class _MatUtilsInternal:
         import bpy
 
         from blendertk.core_utils._core_utils import CoreUtils
-        from blendertk.env_utils._env_utils import EnvUtils
+        from blendertk.node_utils.data_nodes import DataNodes
 
         base = str(base or "").strip()
         if not base or any(c in base for c in '\\/:*?"<>|'):
@@ -840,7 +840,7 @@ class _MatUtilsInternal:
         )
         if material is not None and mat is None:
             raise ValueError(f"No material {material!r}.")
-        project = EnvUtils.scene_project_root()
+        project = DataNodes.scene_project_root()
         plan = {
             "material": None,
             "companions": [],

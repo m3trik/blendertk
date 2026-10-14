@@ -136,6 +136,12 @@ try:
         "...and nothing for any other file",
         btk.EnvUtils.scene_source(loose) is None,
     )
+    from blendertk.node_utils.data_nodes import DataNodes as _DN
+
+    check(
+        "the mapping lives on DataNodes (the part that owns the scene path)",
+        _nc(_DN.scene_source(stand_in) or "") == _nc(shot),
+    )
     btk.EnvUtils.set_scene_source(stand_in, None)
     check(
         "set_scene_source(None) forgets it", btk.EnvUtils.scene_source(stand_in) is None
@@ -154,10 +160,13 @@ try:
         "source_images_dir follows the sourceImages rule",
         _nc(btk.source_images_dir(shot)) == _nc(os.path.join(proj, "sourceimages")),
     )
-    # ...a plain folder keeps the legacy Blender-alone conventions.
+    # ...a plain folder takes the ONE project tree mayatk names (2026-10-13: the
+    # Blender-alone default was textures/, so the two DCCs disagreed about the
+    # same project's texture folder); an existing textures/ still matches.
     check(
-        "plain folder source_images_dir defaults to textures",
-        _nc(btk.source_images_dir(loose)) == _nc(os.path.join(loose_dir, "textures")),
+        "plain folder source_images_dir defaults to sourceimages (mayatk's)",
+        _nc(btk.source_images_dir(loose))
+        == _nc(os.path.join(loose_dir, "sourceimages")),
     )
     os.makedirs(os.path.join(loose_dir, "textures"))
     check(
@@ -386,15 +395,158 @@ try:
             _nc(btk.EnvUtils.scene_project_root() or "") == _nc(mine),
             str(btk.EnvUtils.scene_project_root()),
         )
+        # ptk.Workspace.for_scene, the one rule both DCCs share (2026-10-13): a
+        # project's own marker names it more exactly than a pin below it.
         btk.set_current_workspace(os.path.join(mine, "scenes"))
         check(
-            "scene_project_root: a pin inside the file's project still names it",
-            _nc(btk.EnvUtils.scene_project_root() or "")
-            == _nc(os.path.join(mine, "scenes")),
+            "scene_project_root: a pin inside the file's project yields to its marker",
+            _nc(btk.EnvUtils.scene_project_root() or "") == _nc(mine),
+            str(btk.EnvUtils.scene_project_root()),
+        )
+        # An unmarked file inside the pin belongs to the pinned project, not to
+        # its own folder (mayatk's rule for the active project).
+        loose_proj = os.path.join(tmp, "loose_proj")
+        os.makedirs(os.path.join(loose_proj, "scenes", "shots"))
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        bpy.ops.wm.save_as_mainfile(
+            filepath=os.path.join(loose_proj, "scenes", "shots", "room.blend")
+        )
+        btk.set_current_workspace(loose_proj)
+        check(
+            "scene_project_root: an unmarked file inside the pin is the pin's",
+            _nc(btk.EnvUtils.scene_project_root() or "") == _nc(loose_proj),
+            str(btk.EnvUtils.scene_project_root()),
+        )
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        check(
+            "scene_project_root: an unsaved file is the pin's",
+            _nc(btk.EnvUtils.scene_project_root() or "") == _nc(loose_proj),
             str(btk.EnvUtils.scene_project_root()),
         )
         btk.set_current_workspace(None)
-        bpy.ops.wm.read_factory_settings(use_empty=True)
+        check(
+            "scene_project_root: unsaved with no pin is None (never temp)",
+            btk.EnvUtils.scene_project_root() is None,
+        )
+
+        # 11. The FIRST save of an opened-as-new scratch twin (temp) lands in its
+        #     source's project scenes folder, named <stem>_<ext>.blend (maintainer
+        #     default, 2026-10-13): Ctrl+S saved real work into the 30-day temp sweep.
+        twin_proj = os.path.join(tmp, "twin_proj")
+        ptk.Workspace.create(twin_proj)
+        twin_src = os.path.join(twin_proj, "scenes", "room.ma")
+        open(twin_src, "w").close()
+        twin_store = ptk.TempArtifacts("btk_twin_save_test", policy="scoped")
+        try:
+            twin = os.path.join(twin_store.dir_path(), "room_ma.blend")
+            bpy.ops.wm.read_factory_settings(use_empty=True)
+            bpy.ops.wm.save_as_mainfile(filepath=twin)
+            btk.EnvUtils.set_scene_source(twin, twin_src)
+            bpy.data.objects.new("work", None)
+            bpy.ops.wm.save_mainfile()
+            target = os.path.join(twin_proj, "scenes", "room_ma.blend")
+            check(
+                "a twin's first save lands in its source's project scenes folder",
+                _nc(bpy.data.filepath) == _nc(target) and os.path.isfile(target),
+                bpy.data.filepath,
+            )
+            check(
+                "...the temp copy is gone, and the saved file is no stand-in",
+                not os.path.exists(twin) and btk.EnvUtils.scene_source(target) is None,
+            )
+            # A second twin of the same source never overwrites the first save.
+            bpy.ops.wm.read_factory_settings(use_empty=True)
+            bpy.ops.wm.save_as_mainfile(filepath=twin)
+            btk.EnvUtils.set_scene_source(twin, twin_src)
+            bpy.ops.wm.save_mainfile()
+            check(
+                "an existing scene of that name is never overwritten",
+                _nc(os.path.dirname(bpy.data.filepath))
+                == _nc(os.path.join(twin_proj, "scenes"))
+                and _nc(bpy.data.filepath) != _nc(target),
+                bpy.data.filepath,
+            )
+            # A Save COPY of a twin (SmartBake's backup) writes elsewhere and
+            # leaves the open file the twin: it is never redirected.
+            bpy.ops.wm.read_factory_settings(use_empty=True)
+            bpy.ops.wm.save_as_mainfile(filepath=twin)
+            btk.EnvUtils.set_scene_source(twin, twin_src)
+            _before = sorted(os.listdir(os.path.join(twin_proj, "scenes")))
+            _copy = os.path.join(twin_store.dir_path(), "room_backup.blend")
+            bpy.ops.wm.save_as_mainfile(filepath=_copy, copy=True)
+            check(
+                "a Save Copy of a twin is not redirected (the twin stays open)",
+                _nc(bpy.data.filepath) == _nc(twin)
+                and os.path.isfile(twin)
+                and btk.EnvUtils.scene_source(twin) is not None
+                and sorted(os.listdir(os.path.join(twin_proj, "scenes"))) == _before,
+                f"open={bpy.data.filepath} scenes={os.listdir(os.path.join(twin_proj, 'scenes'))}",
+            )
+            # A redirect that cannot save keeps the twin a stand-in (the next
+            # save tries again) and leaves ONE hook armed.
+            _stock_target = btk.EnvUtils.twin_save_target
+            btk.EnvUtils.twin_save_target = classmethod(
+                lambda cls, scene=None: (
+                    os.path.join(twin, "not_a_dir", "x.blend")
+                    if _nc(scene or "") == _nc(twin)
+                    else None
+                )
+            )
+            try:
+                bpy.ops.wm.save_mainfile()
+            finally:
+                btk.EnvUtils.twin_save_target = _stock_target
+            check(
+                "a failed redirect keeps the twin a stand-in, hook armed once",
+                _nc(bpy.data.filepath) == _nc(twin)
+                and btk.EnvUtils.scene_source(twin) is not None
+                and [
+                    h.__name__ for h in bpy.app.handlers.save_post
+                ].count("_btk_twin_save_post")
+                == 1,
+                str([h.__name__ for h in bpy.app.handlers.save_post]),
+            )
+            # Linked while the twin sat in temp, a project file on ANOTHER drive
+            # stays absolute (no relative path crosses drives); saved into the
+            # project, it goes relative.
+            _xd_proj = os.path.join(HERE, "temp_tests", "btk_twin_xdrive")
+            shutil.rmtree(_xd_proj, ignore_errors=True)
+            ptk.Workspace.create(_xd_proj)
+            try:
+                _xd_src = os.path.join(_xd_proj, "scenes", "hall.ma")
+                open(_xd_src, "w").close()
+                _xd_lib = os.path.join(_xd_proj, "cache", "bridge", "lib.blend")
+                os.makedirs(os.path.dirname(_xd_lib), exist_ok=True)
+                bpy.ops.wm.read_factory_settings(use_empty=True)
+                _coll = bpy.data.collections.new("LIBC")
+                bpy.data.libraries.write(_xd_lib, {_coll}, fake_user=True)
+                bpy.ops.wm.read_factory_settings(use_empty=True)
+                _xd_twin = os.path.join(twin_store.dir_path(), "hall_ma.blend")
+                bpy.ops.wm.save_as_mainfile(filepath=_xd_twin)
+                btk.EnvUtils.set_scene_source(_xd_twin, _xd_src)
+                btk.link_blend_file(_xd_lib, link=True, relative=True)
+                _cross = (
+                    os.path.splitdrive(_xd_twin)[0].lower()
+                    != os.path.splitdrive(_xd_lib)[0].lower()
+                )
+                bpy.ops.wm.save_mainfile()
+                _paths = [lib.filepath for lib in bpy.data.libraries]
+                check(
+                    "a twin saved into the project links its project files "
+                    "relative (also across drives)"
+                    + ("" if _cross else " [temp and project share a drive here]"),
+                    _paths
+                    and all(p.startswith("//") for p in _paths)
+                    and _nc(os.path.dirname(bpy.data.filepath))
+                    == _nc(os.path.join(_xd_proj, "scenes")),
+                    f"{_paths} open={bpy.data.filepath}",
+                )
+            finally:
+                bpy.ops.wm.read_factory_settings(use_empty=True)
+                shutil.rmtree(_xd_proj, ignore_errors=True)
+        finally:
+            bpy.ops.wm.read_factory_settings(use_empty=True)
+            twin_store.cleanup()
     else:
         print(
             "SKIP bpy integration checks (no bpy — run under the Blender harness for those)"

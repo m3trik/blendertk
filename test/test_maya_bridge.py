@@ -1312,6 +1312,67 @@ try:
         for _o in (_prop, _rig_loc, _rig_grp):
             bpy.data.objects.remove(_o, do_unlink=True)
 
+    # ---- a hand-off ships ONE whole take, never a per-shot split (2026-10-13) -----
+    # Bug: the send armed the scene's declared shots as takes, so the FBX carried a
+    # stack per shot beside the scene stack. Maya's importer plays one take and the
+    # shots cross as manifest data, so the split is nothing the receiver reads.
+    import pythontk as ptk
+    from blendertk.node_utils.data_nodes import DataNodes
+    from blendertk.env_utils.unity_bridge._unity_bridge import UnityBridge
+    from blendertk.env_utils.webxr_preview import WebXrPreview
+
+    reset()
+    _scene = bpy.context.scene
+    _range = (_scene.frame_start, _scene.frame_end)
+    _scene.frame_start, _scene.frame_end = 1, 100
+    bpy.ops.mesh.primitive_cube_add()
+    _whole = bpy.context.active_object
+    _whole.name = "WholeTakeCube"
+    for _frame, _x in ((1, 0.0), (40, 4.0), (100, 10.0)):
+        _whole.location.x = _x
+        _whole.keyframe_insert("location", frame=_frame)
+    ptk.SceneRecords.SHOTS.save(
+        DataNodes,
+        {
+            "shots": [
+                {"clip": "Shot_A", "start": 10, "end": 30, "objects": []},
+                {"clip": "Shot_B", "start": 50, "end": 70, "objects": []},
+            ]
+        },
+    )
+    _tmp = ptk.TempArtifacts("btk_maya_bridge_whole_take", policy="scoped")
+    try:
+        _out = _tmp.path(extension=".fbx")
+        MayaBridge(maya_path="C:/fake/maya.exe")._export_fbx(
+            [_whole], _out, {"INCLUDE_ANIMATION": True}
+        )
+        _fbx = ptk.FbxFile.load(_out, raw_payloads=False, span_arrays=("KeyTime",))
+        _takes = _fbx.take_names()
+        _spans = {
+            name: tuple(round(t * _scene.render.fps, 3) for t in span)
+            for name, span in _fbx.take_spans().items()
+        }
+        check(
+            "hand-off: a scene with shots ships ONE take holding the whole animation",
+            len(_takes) == 1 and list(_spans.values()) == [(1.0, 100.0)],
+            f"takes={_takes} spans={_spans}",
+        )
+        check(
+            "hand-off: no take stays armed after the write",
+            btk.FbxUtils._pending_takes is None,
+        )
+    finally:
+        _tmp.cleanup()
+        for _spec in (ptk.SceneRecords.SHOTS, ptk.SceneRecords.FBX_TAKES):
+            _spec.clear(DataNodes)
+        _scene.frame_start, _scene.frame_end = _range
+    check(
+        "hand-off: only the bridges whose far side plays takes split them",
+        MayaBridge.split_takes is False
+        and UnityBridge.split_takes is True
+        and WebXrPreview.split_takes is True,
+    )
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

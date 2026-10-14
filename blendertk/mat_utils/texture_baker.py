@@ -1117,14 +1117,30 @@ class TextureBaker(ptk.LoggingMixin):
         return out
 
     @staticmethod
-    def default_output_dir(subdir: str = "baked_textures") -> str:
-        """``<subdir>`` next to the saved .blend, else under the OS temp dir."""
-        import bpy
-        import tempfile
+    def default_output_dir(subdir: str = "baked") -> str:
+        """Where a bake writes when no ``output_dir`` is given: *subdir* in the
+        open file's project texture folder (``DataNodes.scene_source_images_dir``:
+        the project the file is saved in, not merely the active one) -- one
+        folder per output kind (``"baked"`` textures, ``"lightmaps"``), the same
+        folder in both DCCs.
 
-        blend = bpy.data.filepath
-        root = os.path.dirname(blend) if blend else tempfile.gettempdir()
-        return os.path.join(root, subdir)
+        Exposed so a caller resolving a user-entered *subdirectory* has the same
+        absolute base to join onto instead of handing on a relative path
+        (``os.makedirs`` would create that against the process CWD). Mirror of mayatk's. Never a temp folder: a saved .blend
+        would reference maps the temp sweep deletes.
+
+        Raises:
+            ValueError: The file has no project (unsaved, no workspace set).
+        """
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        folder = DataNodes.scene_source_images_dir(subdir)
+        if not folder:
+            raise ValueError(
+                "No project to bake into; save the .blend, set a workspace, or "
+                "pass output_dir."
+            )
+        return folder
 
     @staticmethod
     def _unique_path(

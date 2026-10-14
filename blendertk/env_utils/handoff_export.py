@@ -81,6 +81,17 @@ class BlenderExportMixin:
     #: at all unless it bakes). Mirror of mayatk's flag of the same name.
     include_animation: bool = False
 
+    #: Whether an animated write splits the scene's declared shots into one
+    #: FBX take each (:meth:`FbxUtils.apply_takes_from_node`). On where the far
+    #: side plays the FBX's takes: the Unity bridge builds its clips from them,
+    #: and the WebXR preview's GLB carries one clip per take. A DCC hand-off
+    #: turns it OFF (``MayaBridge``): every importer plays ONE take (Maya's the
+    #: last, Blender's the first stack per object), the receiver lands the
+    #: shots from the manifest's ``shots`` section, and the split is nothing it
+    #: reads. Unsplit, the write is the one scene-range take. Mirror of
+    #: mayatk's flag of the same name.
+    split_takes: bool = True
+
     def _export_stagers(self) -> Tuple[str, ...]:
         """:attr:`export_stagers` as a tuple -- the stager names this bridge's
         write runs under (which RECORDS refresh is the context's call, not a
@@ -396,16 +407,26 @@ class BlenderExportMixin:
             # would otherwise leave armed state behind with nothing to clear it.
             wants_animation = self._includes_animation(params)
             if wants_animation:
-                # Realize the shots the scene DECLARES as named AnimStacks, so every
-                # animated hand-off carries per-shot clips rather than one
-                # whole-timeline take a consumer has to slice by hand. Mirror of
+                # Realize the shots the scene DECLARES as named AnimStacks, so an
+                # animated hand-off whose far side plays takes carries per-shot
+                # clips rather than one whole-timeline take a consumer has to
+                # slice by hand. Mirror of
                 # ``mtk.MayaExportMixin._export_fbx``: the take split reached only
                 # the Scene Exporter, which calls it explicitly, so the preview and
                 # the exporter disagreed about whether shots survive.
                 #
                 # Declared, never regenerated -- this arms whatever is already on the
                 # carrier, so a preview push stays free of scene side effects.
-                takes = btk.FbxUtils.apply_takes_from_node()
+                #
+                # Only where the far side plays the takes (:attr:`split_takes`): a
+                # DCC hand-off ships the one scene-range take, and ``apply_takes``
+                # of nothing still clears a split some earlier write left armed
+                # (armed takes are consumed by EVERY write until reset).
+                takes = (
+                    btk.FbxUtils.apply_takes_from_node()
+                    if self.split_takes
+                    else btk.FbxUtils.apply_takes(())
+                )
                 if takes:
                     self.logger.info(f"Animation: realized {takes} declared take(s).")
 

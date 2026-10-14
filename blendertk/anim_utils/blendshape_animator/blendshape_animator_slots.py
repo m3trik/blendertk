@@ -20,6 +20,7 @@ from typing import Dict, List, Optional
 
 from qtpy import QtCore, QtWidgets
 from uitk.managers.field_visibility import FieldVisibility
+from uitk import StyleSheet
 
 from blendertk.anim_utils.blendshape_animator._blendshape_animator import (
     BlendshapeAnimator,
@@ -843,6 +844,7 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
         single = tweens[0]
 
         menu = QtWidgets.QMenu(tree)
+        StyleSheet.cast_shadow(menu)
         act_select = menu.addAction(
             f"Select {len(tweens)} in Blender" if multi else "Select in Blender"
         )

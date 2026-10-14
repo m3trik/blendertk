@@ -54,6 +54,24 @@ try:
         "FbxUtils.export writes the file",
         written == out and os.path.isfile(out) and os.path.getsize(out) > 0,
     )
+    # No path: a fresh ptk.TempArtifacts folder per write, never a fixed
+    # <system temp>/<stem>_bridge.fbx two writes (or two files) share.
+    import pythontk as _ptk
+
+    first = FbxUtils.export(objects=[cube])
+    second = FbxUtils.export(objects=[cube])
+    _root = os.path.normcase(os.path.realpath(_ptk.TempArtifacts.root()))
+    check(
+        "a default FBX export is a fresh temp artifact named for the file",
+        all(
+            os.path.normcase(os.path.realpath(p)).startswith(_root)
+            and os.path.basename(p) == "untitled_bridge.fbx"
+            and os.path.isfile(p)
+            for p in (first, second)
+        )
+        and os.path.dirname(first) != os.path.dirname(second),
+        f"{first} / {second}",
+    )
 
     reset()
     check("scene cleared before import", len(bpy.data.objects) == 0)

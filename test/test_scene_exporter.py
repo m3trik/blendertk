@@ -3976,7 +3976,9 @@ try:
         tb_cache_root = os.path.join(tmp, "cache_tmp")
         os.makedirs(tb_cache_root, exist_ok=True)
         tb_runs = []
-        with _patch.object(tempfile, "tempdir", tb_cache_root):
+        # TempArtifacts reads $PYTHONTK_TEMP_ROOT first (the runner sets it),
+        # so the root is steered there, not through tempfile.tempdir.
+        with _patch.dict(os.environ, {ptk.TempArtifacts.ROOT_ENV_VAR: tb_cache_root}):
             for _ in range(2):
                 with _patch.object(
                     ptk.MapOptimizer,
@@ -3988,6 +3990,11 @@ try:
                 with open(_staged, "rb") as _fh:
                     tb_runs.append((_encode.call_count, _staged, _fh.read()))
                 tb_tm.run_deferred_restores()
+        check(
+            "texture cache: the suite's own temp root holds the encode cache",
+            any(n.startswith("map_optimizer") for n in os.listdir(tb_cache_root)),
+            os.listdir(tb_cache_root),
+        )
         check(
             "texture cache: a second FBX export encodes nothing and stages the "
             "same bytes",

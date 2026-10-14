@@ -172,6 +172,32 @@ try:
         bpy.ops.wm.read_factory_settings(use_empty=True)
         shutil.rmtree(_art_dir, ignore_errors=True)
 
+    # scene_workspace / scene_source_images_dir: the file project's folders
+    # (mayatk's twin) -- sourceimages by default in both DCCs, none (never
+    # temp) for an unsaved file with no workspace. Added: 2026-10-13
+    _prev_pin = btk.EnvUtils.workspace_root() or None
+    btk.EnvUtils.set_current_workspace(None)
+    check(
+        "an unsaved file with no workspace has no project folders",
+        btk.EnvUtils.scene_workspace() is None
+        and btk.EnvUtils.scene_source_images_dir() == "",
+    )
+    _ws_dir = tempfile.mkdtemp(prefix="btk_scene_ws_")
+    try:
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_ws_dir, "shot.blend"))
+        _folder = btk.EnvUtils.scene_source_images_dir("baked", create=True)
+        check(
+            "scene_source_images_dir: <file project>/sourceimages/<kind>, created",
+            os.path.normcase(_folder)
+            == os.path.normcase(os.path.join(_ws_dir, "sourceimages", "baked"))
+            and os.path.isdir(_folder),
+            _folder,
+        )
+    finally:
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        btk.EnvUtils.set_current_workspace(_prev_pin)
+        shutil.rmtree(_ws_dir, ignore_errors=True)
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())
