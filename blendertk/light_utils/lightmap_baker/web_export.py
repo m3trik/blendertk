@@ -128,7 +128,9 @@ class LightmapWebExport(ptk.LoggingMixin):
         Parameters:
             mapping: ``{object_name: exr_path}`` from :meth:`LightmapBaker.bake_separated`
                 (or the atlas paths from :meth:`LightmapBaker.pack_atlas`).
-            output_dir: Destination. Defaults to each EXR's own directory.
+            output_dir: Destination. Defaults to a fresh ``TempArtifacts``
+                folder (``lightmap_web``): the PNGs are export intermediates,
+                never files beside the authored EXRs.
             percentile: Encode divisor percentile. Default :attr:`DEFAULT_PERCENTILE`.
             suffix: Appended to the PNG stem.
 
@@ -140,6 +142,8 @@ class LightmapWebExport(ptk.LoggingMixin):
         import numpy as np
 
         percentile = cls.DEFAULT_PERCENTILE if percentile is None else float(percentile)
+        if not output_dir:
+            output_dir = ptk.TempArtifacts("lightmap_web").dir_path()
         encoded: Dict[str, Tuple[str, float]] = {}
         done: Dict[str, Tuple[str, float]] = {}  # abspath -> result, encode once
 
@@ -179,7 +183,7 @@ class LightmapWebExport(ptk.LoggingMixin):
                     bpy.data.images.remove(image)
 
             stem = os.path.splitext(os.path.basename(src))[0] + suffix
-            directory = output_dir or os.path.dirname(key)
+            directory = output_dir
             os.makedirs(directory, exist_ok=True)
             dst = os.path.join(directory, f"{stem}.png")
 
@@ -821,8 +825,10 @@ class LightmapWebExport(ptk.LoggingMixin):
             yield None
             return
 
-        # The PNGs are throwaway export intermediates -- never litter the maps' home.
-        png_dir = ptk.TempArtifacts("lightmap_web").dir_path()
+        # The PNGs are throwaway export intermediates -- never litter the maps'
+        # home -- read by the export inside this bracket and released with it.
+        png_store = ptk.TempArtifacts.scoped("lightmap_web")
+        png_dir = png_store.dir_path()
         encoded = self.encode_for_web(
             mapping, output_dir=png_dir, percentile=percentile
         )
@@ -845,3 +851,4 @@ class LightmapWebExport(ptk.LoggingMixin):
                     pass
             else:
                 scene[self.EXTRAS_KEY] = prior
+            png_store.cleanup()

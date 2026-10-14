@@ -248,6 +248,14 @@ class SubstanceBridge(SubstanceEngine):
 
         return MatUtils.get_texture_paths(objects=objects, absolute=True)
 
+    def _scene_workspace(self):
+        """The open scene's project (``DataNodes.scene_workspace``): where a
+        send with no Output Dir keeps the mesh Painter re-reads
+        (``cache/substance``) and a render's output. Mirror of mayatk's."""
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        return DataNodes.scene_workspace()
+
     @classmethod
     def _recorded_export_path(cls) -> Optional[str]:
         """Return the FBX path recorded by the last export, or ``None``."""
@@ -374,6 +382,14 @@ class SubstanceBridge(SubstanceEngine):
         if path:
             return os.path.splitext(os.path.basename(path))[0]
         return "untitled"
+
+    @staticmethod
+    def _scene_path() -> str:
+        """The open .blend's file (``DataNodes.scene_path``), ``""`` while
+        unsaved. Mirror of mayatk's."""
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        return DataNodes.scene_path()
 
 
 # -----------------------------------------------------------------------------

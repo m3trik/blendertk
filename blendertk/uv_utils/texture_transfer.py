@@ -517,8 +517,8 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         nothing when *output_name* already names the material; ``""`` forces
         no suffix.
 
-        *output_dir* is absolute (``//`` accepted) or relative to the .blend's
-        ``textures`` folder -- see :meth:`resolve_output_dir`.
+        *output_dir* is absolute (``//`` accepted) or relative to the file
+        project's texture folder -- see :meth:`resolve_output_dir`.
 
         *assign_from* picks what the assigned material is a copy of:
         ``"target"`` (default -- the target's own) or ``"source"``, the source
@@ -693,27 +693,35 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
     # ----------------------------------------------------------- helpers
     @classmethod
     def default_output_dir(cls) -> str:
-        """Where the maps go when the caller names no directory."""
+        """Where the maps go when the caller names no directory: the scene
+        project's texture folder + ``uv_transfer`` (the same folder in both
+        DCCs). Never temp: the maps are wired into the scene's materials, and
+        a saved scene must not reference a file the temp sweep deletes.
+
+        Raises:
+            ValueError: The scene has no project to write into.
+        """
         base = cls.output_base_dir()
-        if base:
-            return os.path.join(base, "uv_transfer").replace("\\", "/")
-        return ptk.TempArtifacts("uv_transfer", policy="detached").dir_path()
+        if not base:
+            raise ValueError(
+                "No project to write the transferred maps into; save the scene, "
+                "set a project, or name an output folder."
+            )
+        return os.path.join(base, "uv_transfer").replace("\\", "/")
 
     @staticmethod
     def output_base_dir() -> Optional[str]:
         """The directory a RELATIVE output entry is resolved against.
 
-        The .blend's ``textures`` folder -- the base that makes a stored
-        setting portable (it survives the file being moved or copied). None
-        for an unsaved file. Twin of mayatk's, which uses ``sourceimages``.
+        The file project's texture folder (``DataNodes.scene_source_images_dir``;
+        mayatk's folder for a scene in that project) -- the base that makes a
+        stored setting portable (it survives the file being moved or copied).
+        None without a project (an unsaved file, no workspace set). Twin of
+        mayatk's.
         """
-        import bpy
+        from blendertk.node_utils.data_nodes import DataNodes
 
-        if not bpy.data.filepath:
-            return None
-        return os.path.join(
-            os.path.dirname(bpy.path.abspath(bpy.data.filepath)), "textures"
-        ).replace("\\", "/")
+        return DataNodes.scene_source_images_dir().replace("\\", "/") or None
 
     @classmethod
     def resolve_output_dir(cls, entry: Optional[str] = None) -> str:
@@ -725,7 +733,8 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         else is a subdirectory of :meth:`output_base_dir` -- the portable
         spelling a UI should store (inverse:
         ``ptk.FileUtils.relativize_output_dir``). Falls back to the default
-        when a relative entry has no saved file to resolve against.
+        (which raises without a project) when a relative entry has no project
+        to resolve against.
         """
         import bpy
 

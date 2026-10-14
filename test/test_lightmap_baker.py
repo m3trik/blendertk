@@ -1414,8 +1414,15 @@ try:
         return s
 
     check(
-        "empty output dir falls back to the texture folder",
-        _slots()._output_dir() == BASE,
+        "empty output dir is the texture folder's lightmaps (mayatk's default)",
+        _slots()._output_dir() == os.path.join(BASE, LightmapBaker.OUTPUT_SUBDIR),
+    )
+    _none = LightmapBakerSlots.__new__(LightmapBakerSlots)
+    _none.ui = _Ui("lightmaps")
+    _none._base_output_dir = lambda: ""
+    check(
+        "no project: the panel names no folder (the engine's default decides)",
+        _none._output_dir() is None,
     )
     check(
         "a relative output dir resolves under the texture folder",
@@ -1429,6 +1436,14 @@ try:
     abs_dir = os.path.normpath("D:/bakes/lm" if os.name == "nt" else "/bakes/lm")
     check(
         "an absolute output dir is used as-is", _slots(abs_dir)._output_dir() == abs_dir
+    )
+    _none_abs = LightmapBakerSlots.__new__(LightmapBakerSlots)
+    _none_abs.ui = _Ui(abs_dir)
+    _none_abs._base_output_dir = lambda: ""
+    check(
+        "no project: a typed full path is still used as-is (nothing to resolve)",
+        _none_abs._output_dir() == abs_dir,
+        str(_none_abs._output_dir()),
     )
     check(
         "a quoted/padded entry is trimmed before joining",
@@ -3151,7 +3166,7 @@ try:
         check(
             "the beside switch says in the empty field where the maps go",
             shown.ui.txt_output_dir.placeholderText()
-            == "beside textures, else sourceimages"
+            == "(blank: beside textures, else sourceimages/lightmaps)"
             and shown.ui.txt_output_dir.option_box.wired.get("on_toggled")
             == shown._show_output_mode,
         )
@@ -3685,14 +3700,25 @@ try:
     )
     # BACKLOG 2026-09-23, decided 2026-09-27: no file can see another's reads
     # (a Save As source, an Explorer copy), so a retired map stays one restore
-    # away -- the Recycle Bin, else a _superseded folder beside it (pinned).
-    _aside = os.path.join(
-        os.path.dirname(old), ptk.FileDependencies.SUPERSEDED_DIR, os.path.basename(old)
+    # away -- the Recycle Bin, else the "superseded" temp store, kept a month
+    # (pinned) -- never a _superseded folder left in the project (2026-10-13).
+    import glob as _glob
+
+    _found = _glob.glob(
+        os.path.join(
+            ptk.TempArtifacts.root(),
+            ptk.FileDependencies.SUPERSEDED_STORE,
+            "*",
+            os.path.basename(old),
+        )
     )
     check(
-        "...set aside beside it, never deleted",
-        os.path.isfile(_aside),
-        _aside,
+        "...set aside into the temp store, never deleted, nothing left beside it",
+        bool(_found)
+        and not os.path.exists(
+            os.path.join(os.path.dirname(old), ptk.FileDependencies.SUPERSEDED_DIR)
+        ),
+        _found,
     )
     check(
         "...where no walk finds it again",

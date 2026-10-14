@@ -39,17 +39,14 @@ class MarmosetBridgeSlots(BlenderBridgeSlotsBase):
     UI_NAME = "marmoset_bridge"
     PRESETS_ROOT = _PRESETS_ROOT
     LOG_TAG = "marmoset_bridge"
-    # Fall back to a self-cleaning temp folder when no .blend/workspace dir resolves
-    # (unsaved file) — the FBX + baked maps are transient hand-off artifacts Toolbag
-    # reads once, so the user shouldn't be forced to pick a path.
-    TEMP_OUTPUT_FALLBACK = True
-    # A roundtrip runs Toolbag blocking and puts its only durable output (the
-    # maps) beside the .blend, so its hand-off artifacts are intermediates of
-    # the run itself. Left to the .blend-dir default they silted up the
-    # project beside the scene file; with the field blank the bridge stages
-    # them in a temp dir and removes it when the run succeeds. A folder named
-    # here still wins -- and is still kept. Mirror of mayatk's slots.
-    TRANSIENT_OUTPUT_MODES = (ROUND_TRIP,)
+    # A blank field is never filled in by the panel: every mode's hand-off
+    # artifacts (FBX, manifests, rendered script) are intermediates, so the
+    # bridge stages them in a fresh temp folder per send -- removed when a
+    # roundtrip succeeds, aged out after a send_to's detached Toolbag has read
+    # them -- and puts what is kept in the file's project (the maps in
+    # sourceimages/baked, a roundtrip's .tbscene in data/marmoset). A folder
+    # named here still wins -- and is still kept. Mirror of mayatk's slots.
+    TRANSIENT_OUTPUT_MODES = (SEND_TO, ROUND_TRIP)
 
     HELP_SPEC = {
         "title": "Marmoset Bridge",
@@ -57,8 +54,8 @@ class MarmosetBridgeSlots(BlenderBridgeSlotsBase):
         "selection as FBX with a <i>MatManifest</i> JSON sidecar; Toolbag runs "
         "the rendered template with your parameter values substituted in.",
         "steps": [
-            "Set the <b>Output Dir</b> (or leave blank to use the .blend "
-            "file's directory; an unsaved file falls back to a temp folder).",
+            "Set the <b>Output Dir</b> (or leave it blank: the hand-off "
+            "goes to a temp folder per send).",
             "Select one or more mesh objects.",
             "Pick a <b>Template + Mode</b> from the dropdown.",
             "Tweak the template's exposed parameters.",

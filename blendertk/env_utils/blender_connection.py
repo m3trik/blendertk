@@ -93,20 +93,28 @@ class BlenderConnection:
         """
         args: List[str] = []
         if blend_file:
-            args.append(blend_file)  # positional: the .blend to open, before the flags
+            args.append(
+                os.path.abspath(blend_file)
+            )  # positional: the .blend to open, before the flags
         args += self._base_args()
         if extra_args:
             args += list(extra_args)
-        args += ["--python", script_path]
+        # Absolute: the child runs in a scratch working directory (below).
+        args += ["--python", os.path.abspath(script_path)]
         if script_args:
             args += ["--"] + [str(a) for a in script_args]
-        return ptk.AppLauncher.run(
-            self.blender_exe,
-            args=args,
-            timeout=timeout,
-            output_file=output_file,
-            env=env,
-        )
+        # A scratch working directory for the child, never the caller's: a
+        # DCC child drops cache folders in its CWD, and run from a repo or
+        # workspace root they landed there (mirror of mayatk's launcher).
+        with ptk.TempArtifacts.scoped("blender_cwd") as scratch:
+            return ptk.AppLauncher.run(
+                self.blender_exe,
+                args=args,
+                cwd=scratch.dir_path(),
+                timeout=timeout,
+                output_file=output_file,
+                env=env,
+            )
 
     def run_code(self, code: str, **kwargs):
         """Run a Python *code* string in a fresh headless Blender (via a temp script).

@@ -5,6 +5,7 @@ Blender; panel structure/wiring is covered by ``test_blender_ui_handler.py`` und
 Run: blender --background --factory-startup --python blendertk/test/test_reference_manager.py
 """
 
+import json
 import sys
 import os
 import tempfile
@@ -878,7 +879,6 @@ try:
         return target
 
     s, sb = make_slots("Yes")
-    s._notes = {}  # no notes to carry
     s._context_paths = lambda: [_victim]
     with (
         _rm_mock.patch.object(ptk.FileUtils, "can_trash", return_value=True),
@@ -894,7 +894,6 @@ try:
     )
     open(_victim, "w").close()
     s, sb = make_slots("Yes")
-    s._notes = {}  # no notes to carry
     s._context_paths = lambda: [_victim]
     with (
         _rm_mock.patch.object(ptk.FileUtils, "can_trash", return_value=False),
@@ -910,7 +909,6 @@ try:
     )
     open(_victim, "w").close()
     s, sb = make_slots("Yes")
-    s._notes = {}  # no notes to carry
     _answers = iter(["Yes", "No"])
     sb.message_box = lambda msg, *b: (sb.messages.append(msg), next(_answers, None))[1]
     s._context_paths = lambda: [_victim]
@@ -1087,12 +1085,14 @@ try:
         str(usd_scan),
     )
 
-    # Bake-source sidecar round trip (maps a linked bake back to the row the user sees).
+    # A bake made before 2026-10-13 maps back through its .source.json sidecar
+    # (read for one release; new bakes record the source on their own scene).
     fake_bake = os.path.join(tmp, "fake_bake.blend")
     open(fake_bake, "w").close()
-    MayaSceneImport()._write_bake_source(fake_bake, os.path.join(scan_ws, "a.ma"))
+    with open(fake_bake + BAKE_SOURCE_SUFFIX, "w") as _fh:
+        json.dump({"source": os.path.join(scan_ws, "a.ma")}, _fh)
     check(
-        "bake_source reads back the sidecar",
+        "bake_source reads back a legacy sidecar",
         os.path.normcase(MayaSceneImport.bake_source(fake_bake) or "")
         == os.path.normcase(os.path.join(scan_ws, "a.ma")),
     )
@@ -1108,6 +1108,12 @@ try:
     fbx_src = os.path.join(tmp, "kit_export.fbx")
     bpy.ops.export_scene.fbx(filepath=fbx_src, use_selection=False)
     bpy.ops.wm.read_factory_settings(use_empty=True)
+    # The bake is a project file of the HOST's project (2026-10-13): saved into
+    # this test's project, so the bake lands in its cache/bridge.
+    bake_proj = os.path.join(tmp, "bake_proj")
+    ptk.Workspace.create(bake_proj)
+    host = os.path.join(bake_proj, "scenes", "host.blend")
+    bpy.ops.wm.save_as_mainfile(filepath=host)
     baked = MayaSceneImport().bake_scene(fbx_src, use_cache=False)
     try:
         check(
@@ -1116,14 +1122,73 @@ try:
             baked,
         )
         check(
-            "bake sidecar points back at the .fbx source",
-            os.path.normcase(MayaSceneImport.bake_source(baked) or "")
-            == os.path.normcase(fbx_src),
+            "the bake lands in the host's <project>/cache/bridge, never temp",
+            ptk.FileUtils.is_under(baked, os.path.join(bake_proj, "cache", "bridge"))
+            and not ptk.FileUtils.is_under(
+                baked, os.path.join(ptk.TempArtifacts.root(), "maya_bake_btk_cache")
+            )
+            and os.path.basename(baked).startswith("btk_bake_cache_kit_export_"),
+            baked,
         )
-        n_baked = btk.link_blend_file(baked, link=True)
+        check(
+            "the bake's own scene points back at the .fbx source (no sidecar)",
+            os.path.normcase(MayaSceneImport.bake_source(baked) or "")
+            == os.path.normcase(fbx_src)
+            and not os.path.exists(baked + BAKE_SOURCE_SUFFIX),
+            str(MayaSceneImport.bake_info(baked)),
+        )
+        _stamp = os.stat(baked).st_mtime_ns
+        check(
+            "an unchanged source reuses its project bake with no child",
+            MayaSceneImport().bake_scene(fbx_src) == baked
+            and os.stat(baked).st_mtime_ns == _stamp,
+        )
+        n_baked = btk.link_blend_file(baked, link=True, relative=True)
         check(
             "baked .blend links like a native library", n_baked >= 1, f"count={n_baked}"
         )
+        _blib = next(
+            (
+                lib
+                for lib in bpy.data.libraries
+                if os.path.normcase(os.path.normpath(bpy.path.abspath(lib.filepath)))
+                == os.path.normcase(baked)
+            ),
+            None,
+        )
+        check(
+            "the bake is linked //-relative (the scene keeps it when the project moves)",
+            _blib is not None and _blib.filepath.startswith("//"),
+            getattr(_blib, "filepath", None),
+        )
+        bpy.ops.wm.save_mainfile()
+        check(
+            "purge keeps a bake a project .blend links",
+            MayaSceneImport().purge_unused_bakes(bake_proj) == []
+            and os.path.isfile(baked),
+        )
+        # A file saved before 2026-10-13 links a bake in TEMP: the panel's refresh
+        # relinks it onto the project's bake of its source.
+        _old_store = ptk.TempArtifacts("btk_rm_rehome_test", policy="scoped")
+        _old = _old_store.path(extension=".blend")
+        shutil.copyfile(baked, _old)
+        with open(_old + BAKE_SOURCE_SUFFIX, "w") as _fh:
+            json.dump({"source": fbx_src}, _fh)
+        btk.remove_library(_blib)
+        btk.link_blend_file(_old, link=True)
+        s, _ = make_slots()
+        _moved = s._rehome_temp_bakes()
+        _rlib = next(iter(bpy.data.libraries), None)
+        check(
+            "a library reading a temp bake is relinked onto the project's bake",
+            len(_moved) == 1
+            and _rlib is not None
+            and os.path.normcase(os.path.normpath(bpy.path.abspath(_rlib.filepath)))
+            == os.path.normcase(baked)
+            and _rlib.filepath.startswith("//"),
+            getattr(_rlib, "filepath", None),
+        )
+        _old_store.cleanup()
         s, _ = make_slots()
         lib = s._library_for_path(fbx_src)  # resolve the SOURCE row through the sidecar
         check(
@@ -1137,16 +1202,19 @@ try:
                 "foreign row un-references through the same path",
                 s._library_for_path(fbx_src) is None,
             )
+        bpy.ops.wm.save_mainfile()
+        _purged = MayaSceneImport().purge_unused_bakes(bake_proj)
+        check(
+            "purge removes the bake once no project file links it",
+            [os.path.normcase(p) for p in _purged] == [os.path.normcase(baked)]
+            and not os.path.exists(baked),
+            str(_purged),
+        )
     finally:
-        # The bake lands in the user-level cache store, not tmp — don't leave test artifacts there.
         bpy.ops.wm.read_factory_settings(
             use_empty=True
         )  # release the link before deleting
-        for _p in (baked, baked + BAKE_SOURCE_SUFFIX):
-            try:
-                os.remove(_p)
-            except OSError:
-                pass
+        shutil.rmtree(bake_proj, ignore_errors=True)
 
     # --- End-to-end: USD source -> cached .blend bake -> link -> row resolution -------------
     # A USD layer is the bake's own input exactly like an .fbx: the bake stage (a fresh
@@ -1157,7 +1225,11 @@ try:
     usd_src = os.path.join(tmp, "kit_export.usda")
     bpy.ops.wm.usd_export(filepath=usd_src)
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    usd_baked = MayaSceneImport().bake_scene(usd_src, use_cache=False)
+    usd_proj = os.path.join(tmp, "usd_bake_proj")
+    os.makedirs(usd_proj, exist_ok=True)
+    usd_baked = MayaSceneImport().bake_scene(
+        usd_src, use_cache=False, project=usd_proj
+    )
     try:
         check(
             "bake_scene(.usda) produces a .blend with no Maya involved",
@@ -1165,7 +1237,7 @@ try:
             usd_baked,
         )
         check(
-            "bake sidecar points back at the USD source",
+            "the bake's own scene points back at the USD source",
             os.path.normcase(MayaSceneImport.bake_source(usd_baked) or "")
             == os.path.normcase(usd_src),
         )
@@ -1182,11 +1254,103 @@ try:
             )
     finally:
         bpy.ops.wm.read_factory_settings(use_empty=True)
-        for _p in (usd_baked, usd_baked + BAKE_SOURCE_SUFFIX):
-            try:
-                os.remove(_p)
-            except OSError:
-                pass
+        shutil.rmtree(usd_proj, ignore_errors=True)
+
+    # --- Notes: ONE project-level store both DCCs' panels share (2026-10-13) -------
+    # This panel kept notes in its own settings (keyed by path) and mayatk's in a
+    # sidecar beside every scene: neither DCC saw the other's.
+    SceneNotes = ptk.SceneNotes  # hoisted from the two DCC twins
+
+    notes_proj = os.path.join(tmp, "notes_proj")
+    ptk.Workspace.create(notes_proj)
+    noted = os.path.join(notes_proj, "scenes", "hero.blend")
+    open(noted, "w").close()
+    s, _ = make_slots()
+    s.scene_notes.set(noted, "lighting pass")
+    check(
+        "a note lands in <project>/data/scene_notes.json keyed project-relative",
+        ptk.FileUtils.read_json(os.path.join(notes_proj, "data", "scene_notes.json"))
+        == {"version": 1, "notes": {"scenes/hero.blend": "lighting pass"}},
+    )
+    check(
+        "the store reads the same note back in a fresh store (mayatk's reads it too)",
+        SceneNotes().get(noted) == "lighting pass",
+    )
+    renamed = os.path.join(notes_proj, "scenes", "hero_v2.blend")
+    os.replace(noted, renamed)
+    s._carry_note(noted, renamed)
+    check(
+        "a rename carries the note; a delete drops it",
+        SceneNotes().get(renamed) == "lighting pass" and SceneNotes().get(noted) == "",
+    )
+    s._carry_note(renamed)
+    check("a delete drops the note", SceneNotes().get(renamed) == "")
+    # The settings notes migrate into the project store.
+    legacy_scene = os.path.join(notes_proj, "scenes", "old.blend")
+    open(legacy_scene, "w").close()
+
+    class _Settings(dict):
+        def value(self, key):
+            return self.get(key)
+
+        def setValue(self, key, value):
+            self[key] = value
+
+    s.ui.settings = _Settings(
+        reference_notes={os.path.normpath(legacy_scene).lower(): "from settings"}
+    )
+    s._migrate_settings_notes()
+    check(
+        "a note kept in the panel settings moves into the project store",
+        SceneNotes().get(legacy_scene) == "from settings"
+        and s.ui.settings["reference_notes"] == {},
+        str(s.ui.settings),
+    )
+    # An UNMARKED project's note lands in the store the listing reads: the
+    # migration runs on the first listing (the workspace combo populated),
+    # never in __init__, where the session root was the bare root folder.
+    import inspect as _inspect_rm
+
+    check(
+        "the settings notes migrate on the first listing, not in __init__",
+        "_migrate_settings_notes" not in _inspect_rm.getsource(
+            ReferenceManagerSlots.__init__
+        )
+        and "self._migrate_settings_notes()"
+        in _inspect_rm.getsource(ReferenceManagerSlots._refresh_table_content),
+    )
+    loose_root = os.path.join(tmp, "notes_root")
+    loose_ws = os.path.join(loose_root, "loose")
+    os.makedirs(loose_ws, exist_ok=True)
+    loose_scene = os.path.join(loose_ws, "shot.blend")
+    open(loose_scene, "w").close()
+
+    class _Combo:
+        def count(self):
+            return 1
+
+        def currentData(self):
+            return loose_ws
+
+    class _Root:
+        def text(self):
+            return loose_root
+
+    s, _ = make_slots()
+    s.ui.cmb000, s.ui.txt000 = _Combo(), _Root()
+    s.ui.settings = _Settings(
+        reference_notes={os.path.normpath(loose_scene).lower(): "loose note"}
+    )
+    s._migrate_settings_notes()
+    s._migrate_settings_notes()  # once: the second call finds nothing pending
+    _listing_store = SceneNotes()
+    _listing_store.session_root = loose_ws
+    check(
+        "an unmarked project's migrated note is in the store the listing reads",
+        _listing_store.get(loose_scene) == "loose note"
+        and s._note(loose_scene) == "loose note",
+        str(s.ui.settings),
+    )
 
     complex_ma = os.path.join(tmp, "anim.ma")
     with open(complex_ma, "w") as f:
@@ -1431,10 +1595,9 @@ try:
     )
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
-    # --- foreign scratch: <temp>/btk_opened_<hash>/<stem>_<ext>.blend, per source ------------
+    # --- foreign scratch: <temp root>/btk_opened/btk_opened_<hash>/<stem>_<ext>.blend -------
     # A .ma opens as `<stem>_ma.blend` (provenance in the name, never shadowing a sibling
     # `<stem>.blend`); same-named scenes in different projects must not share a scratch.
-    import tempfile as _tempfile
 
     _scr_a = ReferenceManagerSlots._foreign_scratch_path(
         os.path.join(tmp, "projA", "shot.ma")
@@ -1451,11 +1614,14 @@ try:
         and os.path.basename(_scr_fbx) == "shot_fbx.blend",
         f"{_scr_a} / {_scr_fbx}",
     )
+    import pythontk as _ptk
+
     check(
-        "scratch dir is a TempArtifacts-swept `btk_opened_*` dir under the temp dir",
+        "scratch dir is a TempArtifacts-swept `btk_opened_*` dir in its store's "
+        "folder under the temp root",
         os.path.basename(os.path.dirname(_scr_a)).startswith("btk_opened_")
         and os.path.normcase(os.path.dirname(os.path.dirname(_scr_a)))
-        == os.path.normcase(_tempfile.gettempdir()),
+        == os.path.normcase(os.path.join(_ptk.TempArtifacts.root(), "btk_opened")),
         _scr_a,
     )
     check(
@@ -1541,6 +1707,7 @@ try:
         f.write("//Maya ASCII 2025 scene\n")
     _opened_bake = os.path.join(tmp, "opened_bake.blend")
     bpy.ops.wm.read_factory_settings(use_empty=True)
+    _si_mod.MayaSceneImport._write_bake_record({_si_mod.BAKE_INFO_SOURCE: _src})
     bpy.ops.wm.save_as_mainfile(filepath=_opened_bake)
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
@@ -1574,6 +1741,11 @@ try:
         f"{bpy.data.filepath} messages={sb.messages}",
     )
     check(
+        "open as new: the twin carries no bake record (it is not a bake)",
+        _si_mod.BAKE_INFO_TEXT not in bpy.data.texts,
+        str(list(bpy.data.texts.keys())),
+    )
+    check(
         "open as new: the bake's project is the pinned source project, not the scratch's folder",
         os.path.normcase(btk.EnvUtils.scene_project_root() or "")
         == os.path.normcase(_src_proj),
@@ -1591,6 +1763,84 @@ try:
     btk.set_current_workspace(_prev_pin.root if _prev_pin else None)
     bpy.ops.wm.read_factory_settings(use_empty=True)
     _twins.discard_except("")
+    # No twin can be written: refuse, never open the project's bake itself
+    # (a save would then write into the bake cache).
+    from blendertk.env_utils import reference_manager as _rm_mod
+
+    class _NoTwins:
+        def create(self, *_a):
+            raise OSError("disk full")
+
+        def discard_except(self, *_a):
+            pass
+
+    _stock_twins = _rm_mod._scratch_twins
+    _rm_mod._scratch_twins = lambda: _NoTwins()
+    _si_mod.MayaSceneImport.bake_scene = _bake_to_opened
+    try:
+        s, sb = make_progress_slots()
+        s._open_foreign_as_new(_src)
+    finally:
+        _si_mod.MayaSceneImport.bake_scene = _stock_bake
+        _rm_mod._scratch_twins = _stock_twins
+    check(
+        "open as new: no twin -> refused with a message, the bake never opened",
+        os.path.normcase(bpy.data.filepath) != os.path.normcase(_opened_bake)
+        and any("disk full" in str(m) for m in sb.messages),
+        f"{bpy.data.filepath} messages={sb.messages}",
+    )
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    # A library path re-spelled for the open file never raises across drives.
+    _xd_open = os.path.join(tmp, "xdrive_host.blend")
+    bpy.ops.wm.save_as_mainfile(filepath=_xd_open)
+    _xd_other = ("Q:" if os.path.splitdrive(_xd_open)[0].upper() != "Q:" else "R:") + (
+        "\\proj\\cache\\bake.blend"
+    )
+    check(
+        "EnvUtils._blend_relpath: another drive keeps the path absolute (no raise)",
+        os.name != "nt" or btk.EnvUtils._blend_relpath(_xd_other) == _xd_other,
+    )
+    # The re-home relinks across drives (the open file in temp, the project's
+    # bake on another drive) without raising: the path stays absolute.
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _xr_dir = os.path.join(HERE, "temp_tests", "btk_rm_xdrive")
+    shutil.rmtree(_xr_dir, ignore_errors=True)
+    os.makedirs(_xr_dir, exist_ok=True)
+    _xr_store = ptk.TempArtifacts("btk_rm_xdrive_test", policy="scoped")
+    _xr_stock = (
+        _si_mod.MayaSceneImport.__dict__["bake_source"],
+        _si_mod.MayaSceneImport.__dict__["rehome_bake"],
+    )
+    try:
+        _xr_target = os.path.join(_xr_dir, "btk_bake_cache_xr_0123abcd.blend")
+        _xr_coll = bpy.data.collections.new("XR")
+        bpy.data.libraries.write(_xr_target, {_xr_coll}, fake_user=True)
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        _xr_old = _xr_store.path(extension=".blend")
+        shutil.copyfile(_xr_target, _xr_old)
+        bpy.ops.wm.save_as_mainfile(filepath=_xr_store.path(extension=".blend"))
+        btk.link_blend_file(_xr_old, link=True)
+        _si_mod.MayaSceneImport.bake_source = classmethod(lambda cls, p: _src)
+        _si_mod.MayaSceneImport.rehome_bake = lambda self, p, project=None: _xr_target
+        s, _ = make_slots()
+        _xr_moved = s._rehome_temp_bakes()
+        _xr_lib = next(iter(bpy.data.libraries), None)
+        check(
+            "re-home: a bake on another drive than the open file relinks (absolute)",
+            len(_xr_moved) == 1
+            and _xr_lib is not None
+            and os.path.normcase(bpy.path.abspath(_xr_lib.filepath))
+            == os.path.normcase(_xr_target),
+            getattr(_xr_lib, "filepath", None),
+        )
+    finally:
+        (
+            _si_mod.MayaSceneImport.bake_source,
+            _si_mod.MayaSceneImport.rehome_bake,
+        ) = _xr_stock
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        _xr_store.cleanup()
+        shutil.rmtree(_xr_dir, ignore_errors=True)
 
     # Save To Workspace: the footer tooltip previews the very path the save writes. Two
     # ways they parted: the save kept a "{scene}" typo literally (a "{scene}" folder)

@@ -96,7 +96,10 @@ class BlenderTestRunner:
     #: stdlib, since it runs before a suite puts pythontk on the path.
     _PIN_TEMP = (
         "import os, tempfile; os.makedirs({0!r}, exist_ok=True); "
-        "tempfile.tempdir = {0!r}"
+        "tempfile.tempdir = {0!r}; "
+        # TempArtifacts.root() reads PYTHONTK_TEMP_ROOT before tempfile: an
+        # inherited one names the OUTER run's root, not this pin.
+        "os.environ['PYTHONTK_TEMP_ROOT'] = {0!r}"
     )
     #: Then uitk's settings sandbox (:attr:`sandbox_settings`): the presets root
     #: and every ``QSettings(org, app)`` store redirected into the temp root, so

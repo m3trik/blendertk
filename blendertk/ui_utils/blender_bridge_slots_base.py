@@ -4,15 +4,19 @@
 
 The DCC-agnostic base lives upstream in :mod:`uitk.bridge.slots`
 (re-exported through :mod:`uitk.bridge`). This thin subclass injects
-the one piece every Blender bridge needs: a sensible Output Dir fallback
-sourced from the saved ``.blend`` file's directory (Blender's analogue of
-a Maya scene/workspace dir) when the user leaves the field blank.
+what every Blender bridge shares: the meaning of a blank Output Dir and the
+Scope resolution.
+
+A blank Output Dir means "the bridge's own rule" (uitk's ``default_output_dir``,
+``""``, is kept): hand-off intermediates go to a ``TempArtifacts`` scratch per
+send, and what is kept goes to a folder of the file's project (a bake's maps to
+``sourceimages/baked``, a mesh Painter re-reads to ``cache/substance``, a saved
+Toolbag scene to ``data/marmoset``). mayatk's base means the same.
 
 Mirror of mayatk's :class:`mayatk.ui_utils.maya_bridge_slots_base.MayaBridgeSlotsBase` --
 the Marmoset, Substance, and Unity bridge slots subclass this instead of
-inheriting from ``BridgeSlotsBase`` directly, so the fallback lives in one
-place (Unity opts back out by overriding ``default_output_dir`` to return
-``""`` -- mirroring mayatk, a ``.blend`` dir isn't a Unity project).
+inheriting from ``BridgeSlotsBase`` directly, so the rule lives in one
+place.
 """
 
 from __future__ import annotations
@@ -24,12 +28,7 @@ from blendertk.core_utils._core_utils import CoreUtils
 
 
 class BlenderBridgeSlotsBase(BridgeSlotsBase):
-    """Adds a Blender-flavored ``default_output_dir`` + Scope resolution to
-    :class:`BridgeSlotsBase`."""
-
-    def default_output_dir(self) -> str:
-        """The saved ``.blend`` file's directory, or ``""`` if unsaved."""
-        return CoreUtils.get_env_info("workspace") or ""
+    """Adds the Blender Scope resolution to :class:`BridgeSlotsBase`."""
 
     # ------------------------------------------------------------------ scope
     def resolve_scope_objects(self, scope: str):

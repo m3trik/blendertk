@@ -82,6 +82,25 @@ try:
     finally:
         os.remove(spath)
 
+    # ---- the child runs in a scratch working directory (1 child run) --------
+    # Never the caller's: a DCC child drops cache folders in its CWD, and run
+    # from a repo or workspace root they landed there (mayatk's mayaDiskCache).
+    import pythontk as _ptk
+
+    cp3 = conn.run_code("import os; print('CWD', os.getcwd())", timeout=180)
+    _cwd_line = next(
+        (ln for ln in (cp3.stdout or "").splitlines() if ln.startswith("CWD ")), ""
+    )
+    _child_cwd = os.path.normcase(os.path.realpath(_cwd_line[4:].strip() or "."))
+    check(
+        "the child's working directory is scratch under the temp root",
+        _child_cwd.startswith(
+            os.path.normcase(os.path.realpath(_ptk.TempArtifacts.root()))
+        )
+        and _child_cwd != os.path.normcase(os.path.realpath(os.getcwd())),
+        _cwd_line,
+    )
+
     # ---- run_result rejects ambiguous / empty target -----------------------
     try:
         conn.run_result()

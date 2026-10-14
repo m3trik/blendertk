@@ -1328,7 +1328,15 @@ def _run_backup_mode_checks():
     here = os.path.dirname(os.path.abspath(__file__))
     temp_dir = os.path.join(here, "temp_tests")
     scene_path = os.path.join(temp_dir, "smart_bake_backup_probe.blend")
+    # The scene's incremental-save folder (``ptk.Workspace.backup_dir``), where
+    # mayatk's backups of a scene go too -- never beside the scene.
+    backup_dir = os.path.join(
+        temp_dir, "incrementalSave", "smart_bake_backup_probe.blend"
+    )
     expected_backup_path = os.path.join(
+        backup_dir, "smart_bake_backup_probe_prebake.blend"
+    )
+    beside_scene_path = os.path.join(
         temp_dir, "smart_bake_backup_probe_prebake.blend"
     )
 
@@ -1426,6 +1434,13 @@ def _run_backup_mode_checks():
             bool(result_always.backup_path) and os.path.exists(expected_backup_path),
             f"{result_always.backup_path}",
         )
+        check(
+            "the backup lands in the scene's incremental-save folder, not beside it",
+            os.path.normcase(result_always.backup_path or "")
+            == os.path.normcase(expected_backup_path)
+            and not os.path.exists(beside_scene_path),
+            f"{result_always.backup_path}",
+        )
         if result_always.session_id:
             SmartBake.restore(result_always.session_id)
 
@@ -1461,6 +1476,15 @@ def _run_backup_mode_checks():
                 os.remove(scene_path)
         except OSError:
             pass
+        import shutil
+
+        shutil.rmtree(backup_dir, ignore_errors=True)
+        try:
+            os.rmdir(os.path.dirname(backup_dir))  # only when now empty
+        except OSError:
+            pass
+        if os.path.exists(beside_scene_path):
+            os.remove(beside_scene_path)
 
     return lines
 

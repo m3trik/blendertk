@@ -32,6 +32,7 @@ install (the conversion checks out a Maya license for the duration of the run).
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from pathlib import Path
@@ -51,10 +52,30 @@ from blendertk.node_utils._node_utils import NodeUtils
 _IMPORT_TEMPLATE = _TEMPLATE_DIR / "_import_scene.py"
 _IMPORT_TEMPLATE_USD = _TEMPLATE_DIR / "_import_scene_usd.py"
 _BAKE_TEMPLATE = _TEMPLATE_DIR / "_bake_scene.py"
-# The bake template imports THIS module in the child Blender for its tagging and
-# manifest replays, so a baked .blend's content depends on it too -- part of the
-# bake cache key beside the template (see bake_scene).
-_BAKE_ENGINE = Path(__file__).resolve()
+#: What a bake makes of one source: BUMP it whenever the bake changes for the same
+#: input -- this engine's import_payload (the bake template calls back into it), the
+#: bake template, the key reduction (``AnimUtils``) or the conversion templates. A
+#: bake's key is otherwise its SOURCE's identity, so a package upgrade that changes
+#: nothing about bakes keeps every file's bake (the engine files' own mtimes, the key
+#: before, re-baked every linked library on upgrade). Mirror of mayatk's.
+_BAKE_FORMAT = 1
+#: The project bake store's name: its slots are ``<project>/cache/bridge/
+#: btk_bake_cache_<source stem>_<hash8>.blend`` (``CachedArtifact`` prefixes
+#: ``<name>_cache_``), scratch under the temp root. mayatk's is ``mtk_bake``.
+_BAKE_STORE = "btk_bake"
+#: The project cache kind bakes live in (``Workspace.cache_dir``: a
+#: ``bridgeCache`` rule, else ``cache/bridge``), shared with mayatk.
+BAKE_CACHE_KIND = "bridge"
+#: The bake record's fields (:meth:`MayaSceneImport.bake_info`): the source it
+#: was baked from (relative to the bake's folder when inside the project) and the
+#: content key of the source version it holds.
+BAKE_INFO_SOURCE = "btk_bake_source"
+BAKE_INFO_KEY = "btk_bake_key"
+#: The Text datablock every bake carries its record in (JSON of the fields above):
+#: the one small ID a reader links -- a whole Scene was linked before -- and data
+#: no exporter writes (glTF ``extras`` carry custom properties, never a Text). The
+#: leading dot keeps it out of Blender's ID lists.
+BAKE_INFO_TEXT = ".btk_bake_info"
 
 # Conversion intermediates by route: "fbx" = classic material model + texture-
 # manifest sidecar rebuilt via create_pbr_material; "usd" = native materials /
@@ -92,10 +113,9 @@ _DIRECT_BAKE_EXTENSIONS = (".fbx", *USD_EXTENSIONS)
 # conversion first; the rest are baked as they are (_DIRECT_BAKE_EXTENSIONS).
 BAKE_SOURCE_EXTENSIONS = SUPPORTED_EXTENSIONS + _DIRECT_BAKE_EXTENSIONS
 
-# Sidecar written beside every bake naming the scene it came from. The Reference Manager
-# lists SOURCE rows but links the BAKED file, so "is this row referenced?" can only be
-# answered by walking back from a linked library to its origin. On disk rather than in
-# panel settings so the mapping survives a session change and is shared by every panel.
+# The sidecar a bake made before 2026-10-13 carried beside it, naming the scene it came
+# from (its own record does now: BAKE_INFO_TEXT). Read for one release, so a file that
+# links an old temp bake still maps it back to its row (and re-homes it).
 BAKE_SOURCE_SUFFIX = ".source.json"
 
 # Child-process argv for the bake Blender: headless, factory settings (deterministic,
@@ -648,6 +668,20 @@ class MayaSceneImport(ptk.LoggingMixin):
                 "imported (a flat import could silently lose instancing); clear "
                 "the conversion cache or re-pull via FBX."
             )
+        # A USD payload some deformer still streams points from sits in temp: the
+        # stream moves onto a project copy, named for the source like its bake.
+        # Per payload version: the bake of the source (and a later import)
+        # writes its own, never over the file this scene goes on reading.
+        project = EnvUtils.scene_project_root()
+        stream_home = (
+            self._stream_home(
+                src,
+                project,
+                version=ptk.CachedArtifact.key("stream", files=[out_path], length=8),
+            )
+            if project
+            else None
+        )
         try:
             imported = self.import_payload(
                 out_path,
@@ -656,6 +690,7 @@ class MayaSceneImport(ptk.LoggingMixin):
                 reduce_keys=reduce_keys,
                 scene_data=scene_data,
                 progress=self._stage_progress(relay, 1, "Blender"),
+                stream_home=stream_home,
             )
         except Exception:
             if tmp is not None and os.path.isfile(out_path):
@@ -678,6 +713,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         reduce_keys: Union[bool, str, None] = False,
         scene_data: bool = True,
         progress: Optional[Callable[[int, int, str], Optional[bool]]] = None,
+        stream_home: Optional[str] = None,
     ) -> List[Any]:
         """Import a Maya hand-off payload into the open scene and apply its manifest.
 
@@ -748,6 +784,10 @@ class MayaSceneImport(ptk.LoggingMixin):
             progress: ``progress(done, total, text) -> bool``, called before each step
                 and once at the end; ``False`` stops the import between steps with
                 :class:`pythontk.OperationCancelled` (what was imported stays).
+            stream_home: Where a USD payload in temp is copied when deforming objects
+                still stream their points from it (a Mesh Sequence Cache no key can
+                own), the cache repointed there (:meth:`_rehome_stream`) -- a saved
+                file must not name a file the temp sweep reclaims. ``None`` leaves it.
 
         Returns:
             The objects the import created (a stripped materials-scope Empty excluded,
@@ -892,7 +932,9 @@ class MayaSceneImport(ptk.LoggingMixin):
         plan.add(
             None,
             "Keying the USD animation",
-            lambda: self._own_usd_animation(src, imported, clean=not reduction),
+            lambda: self._own_usd_animation(
+                src, imported, clean=not reduction, stream_home=stream_home
+            ),
             when=is_usd,
         )
         plan.add(
@@ -1173,7 +1215,11 @@ class MayaSceneImport(ptk.LoggingMixin):
         return rerooted
 
     def _own_usd_animation(
-        self, usd_path: str, imported: List[Any], clean: bool = True
+        self,
+        usd_path: str,
+        imported: List[Any],
+        clean: bool = True,
+        stream_home: Optional[str] = None,
     ) -> int:
         """Bake the USD importer's Transform Cache constraints into keyframes so the
         imported animation is owned data, not a by-path stream from *usd_path*.
@@ -1196,6 +1242,8 @@ class MayaSceneImport(ptk.LoggingMixin):
         hands the exporter one root joint per skin (``SkinUtils.flatten_influences``)
         -- before it did, mayaUSDExport silently baked 14 production wire looms,
         each skinned to a chain plus an anchor joint under a second root, to points.
+        With *stream_home*, a stream from a payload in temp is moved onto a project
+        copy (:meth:`_rehome_stream`), so the motion survives the sweep.
         """
         from blendertk.env_utils.usd import UsdUtils
 
@@ -1225,13 +1273,124 @@ class MayaSceneImport(ptk.LoggingMixin):
             )
         ]
         if streaming:
-            self.logger.warning(
-                f"{len(streaming)} deforming object(s) still stream their points from "
-                f"{usd_path} (e.g. {streaming[0]}) and lose that motion when it is "
-                "swept: a deformer neither exporter writes as a skin (a skinned "
-                "curve, a wire or lattice deformer)."
-            )
+            moved = None
+            if stream_home:
+                try:
+                    moved = self._rehome_stream(usd_path, stream_home)
+                except OSError as e:
+                    self.logger.warning(f"Could not copy the point stream: {e}")
+            if moved:
+                self.logger.info(
+                    f"{len(streaming)} deforming object(s) stream their points from "
+                    f"the project copy {stream_home} (e.g. {streaming[0]}): a "
+                    "deformer neither exporter writes as a skin."
+                )
+            else:
+                self.logger.warning(
+                    f"{len(streaming)} deforming object(s) still stream their points "
+                    f"from {usd_path} (e.g. {streaming[0]}) and lose that motion when "
+                    "it is swept: a deformer neither exporter writes as a skin (a "
+                    "skinned curve, a wire or lattice deformer)."
+                )
         return baked
+
+    @staticmethod
+    def _rehome_stream(usd_path: str, target: str) -> int:
+        """Copy the USD *usd_path* that cache files stream from to *target* and
+        repoint them; return how many moved (0 = none streams from it, or it is
+        not in temp: a user's own layer stays where it is)."""
+        import bpy
+
+        from blendertk.env_utils._env_utils import EnvUtils
+
+        if not EnvUtils._in_temp(usd_path):
+            return 0
+        key = os.path.normcase(os.path.realpath(usd_path))
+        caches = [
+            cache
+            for cache in bpy.data.cache_files
+            if cache.filepath
+            and os.path.normcase(os.path.realpath(bpy.path.abspath(cache.filepath)))
+            == key
+        ]
+        if not caches:
+            return 0
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        # The same version already there (an import of it again) may be open
+        # in this session: reuse it rather than write over it.
+        src_stat = os.stat(usd_path)
+        try:
+            dst_stat = os.stat(target)
+            same = (dst_stat.st_size, int(dst_stat.st_mtime)) == (
+                src_stat.st_size,
+                int(src_stat.st_mtime),
+            )
+        except OSError:
+            same = False
+        if not same:
+            shutil.copy2(usd_path, target)
+        for cache in caches:
+            cache.filepath = target
+        return len(caches)
+
+    @staticmethod
+    def _seal_bake_streams(stream_home: Optional[str]) -> int:
+        """Ready a bake's point streams for its save: one read from
+        *stream_home* (beside the bake, :meth:`_stream_home`) is written
+        ``//``-relative -- it moves with the bake; return how many.
+
+        Raises:
+            RuntimeError: A stream is still read from temp (its copy into the
+                project failed): a bake saved so would point at a file swept
+                right after -- the bake fails instead.
+        """
+        import bpy
+
+        from blendertk.env_utils._env_utils import EnvUtils
+
+        home = os.path.normcase(os.path.realpath(stream_home)) if stream_home else None
+        sealed, stranded = 0, []
+        for cache in bpy.data.cache_files:
+            if not cache.filepath or cache.users == 0:
+                continue  # not saved: nothing in the bake reads it
+            path = bpy.path.abspath(cache.filepath)
+            if home and os.path.normcase(os.path.realpath(path)) == home:
+                cache.filepath = "//" + os.path.basename(stream_home)
+                sealed += 1
+            elif EnvUtils._in_temp(path):
+                stranded.append(path)
+        if stranded:
+            raise RuntimeError(
+                f"The bake still streams points from temp ({stranded[0]}): the "
+                "copy into the project failed, and a bake saved so would lose "
+                "that motion when the file is swept."
+            )
+        return sealed
+
+    @staticmethod
+    def _write_bake_record(info: Mapping[str, str]):
+        """Write *info* as the open file's bake record (:data:`BAKE_INFO_TEXT`,
+        JSON) and return the Text -- what :meth:`bake_info` reads back."""
+        import bpy
+
+        text = bpy.data.texts.get(BAKE_INFO_TEXT) or bpy.data.texts.new(BAKE_INFO_TEXT)
+        text.clear()
+        text.write(json.dumps(dict(info), sort_keys=True))
+        text.use_fake_user = True  # a Text no one uses must still be saved
+        return text
+
+    @staticmethod
+    def _strip_bake_record() -> bool:
+        """Remove the open file's bake record (:data:`BAKE_INFO_TEXT`): a copy
+        of a bake opened as a document of its own is no bake. True when one
+        was there."""
+        import bpy
+
+        text = bpy.data.texts.get(BAKE_INFO_TEXT)
+        if text is None or text.library is not None:
+            return False
+        bpy.data.texts.remove(text)
+        return True
 
     # Manifest section carrying the source scene's time setup (see the Maya-side
     # templates' ``scene_settings`` and ``EnvUtils.SCENE_SETTINGS_KEYS``).
@@ -2676,11 +2835,18 @@ class MayaSceneImport(ptk.LoggingMixin):
         src_path: str,
         out_path: str,
         reduce_keys: Union[bool, str, None] = None,
+        info: Optional[Mapping[str, str]] = None,
+        stream_home: Optional[str] = None,
     ) -> str:
         """Render the Blender-side intermediate->.blend bake script (exposed for
         tests/preview). *src_path* may be a USD or FBX intermediate -- the template
         dispatches on extension. *reduce_keys* is resolved to its level's name here, so
-        an unknown level fails in this process rather than minutes into the child."""
+        an unknown level fails in this process rather than minutes into the child.
+        *info* is set on the bake's scene as custom properties
+        (:data:`BAKE_INFO_SOURCE` / :data:`BAKE_INFO_KEY`) in its record
+        (:data:`BAKE_INFO_TEXT`); *stream_home* is where a USD the bake would
+        stream points from in temp is copied (``import_payload``) -- a bake that
+        still streams from temp fails (:meth:`_seal_bake_streams`)."""
         from blendertk.anim_utils._anim_utils import AnimUtils
 
         return ptk.ScriptTemplate.render_template(
@@ -2688,6 +2854,8 @@ class MayaSceneImport(ptk.LoggingMixin):
             {
                 "SRC_FILE": str(src_path).replace("\\", "/"),
                 "OUT_BLEND": str(out_path).replace("\\", "/"),
+                "BAKE_INFO": repr(dict(info or {})),
+                "STREAM_HOME": str(stream_home or "").replace("\\", "/"),
                 # The child is the same Blender build, so the parent's importable set
                 # is valid there -- this is what makes the shared manifest replay
                 # (blendertk in the child) reliable rather than best-effort.
@@ -2718,10 +2886,12 @@ class MayaSceneImport(ptk.LoggingMixin):
         timeout: Optional[float] = None,
         reduce_keys: Union[bool, str, None] = None,
         on_output: Optional[Callable[[Optional[str]], Optional[bool]]] = None,
+        info: Optional[Mapping[str, str]] = None,
+        stream_home: Optional[str] = None,
     ) -> Any:
         """Bake the USD/FBX intermediate *src_path* into the .blend at *out_path*
         in a fresh headless Blender (*reduce_keys* / *on_output* as :meth:`bake_scene`
-        and :meth:`convert`)."""
+        and :meth:`convert`; *info* / *stream_home* as :meth:`render_bake_script`)."""
         src = os.path.abspath(os.path.expanduser(os.path.expandvars(str(src_path))))
         if not os.path.isfile(src):
             raise FileNotFoundError(f"Bake source not found: {src}")
@@ -2731,7 +2901,13 @@ class MayaSceneImport(ptk.LoggingMixin):
         )
         result = self._run_bake_script(
             blender_exe,
-            self.render_bake_script(src, out_path, reduce_keys=reduce_keys),
+            self.render_bake_script(
+                src,
+                out_path,
+                reduce_keys=reduce_keys,
+                info=info,
+                stream_home=stream_home,
+            ),
             artifact=out_path,
             timeout=timeout,
             on_output=on_output,
@@ -2767,9 +2943,11 @@ class MayaSceneImport(ptk.LoggingMixin):
         rig_mode: str = "auto",
         reduce_keys: Union[bool, str, None] = REDUCE_KEYS_DEFAULT,
         progress: Optional[Callable[..., Optional[bool]]] = None,
+        project: Optional[str] = None,
         **script_opts: Any,
     ) -> str:
-        """Bake *src_path* to a cached ``.blend`` and return its path — the link path.
+        """Bake *src_path* to a ``.blend`` in the project's bake cache and return its
+        path — the link path.
 
         Blender can only link a ``.blend``, so a foreign row's reference toggle needs a
         native stand-in: ``.ma``/``.mb`` are converted to an FBX (default) or USD
@@ -2778,14 +2956,20 @@ class MayaSceneImport(ptk.LoggingMixin):
         Blender through :meth:`import_payload`. An ``.fbx`` or USD source skips
         straight to the bake — no Maya, no license.
 
-        Both stages are cached independently, and the bake's key includes the
-        intermediate's identity, the bake template's and this engine module's (the
-        template calls back into the engine), and the key reduction -- its level, its
-        bound, and the animation module that runs it -- so a fix to any of them
-        invalidates stale bakes (a retry after an upgrade must not replay the old bug).
-        A USD source's identity is its ROOT layer's: an edit that lands only in a
-        sublayer or payload it composes is not seen until the root changes too
-        (``use_cache=False`` re-bakes).
+        The bake is a permanent project file -- a saved scene links it -- in the
+        host file's project (:meth:`bake_dir`: ``<project>/cache/bridge/``), never
+        age-swept. ONE slot per source (:meth:`bake_slot`), so a re-bake replaces
+        the old file instead of leaving it behind; the bake records which source
+        it holds and that source's content key inside itself (a small Text,
+        :meth:`bake_info`), which is how a current bake is told from
+        a stale one without a conversion. The key is the source's identity (its
+        size + mtime, a direct source's manifest beside it), the options that
+        shape the bake (the route, the rig mode, the key reduction and its bound)
+        and :data:`_BAKE_FORMAT` -- not the engine's files, so an upgrade that
+        changes nothing about bakes keeps them. A USD source's identity is its
+        ROOT layer's: an edit that lands only in a sublayer or payload it
+        composes is not seen until the root changes too (``use_cache=False``
+        re-bakes).
 
         Parameters:
             src_path: A ``.ma`` / ``.mb`` / ``.fbx`` or USD
@@ -2795,7 +2979,8 @@ class MayaSceneImport(ptk.LoggingMixin):
                 replay) or ``"usd"`` (native materials / animation / visibility,
                 instances rebuilt guaranteed-or-fail from the conversion's
                 required sidecar; see :meth:`import_scene`).
-            use_cache: Reuse a prior conversion + bake of the identical source.
+            use_cache: Reuse the project's bake of the identical source version
+                (and the conversion of it); ``False`` bakes again into the slot.
             timeout: Max seconds for EACH headless stage; unset by default (see
                 :meth:`convert`).
             rig_mode: How the source's rig logic travels (see
@@ -2806,12 +2991,17 @@ class MayaSceneImport(ptk.LoggingMixin):
             progress: ``progress(current, total, message) -> bool`` over both stages
                 (see :meth:`import_scene`); ``False`` kills the running child and
                 raises :class:`pythontk.OperationCancelled`.
+            project: The project root whose bake cache holds it; default the
+                open file's (``EnvUtils.scene_project_root``).
             **script_opts: Maya-side conversion knobs (``embed_textures`` /
                 ``include_animation``); inert for an ``.fbx`` or USD source.
 
         Returns:
-            str: Path to the cached ``.blend`` — pass it to
-            :func:`blendertk.link_blend_file`.
+            str: Path to the bake — pass it to :func:`blendertk.link_blend_file`
+            (``relative=True``).
+
+        Raises:
+            RuntimeError: No project resolves (nothing is written to temp instead).
         """
         from blendertk.anim_utils import _anim_utils
 
@@ -2826,13 +3016,24 @@ class MayaSceneImport(ptk.LoggingMixin):
         # Resolved here: an unknown level must fail before minutes of Maya, not after.
         level = _anim_utils.AnimUtils.normalize_optimize_level(reduce_keys)
         direct = ext in _DIRECT_BAKE_EXTENSIONS
+        if not direct:
+            self._rig_mode_opts(script_opts, rig_mode)
+        root = self._bake_project(project)
+        bakes = self._bakes()
+        key = self._bake_key(src, via, script_opts, level, self.KEY_REDUCTION_MAX_ERROR)
         stages = 1 if direct else 2
         relay = ptk.ProgressRelay(progress, stages=stages)
+        bake_stage = stages - 1
+        if use_cache:
+            current = bakes.current(src, root, key)
+            if current is not None:
+                relay.report(bake_stage, 1, 1, "Blender: reused the project's bake")
+                self.logger.info(f"Reused the bake of {src_path}: {current}")
+                return current
 
         if direct:
             inter_path, conversion = src, None
         else:
-            self._rig_mode_opts(script_opts, rig_mode)
             conversion = self._cached_conversion(
                 src,
                 via=via,
@@ -2850,8 +3051,7 @@ class MayaSceneImport(ptk.LoggingMixin):
                 + ("reused the cached conversion" if conversion.hit else "converted"),
             )
         sidecar = ptk.HandoffManifest.path_for(inter_path)
-        has_sidecar = os.path.isfile(sidecar)
-        if not direct and via == "usd" and not has_sidecar:
+        if not direct and via == "usd" and not os.path.isfile(sidecar):
             # The v2 conversion always writes the sidecar; without it the
             # bake could silently cache a flattened .blend (see the bake
             # template's apply_instances).
@@ -2861,70 +3061,275 @@ class MayaSceneImport(ptk.LoggingMixin):
                 "instancing); clear the conversion cache or bake via FBX."
             )
 
-        bake_stage = stages - 1
-        key_files = [inter_path, _BAKE_TEMPLATE, _BAKE_ENGINE]
-        # The manifest the bake applies is an input too: a payload can land before
-        # its sidecar (a synced drive), and a bake cached in that window would
-        # replay the sidecar-less scene after the sidecar arrived.
-        if has_sidecar:
-            key_files.append(sidecar)
-        if level:
-            key_files.append(_anim_utils.__file__)
-        got = ptk.CachedArtifact("maya_bake_btk", extension=".blend").get(
-            ptk.CachedArtifact.key(
-                ("reduce_keys", level, self.KEY_REDUCTION_MAX_ERROR), files=key_files
-            ),
-            lambda out: self.bake(
-                inter_path,
-                out,
-                timeout=timeout,
-                reduce_keys=level,
-                on_output=relay.reader(bake_stage, "Blender"),
-            ),
-            use_cache=use_cache,
-        )
-        relay.report(
-            bake_stage,
-            1,
-            1,
-            "Blender: " + ("reused the cached bake" if got.hit else "baked"),
-        )
-        # The intermediate scratch is consumed once the bake has read it; the .blend
-        # scratch is NOT cleaned up -- the caller links that file, so it must outlive
-        # this call (an uncached bake therefore lives under the scoped store's stale
-        # sweep).
-        if conversion is not None and conversion.scratch is not None:
-            conversion.scratch.cleanup()
-        # Rewritten on a cache hit too: cheap, and it self-heals a sidecar lost to a
-        # partial sweep (without it the panel silently forgets the row is linked).
-        self._write_bake_source(got.path, src)
-        self.logger.info(f"Baked {src_path} -> {got.path}")
-        return got.path
-
-    def _write_bake_source(self, baked_path: str, src: str) -> None:
-        """Record beside *baked_path* which foreign scene it was baked from."""
-        import json
-
+        # Produced into scratch under the temp root and only then moved into the
+        # slot (a killed bake never leaves a partial slot), carrying the record
+        # of the source it holds (BakeCache.write).
         try:
-            with open(baked_path + BAKE_SOURCE_SUFFIX, "w", encoding="utf-8") as fh:
-                json.dump({"source": os.path.abspath(src)}, fh)
-        except OSError as e:  # cosmetic bookkeeping — never fail a completed bake
-            self.logger.debug(f"Could not write the bake source sidecar: {e}")
+            slot = bakes.write(
+                src,
+                root,
+                lambda out, info: self.bake(
+                    inter_path,
+                    out,
+                    timeout=timeout,
+                    reduce_keys=level,
+                    on_output=relay.reader(bake_stage, "Blender"),
+                    info=info,
+                    stream_home=self._stream_home(src, root),
+                ),
+                key=key,
+            )
+        finally:
+            # The intermediate scratch is consumed once the bake has read it.
+            if conversion is not None and conversion.scratch is not None:
+                conversion.scratch.cleanup()
+        self._bake_infos.pop(os.path.normcase(slot), None)
+        relay.report(bake_stage, 1, 1, "Blender: baked")
+        self.logger.info(f"Baked {src_path} -> {slot}")
+        return slot
 
     @staticmethod
-    def bake_source(baked_path: str) -> Optional[str]:
+    def _bake_project(project: Optional[str] = None) -> str:
+        """The project root a bake belongs to: *project*, else the open file's.
+
+        Raises:
+            RuntimeError: Neither resolves -- a bake a saved file links must
+                not be written to temp.
+        """
+        if not project:
+            from blendertk.env_utils._env_utils import EnvUtils
+
+            project = EnvUtils.scene_project_root()
+        if not project or not os.path.isdir(project):
+            raise RuntimeError(
+                "No project to keep the bake in: save the file or pick a "
+                "workspace first (a linked bake is a project file, never a temp one)."
+            )
+        return os.path.abspath(project)
+
+    @classmethod
+    def bake_dir(
+        cls, project: Optional[str] = None, create: bool = False
+    ) -> Optional[str]:
+        """Where the bakes of *project* (default: the open file's) live: its
+        ``bridgeCache`` rule, else ``<project>/cache/bridge`` -- shared with
+        mayatk's bakes. ``None`` when no project resolves. Mirror of mayatk's.
+
+        Parameters:
+            project: The project root.
+            create: Create the folder.
+
+        Returns:
+            The folder (absolute), or ``None``.
+        """
+        if not project:
+            from blendertk.env_utils._env_utils import EnvUtils
+
+            project = EnvUtils.scene_project_root()
+        if not project:
+            return None
+        return cls._bakes().cache_dir(project, create=create)
+
+    @classmethod
+    def _bakes(cls) -> "ptk.BakeCache":
+        """The project bake store (``ptk.BakeCache``: one never-aged slot per
+        source), its record read from a bake's record Text
+        (:meth:`bake_info`). Mirror of mayatk's."""
+        return ptk.BakeCache(
+            _BAKE_STORE,
+            ".blend",
+            read_info=cls.bake_info,
+            source_field=BAKE_INFO_SOURCE,
+            key_field=BAKE_INFO_KEY,
+            kind=BAKE_CACHE_KIND,
+            legacy_suffix=BAKE_SOURCE_SUFFIX,
+        )
+
+    @staticmethod
+    def _bake_key(
+        src: str,
+        via: str = "fbx",
+        script_opts: Mapping = (),
+        level: Any = None,
+        max_error: Any = None,
+    ) -> str:
+        """The content key of a bake of *src* as it is now: :data:`_BAKE_FORMAT`,
+        the source's size + mtime (and, for a direct source, the manifest beside
+        it: a payload can land before its sidecar on a synced drive), the key
+        reduction and, for a Maya scene, the options that shape its conversion.
+        No path: a moved project keeps it (``ptk.BakeCache.source_key``).
+        Mirror of mayatk's."""
+        direct = os.path.splitext(src)[1].lower() in _DIRECT_BAKE_EXTENSIONS
+        opts = () if direct else (via, sorted(dict(script_opts).items()))
+        companions = [ptk.HandoffManifest.path_for(src)] if direct else []
+        return ptk.BakeCache.source_key(
+            src,
+            _BAKE_FORMAT,
+            opts,
+            ("reduce_keys", level, max_error),
+            companions=companions,
+        )
+
+    @classmethod
+    def _stream_home(cls, src: str, project: str, version: Optional[str] = None) -> str:
+        """Where a point stream an import of *src* reads from temp is copied: in
+        the project's bake cache, named for *src*'s slot, so it sits -- and is
+        purged -- with the bake of the same source. The bake's is
+        ``<slot>.usd`` (it replaces its bake's); an import's is
+        ``<slot>.<version>.usd`` (*version*: its payload's), so no later
+        write lands on a stream an open scene still reads."""
+        stem = os.path.splitext(cls._bakes().slot(src, project))[0]
+        return stem + (f".{version}" if version else "") + ".usd"
+
+    @classmethod
+    def bake_slot(cls, src_path: str, project: Optional[str] = None) -> Optional[str]:
+        """Where *project*'s (default: the open file's) bake of *src_path* lives
+        -- there or not; ``None`` without a project. One per source: every
+        version of it is baked into this one file. Mirror of mayatk's."""
+        src = os.path.abspath(os.path.expanduser(os.path.expandvars(str(src_path))))
+        try:
+            root = cls._bake_project(project)
+        except RuntimeError:
+            return None
+        return cls._bakes().slot(src, root)
+
+    #: ``(path key) -> ((size, mtime_ns), info)``: a bake's record is read by
+    #: linking its record Text into a throwaway main, once per version of the file.
+    _bake_infos: Dict[str, Any] = {}
+
+    @classmethod
+    def bake_info(cls, baked_path: str) -> Dict[str, str]:
+        """The bake record of the ``.blend`` at *baked_path* --
+        :data:`BAKE_INFO_SOURCE` / :data:`BAKE_INFO_KEY` -- or ``{}`` (no bpy,
+        unreadable, not a bake).
+
+        Read without opening the file: its record Text (:data:`BAKE_INFO_TEXT`)
+        alone is linked into a throwaway main (``bpy.data.temp_data``), never
+        into the open one; remembered per version of the file.
+        """
+        if os.path.splitext(str(baked_path))[1].lower() != ".blend":
+            return {}
+        try:
+            stat = os.stat(baked_path)
+        except OSError:
+            return {}
+        stamp = (stat.st_size, stat.st_mtime_ns)
+        cache_key = os.path.normcase(os.path.abspath(baked_path))
+        cached = cls._bake_infos.get(cache_key)
+        if cached and cached[0] == stamp:
+            return dict(cached[1])
+        try:
+            import bpy
+        except ImportError:  # headless .venv -- no bpy, nothing to read with
+            return {}
+        info: Dict[str, str] = {}
+        try:
+            with bpy.data.temp_data() as main:
+                with main.libraries.load(baked_path, link=True) as (src, dst):
+                    dst.texts = [n for n in src.texts if n == BAKE_INFO_TEXT]
+                text = dst.texts[0] if dst.texts else None
+                record = json.loads(text.as_string() or "{}") if text else {}
+            if isinstance(record, dict):
+                for name in (BAKE_INFO_SOURCE, BAKE_INFO_KEY):
+                    value = record.get(name)
+                    if isinstance(value, str) and value:
+                        info[name] = value
+        except Exception:  # noqa: BLE001 - an unreadable file is not a bake
+            return {}
+        cls._bake_infos[cache_key] = (stamp, dict(info))
+        return info
+
+    @classmethod
+    def bake_source(cls, baked_path: str) -> Optional[str]:
         """The foreign scene *baked_path* was baked from, or None if it is not a bake.
 
         The inverse of :meth:`bake_scene` — lets a browser map a linked library back to
-        the source row the user actually sees.
+        the source row the user actually sees. Read from the bake's own record
+        (:meth:`bake_info`); a bake made before 2026-10-13 from its
+        ``.source.json`` sidecar (:data:`BAKE_SOURCE_SUFFIX`).
         """
-        import json
+        # Only a file named as a bake is read: a refresh asks this of every
+        # linked library, and a user's .blend is not a bake.
+        return cls._bakes().source_of(baked_path)
 
-        try:
-            with open(baked_path + BAKE_SOURCE_SUFFIX, "r", encoding="utf-8") as fh:
-                return json.load(fh).get("source") or None
-        except (OSError, ValueError):
+    def rehome_bake(
+        self, baked_path: str, project: Optional[str] = None
+    ) -> Optional[str]:
+        """The project bake standing in for the bake *baked_path* that lives in
+        temp (a bake made before 2026-10-13), or None when it has no source.
+
+        The project's slot for its source when that already holds a bake, else
+        *baked_path* re-saved into the slot by a headless Blender with its
+        source recorded in it (no key: the next bake of the source replaces
+        it). The caller relinks its library there. Mirror of mayatk's.
+        """
+        # Absolute: the child runs in a scratch working directory (ScriptRunner).
+        baked_path = os.path.abspath(baked_path)
+        if not self.bake_source(baked_path) or not os.path.isfile(baked_path):
             return None
+        # Self-contained (the child imports no blendertk): the record written
+        # as _write_bake_record writes it.
+        script = (
+            "import bpy, json\n"
+            "t = bpy.data.texts.get({text!r}) or bpy.data.texts.new({text!r})\n"
+            "t.clear()\n"
+            "t.write(json.dumps({{info}}, sort_keys=True))\n"
+            "t.use_fake_user = True\n"
+            "bpy.ops.wm.save_as_mainfile(filepath=r'''{{out}}''', check_existing=False,"
+            " relative_remap=False, compress=True)\n"
+        ).format(text=BAKE_INFO_TEXT)
+
+        def _resave(baked: str, out: str, info: Dict[str, str]) -> None:
+            ptk.ScriptRunner.run_script_to_artifact(
+                self.require_blender(),
+                script.format(info=repr(dict(info)), out=out),
+                artifact=out,
+                launch_args=lambda path: [
+                    "--background",
+                    "--factory-startup",
+                    baked,
+                    "--python",
+                    path,
+                ],
+                timeout=None,
+            )
+
+        return self._bakes().rehome(baked_path, self._bake_project(project), _resave)
+
+    def purge_unused_bakes(
+        self, project: Optional[str] = None, dry_run: bool = False
+    ) -> List[str]:
+        """Remove the bakes in *project*'s bake cache that no file references.
+
+        A bake is a project file a saved file links, so nothing ages it out; a
+        source unlinked from every file leaves its bake behind until this runs.
+        Every ``.blend`` in the project is scanned for the bake file names (its
+        bytes, decompressed -- no file is opened in Blender), and so are the
+        open file's libraries; a bake any of them names stays, with anything
+        named for it. A file that cannot be scanned stops the purge (a bake it
+        links would otherwise go; ``ptk.BakeCache.purge``). Mirror of mayatk's.
+
+        Parameters:
+            project: The project root (default: the open file's).
+            dry_run: Report what would go without removing it.
+
+        Returns:
+            The paths removed (or that would be).
+        """
+        root = self._bake_project(project)
+        try:
+            import bpy
+
+            # The streams the open scene reads count with its libraries: a
+            # file not saved since an import names its stream nowhere else.
+            live = [
+                bpy.path.abspath(block.filepath)
+                for block in (*bpy.data.libraries, *bpy.data.cache_files)
+                if block.filepath
+            ]
+        except ImportError:  # headless .venv -- no open file
+            live = []
+        return self._bakes().purge(root, (".blend",), live=live, dry_run=dry_run)
 
     @staticmethod
     def mayapy_from_maya_exe(maya_exe: str) -> Optional[str]:

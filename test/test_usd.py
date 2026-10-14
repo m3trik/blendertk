@@ -61,6 +61,22 @@ try:
         "UsdUtils.export writes the file",
         written == out and os.path.isfile(out) and os.path.getsize(out) > 0,
     )
+    # No path: a fresh ptk.TempArtifacts folder per write (its textures/ beside
+    # it), never <system temp>/<stem>_bridge.usd + a shared <temp>/textures.
+    first = UsdUtils.export(objects=[cube])
+    second = UsdUtils.export(objects=[cube])
+    _root = os.path.normcase(os.path.realpath(ptk.TempArtifacts.root()))
+    check(
+        "a default USD export is a fresh temp artifact named for the file",
+        all(
+            os.path.normcase(os.path.realpath(p)).startswith(_root)
+            and os.path.basename(p) == "untitled_bridge.usd"
+            and os.path.isfile(p)
+            for p in (first, second)
+        )
+        and os.path.dirname(first) != os.path.dirname(second),
+        f"{first} / {second}",
+    )
     check("pythontk sniffs the export as crate", ptk.UsdFile.sniff(out) == "usdc")
 
     reset()

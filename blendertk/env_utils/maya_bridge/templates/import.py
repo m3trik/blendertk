@@ -121,8 +121,9 @@ def import_fbx():
 
     Through the paired engine when mayatk imports here, as ``_save_scene.py``
     does: ``mayatk.BlenderSceneImport._import_fbx`` imports EVERY take's
-    animation -- the push writes the whole timeline beside one take per shot,
-    and a plain import plays the last take, one shot.
+    animation -- the push writes one whole-timeline take, but a multi-take
+    file (an older push, a Shots Only export) plays its last take alone in a
+    plain import.
 
     The dependency-free fallback: the FBX plugin's import options are global and
     sticky (the user's last interactive import shapes this one), and the factory

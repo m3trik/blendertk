@@ -320,13 +320,56 @@ try:
     )
     _blend = os.path.join(tmp, "asset.blend")
     bpy.ops.wm.save_as_mainfile(filepath=_blend)
+    # The file project's texture folder, mayatk's rule (its sourceImages rule,
+    # else an existing sourceimages/ or textures/ folder) + "baked".
+    from blendertk.env_utils._env_utils import EnvUtils as _Env
+
     check(
-        "baked_texture_dir is <blend dir>/baked_textures once saved",
-        os.path.normcase(_MarBridge.baked_texture_dir())
-        == os.path.normcase(
-            os.path.join(tmp, _MarBridge.BAKED_TEXTURE_SUBDIR).replace("\\", "/")
-        ),
+        "baked_texture_dir is <file project texture folder>/baked once saved",
+        _MarBridge.BAKED_TEXTURE_SUBDIR == "baked"
+        and os.path.normcase(os.path.normpath(_MarBridge.baked_texture_dir()))
+        == os.path.normcase(os.path.join(_Env.scene_source_images_dir(), "baked"))
+        and _Env.scene_project_root() is not None
+        and os.path.normcase(_Env.scene_project_root()) == os.path.normcase(tmp),
         _MarBridge.baked_texture_dir(),
+    )
+    # A roundtrip's saved Toolbag scene outlives its scratch hand-off: the
+    # file project's data/marmoset (mayatk's rule). Added: 2026-10-13
+    check(
+        "toolbag_scene_dir is <file project>/data/marmoset",
+        os.path.normcase(os.path.normpath(_MarBridge.toolbag_scene_dir()))
+        == os.path.normcase(os.path.join(tmp, "data", "marmoset")),
+        _MarBridge.toolbag_scene_dir(),
+    )
+    _sd_req = _request(_RT)
+    _MarBridge()._produce_scene_dir(_sd_req)
+    check(
+        "a roundtrip with no Output Dir saves its .tbscene in the project",
+        _sd_req.get("scene_dir") == _MarBridge.toolbag_scene_dir(),
+        _sd_req.get("scene_dir"),
+    )
+    _sd_req = _request(_ST)
+    _MarBridge()._produce_scene_dir(_sd_req)
+    check("...a send_to saves none", not _sd_req.get("scene_dir"))
+    # Substance: with no Output Dir the mesh Painter's project is built from
+    # goes to the file project's cache/substance (mayatk's rule), never temp,
+    # and a render falls back to the project's images folder. Added: 2026-10-13
+    from blendertk.mat_utils.substance_bridge._substance_bridge import (
+        SubstanceBridge as _SubBridge,
+    )
+
+    _sub = _SubBridge()
+    check(
+        "substance mesh cache is <file project>/cache/substance",
+        os.path.normcase(os.path.normpath(_sub._mesh_cache_dir() or ""))
+        == os.path.normcase(os.path.join(tmp, "cache", "substance")),
+        _sub._mesh_cache_dir(),
+    )
+    check(
+        "a substance render falls back to <file project>/images",
+        os.path.normcase(os.path.normpath(_sub._project_dir("images") or ""))
+        == os.path.normcase(os.path.join(tmp, "images")),
+        _sub._project_dir("images"),
     )
 
     _bridge = _MarBridge()
@@ -475,6 +518,42 @@ try:
     # materials, never the scene clock.
     _scene.use_preview_range = False
     _scene.render.fps = 24
+
+    # mayatk's Save-As template packs the images the payload left in its TEMP
+    # folder (the FBX's .fbm), so the saved .blend never points into temp.
+    # Executed from its AST like the clock guard. Added: 2026-10-13
+    _save_tpl = os.path.join(_mtk_templates, "_save_scene.py")
+    if os.path.isfile(_save_tpl):
+        with open(_save_tpl, encoding="utf-8") as _fh:
+            _module = _ast.parse(_fh.read())
+        _pack = next(
+            (
+                n
+                for n in _module.body
+                if isinstance(n, _ast.FunctionDef) and n.name == "pack_payload_images"
+            ),
+            None,
+        )
+        _payload_dir = os.path.join(tmp, "payload_tmp")
+        os.makedirs(os.path.join(_payload_dir, "asset.fbm"), exist_ok=True)
+        _png = os.path.join(_payload_dir, "asset.fbm", "wall.png")
+        _img = _bpy.data.images.new("wall_src", 4, 4)
+        _img.filepath_raw = _png
+        _img.file_format = "PNG"
+        _img.save()
+        _bpy.data.images.remove(_img)
+        _loaded = _bpy.data.images.load(_png)
+        _ns = {"os": os, "bpy": _bpy, "traceback": __import__("traceback")}
+        _ns["FBX_PATH"] = os.path.join(_payload_dir, "asset.fbx")
+        if _pack is not None:
+            exec(compile(_ast.Module(body=[_pack], type_ignores=[]), _save_tpl, "exec"), _ns)
+            _ns["pack_payload_images"]()
+        check(
+            "mayatk/_save_scene.py packs the images left beside the temp payload",
+            _pack is not None and bool(_loaded.packed_file),
+            "no pack_payload_images()" if _pack is None else _loaded.filepath,
+        )
+        _bpy.data.images.remove(_loaded)
 
     # ---- mayatk's pull template: what the FBX exporter drops ships as an Empty -----
     # Blender's FBX exporter writes no node for a hair-type Curves object -- what its

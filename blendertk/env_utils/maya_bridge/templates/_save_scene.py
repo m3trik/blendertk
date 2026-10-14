@@ -191,9 +191,9 @@ def import_fbx(cmds, mel, engine):
     """Import the payload deterministically; return ALL new nodes.
 
     All nodes, not just transforms: the manifest rebuild needs the shading engines.
-    The engine's ``_import_fbx`` imports EVERY take's animation (the push writes the
-    whole timeline beside one take per shot; a plain import plays the last take, one
-    shot) and resets the FBX plugin's global, sticky import options, whose factory
+    The engine's ``_import_fbx`` imports EVERY take's animation (the push writes one
+    whole-timeline take, but a multi-take file -- an older push, a Shots Only export --
+    plays its last take alone in a plain import) and resets the FBX plugin's global, sticky import options, whose factory
     "merge" mode can RETARGET animation onto same-named nodes; the fallback below
     repeats that reset inline for a bare mayapy.
 

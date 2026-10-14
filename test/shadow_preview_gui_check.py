@@ -77,8 +77,12 @@ def run():
 
     from blendertk.rig_utils.shadow_rig.shadow_preview import ShadowPreview
     from blendertk.rig_utils.shadow_rig import ShadowRig
+    from blendertk.env_utils._env_utils import EnvUtils
 
     os.makedirs(TEMP, exist_ok=True)
+    # An unsaved file has no project of its own: the rig's maps go here.
+    if not EnvUtils.workspace_root():
+        EnvUtils.set_current_workspace(TEMP)
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
 

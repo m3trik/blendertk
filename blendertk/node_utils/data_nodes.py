@@ -31,7 +31,7 @@ the primitive that makes its guarantee structural:
 
 import logging
 import os
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, ClassVar, Dict, List, Mapping, Optional, Tuple
 
 import pythontk as ptk
 
@@ -53,6 +53,13 @@ class DataNodes(ptk.SceneStoreBase):
     #: ``save_post_fail`` says whether the open file moved
     #: (:meth:`_rebase_before_save`).
     _PENDING: Optional[Dict[tuple, Optional[str]]] = None
+    #: ``{normcased file: the scene it stands in for}`` (:meth:`set_scene_source`).
+    _scene_sources: ClassVar[Dict[str, str]] = {}
+    #: The session's workspace pin -- Blender's analogue of Maya's
+    #: ``workspace -o``, set through ``EnvUtils.set_current_workspace``; held
+    #: here so the project rule (:meth:`scene_project_root`) resolves at the
+    #: lowest part that owns the scene path.
+    _session_root: ClassVar[Optional[str]] = None
 
     #: Record keys readers used to spell here; the declarations are
     #: ``ptk.SceneRecords`` and these are the same strings, not copies.
@@ -625,6 +632,120 @@ class DataNodes(ptk.SceneStoreBase):
         import bpy
 
         return bpy.data.filepath
+
+    # ------------------------------------------------------------------
+    # The open file's project (mirror of mayatk's)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _session_pin(cls) -> Optional[str]:
+        """The session's workspace pin when it is a folder, else ``None``."""
+        pin = cls._session_root
+        return pin if pin and os.path.isdir(pin) else None
+
+    @classmethod
+    def set_scene_source(
+        cls, scene: str, source: Optional[str] = None
+    ) -> Optional[str]:
+        """Record that the file *scene* stands in for the scene *source*; ``None``
+        forgets it.
+
+        A foreign scene the Reference Manager opens as new is a scratch copy in
+        temp (``ptk.ScratchTwins``), but the work in it belongs to its source's
+        project: :meth:`scene_project_root` resolves such a file as its source.
+        Held for the session, like the workspace pin. Records only:
+        ``EnvUtils.set_scene_source`` also arms the twin's save redirect.
+        Mirror of mayatk's.
+
+        Parameters:
+            scene: The file opened in place of *source*.
+            source: The scene it stands in for; ``None`` forgets *scene*.
+
+        Returns:
+            The recorded source (absolute), or ``None``.
+        """
+        if not scene:
+            return None
+        key = os.path.normcase(os.path.abspath(scene))
+        if not source:
+            cls._scene_sources.pop(key, None)
+            return None
+        cls._scene_sources[key] = os.path.abspath(source)
+        return cls._scene_sources[key]
+
+    @classmethod
+    def scene_source(cls, scene: Optional[str] = None) -> Optional[str]:
+        """The scene the file *scene* (default: the open .blend) stands in for
+        (:meth:`set_scene_source`), or ``None``. Mirror of mayatk's."""
+        if scene is None:
+            try:
+                scene = cls.scene_path()
+            except ImportError:  # headless .venv -- no bpy, no open file
+                scene = ""
+        if not scene:
+            return None
+        return cls._scene_sources.get(os.path.normcase(os.path.abspath(scene)))
+
+    @classmethod
+    def scene_project_root(cls) -> Optional[str]:
+        """The project the open file's files belong to; ``None`` without one.
+
+        ``ptk.Workspace.for_scene`` -- the one rule both DCCs share: the file's
+        nearest ``workspace.mel`` (even under a broader or narrower pin: a pin
+        on a folder of several projects must not open the others' folders, and
+        a project's own marker names it more exactly than a pin), else the
+        session pin (``EnvUtils.set_current_workspace``) when it holds the
+        file, else the .blend's own folder; while the file is unsaved, the pin.
+        A file opened in place of a source scene (:meth:`scene_source`, the
+        Reference Manager's open-as-new scratch in temp) is resolved as its
+        source. The boundary a tool keeps when it writes, renames or retires
+        files (a lightmap bake, a scene bake). Unlike :meth:`project_root`
+        (the saved file's own project, which its path records are spelled
+        from), the session pin counts. Mirror of mayatk's.
+        """
+        scene = cls.scene_path()
+        ws = ptk.Workspace.for_scene(
+            cls.scene_source(scene) or scene, session_root=cls._session_pin()
+        )
+        return ws.root if ws is not None else None
+
+    @classmethod
+    def scene_workspace(cls) -> Optional["ptk.Workspace"]:
+        """The open file's project (:meth:`scene_project_root`) as a
+        ``ptk.Workspace``, or ``None`` without one.
+
+        Where every permanent file a tool writes for this file resolves its
+        folder (``.cache_dir(kind)``, ``.source_images_dir``, ``.images_dir()``):
+        the file's project, never a temp folder. Mirror of mayatk's.
+        """
+        root = cls.scene_project_root()
+        return ptk.Workspace.load(root) if root else None
+
+    @classmethod
+    def scene_source_images_dir(cls, subfolder: str = "", create: bool = False) -> str:
+        """Where a tool's generated maps for the open file go by default.
+
+        The file project's texture folder (its ``sourceImages`` rule,
+        ``ptk.Workspace.source_images_dir``) plus *subfolder* -- one per output
+        kind (``"baked"``, ``"uv_transfer"``) -- the same folder in both DCCs.
+        Mirror of mayatk's.
+
+        Parameters:
+            subfolder: A folder under the texture folder; ``""`` for the
+                folder itself.
+            create: Create the folder.
+
+        Returns:
+            The folder (absolute), or ``""`` when the file has no project (an
+            unsaved file with no workspace set).
+        """
+        ws = cls.scene_workspace()
+        if ws is None:
+            return ""
+        folder = os.path.normpath(os.path.join(ws.source_images_dir, subfolder))
+        if create:
+            os.makedirs(folder, exist_ok=True)
+        return folder
 
     @classmethod
     def writer_stamp_of(cls, scene_path: Optional[str]) -> str:

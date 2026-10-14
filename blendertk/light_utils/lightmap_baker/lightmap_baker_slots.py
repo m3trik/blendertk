@@ -949,7 +949,9 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
     def _show_output_mode(self, beside: bool) -> None:
         """Say in the empty field where the maps will go."""
         self.ui.txt_output_dir.setPlaceholderText(
-            "beside textures, else sourceimages" if beside else "sourceimages"
+            "(blank: beside textures, else sourceimages/lightmaps)"
+            if beside
+            else "(blank: sourceimages/lightmaps)"
         )
 
     def _relativize_output_dir(self, path: str) -> None:
@@ -967,30 +969,39 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
             ptk.FileUtils.relativize_output_dir(path, self._base_output_dir())
         )
 
-    def _output_dir(self) -> str:
+    def _output_dir(self) -> Optional[str]:
         """The bake's output directory: the field, resolved against the texture folder.
 
-        Empty field -> :meth:`_base_output_dir` itself. A subdirectory entry is
-        joined onto it so the setting survives a project move; a full path is
-        taken as-is. The directory itself is created by the bake.
+        Empty field -> :meth:`_base_output_dir`'s ``lightmaps``
+        (:attr:`LightmapBaker.OUTPUT_SUBDIR`). A subdirectory entry is joined
+        onto the texture folder so the setting survives a project move; a full
+        path is taken as-is -- with or without a project: it needs nothing to
+        resolve against. The directory itself is created by the bake. ``None``
+        for any other entry without a project (the engine's default decides,
+        and refuses).
         """
+        entry = self.ui.txt_output_dir.text()
+        typed = ptk.FileUtils.resolve_output_dir(entry, None)
+        if typed:
+            return typed  # a full path
         base = self._base_output_dir()
-        return ptk.FileUtils.resolve_output_dir(self.ui.txt_output_dir.text(), base)
+        if not base:
+            return None
+        if not (entry or "").strip():
+            return os.path.normpath(os.path.join(base, LightmapBaker.OUTPUT_SUBDIR))
+        return ptk.FileUtils.resolve_output_dir(entry, base)
 
     @staticmethod
     def _base_output_dir() -> str:
-        """What a relative Output Directory is relative to (and the default when
-        it is empty): the workspace's texture folder (its ``sourceImages`` rule
-        for a marked workspace.mel project, else ``textures`` next to the
-        .blend) -- or, before the file has been saved, where a scripted bake
-        would land on its own (:meth:`TextureBaker.default_output_dir`), so an
-        empty field never means two places. mayatk's twin falls back the same
-        way when there is no project."""
-        from blendertk.env_utils._env_utils import EnvUtils
+        """What a relative Output Directory is relative to: the file project's
+        texture folder (``DataNodes.scene_source_images_dir``), whose
+        ``lightmaps`` (:attr:`LightmapBaker.OUTPUT_SUBDIR`) an empty field
+        means -- exactly where a scripted bake lands on its own, and mayatk's.
+        ``""`` without a project (an unsaved file, no workspace set): the
+        panel then names no folder and the engine's default refuses."""
+        from blendertk.node_utils.data_nodes import DataNodes
 
-        return EnvUtils.source_images_dir() or TextureBaker.default_output_dir(
-            "baked_lighting"
-        )
+        return DataNodes.scene_source_images_dir()
 
     def txt000_init(self, widget) -> None:
         """Add the Prefix / Suffix / Auto picker to the name-affix field."""
@@ -1032,6 +1043,11 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
         )
 
         out_dir = self._output_dir()
+        if out_dir is None:
+            self.ui.footer.setText(
+                "No project to bake into — save the .blend or set a workspace."
+            )
+            return
         # Name the output <object><affix> per the field (e.g. "<object>_Lightmap"), following
         # the texture-set convention; the field's affix picker forces Prefix / Suffix / Auto.
         # An empty field falls back to the placeholder default (the .ui's single source
@@ -1097,7 +1113,7 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
             n = len(result.retired)
             notes.append(
                 f" Moved {n} superseded map{'s' if n != 1 else ''} nothing reads "
-                "any more to the Recycle Bin (or a _superseded folder beside them)."
+                "any more to the Recycle Bin (or a temp folder kept 30 days)."
             )
         if result.unbaked:
             notes.append(

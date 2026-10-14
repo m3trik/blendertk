@@ -753,9 +753,10 @@ class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin):
         ``bake_mask``.
 
         Parameters:
-            output_path: Mask image path. Defaults to ``<blend dir>/
-                <blend stem>_EMask.png`` (falls back to the temp dir for an
-                unsaved file).
+            output_path: Mask image path. Defaults to ``<file project texture
+                folder>/<blend stem>_EMask.png`` (``DataNodes.scene_source_images_dir``;
+                mayatk's folder for a scene in that project). Never temp: an
+                unsaved file with no workspace set raises instead.
             resolution / padding_px: See :class:`ptk.RegionMaskPacker`.
             uv_set: UV layer name; defaults to each mesh's active layer.
 
@@ -763,7 +764,6 @@ class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin):
             The published manifest dict (channels encoding).
         """
         import os
-        import tempfile
 
         import bpy
 
@@ -772,10 +772,17 @@ class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin):
         if not groups:
             raise ValueError("No emissive groups to bake.")
         if output_path is None:
+            from blendertk.node_utils.data_nodes import DataNodes
+
+            folder = DataNodes.scene_source_images_dir()
+            if not folder:
+                raise ValueError(
+                    "No project to write the mask into; save the .blend, set a "
+                    "workspace, or pass output_path."
+                )
             blend = bpy.data.filepath
-            root = os.path.dirname(blend) if blend else tempfile.gettempdir()
-            stem = os.path.splitext(os.path.basename(blend))[0] if blend else "untitled"
-            output_path = os.path.join(root, f"{stem}_EMask.png")
+            stem = os.path.splitext(os.path.basename(blend))[0] or "untitled"
+            output_path = os.path.join(folder, f"{stem}_EMask.png")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
         packer = ptk.RegionMaskPacker(resolution=resolution, padding_px=padding_px)
@@ -801,7 +808,7 @@ class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin):
                 attr=entry.get("attr"),
             )
         packer.validate()
-        manifest = packer.write(output_path)
+        manifest = packer.write(output_path, write_manifest=False)
 
         registry.set_encoding(
             "channels",

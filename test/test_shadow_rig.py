@@ -57,6 +57,13 @@ try:
     from blendertk.rig_utils.shadow_rig import ShadowRig, ShadowRigSlots
     from pythontk import HeightFieldMap, ShadowAtlas, ShadowHorizon, ShadowProjection
     import pythontk as ptk
+    from blendertk.env_utils._env_utils import EnvUtils
+
+    # Every map this suite writes lands in a throwaway project: an unsaved
+    # file has no project of its own, and the rig never falls back to temp.
+    _workspace_store = ptk.TempArtifacts("btk_shadow_ws", policy="session")
+    if not EnvUtils.workspace_root():
+        EnvUtils.set_current_workspace(_workspace_store.dir_path())
 
     def reset():
         bpy.ops.object.select_all(action="DESELECT")
@@ -292,6 +299,26 @@ try:
         "silhouette PNG written",
         bool(rig.texture_path) and os.path.exists(rig.texture_path),
         f"{rig.texture_path}",
+    )
+    check(
+        "an unsaved file's silhouette lands in the workspace's texture folder, "
+        "never temp",
+        os.path.normcase(os.path.dirname(os.path.normpath(rig.texture_path)))
+        == os.path.normcase(os.path.join(EnvUtils.workspace_root(), "sourceimages")),
+        f"{rig.texture_path}",
+    )
+    _pin = EnvUtils.workspace_root()
+    EnvUtils.set_current_workspace(None)
+    try:
+        ShadowRig.default_texture_dir()
+        _raised = False
+    except ValueError:
+        _raised = True
+    finally:
+        EnvUtils.set_current_workspace(_pin)
+    check(
+        "an unsaved file with no workspace has nowhere to write maps (no temp)",
+        _raised,
     )
     check(
         "image datablock loaded",

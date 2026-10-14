@@ -1865,6 +1865,39 @@ try:
         "bake render: .usd source substitutes + compiles",
         "C:/cache/conv.usd" in bs_usd and _ok_bs,
     )
+    def _stub_blend(artifact, script_text):
+        """What the bake template saves, as far as the parent reads it back: a
+        .blend carrying the rendered BAKE_INFO as its bake record (placeholder
+        bytes where no bpy can write one)."""
+        import ast as _ast_stub
+        import re as _re_stub
+
+        found = _re_stub.search(r"^BAKE_INFO = (.*)$", script_text, _re_stub.M)
+        info = _ast_stub.literal_eval(found.group(1)) if found else {}
+        try:
+            import bpy as _bpy_stub
+        except ImportError:
+            with open(artifact, "wb") as fh:
+                fh.write(b"blend-bytes")
+            return
+        record = MayaSceneImport._write_bake_record(info)
+        try:
+            _bpy_stub.data.libraries.write(artifact, {record}, fake_user=True)
+        finally:
+            _bpy_stub.data.texts.remove(record)
+
+    try:
+        import bpy as _bpy_probe  # noqa: F401
+
+        _HAVE_BPY_STUB = True
+    except ImportError:
+        _HAVE_BPY_STUB = False
+
+    # Bakes are project files (2026-10-13): every stubbed bake below goes in this
+    # test's own project, never temp and never a real one.
+    _bake_proj = tempfile.mkdtemp(prefix="btk_bake_proj_")
+    from blendertk.env_utils.maya_bridge import _scene_import as _si_bake
+
     # bake_scene orchestration: the default route's intermediate is a .usd.
     _bake_cap = {}
 
@@ -1882,8 +1915,8 @@ try:
             app_exe, script_text, *, artifact, timeout, env=None, on_output=None
         ):
             _bake_cap["script"] = script_text
-            with open(artifact, "wb") as fh:
-                fh.write(b"blend-bytes")
+            _bake_cap["runs"] = _bake_cap.get("runs", 0) + 1
+            _stub_blend(artifact, script_text)
             return ptk.ScriptRunResult(artifact, 0, "stub", 0.1, "stub.py")
 
         def require_mayapy(self):
@@ -1897,7 +1930,9 @@ try:
         f.write("//Maya ASCII scene\n")
     baked_path = None
     try:
-        baked_path = BakeCapture().bake_scene(src_usdbake, use_cache=False)
+        baked_path = BakeCapture().bake_scene(
+            src_usdbake, use_cache=False, project=_bake_proj
+        )
         # Judge the SUBSTITUTED source line, not the template text (which always
         # contains ".usd" in its extension table) -- the default route is FBX.
         _src_line = next(
@@ -1914,20 +1949,32 @@ try:
             _src_line,
         )
         check("bake_scene: returns the .blend path", baked_path.endswith(".blend"))
+        check(
+            "bake_scene: the bake is a project file in <project>/cache/bridge, not temp",
+            ptk.FileUtils.is_under(
+                baked_path, os.path.join(_bake_proj, "cache", "bridge")
+            )
+            and os.path.basename(baked_path).startswith("btk_bake_cache_btk_usdbake_src_"),
+            baked_path,
+        )
+        check(
+            "bake_scene: an uncached bake leaves no scratch behind",
+            not any(
+                os.path.isfile(os.path.join(d, f))
+                for d in [os.path.join(ptk.TempArtifacts.root(), "btk_bake")]
+                if os.path.isdir(d)
+                for f in os.listdir(d)
+                if f.endswith(".blend")
+            ),
+        )
     finally:
         os.remove(src_usdbake)
-        # An uncached bake lives in scratch by design (the caller links it);
-        # this test's bake links nothing, so clean it + its source sidecar.
-        from blendertk.env_utils.maya_bridge._scene_import import BAKE_SOURCE_SUFFIX
-
-        for p in [baked_path, baked_path + BAKE_SOURCE_SUFFIX] if baked_path else []:
-            if os.path.exists(p):
-                os.remove(p)
     # The cached bake is keyed on the manifest it applies: a payload can land before
     # its sidecar (a synced drive), and a bake cached in that window replayed the
     # sidecar-less scene after the sidecar arrived.
     _key_tmp = ptk.TempArtifacts("btk_bake_key_test", policy="scoped")
-    _key_src = _key_tmp.path(extension=".fbx")
+    _key_src = os.path.join(_bake_proj, "scenes", "shots.fbx")
+    os.makedirs(os.path.dirname(_key_src), exist_ok=True)
     _key_baked = []
     try:
         with open(_key_src, "wb") as fh:
@@ -1939,24 +1986,142 @@ try:
                     ptk.HandoffManifest.path_for(_key_src)
                 )
             _bake_cap.clear()
-            _key_baked.append(BakeCapture().bake_scene(_key_src, use_cache=True))
+            _key_baked.append(
+                BakeCapture().bake_scene(_key_src, use_cache=True, project=_bake_proj)
+            )
             _key_runs.append("script" in _bake_cap)
-        check(
-            "bake_scene: a sidecar arriving after a cached bake bakes again",
-            _key_runs == [True, False, True],
-            f"baked per call: {_key_runs}",
-        )
+        if _HAVE_BPY_STUB:
+            check(
+                "bake_scene: a sidecar arriving after a cached bake bakes again",
+                _key_runs == [True, False, True],
+                f"baked per call: {_key_runs}",
+            )
+            check(
+                "bake_scene: a re-bake REPLACES the one slot of its source",
+                len(set(_key_baked)) == 1
+                and [
+                    f
+                    for f in os.listdir(os.path.join(_bake_proj, "cache", "bridge"))
+                    if f.startswith("btk_bake_cache_shots_")
+                ]
+                == [os.path.basename(_key_baked[0])],
+                str(_key_baked),
+            )
+            check(
+                "bake_scene: the bake records its source (relative) and key inside",
+                MayaSceneImport.bake_info(_key_baked[0]).get(_si_bake.BAKE_INFO_SOURCE)
+                == "../../scenes/shots.fbx"
+                and bool(
+                    MayaSceneImport.bake_info(_key_baked[0]).get(
+                        _si_bake.BAKE_INFO_KEY
+                    )
+                )
+                and os.path.normcase(MayaSceneImport.bake_source(_key_baked[0]) or "")
+                == os.path.normcase(os.path.normpath(_key_src))
+                and not os.path.exists(_key_baked[0] + _si_bake.BAKE_SOURCE_SUFFIX),
+                str(MayaSceneImport.bake_info(_key_baked[0])),
+            )
+            # An upgrade that changes nothing about bakes keeps them; a bump of
+            # the bake format re-bakes.
+            _eng = _si_bake.__file__
+            _st = os.stat(_eng)
+            _bake_cap.clear()
+            try:
+                os.utime(_eng, ns=(_st.st_atime_ns, _st.st_mtime_ns + 10**9))
+                BakeCapture().bake_scene(_key_src, use_cache=True, project=_bake_proj)
+            finally:
+                os.utime(_eng, ns=(_st.st_atime_ns, _st.st_mtime_ns))
+            _after_upgrade = "script" in _bake_cap
+            _orig_format = _si_bake._BAKE_FORMAT
+            _si_bake._BAKE_FORMAT = _orig_format + 1
+            _bake_cap.clear()
+            try:
+                BakeCapture().bake_scene(_key_src, use_cache=True, project=_bake_proj)
+            finally:
+                _si_bake._BAKE_FORMAT = _orig_format
+            check(
+                "bake key: an engine upgrade keeps the bake, a format bump re-bakes",
+                not _after_upgrade and "script" in _bake_cap,
+                f"upgrade re-baked={_after_upgrade}",
+            )
+            # Purge: a bake no .blend in the project names goes; a named one stays.
+            _other = os.path.join(_bake_proj, "scenes", "props.fbx")
+            with open(_other, "wb") as fh:
+                fh.write(b"fbx")
+            _unused = BakeCapture().bake_scene(_other, project=_bake_proj)
+            with open(os.path.join(_bake_proj, "scenes", "host.blend"), "wb") as fh:
+                fh.write(
+                    b"BLENDER-v405RENDH\x00\x00"
+                    + b"//../cache/bridge/"
+                    + os.path.basename(_key_baked[0]).encode("ascii")
+                    + b"\x00"
+                )
+            _purged = MayaSceneImport().purge_unused_bakes(_bake_proj)
+            check(
+                "purge_unused_bakes removes the bakes no file references, keeps the rest",
+                os.path.basename(_unused) in [os.path.basename(p) for p in _purged]
+                and not os.path.exists(_unused)
+                and os.path.isfile(_key_baked[0]),
+                str(_purged),
+            )
     finally:
-        from blendertk.env_utils.maya_bridge._scene_import import BAKE_SOURCE_SUFFIX
-
-        for p in set(_key_baked):
-            for q in (p, p + BAKE_SOURCE_SUFFIX):
-                if os.path.exists(q):
-                    os.remove(q)
         _key_sidecar = ptk.HandoffManifest.path_for(_key_src)
         if os.path.exists(_key_sidecar):
             os.remove(_key_sidecar)
         _key_tmp.cleanup()
+    # The point stream an IMPORT copies into the project is per payload
+    # version (a later import or the bake must not overwrite what an open
+    # scene still reads), yet named for the source's slot, so it is kept and
+    # purged with that bake.
+    _st_src = os.path.join(_bake_proj, "scenes", "rig.ma")
+    _st_bake = MayaSceneImport._stream_home(_st_src, _bake_proj)
+    _st_imp = MayaSceneImport._stream_home(_st_src, _bake_proj, version="0a1b2c3d")
+    _st_names = MayaSceneImport._bakes().name_pattern
+    _st_key = ptk.BakeCache.slot_key(_st_src, _bake_proj)
+    check(
+        "an import's stream is <slot>.<version>.usd: apart from the bake's, "
+        "grouped with its slot",
+        os.path.basename(_st_imp).endswith(".0a1b2c3d.usd")
+        and os.path.normcase(_st_imp) != os.path.normcase(_st_bake)
+        and _st_names.match(os.path.basename(_st_imp)).group(1) == _st_key
+        and _st_names.match(os.path.basename(_st_bake)).group(1) == _st_key,
+        f"{_st_imp} / {_st_bake}",
+    )
+    import re as _re_st
+
+    check(
+        "import_scene names its stream for the payload version",
+        _re_st.search(
+            r"_stream_home\(\s*src,\s*project,\s*version=",
+            _inspect.getsource(MayaSceneImport.import_scene),
+        )
+        is not None,
+    )
+    # A bake made before 2026-10-13 still maps back through its sidecar.
+    _legacy = os.path.join(_bake_proj, "maya_bake_btk_cache_abc.blend")
+    open(_legacy, "wb").close()
+    with open(_legacy + _si_bake.BAKE_SOURCE_SUFFIX, "w") as fh:
+        fh.write('{"source": "C:/proj/a.ma"}')
+    check(
+        "bake_source: a legacy .source.json still maps an old bake back",
+        MayaSceneImport.bake_source(_legacy) == "C:/proj/a.ma",
+    )
+    # No project at all: refuse rather than write a bake to temp.
+    from blendertk.env_utils._env_utils import EnvUtils as _EnvBake
+
+    _orig_spr = _EnvBake.scene_project_root
+    _EnvBake.scene_project_root = staticmethod(lambda: None)
+    _bake_cap.clear()
+    try:
+        BakeCapture().bake_scene(_key_src)
+        check("bake_scene: no project refuses (nothing goes to temp)", False)
+    except RuntimeError:
+        check(
+            "bake_scene: no project refuses (nothing goes to temp)",
+            "script" not in _bake_cap,
+        )
+    finally:
+        _EnvBake.scene_project_root = _orig_spr
     # rig_mode applies to BOTH routes (schema 15.1): the same helper surfaces it
     # into the cache key and render context from import_scene AND bake_scene,
     # and the old FBX-only gating of the alias is gone.
@@ -2588,9 +2753,6 @@ try:
         def require_blender(self):
             return "stub_blender"
 
-    from blendertk.env_utils.maya_bridge._scene_import import (
-        BAKE_SOURCE_SUFFIX as _PSUFFIX,
-    )
 
     _psrc = os.path.join(tempfile.gettempdir(), "btk_progress_src.ma")
     with open(_psrc, "w") as fh:
@@ -2602,6 +2764,7 @@ try:
             _ProgressStub().bake_scene(
                 _psrc,
                 use_cache=False,
+                project=_bake_proj,
                 progress=lambda c, t, m: _preports.append((c, t, m)),
             )
         )
@@ -2625,7 +2788,9 @@ try:
             "REDUCE_KEYS = 'extremes'" in _prog.get("bake_script", ""),
         )
         _pbakes.append(
-            _ProgressStub().bake_scene(_psrc, use_cache=False, reduce_keys=False)
+            _ProgressStub().bake_scene(
+                _psrc, use_cache=False, reduce_keys=False, project=_bake_proj
+            )
         )
         check(
             "bake_scene: reduce_keys=False keeps every key (REDUCE_KEYS = None)",
@@ -2633,7 +2798,9 @@ try:
         )
         _prog.pop("bake_script", None)
         try:
-            _ProgressStub().bake_scene(_psrc, use_cache=False, reduce_keys="bogus")
+            _ProgressStub().bake_scene(
+                _psrc, use_cache=False, reduce_keys="bogus", project=_bake_proj
+            )
             check(
                 "bake_scene: an unknown reduce level fails before any child runs", False
             )
@@ -2644,7 +2811,7 @@ try:
             )
         try:
             _ProgressStub().bake_scene(
-                _psrc, use_cache=False, progress=lambda c, t, m: False
+                _psrc, use_cache=False, project=_bake_proj, progress=lambda c, t, m: False
             )
             check("bake_scene: a False progress stops the running child", False)
         except ptk.OperationCancelled:
@@ -2652,47 +2819,18 @@ try:
                 "bake_scene: a False progress stops the running child",
                 "bake_script" not in _prog,
             )
-        # The reduction shapes the bake, so it is part of the bake cache key.
-        _key_parts = []
-        _orig_key2 = ptk.CachedArtifact.__dict__["key"]
-
-        def _capture_parts(*parts, files=(), length=16):
-            _key_parts.append((parts, list(files)))
-            return _orig_key2.__func__(*parts, files=files, length=length)
-
-        ptk.CachedArtifact.key = staticmethod(_capture_parts)
-        try:
-            for _level in ("extremes", False):
-                _pbakes.append(
-                    _ProgressStub().bake_scene(
-                        _psrc, use_cache=False, reduce_keys=_level
-                    )
-                )
-        finally:
-            ptk.CachedArtifact.key = _orig_key2
-        _bake_parts = [
-            p
-            for p, fs in _key_parts
-            if any(
-                str(f).endswith(".blend") is False and "reduce_keys" in str(p)
-                for f in fs
-            )
-        ]
+        # The reduction shapes the bake, so it is part of the bake key.
+        _bound = MayaSceneImport.KEY_REDUCTION_MAX_ERROR
+        _k_ext = MayaSceneImport._bake_key(_psrc, "fbx", {}, "extremes", _bound)
+        _k_off = MayaSceneImport._bake_key(_psrc, "fbx", {}, None, _bound)
+        _k_err = MayaSceneImport._bake_key(_psrc, "fbx", {}, "extremes", _bound * 2)
         check(
-            "bake cache key: the reduction level and its bound are part of the identity",
-            len(_bake_parts) == 2
-            and _bake_parts[0] != _bake_parts[1]
-            and any(
-                MayaSceneImport.KEY_REDUCTION_MAX_ERROR in p[0] for p in _bake_parts
-            ),
-            str(_bake_parts),
+            "bake key: the reduction level and its bound are part of the identity",
+            len({_k_ext, _k_off, _k_err}) == 3,
+            str((_k_ext, _k_off, _k_err)),
         )
     finally:
         os.remove(_psrc)
-        for _pb in _pbakes:
-            for _p in (_pb, _pb + _PSUFFIX):
-                if _p and os.path.exists(_p):
-                    os.remove(_p)
 
     # ---- public surface --------------------------------------------------------
     import blendertk as btk
@@ -3086,7 +3224,9 @@ try:
 
     _baked2 = None
     try:
-        _BakeManifestStub().bake_scene(_bake_src, via="usd", use_cache=False)
+        _BakeManifestStub().bake_scene(
+            _bake_src, via="usd", use_cache=False, project=_bake_proj
+        )
         check("bake_scene: USD intermediate without sidecar refuses to bake", False)
     except RuntimeError as e:
         check(
@@ -3105,47 +3245,20 @@ try:
 
         with open(_bake_usd + ".manifest.json", "w") as f:
             _json.dump({"version": 2, "format": "paths", "instances": []}, f)
-        # Capture the bake's cache-key inputs: the bake template calls back into
-        # the ENGINE (tagging, manifest replays), so a baked .blend depends on the
-        # engine module as much as on the template -- an engine fix must invalidate
-        # cached bakes or a linked scene keeps showing the old bug.
-        _key_files = []
-        _orig_key = ptk.CachedArtifact.__dict__["key"]  # the staticmethod object
-
-        def _capture_key(*parts, files=(), length=16):
-            _key_files.append(list(files))
-            return _orig_key.__func__(*parts, files=files, length=length)
-
-        ptk.CachedArtifact.key = staticmethod(_capture_key)
-        try:
-            _baked2 = _BakeManifestStub().bake_scene(
-                _bake_src, via="usd", use_cache=False
-            )
-        finally:
-            ptk.CachedArtifact.key = _orig_key
+        _baked2 = _BakeManifestStub().bake_scene(
+            _bake_src, via="usd", use_cache=False, project=_bake_proj
+        )
         check(
             "bake_scene: USD intermediate WITH sidecar bakes",
             _bake_ran.get("ran") and _baked2.endswith(".blend"),
         )
-        from blendertk.env_utils.maya_bridge import _scene_import as _si
-
-        check(
-            "bake cache key: intermediate + template + ENGINE module (engine fix invalidates)",
-            any(
-                _si._BAKE_TEMPLATE in fs and _si._BAKE_ENGINE in fs and _bake_usd in fs
-                for fs in _key_files
-            )
-            and _si._BAKE_ENGINE.name == "_scene_import.py",
-            str(_key_files),
-        )
     finally:
-        from blendertk.env_utils.maya_bridge._scene_import import BAKE_SOURCE_SUFFIX
+        import shutil as _shutil_bp
 
-        for p in [_bake_usd, _bake_usd + ".manifest.json", _bake_src] + (
-            [_baked2, _baked2 + BAKE_SOURCE_SUFFIX] if _baked2 else []
-        ):
+        for p in [_bake_usd, _bake_usd + ".manifest.json", _bake_src]:
             if p and os.path.exists(p):
                 os.remove(p)
+        _shutil_bp.rmtree(_bake_proj, ignore_errors=True)
 
     # ---- behavioral (needs bpy): strict path matching + atomic rollback -------
     try:
@@ -3817,6 +3930,57 @@ try:
             "own_usd_animation: nothing to bake -> 0, never raises",
             MayaSceneImport()._own_usd_animation(_usd_out, _usd_objs) == 0,
         )
+        # A stream the open scene reads from the bake cache is in use: the
+        # purge keeps it though no saved file names it yet.
+        import shutil
+
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        _pg_proj = tempfile.mkdtemp(prefix="btk_purge_stream_")
+        try:
+            ptk.Workspace.create(_pg_proj)
+            _pg_dir = os.path.join(_pg_proj, "cache", "bridge")
+            os.makedirs(_pg_dir, exist_ok=True)
+            _pg_stream = os.path.join(_pg_dir, "btk_bake_cache_rig_0123abcd.9f8e7d6c.usd")
+            shutil.copy2(_usd_out, _pg_stream)
+            UsdUtils.import_usd(_pg_stream)
+            _pg_purged = MayaSceneImport().purge_unused_bakes(_pg_proj)
+            check(
+                "purge keeps a stream the open scene's cache file reads",
+                bpy.data.cache_files
+                and os.path.isfile(_pg_stream)
+                and not _pg_purged,
+                f"purged={_pg_purged} caches={[c.filepath for c in bpy.data.cache_files]}",
+            )
+            # The bake child: a stream left in temp fails the bake (the save
+            # would point at a file swept right after); one in the stream
+            # home is written //-relative (it sits beside the bake).
+            bpy.ops.wm.read_factory_settings(use_empty=True)
+            UsdUtils.import_usd(_usd_out)
+            _seal_home = os.path.join(_pg_dir, "btk_bake_cache_rig_0123abcd.usd")
+            try:
+                MayaSceneImport._seal_bake_streams(_seal_home)
+                _sealed_refused = False
+            except RuntimeError:
+                _sealed_refused = True
+            check(
+                "bake: a stream still read from temp fails the bake",
+                _sealed_refused,
+                str([c.filepath for c in bpy.data.cache_files]),
+            )
+            shutil.copy2(_usd_out, _seal_home)
+            for _cf in bpy.data.cache_files:
+                _cf.filepath = _seal_home
+            MayaSceneImport._seal_bake_streams(_seal_home)
+            check(
+                "bake: the stream it keeps is written //-relative beside the bake",
+                [c.filepath for c in bpy.data.cache_files]
+                == ["//" + os.path.basename(_seal_home)] * len(bpy.data.cache_files)
+                and len(bpy.data.cache_files) >= 1,
+                str([c.filepath for c in bpy.data.cache_files]),
+            )
+        finally:
+            bpy.ops.wm.read_factory_settings(use_empty=True)
+            shutil.rmtree(_pg_proj, ignore_errors=True)
         import shutil as _shutil
 
         _shutil.rmtree(_tmp_scene, ignore_errors=True)
@@ -4308,8 +4472,6 @@ try:
     # base with no object until it resyncs -- and a ``view_layer.objects`` walk does
     # not resync, so the selection clear met ``None`` and no .blend was saved. The
     # manifest here names a control the import strips the same way.
-    from blendertk.env_utils.maya_bridge._scene_import import BAKE_SOURCE_SUFFIX
-
     _sel_tmp = ptk.TempArtifacts("btk_bake_selection_test", policy="scoped")
     _sel_baked = _sel_sidecar = None
     try:
@@ -4326,11 +4488,29 @@ try:
         _sel_sidecar = ptk.HandoffManifest(
             {"machinery": {"|SEL_GRP|SEL_CTRL": "control"}}
         ).write(ptk.HandoffManifest.path_for(_sel_fbx))
-        _sel_baked = MayaSceneImport().bake_scene(_sel_fbx, use_cache=False)
+        _sel_baked = MayaSceneImport().bake_scene(
+            _sel_fbx, use_cache=False, project=_sel_tmp.dir_path()
+        )
+        check(
+            "bake (real child): the bake's scene records its source",
+            os.path.normcase(MayaSceneImport.bake_source(_sel_baked) or "")
+            == os.path.normcase(os.path.normpath(_sel_fbx)),
+            str(MayaSceneImport.bake_info(_sel_baked)),
+        )
         with bpy.data.libraries.load(_sel_baked) as (_sel_src, _sel_dst):
             _sel_dst.scenes = list(_sel_src.scenes)
             # As saved: the append renames each to ".001" beside the originals.
             _sel_names = set(_sel_src.objects)
+            _sel_texts = list(_sel_src.texts)
+        check(
+            "bake (real child): the record is one Text block; the scene holds none",
+            _sel_texts == [_si_bake.BAKE_INFO_TEXT]
+            and not any(
+                _si_bake.BAKE_INFO_SOURCE in scn or _si_bake.BAKE_INFO_KEY in scn
+                for scn in _sel_dst.scenes
+            ),
+            f"texts={_sel_texts}",
+        )
         _sel_vls = [vl for scn in _sel_dst.scenes for vl in scn.view_layers]
         _sel_pairs = [(vl, o) for vl in _sel_vls for o in vl.objects]
         _sel_on = [o.name for vl, o in _sel_pairs if o.select_get(view_layer=vl)]
@@ -4347,9 +4527,7 @@ try:
         )
     finally:
         bpy.ops.wm.read_factory_settings(use_empty=True)
-        # An uncached bake lives in scratch by design (the caller links it).
-        _sel_out = [_sel_baked, _sel_baked + BAKE_SOURCE_SUFFIX] if _sel_baked else []
-        for _p in _sel_out + ([_sel_sidecar] if _sel_sidecar else []):
+        for _p in [_sel_sidecar] if _sel_sidecar else []:
             if os.path.exists(_p):
                 os.remove(_p)
         _sel_tmp.cleanup()

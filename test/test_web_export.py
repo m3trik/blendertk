@@ -216,6 +216,22 @@ try:
     encoded = LightmapWebExport.encode_for_web({"ramp": src}, tmp_dir, percentile=100.0)
     png, scalar = encoded.get("ramp", (None, None))
     check("encode_for_web writes a PNG", png is not None and os.path.isfile(png))
+    # No folder named: a temp artifact, never a PNG beside the authored EXR.
+    import pythontk as ptk
+
+    _default, _s = LightmapWebExport.encode_for_web({"ramp": src}, percentile=100.0)[
+        "ramp"
+    ]
+    check(
+        "encode_for_web's default folder is temp, not the EXR's own",
+        os.path.isfile(_default)
+        and os.path.normcase(os.path.realpath(_default)).startswith(
+            os.path.normcase(os.path.realpath(ptk.TempArtifacts.root()))
+        )
+        and os.path.normcase(os.path.dirname(os.path.abspath(_default)))
+        != os.path.normcase(os.path.dirname(os.path.abspath(src))),
+        _default,
+    )
     check(
         "...and reports the divisor",
         scalar is not None and abs(scalar - 1.0) < 1e-3,
@@ -460,10 +476,20 @@ try:
     # The route a caller composes itself (tentacle's scene slot): a direct export
     # inside wired_for_export, which corrects the file it is given on exit.
     direct_glb = os.path.join(tmp_dir, "direct.glb")
-    with web.wired_for_export(glb_path=direct_glb):
+    with web.wired_for_export(glb_path=direct_glb) as _wired:
         bpy.ops.export_scene.gltf(
             filepath=direct_glb, export_format="GLB", export_extras=True
         )
+        _pngs = [
+            bpy.path.abspath(i.filepath)
+            for i in bpy.data.images
+            if i.filepath and i.filepath.lower().endswith(".png")
+        ]
+    check(
+        "the bracket's web PNGs are released once the export is done",
+        bool(_pngs) and not any(os.path.exists(p) for p in _pngs),
+        _pngs,
+    )
     dgltf = glb_json(direct_glb)
     draw = ((dgltf.get("scenes") or [{}])[0].get("extras") or {}).get(
         LightmapWebExport.EXTRAS_KEY

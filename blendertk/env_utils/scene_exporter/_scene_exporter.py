@@ -47,7 +47,6 @@ engine API -- see that module's docstring.
 import contextlib
 import os
 import json
-import shutil
 import time
 import logging
 from pathlib import Path
@@ -501,8 +500,10 @@ class SceneExporter(ptk.SceneExporterBase):
         # -- and reaches the output directory once (``_deliver``): a synced
         # output folder holds a just-written file while it uploads, and a
         # rewrite in place is then refused. Mirror of mayatk's. GLB-only throws
-        # the staged FBX away; USD writes straight to its destination.
-        stage_dir = None
+        # the staged FBX away; USD writes straight to its destination. A
+        # scoped store: the stage goes when the run ends, unless it holds the
+        # only copy of a deliverable whose placement failed (``keep``).
+        stage_store = stage_dir = None
         # The export bracket (mirror of mayatk's): it stages the scene for the
         # write and finishes it in the ``finally`` below, AFTER the GLB
         # conversion and the sidecar have read the scene -- a session stager
@@ -514,7 +515,8 @@ class SceneExporter(ptk.SceneExporterBase):
             if run.usd:
                 fbx_write_path = self.export_path
             else:
-                stage_dir = ptk.TempArtifacts("scene_exporter_stage").dir_path()
+                stage_store = ptk.TempArtifacts.scoped("scene_exporter_stage")
+                stage_dir = stage_store.dir_path()
                 fbx_write_path = os.path.join(
                     stage_dir, os.path.basename(self.export_path)
                 )
@@ -568,7 +570,7 @@ class SceneExporter(ptk.SceneExporterBase):
                 placed = self._deliver(glb_path, deliverable_path)
                 if placed != deliverable_path:
                     if placed == glb_path:
-                        stage_dir = None  # the stage holds the only copy
+                        stage_store.keep(stage_dir)  # the only copy
                     export_succeeded = False
                     return False
                 self.logger.success(f"GLB created: {deliverable_path}")
@@ -627,7 +629,7 @@ class SceneExporter(ptk.SceneExporterBase):
                 placed = self._deliver(fbx_write_path, self.export_path)
                 if placed != self.export_path:
                     if placed == fbx_write_path:
-                        stage_dir = None  # the stage holds the only copy
+                        stage_store.keep(stage_dir)  # the only copy
                     export_succeeded = False
                     return False
                 if glb_alongside:
@@ -637,7 +639,7 @@ class SceneExporter(ptk.SceneExporterBase):
                         glb_alongside = placed_glb
                     else:
                         if landed == glb_alongside:
-                            stage_dir = None  # the stage holds the only copy
+                            stage_store.keep(stage_dir)  # the only copy
                         glb_alongside = None
                     if glb_alongside:
                         self.logger.success(f"GLB created: {glb_alongside}")
@@ -664,8 +666,8 @@ class SceneExporter(ptk.SceneExporterBase):
             raise RuntimeError(f"Failed to export objects: {e}")
         finally:
             FbxUtils.end_export()
-            if stage_dir:
-                shutil.rmtree(stage_dir, ignore_errors=True)
+            if stage_store is not None:
+                stage_store.cleanup()
 
         if not export_succeeded:
             return False

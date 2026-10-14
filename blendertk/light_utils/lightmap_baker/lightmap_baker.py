@@ -79,7 +79,7 @@ class LightmapBakeResult:
         unbaked: Objects the bake was asked for and produced nothing for (a
             cancel, a failed render). They keep any map they already had.
         retired: Map files the bake superseded and set aside (the Recycle
-            Bin, or a ``_superseded`` folder beside them) -- what its objects
+            Bin, or the ``superseded`` temp store) -- what its objects
             read before, that nothing reads now
             (:meth:`LightmapRecords.superseding`).
         refused: Why nothing was baked, as a sentence for the artist, or
@@ -138,6 +138,10 @@ class LightmapBaker(ptk.LoggingMixin):
 
     # The scene record's names, kept here for the callers that read them off the baker;
     # the record itself is :class:`LightmapRecords`.
+    #: The kind folder lightmaps go to under the scene project's texture
+    #: folder when no output directory is given -- by the API and by the
+    #: panel's empty field alike, in both DCCs (``TextureBaker.default_output_dir``).
+    OUTPUT_SUBDIR: str = "lightmaps"
     LIGHTMAP_INFO_PROP: str = LightmapRecords.LIGHTMAP_INFO_PROP
     LIGHTMAP_INFO_ATTR: str = LightmapRecords.LIGHTMAP_INFO_ATTR  # mayatk's name
     LIGHTMAP_METADATA: str = LightmapRecords.LIGHTMAP_METADATA
@@ -763,7 +767,7 @@ class LightmapBaker(ptk.LoggingMixin):
 
         homes = self._texture_homes(targets)
         output_dir = kwargs.pop("output_dir", None) or TextureBaker.default_output_dir(
-            "baked_lighting"
+            self.OUTPUT_SUBDIR
         )
         with ptk.TempArtifacts("lightmap_bake", policy="scoped") as tmp:
             baked = self._bake(
@@ -804,8 +808,9 @@ class LightmapBaker(ptk.LoggingMixin):
 
         Parameters:
             objects: Mesh objects (refs or names). Defaults to current selection.
-            output_dir: Output directory (created if missing). Defaults to a
-                ``baked_lighting`` dir next to the .blend (or the OS temp dir).
+            output_dir: Output directory (created if missing). Defaults to
+                ``<file project texture folder>/lightmaps`` (:attr:`OUTPUT_SUBDIR`,
+                ``TextureBaker.default_output_dir``; mayatk's folder too).
             prefix / suffix: Name affix wrapped around the object's stem (e.g. ``_Lightmap``).
             margin: Native gutter width in px. ``None`` -> a default scaled to each map's
                 own size, since the margin extends islands across the map it sits in.
@@ -861,7 +866,7 @@ class LightmapBaker(ptk.LoggingMixin):
                 use_pass_color=False,  # lighting-only excludes albedo
                 shader=card,
                 output_dir=(
-                    output_dir or TextureBaker.default_output_dir("baked_lighting")
+                    output_dir or TextureBaker.default_output_dir(self.OUTPUT_SUBDIR)
                 ),
                 prefix=prefix,
                 suffix=suffix,
@@ -965,7 +970,7 @@ class LightmapBaker(ptk.LoggingMixin):
         plan = self.atlas_plan(targets)
         planned = [name for entries in plan.values() for name, _rect in entries]
 
-        output_dir = output_dir or TextureBaker.default_output_dir("baked_lighting")
+        output_dir = output_dir or TextureBaker.default_output_dir(self.OUTPUT_SUBDIR)
         if claims is None:
             claims = LightmapRecords.claims()
         # Read BEFORE the bake, as mayatk's is (there a target wears the white card

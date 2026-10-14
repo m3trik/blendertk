@@ -81,9 +81,8 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
 
         UiUtils.dispatch_log_link(url, self.logger)
 
-    # Mirror of mayatk's `EnvUtils.get_env_info("workspace_dir")` / "sourceimages" — both route
-    # through the current-workspace resolver (marked workspace.mel projects get their real
-    # sourceImages rule; plain Blender projects keep the "textures" convention).
+    # Mirror of mayatk's panel: Browse opens in the file project's texture folder
+    # (`EnvUtils.scene_source_images_dir`, the sourceImages rule both DCCs share).
     # Resolved lazily: needs bpy (so panel load stays bpy-free) and tracks the current file.
     @property
     def workspace_dir(self) -> str:
@@ -91,7 +90,7 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
 
     @property
     def source_images_dir(self) -> str:
-        return btk.source_images_dir()
+        return btk.EnvUtils.scene_source_images_dir()
 
         # No Blender analogue of mayatk's `EnvUtils.load_plugin("shaderFXPlugin"/"mtoa")` — the
         # Principled BSDF shader is always available; there is no render-plugin load step.

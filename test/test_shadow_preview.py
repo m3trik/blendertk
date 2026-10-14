@@ -33,6 +33,13 @@ import pythontk as ptk  # noqa: E402
 from blendertk.env_utils.fbx_utils import FbxUtils  # noqa: E402
 from blendertk.rig_utils.shadow_rig.shadow_preview import ShadowPreview  # noqa: E402
 from blendertk.rig_utils.shadow_rig import ShadowRig  # noqa: E402
+from blendertk.env_utils._env_utils import EnvUtils  # noqa: E402
+
+# The rigs here are built in an unsaved file, which has no project of its own
+# (the rig never falls back to temp): give the run a throwaway one.
+_workspace_store = ptk.TempArtifacts("btk_preview_ws", policy="session")
+if not EnvUtils.workspace_root():
+    EnvUtils.set_current_workspace(_workspace_store.dir_path())
 
 
 class TestShaderText(unittest.TestCase):

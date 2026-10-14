@@ -796,7 +796,6 @@ try:
             _s2.sb = rm.sb
             _s2.ui = rm.ui
             _s2._recursive = rm._recursive
-            _s2._notes = {}
             _s2._suppress_note_save = False
             _open_calls = []
             # Patch BEFORE tbl000_init runs: register_menu_action's handler closure captures
@@ -1020,16 +1019,16 @@ try:
                 _rm_si.MayaSceneImport.import_scene = _rm_orig_import
                 del rm._has_bpy, rm._refresh, rm.sb.message_box
 
-            # Notes are keyed by path, so a note must follow its file: a rename
-            # re-keys it, a delete drops it (mayatk's sidecar travels the same
-            # way). Real on-disk rename/delete (no bpy: nothing is "open").
+            # Notes are keyed by the scene's project-relative path (the project
+            # store both DCCs share, ``ptk.SceneNotes``), so a note must follow
+            # its file: a rename re-keys it, a delete drops it. Real on-disk
+            # rename/delete (no bpy: nothing is "open").
             _nd = os.path.join(rm_tmp, "notes_probe")  # outside the 'proj' workspace
             os.makedirs(_nd)
             _old = os.path.join(_nd, "hero.blend")
             open(_old, "wb").close()
             _new = os.path.join(_nd, "villain.blend")
-            _saved_notes = dict(rm._notes)
-            rm._notes[rm._path_key(_old)] = "keep me"
+            rm.scene_notes.set(_old, "keep me")
             rm.sb.input_dialog = lambda *a, **k: "villain"
             rm.sb.message_box = lambda *a, **k: "Yes"
             rm._refresh = lambda: None
@@ -1038,22 +1037,21 @@ try:
             rm._context_paths = lambda: [_new]
             try:
                 rm._rename_path(_old)
-                _moved = rm._notes.get(rm._path_key(_new))
-                _left = rm._path_key(_old) in rm._notes
+                _moved = rm.scene_notes.get(_new)
+                _left = bool(rm.scene_notes.get(_old))
                 rm.delete_selected()
-                _after = rm._notes.get(rm._path_key(_new))
+                _after = rm.scene_notes.get(_new)
                 check(
                     "reference_manager a note follows its file through rename and delete",
                     _moved == "keep me"
                     and not _left
-                    and _after is None
+                    and not _after
                     and not os.path.exists(_new),
                     f"moved={_moved!r} left_on_old={_left} after_delete={_after!r}",
                 )
             finally:
-                rm._notes.clear()
-                rm._notes.update(_saved_notes)
-                rm.ui.settings.setValue("reference_notes", rm._notes)
+                rm.scene_notes.remove(_old)
+                rm.scene_notes.remove(_new)
                 del rm.sb.input_dialog, rm.sb.message_box, rm._refresh
                 del rm._context_paths
 
@@ -1371,7 +1369,7 @@ try:
             "lightmap_baker a preset writes the switches through the real toggles",
             lb._adaptive() is False
             and lb._beside_textures() is True
-            and lb_ui.txt_output_dir.placeholderText().startswith("beside"),
+            and lb_ui.txt_output_dir.placeholderText().startswith("(blank: beside"),
             f"placeholder={lb_ui.txt_output_dir.placeholderText()!r}",
         )
         lb._apply_preset_values({"adaptive": True, "beside_textures": False})

@@ -447,16 +447,16 @@ class LightmapRecords(ptk.LoggingMixin):
     @staticmethod
     def project_root() -> Optional[str]:
         """The project this file's lightmaps belong to; ``None`` without one
-        (``EnvUtils.scene_project_root``: the workspace blendertk's workspace
+        (``DataNodes.scene_project_root``: the workspace blendertk's workspace
         tool names, narrowed to the .blend's own marked project inside it; the
         .blend's own project when a pin does not hold it; a foreign scene
         opened as new resolved as its source). Mirror of mayatk's. A bake
         writes no map outside it (``LightmapBaker.beside_textures``) and sets
         none aside there (:meth:`superseding`).
         """
-        from blendertk.env_utils._env_utils import EnvUtils
+        from blendertk.node_utils.data_nodes import DataNodes
 
-        return EnvUtils.scene_project_root()
+        return DataNodes.scene_project_root()
 
     @classmethod
     @contextlib.contextmanager
@@ -469,7 +469,7 @@ class LightmapRecords(ptk.LoggingMixin):
         old files behind, read by nobody; the maps *objects* read on entry are
         set aside on a clean exit once no marker in the file reads them
         (:meth:`ptk.FileDependencies.remove_superseded`): to the Recycle Bin
-        or trash, else a ``_superseded`` folder beside them -- never deleted.
+        or trash, else the ``superseded`` temp store -- never deleted.
         A block that raises moves nothing.
 
         Only this file's own maps are candidates: recorded in its folder record
@@ -500,7 +500,7 @@ class LightmapRecords(ptk.LoggingMixin):
         if retired:
             cls.logger.info(
                 "Set aside %d superseded lightmap(s) nothing reads any more -- "
-                "in the Recycle Bin, or a _superseded folder beside them: %s",
+                "in the Recycle Bin, or a temp folder kept 30 days: %s",
                 len(retired),
                 ", ".join(os.path.basename(p) for p in retired),
             )

@@ -48,6 +48,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
+import pythontk as ptk
+
 from blendertk.core_utils._core_utils import CoreUtils
 
 if TYPE_CHECKING:
@@ -416,11 +418,13 @@ class SmartBake(_SmartBakeInternal):
                 scene save/reopen.
             backup_file: Save a pre-bake ``.blend`` snapshot before any destructive edits (mirrors
                 mayatk's ``EnvUtils.save_scene_backup`` precedent) — ``True`` auto-generates an
-                ``"<scene>_prebake.blend"`` path next to the current file, or pass an explicit
+                ``"<scene>_prebake.blend"`` path in the scene's incremental-save folder
+                (``<blend dir>/incrementalSave/<blend file>/``, ``ptk.Workspace.backup_dir``,
+                shared with mayatk), or pass an explicit
                 path string. ``None`` (default) auto-resolves to ``True`` only when
                 ``delete_sources=True`` (the one non-restorable path) — same auto-backup rule as
                 mayatk's. No-op (returns ``None``, warns) if the scene has never been saved —
-                there is no directory to write the backup next to.
+                there is no folder of its own to write the backup into.
         """
         self.objects = objects
         self.sample_by = sample_by
@@ -623,7 +627,7 @@ class SmartBake(_SmartBakeInternal):
 
         Returns:
             The backup path, or ``None`` (backup not requested, or the scene has never been
-            saved — there is no directory to write it next to).
+            saved — there is no folder of its own to write it into).
         """
         if not self.backup_file:
             return None
@@ -640,8 +644,15 @@ class SmartBake(_SmartBakeInternal):
         if isinstance(self.backup_file, str):
             final_path = self.backup_file
         else:
-            base, ext = os.path.splitext(scene_path)
-            final_path = f"{base}_prebake{ext or '.blend'}"
+            # The scene's incremental-save folder, where mayatk's backups of a
+            # scene go too (``ptk.Workspace.backup_dir``) -- never beside it.
+            base, ext = os.path.splitext(os.path.basename(scene_path))
+            try:
+                folder = ptk.Workspace.backup_dir(scene_path, create=True)
+            except OSError as e:
+                logger.warning(f"SmartBake: failed to save backup: {e}")
+                return None
+            final_path = os.path.join(folder, f"{base}_prebake{ext or '.blend'}")
 
         try:
             bpy.ops.wm.save_as_mainfile(filepath=final_path, copy=True)
