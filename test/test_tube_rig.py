@@ -789,9 +789,31 @@ try:
         built and not leftover and bpy.data.objects.get("UndoHose") is not None,
         f"built {len(built)}, leftover {leftover[:4]}",
     )
+    # ...and hands the tube back as it was. The bind parents the tube and adds its
+    # Armature modifier through ``parent_set``; with the step pushed only BEFORE the
+    # build, one Undo removed the rig's objects but left the tube bound -- the modifier
+    # on, parented to the FREED armature (measured 2026-10-17: parent "undohose_arm",
+    # modifiers [ARMATURE]; reading that parent crashed headless Blender). The
+    # modifiers are read first so a dangling parent is never touched.
+    ut = bpy.data.objects.get("UndoHose")
+    mods = [m.type for m in ut.modifiers] if ut else None
+    check(
+        "undo: the tube comes back unbound and unparented",
+        mods == [] and ut.parent is None,
+        f"modifiers={mods}",
+    )
+    bpy.ops.ed.redo()
+    redone = [o.name for o in bpy.data.objects if "undohose" in o.name]
+    ut = bpy.data.objects.get("UndoHose")
+    check(
+        "undo: redo brings the whole rig back, the tube bound",
+        sorted(redone) == sorted(built)
+        and [m.type for m in ut.modifiers] == ["ARMATURE"],
+        f"redone {len(redone)}/{len(built)}",
+    )
 
     check(
-        "undo: b000 is NOT decorated (build already pushes; a second is a 2nd step)",
+        "undo: b000 is NOT decorated (build is one step; an outer push re-stales drivers)",
         not hasattr(TubeRigSlots.b000, "__wrapped__"),
     )
     check(

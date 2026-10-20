@@ -874,7 +874,7 @@ try:
     # Textured mat: image routed through a Mix node — the case Blender's FBX
     # exporter carries NOTHING for (only near-direct socket wiring rides).
     mat = bpy.data.materials.new("MB_textured")
-    mat.use_nodes = True
+    btk.MatUtils.get_node_tree(mat, create=True)
     bsdf = next(n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
     tex_node = mat.node_tree.nodes.new("ShaderNodeTexImage")
     tex_node.image = bpy.data.images.load(tex_path)
@@ -884,7 +884,7 @@ try:
     mat.node_tree.links.new(mix.outputs["Result"], bsdf.inputs["Base Color"])
     # Packed-only image (no file on disk) -> file-less entry, named warning Maya-side.
     packed = bpy.data.materials.new("MB_packed")
-    packed.use_nodes = True
+    btk.MatUtils.get_node_tree(packed, create=True)
     packed_tex = packed.node_tree.nodes.new("ShaderNodeTexImage")
     packed_tex.image = bpy.data.images.new("MB_generated", 4, 4)
     # Untextured mat: flat colors ride the FBX fine -> no entry, but listed in
@@ -946,7 +946,7 @@ try:
             star_tex = os.path.join(star_dir, "crate_BaseColor.png")
             shutil.copyfile(tex_path, star_tex)
             star_mat = bpy.data.materials.new("MB_star")
-            star_mat.use_nodes = True
+            btk.MatUtils.get_node_tree(star_mat, create=True)
             star_bsdf = next(
                 n for n in star_mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"
             )
@@ -1106,7 +1106,7 @@ try:
 
     def _mat(name):
         m = _bpy.data.materials.new(name)
-        m.use_nodes = True
+        btk.MatUtils.get_node_tree(m, create=True)
         nt = m.node_tree
         return m, nt, next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
 

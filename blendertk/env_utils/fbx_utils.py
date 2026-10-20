@@ -210,6 +210,48 @@ class _FbxUtilsInternal(object):
         return repaired
 
     @staticmethod
+    def _force_rig_readability(objects, options: dict) -> List[str]:
+        """Force the options a shipped articulated rig needs to be READ.
+
+        The ``articulation`` record names each joint by its deform bone and binds
+        every grabbed part under its joint (``ArticulatedRig``). An
+        ``object_types`` without ``ARMATURE`` drops the armature -- the joints
+        go and the parts re-root, so nothing binds -- and the exporter's default
+        ``add_leaf_bones`` hangs an ``_end`` bone under every leaf joint, a node
+        no record names and mayatk never writes. The step :meth:`FbxUtils.export`
+        takes for every write, whatever its caller ran.
+
+        Parameters:
+            objects: What the write ships (objects or names).
+            options: ``export_scene.fbx`` kwargs, repaired in place.
+
+        Returns:
+            The repairs made (``"object_types+=ARMATURE"``,
+            ``"add_leaf_bones=False"``); empty when none was needed.
+        """
+        from blendertk.rig_utils.articulated_rig._articulated_rig import (
+            ArticulatedRig,
+        )
+
+        nodes = _FbxUtilsInternal._resolved_objects(objects)
+        if not any(
+            getattr(o, "type", None) == "ARMATURE"
+            and ArticulatedRig.DATA_ATTR in o.keys()
+            for o in nodes
+        ):
+            return []
+        repaired = []
+        if "object_types" in options:
+            types = _FbxUtilsInternal._as_object_types(options["object_types"])
+            if "ARMATURE" not in types:
+                options["object_types"] = types | {"ARMATURE"}
+                repaired.append("object_types+=ARMATURE")
+        if options.get("add_leaf_bones", True):
+            options["add_leaf_bones"] = False
+            repaired.append("add_leaf_bones=False")
+        return repaired
+
+    @staticmethod
     @contextlib.contextmanager
     def _carriers_shippable(objects):
         """Make every local ``data_export`` carrier among *objects* selectable
@@ -558,9 +600,12 @@ class _FbxUtilsInternal(object):
         return clone
 
     @staticmethod
-    def _file_ktime(root, version):
-        """ktime units per second as the file defines them — by file version,
-        exactly as the FBX importer resolves it."""
+    def _ktime_for(version, header_version=None, tc_definition=None):
+        """ktime units per second for a file of *version* whose header is
+        *header_version* and pins *tc_definition* -- exactly as the FBX
+        importer resolves it. A header of version 1004+ may pin the rate
+        explicitly (FBX 7700's TCDefinition opt-in): mirror the importer, or a
+        pinned file gets mis-timed takes."""
         try:
             from io_scene_fbx.fbx_utils import (
                 FBX_KTIME_V7,
@@ -569,21 +614,52 @@ class _FbxUtilsInternal(object):
             )
 
             ktime = FBX_KTIME_V8 if version >= 8000 else FBX_KTIME_V7
-            # A header of version 1004+ may pin the rate explicitly
-            # (FBX 7700's TCDefinition opt-in) — mirror the importer's
-            # resolution exactly, or a pinned file gets mis-timed takes.
-            header = _FbxUtilsInternal._find_elem(root, b"FBXHeaderExtension")
-            hv = header and _FbxUtilsInternal._find_elem(header, b"FBXHeaderVersion")
-            if hv is not None and hv.props and hv.props[0] >= 1004:
-                flags = _FbxUtilsInternal._find_elem(header, b"OtherFlags")
-                tc = flags and _FbxUtilsInternal._find_elem(flags, b"TCDefinition")
-                if tc is not None and tc.props:
-                    ktime = FBX_TIMECODE_DEFINITION_TO_KTIME_PER_SECOND.get(
-                        tc.props[0], FBX_KTIME_V8
-                    )
+            if (
+                header_version is not None
+                and header_version >= 1004
+                and tc_definition is not None
+            ):
+                ktime = FBX_TIMECODE_DEFINITION_TO_KTIME_PER_SECOND.get(
+                    tc_definition, FBX_KTIME_V8
+                )
         except ImportError:  # pre-4.2 addon: a single constant
             from io_scene_fbx.fbx_utils import FBX_KTIME as ktime
         return ktime
+
+    @staticmethod
+    def _file_ktime(root, version):
+        """ktime units per second as the file defines them -- by file version,
+        exactly as the FBX importer resolves it (:meth:`_ktime_for`)."""
+        find = _FbxUtilsInternal._find_elem
+        header = find(root, b"FBXHeaderExtension")
+        hv = header and find(header, b"FBXHeaderVersion")
+        flags = header and find(header, b"OtherFlags")
+        tc = flags and find(flags, b"TCDefinition")
+        return _FbxUtilsInternal._ktime_for(
+            version,
+            hv.props[0] if hv is not None and hv.props else None,
+            tc.props[0] if tc is not None and tc.props else None,
+        )
+
+    @staticmethod
+    def _read_ktime(fbx) -> float:
+        """:meth:`_file_ktime` of a ``ptk.FbxFile`` -- the rate its stored key
+        times count in, as the FBX importer reads them."""
+
+        def child(record, name):
+            for rec in (record or {}).get("children", ()):
+                if rec["name"] == name:
+                    return rec
+            return None
+
+        header = fbx.section("FBXHeaderExtension")
+        hv = child(header, "FBXHeaderVersion")
+        tc = child(child(header, "OtherFlags"), "TCDefinition")
+        return _FbxUtilsInternal._ktime_for(
+            fbx.version,
+            hv["props"][0] if hv and hv["props"] else None,
+            tc["props"][0] if tc and tc["props"] else None,
+        )
 
     @staticmethod
     def _file_frame_scale(root, version):
@@ -1356,26 +1432,29 @@ class _FbxUtilsInternal(object):
     }
 
     @staticmethod
-    def _take_layout(filepath: str, log: logging.Logger) -> Optional[Dict[str, Any]]:
-        """``ptk.FbxFile.take_layout()`` of *filepath*, or ``None`` where the
-        reader cannot read it -- an ASCII or damaged file reaches the importer
-        as it is, and the importer reports it.  Whatever the read trips on
-        (a parser error on an odd file, not only the reader's ``ValueError``):
-        the layout only refines the import, so the importer's own take rule
-        runs, as before the layout was read (mayatk's ``_take_layout``)."""
+    def _take_layout(filepath: str, log: logging.Logger) -> Tuple[Any, Any]:
+        """``(ptk.FbxFile, its take_layout())`` of *filepath*, its curve arrays
+        read once -- the channels the importer drops are read off the same
+        file (:meth:`_land_channels`). ``(None, None)`` where the reader cannot
+        read it -- an ASCII or damaged file reaches the importer as it is, and
+        the importer reports it.  Whatever the read trips on (a parser error
+        on an odd file, not only the reader's ``ValueError``): the layout only
+        refines the import, so the importer's own take rule runs, as before
+        the layout was read (mayatk's ``_take_layout``)."""
         if not ptk.FbxFile.is_fbx(filepath):
-            return None
+            return None, None
         try:
-            return ptk.FbxFile.load(
+            fbx = ptk.FbxFile.load(
                 filepath, decode_arrays=ptk.FbxFile.CURVE_ARRAYS, raw_payloads=False
-            ).take_layout()
+            )
+            return fbx, fbx.take_layout()
         except Exception as error:  # noqa: BLE001 - only refines the import
             log.warning(
                 f"FBX {os.path.basename(filepath)}: its takes cannot be read "
                 f"({error}); it imports as written.",
                 exc_info=not isinstance(error, ValueError),
             )
-            return None
+            return None, None
 
     @staticmethod
     def _take_source(
@@ -1585,6 +1664,315 @@ class _FbxUtilsInternal(object):
                 f"(stash=False): {why(left_out)}"
             )
 
+    # ---- import: the channels the importer drops ---------------------------
+    #
+    # Blender's FBX importer animates node transforms, shape keys and camera
+    # lenses and nothing else (``blen_read_animations``): a node's Visibility
+    # curve and every user-property curve -- Maya's extra attributes, the
+    # render effects' ``opacity`` / ``highlight`` among them -- were read and
+    # thrown away. They land where the Maya bridge's pull lands the same
+    # channels from its manifest, so a scene reads the same whichever door it
+    # came in by.
+
+    @staticmethod
+    def _dropped_channels(fbx, channels, filepath: str, log: logging.Logger):
+        """``(take keys, ktime per second)`` of the *channels* families
+        (:attr:`FbxUtils.IMPORT_CHANNELS`) *fbx* keys -- read before the
+        import, so the parsed file need not outlive it -- or ``None`` (nothing
+        asked, nothing keyed, or a read that trips: the import goes on,
+        warned)."""
+        families = set(channels or ())
+        if fbx is None or not families:
+            return None
+        try:
+            keys = fbx.take_keys(
+                ("Visibility",) if "visibility" in families else (),
+                user="properties" in families,
+            )
+            if not any(keys.values()):
+                return None
+            return keys, _FbxUtilsInternal._read_ktime(fbx)
+        except Exception as error:  # noqa: BLE001 - never refuse the import
+            log.warning(
+                f"FBX {os.path.basename(filepath)}: its visibility and "
+                f"custom-property curves cannot be read ({error}); they are "
+                "not imported.",
+                exc_info=not isinstance(error, ValueError),
+            )
+            return None
+
+    @staticmethod
+    def _channel_owners(objects) -> Callable[[str], Optional[Any]]:
+        """``owner(target) -> object`` for ``ptk.FbxFile.take_keys`` targets
+        among *objects* (what the import created): the object of that name,
+        else the one object bearing it with Blender's ``.001`` clash suffix.
+        ``None`` for a name the file repeats (``name#uid`` -- no keys beats
+        wrong keys), several objects could take, or none does (a bone)."""
+        import re
+
+        named: Dict[str, Any] = {}
+        based: Dict[str, List[Any]] = {}
+        for obj in objects:
+            try:
+                name = obj.name
+            except ReferenceError:
+                continue
+            named[name] = obj
+            based.setdefault(re.sub(r"\.\d{3,}$", "", name), []).append(obj)
+
+        def owner(target: str) -> Optional[Any]:
+            if target in named:
+                return named[target]
+            if re.search(r"#\d+$", target):
+                return None
+            hits = based.get(target, ())
+            return hits[0] if len(hits) == 1 else None
+
+        return owner
+
+    @staticmethod
+    def _channel_label(prop: str, component: str) -> str:
+        """The transfer label ``RenderEffects.apply_channel_records`` lands one
+        user-property curve by: the property for a scalar, the property and
+        its axis for a vector's component (``highlightColorR``)."""
+        from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
+
+        leaf = component[2:] if component.startswith("d|") else component
+        for axes in ("XYZ", "RGB"):
+            if len(leaf) == 1 and leaf in axes:
+                letters = (
+                    "RGB" if prop in RenderEffects.HIGHLIGHT_COLOR_STOPS.keys else "XYZ"
+                )
+                return prop + letters[axes.index(leaf)]
+        return prop
+
+    @staticmethod
+    def _visibility_steps(keys) -> List[Tuple[float, bool]]:
+        """``[(frame, visible)]`` reduced to what plays stepped: the first key,
+        each change and the last key (the curve's extent) -- a baked curve
+        keys every frame. A frame keyed twice holds the later value (a seam
+        between two takes, kept once as the merged file keeps it)."""
+        by_frame: Dict[float, bool] = {}
+        for frame, visible in keys:
+            by_frame[float(frame)] = bool(visible)
+        frames = sorted(by_frame)
+        steps: List[Tuple[float, bool]] = []
+        for frame in frames:
+            if not steps or steps[-1][1] != by_frame[frame]:
+                steps.append((frame, by_frame[frame]))
+        if frames and steps[-1][0] != frames[-1]:
+            steps.append((frames[-1], by_frame[frames[-1]]))
+        return steps
+
+    @staticmethod
+    def _inherited_visibility(own, objects) -> Dict[Any, List[Tuple[float, bool]]]:
+        """``{object: steps}`` for each of *objects* with no visibility curve of
+        its own under one or more ancestors with one (*own*, ``{object:
+        steps}``): visible while every such ancestor is.
+
+        Maya -- and FBX -- hide a node's whole subtree with it; Blender hides
+        no child with its parent, so a group's curve alone would leave every
+        mesh under it on screen. The bridge's Maya-side bake keys exactly
+        these objects (``_inherited_visibility_targets``: unkeyed, under a
+        keyed ancestor) and leaves an object's own curve as authored, as here.
+        """
+        import bisect
+
+        frames = {obj: [f for f, _v in steps] for obj, steps in own.items()}
+        inherited: Dict[Any, List[Tuple[float, bool]]] = {}
+        for obj in objects:
+            if obj in own:
+                continue
+            chain = []
+            parent = obj.parent
+            while parent is not None:
+                if parent in own:
+                    chain.append(parent)
+                parent = parent.parent
+            if not chain:
+                continue
+            track = []
+            for time in sorted({f for p in chain for f in frames[p]}):
+                visible = all(
+                    own[p][max(bisect.bisect_right(frames[p], time) - 1, 0)][1]
+                    for p in chain
+                )
+                track.append((time, visible))
+            inherited[obj] = _FbxUtilsInternal._visibility_steps(track)
+        return inherited
+
+    @classmethod
+    def _take_channels(
+        cls,
+        maps,
+        owner: Callable[[str], Optional[Any]],
+        per_tick: float,
+        frame_offset: float,
+        unresolved: Set[str],
+        static: Dict[Any, Dict[str, Any]],
+    ) -> Tuple[Dict[Any, list], Dict[Any, Dict[str, Dict[str, list]]]]:
+        """``({object: visibility steps}, {object: channel records})`` of one
+        take, from the ``take_keys`` *maps* it unites (each live take's, in
+        file order: a frame two of them key holds the later one's key). Keys
+        land on scene frames (*per_tick*, *frame_offset*); a target no object
+        takes joins *unresolved*; each keyed property's value as imported
+        joins *static*, to be put back once every take is keyed."""
+        visibility: Dict[Any, list] = {}
+        properties: Dict[Any, Dict[str, Dict[str, list]]] = {}
+        for chans in maps:
+            for (target, prop, component), rows in chans.items():
+                obj = owner(target)
+                if obj is None:
+                    unresolved.add(target)
+                    continue
+                if prop == "Visibility":
+                    visibility.setdefault(obj, []).extend(
+                        (t * per_tick + frame_offset, v) for t, v, _m in rows
+                    )
+                    continue
+                if isinstance(obj.get(prop), str):
+                    # An enum the importer made a string (its default): no
+                    # channel. Keyed as a float, the static value put back
+                    # below would leave the curve on a string property.
+                    continue
+                snapshot = static.setdefault(obj, {})
+                if prop in obj.keys() and prop not in snapshot:
+                    value = obj[prop]
+                    snapshot[prop] = (
+                        value.to_list() if hasattr(value, "to_list") else value
+                    )
+                label = cls._channel_label(prop, component)
+                record = properties.setdefault(obj, {}).setdefault(label, {"keys": []})
+                record["keys"].extend(
+                    [t * per_tick + frame_offset, v, m] for t, v, m in rows
+                )
+        steps = {o: cls._visibility_steps(k) for o, k in visibility.items()}
+        return steps, properties
+
+    @classmethod
+    def _land_channels(
+        cls,
+        dropped,
+        layout: Dict[str, Any],
+        play: Optional[str],
+        parked: List[str],
+        created: List[Any],
+        new_actions: List[Any],
+        frame_offset: float,
+        filepath: str,
+        log: logging.Logger,
+    ) -> None:
+        """Land :meth:`_dropped_channels` on what the import created, in the
+        take structure it made: what plays -- the union of the live takes, as
+        the merged file holds them (``ptk.FbxMedia.merge_takes`` keeps every
+        key at its time, a seam once) -- into each object's playing action,
+        and each *parked* take into its own ``<object>|<take>`` action before
+        :meth:`_settle_takes` stashes it, so a take keying none of them gains
+        none. An object the importer gave no action in a take (nothing else
+        keyed it there) gets one, named as the importer names its own.
+
+        * ``Visibility`` -- stepped ``hide_viewport`` / ``hide_render`` keys
+          (``AnimUtils.replay_visibility``: the bridge's manifest replay),
+          inherited by every descendant without a curve of its own
+          (:meth:`_inherited_visibility`).
+        * a user property -- its custom property's fcurve, through
+          ``RenderEffects.apply_channel_records``: the landing the bridge
+          gives the same channels from its shot section (``opacity`` /
+          ``highlight`` as render-effect channels, any other as a float).
+
+        Static values are left as imported: keying writes each property it
+        keys, and a value only a parked take keys must not change the scene.
+        """
+        if not dropped or (play is None and not parked):
+            return
+        import bpy
+
+        from blendertk.anim_utils._anim_utils import AnimUtils
+        from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
+
+        keys, ktime = dropped
+        takes: Dict[str, List[Dict[Any, Any]]] = {}
+        if play is not None:
+            takes[play] = [keys.get(t) or {} for t in layout["live"]]
+        for take in parked:
+            takes[take] = [keys.get(take) or {}]
+        owner = cls._channel_owners(created)
+        # The importer's own conversion (``_convert_fbx_time_to_blender_time``):
+        # the scene's integer rate it set from the file, the importer's offset.
+        per_tick = bpy.context.scene.render.fps / ktime
+        by_take, _unmatched = cls._take_actions(new_actions, list(takes))
+        static: Dict[Any, Dict[str, Any]] = {}
+        unresolved: Set[str] = set()
+        shown: Set[str] = set()
+        inheriting: Set[str] = set()
+        curves = 0
+        try:
+            for take, maps in takes.items():
+                visibility, properties = cls._take_channels(
+                    maps, owner, per_tick, frame_offset, unresolved, static
+                )
+                inherited = cls._inherited_visibility(visibility, created)
+                actions = {
+                    o: a
+                    for o, a in by_take.get(take, ())
+                    if isinstance(o, bpy.types.Object)
+                }
+                for obj in dict.fromkeys([*visibility, *inherited, *properties]):
+                    snapshot = static.setdefault(obj, {})
+                    for path in ("hide_viewport", "hide_render"):
+                        snapshot.setdefault(path, getattr(obj, path))
+                    action = actions.get(obj)
+                    if action is None:
+                        action = bpy.data.actions.new(f"{obj.name}|{take}")
+                        action.use_fake_user = True  # as the importer makes its own
+                        action.slots.new("OBJECT", "Slot")
+                    ad = obj.animation_data or obj.animation_data_create()
+                    held = (ad.action, ad.action_slot)
+                    ad.action = action
+                    ad.action_slot = action.slots[0]
+                    try:
+                        track = visibility.get(obj) or inherited.get(obj)
+                        if track:
+                            AnimUtils.replay_visibility(obj, track)
+                            (shown if obj in visibility else inheriting).add(obj.name)
+                        if obj in properties:
+                            curves += RenderEffects.apply_channel_records(
+                                obj, properties[obj]
+                            )
+                    finally:
+                        if take != play:  # a parked take plays nothing
+                            ad.action = held[0]
+                            if held[0] is not None and held[1] is not None:
+                                ad.action_slot = held[1]
+        finally:
+            for obj, snapshot in static.items():
+                for name, value in snapshot.items():
+                    if name in ("hide_viewport", "hide_render"):
+                        setattr(obj, name, value)
+                    else:
+                        obj[name] = value
+        parts = []
+        if shown:
+            parts.append(
+                f"Visibility on {len(shown)} object(s)"
+                + (f", inherited by {len(inheriting)} more" if inheriting else "")
+            )
+        if curves:
+            parts.append(f"{curves} custom-property curve(s)")
+        if unresolved:
+            names = sorted(unresolved)
+            parts.append(
+                f"{len(names)} target(s) no object here takes (a bone, or a name "
+                "repeated in the file): "
+                + ", ".join(names[:8])
+                + (", ..." if len(names) > 8 else "")
+            )
+        if parts:
+            log.info(
+                f"FBX {os.path.basename(filepath)}: landed what Blender's importer "
+                "drops -- " + "; ".join(parts)
+            )
+
 
 class FbxUtils(_FbxUtilsInternal):
     """FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface)."""
@@ -1611,12 +1999,19 @@ class FbxUtils(_FbxUtilsInternal):
     #: ``SceneRecords.check_producers`` (pinned by test_fbx_utils).  Resolved
     #: lazily, so an uninstalled subsystem is skipped rather than blocking an
     #: export.  Order is irrelevant: the snapshot orders by the records'
-    #: ``after``.  Audio joins when its port lands.
+    #: ``after``.
     PRODUCERS: Dict[Any, Tuple[str, str, str]] = {
         ptk.SceneRecords.SHOTS: (
             "blendertk.anim_utils.shots._shots",
             "BlenderShotStore",
             "produce_export_records",
+        ),
+        # The sound strips (mayatk's row is its AudioClips; Blender's engine
+        # lives on AudioUtils, which has no carrier to clip -- see its module).
+        ptk.SceneRecords.AUDIO: (
+            "blendertk.audio_utils._audio_utils",
+            "AudioUtils",
+            "export_record",
         ),
         ptk.SceneRecords.VISIBILITY: (
             "blendertk.mat_utils.render_opacity.render_effects",
@@ -1636,6 +2031,11 @@ class FbxUtils(_FbxUtilsInternal):
         ptk.SceneRecords.LIGHTMAPS: (
             "blendertk.light_utils.lightmap_baker.lightmap_records",
             "LightmapRecords",
+            "export_record",
+        ),
+        ptk.SceneRecords.ARTICULATION: (
+            "blendertk.rig_utils.articulated_rig._articulated_rig",
+            "ArticulatedRig",
             "export_record",
         ),
     }
@@ -2389,6 +2789,16 @@ class FbxUtils(_FbxUtilsInternal):
                     ", ".join(repaired),
                     " over the options given" if overruled else "",
                 )
+            rigged = FbxUtils._force_rig_readability(written, opts)
+            if rigged:
+                overruled = [
+                    r for r in rigged if r.partition("=")[0].rstrip("+") in fbx_opts
+                ]
+                (logger.warning if overruled else logger.info)(
+                    "FBX export ships an articulated rig: forced %s%s.",
+                    ", ".join(rigged),
+                    " over the options given" if overruled else "",
+                )
             left_out = (
                 FbxUtils._admit_shadow_sources(written, opts) if selection_only else []
             )
@@ -2470,8 +2880,18 @@ class FbxUtils(_FbxUtilsInternal):
                         )
         return filepath
 
+    #: The curves Blender's FBX importer drops that :meth:`import_fbx` lands
+    #: (its ``channels``): ``"visibility"`` -- each node's ``Visibility``, as
+    #: stepped ``hide_viewport`` / ``hide_render`` keys inherited down the
+    #: hierarchy -- and ``"properties"`` -- every animated user property (a
+    #: DCC's custom attribute: the render effects' ``opacity`` / ``highlight``,
+    #: any other) as its custom property's fcurve.
+    IMPORT_CHANNELS = ("visibility", "properties")
+
     @staticmethod
-    def import_fbx(filepath, stash=True, logger=None, **fbx_opts):
+    def import_fbx(
+        filepath, stash=True, logger=None, channels=IMPORT_CHANNELS, **fbx_opts
+    ):
         """Import an FBX file -- ALL of its animation (over ``bpy.ops.import_scene.fbx``).
 
         Args:
@@ -2484,6 +2904,10 @@ class FbxUtils(_FbxUtilsInternal):
                 staged comparison scene) that must not write Key Stash records.
             logger: Where the import reports (the INFO line, the warnings); default this
                 module's logger.
+            channels: Which of the curves the importer drops are landed
+                (:attr:`IMPORT_CHANNELS`, all by default); ``()`` lands none -- for a
+                caller that carries them another way (the Maya bridge, whose manifest
+                replays the source scene's own).
             **fbx_opts: forwarded to ``bpy.ops.import_scene.fbx``.
 
         Returns:
@@ -2491,6 +2915,7 @@ class FbxUtils(_FbxUtilsInternal):
 
         Raises:
             FileNotFoundError: *filepath* does not exist.
+            ValueError: *channels* names a family :attr:`IMPORT_CHANNELS` does not.
 
         No importer merges takes: Blender's makes an action per (take, object), hands each
         object the FIRST take keying it and parks the rest under a fake user, so a Shots
@@ -2514,6 +2939,15 @@ class FbxUtils(_FbxUtilsInternal):
         ``anim_offset`` defaults to 0.0 here, not Blender's 1.0: an imported curve keeps
         the frames it was authored on, which is what Maya's own importer does.
 
+        Blender's importer animates transforms, shape keys and camera lenses only: a
+        node's ``Visibility`` and every custom-attribute curve (``opacity``,
+        ``highlight``) were read and dropped -- a production module keyed them on 558
+        channel-takes and none arrived. Each lands here (*channels*) exactly where the
+        Maya bridge's pull lands it, in the same take structure: stepped
+        ``hide_viewport`` / ``hide_render`` keys (a group's inherited by every
+        descendant without its own, as Maya shows them), a custom property's fcurve
+        through ``RenderEffects.apply_channel_records``.
+
         Every sibling armature binds its meshes here, which the stock importer does not do
         (``env_utils.upstream_patches.SIBLING_ARMATURES``) -- so this wrapper is the only
         supported way to import an FBX that carries more than one skeleton.
@@ -2524,13 +2958,29 @@ class FbxUtils(_FbxUtilsInternal):
         filepath = os.path.abspath(os.path.expandvars(filepath))
         if not os.path.isfile(filepath):
             raise FileNotFoundError(f"FBX not found: {filepath}")
+        channels = tuple(channels or ())
+        unknown = sorted(set(channels) - set(FbxUtils.IMPORT_CHANNELS))
+        if unknown:
+            raise ValueError(
+                f"Unknown FBX import channel(s) {unknown}; "
+                f"expected any of {FbxUtils.IMPORT_CHANNELS}."
+            )
         # Blender's importer defaults this to 1.0, so a curve authored at frames
         # 1-10 arrives at 2-11 and every Maya -> Blender -> Maya hop drifts a frame
         # further (measured on a production module: 3845/4738 -> 3846/4739 ->
         # 3847/4740). Maya's importer shifts nothing, so 0.0 is what makes the two
         # agree. A caller that wants the shift still passes it.
         fbx_opts.setdefault("anim_offset", 0.0)
-        layout = _FbxUtilsInternal._take_layout(filepath, log)
+        fbx, layout = _FbxUtilsInternal._take_layout(filepath, log)
+        # Read now, so the parsed file (its every curve decoded) is not held
+        # through the import.
+        dropped = _FbxUtilsInternal._dropped_channels(
+            fbx if layout and fbx_opts.get("use_anim", True) else None,
+            channels,
+            filepath,
+            log,
+        )
+        del fbx
         alternatives = list(layout["stash"]) if layout else []
         parked = alternatives if stash else []
         with ptk.TempArtifacts("btk_fbx_takes", policy="scoped") as scratch:
@@ -2559,6 +3009,26 @@ class FbxUtils(_FbxUtilsInternal):
             with CoreUtils.window_context_override(), SIBLING_ARMATURES.applied():
                 bpy.ops.import_scene.fbx(filepath=source, **fbx_opts)
             created = [o for o in bpy.data.objects if o not in before]
+        if dropped and layout is not None:
+            # Before the takes settle: a parked take's curves ride its stash.
+            try:
+                _FbxUtilsInternal._land_channels(
+                    dropped,
+                    layout,
+                    play,
+                    parked,
+                    created,
+                    [a for a in bpy.data.actions if a not in before_actions],
+                    float(fbx_opts["anim_offset"]),
+                    filepath,
+                    log,
+                )
+            except Exception as error:  # noqa: BLE001 - never refuse the import
+                log.warning(
+                    f"FBX {os.path.basename(filepath)}: its visibility and "
+                    f"custom-property curves could not be landed ({error}).",
+                    exc_info=True,
+                )
         stashed: List[str] = []
         if parked:
             stashed = _FbxUtilsInternal._settle_takes(
@@ -2658,6 +3128,8 @@ class FbxUtils(_FbxUtilsInternal):
         file_path: str,
         search_dirs: Optional[Iterable[str]] = None,
         logger: Optional[logging.Logger] = None,
+        walk_root: Optional[str] = None,
+        files: Optional[Iterable[Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         """Embed every file a written FBX's scene records name, in place.
 
@@ -2669,8 +3141,12 @@ class FbxUtils(_FbxUtilsInternal):
         inside the file under its name, the form Unity's importer extracts,
         resolved where this scene keeps it: *search_dirs*, else
         :meth:`LightmapRecords.search_dirs` -- the folders the GLB build joins
-        the same names against. The Scene Exporter runs it on its FBX after
-        the GLB conversion, which binds its own copies. Mirror of mayatk's.
+        the same names against; what those miss is looked for anywhere
+        under *walk_root*, the folder the exporter's path check walks. The
+        audio the file's ``audio_manifest`` events play rides in too, each
+        strip's file under its event's name (:meth:`AudioUtils.track_files`).
+        The last of the passes :meth:`finish_deliverable` runs. Mirror of
+        mayatk's.
 
         Never raises -- a failure is a warning and the file stays as written.
         A file that is not a binary FBX is left alone.
@@ -2679,6 +3155,10 @@ class FbxUtils(_FbxUtilsInternal):
             file_path: The FBX just written from this scene.
             search_dirs: Folders to resolve the names against, in priority
                 order; ``None`` asks the scene.
+            walk_root: Where a name they miss is searched for, recursively;
+                ``None`` takes the scene's texture root, ``""`` none.
+            files: Further files to embed (paths or ``(name, path)`` pairs);
+                ``None`` takes the audio the file's events play.
             logger: Where the outcome is said; this module's otherwise.
 
         Returns:
@@ -2690,16 +3170,130 @@ class FbxUtils(_FbxUtilsInternal):
         if not ptk.FbxFile.is_fbx(file_path):
             return None
         try:
-            if search_dirs is None:
-                from blendertk.light_utils.lightmap_baker.lightmap_records import (
-                    LightmapRecords,
-                )
-
-                search_dirs = LightmapRecords.search_dirs()
+            search_dirs, walk_root, files = FbxUtils._dependency_inputs(
+                file_path, search_dirs, walk_root, files, log
+            )
             return ptk.FbxMedia.embed_dependencies(
-                file_path, search_dirs=list(search_dirs), logger=log
+                file_path,
+                search_dirs=search_dirs,
+                walk_root=walk_root,
+                files=files,
+                logger=log,
             )
         except Exception as error:  # noqa: BLE001 -- the deliverable already shipped
             log.warning(f"FBX dependencies: not embedded -- the pass failed: {error}")
             log.debug("Dependency pass failed.", exc_info=True)
             return None
+
+    @staticmethod
+    def finish_deliverable(
+        file_path: str,
+        glb: Optional[str] = None,
+        search_dirs: Optional[Iterable[str]] = None,
+        logger: Optional[logging.Logger] = None,
+        walk_root: Optional[str] = None,
+        files: Optional[Iterable[Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """The passes a written FBX deliverable takes, in place.
+
+        What the Scene Exporter and the Unity bridge run on the FBX they ship,
+        after the GLB built from it (*glb*, whose highlight copies it then
+        shares; ``None`` builds them, through Blender's own image I/O): an
+        instance whose pivots differ from its siblings' gets a mesh of its
+        own, the reflection probe's highlight copies go in, and every file
+        the records name is embedded (:meth:`embed_dependencies`'s folders
+        and audio). ``ptk.MeshConvert.finish_fbx_deliverable`` is the
+        sequence. Mirror of mayatk's.
+
+        Never raises -- a pass that fails is a warning and the next still runs.
+
+        Parameters:
+            file_path: The FBX just written from this scene.
+            glb: The GLB this export built from it, if any.
+            search_dirs: Folders the records' files are resolved against;
+                ``None`` asks the scene.
+            walk_root: Where a name they miss is searched for, recursively;
+                ``None`` takes the scene's texture root, ``""`` none.
+            files: Further files to embed; ``None`` takes the strips' audio.
+            logger: Where the outcome is said; this module's otherwise.
+
+        Returns:
+            ``ptk.MeshConvert.finish_fbx_deliverable``'s report, or ``None``
+            when the file is not a binary FBX. A scene that cannot say where
+            its files are is warned about, and the passes run on what was
+            given: the split, the copies and the drop need none of it.
+        """
+        log = logger or logging.getLogger(__name__)
+        if not ptk.FbxFile.is_fbx(file_path):
+            return None
+        try:
+            search_dirs, walk_root, files = FbxUtils._dependency_inputs(
+                file_path, search_dirs, walk_root, files, log
+            )
+        except Exception as error:  # noqa: BLE001 -- the deliverable already shipped
+            log.warning(
+                f"FBX deliverable: the scene's files not resolved ({error}); "
+                "finishing with the folders and files given."
+            )
+            log.debug("Deliverable inputs failed.", exc_info=True)
+            search_dirs, walk_root, files = list(search_dirs or ()), walk_root or "", files or ()
+        try:
+            # Blender's Python ships no cv2: its own image I/O encodes a build.
+            from blendertk.light_utils.lightmap_baker.web_export import (
+                LightmapWebExport as hdr_codec,
+            )
+        except Exception:  # noqa: BLE001 -- only a highlight build needs it
+            log.debug("No Blender HDR codec for a highlight build.", exc_info=True)
+            hdr_codec = None
+        return ptk.MeshConvert.finish_fbx_deliverable(
+            file_path,
+            glb,
+            search_dirs=search_dirs,
+            walk_root=walk_root,
+            files=files,
+            hdr_codec=hdr_codec,
+            logger=log,
+        )
+
+    @staticmethod
+    def _dependency_inputs(
+        file_path: str,
+        search_dirs: Optional[Iterable[str]],
+        walk_root: Optional[str],
+        files: Optional[Iterable[Any]],
+        log: logging.Logger,
+    ) -> Tuple[List[str], str, Iterable[Any]]:
+        """:meth:`embed_dependencies`'s inputs, each ``None`` asked of the scene."""
+        if search_dirs is None or walk_root is None:
+            from blendertk.light_utils.lightmap_baker.lightmap_records import (
+                LightmapRecords,
+            )
+
+            if search_dirs is None:
+                search_dirs = LightmapRecords.search_dirs()
+            if walk_root is None:
+                walk_root = LightmapRecords._walk_root()
+        if files is None:
+            files = FbxUtils._shipped_audio(file_path, log)
+        return list(search_dirs), walk_root, files
+
+    @staticmethod
+    def _shipped_audio(file_path: str, log) -> List[Tuple[str, str]]:
+        """``(file name, path)`` of the audio the FBX's events play.
+
+        Read off the ``audio_manifest`` the file itself carries (each event
+        names its strip: ``ptk.FbxMedia.audio_events``), resolved through the
+        scene's strips; a strip whose file is missing is said once and left
+        out. Mirror of mayatk's.
+        """
+        from blendertk.audio_utils._audio_utils import AudioUtils
+
+        names = ptk.FbxMedia.audio_events(file_path)
+        found = AudioUtils.track_files(names)
+        missing = sorted(set(names) - {os.path.splitext(n)[0] for n, _ in found})
+        if missing:
+            log.warning(
+                "FBX dependencies: no audio file for event(s) "
+                f"{', '.join(missing)}; the deliverable ships without them."
+            )
+        return found

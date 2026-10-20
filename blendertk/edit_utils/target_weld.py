@@ -191,8 +191,9 @@ class _TargetWeldInternal(object):
         """Weld the armed source onto the released target (same-object pairs only). Pushes one
         undo step per completed weld so Ctrl+Z steps weld-by-weld, like Maya."""
         import bmesh
-        import bpy
         from mathutils import Vector
+
+        from blendertk.core_utils._core_utils import CoreUtils
 
         if source["obj"] != target["obj"]:
             op._notice = "Source and target must belong to the same mesh."
@@ -218,7 +219,7 @@ class _TargetWeldInternal(object):
         bmesh.update_edit_mesh(obj.data, loop_triangles=True, destructive=True)
         op._caches.pop(obj.name, None)  # indices shifted — force a rebuild
         op._welds += 1
-        bpy.ops.ed.undo_push(message="Target Weld")
+        CoreUtils.undo_push("Target Weld")
         return True
 
     @staticmethod

@@ -531,6 +531,13 @@ class TestShotsPanelLoads(unittest.TestCase):
                 "chk_delete_contents",
                 "chk_close_gap",
                 "btn_move_shot",
+                "btn_swap_shot",
+                "cmb_swap_mode",
+                "cmb_swap_with",
+                "chk_swap_retain_name",
+                "chk_swap_retain_description",
+                "chk_swap_retain_locked",
+                "chk_swap_retain_metadata",
                 "btn_trim_leading",
                 "btn_trim_trailing",
                 "btn_trim_both",
@@ -673,6 +680,15 @@ class TestShotsPanelLoads(unittest.TestCase):
         self.ui.slots.btn_shift_all()
         self.assertEqual([(s.start, s.end) for s in store.sorted_shots()], [(0, 20)])
 
+    def test_the_retain_options_are_the_engines_swap_fields(self):
+        """One checkbox per ``ShotSequencer.SWAP_FIELDS``: a field the engine
+        adds must not go missing from the option box."""
+        ctrl = self.ui.slots.controller
+        self.assertEqual(
+            [field for field, _label, _tip in ctrl._SWAP_RETAIN],
+            list(ctrl._sequencer_cls().SWAP_FIELDS),
+        )
+
     def test_every_option_box_button_survives_being_pressed(self):
         """A slot reaching a controller helper through ``self`` raises here.
 
@@ -690,6 +706,7 @@ class TestShotsPanelLoads(unittest.TestCase):
             "btn_trim_all_trailing",
             "btn_trim_all_both",
             "btn_move_shot",
+            "btn_swap_shot",
             "btn_trim_empty",
             "btn_trim_leading",
             "btn_trim_trailing",

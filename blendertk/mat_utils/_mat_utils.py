@@ -32,6 +32,21 @@ class _MatUtilsInternal:
         return bool(getattr(mat, "is_grease_pencil", False))
 
     @staticmethod
+    def _nodes_always_on(idblock) -> bool:
+        """Whether *idblock* renders through its node tree unconditionally.
+
+        True where ``use_nodes`` is deprecated (Blender 5.x: pinned True, and
+        every read or write warns) or gone (6.0: reading raises); False on 4.x,
+        where a tree with ``use_nodes`` off is ignored by the renderer and the
+        glTF exporter. Probed on the RNA definition, which never trips the
+        deprecation warning, so the answer follows the build, not a version
+        number.
+        """
+        rna = getattr(idblock, "bl_rna", None)
+        prop = rna.properties.get("use_nodes") if rna is not None else None
+        return prop is None or bool(getattr(prop, "is_deprecated", False))
+
+    @staticmethod
     def _material_image_nodes(mat):
         """``(node, image)`` pairs for the TOP-LEVEL image-texture nodes of ``mat``'s
         node tree. Group-nested textures are invisible here — a consumer that must see
@@ -81,7 +96,12 @@ class _MatUtilsInternal:
         """The node feeding the material output's ``Surface`` input (active output
         preferred), or ``None`` — the node whose type/settings define what the material
         *is* (duplicate verification compares materials at this node)."""
-        nt = getattr(mat, "node_tree", None)
+        return _MatUtilsInternal._tree_surface_node(getattr(mat, "node_tree", None))
+
+    @staticmethod
+    def _tree_surface_node(nt):
+        """The node feeding *nt*'s material output ``Surface`` -- the ACTIVE output, else
+        the first (a tree may hold several, and only the active one renders) -- or ``None``."""
         if not nt:
             return None
         outs = [n for n in nt.nodes if n.type == "OUTPUT_MATERIAL"]
@@ -626,11 +646,10 @@ class _MatUtilsInternal:
     @staticmethod
     def _principled_node(mat):
         """The material's Principled BSDF node, or None."""
-        if not (mat and getattr(mat, "use_nodes", False)):
+        tree = MatUtils.get_node_tree(mat)
+        if tree is None:
             return None
-        return next(
-            (n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None
-        )
+        return next((n for n in tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
 
     @staticmethod
     def _set_principled_inputs(node, params):
@@ -1627,6 +1646,39 @@ class MatUtils(_MatUtilsInternal):
     """Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level)."""
 
     @staticmethod
+    def get_node_tree(idblock, create: bool = False):
+        """The node tree *idblock* renders through, or ``None``.
+
+        The one gate on ``use_nodes`` for a material, world or light: the flag
+        is deprecated on Blender 5.x (pinned True; reading or writing it warns)
+        and removed in 6.0 (reading raises), but on 4.x it decides whether the
+        tree is used at all. Call this instead of touching the flag -- a read
+        is ``get_node_tree(mat) is not None``, an enable is
+        ``get_node_tree(mat, create=True)``.
+
+        Parameters:
+            idblock: A material, world or light (any datablock with a
+                ``node_tree``); ``None`` gives ``None``.
+            create: Turn nodes on where they are off, which on 4.x also builds
+                the default tree. Where the flag is deprecated or gone, the
+                tree is returned as is: setting it there does nothing.
+
+        Returns:
+            The node tree, or ``None`` when *idblock* renders through none.
+        """
+        if idblock is None:
+            return None
+        tree = getattr(idblock, "node_tree", None)
+        if _MatUtilsInternal._nodes_always_on(idblock):
+            return tree
+        if tree is not None and idblock.use_nodes:
+            return tree
+        if not create:
+            return None
+        idblock.use_nodes = True
+        return idblock.node_tree
+
+    @staticmethod
     def get_mats(objects):
         """Unique materials assigned to the given object(s), in slot order."""
         seen = []
@@ -1648,14 +1700,14 @@ class MatUtils(_MatUtilsInternal):
             rgb = [random.uniform(0.1, 1.0) for _ in range(3)]
             name = name or "mat_" + "".join(f"{int(c * 255):02x}" for c in rgb)
             mat = bpy.data.materials.new(name)
-            mat.use_nodes = True
+            tree = MatUtils.get_node_tree(mat, create=True)
             mat.diffuse_color = (*rgb, 1.0)
-            bsdf = mat.node_tree.nodes.get("Principled BSDF")
+            bsdf = tree.nodes.get("Principled BSDF")
             if bsdf:
                 bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
             return mat
         mat = bpy.data.materials.new(name or "material")
-        mat.use_nodes = True
+        MatUtils.get_node_tree(mat, create=True)
         return mat
 
     @staticmethod
@@ -2994,8 +3046,8 @@ class MatUtils(_MatUtilsInternal):
         Socket links use positional indices (stable within a Blender version) — see
         :func:`restore_material` for the round-trip.
         """
-        nt = getattr(material, "node_tree", None)
-        if not (material and getattr(material, "use_nodes", False) and nt):
+        nt = MatUtils.get_node_tree(material)
+        if nt is None:
             return {"nodes": [], "links": []}
 
         # The graph's images are one set, read together (a set named for a lobe,
@@ -3081,8 +3133,7 @@ class MatUtils(_MatUtilsInternal):
             return mat
 
         mat = bpy.data.materials.new(name or "ShaderTemplate")
-        mat.use_nodes = True
-        nt = mat.node_tree
+        nt = MatUtils.get_node_tree(mat, create=True)
         nt.nodes.clear()  # drop the default Principled + Output; the snapshot is authoritative
 
         by_type = {}  # map type -> texture path (first wins) for image rebinding

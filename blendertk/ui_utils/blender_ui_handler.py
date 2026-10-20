@@ -88,6 +88,9 @@ class BlenderUiHandler(UiHandler):
         # And keep the scene records' paths spelled from the file's own
         # project across a Save As into another one (mirror of MayaUiHandler).
         self._install_record_path_rebase()
+        # Blender only: an articulated rig's end control is solved by blendertk's
+        # handlers (Maya's by an expression node the scene carries).
+        self._install_articulated_rig_solve()
 
         # Wrap Blender's native menus for the both-button chord menu (mirror of the way
         # MayaUiHandler wraps Maya's). Register a lightweight proxy per symbolic node name so a
@@ -104,6 +107,17 @@ class BlenderUiHandler(UiHandler):
             from blendertk.node_utils.data_nodes import DataNodes
 
             return DataNodes.install_path_rebase()
+        except Exception:  # never let a wiring hiccup block UI-handler startup
+            return False
+
+    @staticmethod
+    def _install_articulated_rig_solve() -> bool:
+        """``ArticulatedRig.install``, once per session: the end controls' solve
+        handlers. Never blocks UI-handler startup."""
+        try:
+            import blendertk as btk  # the root: rig_utils ranks above ui_utils
+
+            return btk.ArticulatedRig.install()
         except Exception:  # never let a wiring hiccup block UI-handler startup
             return False
 

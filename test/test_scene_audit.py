@@ -94,7 +94,7 @@ try:
 
     def new_material(name):
         mat = bpy.data.materials.new(name)
-        mat.use_nodes = True
+        btk.MatUtils.get_node_tree(mat, create=True)
         return mat
 
     def row_of(text, first_cell):
@@ -806,6 +806,28 @@ try:
         and all(t[1] == 100 and isinstance(t[2], str) for t in ticks)
         and percents == sorted(percents),
         f"{ticks}",
+    )
+
+    # ---- units: a size in centimetres is Units.metres_per's, the FBX writer's
+    # factor -- under a unit system of None a BU is one metre, whatever
+    # scale_length still holds. Added: 2026-10-19
+    reset()
+    bpy.ops.mesh.primitive_cube_add(size=2.0)  # diagonal 2*sqrt(3) BU
+    units = bpy.context.scene.unit_settings
+    held = (units.system, units.scale_length)
+    try:
+        diags = {}
+        for system, scale in (("METRIC", 0.01), ("NONE", 0.01)):
+            units.system, units.scale_length = system, scale
+            audit = SceneAnalyzer._collect(None, False, False, False)
+            diags[system] = audit["meshes"][0]["diag"]
+    finally:
+        units.system, units.scale_length = held
+    want = 2.0 * 3**0.5
+    check(
+        "the size audit reads the BU as the export does (system None: 1 m)",
+        abs(diags["METRIC"] - want) < 1e-3 and abs(diags["NONE"] - want * 100) < 1e-2,
+        f"{diags} want METRIC {want:.4f} cm, NONE {want * 100:.4f} cm",
     )
 
 except Exception as e:

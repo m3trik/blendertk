@@ -563,6 +563,8 @@ class UiUtils(_UiUtilsInternal):
         Supported actions:
             ``open``   — open *path* (file or directory) in the OS shell.
                          Accepts ``?path=`` (canonical) or ``?filepath=`` (legacy).
+            ``preview`` — show the ``.glb`` at *path* in the WebXR preview
+                         (``WebXrPreview.preview_file``: the panel's own server and tab).
             ``select`` — select *node* (an object name) in the viewport, making it active.
             ``reveal`` — select *node* and frame it in the 3D viewport (Blender has no scripted
                          Outliner "reveal" like Maya's ``showSelected``; framing the viewport is the
@@ -599,6 +601,14 @@ class UiUtils(_UiUtilsInternal):
             if not ptk.FileUtils.open_explorer(filepath, logger=logger):
                 return False
             return True
+
+        if action == "preview":
+            path = params.get("path", [""])[0]
+            if not path:
+                return False
+            from blendertk.env_utils.webxr_preview import WebXrPreview
+
+            return WebXrPreview().preview_file(path, logger=logger)
 
         # Node-based actions need bpy; defer the import so the ``open`` branch above stays usable
         # in non-Blender contexts.

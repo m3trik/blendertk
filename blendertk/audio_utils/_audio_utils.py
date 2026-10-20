@@ -29,7 +29,9 @@ scriptJob/callback plumbing to keep a combo in sync with the playhead (the Seque
 already shows exactly what is live). What is left, genuinely needed, and built here: clip
 CRUD (add/remove/rename/replace/trim/move) plus fitting the scene frame range to the loaded
 clips (:func:`AudioUtils.sync_scene_range` — the one thing actually named "sync" in the
-mayatk feature set that has a real Blender counterpart).
+mayatk feature set that has a real Blender counterpart), and what an FBX deliverable needs
+to play the clips: the ``audio_manifest`` record (:func:`AudioUtils.export_record`, read off
+the strips) and the files its events name (:func:`AudioUtils.track_files`).
 
 Carrier
 -------
@@ -464,3 +466,135 @@ class AudioUtils(ptk.LoggingMixin):
         scene.frame_start = int(new_start)
         scene.frame_end = int(max(new_end, new_start))
         return scene.frame_start, scene.frame_end
+
+    # ------------------------------------------------------------------
+    # Export: the ``audio_manifest`` record and the files it names
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def bake_events(cls, scene=None) -> List[Tuple[int, str]]:
+        """``[(frame, track id), ...]`` for every strip that plays, by frame.
+
+        Mirror of mayatk's ``AudioUtils.bake_events``: raw scene frames, the
+        rebasing left to :meth:`export_record`. A strip is its own track --
+        its name is the track id, as :class:`AudioSegment` reads it -- with
+        one start, the visible start it is heard from. A muted strip, or one
+        on a muted channel, plays nothing and ships no event (mayatk's
+        ``off`` key).
+
+        Parameters:
+            scene: The scene to read; ``None`` for the current one.
+
+        Returns:
+            The events, sorted by frame; empty with no sequence editor.
+        """
+        seq_ed = cls.get_sequence_editor(scene)
+        if seq_ed is None:
+            return []
+        channels = seq_ed.channels
+        events = [
+            (int(strip.left_handle), strip.name)
+            for strip in seq_ed.strips
+            if strip.type == "SOUND"
+            and not strip.mute
+            and not channels[strip.channel].mute
+        ]
+        events.sort(key=lambda event: event[0])
+        return events
+
+    @classmethod
+    def track_files(cls, track_ids: List[str], scene=None) -> List[Tuple[str, str]]:
+        """``(file name, path)`` of each track in *track_ids* whose file exists.
+
+        Mirror of mayatk's: the file name is the TRACK ID -- here the strip's
+        name -- with the file's extension. An ``audio_manifest`` event names
+        its track and a consumer matches the clip by that name (unitytk's
+        importer, by stem), so an FBX deliverable embeds each strip's audio
+        under it (``FbxUtils.embed_dependencies``). A strip whose sound has no
+        file on disk -- a moved file, or a sound packed into the .blend with
+        none -- is left out.
+
+        Parameters:
+            track_ids: The strips to look up, in the order wanted.
+            scene: The scene to read; ``None`` for the current one.
+
+        Returns:
+            ``[(track id + extension, path), ...]`` in *track_ids* order.
+        """
+        found: List[Tuple[str, str]] = []
+        for track_id in track_ids:
+            info = cls.get_clip(track_id, scene)
+            path = info["filepath"] if info else ""
+            if path and os.path.isfile(path):
+                found.append(
+                    (f"{track_id}{os.path.splitext(path)[1]}", os.path.normpath(path))
+                )
+        return found
+
+    @classmethod
+    def export_record(cls, ctx: "ptk.ExportContext") -> Optional["ptk.Record"]:
+        """The ``audio_manifest`` record for this scene, or ``None`` when there
+        is nothing to publish -- the ``ptk.SceneRecords.AUDIO`` producer
+        (``FbxUtils.PRODUCERS``, mirror of mayatk's
+        ``AudioClips.export_record``). Pure: it reads the strips and the takes
+        and never writes.
+
+        Each playing strip is an event (:meth:`bake_events`), scoped by
+        ``ptk.AudioUtils.scope_events`` to the takes the shot record declares
+        (``ptk.SceneRecords.declared_takes`` over ``ctx.record``: produced
+        earlier in the same assembly -- the record declares
+        ``after=("shot_metadata",)`` -- else as stored). A ``full`` Animation
+        Clips mode realizes no take, so its events ship unscoped, counted
+        from the whole-timeline take's first frame: ``ctx.clip_span`` when
+        the pipeline measured it, else the range the write bakes
+        (``FbxUtils.bake_range``). Noted on *ctx*: an event outside every
+        take, and a strip trimmed at its head -- the record carries no source
+        offset, so the consumer plays the file from its start.
+
+        Parameters:
+            ctx: The export's decisions and the records produced before this
+                one.
+
+        Returns:
+            The record (``{"version", "events": [...], "fps"}``: the frames
+            count at the scene's rate, which travels with them), or ``None``
+            when no strip plays.
+        """
+        import bpy
+
+        from blendertk.env_utils.fbx_utils import FbxUtils
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        scene = bpy.context.scene
+        events = cls.bake_events(scene)
+        if not events:
+            return None
+        declared = ptk.SceneRecords.declared_takes(
+            lambda key: ctx.record(key, DataNodes)
+        )
+        takes = [] if ctx.clip_mode == "full" else declared
+        stack = ctx.clip_span or FbxUtils.bake_range(declared)
+        origin = stack[0] if stack else scene.frame_start
+        scoped, dropped = ptk.AudioUtils.scope_events(events, takes, origin)
+        if dropped:
+            ctx.note(
+                f"Audio: {len(dropped)} event(s) outside every shot take were "
+                f"left out (they can never fire in a clip): {', '.join(dropped)}."
+            )
+        playing = {name for _, name in events}
+        trimmed = [
+            clip["name"]
+            for clip in cls.list_clips(scene)
+            if clip["name"] in playing and clip["trim_start"] > 0
+        ]
+        if trimmed:
+            ctx.note(
+                f"Audio: {', '.join(trimmed)} trimmed at the head; the "
+                "deliverable plays each from its file's start, at the strip's "
+                "visible start."
+            )
+        if not scoped:
+            return None
+        return ptk.SceneRecords.AUDIO.make(
+            {"events": scoped, "fps": cls.get_fps(scene)}
+        )

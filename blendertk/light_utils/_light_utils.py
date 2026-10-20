@@ -97,23 +97,14 @@ class _LightUtilsInternal(object):
                 return None
             world = bpy.data.worlds.new("World")
             scene.world = world
-        nt = world.node_tree
-        # The absent-tree case is the 4.x find-or-create. The second clause is
-        # 4.x too and is the one a pure `nt is None` guard misses: there, a
-        # world can carry a tree while ``use_nodes`` is False, and the renderer
-        # ignores the tree in that state -- so the caller would edit nodes,
-        # report success, and still render flat. The old unconditional write
-        # covered it; the guard that replaced it did not. Version-gated rather
-        # than probed, because on 5.x merely READING ``use_nodes`` emits a
-        # deprecation warning and it is pinned True regardless, and 6.0 removes
-        # it (where reading raises) -- so on 5.x+ this is never evaluated and
-        # behaviour is byte-identical to the plain `nt is None` guard.
-        if create and (
-            nt is None or (bpy.app.version < (5, 0) and not world.use_nodes)
-        ):
-            world.use_nodes = True
-            nt = world.node_tree
-        return nt
+        if not create:
+            return world.node_tree
+        # Through the one ``use_nodes`` gate: on 4.x a world can carry a tree
+        # while nodes are off, and the renderer ignores it there -- the caller
+        # would edit nodes, report success, and still render flat.
+        from blendertk.mat_utils._mat_utils import MatUtils
+
+        return MatUtils.get_node_tree(world, create=True)
 
     @staticmethod
     def _node(nt, name, type_):
@@ -653,6 +644,16 @@ class LightUtils(_LightUtilsInternal):
         import bpy
         import mathutils
 
+        records = list(records or [])
+        # A HIDDEN empty is never depsgraph-evaluated, so its ``matrix_world`` still
+        # reads the origin after an import -- and a hidden source light ships its
+        # null hidden (FBX Visibility 0 -> ``hide_viewport``), so its lamp landed at
+        # the world origin. Each record's empty is shown before the update below:
+        # it is removed further down, and the lamp takes the RECORD's hidden state.
+        for record in records:
+            empty = bpy.data.objects.get(record.get("name") or "")
+            if getattr(empty, "type", None) == "EMPTY" and empty.hide_viewport:
+                empty.hide_viewport = False
         # ``matrix_world`` is evaluated state: an object whose transform was set since
         # the last depsgraph update still reports identity, and every placement here
         # is read from it. Cheap once per call, and it makes the function correct for
@@ -661,7 +662,7 @@ class LightUtils(_LightUtilsInternal):
         bpy.context.view_layer.update()
 
         built = {}
-        for record in records or []:
+        for record in records:
             name = record.get("name")
             empty = bpy.data.objects.get(name) if name else None
             # The record names the light's PLACEHOLDER, and the placeholder is
@@ -883,9 +884,11 @@ class LightUtils(_LightUtilsInternal):
                     if slot.material is not None and slot.material not in materials:
                         materials.append(slot.material)
 
+        from blendertk.mat_utils._mat_utils import MatUtils
+
         touched = []
         for material in materials:
-            if not material.use_nodes or material.node_tree is None:
+            if MatUtils.get_node_tree(material) is None:
                 continue
             for node in material.node_tree.nodes:
                 if node.type != "BSDF_PRINCIPLED":

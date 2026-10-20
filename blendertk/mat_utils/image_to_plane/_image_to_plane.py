@@ -86,6 +86,7 @@ class ImageToPlane(ptk.LoggingMixin):
         mayatk's ``ImageToPlane.remove``. ``None`` → the current selection. Returns the count removed."""
         import bpy
         from blendertk.core_utils._core_utils import CoreUtils
+        from blendertk.mat_utils._mat_utils import MatUtils
 
         if objects is None:
             objects = list(CoreUtils.selected_objects())
@@ -96,11 +97,10 @@ class ImageToPlane(ptk.LoggingMixin):
             mats = [ms.material for ms in obj.material_slots if ms.material]
             imgs = []
             for mat in mats:
-                if mat.use_nodes:
+                tree = MatUtils.get_node_tree(mat)
+                if tree is not None:
                     imgs += [
-                        n.image
-                        for n in mat.node_tree.nodes
-                        if n.type == "TEX_IMAGE" and n.image
+                        n.image for n in tree.nodes if n.type == "TEX_IMAGE" and n.image
                     ]
             mesh = obj.data if obj.type == "MESH" else None
             bpy.data.objects.remove(obj, do_unlink=True)
@@ -160,9 +160,10 @@ class ImageToPlane(ptk.LoggingMixin):
         import bpy
 
         image.colorspace_settings.name = "sRGB"  # color image (albedo), not data
+        from blendertk.mat_utils._mat_utils import MatUtils
+
         mat = bpy.data.materials.new(name)
-        mat.use_nodes = True
-        nt = mat.node_tree
+        nt = MatUtils.get_node_tree(mat, create=True)
         bsdf = nt.nodes.get("Principled BSDF") or next(
             (n for n in nt.nodes if n.type == "BSDF_PRINCIPLED"), None
         )

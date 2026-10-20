@@ -429,6 +429,19 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
             empties.append(entry)
         return empties
 
+    @staticmethod
+    def _node_tree(mat):
+        """The tree *mat* renders through (``MatUtils.get_node_tree``).
+
+        A seam: mayatk's pull templates carry dependency-free copies of
+        :meth:`_material_files` / :meth:`_material_slots` with this gate inlined,
+        and their drift guard runs those methods lifted from this source against
+        a stub that supplies it -- so the methods themselves import nothing.
+        """
+        from blendertk.mat_utils._mat_utils import MatUtils
+
+        return MatUtils.get_node_tree(mat)
+
     @classmethod
     def _material_files(cls, mat) -> Tuple[List[str], int]:
         """``(files, image_node_count)`` -- every image-texture file feeding *mat*.
@@ -455,7 +468,7 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
                 elif node.bl_idname == "ShaderNodeGroup":
                     walk(node.node_tree, seen)
 
-        walk(mat.node_tree if mat.use_nodes else None, set())
+        walk(cls._node_tree(mat), set())
         return files, node_count
 
     # Principled input -> the manifest's logical-channel vocabulary (resolved
@@ -530,10 +543,9 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
         feeding into a group) is not traced -- it simply yields no slot, which
         degrades to today's filename-only behavior rather than to a wrong answer.
         """
-        if not getattr(mat, "use_nodes", False) or mat.node_tree is None:
+        tree = cls._node_tree(mat)
+        if tree is None:
             return {}
-
-        tree = mat.node_tree
         # Interior hops stay node-keyed (a converter's outputs are one signal);
         # only the SEED hop is socket-keyed, which is where Color vs Alpha
         # diverge.

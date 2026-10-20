@@ -173,6 +173,42 @@ try:
         stats["curves_before"] == 1 and stats["keys_before"] == 2,
         f"{stats}",
     )
+
+    # ---- replay_visibility: the ONE landing every carrier's visibility takes
+    # (the bridge manifest, an FBX's own Visibility curves, a USD stage): both
+    # hide channels, stepped, a falsy value hiding -- Maya/FBX values pass
+    # straight through. Added: 2026-10-17
+    blink = empty("replay_blink")
+    written = AnimUtils.replay_visibility(
+        blink, [(1, 1.0), (5, 0.0), (9, 1)], frame_offset=1.0
+    )
+    curves = {
+        fc.data_path: fc
+        for fc in AnimUtils.get_fcurves([blink])
+        if fc.data_path in ("hide_viewport", "hide_render")
+    }
+    check(
+        "replay_visibility: every key on both hide channels, offset, stepped",
+        written == 3
+        and sorted(curves) == ["hide_render", "hide_viewport"]
+        and all(
+            [(k.co.x, k.co.y, k.interpolation) for k in fc.keyframe_points]
+            == [(2.0, 0.0, "CONSTANT"), (6.0, 1.0, "CONSTANT"), (10.0, 0.0, "CONSTANT")]
+            for fc in curves.values()
+        ),
+        f"written={written} "
+        + str(
+            {
+                p: [(k.co.x, k.co.y, k.interpolation) for k in fc.keyframe_points]
+                for p, fc in curves.items()
+            }
+        ),
+    )
+    check(
+        "replay_visibility: no keys, no curve",
+        AnimUtils.replay_visibility(empty("replay_none"), []) == 0
+        and not AnimUtils.get_fcurves([bpy.data.objects["replay_none"]]),
+    )
 except Exception as e:  # noqa: BLE001
     traceback.print_exc()
     lines.append("FAIL test raised | " + repr(e))

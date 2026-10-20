@@ -43,6 +43,7 @@ def check(name, cond, detail=""):
 
 try:
     import bpy
+    from blendertk.mat_utils._mat_utils import MatUtils
     from blendertk.env_utils.scene_exporter._scene_exporter import SceneExporter
     from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
     from blendertk.rig_utils.shadow_rig import ShadowRig
@@ -66,9 +67,7 @@ try:
     texture.file_format = "PNG"
     texture.save()
     material = bpy.data.materials.new("Crate_mat")
-    if material.node_tree is None:  # 4.x only; 5.x deprecates use_nodes, 6.0 drops it
-        material.use_nodes = True
-    tree = material.node_tree
+    tree = MatUtils.get_node_tree(material, create=True)
     tex_node = tree.nodes.new("ShaderNodeTexImage")
     tex_node.image = texture
     tree.links.new(
@@ -102,6 +101,25 @@ try:
         f"{sources}",
     )
 
+    # A sound strip on the timeline: Unity matches an AudioClip to an
+    # ``audio_manifest`` event by name, and an event names its TRACK (the
+    # strip), not the strip's file -- so the file goes in under the event's
+    # name, its extension kept (mirror of mayatk's
+    # test_the_shipped_audio_rides_inside_under_its_event_names).
+    import json
+    import wave
+
+    from blendertk.audio_utils._audio_utils import AudioUtils
+
+    wav = os.path.join(root, "sound", "footstep_take3.wav")
+    os.makedirs(os.path.dirname(wav), exist_ok=True)
+    with wave.open(wav, "wb") as clip:
+        clip.setnchannels(1)
+        clip.setsampwidth(2)
+        clip.setframerate(22050)
+        clip.writeframes(b"\x00\x10" * 2205)
+    track = AudioUtils.add_clip(wav, frame_start=1, name="footstep")
+
     out = os.path.join(root, "deliverable")
     os.makedirs(out, exist_ok=True)
     ok = SceneExporter().perform_export(
@@ -130,6 +148,22 @@ try:
     check(
         "the material's texture is inside the FBX, whole",
         embedded.get("Crate_Base_color.png") == os.path.getsize(base_color),
+        f"embedded={sorted(embedded)}",
+    )
+    manifests = [
+        json.loads(bytes(value).decode("utf-8"))
+        for value in ptk.FbxFile.load(fbx, raw_payloads=False).user_properties(
+            ptk.SceneRecords.AUDIO.key
+        )
+    ]
+    check(
+        "the FBX's audio_manifest names the strip's event",
+        [e.get("name") for m in manifests for e in m.get("events", [])] == [track],
+        f"{manifests}",
+    )
+    check(
+        "the strip's file is inside the FBX, whole, under its event's name",
+        embedded.get(f"{track}.wav") == os.path.getsize(wav),
         f"embedded={sorted(embedded)}",
     )
     beside = sorted(os.listdir(out))

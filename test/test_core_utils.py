@@ -274,12 +274,32 @@ try:
     # bundled one — and (b) go through PackageManager.install_targeted (pip-resolver
     # plan + --no-deps apply), never a raw resolver-blind `pip install --target`.
     import os as _os
+    import shutil as _shutil_pin
     from blendertk.core_utils import _core_utils as _cu_mod
 
-    target_dir, legacy_dir = _cu_mod._CoreUtilsInternal._engine_install_dirs()
+    # A test run names its own packages dir (run_tests.py pins BLENDERTK_PACKAGES_DIR
+    # inside its temp root) so a provisioning under test never writes the user's
+    # profile: the profile default is read with the pin lifted, the pin honoured.
+    _pin = _os.environ.pop("BLENDERTK_PACKAGES_DIR", None)
+    try:
+        profile_dir, legacy_dir = _cu_mod._CoreUtilsInternal._engine_install_dirs()
+        _os.environ["BLENDERTK_PACKAGES_DIR"] = _os.path.join(
+            HERE, "temp_tests", "_packages_pin"
+        )
+        pinned_dir = _cu_mod._CoreUtilsInternal._engine_install_dirs()[0]
+    finally:
+        _os.environ.pop("BLENDERTK_PACKAGES_DIR", None)
+        if _pin is not None:
+            _os.environ["BLENDERTK_PACKAGES_DIR"] = _pin
+        _shutil_pin.rmtree(_os.path.join(HERE, "temp_tests", "_packages_pin"), True)
     check("engine install dir is scripts/addons/modules (tail precedence)",
-          _os.path.normpath(target_dir).lower().endswith(_os.path.normpath("scripts/addons/modules")),
-          target_dir)
+          _os.path.normpath(profile_dir).lower().endswith(_os.path.normpath("scripts/addons/modules")),
+          profile_dir)
+    check("BLENDERTK_PACKAGES_DIR names the install dir (a test run's sandbox)",
+          _os.path.normcase(pinned_dir)
+          == _os.path.normcase(_os.path.join(HERE, "temp_tests", "_packages_pin")),
+          pinned_dir)
+    target_dir = _cu_mod._CoreUtilsInternal._engine_install_dirs()[0]
     check("legacy dir is the old top-precedence scripts/modules",
           _os.path.normpath(legacy_dir).lower().endswith(_os.path.normpath("scripts/modules"))
           and "addons" not in _os.path.normpath(legacy_dir).lower().split(_os.sep)[-2],
@@ -675,16 +695,20 @@ try:
                     cmb_scope=_NS(currentText=lambda: scope),
                     footer=_NS(setText=texts.append, text=lambda: texts[-1]),
                 )
-                panel._refresh_exclusions = lambda: None
+                panel._refresh_set_row = lambda _row: None
                 return panel
 
             def select_exclusions():
-                real = _lm_slots.LightmapExcludeSet
-                _lm_slots.LightmapExcludeSet = _NS(members=lambda: [m2])
-                try:
-                    lm_panel().select_exclusions()
-                finally:
-                    _lm_slots.LightmapExcludeSet = real
+                panel = lm_panel()
+                rows = _lm_slots.LightmapBakerSlots._SET_ROWS
+                # The row's set, on this panel alone (the class table stays).
+                panel._SET_ROWS = {
+                    **rows,
+                    "set_exclusions": dict(
+                        rows["set_exclusions"], scene_set=_NS(members=lambda: [m2])
+                    ),
+                }
+                panel.select_exclusions()
 
             def lamp_row():
                 rows = btk.LightmapBaker._light_rows(bpy.context.scene)
@@ -902,6 +926,165 @@ try:
                 bpy.ops.object.mode_set(mode="OBJECT")
             win.view_layer = prior_win_vl
             bpy.context.scene.view_layers.remove(win_vl)
+
+    # --- undo pushes land from a WINDOW-LESS context (a Qt panel's slot) -----------------
+    # Qt input reaches a panel's slots through GHOST's native message dispatch, where
+    # ``bpy.context.window`` / ``screen`` are None: ``ed.undo_push`` fails its poll there
+    # ("context is incorrect"), every caller swallowed it, and the edit took NO step -- one
+    # Ctrl+Z reverted the user's previous operation with it and Redo dropped the edit
+    # (measured in GUI Blender 5.1 through a native-dispatched message; headless,
+    # ``temp_override(window=None)`` fails the same poll).
+    import contextlib
+    import logging
+    from unittest import mock
+
+    from blendertk.core_utils._core_utils import CoreUtils, _CoreUtilsInternal
+
+    def windowless():
+        return bpy.context.temp_override(window=None)
+
+    def undo_round(edit):
+        """(edited, after ONE undo, previous op kept, after redo) for *edit* run windowless."""
+        reset()
+        ob = bpy.data.objects.new("UndoProbe", None)
+        bpy.context.scene.collection.objects.link(ob)
+        bpy.ops.ed.undo_push(message="baseline")
+        bpy.data.objects["UndoProbe"]["prev"] = 1
+        bpy.ops.ed.undo_push(message="previous op")
+        with windowless():
+            edit(bpy.data.objects["UndoProbe"])
+
+        def state():
+            o = bpy.data.objects.get("UndoProbe")
+            return (o.get("edit"), "prev" in o.keys()) if o else None
+
+        edited = state()
+        bpy.ops.ed.undo()
+        undone = state()
+        bpy.ops.ed.redo()
+        return edited, undone, state()
+
+    def chunk_edit(o):
+        with CoreUtils.undo_chunk("Windowless edit"):
+            o["edit"] = 2
+
+    def push_edit(o):
+        o["edit"] = 2
+        CoreUtils.undo_push("Windowless edit")
+
+    @CoreUtils.undoable
+    def undoable_edit(o):
+        o["edit"] = 2
+
+    for name, edit in (
+        ("undo_chunk", chunk_edit),
+        ("undo_push", push_edit),
+        ("undoable", undoable_edit),
+    ):
+        try:
+            got = undo_round(edit)
+        except Exception as e:
+            got = f"raised {type(e).__name__}: {e}"
+        check(
+            f"undo: windowless {name} is one step (undo reverts it alone, redo restores)",
+            got == ((2, True), (None, True), (2, True)),
+            f"(edited, undone, redone)={got}",
+        )
+
+    # undo_checkpoint is ONE step for a driver build: pushed AFTER the body, the drivers
+    # recompiled after the push. Pushed BEFORE it (as it was), no step held the build, so
+    # Undo re-read only datablocks that differed between two steps: an edit to an EXISTING
+    # one survived it (measured 2026-10-17 on a tube rig: its bind stayed on the mesh while
+    # the armature was freed), and Redo could not bring the build back.
+    @CoreUtils.undo_checkpoint
+    def checkpoint_build():
+        bpy.context.scene.collection.objects.link(bpy.data.objects.new("Built", None))
+        bpy.data.objects["UndoProbe"]["edit"] = 2
+
+    def built_state():
+        o = bpy.data.objects.get("UndoProbe")
+        return ("Built" in bpy.data.objects, o.get("edit"), "prev" in o.keys())
+
+    try:
+        reset()
+        ob = bpy.data.objects.new("UndoProbe", None)
+        bpy.context.scene.collection.objects.link(ob)
+        bpy.ops.ed.undo_push(message="baseline")
+        bpy.data.objects["UndoProbe"]["prev"] = 1
+        bpy.ops.ed.undo_push(message="previous op")
+        with windowless():
+            checkpoint_build()
+        built = built_state()
+        bpy.ops.ed.undo()
+        undone = built_state()
+        bpy.ops.ed.redo()
+        got = (built, undone, built_state())
+    except Exception as e:
+        got = f"raised {type(e).__name__}: {e}"
+    check(
+        "undo: undo_checkpoint is one step -- new AND existing datablocks undo, redo restores",
+        got == ((True, 2, True), (False, None, True), (True, 2, True)),
+        f"(built, after one undo, after redo)={got}",
+    )
+
+    # Still no window to push with -> False, and ONE warning per session, never silence.
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    core_log = logging.getLogger("blendertk.core_utils._core_utils")
+    core_log.addHandler(handler)
+    try:
+        _CoreUtilsInternal._undo_push_warned = False
+        with mock.patch.object(
+            CoreUtils, "window_context_override", contextlib.nullcontext
+        ), windowless():
+            first = CoreUtils.undo_push("No window")
+            second = CoreUtils.undo_push("No window")
+        warned = [r for r in records if r.levelno >= logging.WARNING]
+        check(
+            "undo_push: no window at all -> False, warned ONCE",
+            first is False and second is False and len(warned) == 1,
+            f"first={first} second={second} warnings={len(warned)}",
+        )
+    except Exception as e:
+        check("undo_push: no window at all -> False, warned ONCE", False, repr(e))
+    finally:
+        core_log.removeHandler(handler)
+        _CoreUtilsInternal._undo_push_warned = False
+
+    # Every push goes through the one helper: a direct ``ed.undo_push`` call anywhere else
+    # in the package fails its poll in exactly the context the panels run in.
+    import ast
+
+    pkg_root = os.path.join(REPO, "blendertk")
+    direct = []
+    for dirpath, _dirs, files in os.walk(pkg_root):
+        if "__pycache__" in dirpath:
+            continue
+        for fn in files:
+            if not fn.endswith(".py"):
+                continue
+            path = os.path.join(dirpath, fn)
+            with open(path, encoding="utf-8") as fh:
+                tree = ast.parse(fh.read())
+            allowed = set()
+            if fn == "_core_utils.py":
+                for f in ast.walk(tree):
+                    if isinstance(f, ast.FunctionDef) and f.name == "undo_push":
+                        allowed.update(id(n) for n in ast.walk(f))
+            for n in ast.walk(tree):
+                if (
+                    isinstance(n, ast.Call)
+                    and ast.unparse(n.func) == "bpy.ops.ed.undo_push"
+                    and id(n) not in allowed
+                ):
+                    rel = os.path.relpath(path, pkg_root).replace(os.sep, "/")
+                    direct.append(f"{rel}:{n.lineno}")
+    check(
+        "static: every undo push goes through CoreUtils.undo_push",
+        not direct,
+        "; ".join(direct),
+    )
 
     # --- static guard: no view-layer access outside the window override -----------------
     # The runtime cases above pin a sample; this pins every site. Windowless,

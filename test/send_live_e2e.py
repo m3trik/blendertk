@@ -69,6 +69,51 @@ def check(name, cond, detail=""):
     )
 
 
+def cutout_verdicts(leg, got):
+    """``(name, ok, detail)`` for the cutout material on one inspected leg.
+
+    Where a cutout's opacity lives depends on the shader. A float3 or scalar
+    opacity INPUT (standardSurface, openPBRSurface) takes the file's
+    ``outAlpha``, on every child of a float3 -- one child leaves the rest
+    opaque. A StingrayPBS has no such input: its ``opacity`` is a scalar
+    UNIFORM (a texture there is one flat value), and the per-pixel opacity is
+    the colour map's ALPHA, selected by ``use_opacity_map`` = 1 (mayatk
+    CHANGELOG 2026-08-25, "StingrayPBS opacity: one layout that every consumer
+    reads"). Until then this leg asserted ``outAlpha`` INTO the uniform, the
+    layout that change retired, and read ``[]`` ever since.
+    """
+    route = got.get("stingray_opacity")
+    if route is not None:
+        return [
+            (
+                f"{leg}: cutout opacity is the colour map's ALPHA "
+                "(StingrayPBS selector at 1), never its color",
+                route["selector"] == 1
+                and any(p.endswith(".outColor") for p in route["colour"])
+                and any("Agilent_8757D" in f for f in route["files"]),
+                json.dumps(route),
+            ),
+            (
+                f"{leg}: nothing drives the StingrayPBS opacity UNIFORM",
+                not got["opacity"],
+                json.dumps(got["opacity"]),
+            ),
+        ]
+    opacity = got["opacity"]
+    return [
+        (
+            f"{leg}: cutout opacity driven by the image ALPHA, never its color",
+            bool(opacity) and all(p.endswith(".outAlpha") for p in opacity),
+            json.dumps(opacity),
+        ),
+        (
+            f"{leg}: opacity drives the WHOLE attribute, not one channel of it",
+            bool(opacity) and len(opacity) == got.get("opacity_width"),
+            json.dumps([opacity, got.get("opacity_width")]),
+        ),
+    ]
+
+
 def png(path, rgb, size=8, alpha=False):
     """Minimal valid PNG, stdlib only; *alpha* writes RGBA (a real alpha channel)."""
     def chunk(tag, data):
@@ -139,8 +184,9 @@ def opacity_wiring(mesh):
     """
     out = []
     for shader in shaders_of(mesh):
-        # StingrayPBS's slot is the scalar "opacity" (there is no
-        # TEX_opacity_map on either ShaderFX graph -- probed live).
+        # StingrayPBS's "opacity" is a scalar UNIFORM (no TEX_opacity_map on
+        # either ShaderFX graph -- probed live), read here only to prove that
+        # nothing drives it; see stingray_opacity for its real route.
         for attr in ("opacity", "geometryOpacity", "transparency"):
             if not cmds.objExists(shader + "." + attr):
                 continue
@@ -153,6 +199,42 @@ def opacity_wiring(mesh):
                 out.extend(cmds.listConnections(
                     shader + "." + child, source=True, destination=False, plugs=True) or [])
     return out
+
+
+def opacity_width(mesh):
+    """Plugs that drive the opacity input WHOLE: 3 for a float3, 1 for a scalar."""
+    for shader in shaders_of(mesh):
+        for attr in ("opacity", "geometryOpacity", "transparency"):
+            if cmds.objExists(shader + "." + attr):
+                children = cmds.attributeQuery(attr, node=shader, listChildren=True)
+                return len(children or []) or 1
+    return None
+
+
+def stingray_opacity(mesh):
+    """A StingrayPBS's cutout route, or None for any other shader.
+
+    Its per-pixel opacity is the colour map's ALPHA, picked by the
+    ``use_opacity_map`` selector at 1 (absent on the opaque graph); the
+    ``opacity`` uniform is never a texture target.
+    """
+    for shader in shaders_of(mesh):
+        if cmds.nodeType(shader) != "StingrayPBS":
+            continue
+        selector = None
+        if cmds.attributeQuery("use_opacity_map", node=shader, exists=True):
+            selector = cmds.getAttr(shader + ".use_opacity_map")
+        colour = []
+        if cmds.attributeQuery("TEX_color_map", node=shader, exists=True):
+            colour = cmds.listConnections(
+                shader + ".TEX_color_map", source=True, destination=False,
+                plugs=True) or []
+        files = [
+            os.path.basename(cmds.getAttr(plug.split(".")[0] + ".fileTextureName"))
+            for plug in colour if cmds.nodeType(plug.split(".")[0]) == "file"
+        ]
+        return {{"selector": selector, "colour": colour, "files": files}}
+    return None
 
 
 def shader_types(mesh):
@@ -174,6 +256,10 @@ for leg in ("closure", "scene", "openpbr", "standard", "scene_usd"):
         "grp_sub_t": cmds.getAttr("grp_sub.translate")[0] if cmds.objExists("grp_sub") else None,
         "textures": file_textures("mesh_a") if cmds.objExists("mesh_a") else {{}},
         "opacity": opacity_wiring("mesh_cutout") if cmds.objExists("mesh_cutout") else [],
+        "opacity_width": (
+            opacity_width("mesh_cutout") if cmds.objExists("mesh_cutout") else None),
+        "stingray_opacity": (
+            stingray_opacity("mesh_cutout") if cmds.objExists("mesh_cutout") else None),
         "cutout_textures": (
             file_textures("mesh_cutout") if cmds.objExists("mesh_cutout") else {{}}),
         "shaders": shader_types("mesh_a") if cmds.objExists("mesh_a") else [],
@@ -230,8 +316,10 @@ def build_scene(bpy):
     cube("mesh_c", at=(-3, 0, 0))
     empty("stray_empty")
 
+    from blendertk.mat_utils._mat_utils import MatUtils
+
     mat = bpy.data.materials.new("E2E_product_mat")
-    mat.use_nodes = True
+    MatUtils.get_node_tree(mat, create=True)
     bsdf = next(n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
     for path, socket in ((tex_product, "Base Color"), (tex_rough, "Roughness")):
         node = mat.node_tree.nodes.new("ShaderNodeTexImage")
@@ -246,7 +334,7 @@ def build_scene(bpy):
     tex_cutout = os.path.join(TEMP, "Agilent_8757D.png")
     png(tex_cutout, (40, 200, 40), alpha=True)
     cutout_mat = bpy.data.materials.new("E2E_cutout_mat")
-    cutout_mat.use_nodes = True
+    MatUtils.get_node_tree(cutout_mat, create=True)
     cutout_bsdf = next(
         n for n in cutout_mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"
     )
@@ -315,8 +403,9 @@ def run_gui_leg(bridge, ptk, seeds):
     check("gui: import template ran to completion in the launched Maya", done)
     check(
         "gui: no OCIO / color-management errors in the Maya log",
-        bool(log_text) and not any("error" in l.lower() or "failed" in l.lower()
-                                   for l in color_lines),
+        bool(log_text) and not any(
+            "error" in line.lower() or "failed" in line.lower() for line in color_lines
+        ),
         json.dumps(color_lines[:5]),
     )
     # The OCIO strip edits the child's environment, so it is exactly the kind of
@@ -328,7 +417,7 @@ def run_gui_leg(bridge, ptk, seeds):
     ]
     check(
         "gui: Viewport 2.0 initialized (the env strip did not take it down)",
-        any("initialized vp2" in l.lower() for l in vp2_lines),
+        any("initialized vp2" in line.lower() for line in vp2_lines),
         json.dumps(vp2_lines[:5]),
     )
 
@@ -455,21 +544,13 @@ try:
         )
 
         # The reported bug: a cutout material arrived with its COLOR wired into
-        # opacity, so the texture's RGB drove transparency.
-        opacity = scene["opacity"]
-        check(
-            "scene: cutout opacity driven by the image ALPHA, never its color",
-            bool(opacity) and all(p.endswith(".outAlpha") for p in opacity),
-            json.dumps(opacity),
-        )
-        check(
-            # A float3 opacity (standardSurface / openPBR) must be driven on
-            # every child, or the untouched channels leave it partly opaque; a
-            # scalar slot (StingrayPBS `opacity`) takes exactly one.
-            "scene: opacity drives the WHOLE attribute, not one channel of it",
-            len(opacity) in (1, 3),
-            json.dumps(opacity),
-        )
+        # opacity, so the texture's RGB drove transparency. Judged on every
+        # rebuild target: the default leg is StingrayPBS, the opt-in legs carry
+        # the float3 / scalar opacity inputs.
+        for leg in ("scene", *shader_legs):
+            if leg in state:
+                for verdict in cutout_verdicts(leg, state[leg]):
+                    check(*verdict)
         cutout_tex = scene["cutout_textures"]
         check(
             "scene: the cutout's color still reaches the color slot off the same file",

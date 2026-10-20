@@ -796,6 +796,130 @@ class _AnimUtilsInternal(object):
         fc.update()
         return len(index)
 
+    #: Blender's insert window (``BEZT_BINARYSEARCH_THRESH``): a key inserted this
+    #: close to a point replaces that point's value instead of adding one.
+    _INSERT_EPS = 0.01
+
+    @staticmethod
+    def _insert_keys(fc, keys) -> int:
+        """Key ``(frame, value, interpolation)`` *keys* on float curve *fc* in ONE bulk
+        write, leaving what ``keyframe_insert`` one key at a time leaves.
+
+        In order, as the inserts would: a key within Blender's 0.01-frame insert window
+        of a point (one already there, or an earlier key of *keys*) REPLACES its value
+        -- the point keeps its frame and handle types, its handles shift with the value,
+        it is selected -- and any other adds a point as the insert makes one: handles a
+        frame either side at its value, the preferences' new-key handle type, the
+        dynamic easings' defaults, selected. Each key's *interpolation* (a
+        ``Keyframe.interpolation`` name) lands on its point; every other point carries
+        through untouched, property for property (:meth:`_keep_keys`' set). One
+        ``update()`` re-sorts and re-solves the handles -- the insert re-copied the
+        curve and re-solved them per key (20 curves x 2000 keys: 59 s with a curve
+        scan per key). Values are float32, as Blender stores them.
+
+        One departure, deliberate: an insert between two keys SUBDIVIDES their
+        segment to keep its shape, cutting the neighbours' facing FREE / ALIGNED
+        handles; a key landing a value of its own has no shape to keep, so those
+        handles stay as authored. Auto handles re-derive alike either way.
+
+        Returns:
+            The number of points added.
+        """
+        import bisect
+        import struct
+
+        import bpy
+
+        if not keys:
+            return 0
+
+        def f32(x):
+            return struct.unpack("f", struct.pack("f", x))[0]
+
+        floats = _AnimUtilsInternal._KEY_FLOAT_PROPS
+        ints = _AnimUtilsInternal._KEY_INT_PROPS
+        at, width = {}, 0
+        for name, w in list(floats) + [(name, 1) for name in ints]:
+            at[name] = width
+            width += w
+        pts = fc.keyframe_points
+        n = len(pts)
+        rows = [[] for _ in range(n)]
+        for name, w in floats:
+            buf = [0.0] * (n * w)
+            if n:
+                pts.foreach_get(name, buf)
+            for i, row in enumerate(rows):
+                row.extend(buf[i * w : (i + 1) * w])
+        for name in ints:
+            buf = [0] * n
+            if n:
+                pts.foreach_get(name, buf)
+            for row, value in zip(rows, buf):
+                row.append(value)
+        x, y = at["co"], at["co"] + 1
+        ly, ry = at["handle_left"] + 1, at["handle_right"] + 1
+        rows.sort(key=lambda row: row[x])  # bisect needs it; update() would anyway
+
+        enum = bpy.types.Keyframe.bl_rna.properties
+        handle = bpy.context.preferences.edit.keyframe_new_handle_type
+        template = [0.0] * width
+        template[at["back"]] = f32(1.70158)  # insert_vert_fcurve's dynamic easing
+        template[at["amplitude"]] = f32(0.8)
+        template[at["period"]] = f32(4.1)
+        template[at["handle_left_type"]] = (
+            enum["handle_left_type"].enum_items[handle].value
+        )
+        template[at["handle_right_type"]] = (
+            enum["handle_right_type"].enum_items[handle].value
+        )
+        template[at["easing"]] = enum["easing"].enum_items["AUTO"].value
+        template[at["type"]] = enum["type"].enum_items["KEYFRAME"].value
+        selected = (
+            at["select_control_point"],
+            at["select_left_handle"],
+            at["select_right_handle"],
+        )
+        eps = _AnimUtilsInternal._INSERT_EPS
+        ipo_values = {}
+        times = [row[x] for row in rows]
+        added = 0
+        for frame, value, interpolation in keys:
+            f, v = f32(frame), f32(value)
+            i = bisect.bisect_left(times, f - eps)
+            near = [
+                j for j in (i, i + 1) if j < len(times) and abs(times[j] - f) <= eps
+            ]
+            if near:
+                row = rows[min(near, key=lambda j: abs(times[j] - f))]
+                dy = f32(v - row[y])  # replace_bezt_keyframe_ypos, in float32
+                for k in (y, ly, ry):
+                    row[k] = f32(row[k] + dy)
+            else:
+                row = list(template)
+                row[x], row[y] = f, v
+                row[at["handle_left"]], row[ly] = f32(f - 1.0), v
+                row[at["handle_right"]], row[ry] = f32(f + 1.0), v
+                rows.insert(i, row)
+                times.insert(i, f)
+                added += 1
+            if interpolation not in ipo_values:
+                ipo_values[interpolation] = (
+                    enum["interpolation"].enum_items[interpolation].value
+                )
+            row[at["interpolation"]] = ipo_values[interpolation]
+            for k in selected:
+                row[k] = 1
+        if added:
+            pts.add(added)
+        for name, w in floats:
+            start = at[name]
+            pts.foreach_set(name, [v for row in rows for v in row[start : start + w]])
+        for name in ints:
+            pts.foreach_set(name, [row[at[name]] for row in rows])
+        fc.update()
+        return added
+
     @staticmethod
     def _remove_flat_keys(fc, tolerance, candidate=None):
         """Remove interior keys that sit on a flat segment (value equal to both neighbours within
@@ -2295,6 +2419,34 @@ class AnimUtils(_AnimUtilsInternal):
             fc.update()
             stepped += 1
         return stepped
+
+    @staticmethod
+    def replay_visibility(obj, keys, frame_offset=0.0):
+        """Key a carried visibility curve onto *obj* as its ``hide_viewport`` +
+        ``hide_render`` keys, stepped -- the ONE landing for every carrier that
+        brings visibility Blender's importers drop (the Maya bridge's manifest,
+        an FBX's own ``Visibility`` curves, a USD stage's computed visibility).
+
+        Parameters:
+            obj: The object keyed (into its active action).
+            keys: ``[(frame, visible), ...]``, keyed as given -- a falsy
+                *visible* hides, so Maya's ``.visibility`` and FBX's
+                ``Visibility`` values pass straight through (``0`` = hidden).
+            frame_offset: Added to every frame (an FBX importer's
+                ``anim_offset``, which its curves arrive shifted by).
+
+        Returns:
+            The number of keys written (each on both channels).
+        """
+        written = 0
+        for frame, visible in keys:
+            _AnimUtilsInternal._key_visibility(
+                obj, [float(frame) + frame_offset], bool(visible)
+            )
+            written += 1
+        if written:
+            AnimUtils.step_visibility_keys([obj])
+        return written
 
     @staticmethod
     def delete_keys(objects, time=None, on_delete=None):

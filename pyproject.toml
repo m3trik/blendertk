@@ -5,7 +5,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "blendertk"
 dynamic = ["version", "readme"]
-description = "A toolkit for Blender mirroring the mayatk public API, backing the tentacle Blender slots."
+description = "Python toolkit for Blender mirroring mayatk's API: modeling, UV, materials, animation, rigging and export utilities."
+keywords = ["m3trik", "blender", "blender-python", "bpy", "rigging", "technical-art", "dcc"]
 authors = [{name = "Ryan Simpson", email = "m3trik@outlook.com"}]
 license = {text = "MIT"}
 requires-python = ">=3.10"
@@ -14,6 +15,9 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
+    "Intended Audience :: Developers",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
 # bpy is provided by the Blender runtime, not pip-installed.
@@ -39,6 +43,8 @@ unity = ["unitytk>=0.1.0"]
 [project.urls]
 Homepage = "https://github.com/m3trik/blendertk"
 Repository = "https://github.com/m3trik/blendertk"
+Changelog = "https://github.com/m3trik/blendertk/blob/main/CHANGELOG.md"
+Issues = "https://github.com/m3trik/blendertk/issues"
 
 [tool.setuptools.dynamic]
 version = {attr = "blendertk.__version__"}
@@ -78,6 +84,9 @@ ignore = ["E402"]  # house pattern: try-guarded DCC imports precede the other im
 # part or any part below it; "a | b" makes peers of one rank. Checked by
 # m3trik/scripts/check_layers.py against a frozen baseline of today's exceptions.
 order = [
+    # Texture Combine composes TextureTransfer, the lightmap re-pack and the
+    # UV diagnostics: a tool above every domain it reads, imported by none.
+    "uv_utils/texture_combine",
     "core_utils/diagnostics",
     "core_utils/auto_instancer",
     "nurbs_utils",

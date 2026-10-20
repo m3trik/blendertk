@@ -7,7 +7,10 @@ under the workspace ``.venv`` like ``test_blender_ui_handler.py``::
 
 Toggling a drag left the rows mixed whenever it crossed rows that started in different states, so
 a drag locks / keys the lot, Alt clears and Ctrl breaks — and it reaches the panel once, so the
-table refreshes once. Mirror of mayatk's ``TestIconCellDispatch``.
+table refreshes once. Mirror of mayatk's ``TestIconCellDispatch``. Also pins the
+``keyframe_changed`` state (its colour, a click keys it) and one undo bracket per gesture
+(a drag-fill, a scrub, a wheel notch, an icon drag) -- the real undo stack is exercised by
+``test_channels.py`` under Blender.
 Under the Blender harness (no Qt) it SKIPS with a PASS sentinel.
 """
 
@@ -170,6 +173,199 @@ try:
         and s._refresh_table.call_count == 1,
         f"breaks={s.controller.break_connections.call_count} "
         f"refreshes={s._refresh_table.call_count}",
+    )
+
+    # --- keyframe_changed: its own colour, and a click keys it --------------
+    # Mirror of mayatk's ``keyframe_changed`` state (lighter red; the value was
+    # moved off its curve and the next frame change discards it).
+    table = mock.MagicMock()
+    owner = SimpleNamespace(
+        ACTION_COLOR_MAP=ChannelsSlots.ACTION_COLOR_MAP,
+        COL_LOCK=ChannelsSlots.COL_LOCK,
+        COL_CONN=ChannelsSlots.COL_CONN,
+        _on_icon_cell_clicked=mock.Mock(name="click"),
+        _on_icon_cells_dragged=mock.Mock(name="drag"),
+    )
+    ChannelsSlots._setup_action_columns(owner, table)
+    conn = next(
+        (
+            c.kwargs["states"]
+            for c in table.actions.add.call_args_list
+            if c.args and c.args[0] == ChannelsSlots.COL_CONN
+        ),
+        {},
+    )
+    changed_state = conn.get("keyframe_changed", {})
+    check(
+        "the Key column registers keyframe_changed in its own colour, click-wired",
+        changed_state.get("color") == "#f08080"
+        and changed_state.get("color") != ChannelsSlots.ACTION_COLOR_MAP["keyframe"]
+        and changed_state.get("action") is owner._on_icon_cell_clicked,
+        f"states={sorted(conn)} changed={changed_state}",
+    )
+    c = click(ChannelsSlots.COL_CONN, "keyframe_changed")
+    check(
+        "key click on a changed value -> key set (keeps the moved value)",
+        c.set_key_at_current_time.call_args == mock.call(OBJECTS, LOC_X, keyed=True),
+        str(c.method_calls),
+    )
+
+    # --- One undo bracket per gesture (Blender's undo_chunk), none per cell --
+    # The panel's writes push no undo step of their own from the Qt pump; a
+    # gesture that writes several values opens ONE bracket so nested steps fold
+    # into it. The real undo stack is exercised in test_channels.py (Blender).
+    import contextlib
+
+    from blendertk.core_utils._core_utils import CoreUtils
+
+    events = []
+
+    @contextlib.contextmanager
+    def spy_chunk(name=""):
+        handle = SimpleNamespace(cancel=lambda: events.append("cancel"))
+        events.append(("open", name))
+        try:
+            yield handle
+        finally:
+            events.append(("close", name))
+
+    def live_stand_in(objects=("Cube", "Sphere")):
+        """A ChannelsSlots instance (no __init__) whose engine records each write."""
+        s = ChannelsSlots.__new__(ChannelsSlots)
+        s.controller = mock.MagicMock()
+        s.controller.get_selected_nodes.return_value = list(objects)
+        s.controller.is_locked.return_value = False
+        s.controller.get_channel_value.return_value = 1.0
+        s.controller.set_channel_value.side_effect = lambda *a: events.append("write")
+        s.controller.set_lock.side_effect = lambda *a: events.append("write")
+        s._row_descriptors = [dict(LOC_X, type="float")] * 3
+        s._scrub_state = None
+        s._edit_chunk = None
+        s.ui = SimpleNamespace(tbl000=mock.MagicMock())
+        s.ui.tbl000.actions.get.return_value = "unlocked"
+        s.sb = SimpleNamespace(
+            QtCore=QtCore,
+            QtWidgets=SimpleNamespace(
+                QApplication=SimpleNamespace(keyboardModifiers=lambda: Qt.NoModifier),
+                QLineEdit=type("QLineEdit", (), {}),
+            ),
+        )
+        s._refresh_table = mock.Mock()
+        return s
+
+    with mock.patch.object(CoreUtils, "undo_chunk", spy_chunk):
+        events.clear()
+        s = live_stand_in()
+        s._on_edit_batch_started()
+        s._on_edit_batch_started()  # a nested emission opens nothing more
+        s._handle_cell_edit = mock.Mock()  # cells land between the two signals
+        s._on_edit_batch_finished()
+        s._on_edit_batch_finished()  # an unmatched finish closes nothing
+        check(
+            "a drag-fill opens ONE 'Channels Edit' bracket and closes it once",
+            events == [("open", "Channels Edit"), ("close", "Channels Edit")]
+            and s._edit_chunk is None,
+            str(events),
+        )
+
+        events.clear()
+        s = live_stand_in()
+        s._on_scrub_started(0, ChannelsSlots.COL_VALUE)
+        s._on_scrub_moved(0, ChannelsSlots.COL_VALUE, 10, 0)
+        s._on_scrub_moved(0, ChannelsSlots.COL_VALUE, 20, 0)
+        open_during = list(events)
+        s._on_scrub_finished(0, ChannelsSlots.COL_VALUE)
+        check(
+            "an MMB scrub holds one bracket from press to release",
+            open_during[0] == ("open", "Scrub location_x")
+            and ("close", "Scrub location_x") not in open_during
+            and events[-1] == ("close", "Scrub location_x")
+            and events.count("write") == 4
+            and "cancel" not in events,
+            str(events),
+        )
+
+        events.clear()
+        s = live_stand_in()
+        s._on_scrub_started(0, ChannelsSlots.COL_VALUE)
+        s._on_scrub_finished(0, ChannelsSlots.COL_VALUE)
+        check(
+            "a scrub that never moved pushes no step",
+            events
+            == [("open", "Scrub location_x"), "cancel", ("close", "Scrub location_x")],
+            str(events),
+        )
+
+        events.clear()
+        s = live_stand_in()
+        s._on_scrub_started(0, ChannelsSlots.COL_VALUE)
+        s._on_scrub_started(0, ChannelsSlots.COL_VALUE)  # the release was lost
+        check(
+            "a scrub whose release was lost is closed by the next press",
+            events[:3]
+            == [
+                ("open", "Scrub location_x"),
+                "cancel",
+                ("close", "Scrub location_x"),
+            ]
+            and events[3] == ("open", "Scrub location_x"),
+            str(events),
+        )
+        s._on_scrub_finished(0, ChannelsSlots.COL_VALUE)  # else GC closes it later
+
+        events.clear()
+        s = live_stand_in()
+        s._on_scrub_started(0, ChannelsSlots.COL_VALUE)
+        s._on_scrub_started(0, ChannelsSlots.COL_CONN)  # lost release; no scrub here
+        check(
+            "a lost release is closed by the next press, even one that starts no scrub",
+            events
+            == [("open", "Scrub location_x"), "cancel", ("close", "Scrub location_x")]
+            and s._scrub_state is None,
+            str(events),
+        )
+        s._end_scrub()  # else GC closes it later
+
+        events.clear()
+        s = live_stand_in()
+        s._on_wheel_scrolled(0, ChannelsSlots.COL_VALUE, 1, Qt.NoModifier)
+        check(
+            "a wheel notch over two objects is one bracket",
+            events
+            == [
+                ("open", "Wheel location_x"),
+                "write",
+                "write",
+                ("close", "Wheel location_x"),
+            ],
+            str(events),
+        )
+
+        events.clear()
+        s = live_stand_in()
+        s._on_icon_cells_dragged([0, 1, 2], ChannelsSlots.COL_LOCK)
+        check(
+            "an icon drag is one 'Channels Drag' bracket",
+            events
+            == [("open", "Channels Drag")]
+            + ["write"] * 3
+            + [("close", "Channels Drag")],
+            str(events),
+        )
+
+    # --- The batch signals are wired with the rest of the table's ----------
+    s = ChannelsSlots.__new__(ChannelsSlots)
+    s.sb = SimpleNamespace(QtCore=QtCore)
+    widget = mock.MagicMock()
+    widget._ch_scrub_conns = {}
+    ChannelsSlots._wire_table_signals(s, widget)
+    check(
+        "editBatchStarted / editBatchFinished reach the panel",
+        widget.editBatchStarted.connect.call_args == mock.call(s._on_edit_batch_started)
+        and widget.editBatchFinished.connect.call_args
+        == mock.call(s._on_edit_batch_finished),
+        f"{widget.editBatchStarted.connect.call_args} "
+        f"{widget.editBatchFinished.connect.call_args}",
     )
 
 except Exception as e:

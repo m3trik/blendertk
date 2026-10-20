@@ -122,6 +122,21 @@ class BlenderExportMixin:
 
         return LightmapRecords.search_dirs()
 
+    def hdr_codec(self) -> Any:
+        """What a GLB built here encodes its float images with (:class:`pythontk.PreviewBridge` hook).
+
+        Blender's own image I/O (``LightmapWebExport``: ``encode_hdr_for_web``
+        for the lightmaps, ``encode_hdr_radiance`` for the reflection probe).
+        The build runs in Blender's Python, which ships no cv2 -- pythontk's
+        only float-image codec -- so without it every push of a baked scene
+        previewed unlit, each map warned "not encoded" (measured 2026-10-17).
+        """
+        from blendertk.light_utils.lightmap_baker.web_export import (
+            LightmapWebExport,
+        )
+
+        return LightmapWebExport
+
     #: What the USD carrier does with linked duplicates in the export set. USD
     #: leaves Blender FLAT (``use_instancing`` off: USD's instancing hands Maya
     #: read-only prototypes, not its shared-shape model, and prototype prim names

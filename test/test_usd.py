@@ -1066,7 +1066,7 @@ try:
     image.file_format = "PNG"
     image.save()
     material = bpy.data.materials.new("pkg_mat")
-    material.use_nodes = True
+    btk.MatUtils.get_node_tree(material, create=True)
     node = material.node_tree.nodes.new("ShaderNodeTexImage")
     node.image = image
     material.node_tree.links.new(

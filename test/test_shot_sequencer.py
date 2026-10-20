@@ -261,6 +261,48 @@ def _run_sequencer_checks():
     stranded = [t for n in ("A", "B", "C") for t in key_times(n) if t > 1e5]
     check("reorder: no keys stranded in park zone", not stranded, f"{stranded[:3]}")
 
+    # ---- swap_shots / copy_shot_content: the Shots window's Swap With -----
+    build_scene()
+    store = fresh_store()
+    store.gap = 10
+    seq = ShotSequencer(store)
+    a_id, c_id = (store.shot_by_name(n).shot_id for n in ("A", "C"))
+    seq.swap_shots(a_id, c_id, retain=("name",))
+    layout = [(s.shot_id, s.name, s.start, s.end) for s in store.sorted_shots()]
+    check(
+        "swap: C's shot first under A's name, A's last under C's",
+        [(i, n) for i, n, _s, _e in layout]
+        == [(c_id, "A"), (store.shot_by_name("B").shot_id, "B"), (a_id, "C")],
+        f"{layout}",
+    )
+    check("swap: C keys landed at [0..10]", key_times("C") == list(range(0, 11)))
+    check("swap: A keys landed at [40..50]", key_times("A") == list(range(40, 51)))
+
+    build_scene()
+    store = fresh_store()
+    store.gap = 10
+    seq = ShotSequencer(store)
+    a_id, c_id = (store.shot_by_name(n).shot_id for n in ("A", "C"))
+    seq.copy_shot_content(c_id, a_id)
+
+    def within(name, lo, hi):
+        return [t for t in key_times(name) if lo <= t <= hi]
+
+    # The cut pins the shots beside it (B's bounds hold their poses): judge
+    # A's own frames and C's.
+    check("copy: A's own keys cut", within("A", 0, 10) == [], f"{key_times('A')}")
+    check(
+        "copy: C's keys copied into A, C's own kept",
+        within("C", 0, 10) == list(range(0, 11))
+        and within("C", 40, 50) == list(range(40, 51)),
+        f"{key_times('C')}",
+    )
+    check(
+        "copy: A keeps its name and takes C as a member",
+        (store.shot_by_id(a_id).name, store.shot_by_id(a_id).objects) == ("A", ["C"]),
+        f"{store.shot_by_id(a_id).objects}",
+    )
+
     # ---- trim_shot_to_content: shrink bounds inward, own keys unmoved -----
     # Custom scene so each object's keys match its shot's content exactly (A[0..10],
     # B[20..30], C[45..55]) — B's shot is deliberately padded [15,40] around its

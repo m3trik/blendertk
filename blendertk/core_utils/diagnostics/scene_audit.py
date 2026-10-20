@@ -401,7 +401,7 @@ class SceneAnalyzer:
         """A material's facts and the images its SURFACE reads (a node that reaches
         neither the surface shader nor the material output renders nothing and ships
         nothing, so it is not audited). *collect_textures* False reads no image."""
-        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
+        from blendertk.mat_utils._mat_utils import MatUtils, _MatUtilsInternal
 
         entry = {
             "name": material.name,
@@ -417,12 +417,8 @@ class SceneAnalyzer:
             "gpu_mb": 0.0,
             "missing": [],
         }
-        tree = getattr(material, "node_tree", None)
-        if (
-            not collect_textures
-            or tree is None
-            or not getattr(material, "use_nodes", True)
-        ):
+        tree = MatUtils.get_node_tree(material)
+        if not collect_textures or tree is None:
             return entry
         surface = _MatUtilsInternal._surface_shader_node(material)
         for chain, node in _MatUtilsInternal._iter_image_nodes(tree):
@@ -501,6 +497,7 @@ class SceneAnalyzer:
         import bpy
 
         from blendertk.core_utils._core_utils import _CoreUtilsInternal
+        from blendertk.core_utils.units import Units
 
         from blendertk.mat_utils._mat_utils import _MatUtilsInternal
 
@@ -518,7 +515,7 @@ class SceneAnalyzer:
         # the window layer's: windowless, the context's never evaluates a collection
         # excluded from the scene's default layer (its objects read un-modified)
         depsgraph = _CoreUtilsInternal._evaluated_depsgraph()
-        to_cm = scene.unit_settings.scale_length * 100.0
+        to_cm = Units.metres_per("internal") * 100.0  # 1 BU = 1 m under system None
         objects = list(scene.objects) if pool is None else cls._resolve_pool(pool)
         owners = {o.as_pointer() for o in objects}
 

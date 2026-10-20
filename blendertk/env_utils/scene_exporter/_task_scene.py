@@ -78,15 +78,15 @@ class _SceneTasksMixin(_TaskDataMixin):
     @classmethod
     def _is_environment_object(cls, obj) -> bool:
         """Is *obj* image-based environment lighting (see :meth:`exclude_hdr`)?"""
+        from blendertk.mat_utils._mat_utils import MatUtils
+
         data = getattr(obj, "data", None)
         if obj.type == "LIGHT":
-            return bool(getattr(data, "use_nodes", False)) and cls._samples_environment(
-                getattr(data, "node_tree", None)
-            )
+            return cls._samples_environment(MatUtils.get_node_tree(data))
         if obj.type == "MESH":
             materials = [m for m in (getattr(data, "materials", None) or []) if m]
             return bool(materials) and all(
-                m.use_nodes and cls._samples_environment(m.node_tree) for m in materials
+                cls._samples_environment(MatUtils.get_node_tree(m)) for m in materials
             )
         return False
 

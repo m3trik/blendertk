@@ -24,6 +24,8 @@ Discovered by ``BlenderUiHandler`` (``marking_menu.show("rizom_bridge")``).
 
 from pathlib import Path
 
+from uitk.switchboard import Cancelable
+
 from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
 
 import blendertk as btk
@@ -164,6 +166,8 @@ class RizomBridgeSlots(BlenderBridgeSlotsBase):
             "selection: only the UV shells the selected faces touch move (any face of a "
             "shell picks all of it); every other shell stays exactly where it is and is "
             "packed around. The other presets work on whole objects.",
+            "A round trip runs RizomUV hidden: <b>hold Esc</b> to cancel one, or tick "
+            "<b>Show App Window</b> to see (and answer) a dialog it stops on.",
             "RizomUV (Rizom Lab) must be installed -- auto-discovered under "
             "<code>Program Files\\Rizom Lab</code>. Windows only.",
         ],
@@ -215,6 +219,9 @@ class RizomBridgeSlots(BlenderBridgeSlotsBase):
     # b000 -- the per-bridge process action
     # ------------------------------------------------------------------
 
+    # Inside the dispatcher's CancelScope: a round trip's hidden RizomUV polls it, so holding
+    # Esc (or the long-run dialog's Cancel) ends a run stuck on a dialog no one can see.
+    @Cancelable(120, message="RizomUV run")
     def b000(self):
         """Run the chosen preset: round-trip, or one-way send when ``send`` is picked."""
         pair = self._selected_template_mode()

@@ -523,15 +523,21 @@ class _TaskChecksMixin(_TaskDataMixin):
         before the first mutation, the scheduler hoists it ahead of everything,
         and a locked destination stops the run in milliseconds with the name of
         the process to close rather than in minutes with an errno. A path that
-        does not exist yet cannot be held, and passes. Mirror of mayatk's.
+        does not exist yet cannot be held, but its folder must take a new file:
+        ``FileUtils.describe_unwritable`` proves it with a probe file, since
+        ``os.access`` passes a folder whose ACL denies this user. Mirror of
+        mayatk's.
 
         Returns:
             tuple: (status: bool, messages: list)
         """
         # Resolved rather than called directly: blendertk and pythontk update
         # independently, and an older pythontk would raise AttributeError
-        # HERE -- aborting the very export this check exists to protect.
-        describe = getattr(ptk.FileUtils, "describe_lock", None)
+        # HERE -- aborting the very export this check exists to protect. One
+        # that predates describe_unwritable still answers for a held file.
+        describe = getattr(ptk.FileUtils, "describe_unwritable", None) or getattr(
+            ptk.FileUtils, "describe_lock", None
+        )
         if describe is None:
             self.logger.warning(
                 "Output-writability check skipped: this pythontk predates "
@@ -544,12 +550,13 @@ class _TaskChecksMixin(_TaskDataMixin):
         if not blocked:
             return True, []
         return False, [
-            f"{len(blocked)} destination file(s) cannot be replaced:",
+            f"{len(blocked)} destination file(s) cannot be written:",
         ] + [
-            f"  - {os.path.basename(path)} is {why} -> {path}" for path, why in blocked
+            f"  - {os.path.basename(path)}: {why} -> {path}" for path, why in blocked
         ] + [
             "Close whatever holds the file (a viewer, the WebXR preview, an "
-            "engine import) and re-run.",
+            "engine import), make a read-only one writable (check it out), or "
+            "export to a folder you can write to -- and re-run.",
         ]
 
     def check_valid_paths(self, enabled) -> tuple:

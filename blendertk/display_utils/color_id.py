@@ -84,9 +84,10 @@ class ColorId:
         name = cls._id_name(color)
         mat = bpy.data.materials.get(name) or bpy.data.materials.new(name)
         rgba = (color[0], color[1], color[2], 1.0)
+        from blendertk.mat_utils._mat_utils import MatUtils
+
         mat.diffuse_color = rgba  # viewport (Solid / Material-preview flat)
-        mat.use_nodes = True
-        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        bsdf = MatUtils.get_node_tree(mat, create=True).nodes.get("Principled BSDF")
         if bsdf and "Base Color" in bsdf.inputs:
             bsdf.inputs["Base Color"].default_value = rgba
         if hasattr(
@@ -393,8 +394,11 @@ class ColorId:
         mat = getattr(obj, "active_material", None)
         if mat is None:
             return None
-        if mat.use_nodes:
-            bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        from blendertk.mat_utils._mat_utils import MatUtils
+
+        tree = MatUtils.get_node_tree(mat)
+        if tree is not None:
+            bsdf = tree.nodes.get("Principled BSDF")
             if bsdf and "Base Color" in bsdf.inputs:
                 v = bsdf.inputs["Base Color"].default_value
                 return (v[0], v[1], v[2])

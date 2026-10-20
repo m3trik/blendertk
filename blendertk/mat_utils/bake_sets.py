@@ -18,6 +18,8 @@ subclass is one question the file answers:
   while the scoped selection becomes the bake *target*.
 * :class:`LightmapExcludeSet` -- the objects a lightmap bake gives no map of
   their own, while they stay in the render and light the rest.
+* :class:`LightmapIsolateSet` -- the objects (moving parts) that bake in a
+  pass of their own and stay out of every other object's bake.
 * :class:`LightmapBakeSet` -- the objects the last lightmap bake acted on, so
   the bake can be re-selected and re-run.
 
@@ -330,6 +332,65 @@ class LightmapExcludeSet(BakeSet):
 
     SET_NAME = "lightmapBaker_exclude"
     STAMP = "btk_lightmap_exclude"
+
+
+class LightmapIsolateSet(BakeSet):
+    """Objects that bake in a pass of their own, out of every other bake's render.
+
+    For a part that moves against what is baked around it -- a locker door on
+    its cabinet, a lid, a drawer: it still gets a map, lit by the static scene
+    at its authored pose, but it casts no shadow or bounce into another
+    object's map (the cabinet's would keep a door-shaped shadow wherever the
+    door swung), and no other isolated object casts into its own. Each member
+    -- with the meshes under it (:meth:`groups`) -- bakes alone
+    (``LightmapBaker._bake``, its ``hide_render`` switched off for every other
+    pass) and still packs into its material's atlas. A member of
+    :class:`LightmapExcludeSet` as well gets no map, and is out of the render
+    like any other isolated object. Mirror of mayatk's ``LightmapIsolateSet``
+    (the same set name).
+    """
+
+    SET_NAME = "lightmapBaker_isolate"
+    STAMP = "btk_lightmap_isolate"
+
+    @classmethod
+    def groups(cls) -> List[List[Any]]:
+        """The set's meshes by member: what lies under each one moves together.
+
+        A door stored as its mesh brings the glass parented under it along
+        (unlike :meth:`BakeSet.meshes`, where a mesh member stands for itself
+        alone), so the two are out of other bakes' render together and see
+        each other in their own. A mesh under two members counts with the
+        outermost (the glass stored beside its door).
+        """
+        from blendertk.mat_utils.texture_baker import TextureBaker
+
+        def depth(obj) -> int:
+            count, parent = 0, obj.parent
+            while parent is not None:
+                count, parent = count + 1, parent.parent
+            return count
+
+        seen: set = set()
+        groups: List[List[Any]] = []
+        # Outermost first: a collection's member order is its link order.
+        for member in sorted(cls.members(), key=depth):
+            meshes = [
+                m
+                for m in TextureBaker.resolve_meshes(
+                    [member] + list(member.children_recursive)
+                )
+                if m.name not in seen
+            ]
+            seen.update(m.name for m in meshes)
+            if meshes:
+                groups.append(meshes)
+        return groups
+
+    @classmethod
+    def meshes(cls) -> List[Any]:
+        """Every mesh :meth:`groups` holds: each member with all it carries."""
+        return [mesh for group in cls.groups() for mesh in group]
 
 
 class LightmapBakeSet(BakeSet):

@@ -43,8 +43,10 @@ class StaggerKeys(_StaggerKeysInternal):
 
         * ``spacing`` — frames between one block's end and the next block's start (sequential mode),
           or the fixed frame interval between block starts when ``use_intervals``.
-        * ``start_frame`` — where the first block's start lands (default: it stays put).
-        * ``invert`` — reverse the block order.
+        * ``start_frame`` — where the first block's start lands (default: the earliest
+          key, so without ``invert`` the earliest block stays put).
+        * ``invert`` — reverse the block order. Blocks are laid out in start-time
+          order, never selection order; ``invert`` runs them latest first.
         * ``group_overlapping`` — objects with overlapping key ranges re-time together as one block
           (relative timing within the block is preserved); ``merge_touching`` also joins blocks whose
           ranges merely touch (end == start).
@@ -66,10 +68,14 @@ class StaggerKeys(_StaggerKeysInternal):
         if not units:
             return 0
 
+        # Blocks run in TIME order whatever the selection order (stable, so equal
+        # starts keep it), reversed by Invert, and the run starts at the EARLIEST
+        # key -- not at the first-placed block's own start, which under Invert is
+        # the latest one (mayatk's layout).
         blocks = (
             _StaggerKeysInternal._group_units(units, merge_touching)
             if group_overlapping
-            else [[u] for u in units]
+            else sorted(([u] for u in units), key=lambda b: b[0]["start"])
         )
         if invert:
             blocks.reverse()
@@ -77,7 +83,9 @@ class StaggerKeys(_StaggerKeysInternal):
         def block_bounds(block):
             return min(u["start"] for u in block), max(u["end"] for u in block)
 
-        origin = start_frame if start_frame is not None else block_bounds(blocks[0])[0]
+        origin = (
+            start_frame if start_frame is not None else min(u["start"] for u in units)
+        )
         cursor = origin
         for i, block in enumerate(blocks):
             b_start, b_end = block_bounds(block)

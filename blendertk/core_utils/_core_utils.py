@@ -36,6 +36,32 @@ class _CoreUtilsInternal(object):
     #: by importing it: ``cv2`` / ``numpy`` load their binaries in ``__init__``.
     _IMPORT_PROBES = {"PIL": "PIL.Image"}
 
+    #: Environment variable naming the on-demand install dir in place of the
+    #: profile's ``scripts/addons/modules`` (:meth:`_engine_install_dirs`).
+    PACKAGES_DIR_ENV = "BLENDERTK_PACKAGES_DIR"
+
+    #: Set once :meth:`CoreUtils.undo_push` has warned that a push failed (once per session).
+    _undo_push_warned = False
+
+    @staticmethod
+    def _recompile_drivers(objects=None):
+        """Force-recompile the drivers on *objects* (default: every object carrying one).
+
+        A script-built driver caches a stale compile until its expression is re-assigned in a
+        step separate from its creation, after the depsgraph has settled its relations -- and
+        an undo push re-stales it. The one definition behind ``RigUtils.refresh_drivers`` and
+        :meth:`CoreUtils.undo_checkpoint`.
+        """
+        import bpy
+
+        if objects is None:
+            objects = [o for o in bpy.data.objects if o.animation_data]
+        bpy.context.view_layer.update()  # settle new drivers + relations first
+        for obj in objects:
+            ad = getattr(obj, "animation_data", None)
+            for d in ad.drivers if ad else ():
+                d.driver.expression = d.driver.expression  # re-assign -> recompile
+
     @staticmethod
     def _object_mode(fn):
         """Run ``fn`` in OBJECT mode, restoring the caller's prior mode afterward.
@@ -103,13 +129,22 @@ class _CoreUtilsInternal(object):
         index 0, AHEAD of the bundled site-packages, which is exactly the
         shadowing hazard the move exists to close.
 
+        ``BLENDERTK_PACKAGES_DIR`` names *target* instead (created): a test run
+        (``test/run_tests.py``) points it into its temp root, so provisioning
+        under test never writes the user's profile -- what the profile already
+        holds stays on ``sys.path``, read-only.
+
         Raises whatever ``bpy`` raises outside Blender — callers gate on that.
         """
         import os
         import bpy
 
-        target = bpy.utils.user_resource("SCRIPTS", path="addons/modules", create=True)
         legacy = os.path.join(bpy.utils.user_resource("SCRIPTS"), "modules")
+        pinned = os.environ.get(_CoreUtilsInternal.PACKAGES_DIR_ENV)
+        if pinned:
+            os.makedirs(pinned, exist_ok=True)
+            return os.path.normpath(pinned), os.path.normpath(legacy)
+        target = bpy.utils.user_resource("SCRIPTS", path="addons/modules", create=True)
         return os.path.normpath(target), os.path.normpath(legacy)
 
     @staticmethod
@@ -515,10 +550,46 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
                 except Exception:
                     pass
             if bpy is not None and not handle.cancelled:
-                try:
-                    bpy.ops.ed.undo_push(message=name or "blendertk op")
-                except Exception:
-                    pass
+                CoreUtils.undo_push(name)
+
+    @staticmethod
+    def undo_push(message: str = "") -> bool:
+        """Push ONE Blender undo step from whatever context the caller runs in.
+
+        The one push every blendertk undo goes through (:meth:`undo_chunk`, :meth:`undoable`,
+        :meth:`undo_checkpoint` and the panels). ``ed.undo_push`` polls for a window, and a Qt
+        panel's slot runs inside GHOST's native message dispatch -- the way Qt input reaches
+        it -- where ``bpy.context.window`` and ``screen`` are ``None``. The push failed its
+        poll there, every caller swallowed it, and the edit took no step: one Ctrl+Z reverted
+        the user's previous operation along with it and Redo dropped the edit (measured, GUI
+        Blender 5.1). Pushing under :meth:`window_context_override` lands the step; a context
+        that already has a window is left as it is.
+
+        Parameters:
+            message (str): The step's name in Edit > Undo History.
+
+        Returns:
+            bool: ``True`` if the step was pushed. A push that still fails (no window at all,
+            undo unavailable) warns once per session rather than passing silently.
+        """
+        try:
+            import bpy
+        except ImportError:
+            return False
+        try:
+            with CoreUtils.window_context_override():
+                bpy.ops.ed.undo_push(message=message or "blendertk op")
+            return True
+        except Exception as error:  # RuntimeError: poll failed, no window at all
+            if not _CoreUtilsInternal._undo_push_warned:
+                _CoreUtilsInternal._undo_push_warned = True
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    f"Undo step {message!r} was not recorded ({error}); edits made "
+                    "outside a window context may not be undoable this session."
+                )
+            return False
 
     @staticmethod
     @contextmanager
@@ -646,26 +717,31 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
 
     @staticmethod
     def undo_checkpoint(fn):
-        """Like :func:`undoable`, but pushes the restore point BEFORE ``fn`` runs (not after).
+        """Like :func:`undoable` -- ``fn`` is ONE undo step -- for a body that builds **drivers**.
 
-        Use this when ``fn`` builds **drivers** as its final act: a script-built driver only compiles
-        correctly once its expression is re-assigned as the *last* operation (see
-        ``RigUtils.refresh_drivers``), and a trailing ``undo_push`` (as :func:`undoable` does) re-stales
-        it. Pushing the checkpoint first keeps the build a single undo step while leaving the driver
-        recompile as the final operation. The cost: no step holds the state AFTER ``fn``, so
-        Redo right after cannot bring the build back (measured in background Blender 5.1,
-        2026-09-15).
+        A script-built driver only compiles correctly once its expression is re-assigned as
+        the *last* driver op (see ``RigUtils.refresh_drivers``), and an undo push re-stales it
+        (measured: refresh-then-push reads 0, push-then-refresh works). So the step is pushed
+        after ``fn`` -- nested steps folding into it, as in :func:`undo_chunk` -- and the
+        drivers are recompiled after the push.
+
+        The push used to come BEFORE ``fn``, so no step held the build. One Undo then re-read
+        only the datablocks that differed between two steps, and a tube rig's bind -- the
+        parent and Armature modifier ``parent_set`` put on the EXISTING mesh -- survived it
+        while the armature it pointed at was freed (measured 2026-10-17: the tube parented
+        to a freed object; a later pass crashed Blender). Redo could not bring a build back
+        either.
         """
 
         @wraps(fn)
         def wrapper(*args, **kwargs):
+            with CoreUtils.undo_chunk(getattr(fn, "__name__", "blendertk op")):
+                result = fn(*args, **kwargs)
             try:
-                import bpy
-
-                bpy.ops.ed.undo_push(message=getattr(fn, "__name__", "blendertk op"))
-            except Exception:
+                CoreUtils._recompile_drivers()
+            except ImportError:  # no Blender: nothing was built
                 pass
-            return fn(*args, **kwargs)
+            return result
 
         return wrapper
 

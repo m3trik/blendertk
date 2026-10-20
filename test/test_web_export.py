@@ -280,6 +280,46 @@ try:
         f"scalar={hdr_scalar:.3f} (max was 100.0, body 0.5)",
     )
 
+    # The default encode IS pythontk's (ImgUtils.encode_hdr_pixels_for_web), only the
+    # I/O is Blender's: a lit pool wider than 0.5% keeps its peak (dividing by the
+    # percentile clipped a production room's pools flat), the same scalar, the same codes.
+    pool_src = os.path.join(tmp_dir, "pool.exr")
+    pool_values = np.concatenate(
+        [np.full(196, 0.1, np.float32), np.array([0.5, 1.0, 1.5, 2.0], np.float32)]
+    )
+    pool = bpy.data.images.new(
+        "pool", width=len(pool_values), height=1, float_buffer=True
+    )
+    pool.colorspace_settings.name = "Non-Color"
+    pbuf = np.ones(len(pool_values) * 4, dtype=np.float32)
+    for i in range(3):
+        pbuf[i::4] = pool_values
+    pool.pixels.foreach_set(pbuf)
+    pool.filepath_raw = pool_src
+    pool.file_format = "OPEN_EXR"
+    pool.save()
+    bpy.data.images.remove(pool)
+    pool_png, pool_scalar = LightmapWebExport.encode_for_web(
+        {"pool": pool_src}, tmp_dir
+    )["pool"]
+    want_codes, want_scalar = ptk.ImgUtils.encode_hdr_pixels_for_web(
+        np.repeat(pool_values[:, None], 3, axis=1)
+    )
+    back = bpy.data.images.load(pool_png)
+    back.colorspace_settings.name = "Non-Color"
+    pb = np.empty(len(back.pixels), dtype=np.float32)
+    back.pixels.foreach_get(pb)
+    bpy.data.images.remove(back)
+    got_codes = np.round(pb.reshape(-1, 4)[:, :3] * 255.0)
+    check(
+        "the default encode is pythontk's: the pool keeps its peak, the codes match",
+        abs(pool_scalar - want_scalar) < 1e-5
+        and abs(pool_scalar - 2.0) < 1e-4
+        and bool((got_codes == want_codes).all()),
+        f"scalar={pool_scalar:.4f} want={want_scalar:.4f} "
+        f"codes off={int((got_codes != want_codes).any(axis=1).sum())}",
+    )
+
     # A level between two 8-bit codes must average to itself (stochastic rounding,
     # the pythontk twin's ImgUtils.quantize_8bit): rounding every texel to the nearer
     # code terraced a production room's smooth walls into contour bands at 2K.
@@ -510,7 +550,7 @@ try:
     leftover = [
         n.name
         for m in bpy.data.materials
-        if m.use_nodes and m.node_tree
+        if btk.MatUtils.get_node_tree(m) is not None
         for n in m.node_tree.nodes
         if n.label == "Lightmap"
     ]
@@ -525,7 +565,7 @@ try:
     # keeps the identity rect). Twin of ptk.MeshConvert.apply_glb_lightmaps,
     # which ships the same rect as KHR_texture_transform.
     shared = bpy.data.materials.new("M_Atlas")
-    shared.use_nodes = True
+    btk.MatUtils.get_node_tree(shared, create=True)
     pair = []
     for i, loc in enumerate(((6.0, 0.0, 0.0), (6.0, 3.0, 1.0))):
         bpy.ops.mesh.primitive_plane_add(size=2, location=loc)
@@ -675,7 +715,7 @@ try:
     from blendertk.uv_utils._uv_utils import LIGHTMAP_UV_SET
 
     glass = bpy.data.materials.new("M_Glass")
-    glass.use_nodes = True
+    btk.MatUtils.get_node_tree(glass, create=True)
     bodies = []
     for i, loc in enumerate(((12.0, 0.0, 0.0), (12.0, 3.0, 0.0))):
         bpy.ops.mesh.primitive_plane_add(size=2, location=loc)
@@ -796,7 +836,7 @@ try:
     # of ptk.MeshConvert.apply_glb_lightmaps' 2026-09-24 fix: the baked object
     # binds a clone, and the material stays as authored for the prop.
     paint = bpy.data.materials.new("M_Paint")
-    paint.use_nodes = True
+    btk.MatUtils.get_node_tree(paint, create=True)
     painted = {}
     for role, loc in (("wall", (18.0, 0.0, 0.0)), ("prop", (18.0, 3.0, 0.0))):
         bpy.ops.mesh.primitive_plane_add(size=2, location=loc)
@@ -977,6 +1017,311 @@ try:
         bool(marked),
         str(marked),
     )
+
+    # --- the reflection probe rides the native GLB ---------------------------
+    # The bake captures the room it lit as an HDR (LightmapBaker.bake_probe);
+    # the viewer reads it from lightmap_web.probe as Radiance bytes in a view of
+    # the file's own buffer -- embedded after the export, through Blender's own
+    # Radiance writer (Blender ships no cv2).
+    import pythontk as ptk
+
+    from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+    from blendertk.light_utils.lightmap_baker.lightmap_records import LightmapRecords
+
+    def pr_float_image(path, top, bottom, w=16, h=8):
+        """An EXR whose top half is *top* and bottom half *bottom* (linear)."""
+        img = bpy.data.images.new(os.path.basename(path), w, h, float_buffer=True)
+        img.colorspace_settings.name = "Non-Color"  # BEFORE the pixels
+        px = np.empty((h, w, 4), dtype=np.float32)
+        px[...] = 1.0
+        px[: h // 2, :, :3] = bottom  # bpy rows run bottom-up
+        px[h // 2 :, :, :3] = top
+        img.pixels.foreach_set(px.reshape(-1))
+        img.filepath_raw = path
+        img.file_format = "OPEN_EXR"
+        img.save()
+        bpy.data.images.remove(img)
+        return path
+
+    def pr_read(path):
+        """``(header bytes, pixels top-down (h, w, 4))`` of an image file."""
+        with open(path, "rb") as fh:
+            head = fh.read(256)
+        img = bpy.data.images.load(path, check_existing=False)
+        try:
+            w, h = img.size
+            px = np.empty(w * h * 4, dtype=np.float32)
+            img.pixels.foreach_get(px)
+            return head, px.reshape(h, w, 4)[::-1]
+        finally:
+            bpy.data.images.remove(img)
+
+    pr_src = pr_float_image(os.path.join(tmp_dir, "pr_src.exr"), top=35.0, bottom=0.5)
+    pr_hdr = os.path.join(tmp_dir, "pr_roundtrip.hdr")
+    with open(pr_hdr, "wb") as fh:
+        fh.write(LightmapWebExport.encode_hdr_radiance(pr_src))
+    pr_head, pr_px = pr_read(pr_hdr)
+    check(
+        "encode_hdr_radiance writes Radiance, rows top-down, linear and unclipped",
+        pr_head.startswith(b"#?RADIANCE")
+        and b"-Y 8 +X 16" in pr_head
+        and abs(float(pr_px[0, 0, 0]) - 35.0) < 0.35
+        and abs(float(pr_px[-1, -1, 1]) - 0.5) < 0.005,
+        (pr_head[:60], float(pr_px[0, 0, 0]), float(pr_px[-1, -1, 1])),
+    )
+
+    # A real bake of a small lit room with its probe, exported natively.
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    pr_dir = os.path.join(tmp_dir, "probe_room")
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0, 0, 1.5))
+    pr_room = bpy.context.active_object
+    pr_room.name = "prRoom"
+    pr_room.scale = (6.0, 6.0, 3.0)
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(1.5, 1.0, 0.5))
+    pr_crate = bpy.context.active_object
+    pr_crate.name = "prCrate"
+    bpy.ops.object.light_add(type="POINT", location=(0.0, 0.0, 2.6))
+    bpy.context.active_object.data.energy = 300.0
+    for obj in (pr_room, pr_crate):
+        btk.assign_mat(obj, btk.create_mat("standard", name=f"{obj.name}_mat"))
+    pr_result = LightmapBaker(
+        resolution=64, samples=4, denoise=False, device="CPU"
+    ).bake([pr_room, pr_crate], packing="per_object", output_dir=pr_dir)
+    pr_record = LightmapRecords.probe() or {}
+    check(
+        "the bake captured and recorded the room's probe",
+        bool(pr_result.probe)
+        and pr_record.get("map") == os.path.basename(pr_result.probe),
+        (pr_result.probe, pr_record),
+    )
+
+    def pr_probe_of(path):
+        """The GLB's ``lightmap_web`` probe entry and its bytes."""
+        with ptk.MeshConvert.open_glb(path) as edit:
+            raw_web = ((edit.gltf.get("scenes") or [{}])[0].get("extras") or {}).get(
+                LightmapWebExport.EXTRAS_KEY
+            )
+            web_manifest = json.loads(raw_web) if isinstance(raw_web, str) else raw_web
+            entry = (web_manifest or {}).get("probe")
+            if not entry:
+                return None, b"", web_manifest
+            view = edit.gltf["bufferViews"][entry["bufferView"]]
+            start = int(view.get("byteOffset", 0))
+            data = bytes(edit.bin_data[start : start + int(view["byteLength"])])
+        return entry, data, web_manifest
+
+    pr_web = LightmapWebExport()
+    pr_glb = os.path.join(tmp_dir, "probe_room.glb")
+    with pr_web.wired_for_export() as pr_manifest:
+        pr_web.export_glb(pr_glb, manifest=pr_manifest, texture_max_size=None)
+    pr_entry, pr_bytes, pr_web_manifest = pr_probe_of(pr_glb)
+    check(
+        "a native GLB carries lightmap_web.probe beside its lightmaps",
+        bool(pr_entry)
+        and pr_entry.get("mimeType") == "image/vnd.radiance"
+        and bool((pr_web_manifest or {}).get("materials"))
+        and pr_bytes.startswith(b"#?RADIANCE"),
+        (pr_entry, pr_bytes[:40]),
+    )
+    check(
+        "...its capture point and box in metres, in the GLB's own Y-up axes",
+        bool(pr_entry)
+        and pr_entry.get("position") == [round(c, 6) for c in pr_record["position"]]
+        and abs(pr_entry["position"][1] - 1.5) < 0.05  # eye level, half of 3 m
+        and pr_entry.get("box") is not None
+        and abs(pr_entry["box"]["min"][1]) < 0.05  # the floor, Blender's z = 0
+        and abs(pr_entry["box"]["max"][1] - 3.0) < 0.05,  # the ceiling
+        pr_entry,
+    )
+    _pr_glb_hdr = os.path.join(tmp_dir, "probe_from_glb.hdr")
+    with open(_pr_glb_hdr, "wb") as fh:
+        fh.write(pr_bytes)
+    _, pr_glb_px = pr_read(_pr_glb_hdr)
+    _, pr_exr_px = pr_read(pr_result.probe)
+    check(
+        "...and its pixels are the probe the bake wrote (RGBE, within 2%)",
+        pr_glb_px.shape == pr_exr_px.shape
+        and float(
+            np.abs(pr_glb_px[..., :3] - pr_exr_px[..., :3]).mean()
+            / max(float(pr_exr_px[..., :3].mean()), 1e-6)
+        )
+        < 0.02,
+        (pr_glb_px.shape, pr_exr_px.shape),
+    )
+    # The probe is 2:1 with the ceiling's light on its top rows: the light
+    # (at z 2.6 over the room's middle) reads brightest above the horizon.
+    _rows = pr_exr_px[..., :3].mean(axis=(1, 2))
+    check(
+        "the probe's brightest rows are its top half (+Z, the light, is up)",
+        pr_exr_px.shape[1] == 2 * pr_exr_px.shape[0]
+        and int(np.argmax(_rows)) < pr_exr_px.shape[0] // 2,
+        int(np.argmax(_rows)),
+    )
+
+    # The route tentacle's scene slot takes: a direct export inside the bracket.
+    pr_direct = os.path.join(tmp_dir, "probe_direct.glb")
+    with pr_web.wired_for_export(glb_path=pr_direct):
+        with btk.window_context_override():
+            bpy.ops.export_scene.gltf(
+                filepath=pr_direct, export_format="GLB", export_extras=True
+            )
+    pr_direct_entry, _bytes, _m = pr_probe_of(pr_direct)
+    check(
+        "a direct export inside wired_for_export(glb_path=) carries the probe too",
+        bool(pr_direct_entry) and _bytes.startswith(b"#?RADIANCE"),
+        pr_direct_entry,
+    )
+    check(
+        "a GLB that is not there takes no probe, and nothing raises",
+        pr_web.embed_probe(os.path.join(tmp_dir, "missing.glb")) is None,
+    )
+    LightmapRecords.revert()
+    check(
+        "a scene with no probe (its bake reverted) embeds none",
+        LightmapRecords.probe() is None and pr_web.embed_probe(pr_direct) is None,
+    )
+
+    # --- the FBX -> GLB route, built inside Blender ---------------------------
+    # The Scene Exporter's GLB and the WebXR preview push build through
+    # ptk.GlbPipeline IN this process, and Blender's Python ships no cv2 -- the
+    # only float-image codec the pipeline had. Measured (2026-10-17, factory
+    # Blender 5.1, and the user's 5.1 profile too): both GLBs shipped unlit and
+    # without the probe, warned "OpenCV (cv2) is required". The host hands the
+    # pipeline its own HDR codec (Blender's image writer). cv2 is forced absent
+    # here, so the check holds on a machine that has it.
+    from blendertk.env_utils.scene_exporter._scene_exporter import SceneExporter
+
+    def gr_web_of(path):
+        """``(lightmap_web, materials wired on TEXCOORD_1, probe bytes)`` of a GLB."""
+        with ptk.MeshConvert.open_glb(path) as edit:
+            web = ptk.MeshConvert._lightmap_web_manifest(edit.gltf) or {}
+            wired = sorted(
+                m.get("name")
+                for m in edit.gltf.get("materials", [])
+                if (m.get("occlusionTexture") or {}).get("texCoord") == 1
+            )
+            probe = web.get("probe") or {}
+            data = b""
+            if isinstance(probe.get("bufferView"), int):
+                view = edit.gltf["bufferViews"][probe["bufferView"]]
+                start = int(view.get("byteOffset", 0))
+                data = bytes(edit.bin_data[start : start + int(view["byteLength"])])
+        return web, wired, data
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    gr_dir = os.path.join(tmp_dir, "glb_route")
+    btk.EnvUtils.set_current_workspace(gr_dir)
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0, 0, 1.5))
+    gr_room = bpy.context.active_object
+    gr_room.name = "grRoom"
+    gr_room.scale = (6.0, 6.0, 3.0)
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(1.5, 1.0, 0.5))
+    gr_crate = bpy.context.active_object
+    gr_crate.name = "grCrate"
+    bpy.ops.object.light_add(type="POINT", location=(0.0, 0.0, 2.6))
+    bpy.context.active_object.data.energy = 300.0
+    for obj in (gr_room, gr_crate):
+        btk.assign_mat(obj, btk.create_mat("standard", name=f"{obj.name}_mat"))
+    gr_result = LightmapBaker(
+        resolution=64, samples=4, denoise=False, device="CPU"
+    ).bake(
+        [gr_room, gr_crate], packing="atlas", output_dir=os.path.join(gr_dir, "maps")
+    )
+    check(
+        "the GLB route's fixture is baked, with its probe",
+        sorted(gr_result.maps) == ["grCrate", "grRoom"] and bool(gr_result.probe),
+        gr_result,
+    )
+    gr_out = os.path.join(gr_dir, "export")
+    os.makedirs(gr_out, exist_ok=True)
+    gr_published = {}
+
+    def gr_capture(glb, move=False, open_browser=None, scripts=None, labels=None):
+        kept = os.path.join(gr_dir, "pushed.glb")
+        shutil.copyfile(glb if isinstance(glb, str) else glb[0], kept)
+        gr_published["glb"] = kept
+        return {"url": "", "version": 1, "asset": kept, "parts": []}
+
+    with mock.patch.dict(sys.modules, {"cv2": None}):
+        gr_ok = SceneExporter().perform_export(
+            export_dir=gr_out,
+            objects=[gr_room, gr_crate],
+            output_name="room",
+            export_visible=True,
+            tasks={"export_data_node": True, "output_format": "glb"},
+        )
+        gr_preview = btk.WebXrPreview()
+        with mock.patch.object(gr_preview.deliverer, "publish", gr_capture):
+            gr_pushed = gr_preview.push(objects=[gr_room, gr_crate], open_browser=False)
+    for gr_label, gr_glb in (
+        ("the Scene Exporter's GLB", os.path.join(gr_out, "room.glb")),
+        ("the WebXR preview push", gr_published.get("glb")),
+    ):
+        gr_web, gr_wired, gr_probe = (
+            gr_web_of(gr_glb) if gr_glb and os.path.isfile(gr_glb) else ({}, [], b"")
+        )
+        check(
+            f"{gr_label}, built in a Blender with no cv2, carries its lightmaps",
+            sorted(gr_web.get("materials") or {}) == ["grCrate_mat", "grRoom_mat"]
+            and gr_wired == ["grCrate_mat", "grRoom_mat"],
+            (gr_glb, sorted(gr_web.get("materials") or {}), gr_wired),
+        )
+        check(
+            f"...and the bake's reflection probe ({gr_label})",
+            gr_probe.startswith(b"#?RADIANCE")
+            and gr_web.get("probe", {}).get("mimeType") == "image/vnd.radiance",
+            (gr_web.get("probe"), gr_probe[:20]),
+        )
+    check("...the export and the push both ran", gr_ok and bool(gr_pushed))
+    LightmapRecords.revert()
+
+    # --- a native GLB's probe stands in the GLB's own units --------------------
+    # The probe record carries ``unit_scale`` = the scene's scale_length, which
+    # the FBX route honours (a 1 BU = 1 cm scene's node at 100 BU converts to
+    # 1.0 m). Blender's glTF exporter does NOT (measured 2026-10-17: the same
+    # node writes 100), so a native GLB of a centimetre scene put its probe
+    # 100x too near the origin. A native embed reads the record at the native
+    # exporter's unit, 1 BU = 1 m.
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.context.scene.unit_settings.scale_length = 0.01
+    us_dir = os.path.join(tmp_dir, "unit_scale")
+    os.makedirs(us_dir, exist_ok=True)
+    bpy.ops.mesh.primitive_cube_add(size=40.0, location=(100.0, 0.0, 50.0))
+    us_cube = bpy.context.active_object
+    us_cube.name = "usCube"
+    btk.assign_mat(us_cube, btk.create_mat("standard", name="usCube_mat"))
+    btk.UvUtils.create_lightmap_uvs([us_cube], quiet=True)
+    us_map = pr_float_image(os.path.join(us_dir, "usCube_LM.exr"), top=0.5, bottom=0.5)
+    LightmapRecords.commit({us_cube.name: us_map})
+    us_probe = pr_float_image(os.path.join(us_dir, "us_Probe.exr"), top=2.0, bottom=1.0)
+    # The record's frame: glTF's axes, scene units (the cube's own point).
+    LightmapRecords.commit_probe(us_probe, (100.0, 50.0, 0.0))
+    us_web = LightmapWebExport()
+    us_glb = os.path.join(us_dir, "unit.glb")
+    with us_web.wired_for_export() as us_manifest:
+        us_web.export_glb(us_glb, manifest=us_manifest, texture_max_size=None)
+    with ptk.MeshConvert.open_glb(us_glb) as edit:
+        us_node = next(n for n in edit.gltf["nodes"] if n.get("name") == "usCube")
+        us_entry = (ptk.MeshConvert._lightmap_web_manifest(edit.gltf) or {}).get(
+            "probe"
+        ) or {}
+    check(
+        "a native GLB's probe stands where the GLB puts the scene (its own units)",
+        bool(us_entry)
+        and all(
+            abs(a - b) < 1e-4
+            for a, b in zip(us_entry.get("position") or (), us_node["translation"])
+        ),
+        (us_entry.get("position"), us_node.get("translation")),
+    )
+    us_fbx_probe = LightmapRecords._record().payload["probe"]
+    check(
+        "...and the FBX route's manifest labels it with the scene's unit",
+        abs(us_fbx_probe["unit_scale"] - 0.01) < 1e-6
+        and us_fbx_probe["position"] == [100.0, 50.0, 0.0],
+        us_fbx_probe,
+    )
+    LightmapRecords.revert()
 
 except Exception:
     traceback.print_exc()

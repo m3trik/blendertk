@@ -530,6 +530,41 @@ try:
           slot._find_and_copy_ok_text({"mode": "Copy"}) == "Copy 0 texture(s) + 1 lightmap(s)"
           or slot._find_and_copy_ok_text({"mode": "Copy"}) == "Copy 1 lightmap(s)",
           slot._find_and_copy_ok_text({"mode": "Copy"}))
+
+    # A lightmap row IS its file: the reflection probe's row names no object,
+    # so a Find & Copy scoped by the rows' objects relocated nothing for it, and
+    # a map row's objects would drag the probe along (mirror of mayatk's
+    # test_a_selected_row_relocates_its_own_file_the_probe_too). Added: 2026-10-17
+    from blendertk.light_utils.lightmap_baker.lightmap_records import (
+        LightmapRecords as _ProbeRecords,
+    )
+
+    open(lm_map, "wb").close()
+    probe_src = os.path.join(lm_dir, "room_Probe.exr")
+    open(probe_src, "wb").close()
+    _ProbeRecords.commit_probe(probe_src, (0.0, 0.0, 0.0))
+    probe_deps = {d["map"]: d for d in _ProbeRecords.lightmap_dependencies()}
+    probe_dest = os.path.join(tmp, "probe_dest")
+    os.makedirs(probe_dest, exist_ok=True)
+    slot._relocate_lightmaps([probe_deps["room_Probe.exr"]], "", probe_dest, "copy")
+    after = {d["map"]: d for d in _ProbeRecords.lightmap_dependencies()}
+    check("Find & Copy of the probe's row relocates the probe",
+          os.path.isfile(os.path.join(probe_dest, "room_Probe.exr"))
+          and os.path.normcase(os.path.dirname(after["room_Probe.exr"]["path"] or ""))
+          == os.path.normcase(probe_dest),
+          after.get("room_Probe.exr"))
+    check("...and never the map beside it",
+          not os.path.exists(os.path.join(probe_dest, "ROOM_ENV_LightMap.exr"))
+          and os.path.normcase(os.path.dirname(after["ROOM_ENV_LightMap.exr"]["path"] or ""))
+          == os.path.normcase(lm_dir),
+          after.get("ROOM_ENV_LightMap.exr"))
+    map_dest = os.path.join(tmp, "map_dest")
+    os.makedirs(map_dest, exist_ok=True)
+    slot._relocate_lightmaps([after["ROOM_ENV_LightMap.exr"]], "", map_dest, "copy")
+    check("...and a map's row never drags the probe along",
+          os.path.isfile(os.path.join(map_dest, "ROOM_ENV_LightMap.exr"))
+          and not os.path.exists(os.path.join(map_dest, "room_Probe.exr")),
+          sorted(os.listdir(map_dest)))
     LightmapBaker().revert()
 
     # 14. Renaming a texture file, and Keep Names In Sync (mirror of mayatk's

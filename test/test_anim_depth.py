@@ -98,6 +98,52 @@ try:
         f"A={frames(fa)} B={frames(fb)}",
     )
 
+    # ---- stagger: blocks run in TIME order from the earliest key, Invert included ----
+    # mayatk (the reference DCC) sorts blocks by start, reverses them on Invert, and
+    # starts the run at the earliest key; each layout below was measured in mayapy.
+    for label, spans, order, kwargs, expected in (
+        (
+            "invert starts the reversed run at the earliest key",
+            {"A": (0, 10), "B": (20, 30)},
+            "AB",
+            dict(spacing=0, invert=True),
+            {"A": [10, 20], "B": [0, 10]},
+        ),
+        (
+            "lays blocks out by start time, not selection order",
+            {"A": (0, 10), "B": (20, 30)},
+            "BA",
+            dict(spacing=0),
+            {"A": [0, 10], "B": [10, 20]},
+        ),
+        (
+            "invert with spacing over three blocks",
+            {"A": (0, 10), "B": (20, 30), "C": (40, 50)},
+            "ABC",
+            dict(spacing=5, invert=True),
+            {"A": [30, 40], "B": [15, 25], "C": [0, 10]},
+        ),
+        (
+            "invert moves an overlapping group as one block",
+            {"A": (0, 10), "B": (5, 15), "C": (30, 40)},
+            "ABC",
+            dict(spacing=0, invert=True, group_overlapping=True),
+            {"A": [10, 20], "B": [15, 25], "C": [0, 10]},
+        ),
+        (
+            "invert on intervals starts the grid at the earliest key",
+            {"A": (0, 10), "B": (20, 30)},
+            "AB",
+            dict(spacing=100, invert=True, use_intervals=True),
+            {"A": [100, 110], "B": [0, 10]},
+        ),
+    ):
+        reset()
+        made = {n: keyed_at([(s, 0), (e, 1)], n) for n, (s, e) in spans.items()}
+        btk.stagger_keys([made[n][0] for n in order], **kwargs)
+        got = {n: frames(fcv) for n, (_o, fcv) in made.items()}
+        check(f"stagger {label}", got == expected, f"got={got} want={expected}")
+
     # ---- stagger: group_overlapping keeps overlapping pair together ----
     reset()
     a, fa = keyed_at([(1, 0), (5, 1)], "A")

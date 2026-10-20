@@ -90,6 +90,34 @@ try:
                        if d.data_path == "rotation_euler" and d.array_index == 0]
     check("rebuild does not stack drivers", len(drivers_on_axis) == 1, f"n={len(drivers_on_axis)}")
 
+    # ---- one Undo takes the rig off the existing wheels; Redo puts it back, driving ----
+    # The build ends in a real undo step (pushed AFTER the body, then the drivers are
+    # recompiled so the recompile stays their last op): Undo restores the wheels'
+    # driver-free state, and the redone drivers still roll the wheel.
+    reset()
+    control = empty("control", (0, 0, 0))
+    w1 = empty("wheel_L", (2, 0, 0))
+    bpy.context.view_layer.update()
+    bpy.ops.ed.undo_push(message="baseline")
+    WheelRig(control, [w1]).rig_rotation(
+        movement_axis="LOC_Y", rotation_index=0, wheel_height=2.0
+    )
+    bpy.ops.ed.undo()
+    w1 = bpy.data.objects["wheel_L"]
+    check(
+        "undo: one press leaves the wheel driver-free",
+        rot_driver(w1, 0) is None and "wheel_rig_id" not in bpy.data.objects["control"],
+    )
+    bpy.ops.ed.redo()
+    control, w1 = bpy.data.objects["control"], bpy.data.objects["wheel_L"]
+    control.location = (0, 1, 0)
+    bpy.context.view_layer.update()
+    check(
+        "undo: redo restores the driver, and it rolls the wheel",
+        rot_driver(w1, 0) is not None and approx(eval_rot(w1, 0), 1.0),
+        f"rot={eval_rot(w1, 0):.4f}",
+    )
+
     # ---- guards ----
     reset()
     try:
