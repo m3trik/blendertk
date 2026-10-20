@@ -1593,6 +1593,419 @@ try:
         and not [m for lvl, m in logged if lvl in ("WARNING", "ERROR")],
         f"{[o.name for o in created]} {logged}",
     )
+
+    # ---- the curves Blender's importer drops land too (2026-10-17) ----------
+    # The importer animates transforms, shape keys and camera lenses only: a
+    # node's Visibility and every user-property curve (Maya's extra
+    # attributes -- the render effects' opacity / highlight) were read and
+    # dropped; a production module keyed them on 558 channel-takes and none
+    # arrived. import_fbx lands them where the Maya bridge's pull lands the
+    # same channels, in the same take structure.
+    import array as _array
+
+    from io_scene_fbx import data_types as _fbx_types
+    from io_scene_fbx import encode_bin as _fbx_encode
+    from io_scene_fbx import parse_fbx as _fbx_parse
+    from io_scene_fbx.fbx_utils import FBX_ANIM_KEY_VERSION as _KEY_VERSION
+
+    CONST, LIN, CUBIC_USER = 0x2, 0x4, 0x408  # KeyAttrFlags, as Maya writes them
+
+    def add_property_curves(path, curves):
+        """Key user properties in a Blender-written FBX as Maya writes them:
+        *curves* ``{take: {(model, prop): [(frame, value, KeyAttrFlags)]}}`` --
+        a ``d|<prop>`` curve on the take's layer, the property declared on the
+        Model as an animated user property (``A+U``)."""
+        root, version = _fbx_parse.parse(path)
+        find, finds = FbxUtils._find_elem, FbxUtils._find_elems
+        make, conn = FbxUtils._make_parsed, FbxUtils._connection
+        objects_el, conns_el = find(root, b"Objects"), find(root, b"Connections")
+        fps, ktime = FbxUtils._file_frame_scale(root, version)
+
+        def label(e):
+            return e.props[1].split(b"\x00\x01")[0].decode()
+
+        models = {label(e): e for e in finds(objects_el, b"Model")}
+        stacks = {label(e): e.props[0] for e in finds(objects_el, b"AnimationStack")}
+        layers = {e.props[0] for e in finds(objects_el, b"AnimationLayer")}
+        layer_of = {}
+        for c in conns_el.elems:
+            if c.props[0] == b"OO" and c.props[1] in layers:
+                layer_of.setdefault(c.props[2], c.props[1])
+        new_uid = FbxUtils._uid_allocator(objects_el)
+        added = 0
+        for take, channels in curves.items():
+            for (model_name, prop), keys in channels.items():
+                model, prop_b = models[model_name], prop.encode()
+                node, curve = new_uid(), new_uid()
+                first = float(keys[0][1])
+                channel = make(
+                    _fbx_parse,
+                    b"P",
+                    [b"d|" + prop_b, b"Number", b"", b"A", first],
+                    b"SSSSD",
+                )
+                objects_el.elems.append(
+                    make(
+                        _fbx_parse,
+                        b"AnimationCurveNode",
+                        [node, prop_b + b"\x00\x01AnimCurveNode", b""],
+                        b"LSS",
+                        [make(_fbx_parse, b"Properties70", elems=[channel])],
+                    )
+                )
+                arrays = (
+                    (
+                        b"KeyTime",
+                        "l",
+                        _fbx_types.ARRAY_INT64,
+                        [round(f * ktime / fps) for f, _v, _m in keys],
+                    ),
+                    (
+                        b"KeyValueFloat",
+                        "f",
+                        _fbx_types.ARRAY_FLOAT32,
+                        [float(v) for _f, v, _m in keys],
+                    ),
+                    (
+                        b"KeyAttrFlags",
+                        "i",
+                        _fbx_types.ARRAY_INT32,
+                        [m for _f, _v, m in keys],
+                    ),
+                    (
+                        b"KeyAttrDataFloat",
+                        "f",
+                        _fbx_types.ARRAY_FLOAT32,
+                        [0.0, 0.0, 9.419963346924634e-30, 0.0] * len(keys),
+                    ),
+                    (b"KeyAttrRefCount", "i", _fbx_types.ARRAY_INT32, [1] * len(keys)),
+                )
+                objects_el.elems.append(
+                    make(
+                        _fbx_parse,
+                        b"AnimationCurve",
+                        [curve, b"\x00\x01AnimCurve", b""],
+                        b"LSS",
+                        [
+                            make(_fbx_parse, b"Default", [first], b"D"),
+                            make(_fbx_parse, b"KeyVer", [_KEY_VERSION], b"I"),
+                        ]
+                        + [
+                            make(
+                                _fbx_parse,
+                                name,
+                                [_array.array(code, values)],
+                                kind.encode(),
+                            )
+                            for name, kind, code, values in arrays
+                        ],
+                    )
+                )
+                conns_el.elems.extend(
+                    [
+                        conn(_fbx_parse, b"OO", node, layer_of[stacks[take]]),
+                        conn(_fbx_parse, b"OP", node, model.props[0], prop_b),
+                        conn(_fbx_parse, b"OP", curve, node, b"d|" + prop_b),
+                    ]
+                )
+                props70 = find(model, b"Properties70")
+                if props70 is None:
+                    props70 = make(_fbx_parse, b"Properties70")
+                    model.elems.append(props70)
+                declared = next(
+                    (p for p in props70.elems if p.props and p.props[0] == prop_b), None
+                )
+                if declared is None:
+                    props70.elems.append(
+                        make(
+                            _fbx_parse,
+                            b"P",
+                            [prop_b, b"Number", b"", b"A+U", first],
+                            b"SSSSD",
+                        )
+                    )
+                else:
+                    declared.props[3] = b"A+U"
+                added += 1
+        FbxUtils._count_definitions(
+            _fbx_parse, root, {b"AnimationCurveNode": added, b"AnimationCurve": added}
+        )
+        enc = _fbx_encode.FBXElem(b"")
+        for child in root.elems:
+            enc.elems.append(FbxUtils._parsed_to_encode(child, _fbx_encode))
+        _fbx_encode.write(path, enc, version)
+        return path
+
+    def fcurve_keys(obj, data_path):
+        """``[(frame, value, interpolation)]`` of the curve *obj* plays."""
+        ad = obj.animation_data
+        for fc in action_fcurves(ad.action) if ad and ad.action else ():
+            if fc.data_path == data_path:
+                return [
+                    (round(k.co.x, 3), round(k.co.y, 4), k.interpolation)
+                    for k in fc.keyframe_points
+                ]
+        return []
+
+    def hidden_at(obj, frames):
+        """Per channel, the frames of *frames* the played hide curve hides."""
+        ad = obj.animation_data
+        out = {}
+        for fc in action_fcurves(ad.action) if ad and ad.action else ():
+            if fc.data_path in ("hide_render", "hide_viewport"):
+                out[fc.data_path] = [f for f in frames if fc.evaluate(f) >= 0.5]
+        return out
+
+    # A Shots Only file (two windows, merged on import): a keyed Empty whose
+    # visibility steps over a child that keys nothing, an opacity curve per
+    # shot, and an object keying only a custom property.
+    fresh()
+    bpy.context.scene.frame_start, bpy.context.scene.frame_end = 1, 60
+    lamp = bpy.data.objects.new("Lamp", None)
+    bpy.context.scene.collection.objects.link(lamp)
+    for f in range(1, 61):
+        lamp.location.x = f * 0.1
+        lamp.keyframe_insert("location", index=0, frame=f)
+    for f, hide in ((1, False), (10, True), (20, False), (40, True), (50, False)):
+        lamp.hide_render = hide
+        lamp.keyframe_insert("hide_render", frame=f)
+    lamp.hide_render = False
+    lamp["opacity"] = 0.5
+    bpy.ops.mesh.primitive_cube_add()
+    bulb = bpy.context.active_object
+    bulb.name = "Bulb"
+    bulb.parent = lamp
+    dial = bpy.data.objects.new("Dial", None)
+    bpy.context.scene.collection.objects.link(dial)
+    dial["highlight"] = 0.0
+    dropped_fbx = os.path.join(tmp, "dropped_channels.fbx")
+    FbxUtils.apply_takes([("ShotA", 1, 30), ("ShotB", 31, 60)])
+    try:
+        FbxUtils.export(
+            filepath=dropped_fbx,
+            objects=[lamp, bulb, dial],
+            bake_anim=True,
+            use_custom_props=True,
+        )
+    finally:
+        FbxUtils.reset_takes()
+    ptk.FbxMedia.drop_takes(dropped_fbx, names=["Scene"])
+    add_property_curves(
+        dropped_fbx,
+        {
+            "ShotA": {
+                ("Lamp", "opacity"): [(1, 0.0, LIN), (15, 1.0, LIN), (30, 1.0, LIN)],
+                ("Dial", "highlight"): [(5, 0.0, CUBIC_USER), (10, 1.0, CUBIC_USER)],
+            },
+            "ShotB": {
+                ("Lamp", "opacity"): [(31, 1.0, CONST), (45, 0.0, LIN), (60, 0.0, LIN)]
+            },
+        },
+    )
+    fixture = ptk.FbxFile.load(dropped_fbx).take_keys(("Visibility",), user=True)
+    check(
+        "the fixture: two shots keying Visibility and the user properties, merged "
+        "on import",
+        ptk.FbxFile.load(dropped_fbx).take_layout()["kind"] == "merged"
+        and {k[:2] for k in fixture.get("ShotA", {})}
+        == {("Lamp", "Visibility"), ("Lamp", "opacity"), ("Dial", "highlight")}
+        and {k[:2] for k in fixture.get("ShotB", {})}
+        == {("Lamp", "Visibility"), ("Lamp", "opacity")},
+        {t: sorted(k[:2] for k in c) for t, c in fixture.items()},
+    )
+    probe = list(range(1, 61, 3))
+    want_hidden = [f for f in probe if 10 <= f < 20 or 40 <= f < 50]
+    # The premise, pinned: the stock importer drops every one of them.
+    fresh()
+    bpy.ops.import_scene.fbx(filepath=dropped_fbx, anim_offset=0.0)
+    stock = {
+        "curves": sorted(
+            (o.name, fc.data_path)
+            for o in bpy.data.objects
+            for a in [o.animation_data.action if o.animation_data else None]
+            for fc in (action_fcurves(a) if a else ())
+            if fc.data_path
+            in ('["opacity"]', '["highlight"]', "hide_render", "hide_viewport")
+        ),
+        "opacity": bpy.data.objects["Lamp"].get("opacity"),
+        "hide": (
+            bpy.data.objects["Lamp"].hide_render,
+            bpy.data.objects["Lamp"].hide_viewport,
+        ),
+        "unkeyed": [n for n in ("Bulb", "Dial") if played(n) is None],
+    }
+    check(
+        "the stock importer drops Visibility and the user-property curves",
+        stock["curves"] == [] and stock["opacity"] is not None,
+        stock,
+    )
+    check(
+        "the fixture: the child and the property-only object key no transform",
+        stock["unkeyed"] == ["Bulb", "Dial"],
+        stock,
+    )
+    fresh()
+    _created, logged = import_logged(dropped_fbx)
+    lamp, bulb, dial = (bpy.data.objects[n] for n in ("Lamp", "Bulb", "Dial"))
+    check(
+        "dropped channels: the opacity curve plays, both shots' keys, each "
+        "key's own interpolation",
+        fcurve_keys(lamp, '["opacity"]')
+        == [
+            (1.0, 0.0, "LINEAR"),
+            (15.0, 1.0, "LINEAR"),
+            (30.0, 1.0, "LINEAR"),
+            (31.0, 1.0, "CONSTANT"),
+            (45.0, 0.0, "LINEAR"),
+            (60.0, 0.0, "LINEAR"),
+        ],
+        fcurve_keys(lamp, '["opacity"]'),
+    )
+    check(
+        "dropped channels: Visibility plays as stepped hide_render + hide_viewport",
+        hidden_at(lamp, probe)
+        == {"hide_render": want_hidden, "hide_viewport": want_hidden}
+        and {i for _f, _v, i in fcurve_keys(lamp, "hide_render")} == {"CONSTANT"},
+        f"{hidden_at(lamp, probe)} {fcurve_keys(lamp, 'hide_render')}",
+    )
+    check(
+        "dropped channels: the child of a hidden node is hidden with it",
+        hidden_at(bulb, probe)
+        == {"hide_render": want_hidden, "hide_viewport": want_hidden},
+        hidden_at(bulb, probe),
+    )
+    check(
+        "dropped channels: an object keying only a custom property plays it",
+        fcurve_keys(dial, '["highlight"]')
+        == [(5.0, 0.0, "BEZIER"), (10.0, 1.0, "BEZIER")],
+        fcurve_keys(dial, '["highlight"]'),
+    )
+    check(
+        "dropped channels: one action per object, named for the take it plays",
+        importer_actions() == ["Bulb|Take 001", "Dial|Take 001", "Lamp|Take 001"]
+        and all(
+            played(n) is not None and played(n).name == f"{n}|Take 001"
+            for n in ("Lamp", "Bulb", "Dial")
+        ),
+        importer_actions(),
+    )
+    check(
+        "dropped channels: static values stay as imported",
+        abs(lamp["opacity"] - stock["opacity"]) < 1e-6
+        and (lamp.hide_render, lamp.hide_viewport) == stock["hide"],
+        f"{lamp['opacity']} {(lamp.hide_render, lamp.hide_viewport)} vs {stock}",
+    )
+    info = [m for lvl, m in logged if lvl == "INFO" and "drops" in m]
+    check(
+        "dropped channels: one INFO line says what landed",
+        len(info) == 1
+        and "Visibility on 1 object(s), inherited by 1 more" in info[0]
+        and "custom-property curve(s)" in info[0],
+        logged,
+    )
+    # A caller that carries them itself (the bridge) lands none.
+    fresh()
+    import_logged(dropped_fbx, channels=())
+    check(
+        "channels=(): nothing the importer drops is landed",
+        not fcurve_keys(bpy.data.objects["Lamp"], '["opacity"]')
+        and not hidden_at(bpy.data.objects["Lamp"], probe)
+        and played("Bulb") is None
+        and played("Dial") is None,
+        importer_actions(),
+    )
+    try:
+        FbxUtils.import_fbx(dropped_fbx, channels=("visibility", "opacity"))
+        check("an unknown channel family raises before importing", False)
+    except ValueError:
+        check("an unknown channel family raises before importing", True)
+    # A keyed enum the importer made a string (use_custom_props_enum_as_string,
+    # its default) is no channel: landed as a float, the static value put back
+    # after keying left its curve on a string property. Added: 2026-10-19
+    fresh()
+    switch = bpy.data.objects.new("Switch", None)
+    bpy.context.scene.collection.objects.link(switch)
+    switch["space"], switch["opacity"] = "World", 1.0
+    _vis, _props = FbxUtils._take_channels(
+        [
+            {
+                ("Switch", "space", "d|space"): [[0, 1.0, "step"]],
+                ("Switch", "opacity", "d|opacity"): [[0, 0.5, "linear"]],
+            }
+        ],
+        lambda target: switch if target == "Switch" else None,
+        1.0,
+        0.0,
+        set(),
+        {},
+    )
+    check(
+        "a property the importer made a string (an enum) lands no curve",
+        sorted(_props.get(switch, {})) == ["opacity"],
+        _props,
+    )
+
+    # A clip library: the take that plays keys no custom property, a stashed
+    # alternative does -- its curve rides its Key Stash clip, and the playing
+    # action gains none.
+    fresh()
+    clip_obj = bpy.data.objects.new("Clip", None)
+    bpy.context.scene.collection.objects.link(clip_obj)
+    clip_obj["opacity"] = 0.25
+    for act_name, rate in (("Walk", 0.1), ("Run", 0.3)):
+        act = bpy.data.actions.new(act_name)
+        clip_obj.animation_data_create()
+        clip_obj.animation_data.action = act
+        for f in range(1, 21):
+            clip_obj.location.x = f * rate
+            clip_obj.keyframe_insert("location", index=0, frame=f)
+    clip_obj.select_set(True)
+    clips_fbx = os.path.join(tmp, "dropped_channels_library.fbx")
+    bpy.ops.export_scene.fbx(
+        filepath=clips_fbx,
+        use_selection=True,
+        object_types={"EMPTY"},
+        use_custom_props=True,
+        bake_anim=True,
+        bake_anim_use_all_actions=True,
+        bake_anim_use_nla_strips=False,
+    )
+    clips_layout = ptk.FbxFile.load(clips_fbx).take_layout()
+    plays, alt = clips_layout["live"][:1], clips_layout["stash"][:1]
+    if alt:
+        add_property_curves(
+            clips_fbx,
+            {alt[0]: {("Clip", "opacity"): [(1, 1.0, LIN), (20, 0.0, LIN)]}},
+        )
+    fresh()
+    import_logged(clips_fbx)
+    clip_obj = bpy.data.objects["Clip"]
+    stashed = {c.label: c for c in KeyStash.active().clips}
+    rec = next(
+        (
+            r
+            for r in (stashed[alt[0]].curves if alt and alt[0] in stashed else ())
+            if r["data_path"] == '["opacity"]'
+        ),
+        None,
+    )
+    parked_keys = []
+    parked_act = bpy.data.actions.get(rec["action"]) if rec else None
+    for fc in action_fcurves(parked_act) if parked_act else ():
+        if fc.data_path == '["opacity"]':
+            parked_keys = [(round(k.co.x, 3), k.co.y) for k in fc.keyframe_points]
+    played_opacity = fcurve_keys(clip_obj, '["opacity"]')
+    check(
+        "a stashed take's custom-property curve rides its clip; the take that "
+        "plays gains none",
+        plays
+        and alt
+        and parked_keys == [(1.0, 1.0), (20.0, 0.0)]
+        and not played_opacity
+        and abs(clip_obj["opacity"] - 0.25) < 1e-6,
+        f"layout={clips_layout['kind']} {plays} {alt} parked={parked_keys} "
+        f"played={played_opacity} static={clip_obj.get('opacity')}",
+    )
     reset_stash()
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
@@ -1760,6 +2173,320 @@ try:
     with SIBLING_ARMATURES.applied():
         root.collect_armature_meshes()
     check("a mesh already under its armature still binds", bool(nested.meshes))
+
+    # ---- every record is in the units the geometry is written in (2026-10-17) --
+    # Mirror of mayatk's TestRecordUnits. bpy answers every length in Blender
+    # units (BU) and converts nothing; the Scene Exporter sets the scene's
+    # units before it runs the producers (``set_linear_unit``) and the FBX
+    # write scales the geometry by them (``apply_unit_scale``): a BU is written
+    # as ``scale_length`` metres, or one metre under a unit system of None
+    # (io_scene_fbx ``units_blender_to_fbx_factor``). So a record ships its
+    # lengths in BU -- the file's own units -- with ``unit_scale`` the metres
+    # per BU in effect when it is PRODUCED, and lengths x unit_scale follow the
+    # geometry. Each measured producer's fixture is authored under each scale
+    # and produced under each setting, whatever scale the tool ran under (the
+    # probe kept the bake's: a centimetre bake exported in metres labelled its
+    # probe 100x too near). The articulation record carries no unit_scale: its
+    # runtime measures its scale against the rest pose
+    # (``ptk.ArticulationModel.scale_of``), so it ships the same BU always.
+    import json as _ru_json
+
+    from blendertk.env_utils._env_utils import EnvUtils
+    from blendertk.light_utils.lightmap_baker.lightmap_records import LightmapRecords
+    from blendertk.node_utils.data_nodes import DataNodes as _RuDataNodes
+    from blendertk.rig_utils.articulated_rig import ArticulatedRig
+    from blendertk.rig_utils.shadow_rig import ShadowRig
+
+    #: The producers whose records carry no length, and what they carry
+    #: instead. A new producer belongs here or in ``ru_fixtures``.
+    RU_UNITLESS = {
+        ptk.SceneRecords.SHOTS.key: "frames, with their fps",
+        ptk.SceneRecords.VISIBILITY.key: "frames with their fps, and colours",
+        ptk.SceneRecords.AUDIO.key: "frames, with their fps",
+        ptk.SceneRecords.EMISSIVE_GROUPS.key: "weights",
+    }
+    #: The scale each fixture is authored under.
+    RU_AUTHORED = (1.0, 0.01)
+    #: ``(unit system, scale_length) -> metres per BU`` the FBX write uses.
+    RU_PRODUCED = {("METRIC", 1.0): 1.0, ("METRIC", 0.01): 0.01, ("NONE", 0.01): 1.0}
+    ru_store = ptk.TempArtifacts("btk_record_units", policy="session")
+    ru_dir = ru_store.dir_path()
+    ru_pin = _RuDataNodes._session_root
+    EnvUtils.set_current_workspace(ru_dir)  # the shadow rig writes its maps there
+
+    def ru_file(name):
+        """An empty stand-in for a baked map: the records name it, nothing reads it."""
+        path = os.path.join(ru_dir, name)
+        open(path, "wb").close()
+        return path
+
+    def ru_cube(name, location, size=2.0):
+        bpy.ops.mesh.primitive_cube_add(size=size, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        return obj
+
+    def ru_lightmaps():
+        """A marked bench, and a probe recorded at a point and a box, in BU."""
+        bench = ru_cube("Bench", (0.0, 0.0, 1.0))
+        btk.UvUtils.create_lightmap_uvs([bench], quiet=True)
+        LightmapRecords.commit({bench.name: ru_file("Bench_Lightmap.exr")})
+        LightmapRecords.commit_probe(
+            ru_file("Bench_Probe.exr"),
+            (0.0, 1.2, 0.5),
+            [(-2.0, 0.0, -1.0), (2.0, 2.5, 1.5)],
+        )
+
+    def ru_lightmap_metres(payload, factor=None):
+        """*payload* in metres: its lengths times *factor* (its own unit_scale
+        when None), labelled 1."""
+        probe = payload["probe"]
+        s = probe["unit_scale"] if factor is None else factor
+        probe["position"] = [c * s for c in probe["position"]]
+        probe["box"] = [[c * s for c in corner] for corner in probe["box"]]
+        probe["unit_scale"] = 1.0
+        return payload
+
+    def ru_shadows():
+        """A horizon shadow rig on a box, its ground raised off the world's."""
+        box = ru_cube("Box", (0.0, 0.0, 1.5))
+        bpy.context.view_layer.update()
+        ShadowRig.create(
+            [box],
+            light_pos=(5.0, 5.0, 10.0),
+            texture_res=32,
+            ground_height=0.25,
+            rig_type="horizon",
+            horizon_size=32,
+            horizon_spans=2,
+        )
+
+    def ru_shadow_metres(payload, factor=None):
+        s = payload["unit_scale"] if factor is None else factor
+        for plane in payload["planes"]:
+            for key in ("source_size", "ground", "radius", "height"):
+                plane[key] *= s
+            horizon = plane.get("horizon")
+            if horizon:
+                horizon["bounds"] = [c * s for c in horizon["bounds"]]
+                horizon["height_scale"] *= s
+        payload["unit_scale"] = 1.0
+        return payload
+
+    def ru_articulation():
+        """A hinge and a slide, a limit typed on each (degrees, BU), then each
+        max taken from a pose."""
+        names = []
+        for i, x in enumerate((0.0, 4.0, 8.0)):
+            names.append(ru_cube(f"RU{i}", (x, 0.0, 0.0), size=1.5).name)
+        joints = [
+            {
+                "link": i,
+                "parent": i - 1,
+                "type": kind,
+                "position": [4.0 * i - 2.0, 0.0, 0.0],
+                "aim": [1.0, 0.0, 0.0],
+                "normal": [0.0, 0.0, 1.0],
+                "limits": limits,
+                "size": 1.0,
+            }
+            for i, kind, limits in (
+                (1, "hinge", {"rz": [-30.0, 45.0]}),
+                (2, "slide", {"tx": [-1.0, 2.0]}),
+            )
+        ]
+        rig = ArticulatedRig.create(
+            [[n] for n in names], joints, name="units", end_control=False
+        )
+        hinge, slide = (j["id"] for j in rig.spec["joints"])
+        rig.set_state([20.0, 1.5], key=False)  # model order: degrees, BU
+        rig.set_limit_from_pose(hinge, "rz", "max")
+        rig.set_limit_from_pose(slide, "tx", "max")
+
+    #: key -> (fixture, to-metres of a labelled record, or None for a record
+    #: that ships BU unlabelled -- the same numbers under every setting).
+    ru_fixtures = {
+        ptk.SceneRecords.LIGHTMAPS.key: (ru_lightmaps, ru_lightmap_metres),
+        ptk.SceneRecords.SHADOWS.key: (ru_shadows, ru_shadow_metres),
+        ptk.SceneRecords.ARTICULATION.key: (ru_articulation, None),
+    }
+
+    def ru_differences(want, got, where, out):
+        """Every place *got* differs from *want* (floats to the records' 6 places)."""
+        if isinstance(want, dict):
+            if not isinstance(got, dict) or sorted(want) != sorted(got):
+                out.append(f"{where}: keys {sorted(want)} vs {got!r}")
+                return out
+            for k in want:
+                ru_differences(want[k], got[k], f"{where}.{k}", out)
+        elif isinstance(want, list):
+            if not isinstance(got, list) or len(want) != len(got):
+                out.append(f"{where}: {want!r} vs {got!r}")
+                return out
+            for i, (a, b) in enumerate(zip(want, got)):
+                ru_differences(a, b, f"{where}[{i}]", out)
+        elif isinstance(want, float) or isinstance(got, float):
+            if not isinstance(got, (int, float)) or abs(float(want) - float(got)) > (
+                2e-6 + 1e-6 * abs(float(want))
+            ):
+                out.append(f"{where}: {want} vs {got}")
+        elif want != got:
+            out.append(f"{where}: {want!r} vs {got!r}")
+        return out
+
+    def ru_unit_scales(payload, where="", out=None):
+        """``(where, unit_scale)`` of every ``unit_scale`` in *payload*."""
+        out = [] if out is None else out
+        if isinstance(payload, dict):
+            if "unit_scale" in payload:
+                out.append((where or "payload", payload["unit_scale"]))
+            for k, v in payload.items():
+                ru_unit_scales(v, f"{where}.{k}", out)
+        elif isinstance(payload, list):
+            for i, v in enumerate(payload):
+                ru_unit_scales(v, f"{where}[{i}]", out)
+        return out
+
+    def ru_produce(key):
+        """``{(authored scale, (system, produced scale)): payload}`` for *key*."""
+        fixture, _metres = ru_fixtures[key]
+        payloads = {}
+        for authored in RU_AUTHORED:
+            bpy.ops.wm.read_factory_settings(use_empty=True)
+            bpy.context.scene.unit_settings.scale_length = authored
+            fixture()
+            for setting in RU_PRODUCED:
+                units = bpy.context.scene.unit_settings
+                units.system, units.scale_length = setting
+                (producer,) = FbxUtils.producers([key]).values()
+                record = producer(FbxUtils.export_context())
+                payloads[(authored, setting)] = (
+                    _ru_json.loads(record.text) if record is not None else None
+                )
+        return payloads
+
+    def ru_copy(payload):
+        return _ru_json.loads(_ru_json.dumps(payload))
+
+    check(
+        "record units: every producer is measured or declared unitless",
+        {spec.key for spec in FbxUtils.PRODUCERS}
+        == set(RU_UNITLESS) | set(ru_fixtures),
+        sorted({spec.key for spec in FbxUtils.PRODUCERS}),
+    )
+    ru_payloads = {}
+    for ru_key, (_fixture, ru_metres) in ru_fixtures.items():
+        try:
+            payloads = ru_payloads[ru_key] = ru_produce(ru_key)
+        except Exception:  # noqa: BLE001 -- one fixture's crash is its own FAIL
+            check(f"record units: {ru_key} fixture runs", False, traceback.format_exc())
+            continue
+        reference = payloads[(1.0, ("METRIC", 1.0))]  # a BU is a metre: BU == m
+        if reference is None or None in payloads.values():
+            check(f"record units: {ru_key} fixture made a record", False, payloads)
+            continue
+        wrong, labels = [], []
+        for (authored, setting), payload in payloads.items():
+            where = f"authored {authored}, produced {setting}"
+            if ru_metres is None:
+                ru_differences(reference, payload, where, wrong)
+                labels += [(where, u) for u in ru_unit_scales(payload)]
+                continue
+            factor = RU_PRODUCED[setting]
+            ru_differences(
+                ru_metres(ru_copy(reference), factor),
+                ru_metres(ru_copy(payload)),
+                where,
+                wrong,
+            )
+            labels += [
+                (where, u)
+                for u in ru_unit_scales(payload)
+                if abs(u[1] - factor) > 1e-6 * max(1.0, factor)
+            ]
+        if ru_metres is None:
+            check(
+                f"record units: {ru_key} ships the same BU whatever the units, unlabelled",
+                not wrong and not labels,
+                "; ".join(wrong[:6]) or labels[:4],
+            )
+            continue
+        check(
+            f"record units: {ru_key} lengths x unit_scale follow the geometry",
+            not wrong,
+            "; ".join(wrong[:6]),
+        )
+        check(
+            f"record units: {ru_key} unit_scale is the metres per BU the write uses",
+            not labels,
+            labels[:4],
+        )
+
+    # Anchors: under a scale of 1 a record's lengths ARE the BU the tool used.
+    ru_probe = (ru_payloads.get(ptk.SceneRecords.LIGHTMAPS.key) or {}).get(
+        (0.01, ("METRIC", 1.0))
+    ) or {}
+    check(
+        "record units: a centimetre bake's probe exported in metres stands where it was baked",
+        not ru_differences(
+            {
+                "position": [0.0, 1.2, 0.5],
+                "box": [[-2.0, 0.0, -1.0], [2.0, 2.5, 1.5]],
+                "unit_scale": 1.0,
+            },
+            {
+                k: (ru_probe.get("probe") or {}).get(k)
+                for k in ("position", "box", "unit_scale")
+            },
+            "probe",
+            [],
+        ),
+        ru_probe.get("probe"),
+    )
+    ru_rig = (ru_payloads.get(ptk.SceneRecords.ARTICULATION.key) or {}).get(
+        (1.0, ("METRIC", 1.0))
+    ) or {"rigs": [{"joints": []}]}
+    ru_limits = {
+        c["channel"]: [c["min"], c["max"]]
+        for j in ru_rig["rigs"][0]["joints"]
+        for c in j["channels"]
+    }
+    check(
+        "record units: a limit typed and one taken from a pose ship as set (degrees, BU)",
+        not ru_differences({"rz": [-30.0, 20.0], "tx": [-1.0, 1.5]}, ru_limits, "limits", []),
+        ru_limits,
+    )
+    EnvUtils.set_current_workspace(ru_pin)
+    ru_store.cleanup()
+
+    # ---- finish_deliverable: a scene that cannot say where its files are
+    # still gets the split, the copies and the drop, which need none of them
+    # (mirror of mayatk). Added: 2026-10-19 --------------------------------
+    from unittest import mock as _fd_mock
+
+    fd_path = os.path.join(tmp, "finish.fbx")
+    with open(fd_path, "wb") as fh:
+        fh.write(b"Kaydara FBX Binary  \x00\x1a\x00")
+    fd_seen = {}
+
+    def _fd_finish(fbx, glb=None, **kwargs):
+        fd_seen.update(kwargs, fbx=fbx)
+        return {}
+
+    with _fd_mock.patch.object(
+        FbxUtils, "_dependency_inputs", side_effect=RuntimeError("no scene")
+    ), _fd_mock.patch.object(
+        ptk.MeshConvert, "finish_fbx_deliverable", side_effect=_fd_finish
+    ):
+        fd_report = FbxUtils.finish_deliverable(fd_path, search_dirs=["D:/maps"])
+    check(
+        "finish_deliverable: a scene whose files are not resolved still finishes",
+        fd_report == {}
+        and fd_seen.get("fbx") == fd_path
+        and (fd_seen.get("search_dirs"), fd_seen.get("walk_root"), fd_seen.get("files"))
+        == (["D:/maps"], "", ()),
+        fd_seen,
+    )
 
     import shutil
 

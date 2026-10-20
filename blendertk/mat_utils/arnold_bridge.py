@@ -94,6 +94,11 @@ class ArnoldBridge(ptk.LoggingMixin):
     def has_bridge(self, material) -> bool:
         return False
 
+    @staticmethod
+    def authored_plug(plug: str) -> str:
+        """*plug* itself: no bridge follows a material here (see the module docstring)."""
+        return plug
+
 
 class ArnoldBridgeSlots(ptk.LoggingMixin, ptk.HelpMixin):
     """Switchboard slots for the ``arnold_bridge.ui`` panel -- every control disabled.

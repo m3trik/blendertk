@@ -82,6 +82,8 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
     COL_OPEN = 2
     COL_DISPLAY = 3
     COL_NOTES = 4
+    # On-screen order (logical indices): Name | Notes | Display | Reference | Open.
+    VISUAL_COLUMN_ORDER = (COL_NAME, COL_NOTES, COL_DISPLAY, COL_REF, COL_OPEN)
 
     # Action-icon colours, mirrored from the Maya panel.
     ACTION_COLOR = {
@@ -1636,12 +1638,13 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             header.setStretchLastSection(False)
             header.setSectionResizeMode(self.COL_NAME, QtWidgets.QHeaderView.Stretch)
             header.setSectionResizeMode(self.COL_NOTES, QtWidgets.QHeaderView.Stretch)
-            # Pin the three icon action columns to the right by moving NOTES into
-            # the middle (visual position 1, right after FILES). Visual-only —
-            # logical indices are unchanged, so every COL_* reference stays valid.
-            # Re-applied each populate because ``widget.add`` (setColumnCount(0))
-            # resets the header's visual section order. Mirror of mayatk.
-            header.moveSection(header.visualIndex(self.COL_NOTES), 1)
+            # Pin the three icon action columns (Display / Reference / Open) to the
+            # right, NOTES in the middle. Visual-only — logical indices are
+            # unchanged, so every COL_* reference stays valid. Re-applied each
+            # populate because ``widget.add`` (setColumnCount(0)) resets the
+            # header's visual section order; idempotent either way. Mirror of mayatk.
+            for visual, logical in enumerate(self.VISUAL_COLUMN_ORDER):
+                header.moveSection(header.visualIndex(logical), visual)
             # Leave the three action columns on the Fixed, row-height-square sizing that
             # TableActions.add()/_reapply() applied. Overriding them to ResizeToContents
             # collapses each icon-only column to ~0 px — and to nothing in the empty /

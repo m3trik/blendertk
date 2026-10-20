@@ -70,7 +70,7 @@ try:
 
     def material(name, texture=None, color=None):
         mat = bpy.data.materials.new(name)
-        mat.use_nodes = True
+        btk.MatUtils.get_node_tree(mat, create=True)
         bsdf = next(n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
         if texture:
             tex = mat.node_tree.nodes.new("ShaderNodeTexImage")
@@ -452,7 +452,7 @@ try:
     Image.fromarray(nrm).save(npath)
     o = plane("nrmPlane")
     mat = bpy.data.materials.new("nrmMat")
-    mat.use_nodes = True
+    btk.MatUtils.get_node_tree(mat, create=True)
     bsdf = next(n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
     tex = mat.node_tree.nodes.new("ShaderNodeTexImage")
     tex.image = bpy.data.images.load(npath)
@@ -979,6 +979,197 @@ try:
         f"{got.name} / {[sl.material and sl.material.name for sl in src.material_slots]}",
     )
 
+    # ------------------------------------------------------------ in place
+    # Mirror of mayatk's test_in_place_*: assign_from="in_place" re-uses the
+    # target's OWN material and overwrites the maps it reads where they are;
+    # what rewriting would change outside the run is left alone.
+    def in_place_pair(target_map=None, name="ipTgt"):
+        reset()
+        s = plane("ipSrc")
+        s.data.materials.append(material("ipSrcMat", texture=checker_path))
+        t = s.copy()
+        t.data = s.data.copy()
+        bpy.context.collection.objects.link(t)
+        t.name = name
+        t.data.materials.clear()
+        t.data.materials.append(material("ipTgtMat", texture=target_map))
+        mirror_u(t)  # another layout
+        return s, t
+
+    def target_map(name="ipTgt_diffuse.tga"):
+        folder = os.path.join(tmp, "tgt_textures")
+        os.makedirs(folder, exist_ok=True)
+        p = os.path.join(folder, name).replace("\\", "/")
+        Image.fromarray(np.full((64, 64, 3), 128, np.uint8)).save(p)
+        return p
+
+    def in_place(t, s, **kw):
+        return btk.TextureTransfer().transfer(
+            t,
+            s,
+            size=64,
+            supersample=1,
+            padding=0,
+            output_dir=out_dir,
+            output_name="ip",
+            assign=True,
+            assign_from="in_place",
+            **kw,
+        )
+
+    def worn(o):
+        return [sl.material.name for sl in o.material_slots if sl.material]
+
+    def face_mat(o):
+        return o.material_slots[o.data.polygons[0].material_index].material.name
+
+    def image_format(p):
+        with Image.open(p) as img:
+            return img.format
+
+    def base_color_path(mat):
+        node = next(n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+        link = node.inputs["Base Color"].links[0]
+        return os.path.normcase(
+            os.path.abspath(bpy.path.abspath(link.from_node.image.filepath))
+        )
+
+    def same(a, b):
+        return os.path.normcase(os.path.abspath(a)) == os.path.normcase(
+            os.path.abspath(b)
+        )
+
+    tga = target_map()
+    s, t = in_place_pair(tga)
+    out = in_place(t, s)
+    (maps,) = out.values()
+    got = load(tga)
+    err = float(np.abs(got - checker().astype(np.float32)[:, ::-1]).max())
+    check(
+        "in place rewrites the target's own map where it is, as a TGA",
+        same(maps["baseColor"], tga) and err < 2.0 and image_format(tga) == "TGA",
+        f"{maps} err {err:.2f}",
+    )
+    check(
+        "in place keeps the target's material, adds none",
+        worn(t) == ["ipTgtMat"]
+        and same(base_color_path(bpy.data.materials["ipTgtMat"]), tga)
+        and bpy.data.materials.get("ip") is None
+        and not os.path.isfile(os.path.join(out_dir, "ip_BaseColor.png")),
+        worn(t),
+    )
+
+    s, t = in_place_pair(None)
+    (maps,) = in_place(t, s).values()
+    check(
+        "in place wires a channel the target had no map for into its own material",
+        worn(t) == ["ipTgtMat"]
+        and same(base_color_path(bpy.data.materials["ipTgtMat"]), maps["baseColor"])
+        and os.path.basename(maps["baseColor"]) == "ip_BaseColor.png",
+        maps,
+    )
+
+    before = load(checker_path)
+    s, t = in_place_pair(checker_path)
+    (maps,) = in_place(t, s).values()
+    check(
+        "in place never overwrites a map the source reads",
+        np.array_equal(load(checker_path), before)
+        and worn(t) == ["ipTgtMat"]
+        and same(base_color_path(bpy.data.materials["ipTgtMat"]), maps["baseColor"]),
+        maps,
+    )
+
+    lib = target_map("lib_scratches.png")
+    before = load(lib)
+    s, t = in_place_pair(lib)
+    material("libUser", texture=lib)
+    in_place(t, s)
+    check(
+        "in place never overwrites a map another material reads",
+        np.array_equal(load(lib), before)
+        and not same(base_color_path(bpy.data.materials["ipTgtMat"]), lib)
+        and same(base_color_path(bpy.data.materials["libUser"]), lib),
+    )
+
+    def bound_map(mat):
+        """The UV map a UV Map node names for *mat*'s base colour image, or ""."""
+        bsdf = next(n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+        vector = bsdf.inputs["Base Color"].links[0].from_node.inputs["Vector"]
+        source = vector.links[0].from_node if vector.is_linked else None
+        return source.uv_map if source is not None and source.type == "UVMAP" else ""
+
+    tga = target_map()
+    before = load(tga)
+    s, t = in_place_pair(tga)
+    other = plane("ipBystander")
+    other.data.materials.append(bpy.data.materials["ipTgtMat"])
+    try:
+        in_place(t, s)
+        raised = ""
+    except ValueError as e:
+        raised = str(e)
+    check(
+        "in place skips a material worn outside the run (never a copy)",
+        "ipTgtMat" in raised
+        and np.array_equal(load(tga), before)
+        and face_mat(t) == "ipTgtMat"
+        and bpy.data.materials.get("ip") is None,
+        raised,
+    )
+
+    reset()
+    own = plane("ipOwn")
+    own.data.materials.append(material("ipOwnMat", texture=checker_path))
+    rotate_uv_copy(own, "map2", 90)
+    before = load(checker_path)
+    (maps,) = (
+        btk.TextureTransfer()
+        .transfer(
+            own,
+            source_uv_set="UVMap",
+            target_uv_set="map2",
+            size=16,
+            supersample=1,
+            padding=0,
+            output_dir=out_dir,
+            output_name="moved",
+            assign=True,
+            assign_from="in_place",
+        )
+        .values()
+    )
+    own_mat = bpy.data.materials["ipOwnMat"]
+    check(
+        "in place on one mesh re-uses the material, keeps its old maps, binds map2",
+        np.array_equal(load(checker_path), before)
+        and face_mat(own) == "ipOwnMat"
+        and same(base_color_path(own_mat), maps["baseColor"])
+        and bound_map(own_mat) == "map2",
+        f"{face_mat(own)} / {bound_map(own_mat)!r}",
+    )
+
+    reset()
+    bp = plane("bindPlane")
+    bp.data.materials.append(material("bindMat", texture=checker_path))
+    rotate_uv_copy(bp, "map2", 90)
+    btk.TextureTransfer().transfer(
+        bp,
+        source_uv_set="UVMap",
+        target_uv_set="map2",
+        size=16,
+        supersample=1,
+        padding=0,
+        output_dir=out_dir,
+        output_name="bound",
+        assign=True,
+    )
+    check(
+        "a copy samples the UV map its maps were written for",
+        bound_map(bpy.data.materials["bound"]) == "map2",
+        repr(bound_map(bpy.data.materials["bound"])),
+    )
+
     # ------------------------------------------------------------ lightmaps
     # transfer_lightmaps (mirror of mayatk's TestLightmapTransfer): rebound
     # when the lightmap layouts match, resampled into the target's layout
@@ -1192,6 +1383,47 @@ try:
     except ValueError:
         raised = True
     check("transfer_lightmaps without a source raises", raised)
+
+    # ------------------------------------------------- source_materials
+    # Mirror of mayatk: the material each face is READ through, named instead
+    # of the one it wears -- what a texture combine's re-read passes once its
+    # faces wear the combined result. A material gone from the file reads as
+    # none.
+    reset()
+    o = plane("givenPlane")
+    o.data.materials.append(material("wornMat", color=(0.1, 0.1, 0.1)))
+    painted = material("paintedMat", texture=checker_path)
+    rotate_uv_copy(o, "map2", 90)
+    res = TextureTransfer().transfer(
+        o,
+        source_uv_set="UVMap",
+        target_uv_set="map2",
+        size=64,
+        supersample=1,
+        padding=0,
+        output_dir=out_dir,
+        output_name="given",
+        source_materials={o.name: (["paintedMat"], [0])},
+    )
+    got = load(next(iter(res.values()))["baseColor"])
+    err = float(np.abs(got - np.rot90(checker().astype(np.float32), 1)).max())
+    check(
+        "source_materials reads a face through the material named, not the one worn",
+        err < 2.0,
+        f"max err {err:.2f}",
+    )
+    mats, per_face = TextureTransfer._given_materials(
+        {o: (["noSuchMat", "paintedMat"], [1, 0, -1])}, o
+    )
+    check(
+        "a given material gone from the file reads as none (keyed by the object)",
+        mats == [painted] and per_face.tolist() == [0, -1, -1],
+        f"{[m.name for m in mats]} {per_face.tolist()}",
+    )
+    check(
+        "a target source_materials does not name reads what it wears",
+        TextureTransfer._given_materials({"other": (["paintedMat"], [0])}, o) is None,
+    )
 
     # ---------------------------------------------------- output dir rules
     # The panel's Output Folder field: blank = the default subfolder, a

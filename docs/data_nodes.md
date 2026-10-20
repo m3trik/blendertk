@@ -115,8 +115,14 @@ see `fbx_utils.py`'s module docstring), `visibility_tracks`
 (`EmissiveGroups`; the keyed weights ship via transient scale-proxy Empties,
 since Blender's FBX exporter cannot animate a custom property) and
 `lightmap_metadata` (`LightmapRecords`; map file names, no folder -- a GLB build
-is handed `LightmapRecords.search_dirs()`).
-
-Audio (`audio_manifest`) is not yet produced — the audio panel is VSE-only.
-When its port lands it adds one row to `PRODUCERS`; the declared dependency on
-`shot_metadata` already orders it after shots.
+is handed `LightmapRecords.search_dirs()`) and `audio_manifest`
+(`AudioUtils.export_record`: one event per playing sound strip, named for the
+strip, at its visible start; scoped to the takes by `ptk.AudioUtils.scope_events`,
+the rule mayatk's producer uses -- the declared dependency on `shot_metadata`
+orders it after shots). It is a DERIVED record, so a hand-off refreshes it too
+(the Unity bridge, the WebXR preview). The Scene Exporter and the Unity bridge
+embed each event's audio file in the FBX under the event's name
+(`FbxUtils.embed_dependencies`). A strip trimmed at its head ships at its
+visible start and plays from its file's start (the record has no source offset;
+the export notes it). Blender has no before-export event, so a plain
+File > Export ships whatever `audio_manifest` the carrier holds.

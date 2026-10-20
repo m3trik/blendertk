@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.19.0"
+__version__ = "0.19.1"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.
@@ -38,6 +38,9 @@ DEFAULT_INCLUDE = {
     # Event-subscription manager — mirror of mayatk's ``core_utils.script_job_manager`` over
     # ``bpy.app.handlers`` (``btk.ScriptJobManager`` ↔ ``mtk.ScriptJobManager``).
     "core_utils.script_job_manager": ["ScriptJobManager"],
+    # Lengths and angles by the kind of value -- mirror of mayatk's ``core_utils.units``
+    # (``btk.Units`` ↔ ``mtk.Units``): Blender units and radians to what a record ships.
+    "core_utils.units": "Units",
     # Diagnostics subpackage — mirror of mayatk's ``core_utils.diagnostics``. Class-only (a submodule,
     # not a ``_*_utils`` root — kept out of the flat namespace). The ``->Diagnostics`` alias
     # multi-inherits the per-module diag classes into one ``btk.Diagnostics`` namespace; the
@@ -71,6 +74,9 @@ DEFAULT_INCLUDE = {
     "uv_utils._uv_utils": "*",
     # UV-to-UV texture transfer adapter -- mirror of mayatk.uv_utils.texture_transfer
     "uv_utils.texture_transfer": ["TextureTransfer"],
+    # Texture Combine engine -- mirror of mayatk's; its co-located
+    # ``TextureCombineSlots`` panel is discovered by ``BlenderUiHandler``.
+    "uv_utils.texture_combine.texture_combine": ["TextureCombine", "CombineInputs"],
     # RizomUV bridge engine — mirror of mayatk's ``uv_utils.rizom_bridge._rizom_bridge.RizomUVBridge``
     # (the ``RizomBridgeSlots`` panel class is discovered by the handler, not registered).
     "uv_utils.rizom_bridge._rizom_bridge": [
@@ -412,6 +418,9 @@ DEFAULT_INCLUDE = {
     ],
     "rig_utils.shadow_rig._shadow_rig": [
         "ShadowRig",
+    ],
+    "rig_utils.articulated_rig._articulated_rig": [
+        "ArticulatedRig",
     ],
     # Curve / NURBS-adjacent tools — mirror of mayatk's ``nurbs_utils``. ``NurbsUtils`` is the shared
     # curve-build / curve→mesh-bake base (Blender's bevel + 2D-fill replace Maya's loft/planarSrf/

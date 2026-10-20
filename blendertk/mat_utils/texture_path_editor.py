@@ -1056,6 +1056,13 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             dict.fromkeys(o for dep in lightmaps for o in (dep.get("objects") or []))
         )
 
+    @staticmethod
+    def _lightmap_maps(lightmaps):
+        """The file names the records carry -- a relocation's scope: a row IS
+        its file, and the reflection probe's row names no object at all
+        (mirror of mayatk's)."""
+        return list(dict.fromkeys(dep["map"] for dep in lightmaps))
+
     def _repath_lightmap(self, dep, folder, report=True):
         """Point every marker naming *dep*'s map at *folder*, then refresh.
 
@@ -2867,7 +2874,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                 dest_dir,
                 source_dir=source_dir or "",
                 mode=relocate_mode,
-                objects=self._lightmap_objects(lightmaps),
+                maps=self._lightmap_maps(lightmaps),
                 dry_run=True,
             )
         except Exception as e:  # noqa: BLE001 — a preview must not raise
@@ -2916,7 +2923,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                 dest_dir,
                 source_dir=source_dir or "",
                 mode=relocate_mode,
-                objects=self._lightmap_objects(lightmaps),
+                maps=self._lightmap_maps(lightmaps),
             )
         except Exception as e:  # noqa: BLE001 — the textures already landed
             self.logger.error(f"Lightmaps not relocated: {e}")

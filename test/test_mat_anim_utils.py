@@ -42,7 +42,148 @@ try:
     b = bpy.context.active_object
 
     m1 = btk.create_mat("standard", name="M1")
-    check("create_mat standard", m1.name == "M1" and m1.use_nodes)
+    check(
+        "create_mat standard",
+        m1.name == "M1" and btk.MatUtils.get_node_tree(m1) is not None,
+    )
+
+    # ---- get_node_tree: the one gate on the deprecated ``use_nodes`` --------
+    # Blender 5.x pins Material/World/Light ``use_nodes`` True and warns on every
+    # read and write; 6.0 removes it, so reading raises. The stand-ins model each
+    # version's RNA: 6.0 declares no ``use_nodes`` (and, slotted, has no
+    # attribute to write), 4.x a live one without which the tree is ignored.
+    import warnings
+
+    class _Prop:
+        def __init__(self, deprecated):
+            self.is_deprecated = deprecated
+
+    class _Rna:
+        def __init__(self, props):
+            self.properties = props
+
+    class _Id60:
+        __slots__ = ("node_tree",)
+        bl_rna = _Rna({})
+
+        def __init__(self, tree):
+            self.node_tree = tree
+
+    class _Id4x:
+        bl_rna = _Rna({"use_nodes": _Prop(False)})
+
+        def __init__(self, tree, use_nodes):
+            self.node_tree = tree
+            self.use_nodes = use_nodes  # probe: deprecated use_nodes
+
+    tree60 = object()
+    id60 = _Id60(tree60)
+    try:
+        got60 = (
+            btk.MatUtils.get_node_tree(id60),
+            btk.MatUtils.get_node_tree(id60, create=True),
+        )
+    except AttributeError as error:
+        got60 = error
+    check(
+        "get_node_tree (6.0, no use_nodes): the tree, read and create alike, no AttributeError",
+        got60 == (tree60, tree60),
+        repr(got60),
+    )
+    tree4 = object()
+    id4 = _Id4x(tree4, use_nodes=False)
+    read4 = btk.MatUtils.get_node_tree(id4)
+    made4 = btk.MatUtils.get_node_tree(id4, create=True)
+    flag4 = id4.use_nodes  # probe: deprecated use_nodes
+    check(
+        "get_node_tree (4.x): a tree with nodes off is not rendered; create turns them on",
+        read4 is None and made4 is tree4 and flag4 is True,
+        f"read={read4!r} made={made4!r} use_nodes={flag4}",
+    )
+    world_nt = bpy.data.worlds.new("W_node_tree")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        got_live = (
+            btk.MatUtils.get_node_tree(m1),
+            btk.MatUtils.get_node_tree(m1, create=True),
+            btk.MatUtils.get_node_tree(world_nt, create=True),
+            btk.MatUtils.get_node_tree(None),
+        )
+    use_nodes_warnings = [
+        str(w.message) for w in caught if "use_nodes" in str(w.message)
+    ]
+    check(
+        "get_node_tree (live): material + world trees, the deprecated flag never touched",
+        got_live[0] == m1.node_tree
+        and got_live[1] == m1.node_tree
+        and got_live[2] == world_nt.node_tree
+        and got_live[3] is None
+        and not use_nodes_warnings,
+        f"{got_live} warnings={use_nodes_warnings}",
+    )
+    bpy.data.worlds.remove(world_nt)
+
+    # Drift guard: every read/write of ``use_nodes`` -- package and tests --
+    # goes through ``MatUtils.get_node_tree``; a bare one warns on 5.x and
+    # raises on 6.0. Sanctioned: the gate itself, the package's 4.x compositor
+    # branch (``scene.use_nodes``, behind the ``compositing_node_group``
+    # probe), and a test line marked ``# probe: deprecated use_nodes`` (a
+    # stand-in, or a probe of the flag that runs only where it is declared).
+    import io
+    import tokenize
+
+    pkg_root = os.path.join(REPO, "blendertk")
+    allowed = {
+        ("blendertk/mat_utils/_mat_utils.py", None),  # the gate itself
+        ("blendertk/mat_utils/texture_baker.py", "scene"),  # 4.x compositor only
+    }
+    marker = "# probe: deprecated use_nodes"
+    scanned = [
+        os.path.join(folder, fname)
+        for folder, _dirs, files in os.walk(pkg_root)
+        if "__pycache__" not in folder
+        for fname in files
+        if fname.endswith(".py")
+    ] + [
+        os.path.join(HERE, fname) for fname in os.listdir(HERE) if fname.endswith(".py")
+    ]
+    stray = []
+    for path in scanned:
+        rel = os.path.relpath(path, REPO).replace(os.sep, "/")
+        with open(path, "rb") as fh:
+            source = fh.read().decode("utf-8")
+        toks = [
+            t
+            for t in tokenize.generate_tokens(io.StringIO(source).readline)
+            if t.type not in (tokenize.COMMENT, tokenize.NL, tokenize.NEWLINE)
+        ]
+        for i, tok in enumerate(toks):
+            receiver = None
+            if (
+                tok.type == tokenize.NAME
+                and tok.string == "use_nodes"
+                and i >= 2
+                and toks[i - 1].string == "."
+            ):
+                receiver = toks[i - 2].string
+            elif tok.type == tokenize.STRING and tok.string.strip("'\"") == "use_nodes":
+                # getattr / setattr / hasattr(..., "use_nodes")
+                window = [t.string for t in toks[max(0, i - 8) : i]]
+                if not {"getattr", "setattr", "hasattr"} & set(window):
+                    continue
+                receiver = "<getattr>"
+            else:
+                continue
+            if (rel, None) in allowed or (rel, receiver) in allowed:
+                continue
+            if rel.startswith("test/") and marker in tok.line:
+                continue
+            stray.append(f"{rel}:{tok.start[0]} {receiver}.use_nodes")
+    check(
+        "use_nodes: no package module or test reads or writes it outside MatUtils.get_node_tree",
+        not stray and len(scanned) > 100,
+        f"{len(scanned)} files; " + "; ".join(stray),
+    )
     rnd = btk.create_mat("random")
     check("create_mat random has color name", rnd.name.startswith("mat_"))
 
@@ -1312,8 +1453,14 @@ try:
     btk.scale_keys(a, 2.0)  # about first key (6): 6,16 -> 6,26
     check("scale_keys x2 about first", key_times(a) == [6.0, 26.0], f"{key_times(a)}")
 
-    btk.stagger_keys([a, b], spacing=5)  # a: 6-26; b starts at 31
-    check("stagger_keys sequential", key_times(b)[0] == 31.0, f"{key_times(b)}")
+    # Time order, not selection order (mayatk's layout): b (1-21) starts first and
+    # holds; a lands 5 after its end, at 26-46.
+    btk.stagger_keys([a, b], spacing=5)
+    check(
+        "stagger_keys sequential",
+        key_times(b) == [1.0, 21.0] and key_times(a) == [26.0, 46.0],
+        f"a={key_times(a)} b={key_times(b)}",
+    )
 
     btk.set_stepped(a)
     interps = {k.interpolation for fc in btk.get_fcurves(a) for k in fc.keyframe_points}
@@ -1344,19 +1491,19 @@ try:
     sc = bpy.context.scene
     check(
         "fit_playback_range",
-        rng == (sc.frame_start, sc.frame_end) and sc.frame_start == 6,
+        rng == (sc.frame_start, sc.frame_end) == (1, 46),
         f"{rng}",
     )
 
-    # move_keys_to_frame: a=6-26, b=31-51 after stagger. Global (retain_spacing): earliest
-    # key (6) lands on the target, b keeps its +25 offset; per-action: both start at target.
+    # move_keys_to_frame: b=1-21, a=26-46 after stagger. Global (retain_spacing): earliest
+    # key (1) lands on the target, a keeps its +25 offset; per-action: both start at target.
     # Start is stated: "auto" anchors the END here (the keys sit before frame 100).
     moved = btk.move_keys_to_frame(
         [a, b], frame=100, retain_spacing=True, align="start"
     )
     check(
         "move_keys_to_frame retain_spacing keeps offsets",
-        moved == 2 and key_times(a)[0] == 100.0 and key_times(b)[0] == 125.0,
+        moved == 2 and key_times(b)[0] == 100.0 and key_times(a)[0] == 125.0,
         f"a={key_times(a)} b={key_times(b)}",
     )
     btk.move_keys_to_frame([a, b], frame=50, retain_spacing=False)
@@ -2695,7 +2842,7 @@ try:
     img.source = "FILE"
     img.filepath = "//missing_tex_4k_Base_Color.png"
     tex_mat = bpy.data.materials.new("TexMat")
-    tex_mat.use_nodes = True
+    btk.MatUtils.get_node_tree(tex_mat, create=True)
     tex_node = tex_mat.node_tree.nodes.new("ShaderNodeTexImage")
     tex_node.image = img
     bsdf = next(n for n in tex_mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")

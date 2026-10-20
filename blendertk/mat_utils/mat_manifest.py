@@ -77,23 +77,34 @@ class MatManifest(ptk.HelpMixin):
         """Resolve texture paths for every mapped slot of a single material's Principled BSDF."""
         from blendertk.mat_utils._mat_utils import _MatUtilsInternal
 
-        node = _MatUtilsInternal._principled_node(mat)
-        if node is None:
-            return {}
-
         data: Dict[str, str] = {}
-        for slot, socket_names in _SLOT_SOCKETS.items():
-            img = cls._trace_image(node, socket_names)
-            if img is None:
-                continue
-            path = _MatUtilsInternal._abspath(img)
+        for slot, img_node in cls._channel_image_nodes(mat).items():
+            path = _MatUtilsInternal._abspath(img_node.image)
             if path:
                 data[slot] = path
         return data
 
+    @classmethod
+    def _channel_image_nodes(cls, mat) -> Dict[str, Any]:
+        """``{slot: Image Texture node}`` feeding each mapped slot of *mat*'s
+        Principled BSDF -- what :meth:`_process_material` reads its paths from
+        (mirror of mayatk's ``MatManifest._channel_file_nodes``)."""
+        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
+
+        node = _MatUtilsInternal._principled_node(mat)
+        if node is None:
+            return {}
+        nodes: Dict[str, Any] = {}
+        for slot, socket_names in _SLOT_SOCKETS.items():
+            img_node = cls._trace_image_node(node, socket_names)
+            if img_node is not None and img_node.image is not None:
+                nodes[slot] = img_node
+        return nodes
+
     @staticmethod
-    def _trace_image(node, socket_names):
-        """Walk back from the first matching input socket to its feeding image, if any.
+    def _trace_image_node(node, socket_names):
+        """Walk back from the first matching input socket to its feeding Image
+        Texture node, if any.
 
         Handles a direct Image Texture link, or one hop through a Normal Map / Bump node
         (the usual Normal-input shape).
@@ -105,13 +116,13 @@ class MatManifest(ptk.HelpMixin):
             return None
         src = socket.links[0].from_node
         if src.type == "TEX_IMAGE":
-            return src.image
+            return src
         if src.type in ("NORMAL_MAP", "BUMP"):
             inner = src.inputs.get("Color") or src.inputs.get("Height")
             if inner is not None and inner.is_linked:
                 up = inner.links[0].from_node
                 if up.type == "TEX_IMAGE":
-                    return up.image
+                    return up
         return None
 
     # ------------------------------------------------------------------
@@ -163,13 +174,20 @@ class MatManifest(ptk.HelpMixin):
             img = cls._find_or_load_image(tex_path)
             if img is None:
                 continue
+            # Opacity is the image's ALPHA where it has one -- never colour
+            # managed, so it leaves the colour space to the slot reading the
+            # colour (a cutout shares its file with baseColor: retagged
+            # Non-Color by whichever slot came last, the colour read as data).
+            # Without alpha the output is a constant 1; the value is the
+            # opacity then, read as data (mayatk's alphaIsLuminance rescue).
+            from_alpha = slot == "opacity" and cls._has_alpha(img)
             # The slot's data, not Blender's load default: a fresh PNG loads as
             # sRGB, so every restored roughness / opacity / normal / lobe
             # weight was gamma-decoded. The registry's color_space says which.
             entry = ptk.MapRegistry().get(
                 ptk.MapRegistry.resolve_type_from_channel(slot)
             )
-            if entry is not None:
+            if entry is not None and not from_alpha:
                 try:
                     img.colorspace_settings.name = (
                         "sRGB" if entry.color_space == "sRGB" else "Non-Color"
@@ -184,11 +202,21 @@ class MatManifest(ptk.HelpMixin):
                 nt.links.new(img_node.outputs["Color"], norm_node.inputs["Color"])
                 nt.links.new(norm_node.outputs["Normal"], socket)
             else:
-                out_key = "Alpha" if slot == "opacity" else "Color"
+                out_key = "Alpha" if from_alpha else "Color"
                 nt.links.new(img_node.outputs[out_key], socket)
             restored += 1
 
         return restored
+
+    @staticmethod
+    def _has_alpha(img) -> bool:
+        """True when *img* carries an alpha channel.
+
+        Every loaded image reports 4 ``channels``; the plane count tells: RGBA
+        at 8 / 16 / 32 bits per channel is 32 / 64 / 128 (probed on Blender
+        5.1: an RGBA PNG reads 32, an RGB one 24).
+        """
+        return getattr(img, "depth", 0) in (32, 64, 128)
 
     @staticmethod
     def _find_or_load_image(tex_path: str):

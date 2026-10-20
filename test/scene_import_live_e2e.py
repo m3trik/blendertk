@@ -407,7 +407,8 @@ try:
         sting_u is not None and usable_images(sting_u) >= 3
         and any(
             n.type == "NORMAL_MAP"
-            for m in sting_u.data.materials if m and m.use_nodes
+            for m in sting_u.data.materials
+            if btk.MatUtils.get_node_tree(m) is not None
             for n in m.node_tree.nodes
         ),
         f"{usable_images(sting_u) if sting_u else 0} image(s)",

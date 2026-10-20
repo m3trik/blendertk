@@ -489,6 +489,51 @@ try:
         f"{tuple(bpy.data.objects['offLight'].matrix_world.translation)}",
     )
 
+    # The EMPTY can arrive hidden too: Maya's hidden light ships its null with FBX
+    # Visibility 0, which Blender's importer maps to hide_viewport -- and a hidden
+    # object is never depsgraph-evaluated, so its matrix_world still reads the origin
+    # after an import (probed: an own-hidden light's null at 0,0,0, its visible
+    # sibling's in place). Built from it, the lamp of a scene transfer landed at the
+    # world origin; it must land where the record's empty stands, and stay hidden.
+    _parent = bpy.data.objects.new("hiddenNullParent", None)
+    bpy.context.scene.collection.objects.link(_parent)
+    _parent.location = (1.0, 1.0, 1.0)
+    for _name, _parent_of, _local in (
+        ("hiddenNullLight", None, (6.0, -7.0, 8.0)),
+        ("hiddenNullChild", _parent, (2.0, 0.0, 0.0)),
+    ):
+        _e = bpy.data.objects.new(_name, None)
+        bpy.context.scene.collection.objects.link(_e)
+        _e.parent = _parent_of
+        _e.location = _local
+        _e.hide_viewport = True  # as the FBX importer leaves a hidden Maya node
+    btk.LightUtils.lights_from_records(
+        [
+            {"name": "hiddenNullLight", "type": "POINT", "energy": 7.0, "hidden": True},
+            {"name": "hiddenNullChild", "type": "POINT", "energy": 7.0, "hidden": True},
+        ]
+    )
+    bpy.context.view_layer.update()
+    for _name, _want in (
+        ("hiddenNullLight", (6.0, -7.0, 8.0)),
+        ("hiddenNullChild", (3.0, 1.0, 1.0)),
+    ):
+        _lamp = bpy.data.objects.get(_name)
+        check(
+            f"a lamp rebuilt from a HIDDEN empty lands where it stood ({_name})",
+            _lamp is not None
+            and _lamp.type == "LIGHT"
+            and all(
+                abs(_lamp.matrix_world.translation[i] - v) < 1e-5
+                for i, v in enumerate(_want)
+            ),
+            f"{tuple(_lamp.matrix_world.translation) if _lamp else None} want {_want}",
+        )
+        check(
+            f"...and keeps the record's hidden state ({_name})",
+            _lamp is not None and _lamp.hide_viewport and _lamp.hide_render,
+        )
+
     # Anything parented under the light must survive the swap in place: removing the
     # empty would re-root the child, and Blender keeps its LOCAL matrix when that
     # happens, so it would silently jump to the origin.
@@ -534,7 +579,7 @@ try:
     # Cycles' analogue of an aiSkyDomeLight, so an HDRI-only scene has no LIGHT
     # object yet is genuinely lit. Backs the Lightmap Baker's pre-bake guard.
     w = bpy.data.worlds.new("emit_probe")
-    w.use_nodes = True
+    btk.MatUtils.get_node_tree(w, create=True)
     bg = next(n for n in w.node_tree.nodes if n.type == "BACKGROUND")
 
     bg.inputs["Strength"].default_value = 1.0
@@ -579,12 +624,16 @@ try:
     # (every world ships a tree, and `use_nodes = False` is deprecated and does
     # not stick -- probed), so the tree's presence, never `use_nodes`, is what
     # selects the branch. Pinned here so the deprecated attribute can't creep back.
+    # The flag is probed only where the build still declares it: 6.0 removes it.
     bg.inputs["Strength"].default_value = 1.0
-    w.use_nodes = False
+    has_flag = w.bl_rna.properties.get("use_nodes") is not None
+    if has_flag:
+        w.use_nodes = False  # probe: deprecated use_nodes
+    flag = w.use_nodes if has_flag else "absent"  # probe: deprecated use_nodes
     check(
         "world_emits: ignores the deprecated use_nodes flag (reads the tree)",
         w.node_tree is not None and btk.LightUtils.world_emits(w) is True,
-        f"use_nodes read back as {w.use_nodes}",
+        f"use_nodes read back as {flag}",
     )
 
     # Omitted arg = "ask the scene"; an explicit None = "no world" (they must

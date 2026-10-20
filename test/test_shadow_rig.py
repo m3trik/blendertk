@@ -54,6 +54,7 @@ try:
     import math
     import numpy as np
     import bpy
+    from blendertk.mat_utils._mat_utils import MatUtils
     from blendertk.rig_utils.shadow_rig import ShadowRig, ShadowRigSlots
     from pythontk import HeightFieldMap, ShadowAtlas, ShadowHorizon, ShadowProjection
     import pythontk as ptk
@@ -977,7 +978,7 @@ try:
     # v2: the engine's runtime inputs ride the record (the contract in
     # mayatk/docs/shadow_rig_morphing.md) — the same keys and rounding mayatk writes.
     check(
-        "payload carries unit_scale (metres per Blender unit)",
+        "payload carries unit_scale (metres per Blender unit, read at export)",
         approx(payload.get("unit_scale", -1), 1.0, 1e-9),
         f"{payload.get('unit_scale')}",
     )
@@ -1494,11 +1495,22 @@ try:
     setgrp.scale = (0.0, 0.0, 0.0)
     bpy.context.view_layer.update()
     try:
-        _zero = (rig._layout(), rig._layout_moved(), ShadowRig.silhouette_is_stale(rig.shadow_plane))
-        check("combined: a set scaled to nothing is unknowable, not an error",
-              _zero[0] == "" and _zero[1] is False, _zero)
+        _zero = (
+            rig._layout(),
+            rig._layout_moved(),
+            ShadowRig.silhouette_is_stale(rig.shadow_plane),
+        )
+        check(
+            "combined: a set scaled to nothing is unknowable, not an error",
+            _zero[0] == "" and _zero[1] is False,
+            _zero,
+        )
     except Exception as _err:  # noqa: BLE001 -- the check IS that nothing raises
-        check("combined: a set scaled to nothing is unknowable, not an error", False, repr(_err))
+        check(
+            "combined: a set scaled to nothing is unknowable, not an error",
+            False,
+            repr(_err),
+        )
     setgrp.scale = (1.0, 1.0, 1.0)
     bpy.context.view_layer.update()
     cup = cube("Cup", loc=(0.0, 0.0, 1.5))
@@ -1821,7 +1833,14 @@ try:
     # slots instance with stubbed combos — the very methods Preview calls.
     import types
 
-    def slots_stub(planes="Combined", atlas="On", rig="Projected", res=32):
+    def slots_stub(
+        planes="Combined",
+        atlas="On",
+        rig="Projected",
+        res=32,
+        intensity=1.0,
+        ground=0.0,
+    ):
         s = ShadowRigSlots.__new__(ShadowRigSlots)
         s.ui = types.SimpleNamespace(
             chk_combine=types.SimpleNamespace(isChecked=lambda: True),
@@ -1849,6 +1868,9 @@ try:
                 value=lambda: 0.0,
             ),
             chk_follow=types.SimpleNamespace(isChecked=lambda: False),
+            # Intensity / Ground Y: what a new rig builds with
+            s002=types.SimpleNamespace(value=lambda: intensity),
+            s003=types.SimpleNamespace(value=lambda: ground),
         )
         s.sb = types.SimpleNamespace(
             message_box=lambda *a, **k: None,
@@ -2102,6 +2124,569 @@ try:
     check("the check itself still works", ShadowRig.recalculate_stale() == [plane])
     ShadowRig._on_depsgraph()
     check("off: no pass", not ShadowRig._auto_pending)
+    ShadowRig.delete_rigs(None, delete_textures=True)
+
+    # =========================== LIVE PLANE EXPORT ===========================
+    # A live plane renders through an Emission / Transparent mix with no
+    # Principled BSDF, and the FBX exporter and MatManifest find a material's
+    # textures through a Principled only: its FBX carried a bare material and
+    # its GLB a 0.8-grey quad at the fade's alpha, no silhouette (measured
+    # 2026-10-16; mayatk's plane wears the PNG as its base colour). The export
+    # view is an INACTIVE second output sharing the render's image node, so the
+    # viewport is untouched and a re-render or an atlas rebind reaches it too.
+    from blendertk.env_utils.fbx_utils import FbxUtils
+    from blendertk.env_utils.scene_state import SceneState
+    from blendertk.mat_utils.mat_manifest import MatManifest
+
+    def fed_by(socket):
+        return socket.links[0].from_node if socket.is_linked else None
+
+    def export_view(material):
+        """``(active outputs, the Principled the inactive output reads)``."""
+        nodes = material.node_tree.nodes
+        outs = [n for n in nodes if n.type == "OUTPUT_MATERIAL"]
+        idle = [n for n in outs if not n.is_active_output]
+        bsdf = fed_by(idle[0].inputs["Surface"]) if len(idle) == 1 else None
+        return [n for n in outs if n.is_active_output], bsdf
+
+    reset()
+    c = cube("LiveBox")
+    bpy.context.view_layer.update()
+    rig = ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=64)
+    plane, live_mat = rig.shadow_plane, rig.material
+    tex = live_mat.node_tree.nodes.get("shadow_tex")
+    active, bsdf = export_view(live_mat)
+    surface = SceneState._surface_shader(live_mat.node_tree)
+    check(
+        "a live plane still renders its Emission / Transparent mix",
+        len(active) == 1
+        and surface is not None
+        and surface.type == "MIX_SHADER"
+        and SceneState._is_unlit(live_mat),
+        f"{[(n.name, n.is_active_output) for n in active]}",
+    )
+    check(
+        "...and an inactive output's Principled reads the SAME image node",
+        bsdf is not None
+        and bsdf.type == "BSDF_PRINCIPLED"
+        and fed_by(bsdf.inputs["Base Color"]) == tex
+        and fed_by(bsdf.inputs["Alpha"]) == tex,
+        f"{bsdf.name if bsdf else None}",
+    )
+    silhouette = ShadowRig._plane_texture_path(plane)
+    check(
+        "MatManifest finds a live plane's silhouette as its base colour",
+        os.path.normcase(
+            (MatManifest.build([plane])["materials"].get(live_mat.name) or {}).get(
+                "baseColor", ""
+            )
+        )
+        == os.path.normcase(silhouette),
+        f"{MatManifest.build([plane])}",
+    )
+    fade = SceneState._opacity_factor(live_mat)
+    with ptk.TempArtifacts("btk_live_plane_glb", policy="scoped") as glb_tmp:
+        fbx_path = os.path.join(glb_tmp.dir_path(), "live.fbx")
+        glb_path = os.path.join(glb_tmp.dir_path(), "live.glb")
+        FbxUtils.export(
+            filepath=fbx_path,
+            objects=[c, plane],
+            path_mode="COPY",
+            embed_textures=True,
+        )
+        ptk.GlbPipeline.build(
+            fbx_path,
+            dst=glb_path,
+            sidecar=ptk.GlbPipeline.envelope(
+                lambda: SceneState.read([c, plane]), source=SceneState.source()
+            ),
+        )
+        with ptk.MeshConvert.open_glb(glb_path) as edit:
+            gltf = edit.gltf
+            glb_node = next(
+                (n for n in gltf.get("nodes", []) if n.get("name") == plane.name),
+                {},
+            )
+            prims = (
+                gltf["meshes"][glb_node["mesh"]].get("primitives") or [{}]
+                if "mesh" in glb_node
+                else [{}]
+            )
+            glb_mat = (
+                gltf["materials"][prims[0]["material"]]
+                if "material" in prims[0]
+                else {}
+            )
+            img_idx = edit.base_color_image(glb_mat)
+            label = edit.image_label(img_idx) if img_idx is not None else ""
+    pbr = glb_mat.get("pbrMetallicRoughness") or {}
+    factor = pbr.get("baseColorFactor") or [1.0, 1.0, 1.0, 1.0]
+    check(
+        "a live plane's GLB samples its silhouette as the base colour",
+        os.path.splitext(os.path.basename(label))[0]
+        == os.path.splitext(os.path.basename(silhouette))[0],
+        f"{label!r}, {glb_mat}",
+    )
+    check(
+        "...in its own colour, unlit, blended, the fade its factor's alpha",
+        factor[:3] == [1.0, 1.0, 1.0]
+        and approx(factor[3], 1.0 if fade is None else fade, 1e-3)
+        and glb_mat.get("alphaMode") == "BLEND"
+        and "KHR_materials_unlit" in (glb_mat.get("extensions") or {}),
+        f"{factor}, fade {fade}, {glb_mat.get('alphaMode')}",
+    )
+    # Recalculate at a new size recreates the image datablock. Removed bare, it
+    # left the plane's image node EMPTY (the render and the export both
+    # sampled nothing); the new datablock takes its users over.
+    ShadowRig.refresh_silhouette([plane], size=32)
+    tex = live_mat.node_tree.nodes.get("shadow_tex")
+    _active, bsdf = export_view(live_mat)
+    check(
+        "a re-render at a new size keeps the plane's image node bound",
+        tex.image is not None and tuple(tex.image.size) == (32, 32),
+        f"{tuple(tex.image.size) if tex.image else None}",
+    )
+    check(
+        "...and the export reads that same node",
+        bsdf is not None and fed_by(bsdf.inputs["Base Color"]) == tex,
+    )
+    ShadowRig.delete_rigs(None, delete_textures=True)
+
+    # ============================ DETACH TO PLANE ============================
+    # Mirror of mayatk's ``TestDetachPlanes`` / ``TestUnlitSection``: a rig whose
+    # links were broken on purpose becomes one quad, one unlit material and one
+    # PNG with the fade multiplied in -- no drivers, no stamps for an exporter.
+    from blendertk.env_utils.scene_state import SceneState
+    from blendertk.mat_utils.mat_manifest import MatManifest
+    from blendertk.rig_utils._rig_utils import RigUtils
+
+    reset()
+    c = cube("DetBox")
+    bpy.context.view_layer.update()
+    rig = ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=64)
+    plane = rig.shadow_plane
+    plane_name = plane.name
+    check(
+        "plane_materials names the material each plane wears",
+        [m.name for m in ShadowRig.plane_materials()] == [rig.material.name],
+        f"{[m.name for m in ShadowRig.plane_materials()]}",
+    )
+    decal = cube("UnlitDecal", loc=(6, 0, 0))
+    flat = bpy.data.materials.new("flatMat")
+    MatUtils.get_node_tree(flat, create=True)
+    flat_nt = flat.node_tree
+    flat_nt.nodes.clear()
+    flat_out = flat_nt.nodes.new("ShaderNodeOutputMaterial")
+    flat_nt.links.new(
+        flat_out.inputs["Surface"],
+        flat_nt.nodes.new("ShaderNodeEmission").outputs[0],
+    )
+    decal.data.materials.append(flat)
+    lit = bpy.data.materials.new("litOnPlane")
+    MatUtils.get_node_tree(lit, create=True)
+    plane.data.materials.append(lit)  # a Principled a shadow plane wears is unlit too
+    unlit = SceneState.read([c, plane, decal]).get("unlit") or {}
+    check(
+        "a shadow plane's materials and an Emission material read unlit",
+        set(unlit) == {rig.material.name, "litOnPlane", "flatMat"},
+        f"{sorted(unlit)}",
+    )
+    plane.data.materials.pop()
+    bpy.data.materials.remove(lit)
+
+    source = ShadowRig._plane_texture_path(plane)
+    peak = int(ShadowRig._read_png(source)[..., 3].max())
+    # Its links broken by hand, as on the production plane: the fade holds a
+    # value of its own.
+    RigUtils.remove_driver(plane, f'["{ShadowRig.OPACITY_ATTR}"]', None)
+    plane[ShadowRig.OPACITY_ATTR] = 0.5
+    bpy.context.view_layer.update()
+    world = ev(plane).matrix_world.copy()
+    contact_name, old_mat = rig.contact.name, rig.material.name
+    group = plane.parent
+
+    result = ShadowRig.detach_planes([plane])
+
+    check("detach names the plane", list(result) == [plane_name], f"{result}")
+    path = result.get(plane_name, "")
+    detached = ShadowRig._read_png(path) if os.path.isfile(path) else None
+    check(
+        "the PNG carries the fade in its alpha",
+        detached is not None
+        and abs(int(detached[..., 3].max()) - round(peak * 0.5)) <= 1,
+        f"peak {peak} -> {None if detached is None else int(detached[..., 3].max())}",
+    )
+    check(
+        "...written beside the silhouette with the suffix",
+        path.endswith("_plane.png")
+        and os.path.dirname(path) == os.path.dirname(source),
+        path,
+    )
+    check("it is no longer a shadow plane", ShadowRig.find_shadow_planes() == [])
+    ad = plane.animation_data
+    check("no drivers are left on it", not (ad and ad.drivers))
+    check(
+        "no rig property is left on it",
+        list(plane.keys()) == [],
+        f"{list(plane.keys())}",
+    )
+    check(
+        "...nor the driven intermediates on its group",
+        group is not None
+        and not [k for k in group.keys() if k in ShadowRig._rig_attr_names()],
+        f"{list(group.keys()) if group else None}",
+    )
+    check(
+        "the contact empty and the old material are gone",
+        bpy.data.objects.get(contact_name) is None
+        and bpy.data.materials.get(old_mat) is None,
+    )
+    bpy.context.view_layer.update()
+    moved = max(
+        abs(a - b)
+        for ra, rb in zip(ev(plane).matrix_world, world)
+        for a, b in zip(ra, rb)
+    )
+    check("it stays where the rig left it", moved < 1e-5, f"{moved}")
+    mats = [m for m in plane.data.materials if m]
+    new = mats[0] if len(mats) == 1 else None
+    tex_node = new.node_tree.nodes.get("plane_tex") if new else None
+    check(
+        "one unlit material showing the new PNG",
+        new is not None
+        and SceneState._is_unlit(new)
+        and tex_node is not None
+        and os.path.normcase(bpy.path.abspath(tex_node.image.filepath_raw))
+        == os.path.normcase(path),
+        f"{[m.name for m in mats]}",
+    )
+    check(
+        "...its alpha blends and its texture is the base colour exporters read",
+        new is not None
+        and (SceneState._read_alpha_mode([new], {}).get(new.name) or {}).get("mode")
+        == "BLEND"
+        and os.path.normcase(
+            (MatManifest.build([plane])["materials"].get(new.name) or {}).get(
+                "baseColor", ""
+            )
+        )
+        == os.path.normcase(path),
+        f"{MatManifest.build([plane])}",
+    )
+    check(
+        "the shadow record is cleared with the last plane",
+        ptk.SceneRecords.SHADOWS.read_text(DataNodes) is None,
+    )
+    # The FBX carries the PNG (through the export output's Principled BSDF).
+    with ptk.TempArtifacts("btk_detach_fbx", policy="scoped") as fbx_tmp:
+        fbx_path = os.path.join(fbx_tmp.dir_path(), "detached.fbx")
+        bpy.ops.export_scene.fbx(filepath=fbx_path, path_mode="ABSOLUTE")
+        with open(fbx_path, "rb") as fh:
+            fbx_bytes = fh.read()
+    check(
+        "the FBX carries the detached plane's PNG",
+        os.path.basename(path).encode() in fbx_bytes,
+    )
+
+    # An atlased plane is unpacked first, so its UVs span its own PNG.
+    reset()
+    c = cube("Box")
+    other = cube("Crate", loc=(4, 0, 0))
+    bpy.context.view_layer.update()
+    rigs = ShadowRig.create_per_object(
+        [c, other], [ShadowRig.DEFAULT_SOURCE_NAME], texture_res=32
+    )
+    box, crate = (r.shadow_plane for r in rigs)
+    ShadowRig.pack_atlas([box, crate])
+    result = ShadowRig.detach_planes([box])
+    check(
+        "an atlased plane detaches onto unit UVs",
+        list(result) == ["Box_shadow"]
+        and sorted(
+            (round(float(lp.uv[0]), 6), round(float(lp.uv[1]), 6))
+            for lp in box.data.uv_layers["UVMap"].data
+        )
+        == [(0.0, 0.0), (0.0, 1.0), (1.0, 0.0), (1.0, 1.0)],
+        f"{result}",
+    )
+    check(
+        "...the other rig untouched",
+        ShadowRig.find_shadow_planes() == [crate] and ShadowRig.plane_is_live(crate),
+    )
+
+    # A baked plane: its fade keys go with the fade, its transform keys stay.
+    reset()
+    c = cube("Box")
+    bpy.context.view_layer.update()
+    p = ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=32).shadow_plane
+    ShadowRig.bake_planes([p], start=1, end=3)
+    ShadowRig.detach_planes([p])
+    ad = p.animation_data
+    paths = (
+        {f.data_path for f in action_fcurves(ad.action)} if ad and ad.action else set()
+    )
+    check(
+        "a baked plane detaches without its fade keys, its transform keys kept",
+        '["opacity"]' not in paths and "location" in paths,
+        f"{sorted(paths)}",
+    )
+
+    # The panel: Delete Rig's option box gains Detach to Plane.
+    class _Menu:
+        def __init__(self):
+            self.items = []
+
+        def setTitle(self, title):
+            self.title = title
+
+        def add(self, _kind, **kw):
+            menu = self
+
+            class _Button:
+                class clicked:
+                    @staticmethod
+                    def connect(handler):
+                        menu.items.append((kw.get("setObjectName"), handler))
+
+            return _Button()
+
+    delete_box = types.SimpleNamespace(option_box=types.SimpleNamespace(menu=_Menu()))
+    panel = slots_stub()
+    panel.b009_init(delete_box)
+    check(
+        "Delete Rig's option box holds Detach to Plane",
+        [n for n, _h in delete_box.option_box.menu.items] == ["btn_detach"]
+        and delete_box.option_box.menu.items[0][1] == panel.detach_to_plane,
+        f"{delete_box.option_box.menu.items}",
+    )
+    ShadowRig.delete_rigs(None, delete_textures=True)
+
+    # ======================= INTENSITY AND GROUND HEIGHT =======================
+    # Mirror of mayatk's ``TestIntensityAndGround``: ``set_intensity`` /
+    # ``set_ground_height`` on a plane whatever drives it. A live rig's drivers
+    # read both stamps; a plane they no longer drive -- baked to keys, or its
+    # links broken on purpose -- carries its fade and its height itself, so
+    # the change is carried into those: the fade rescaled (it already holds
+    # the old intensity), the height moved.
+    OPACITY_PATH = f'["{ShadowRig.OPACITY_ATTR}"]'
+
+    def dial_rig(name="DialBox"):
+        reset()
+        box = cube(name)
+        bpy.context.view_layer.update()
+        built = ShadowRig.create([box], light_pos=(5, 5, 10), texture_res=32)
+        bpy.context.view_layer.update()
+        return box, built, built.shadow_plane
+
+    def key_values(obj, data_path, index=0):
+        ad = obj.animation_data
+        fcs = action_fcurves(ad.action) if ad and ad.action else []
+        fc = next(
+            (f for f in fcs if f.data_path == data_path and f.array_index == index),
+            None,
+        )
+        return [round(k.co[1], 5) for k in fc.keyframe_points] if fc else []
+
+    def key(obj, data_path, pairs, index=-1):
+        for frame, value in pairs:
+            if data_path == "location":
+                obj.location[index] = value
+            else:
+                obj[ShadowRig.OPACITY_ATTR] = value
+            obj.keyframe_insert(data_path, index=index, frame=frame)
+
+    # ---- a live rig takes the dial through its drivers ----
+    _box, rig, plane = dial_rig()
+    before = float(ev(plane)[ShadowRig.OPACITY_ATTR])
+    changed = ShadowRig.set_intensity([plane], 0.5)
+    bpy.context.view_layer.update()
+    check("set_intensity returns the planes changed", changed == [plane], f"{changed}")
+    check("...stamps shadowIntensity", approx(plane["shadowIntensity"], 0.5, 1e-6))
+    check(
+        "...and the live fade follows through the drivers",
+        approx(float(ev(plane)[ShadowRig.OPACITY_ATTR]), before * 0.5, 1e-4),
+        f"{float(ev(plane)[ShadowRig.OPACITY_ATTR]):.4f} vs {before * 0.5:.4f}",
+    )
+    check(
+        "...and the record carries it",
+        approx(ShadowRig.plane_record(plane)["intensity"], 0.5, 1e-6),
+    )
+    check(
+        "an out-of-range intensity is clamped",
+        ShadowRig.set_intensity([plane], 1.7) == [plane]
+        and approx(plane["shadowIntensity"], 1.0, 1e-6),
+    )
+
+    # ---- a static fade is rescaled ----
+    _box, rig, plane = dial_rig()
+    RigUtils.remove_driver(plane, OPACITY_PATH, None)
+    plane[ShadowRig.OPACITY_ATTR] = 0.8
+    ShadowRig.set_intensity([plane], 0.5)
+    check(
+        "a static fade is rescaled by new / old",
+        approx(plane[ShadowRig.OPACITY_ATTR], 0.4, 1e-5),
+        f"{plane[ShadowRig.OPACITY_ATTR]}",
+    )
+    ShadowRig.set_intensity([plane], 1.0)
+    check(
+        "...and back",
+        approx(plane[ShadowRig.OPACITY_ATTR], 0.8, 1e-5),
+        f"{plane[ShadowRig.OPACITY_ATTR]}",
+    )
+
+    # ---- a keyed fade keeps its shape ----
+    _box, rig, plane = dial_rig()
+    RigUtils.remove_driver(plane, OPACITY_PATH, None)
+    key(plane, OPACITY_PATH, ((1, 0.8), (10, 0.4)))
+    ShadowRig.set_intensity([plane], 0.5)
+    check(
+        "a keyed fade is rescaled, its shape kept",
+        key_values(plane, OPACITY_PATH) == [0.4, 0.2],
+        f"{key_values(plane, OPACITY_PATH)}",
+    )
+    plane["shadowIntensity"] = 0.0
+    ShadowRig.set_intensity([plane], 0.7)
+    check(
+        "...from a zero intensity the dial becomes the fade",
+        key_values(plane, OPACITY_PATH) == [0.7, 0.7],
+        f"{key_values(plane, OPACITY_PATH)}",
+    )
+
+    # ---- the ground ----
+    _box, rig, plane = dial_rig()
+    changed = ShadowRig.set_ground_height([plane], 2.0)
+    bpy.context.view_layer.update()
+    check(
+        "a live rig lies on the new ground",
+        changed == [plane]
+        and approx(plane["groundHeight"], 2.0, 1e-6)
+        and approx(
+            ev(plane).matrix_world.translation.z, 2.0 + ShadowRig.GROUND_OFFSET, 1e-4
+        ),
+        f"z {ev(plane).matrix_world.translation.z:.4f}",
+    )
+    check(
+        "...and the record carries it",
+        approx(ShadowRig.plane_record(plane)["ground"], 2.0, 1e-6),
+    )
+
+    _box, rig, plane = dial_rig()
+    RigUtils.remove_driver(plane, "location", 2)
+    plane.location[2] = 0.25
+    ShadowRig.set_ground_height([plane], 1.5)
+    # Absolute: a plane moved by hand has a stale stamp (the production plane
+    # sat at 1.85 over a stamp of 0), so a difference would miss.
+    check(
+        "a static plane is laid on the ground",
+        approx(plane.location[2], 1.5 + ShadowRig.GROUND_OFFSET, 1e-5),
+        f"{plane.location[2]}",
+    )
+
+    _box, rig, plane = dial_rig()
+    RigUtils.remove_driver(plane, "location", 2)
+    key(plane, "location", ((1, 0.0), (10, 1.0)), index=2)
+    ShadowRig.set_ground_height([plane], -0.5)
+    check(
+        "keyed heights shift",
+        key_values(plane, "location", 2) == [-0.5, 0.5],
+        f"{key_values(plane, 'location', 2)}",
+    )
+
+    # ---- a baked plane: both dials carried into its keys ----
+    _box, rig, plane = dial_rig()
+    rig.bake(1, 3)
+    heights = key_values(plane, "location", 2)
+    fades = key_values(plane, OPACITY_PATH)
+    ShadowRig.set_ground_height([plane], 1.0)
+    ShadowRig.set_intensity([plane], 0.5)
+    check(
+        "a baked plane's height keys shift",
+        bool(heights)
+        and all(
+            approx(a, b + 1.0, 1e-4)
+            for a, b in zip(key_values(plane, "location", 2), heights)
+        ),
+        f"{heights} -> {key_values(plane, 'location', 2)}",
+    )
+    check(
+        "...and its fade keys rescale",
+        bool(fades)
+        and all(
+            approx(a, b * 0.5, 1e-4)
+            for a, b in zip(key_values(plane, OPACITY_PATH), fades)
+        ),
+        f"{fades} -> {key_values(plane, OPACITY_PATH)}",
+    )
+
+    # ---- one undo step ----
+    _box, rig, plane = dial_rig()
+    plane_name = plane.name
+    RigUtils.remove_driver(plane, OPACITY_PATH, None)
+    plane[ShadowRig.OPACITY_ATTR] = 0.8
+    bpy.ops.ed.undo_push(message="baseline")
+    ShadowRig.set_intensity([plane], 0.25)
+    bpy.ops.ed.undo()
+    plane = bpy.data.objects[plane_name]
+    check(
+        "set_intensity is one undo step",
+        approx(plane[ShadowRig.OPACITY_ATTR], 0.8, 1e-5)
+        and approx(plane["shadowIntensity"], 1.0, 1e-6),
+        f"{plane[ShadowRig.OPACITY_ATTR]}, {plane['shadowIntensity']}",
+    )
+
+    # ---- the panel: Intensity (s002) and Ground Y (s003) ----
+    reset()
+    box = cube("PanelBox")
+    bpy.context.view_layer.update()
+    panel = slots_stub(intensity=0.5, ground=1.25)
+    panel.perform_operation([box])
+    built = ShadowRig.find_shadow_planes()
+    plane = built[0] if built else None
+    bpy.context.view_layer.update()
+    check(
+        "a new rig builds with both boxes",
+        plane is not None
+        and approx(plane["shadowIntensity"], 0.5, 1e-6)
+        and approx(plane["groundHeight"], 1.25, 1e-6)
+        and approx(
+            ev(plane).matrix_world.translation.z,
+            1.25 + ShadowRig.GROUND_OFFSET,
+            1e-4,
+        ),
+        f"{plane.get('shadowIntensity') if plane else None}",
+    )
+    messages, refreshed = [], []
+    panel = slots_stub()
+    panel.sb.message_box = lambda *a, **k: messages.append(a)
+    panel.preview = types.SimpleNamespace(
+        is_enabled=False, refresh=lambda: refreshed.append(True)
+    )
+    bpy.ops.object.select_all(action="DESELECT")
+    box.select_set(True)  # a target reaches its rig
+    panel.s002(0.4)
+    panel.s003(2.0)
+    check(
+        "a change retunes the selected rig",
+        approx(plane["shadowIntensity"], 0.4, 1e-6)
+        and approx(plane["groundHeight"], 2.0, 1e-6)
+        and messages == [],
+        f"{plane['shadowIntensity']}, {plane['groundHeight']}, {messages}",
+    )
+    bpy.ops.object.select_all(action="DESELECT")
+    panel.s002(0.3)
+    check(
+        "with no rig selected only the setting changes (no message)",
+        approx(plane["shadowIntensity"], 0.4, 1e-6) and messages == [],
+        f"{plane['shadowIntensity']}, {messages}",
+    )
+    box.select_set(True)
+    panel.preview.is_enabled = True
+    panel.s002(0.2)
+    check(
+        "under Preview a change only refreshes the preview",
+        refreshed == [True] and approx(plane["shadowIntensity"], 0.4, 1e-6),
+        f"{refreshed}, {plane['shadowIntensity']}",
+    )
     ShadowRig.delete_rigs(None, delete_textures=True)
 
     reset()

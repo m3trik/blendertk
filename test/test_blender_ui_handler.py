@@ -76,6 +76,7 @@ PANELS = [
     "mat_updater",
     "rizom_bridge",
     "shell_xform",
+    "texture_combine",
     "maya_bridge",
     "unity_bridge",
     "marmoset_bridge",
@@ -92,6 +93,7 @@ PANELS = [
     "shadow_rig",
     "render_effects",
     "tube_rig",
+    "articulated_rig",
     "shots",
     "shot_manifest",
     "shot_sequencer",
@@ -235,6 +237,7 @@ try:
                 BlenderUiHandler,
                 _install_deprecation_sink=_inert,
                 _install_record_path_rebase=_inert,
+                _install_articulated_rig_solve=_inert,
                 _register_native_menu_proxies=lambda self: None,
             ),
         ):
@@ -363,6 +366,10 @@ try:
             "tube_rig",
             "TubeRigSlots",
         ),  # __init__ (mode combo + dynamic options) is bpy-free
+        (
+            "articulated_rig",
+            "ArticulatedRigSlots",
+        ),  # __init__'s scene calls (repair_scene, the order tracker) report, never raise
         (
             "lightmap_baker",
             "LightmapBakerSlots",
@@ -1330,8 +1337,9 @@ try:
             lb_ui.cmb_scope.itemText(i) for i in range(lb_ui.cmb_scope.count())
         ]
         check(
-            "lightmap_baker Scope combo lists Selected/Visible/Scene (default selected)",
-            scope_items == ["Selected", "Visible", "Scene"]
+            "lightmap_baker Scope combo lists Selected/Visible/Scene/Changed "
+            "(default selected)",
+            scope_items == ["Selected", "Visible", "Scene", "Changed"]
             and lb._scope() == "selected",
             f"{scope_items} _scope()={lb._scope()}",
         )

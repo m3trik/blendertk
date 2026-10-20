@@ -1,7 +1,13 @@
 """blendertk audio_utils (scene-wide VSE sound-clip CRUD) headless test.
 Run: blender --background --factory-startup --python blendertk/test/test_audio_utils.py
 """
-import sys, os, wave, struct, tempfile, traceback
+
+import sys
+import os
+import wave
+import struct
+import tempfile
+import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -14,7 +20,9 @@ lines = []
 
 
 def check(name, cond, detail=""):
-    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}")
+    lines.append(
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
+    )
 
 
 def make_wav(path, seconds=1.0, sr=44100):
@@ -162,7 +170,10 @@ try:
     removed = AudioUtils.remove_clip("renamed_a")
     check("remove_clip returns True", removed is True)
     check("remove_clip actually removed it", AudioUtils.get_clip("renamed_a") is None)
-    check("remove_clip on a missing name returns False", AudioUtils.remove_clip("renamed_a") is False)
+    check(
+        "remove_clip on a missing name returns False",
+        AudioUtils.remove_clip("renamed_a") is False,
+    )
 
     before_count = len(AudioUtils.list_clips())
     n_removed = AudioUtils.remove_all_clips()
@@ -175,41 +186,173 @@ try:
     # ---- sequencer consumers: fps, range query, range shift, waveform, segments
     from blendertk.audio_utils.segments import AudioSegment
 
-    check("get_fps reads the scene clock", AudioUtils.get_fps() == scene.render.fps / scene.render.fps_base)
+    check(
+        "get_fps reads the scene clock",
+        AudioUtils.get_fps() == scene.render.fps / scene.render.fps_base,
+    )
     s1 = AudioUtils.add_clip(wav_a, frame_start=10, name="seq_a")
     s2 = AudioUtils.add_clip(wav_b, frame_start=100, name="seq_b")
     in_rng = [c["name"] for c in AudioUtils.clips_in_range(0, 50)]
-    check("clips_in_range: only the strip overlapping [0,50]", in_rng == [s1], str(in_rng))
+    check(
+        "clips_in_range: only the strip overlapping [0,50]", in_rng == [s1], str(in_rng)
+    )
     moved = AudioUtils.shift_clips_in_range(0, 50, 7)
-    check("shift_clips_in_range: moved only the in-range strip", moved == [s1], str(moved))
+    check(
+        "shift_clips_in_range: moved only the in-range strip", moved == [s1], str(moved)
+    )
     check(
         "shift_clips_in_range: strip start 10 -> 17, other untouched",
-        AudioUtils.get_clip(s1)["frame_start"] == 17 and AudioUtils.get_clip(s2)["frame_start"] == 100,
+        AudioUtils.get_clip(s1)["frame_start"] == 17
+        and AudioUtils.get_clip(s2)["frame_start"] == 100,
         f"{AudioUtils.get_clip(s1)['frame_start']} / {AudioUtils.get_clip(s2)['frame_start']}",
     )
     moved_named = AudioUtils.shift_clips_in_range(0, 200, -5, names=[s2])
-    check("shift_clips_in_range(names=): scoped to the named strip", moved_named == [s2] and AudioUtils.get_clip(s2)["frame_start"] == 95)
-    check("shift_clips_in_range: zero delta is a no-op", AudioUtils.shift_clips_in_range(0, 200, 0.0) == [])
+    check(
+        "shift_clips_in_range(names=): scoped to the named strip",
+        moved_named == [s2] and AudioUtils.get_clip(s2)["frame_start"] == 95,
+    )
+    check(
+        "shift_clips_in_range: zero delta is a no-op",
+        AudioUtils.shift_clips_in_range(0, 200, 0.0) == [],
+    )
     wf = AudioUtils.cached_waveform(wav_a)
-    check("cached_waveform: envelope read from WAV", isinstance(wf, list) and len(wf) > 0, str(len(wf)))
-    check("cached_waveform: cached object reused", AudioUtils.cached_waveform(wav_a) is wf)
+    check(
+        "cached_waveform: envelope read from WAV",
+        isinstance(wf, list) and len(wf) > 0,
+        str(len(wf)),
+    )
+    check(
+        "cached_waveform: cached object reused", AudioUtils.cached_waveform(wav_a) is wf
+    )
     AudioUtils.clear_waveform_cache()
-    check("clear_waveform_cache: recomputed (new object)", AudioUtils.cached_waveform(wav_a) is not wf)
+    check(
+        "clear_waveform_cache: recomputed (new object)",
+        AudioUtils.cached_waveform(wav_a) is not wf,
+    )
     segs = AudioSegment.collect_all_segments()
-    check("AudioSegment.collect_all_segments: one per strip, sorted by start", [sg.track_id for sg in segs] == [s1, s2], str([sg.track_id for sg in segs]))
+    check(
+        "AudioSegment.collect_all_segments: one per strip, sorted by start",
+        [sg.track_id for sg in segs] == [s1, s2],
+        str([sg.track_id for sg in segs]),
+    )
     if segs:
         sg = segs[0]
         check(
             "AudioSegment fields mirror the strip's visible span",
-            sg.start == 17 and sg.end == AudioUtils.get_clip(s1)["frame_end"] and sg.duration == sg.end - sg.start and sg.is_audio and sg.label == s1,
+            sg.start == 17
+            and sg.end == AudioUtils.get_clip(s1)["frame_end"]
+            and sg.duration == sg.end - sg.start
+            and sg.is_audio
+            and sg.label == s1,
             f"{sg}",
         )
     only_late = AudioSegment.collect_all_segments(scene_start=90)
-    check("collect_all_segments(scene_start): drops strips ending before it", [sg.track_id for sg in only_late] == [s2])
+    check(
+        "collect_all_segments(scene_start): drops strips ending before it",
+        [sg.track_id for sg in only_late] == [s2],
+    )
     one = AudioSegment.collect_segments_for_track(s2, include_waveform=False)
-    check("collect_segments_for_track: the named strip, no waveform", len(one) == 1 and one[0].track_id == s2 and one[0].waveform == [])
-    check("collect_segments_for_track: unknown -> []", AudioSegment.collect_segments_for_track("nope") == [])
+    check(
+        "collect_segments_for_track: the named strip, no waveform",
+        len(one) == 1 and one[0].track_id == s2 and one[0].waveform == [],
+    )
+    check(
+        "collect_segments_for_track: unknown -> []",
+        AudioSegment.collect_segments_for_track("nope") == [],
+    )
     AudioUtils.remove_all_clips()
+
+    # ---- export: the audio_manifest record (the SceneRecords.AUDIO producer,
+    # mirror of mayatk's AudioClips.export_record) and the files it names
+    import pythontk as ptk
+
+    def norm(path):
+        return os.path.normcase(os.path.normpath(path))
+
+    scene.frame_start, scene.frame_end = 1, 250
+    AudioUtils.add_clip(wav_a, frame_start=5, name="steps")
+    AudioUtils.add_clip(wav_b, frame_start=30, name="punch")
+    AudioUtils.add_clip(wav_a, frame_start=12, name="muted")
+    scene.sequence_editor.strips_all["muted"].mute = True
+    AudioUtils.add_clip(wav_a, frame_start=40, channel=9, name="on_muted_channel")
+    scene.sequence_editor.channels[9].mute = True
+    check(
+        "bake_events: every strip that plays, by frame; a muted strip or channel ships none",
+        AudioUtils.bake_events() == [(5, "steps"), (30, "punch")],
+        str(AudioUtils.bake_events()),
+    )
+    files = AudioUtils.track_files(["punch", "steps", "nope"])
+    check(
+        "track_files: (track id + extension, path) per track with a file, in the order asked",
+        [(n, norm(p)) for n, p in files]
+        == [("punch.wav", norm(wav_b)), ("steps.wav", norm(wav_a))],
+        str(files),
+    )
+
+    ctx = ptk.ExportContext(clip_span=(1, 60))
+    record = AudioUtils.export_record(ctx)
+    check(
+        "export_record: no takes -> unscoped, counted from the whole-timeline take's start",
+        record is not None
+        and record.spec is ptk.SceneRecords.AUDIO
+        and record.payload["events"]
+        == [
+            {"clip": "", "frame": 4, "name": "steps"},
+            {"clip": "", "frame": 29, "name": "punch"},
+        ],
+        str(record and record.payload),
+    )
+    check(
+        "export_record: the frames travel with the scene's fps (mayatk's AudioClips)",
+        record is not None and record.payload.get("fps") == AudioUtils.get_fps(scene),
+        str(record and record.payload),
+    )
+    shots = ptk.SceneRecords.SHOTS.make(
+        {
+            "shots": [
+                {"clip": "Intro", "start": 1, "end": 20},
+                {"clip": "Fight", "start": 21, "end": 25},
+            ]
+        }
+    )
+    ctx = ptk.ExportContext(clip_mode="shots", clip_span=(1, 25))
+    ctx.records[ptk.SceneRecords.SHOTS.key] = shots
+    record = AudioUtils.export_record(ctx)
+    check(
+        "export_record: each event in the take this assembly declared, counted from its start",
+        record is not None
+        and record.payload["events"]
+        == [{"clip": "Intro", "frame": 4, "name": "steps"}],
+        str(record and record.payload),
+    )
+    check(
+        "export_record: an event outside every take is dropped, and said",
+        any("punch@30" in note for note in ctx.notes),
+        str(ctx.notes),
+    )
+    ctx = ptk.ExportContext(clip_mode="full", clip_span=(1, 60))
+    ctx.records[ptk.SceneRecords.SHOTS.key] = shots
+    record = AudioUtils.export_record(ctx)
+    check(
+        "export_record: a full-timeline export ships its events unscoped (it has no takes)",
+        record is not None and {e["clip"] for e in record.payload["events"]} == {""},
+        str(record and record.payload),
+    )
+    AudioUtils.trim_clip("punch", offset_start=3, offset_end=0)
+    ctx = ptk.ExportContext(clip_span=(1, 60))
+    record = AudioUtils.export_record(ctx)
+    check(
+        "export_record: a head-trimmed strip ships at its visible start, and says it plays from the file's start",
+        record is not None
+        and {"clip": "", "frame": 32, "name": "punch"} in record.payload["events"]
+        and any("punch" in note and "start" in note for note in ctx.notes),
+        f"{record and record.payload} {ctx.notes}",
+    )
+    AudioUtils.remove_all_clips()
+    check(
+        "export_record: no strip -> no record",
+        AudioUtils.export_record(ptk.ExportContext()) is None,
+    )
 
     scene.frame_start, scene.frame_end = 1, 250
     rng3 = AudioUtils.sync_scene_range()
@@ -230,5 +373,6 @@ except Exception:
     lines.append("FAIL unhandled exception")
 
 print("\n".join(lines))
-ok = all(l.startswith("OK") for l in lines) and lines
-print(f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({sum(1 for l in lines if l.startswith('OK'))}/{len(lines)})")
+ok = all(line.startswith("OK") for line in lines) and lines
+passed = sum(1 for line in lines if line.startswith("OK"))
+print(f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({passed}/{len(lines)})")

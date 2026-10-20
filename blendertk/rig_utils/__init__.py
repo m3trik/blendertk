@@ -2,7 +2,8 @@
 # coding=utf-8
 """Rigging utilities — Blender port of mayatk's ``rig_utils``.
 
-Mirrors mayatk's procedural-rig tools (telescope / wheel / tube / shadow). Each rig is a
+Mirrors mayatk's procedural-rig tools (telescope / wheel / tube / shadow /
+articulated). Each rig is a
 self-contained module (engine + co-located ``<rig>.ui`` + ``<Rig>Slots``) discovered by
 ``BlenderUiHandler`` and launched from the tentacle rigging menu via
 ``marking_menu.show("<rig>")`` — the same mayatk / MayaUiHandler split. Maya's joint/skinCluster

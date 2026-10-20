@@ -54,9 +54,6 @@ class _TaskDefinitionsMixin:
     _glb_key_reduction_options: Dict[str, Any] = (
         ptk.ExportProfile.GLB_KEY_REDUCTION_OPTIONS
     )
-    _baked_reflections_options: Dict[str, Any] = (
-        ptk.ExportProfile.BAKED_REFLECTIONS_OPTIONS
-    )
 
     @property
     def task_definitions(self) -> Dict[str, Dict[str, Any]]:
@@ -169,8 +166,8 @@ class _TaskDefinitionsMixin:
                     body="Collapse materials that are genuinely identical onto a "
                     "single keeper and reassign every object using them.",
                     notes=[
-                        "Reports the same materials as <b>Check For Duplicate "
-                        "Materials</b>.",
+                        "Checked after it runs: a verified duplicate still in "
+                        "the export set fails the export.",
                         "Permanent scene change — not reverted after export.",
                     ],
                 ),
@@ -457,45 +454,6 @@ class _TaskDefinitionsMixin:
                 "restore_by": "text",
                 "add": self._uastc_rdo_options,
             },
-            "baked_reflections": {
-                "widget_type": "ComboBox",
-                "group": "Lighting",
-                "set_row_label": "Baked Reflections",
-                "setToolTip": TooltipFormat.fmt(
-                    title="Baked Reflections",
-                    body="How strongly a lightmapped material reflects the "
-                    "viewer's environment. Published in the deliverable's "
-                    "lighting recipe, so any reader -- the WebXR preview "
-                    "included -- lights it the way it was approved.",
-                    bullets=[
-                        "<b>Off (Pure Bake)</b> — the bake alone: no "
-                        "reflection or gloss on a baked surface.",
-                        "<b>Quarter / Half</b> — weaker reflections "
-                        "everywhere, for a deliberately matte look.",
-                        "<b>Full</b> — the default: lit surfaces reflect "
-                        "fully, shadows stay dark.",
-                    ],
-                    notes=[
-                        "A lightmap already holds the surface's diffuse "
-                        "light, so a baked material only ever takes the "
-                        "environment's specular; this sets how much. The "
-                        "viewer's environment is a bright studio, not the room "
-                        "the bake lit, so each texel's reflection is first "
-                        "scaled by how lit its bake is: a shadow reflects next "
-                        "to nothing at any level.",
-                        "Only lightmapped materials; everything else takes the "
-                        "environment whole.",
-                        "Decided here and carried by the deliverable (GLB and "
-                        "FBX alike): the WebXR Preview's Baked Reflections row "
-                        "is this row, and nothing it does is read back.",
-                    ],
-                ),
-                "restore_by": "text",
-                "add": self._baked_reflections_options,
-                "setCurrentIndex": list(self._baked_reflections_options.values()).index(
-                    ptk.ExportProfile.baked_reflections_default()
-                ),
-            },
             # -- Animation group: the Animation Output gate FIRST, then the
             # rows it governs, the same way the Textures group reads. Mirrors
             # mayatk.
@@ -636,7 +594,8 @@ class _TaskDefinitionsMixin:
                     "whole export set, so every animated channel has a key at "
                     "both range boundaries.",
                     notes=[
-                        "Fixes what <b>Check For Untied Keyframes</b> reports.",
+                        "Checked after it runs: a channel still short of its "
+                        "object's own keyed range fails the export.",
                         "Whether the scene keeps this is <b>Animation Output</b>'s "
                         "call; by default the curves are restored after the write.",
                     ],
@@ -650,16 +609,16 @@ class _TaskDefinitionsMixin:
                 "setToolTip": TooltipFormat.fmt(
                     title="Snap Keys To Frame",
                     body="Round every key on the exported objects to the nearest "
-                    "whole frame.",
+                    "whole frame — the fractional key times retiming, scaling, or "
+                    "an import at a different rate leave behind.",
                     notes=[
-                        "Fixes what <b>Check For Floating Point Keys</b> reports — "
-                        "fractional key times left behind by retiming, scaling, or "
-                        "an import at a different rate.",
+                        "Checked after it runs: a key still off a whole frame "
+                        "fails the export.",
                         "Whether the scene keeps this is <b>Animation Output</b>'s "
                         "call; by default the curves are restored after the write.",
                     ],
                 ),
-                "setChecked": False,
+                "setChecked": True,
             },
             "set_bake_animation_range": {
                 "widget_type": "ComboBox",
@@ -962,21 +921,6 @@ class _TaskDefinitionsMixin:
                 ),
                 "value_method": "value",
             },
-            "check_duplicate_materials": {
-                "widget_type": "QCheckBox",
-                "group": "Materials & Paths",
-                "setText": "Check For Duplicate Materials",
-                "setToolTip": TooltipFormat.fmt(
-                    title="Check For Duplicate Materials",
-                    body="Fails the export when two of the export materials are "
-                    "duplicates of each other.",
-                    notes=[
-                        "The <b>Reassign Duplicate Materials</b> task merges "
-                        "exactly what this reports."
-                    ],
-                ),
-                "setChecked": True,
-            },
             "check_path_length": {
                 # Mirrors mayatk: a bounded character budget is a spin box, the
                 # default is THIS machine's OS limit, and 0 reads back as "OFF".
@@ -1044,25 +988,6 @@ class _TaskDefinitionsMixin:
                 ),
                 "value_method": "value",
             },
-            "check_output_writable": {
-                "widget_type": "QCheckBox",
-                "group": "General",
-                "setText": "Check Output File Is Writable",
-                "setToolTip": TooltipFormat.fmt(
-                    title="Check Output File Is Writable",
-                    body="Fails the export when a file it is about to write is "
-                    "held open by another process.",
-                    notes=[
-                        "Windows will not let anything replace a file while a "
-                        "viewer, a preview or an engine has it open.",
-                        "Runs before the first scene change, so a locked "
-                        "destination costs milliseconds instead of the whole "
-                        "pipeline — the write is the LAST thing an export does.",
-                        "Names the process to close whenever Windows will say.",
-                    ],
-                ),
-                "setChecked": True,
-            },
             "check_framerate": {
                 "widget_type": "ComboBox",
                 "group": "Animation",
@@ -1077,35 +1002,6 @@ class _TaskDefinitionsMixin:
                     ],
                 ),
                 "add": self._frame_rate_options,
-            },
-            "check_untied_keyframes": {
-                "widget_type": "QCheckBox",
-                "group": "Animation",
-                "setText": "Check For Untied Keyframes",
-                "setToolTip": TooltipFormat.fmt(
-                    title="Check For Untied Keyframes",
-                    body="Fails the export when an animated channel has no bookend "
-                    "key at its object's own keyed extent.",
-                    notes=[
-                        "The <b>Tie All Keyframes</b> task inserts the missing "
-                        "bookend keys."
-                    ],
-                ),
-                "setChecked": True,
-            },
-            "check_floating_point_keys": {
-                "widget_type": "QCheckBox",
-                "group": "Animation",
-                "setText": "Check For Floating Point Keys",
-                "setToolTip": TooltipFormat.fmt(
-                    title="Check For Floating Point Keys",
-                    body="Fails the export when a key sits on a fractional frame.",
-                    notes=[
-                        "The <b>Snap Keys To Frame</b> task rounds them to whole "
-                        "frames."
-                    ],
-                ),
-                "setChecked": True,
             },
         }
 

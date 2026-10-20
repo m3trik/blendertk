@@ -66,7 +66,8 @@ class TaskManager(
         ),
         "flatten_sheared_chains": (
             "no Blender analogue: an object's local matrix is loc/rot/scale, "
-            "so a sheared chain cannot be authored"
+            "so a sheared chain cannot be authored, and every object inherits "
+            "its parent"
         ),
         "check_mangled_names": (
             "no Blender analogue: the patterns are Maya import escapes "
@@ -273,6 +274,7 @@ class TaskManager(
             The created ``.glb`` path, or ``None`` if the build failed.
         """
         from blendertk.env_utils.scene_state import SceneState
+        from blendertk.light_utils.lightmap_baker.web_export import LightmapWebExport
 
         src = fbx_path or self.export_path
         objects = self._live_objects()
@@ -282,8 +284,8 @@ class TaskManager(
                 lambda: SceneState.read(objects),
                 source=SceneState.source(),
                 asset=os.path.basename(src),
-                # The lighting recipe with this run's choices (Baked
-                # Reflections): decided by the export, carried by the GLB.
+                # The run's overrides over the lighting recipe: none from a
+                # panel since Baked Reflections retired, so it ships as declared.
                 rendering=self.run.rendering,
                 logger=self.logger,
             )
@@ -294,6 +296,10 @@ class TaskManager(
                 # Where the maps are NOW: the manifest's recorded authoring
                 # folder goes stale the moment the project is reorganised.
                 lightmap_dirs=self._lightmap_search_dirs(),
+                # Blender's own image I/O encodes the lightmaps and the probe:
+                # its Python ships no cv2, and without a codec the GLB shipped
+                # unlit (every map warned "not encoded").
+                hdr_codec=LightmapWebExport,
                 # The DELIVERABLE's folders: the FBX converted here is a local
                 # staged copy, and "beside the FBX" is the stage.
                 shadow_dirs=ptk.MeshConvert.fbx_media_dirs(self.export_path),

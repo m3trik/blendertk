@@ -40,6 +40,7 @@ belongs here.
 """
 
 import os
+from collections import Counter
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import pythontk as ptk
@@ -162,11 +163,13 @@ class _TextureTransferInternal:
         if not names:
             raise ValueError(f"{o.name} has no UV maps")
         render = next((uv.name for uv in mesh.uv_layers if uv.active_render), None)
+        from blendertk.mat_utils._mat_utils import MatUtils
+
         for slot in o.material_slots:
-            mat = slot.material
-            if mat is None or not mat.use_nodes:
+            tree = MatUtils.get_node_tree(slot.material)
+            if tree is None:
                 continue
-            for node in mat.node_tree.nodes:
+            for node in tree.nodes:
                 if node.type != "TEX_IMAGE" or node.image is None:
                     continue
                 vec = node.inputs.get("Vector")
@@ -289,6 +292,33 @@ class _TextureTransferInternal:
                 else np.full(len(mesh.polygons), -1, dtype=np.int64)
             )
         return mats, np.concatenate(per_face)
+
+    @staticmethod
+    def _given_materials(source_materials, target):
+        """*source_materials*' entry for *target* (keyed by the object or its
+        name) in :meth:`face_materials`' shape, names resolved; a material
+        gone from the file reads as no material (``-1``). ``None``: nothing
+        given for *target*."""
+        import bpy
+
+        if not source_materials:
+            return None
+        given = source_materials.get(target.name)
+        if given is None:
+            given = source_materials.get(target)
+        if given is None:
+            return None
+        names, per_face = given
+        mats: List[Any] = []
+        remap: List[int] = []
+        for m in names:
+            mat = bpy.data.materials.get(m) if isinstance(m, str) else m
+            if mat is not None and mat not in mats:
+                mats.append(mat)
+            remap.append(mats.index(mat) if mat is not None else -1)
+        # A trailing -1, so a face that wore nothing (-1) indexes it.
+        lookup = np.asarray(remap + [-1], dtype=np.int64)
+        return mats, lookup[np.asarray(per_face, dtype=np.int64)]
 
     @staticmethod
     def material_maps(material) -> Dict[str, str]:
@@ -469,6 +499,10 @@ class _TextureTransferInternal:
 class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
     """Move textures between UV layouts of the same mesh(es) -- see module doc."""
 
+    #: What an assigned material is (mirror of mayatk): a copy of the
+    #: target's, a copy of the source's, or the target's own, re-used.
+    ASSIGN_FROM = ("target", "source", "in_place")
+
     def __init__(self, log_level="INFO"):
         super().__init__()
         self.logger.setLevel(log_level)
@@ -493,6 +527,7 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         assign_prefix: str = "",
         assign_suffix: Optional[str] = None,
         assign_from: str = "target",
+        source_materials: Optional[Dict[Any, Tuple[Sequence, Sequence[int]]]] = None,
     ) -> Dict[str, Dict[str, str]]:
         """Transfer the source material(s)' maps onto the target UV layout.
 
@@ -523,13 +558,29 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         *assign_from* picks what the assigned material is a copy of:
         ``"target"`` (default -- the target's own) or ``"source"``, the source
         material covering the most of each output layout, so the result keeps
-        the look being transferred (see :meth:`assign_results`).
+        the look being transferred (see :meth:`assign_results`). Mirror of
+        mayatk: ``"in_place"`` copies nothing -- each target material is
+        re-used, keeping its name, one output per material, and the maps it
+        reads are overwritten where they are, in their own format; a channel
+        it has no map for (or may not rewrite) is written fresh and wired in.
+        It never creates, copies or reassigns a material: an output it cannot
+        re-use is skipped and named, and a run with nothing to overwrite
+        raises (:meth:`_plan_in_place`). Ctrl+Z restores the file, not the
+        overwritten images. Either way the assigned material samples the UV
+        map its maps were written for (:meth:`_bind_uv_sets`).
+
+        *source_materials* is ``{target: (materials, per-face index)}`` --
+        :meth:`face_materials`' own shape, the materials as objects or names,
+        keyed by the target object or its name -- naming the material each
+        face is READ through instead of the one it wears now (mirror of
+        mayatk). A texture combine re-reads its sources this way once the
+        faces already wear the combined result (:class:`TextureCombine`).
         """
         if np is None:
             raise RuntimeError("numpy is required")
-        if assign_from not in ("target", "source"):
+        if assign_from not in self.ASSIGN_FROM:
             raise ValueError(
-                f"assign_from must be 'target' or 'source', not {assign_from!r}"
+                f"assign_from must be one of {self.ASSIGN_FROM}, not {assign_from!r}"
             )
         # Blender bundles numpy but not Pillow, which the pythontk map IO needs;
         # provision it the way every other image tool here does (idempotent).
@@ -568,6 +619,7 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         # where the target stands included: it never enters the transfer.
         parts: List[Dict[str, Any]] = []
         registry: List[Any] = []
+        target_sets: Dict[Any, str] = {}
         for tgt, src in pairs.items():
             if src is not None:
                 ok, why = self.topology_matches(tgt, src)
@@ -577,8 +629,13 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
             corr = self.correspondence(
                 tgt, src, source_uv_set=source_uv_set, target_uv_set=target_uv_set
             )
+            target_sets[tgt] = corr["target_uv_set"]
             t_mats, t_face = self.face_materials(tgt)
-            s_mats, s_face = self.face_materials(src if src is not None else tgt)
+            given = self._given_materials(source_materials, tgt)
+            if given is not None:
+                s_mats, s_face = given
+            else:
+                s_mats, s_face = self.face_materials(src if src is not None else tgt)
             faces = corr["faces"]
             for m in s_mats:
                 if m not in registry:
@@ -628,7 +685,23 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         ]
         if not any(spec["maps"] for spec in source_specs):
             raise ValueError("no source material carries a texture map to transfer")
-        jobs = ptk.UvTransfer.layout_jobs(parts, source_specs, log=self.logger.info)
+        in_place = assign and assign_from == "in_place"
+        # Mirror of mayatk: in place, each output is ONE material's.
+        jobs = ptk.UvTransfer.layout_jobs(
+            parts, source_specs, per_material=in_place, log=self.logger.info
+        )
+        # Mirror of mayatk: the map each target's maps are written for.
+        for job in jobs.values():
+            job["uv_sets"] = {tgt: target_sets[tgt] for tgt, _m in job["members"]}
+        if in_place:
+            # Mirror of mayatk: an output that cannot be overwritten is
+            # skipped before naming -- nothing written, nothing assigned.
+            skipped = self._plan_in_place(jobs)
+            jobs = {label: job for label, job in jobs.items() if label not in skipped}
+            if not jobs:
+                raise ValueError(
+                    "nothing was overwritten in place: " + "; ".join(skipped.values())
+                )
         # Mirror of mayatk: an explicit output name renames BOTH halves of
         # the result -- the maps and the material assigned from them.
         stem = (
@@ -777,6 +850,174 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
             out.append((obj, face_ids, vacated))
         return out
 
+    @staticmethod
+    def _path_key(path: str) -> str:
+        """*path* as the filesystem compares it."""
+        return os.path.normcase(os.path.abspath(path))
+
+    @classmethod
+    def _file_readers(cls) -> Dict[str, set]:
+        """``{path: names of the materials an image node reading it sits in}``
+        -- every material, read once by an in-place run (mirror of mayatk's,
+        which narrows to the candidates: a node tree walk here is cheap)."""
+        import bpy
+        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
+
+        readers: Dict[str, set] = {}
+        for mat in bpy.data.materials:
+            for node in mat.node_tree.nodes if mat.node_tree else ():
+                img = node.image if node.type == "TEX_IMAGE" else None
+                path = _MatUtilsInternal._abspath(img) if img is not None else ""
+                if path:
+                    readers.setdefault(path, set()).add(mat.name)
+        return readers
+
+    def _plan_in_place(
+        self, jobs: Dict[str, Dict[str, Any]], rewrite: bool = True
+    ) -> Dict[str, str]:
+        """Mirror of :meth:`mayatk.TextureTransfer._plan_in_place`; returns the
+        outputs skipped, ``{label: why}``.
+
+        ``in_place``: the target materials an output covers, re-used only when
+        every one can be -- an output is SKIPPED (nothing written, nothing
+        assigned, a warning naming why) for faces that wear no material, a
+        material worn outside the targets (a linked duplicate IS a target,
+        :meth:`_worn_outside`), or one whose faces lie in two outputs.
+        ``paths`` (with *rewrite*): their maps that may be overwritten where
+        they are (:meth:`pythontk.UvTransfer.in_place_paths`) -- never an image
+        packed into the .blend (the file on disk is not what renders) or one
+        read through a Mapping node (:meth:`_placed_maps`).
+        """
+        import bpy
+        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
+
+        targets = list(
+            dict.fromkeys(
+                obj for job in jobs.values() for obj, _m in job.get("members") or []
+            )
+        )
+        specs = next(iter(jobs.values()), {}).get("sources") or []
+        reads = [path for spec in specs for path in spec["maps"].values()]
+        materials = {
+            label: list(dict.fromkeys(m for _o, m in job.get("members") or []))
+            for label, job in jobs.items()
+        }
+        outputs = Counter(
+            m.name for mats in materials.values() for m in mats if m is not None
+        )
+
+        def refusal(mat) -> Optional[str]:
+            if mat is None:
+                return "its faces wear no material"
+            if self._worn_outside(mat, targets):
+                return f"{mat.name} is also worn outside this run"
+            if outputs[mat.name] > 1:
+                return f"{mat.name}'s faces lie in overlapping layouts"
+            return None
+
+        skipped: Dict[str, str] = {}
+        for label, mats in materials.items():
+            why = next((w for w in map(refusal, mats) if w), None)
+            if why:
+                skipped[label] = why
+                self.logger.warning(
+                    f"{label} is not overwritten ({why}): nothing is written or "
+                    "assigned for it."
+                )
+        readers = self._file_readers() if rewrite else {}
+        packed = [
+            _MatUtilsInternal._abspath(img)
+            for img in bpy.data.images
+            if img.packed_file is not None and _MatUtilsInternal._abspath(img)
+        ]
+        for label, job in jobs.items():
+            if label in skipped:
+                continue
+            mats = materials[label]
+            job["in_place"] = mats
+            paths, left = (
+                ptk.UvTransfer.in_place_paths(
+                    {mat.name: self.material_maps(mat) for mat in mats},
+                    reads=reads,
+                    readers=readers,
+                    locked=packed + self._placed_maps(mats),
+                )
+                if rewrite
+                else ({}, [])
+            )
+            for name, channel, path, why in left:
+                self.logger.warning(
+                    f"{name}.{channel}: {os.path.basename(path)} is left as it "
+                    f"is ({why}); a transferred {channel} is wired in fresh."
+                )
+            job["paths"] = paths
+        return skipped
+
+    @staticmethod
+    def _placed_maps(materials) -> List[str]:
+        """Mirror of mayatk: the maps *materials* read through anything but a
+        plain UV lookup (a Mapping node: tiling, offset, rotation; a box or
+        sphere projection) -- rewritten for the new layout, they would move
+        with it, so never rewritten in place."""
+        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
+        from blendertk.mat_utils.mat_manifest import MatManifest
+
+        out: List[str] = []
+        for mat in materials:
+            for img_node in MatManifest._channel_image_nodes(mat).values():
+                vector = img_node.inputs.get("Vector")
+                mapped = vector is not None and vector.is_linked
+                if (mapped and vector.links[0].from_node.type != "UVMAP") or (
+                    img_node.projection != "FLAT"
+                ):
+                    path = _MatUtilsInternal._abspath(img_node.image)
+                    if path:
+                        out.append(path)
+        return out
+
+    @staticmethod
+    def _sampled_map(img_node, obj) -> str:
+        """The UV map *img_node* reads on *obj*: its UV Map node's, else the
+        mesh's active RENDER map (what an unlinked Vector reads)."""
+        vector = img_node.inputs.get("Vector")
+        if vector is not None and vector.is_linked:
+            source = vector.links[0].from_node
+            if source.type == "UVMAP" and source.uv_map:
+                return source.uv_map
+        layer = next((uv for uv in obj.data.uv_layers if uv.active_render), None)
+        return layer.name if layer is not None else ""
+
+    def _bind_uv_sets(self, material, channels, uv_sets) -> None:
+        """Mirror of mayatk: sample *material*'s written *channels* through the
+        UV map their maps were written for (*uv_sets*, ``{target: map}``). An
+        unlinked Image Texture reads each object's active RENDER map, so a UV
+        Map node names the map wherever a target would read another. A
+        material is one graph for every object, so targets that name
+        different maps cannot all be served: left as it is, with a warning."""
+        from blendertk.mat_utils.mat_manifest import MatManifest
+
+        names = set((uv_sets or {}).values())
+        if len(names) != 1:
+            if names:
+                self.logger.warning(
+                    f"{material.name}: its targets were written for different UV "
+                    f"maps ({', '.join(sorted(names))}); bound to none of them."
+                )
+            return
+        (name,) = names
+        nodes = [
+            node
+            for channel, node in MatManifest._channel_image_nodes(material).items()
+            if channel in channels
+        ]
+        if all(self._sampled_map(n, t) == name for n in nodes for t in uv_sets):
+            return
+        tree = material.node_tree
+        uv_node = tree.nodes.new("ShaderNodeUVMap")
+        uv_node.uv_map = name
+        for node in nodes:
+            tree.links.new(uv_node.outputs["UV"], node.inputs["Vector"])
+
     def _output_names(
         self,
         jobs: Dict[str, Dict[str, Any]],
@@ -795,16 +1036,15 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         ``<name>_1``, ``<name>_2``, ... Held: taken by another output of this
         run, held by a material that is not this output's own previous result
         (:meth:`_replaceable`), or a file it would write is a map a material
-        this run keeps reads.
+        this run keeps reads. An output that re-uses its target's material
+        (its job's ``in_place``) names only maps.
         """
         targets = list(
             dict.fromkeys(
                 obj for job in jobs.values() for obj, _m in job.get("members") or []
             )
         )
-
-        def key(path: str) -> str:
-            return os.path.normcase(os.path.abspath(path))
+        key = self._path_key
 
         def writes(name: str) -> set:
             return {
@@ -831,8 +1071,13 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
                 )
             name, k = base, 0
             while True:
-                holders = self._holders(
-                    name, ptk.StrUtils.apply_affix(name, prefix=prefix, suffix=suffix)
+                holders = (
+                    []
+                    if jobs[label].get("in_place")
+                    else self._holders(
+                        name,
+                        ptk.StrUtils.apply_affix(name, prefix=prefix, suffix=suffix),
+                    )
                 )
                 held = {m.name for m in holders}
                 kept_reads = {
@@ -893,7 +1138,15 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         before it writes, so only a direct call meets one here. Every result
         is stamped with its name.
 
-        Returns ``{output label: new material name}``.
+        Mirror of mayatk: *assign_from* ``"in_place"`` wires each re-used
+        material (its job's ``in_place``, :meth:`_plan_in_place` -- planned
+        here on a direct call, which rewrote nothing), as it is, to whatever of
+        its maps was not overwritten where it is and reloads the rest. Nothing
+        is copied, renamed, stamped or reassigned; an output it cannot re-use
+        is skipped. Every result samples the UV map its maps were written for
+        (its job's ``uv_sets``, :meth:`_bind_uv_sets`).
+
+        Returns ``{output label: new (or re-used) material name}``.
         """
         import bpy
         from blendertk.mat_utils._mat_utils import _MatUtilsInternal
@@ -904,6 +1157,10 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
                 obj for job in jobs.values() for obj, _m in job.get("members") or []
             )
         )
+        in_place = assign_from == "in_place"
+        if in_place and not any("in_place" in job for job in jobs.values()):
+            self._plan_in_place(jobs, rewrite=False)
+        reusing: List[Any] = []
         # Mirror of mayatk: resolve EVERY output's faces and make every copy --
         # neither touches a slot -- before anything is freed. A replaced
         # material can be one another output's targets wear (or copy from), and
@@ -912,6 +1169,10 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         for label, channels in results.items():
             members = jobs.get(label, {}).get("members") or []
             if not channels or not members:
+                continue
+            if in_place:  # re-used, or skipped: never a copy
+                if jobs[label].get("in_place"):
+                    reusing.append((label, channels, jobs[label]["in_place"]))
                 continue
             base_mat = next((m for _obj, m in members if m is not None), None)
             if assign_from == "source" or base_mat is None:
@@ -929,6 +1190,44 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         # A copy of a previous result carries its stamp until it is restamped.
         fresh = [new_mat for *_rest, new_mat in planned]
         created: Dict[str, str] = {}
+        for label, channels, kept in reusing:
+            rewritten = {
+                channel: {self._path_key(p) for p in paths}
+                for channel, paths in (jobs[label].get("paths") or {}).items()
+            }
+            for mat in kept:
+                maps = self.material_maps(mat)
+                wire = {
+                    channel: path
+                    for channel, path in channels.items()
+                    if channel not in maps
+                    or self._path_key(maps[channel]) not in rewritten.get(channel, ())
+                }
+                wired = (
+                    MatManifest.restore(mat.name, {"materials": {mat.name: wire}})
+                    if wire
+                    else 0
+                )
+                overwritten = len(channels) - len(wire)
+                said = (
+                    f"Re-used {mat.name}: {overwritten} map(s) overwritten in "
+                    f"place, {wired} wired in fresh"
+                )
+                if wired < len(wire):
+                    self.logger.warning(
+                        f"{said}; it has no Principled socket for the other "
+                        f"{len(wire) - wired}."
+                    )
+                else:
+                    self.logger.info(f"{said}.")
+                self._bind_uv_sets(mat, channels, jobs[label].get("uv_sets"))
+            # The files changed under their image datablocks.
+            changed = set().union(*rewritten.values()) if rewritten else set()
+            for img in bpy.data.images:
+                path = _MatUtilsInternal._abspath(img)
+                if path and self._path_key(path) in changed:
+                    img.reload()
+            created[label] = kept[0].name
         for label, channels, core, new_name, per_object, new_mat in planned:
             for old in self._holders(core, new_name):
                 if any(old == m for m in fresh):  # another output's copy
@@ -952,6 +1251,7 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
                     for link in list(sock.links):
                         nt.links.remove(link)
             MatManifest.restore(new_mat.name, {"materials": {new_mat.name: channels}})
+            self._bind_uv_sets(new_mat, channels, jobs[label].get("uv_sets"))
             for obj, face_ids, vacated in per_object:
                 slot_index = next(
                     (

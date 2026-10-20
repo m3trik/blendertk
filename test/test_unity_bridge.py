@@ -368,6 +368,58 @@ try:
             not left,
             f"{left}",
         )
+
+        # ---- the audio the scene plays NOW rides inside the bridge's FBX ----
+        # A hand-off refreshed only derived records and audio_manifest was
+        # authored, so the bridge shipped the last Scene Exporter run's events
+        # (or none); and the deliverer embeds only the files a record names by
+        # FILE name, while an audio event names its strip. Mirror of mayatk's.
+        import wave
+
+        from blendertk.audio_utils._audio_utils import AudioUtils
+
+        def make_wav(name):
+            path = str(tmp / "sound" / name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with wave.open(path, "wb") as out:
+                out.setnchannels(1)
+                out.setsampwidth(2)
+                out.setframerate(22050)
+                out.writeframes(name.encode() * 400)
+            return path
+
+        reset()
+        AudioUtils.remove_all_clips()
+        bpy.ops.mesh.primitive_cube_add()
+        crate = bpy.context.active_object
+        crate.name = "AudioCrate"
+        step = make_wav("footstep_take3.wav")
+        AudioUtils.add_clip(step, frame_start=1, name="footstep")
+        run_handoff(bridge, [crate], {"ASSETS_SUBDIR": "First"})
+        punch = make_wav("punch.wav")
+        AudioUtils.add_clip(punch, frame_start=5, name="punch")
+        heard = run_handoff(bridge, [crate], {"ASSETS_SUBDIR": "Second"})
+        if heard is None:
+            check("the audio hand-off returns a result", False)
+        else:
+            events = ptk.FbxMedia.audio_events(heard["asset"])
+            check(
+                "the bridge's FBX names every strip the scene plays now",
+                sorted(events) == ["footstep", "punch"],
+                f"{events}",
+            )
+            embedded = {
+                row["name"]: row["bytes"]
+                for row in ptk.FbxMedia.embedded(heard["asset"])
+            }
+            check(
+                "each strip's file is inside the bridge's FBX, whole, under its "
+                "event's name",
+                embedded.get("footstep.wav") == os.path.getsize(step)
+                and embedded.get("punch.wav") == os.path.getsize(punch),
+                f"{embedded}",
+            )
+        AudioUtils.remove_all_clips()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

@@ -25,6 +25,7 @@ intentionally omitted are concepts with no Blender surface to act on:
 refresh + selection-change subscription are guarded so they no-op without a running Blender.
 """
 
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.node_utils.attributes.channels._channels import Channels
 
 
@@ -56,6 +57,7 @@ class ChannelsSlots:
         "locked": "#8a9bb0",
         "keyframe": "#c86464",
         "keyframe_active": "#a83838",
+        "keyframe_changed": "#f08080",  # lighter red — moved off its curve, not keyed
         "driven_key": "#6898b8",
         "constraint": "#5878b8",
         "muted": "#888850",  # olive — muted F-curve / driver
@@ -82,6 +84,8 @@ class ChannelsSlots:
 
         # MMB scrub-edit drag state — set by the scrub handlers; cleared on release.
         self._scrub_state = None
+        # The undo bracket a drag-fill holds open between editBatchStarted / Finished.
+        self._edit_chunk = None
 
         # Name filter — debounced refresh (mirror of mayatk: bursts of keystrokes collapse
         # into a single rebuild 200ms after the user stops typing).
@@ -999,6 +1003,15 @@ class ChannelsSlots:
                 "Ctrl+click / Ctrl+drag: break animation.",
                 "action": self._on_icon_cell_clicked,
             },
+            "keyframe_changed": {
+                "icon": "connect",
+                "color": clr["keyframe_changed"],
+                "tooltip": "Value changed but not keyed — the next frame change "
+                "discards it. Click to key it.\n"
+                "Drag: key a range · Alt+drag: remove those keys.\n"
+                "Ctrl+click / Ctrl+drag: break animation.",
+                "action": self._on_icon_cell_clicked,
+            },
             "driven_key": {
                 "icon": "connect",
                 "color": clr["driven_key"],
@@ -1121,9 +1134,10 @@ class ChannelsSlots:
             pass
         widget.cellChanged.connect(self._handle_cell_edit)
 
-        # Value-input signals (MMB scrub + wheel scroll). Column registration lives in
-        # ``_setup_value_input`` (one-time, persists on the widget); the connections belong
-        # here because the widget can persist across slots rebuilds while ``self`` does not.
+        # Value-input signals (MMB scrub + wheel scroll) and a drag-fill's batch bracket.
+        # Column registration lives in ``_setup_value_input`` (one-time, persists on the
+        # widget); the connections belong here because the widget can persist across slots
+        # rebuilds while ``self`` does not.
         # Unlike the signals above these carry no handlers but ours, so the stale binding is
         # dropped by tracked reference instead of a blanket ``disconnect()``: PySide warns
         # ("Failed to disconnect (None) from signal ...") whenever a signal has nothing
@@ -1137,6 +1151,8 @@ class ChannelsSlots:
             ("cellScrubMoved", self._on_scrub_moved),
             ("cellScrubFinished", self._on_scrub_finished),
             ("cellWheelScrolled", self._on_wheel_scrolled),
+            ("editBatchStarted", self._on_edit_batch_started),
+            ("editBatchFinished", self._on_edit_batch_finished),
         ):
             sig = getattr(widget, name, None)
             if sig is None:
@@ -1314,8 +1330,12 @@ class ChannelsSlots:
             self._refresh_table(self.ui.tbl000)
 
     def _on_icon_cells_dragged(self, rows, col):
-        """Drag down the Lock / Key column: apply every crossed row, then refresh once."""
-        changed = [self._apply_icon_cell(row, col) for row in rows]
+        """Drag down the Lock / Key column: apply every crossed row, then refresh once.
+
+        Every crossed row lands in ONE undo step (mayatk's "Channels Drag" chunk).
+        """
+        with CoreUtils.undo_chunk("Channels Drag"):
+            changed = [self._apply_icon_cell(row, col) for row in rows]
         if any(changed):
             self._refresh_table(self.ui.tbl000)
 
@@ -1363,7 +1383,11 @@ class ChannelsSlots:
         return True
 
     def _handle_cell_edit(self, row, col):
-        """Value edit (Value col) or custom-property rename (Name col)."""
+        """Value edit (Value col) or custom-property rename (Name col).
+
+        Each write is one undo step (the engine's); a drag-fill's cells arrive between
+        ``editBatchStarted`` and ``editBatchFinished`` and fold into that one step.
+        """
         descriptor = self._descriptor_at(row)
         objects = self.controller.get_selected_nodes()
         if descriptor is None or not objects:
@@ -1383,6 +1407,24 @@ class ChannelsSlots:
         ):
             self.controller.rename_attribute(objects, descriptor["name"], text)
             self._refresh_table(self.ui.tbl000)
+
+    def _on_edit_batch_started(self):
+        """Open one undo bracket for a multi-cell edit (a drag-fill).
+
+        The table writes every filled cell as its own ``cellChanged``; each lands in
+        :meth:`_handle_cell_edit` as its own step, so without the bracket one Undo
+        reverted one cell. Mirror of mayatk's ``Channels Edit`` chunk.
+        """
+        if self._edit_chunk is not None:
+            return
+        self._edit_chunk = CoreUtils.undo_chunk("Channels Edit")
+        self._edit_chunk.__enter__()
+
+    def _on_edit_batch_finished(self):
+        """Close the bracket :meth:`_on_edit_batch_started` opened (one undo step)."""
+        chunk, self._edit_chunk = self._edit_chunk, None
+        if chunk is not None:
+            chunk.__exit__(None, None, None)
 
     # ------------------------------------------------------------------
     # Value-cell scrub editing (MMB-drag + mouse-wheel) — uitk shared infra
@@ -1447,6 +1489,9 @@ class ChannelsSlots:
 
     def _on_scrub_started(self, row, col):
         """Capture per-object start values for an MMB scrub-drag on a numeric channel."""
+        # A press whose release never arrived (focus lost mid-drag) left its bracket
+        # open, and global undo off with it: close it on ANY press, scrubbable or not.
+        self._end_scrub()
         if col != self.COL_VALUE:
             return
         descriptor = self._descriptor_at(row)
@@ -1455,11 +1500,16 @@ class ChannelsSlots:
         starts = self._scrub_targets(descriptor)
         if not starts:
             return
+        # The whole drag is one undo step (mayatk's "Scrub" chunk), held open to release.
+        chunk = CoreUtils.undo_chunk(f"Scrub {descriptor['name']}")
         self._scrub_state = {
             "row": row,
             "descriptor": descriptor,
             "starts": starts,
             "is_int": descriptor["type"] == "int",
+            "undo": chunk,
+            "step": chunk.__enter__(),
+            "moved": False,
         }
 
     def _on_scrub_moved(self, row, col, dx, dy):
@@ -1487,6 +1537,7 @@ class ChannelsSlots:
             if state["is_int"]:
                 new_val = int(round(new_val))
             self.controller.set_channel_value([obj], descriptor, str(new_val))
+            state["moved"] = True
             if i == 0:
                 primary_new = new_val
         # Live cell feedback without a full rebuild (which would re-resolve descriptors mid-drag).
@@ -1496,10 +1547,22 @@ class ChannelsSlots:
             )
 
     def _on_scrub_finished(self, row, col):
-        """Clear scrub state and re-sync the table (value + connection icons)."""
-        if self._scrub_state is not None:
-            self._scrub_state = None
+        """Close the scrub's undo step and re-sync the table (value + connection icons)."""
+        if self._end_scrub():
             self._refresh_table(self.ui.tbl000)
+
+    def _end_scrub(self):
+        """Close the active scrub's undo bracket; ``True`` if a scrub was active.
+
+        A scrub that never moved changed nothing, so its bracket pushes no step.
+        """
+        state, self._scrub_state = self._scrub_state, None
+        if state is None:
+            return False
+        if not state["moved"]:
+            state["step"].cancel()
+        state["undo"].__exit__(None, None, None)
+        return True
 
     def _set_value_cell_text(self, row, text):
         """Set the Value cell text in place with signals blocked (no edit-handler re-entry)."""
@@ -1601,28 +1664,35 @@ class ChannelsSlots:
                 editor.blockSignals(False)
             editor.setCursorPosition(max(0, len(new_text) - cursor_from_end))
 
-            for obj in objects:
-                if obj is objects[0]:
-                    if not self.controller.is_locked(obj, descriptor):
+            # One notch is one undo step across the selection (mayatk's "Wheel" chunk).
+            with CoreUtils.undo_chunk(f"Wheel {descriptor['name']}"):
+                for obj in objects:
+                    if obj is objects[0]:
+                        if not self.controller.is_locked(obj, descriptor):
+                            self.controller.set_channel_value(
+                                [obj], descriptor, str(new_primary)
+                            )
+                        continue
+                    cur = self._scrub_value(obj, descriptor)
+                    if cur is not None:
                         self.controller.set_channel_value(
-                            [obj], descriptor, str(new_primary)
+                            [obj], descriptor, str(apply_delta(cur))
                         )
-                    continue
-                cur = self._scrub_value(obj, descriptor)
-                if cur is not None:
-                    self.controller.set_channel_value(
-                        [obj], descriptor, str(apply_delta(cur))
-                    )
             return
 
         # Display-mode: step each object's current value, then refresh the cell text in place.
         changed = False
-        for obj in objects:
-            cur = self._scrub_value(obj, descriptor)
-            if cur is None:
-                continue
-            self.controller.set_channel_value([obj], descriptor, str(apply_delta(cur)))
-            changed = True
+        with CoreUtils.undo_chunk(f"Wheel {descriptor['name']}") as step:
+            for obj in objects:
+                cur = self._scrub_value(obj, descriptor)
+                if cur is None:
+                    continue
+                self.controller.set_channel_value(
+                    [obj], descriptor, str(apply_delta(cur))
+                )
+                changed = True
+            if not changed:
+                step.cancel()
         if changed:
             primary_val = self.controller.get_channel_value(objects[0], descriptor)
             self._set_value_cell_text(row, self.controller.format_value(primary_val))

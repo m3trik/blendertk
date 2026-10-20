@@ -19,6 +19,8 @@ package surface — resolves under headless ``--background`` without a running B
 
 import math
 
+from blendertk.core_utils._core_utils import CoreUtils
+
 
 class Channels:
     """Blender attribute query / mutation logic.
@@ -26,6 +28,10 @@ class Channels:
     Encapsulates channel querying, filtering, connection classification, and mutation so that
     ``ChannelsSlots`` only handles UI wiring. Operates on ``bpy.types.Object`` references (the
     Blender analogue of Maya node-name strings).
+
+    Every mutation is one undo step (:meth:`CoreUtils.undo_chunk`), as each is one undo chunk
+    in mayatk: the panel writes through RNA from the Qt pump, which pushes no step of its own.
+    Nested inside a slots gesture bracket (a drag, a fill, a scrub) they fold into its step.
     """
 
     # Maps filter ComboBox items → an opaque filter key consumed by :meth:`collect_channels`.
@@ -105,8 +111,6 @@ class Channels:
         returned (mirror of Maya's "most recently selected").
         """
         import bpy
-
-        from blendertk.core_utils._core_utils import CoreUtils
 
         if self._pinned_targets is not None:
             names = {o.name for o in bpy.data.objects}
@@ -375,17 +379,18 @@ class Channels:
     @classmethod
     def set_lock(cls, objects, descriptors, lock):
         """Lock or unlock *descriptors* across all *objects* (transform channels only)."""
-        for obj in objects:
-            for d in descriptors:
-                if d["kind"] != "transform":
-                    continue
-                lock_attr = cls._LOCK_ATTR.get(d["data_path"])
-                if not lock_attr:
-                    continue
-                try:
-                    getattr(obj, lock_attr)[d["index"]] = bool(lock)
-                except Exception:
-                    pass
+        with CoreUtils.undo_chunk(f"{'Lock' if lock else 'Unlock'} Attrs"):
+            for obj in objects:
+                for d in descriptors:
+                    if d["kind"] != "transform":
+                        continue
+                    lock_attr = cls._LOCK_ATTR.get(d["data_path"])
+                    if not lock_attr:
+                        continue
+                    try:
+                        getattr(obj, lock_attr)[d["index"]] = bool(lock)
+                    except Exception:
+                        pass
 
     # ------------------------------------------------------------------
     # Connection / animation classification
@@ -448,10 +453,11 @@ class Channels:
         """Classify what drives *descriptor* on *obj*.
 
         Returns one of ``"none"``, ``"keyframe"`` (animated, no key on the current frame),
-        ``"keyframe_active"`` (key on the current frame), ``"muted"`` (F-curve or driver
-        present but muted), ``"driven_key"`` (driver), or ``"constraint"`` (transform channel
-        on a constrained object). Mirrors the Maya tool's connection states with Blender's
-        drivers / F-curves.
+        ``"keyframe_active"`` (key on the current frame), ``"keyframe_changed"`` (animated,
+        but the value was moved off its F-curve without a key -- see :meth:`is_off_curve`),
+        ``"muted"`` (F-curve or driver present but muted), ``"driven_key"`` (driver), or
+        ``"constraint"`` (transform channel on a constrained object). Mirrors the Maya tool's
+        connection states with Blender's drivers / F-curves.
         """
         drv = cls._find_driver(obj, descriptor)
         if drv is not None:
@@ -460,12 +466,63 @@ class Channels:
         if fc is not None:
             if getattr(fc, "mute", False):
                 return "muted"
+            # A value moved off its curve outranks a key on this frame, as in mayatk:
+            # either way it is lost on the next frame change.
+            if cls._off_curve(obj, fc):
+                return "keyframe_changed"
             return (
                 "keyframe_active" if cls._has_key_at_current_frame(fc) else "keyframe"
             )
         if descriptor["kind"] == "transform" and getattr(obj, "constraints", None):
             return "constraint"
         return "none"
+
+    @classmethod
+    def is_off_curve(cls, obj, descriptor, tolerance=1e-6):
+        """Return ``True`` if keyed *descriptor* on *obj* holds a value its F-curve does not.
+
+        Mirror of mayatk's ``Channels.is_off_curve``. A keyed property set without a key
+        keeps the new value until the next frame change re-evaluates the curve; Blender's
+        own fields show it orange, the panel lighter red (``"keyframe_changed"``). Only a
+        channel its F-curve drives is judged: a driver overrides the curve and a muted
+        curve writes nothing.
+
+        Parameters:
+            obj (bpy.types.Object): The object.
+            descriptor (dict): A channel descriptor (see :meth:`_describe`).
+            tolerance (float): Relative tolerance of the comparison.
+
+        Returns:
+            bool
+        """
+        if cls._find_driver(obj, descriptor) is not None:
+            return False
+        fc = cls._find_fcurve(obj, descriptor)
+        if fc is None or getattr(fc, "mute", False):
+            return False
+        return cls._off_curve(obj, fc, tolerance)
+
+    @staticmethod
+    def _off_curve(obj, fcurve, tolerance=1e-6):
+        """True if *obj*'s value at *fcurve*'s path differs from the curve at the current frame.
+
+        The raw RNA value against ``fcurve.evaluate``: radians on both sides for a
+        rotation, and an integer curve already rounds as the animation write does
+        (measured, Blender 5.1).
+        """
+        import bpy
+
+        try:
+            value = obj.path_resolve(fcurve.data_path)
+            if hasattr(value, "__len__") and not isinstance(value, str):
+                value = value[fcurve.array_index]
+            curve = fcurve.evaluate(bpy.context.scene.frame_current_final)
+        except (AttributeError, IndexError, ReferenceError, TypeError, ValueError):
+            return False
+        if not isinstance(value, (int, float)):
+            return False
+        scale = max(1.0, abs(value), abs(curve))
+        return abs(value - curve) > tolerance * scale
 
     @staticmethod
     def _has_key_at_current_frame(fcurve):
@@ -524,15 +581,18 @@ class Channels:
         value = cls.parse_value(text, descriptor)
         if value is None:
             return
-        for obj in objects:
-            try:
-                if descriptor["kind"] == "transform":
-                    getattr(obj, descriptor["data_path"])[descriptor["index"]] = value
-                else:
-                    if descriptor["name"] in obj.keys():
-                        obj[descriptor["name"]] = value
-            except Exception:
-                pass
+        with CoreUtils.undo_chunk(f"Edit Attr: {descriptor['name']}"):
+            for obj in objects:
+                try:
+                    if descriptor["kind"] == "transform":
+                        getattr(obj, descriptor["data_path"])[descriptor["index"]] = (
+                            value
+                        )
+                    else:
+                        if descriptor["name"] in obj.keys():
+                            obj[descriptor["name"]] = value
+                except Exception:
+                    pass
 
     @classmethod
     def reset_to_default(cls, objects, descriptors):
@@ -541,16 +601,17 @@ class Channels:
         Transform defaults: location/rotation → 0, scale → 1. Custom-prop defaults come from the
         property's ``id_properties_ui`` metadata (falls back to 0).
         """
-        for obj in objects:
-            for d in descriptors:
-                try:
-                    if d["kind"] == "transform":
-                        default = 1.0 if d["data_path"] == "scale" else 0.0
-                        getattr(obj, d["data_path"])[d["index"]] = default
-                    else:
-                        cls._reset_custom_prop(obj, d["name"])
-                except Exception:
-                    pass
+        with CoreUtils.undo_chunk("Reset to Default"):
+            for obj in objects:
+                for d in descriptors:
+                    try:
+                        if d["kind"] == "transform":
+                            default = 1.0 if d["data_path"] == "scale" else 0.0
+                            getattr(obj, d["data_path"])[d["index"]] = default
+                        else:
+                            cls._reset_custom_prop(obj, d["name"])
+                    except Exception:
+                        pass
 
     @staticmethod
     def _reset_custom_prop(obj, name):
@@ -594,14 +655,16 @@ class Channels:
         frame = bpy.context.scene.frame_current
         dp, idx = descriptor["data_path"], descriptor["index"]
         index = -1 if idx is None else idx
-        for obj in objects:
-            try:
-                if keyed:
-                    obj.keyframe_insert(data_path=dp, index=index, frame=frame)
-                else:
-                    obj.keyframe_delete(data_path=dp, index=index, frame=frame)
-            except (RuntimeError, TypeError):
-                pass
+        action = "Set" if keyed else "Remove"
+        with CoreUtils.undo_chunk(f"{action} Key: {descriptor.get('name', dp)}"):
+            for obj in objects:
+                try:
+                    if keyed:
+                        obj.keyframe_insert(data_path=dp, index=index, frame=frame)
+                    else:
+                        obj.keyframe_delete(data_path=dp, index=index, frame=frame)
+                except (RuntimeError, TypeError):
+                    pass
         return "set" if keyed else "removed"
 
     @classmethod
@@ -612,20 +675,23 @@ class Channels:
         """
         broke = False
         dp, idx = descriptor["data_path"], descriptor["index"]
-        for obj in objects:
-            ad = getattr(obj, "animation_data", None)
-            if not ad:
-                continue
-            drv = cls._find_driver(obj, descriptor)
-            if drv is not None:
-                try:
-                    obj.driver_remove(dp, -1 if idx is None else idx)
+        with CoreUtils.undo_chunk("Break Connection") as step:
+            for obj in objects:
+                ad = getattr(obj, "animation_data", None)
+                if not ad:
+                    continue
+                drv = cls._find_driver(obj, descriptor)
+                if drv is not None:
+                    try:
+                        obj.driver_remove(dp, -1 if idx is None else idx)
+                        broke = True
+                    except (RuntimeError, TypeError):
+                        pass
+                fc = cls._find_fcurve(obj, descriptor)
+                if fc is not None and cls._remove_fcurve(obj, fc):
                     broke = True
-                except (RuntimeError, TypeError):
-                    pass
-            fc = cls._find_fcurve(obj, descriptor)
-            if fc is not None and cls._remove_fcurve(obj, fc):
-                broke = True
+            if not broke:
+                step.cancel()
         return broke
 
     @staticmethod
@@ -658,23 +724,26 @@ class Channels:
         silently. Returns ``True`` when anything was toggled.
         """
         changed = False
-        for obj in objects:
-            for d in descriptors:
-                drv = cls._find_driver(obj, d)
-                if drv is not None:
-                    try:
-                        drv.mute = bool(mute)
-                        changed = True
-                        continue
-                    except (AttributeError, TypeError):
-                        pass
-                fc = cls._find_fcurve(obj, d)
-                if fc is not None:
-                    try:
-                        fc.mute = bool(mute)
-                        changed = True
-                    except (AttributeError, TypeError):
-                        pass
+        with CoreUtils.undo_chunk(f"{'Mute' if mute else 'Unmute'} Attrs") as step:
+            for obj in objects:
+                for d in descriptors:
+                    drv = cls._find_driver(obj, d)
+                    if drv is not None:
+                        try:
+                            drv.mute = bool(mute)
+                            changed = True
+                            continue
+                        except (AttributeError, TypeError):
+                            pass
+                    fc = cls._find_fcurve(obj, d)
+                    if fc is not None:
+                        try:
+                            fc.mute = bool(mute)
+                            changed = True
+                        except (AttributeError, TypeError):
+                            pass
+            if not changed:
+                step.cancel()
         return changed
 
     @classmethod
@@ -691,26 +760,27 @@ class Channels:
             return 0
         frame = bpy.context.scene.frame_current
         count = 0
-        for obj in objects:
-            for d in descriptors:
-                dp, idx = d["data_path"], d["index"]
-                try:
-                    obj.keyframe_insert(
-                        data_path=dp, index=-1 if idx is None else idx, frame=frame
-                    )
-                except (RuntimeError, TypeError):
-                    continue
-                fc = cls._find_fcurve(obj, d)
-                if fc is None:
-                    continue
-                for kp in fc.keyframe_points:
-                    if round(kp.co[0]) == frame:
-                        kp.type = "BREAKDOWN"
-                        count += 1
-                try:
-                    fc.update()
-                except (AttributeError, RuntimeError):
-                    pass
+        with CoreUtils.undo_chunk("Set Breakdown Key"):
+            for obj in objects:
+                for d in descriptors:
+                    dp, idx = d["data_path"], d["index"]
+                    try:
+                        obj.keyframe_insert(
+                            data_path=dp, index=-1 if idx is None else idx, frame=frame
+                        )
+                    except (RuntimeError, TypeError):
+                        continue
+                    fc = cls._find_fcurve(obj, d)
+                    if fc is None:
+                        continue
+                    for kp in fc.keyframe_points:
+                        if round(kp.co[0]) == frame:
+                            kp.type = "BREAKDOWN"
+                            count += 1
+                    try:
+                        fc.update()
+                    except (AttributeError, RuntimeError):
+                        pass
         return count
 
     @classmethod
@@ -741,8 +811,6 @@ class Channels:
                     targets.append(tid)
         if not targets:
             return False
-        from blendertk.core_utils._core_utils import CoreUtils
-
         # the window's view layer: windowless, select_all / select_set / the active
         # write address the scene's default layer, not the one the window shows
         with CoreUtils.window_context_override():
@@ -787,58 +855,64 @@ class Channels:
         Maya's ``enum`` has no arbitrary-object Blender analogue and is not offered. Skips objects
         that already carry the property.
         """
-        for obj in objects:
-            if name in obj.keys():
-                continue
+        with CoreUtils.undo_chunk(f"Create Attr: {name}"):
+            for obj in objects:
+                if name not in obj.keys():
+                    cls._create_property(
+                        obj, name, attr_type, min_val, max_val, default_val
+                    )
+
+    @staticmethod
+    def _create_property(obj, name, attr_type, min_val, max_val, default_val):
+        """Create one custom property on *obj* (see :meth:`create_attribute`)."""
+        try:
+            if attr_type == "string":
+                obj[name] = str(default_val) if default_val else ""
+            elif attr_type == "bool":
+                obj[name] = bool(default_val)
+            elif attr_type == "int":
+                obj[name] = int(default_val)
+            elif attr_type == "vector":
+                d = float(default_val)
+                obj[name] = (d, d, d)
+            else:  # float (and any unmapped numeric type)
+                obj[name] = float(default_val)
+        except Exception:
+            return
+        # Apply UI metadata (range + default) for numeric/vector properties. The spinboxes hand
+        # back floats, so coerce to int for int props (id_properties_ui rejects a float range
+        # there); vectors take a float range plus subtype='XYZ' for Blender's own X/Y/Z panel
+        # labels. Guarded — metadata failure must not undo the creation.
+        if attr_type in ("float", "int", "vector"):
+            cast = int if attr_type == "int" else float
             try:
-                if attr_type == "string":
-                    obj[name] = str(default_val) if default_val else ""
-                elif attr_type == "bool":
-                    obj[name] = bool(default_val)
-                elif attr_type == "int":
-                    obj[name] = int(default_val)
-                elif attr_type == "vector":
-                    d = float(default_val)
-                    obj[name] = (d, d, d)
-                else:  # float (and any unmapped numeric type)
-                    obj[name] = float(default_val)
-            except Exception:
-                continue
-            # Apply UI metadata (range + default) for numeric/vector properties. The spinboxes hand
-            # back floats, so coerce to int for int props (id_properties_ui rejects a float range
-            # there); vectors take a float range plus subtype='XYZ' for Blender's own X/Y/Z panel
-            # labels. Guarded — metadata failure must not undo the creation.
-            if attr_type in ("float", "int", "vector"):
-                cast = int if attr_type == "int" else float
-                try:
-                    ui = obj.id_properties_ui(name)
-                    kw = {
-                        "default": list(obj[name])
-                        if attr_type == "vector"
-                        else obj[name]
-                    }
-                    if attr_type == "vector":
-                        kw["subtype"] = "XYZ"
-                    if min_val is not None:
-                        kw["min"] = cast(min_val)
-                    if max_val is not None:
-                        kw["max"] = cast(max_val)
-                    ui.update(**kw)
-                except (TypeError, KeyError, AttributeError):
-                    pass
+                ui = obj.id_properties_ui(name)
+                kw = {
+                    "default": list(obj[name]) if attr_type == "vector" else obj[name]
+                }
+                if attr_type == "vector":
+                    kw["subtype"] = "XYZ"
+                if min_val is not None:
+                    kw["min"] = cast(min_val)
+                if max_val is not None:
+                    kw["max"] = cast(max_val)
+                ui.update(**kw)
+            except (TypeError, KeyError, AttributeError):
+                pass
 
     @classmethod
     def delete_attributes(cls, objects, descriptors):
         """Delete custom *descriptors* across all *objects* (transform channels are skipped)."""
-        for obj in objects:
-            for d in descriptors:
-                if d["kind"] != "custom":
-                    continue
-                try:
-                    if d["name"] in obj.keys():
-                        del obj[d["name"]]
-                except Exception:
-                    pass
+        with CoreUtils.undo_chunk("Delete Attrs"):
+            for obj in objects:
+                for d in descriptors:
+                    if d["kind"] != "custom":
+                        continue
+                    try:
+                        if d["name"] in obj.keys():
+                            del obj[d["name"]]
+                    except Exception:
+                        pass
 
     @classmethod
     def rename_attribute(cls, objects, old_name, new_name):
@@ -846,21 +920,24 @@ class Channels:
         if not new_name or new_name == old_name:
             return False
         renamed = False
-        for obj in objects:
-            if old_name not in obj.keys() or new_name in obj.keys():
-                continue
-            try:
-                obj[new_name] = obj[old_name]
-                try:  # carry the UI metadata across
-                    obj.id_properties_ui(new_name).update(
-                        **obj.id_properties_ui(old_name).as_dict()
-                    )
-                except (TypeError, KeyError, AttributeError):
+        with CoreUtils.undo_chunk("Rename Attribute") as step:
+            for obj in objects:
+                if old_name not in obj.keys() or new_name in obj.keys():
+                    continue
+                try:
+                    obj[new_name] = obj[old_name]
+                    try:  # carry the UI metadata across
+                        obj.id_properties_ui(new_name).update(
+                            **obj.id_properties_ui(old_name).as_dict()
+                        )
+                    except (TypeError, KeyError, AttributeError):
+                        pass
+                    del obj[old_name]
+                    renamed = True
+                except Exception:
                     pass
-                del obj[old_name]
-                renamed = True
-            except Exception:
-                pass
+            if not renamed:
+                step.cancel()
         return renamed
 
     @staticmethod
@@ -868,11 +945,12 @@ class Channels:
         """Rename the object datablock and return its (possibly suffixed) new name."""
         if not new_name or obj is None:
             return getattr(obj, "name", "")
-        try:
-            obj.name = new_name
-            return obj.name
-        except Exception:
-            return getattr(obj, "name", "")
+        with CoreUtils.undo_chunk("Rename Node"):
+            try:
+                obj.name = new_name
+                return obj.name
+            except Exception:
+                return getattr(obj, "name", "")
 
     # ------------------------------------------------------------------
     # Copy / paste
@@ -892,16 +970,18 @@ class Channels:
         """Paste previously copied values onto *objects* (matched by channel name)."""
         if not objects or not self._clipboard:
             return
-        for obj in objects:
-            for name, (descriptor, value) in self._clipboard.items():
-                if value is None:
-                    continue
-                # Re-serialize the (already display-space) value for parse_value. str() renders
-                # scalars faithfully, but yields an unparseable repr for an array (vector) prop;
-                # format_value emits the "(x, y, z)" form parse_value's vector branch round-trips.
-                is_array = hasattr(value, "__len__") and not isinstance(value, str)
-                text = self.format_value(value) if is_array else str(value)
-                self.set_channel_value([obj], descriptor, text)
+        with CoreUtils.undo_chunk("Paste Attribute Values"):
+            for obj in objects:
+                for name, (descriptor, value) in self._clipboard.items():
+                    if value is None:
+                        continue
+                    # Re-serialize the (already display-space) value for parse_value. str()
+                    # renders scalars faithfully, but yields an unparseable repr for an array
+                    # (vector) prop; format_value emits the "(x, y, z)" form parse_value's
+                    # vector branch round-trips.
+                    is_array = hasattr(value, "__len__") and not isinstance(value, str)
+                    text = self.format_value(value) if is_array else str(value)
+                    self.set_channel_value([obj], descriptor, text)
 
     # ------------------------------------------------------------------
     # Transform freeze (Maya's Freeze Transforms → Blender Apply Transform)
@@ -929,7 +1009,8 @@ class Channels:
             "rotation": "rotation" in groups if groups else True,
             "scale": "scale" in groups if groups else True,
         }
-        btk.freeze_transforms(objects, **kwargs)
+        with CoreUtils.undo_chunk("Freeze Transforms"):
+            btk.freeze_transforms(objects, **kwargs)
         return True
 
     @classmethod
@@ -962,7 +1043,8 @@ class Channels:
             return []
         import blendertk as btk
 
-        return btk.restore_transforms(objects) or []
+        with CoreUtils.undo_chunk("Unfreeze Transforms"):
+            return btk.restore_transforms(objects) or []
 
     @staticmethod
     def has_unfreeze_info(objects):

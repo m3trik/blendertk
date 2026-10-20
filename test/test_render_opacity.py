@@ -33,6 +33,7 @@ def approx(a, b, tol=1e-3):
 try:
     import bpy
     import warnings
+    from blendertk.mat_utils._mat_utils import MatUtils
     from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
 
     def reset():
@@ -55,7 +56,7 @@ try:
 
     def mat(name="M"):
         m = bpy.data.materials.new(name)
-        m.use_nodes = True
+        MatUtils.get_node_tree(m, create=True)
         return m
 
     def fcurve(obj, data_path):
@@ -598,7 +599,7 @@ try:
     box = cube("Glow")
     other = cube("Bystander")
     mat = bpy.data.materials.new("Shared")
-    mat.use_nodes = True
+    MatUtils.get_node_tree(mat, create=True)
     box.data.materials.append(mat)
     other.data.materials.append(mat)
     RenderEffects.create([box], channel="highlight")
@@ -802,7 +803,7 @@ try:
     reset()
     box = cube("Quiet")
     m = bpy.data.materials.new("QuietMat")
-    m.use_nodes = True
+    MatUtils.get_node_tree(m, create=True)
     box.data.materials.append(m)
     RenderEffects.key_pulse([box], start=0, end=100, period=50)
     check(
@@ -1500,6 +1501,271 @@ try:
         detail=f"{_pts(hand, _op_path)} {_pts(hand, _hl_path)[:4]}",
     )
     _store.effect_recipe = _recipe_before
+
+    # ============================ CHANNEL RECORDS LAND IN BULK ============================
+    # ``apply_channel_records`` (an imported FBX's user-property curves, the
+    # Maya bridge's shot-section replay) writes each label's keys in one bulk
+    # pass, leaving exactly what ``_set_key`` per key leaves -- every point
+    # property, replaced keys included -- without scanning the curves per key
+    # (2026-10-19: 20 curves x 2000 keys took 59 s).
+    import math
+
+    from blendertk.anim_utils._anim_utils import AnimUtils as _AU
+
+    _KP_FLOAT = (
+        ("co", 2),
+        ("handle_left", 2),
+        ("handle_right", 2),
+        ("back", 1),
+        ("amplitude", 1),
+        ("period", 1),
+    )
+    _KP_INT = (
+        "interpolation",
+        "handle_left_type",
+        "handle_right_type",
+        "easing",
+        "type",
+        "select_control_point",
+        "select_left_handle",
+        "select_right_handle",
+    )
+
+    def _key_print(o):
+        """Every custom property and every point property of *o*'s curves."""
+        out = {}
+        for k in o.keys():
+            v = o[k]
+            try:
+                out[k] = [round(float(x), 6) for x in v]
+            except TypeError:
+                out[k] = round(float(v), 6) if isinstance(v, (int, float)) else v
+        for fc in _AU.get_fcurves([o]):
+            n = len(fc.keyframe_points)
+            row = {}
+            for name, width in _KP_FLOAT:
+                buf = [0.0] * (n * width)
+                fc.keyframe_points.foreach_get(name, buf)
+                row[name] = buf
+            for name in _KP_INT:
+                buf = [0] * n
+                fc.keyframe_points.foreach_get(name, buf)
+                row[name] = buf
+            out[(fc.data_path, fc.array_index)] = row
+        return out
+
+    def _first_diff(a, b):
+        for key in sorted(set(a) | set(b), key=str):
+            if a.get(key) != b.get(key):
+                if isinstance(a.get(key), dict) and isinstance(b.get(key), dict):
+                    for name in a[key]:
+                        if a[key][name] != b[key].get(name):
+                            pairs = list(zip(a[key][name], b[key].get(name) or []))
+                            at = next(
+                                (i for i, (x, y) in enumerate(pairs) if x != y), None
+                            )
+                            where = pairs[at] if at is not None else "length"
+                            return f"{key} {name} @{at}: {where}"
+                return f"{key}: {a.get(key)} != {b.get(key)}"
+        return ""
+
+    _landed_interps = {}
+
+    def _land_per_key(o, records):
+        """The oracle: Blender's own insert, ``_set_key`` per key, each key's
+        interpolation then on ITS point (``_set_key`` restyles every point on
+        the same rounded frame -- a subframe key's whole-frame neighbour too)."""
+        for label, rec in records.items():
+            prop, index = RenderEffects._channel_slot(o, label)
+            if (
+                prop in RenderEffects.CHANNELS
+                or prop in RenderEffects.HIGHLIGHT_COLOR_STOPS.keys
+            ):
+                RenderEffects._ensure_channel(
+                    [o],
+                    RenderEffects.ATTR_NAME
+                    if prop == RenderEffects.ATTR_NAME
+                    else RenderEffects.HIGHLIGHT_ATTR,
+                    auto_create=True,
+                    delete_visibility_keys=False,
+                )
+            elif prop not in o.keys():
+                o[prop] = 0.0 if index < 0 else [0.0, 0.0, 0.0]
+            if rec.get("value") is not None:
+                RenderEffects._set_prop(o, prop, index, float(rec["value"]))
+            for f, v, interp in rec["keys"]:
+                RenderEffects._set_key(
+                    o,
+                    f'["{prop}"]',
+                    f,
+                    v,
+                    RenderEffects._BLENDER_FROM_INTERP[interp],
+                    index=index,
+                )
+            # Every key landed on this curve so far, the last landing winning.
+            intended = _landed_interps.setdefault((o.name, prop, index), {})
+            for f, _v, interp in rec["keys"]:
+                intended[float(f)] = RenderEffects._BLENDER_FROM_INTERP[interp]
+            for k in RenderEffects._fcurve(o, f'["{prop}"]', index).keyframe_points:
+                if k.co[0] in intended:  # whole and half frames: float32-exact
+                    k.interpolation = intended[k.co[0]]
+
+    def _records(n, labels=6, start=1.0, phase=0.0, sub=False):
+        names = ["opacity", "highlight", "highlightColorR", "highlightColorG"]
+        names += [f"user_{i}" for i in range(labels - len(names))]
+        out = {}
+        for j, label in enumerate(names[:labels]):
+            keys = []
+            for i in range(n):
+                f = start + i + (0.5 if sub and i % 9 == 4 else 0.0)
+                v = math.sin(0.05 * i + j + phase)
+                interp = ("linear", "step", "smooth")[(i + j) % 3]
+                keys.append([f, 0.5 + 0.5 * v if j < 2 else v, interp])
+            out[label] = {"value": 0.25, "keys": keys}
+        return out
+
+    def _animator_keys(o):
+        """An artist's curve the landing interleaves with: a deselected key it
+        replaces, a deselected ELASTIC one it does not."""
+        o["user_0"] = 0.0
+        for f in range(-5, 90, 7):
+            o["user_0"] = f * 0.1
+            o.keyframe_insert('["user_0"]', frame=f)
+        pts = RenderEffects._fcurve(o, '["user_0"]').keyframe_points
+        pts[3].select_control_point = False
+        pts[-1].interpolation = "ELASTIC"
+        pts[-1].easing = "EASE_IN"
+        pts[-1].select_control_point = False
+
+    scenarios = {
+        "fresh": (None, [_records(60)]),
+        "re-applied, then an overlapping section with subframes": (
+            None,
+            [_records(40), _records(40), _records(40, start=20.0, phase=1.3, sub=True)],
+        ),
+        "between an animator's keys": (
+            _animator_keys,
+            [_records(30, start=0.0, phase=0.4)],
+        ),
+    }
+    for _label, (_prep, _batches) in scenarios.items():
+        _landed_interps.clear()
+        _bulk = bpy.data.objects.new("Bulk", None)
+        _ref = bpy.data.objects.new("Ref", None)
+        for _o in (_bulk, _ref):
+            bpy.context.collection.objects.link(_o)
+            if _prep:
+                _prep(_o)
+        for _batch in _batches:
+            RenderEffects.apply_channel_records(_bulk, _batch)
+            _land_per_key(_ref, _batch)
+        _a, _b = _key_print(_bulk), _key_print(_ref)
+        check(
+            f"apply_channel_records lands as _set_key per key: {_label}",
+            _a == _b,
+            _first_diff(_a, _b),
+        )
+        bpy.data.objects.remove(_bulk)
+        bpy.data.objects.remove(_ref)
+
+    # A parked take's action: two objects animated through one action, a
+    # slot each -- every key lands in its own object's slot.
+    _landed_interps.clear()
+    _pair = {}
+    for _kind in ("bulk", "ref"):
+        _act = bpy.data.actions.new(f"Shared|{_kind}")
+        for _name, _phase in (("D", 0.0), ("E", 2.0)):
+            _o = bpy.data.objects.new(f"{_name}_{_kind}", None)
+            bpy.context.collection.objects.link(_o)
+            _ad = _o.animation_data_create()
+            _ad.action = _act
+            _ad.action_slot = _act.slots.new("OBJECT", _name)
+            _recs = _records(25, labels=3, phase=_phase)
+            if _kind == "bulk":
+                RenderEffects.apply_channel_records(_o, _recs)
+            else:
+                _land_per_key(_o, _recs)
+            _pair.setdefault(_name, []).append(_o)
+    check(
+        "apply_channel_records lands in each object's own slot of a shared action",
+        all(_key_print(a) == _key_print(b) for a, b in _pair.values())
+        and len(_AU.get_fcurves([_pair["D"][0]])) == 3,
+        [_first_diff(_key_print(a), _key_print(b)) for a, b in _pair.values()],
+    )
+
+    # Two deliberate departures from a per-key insert: each key's interpolation
+    # lands on its own point only (``_set_key`` restyled every point on the same
+    # rounded frame), and an artist's FREE handles keep their authored shape
+    # (an insert between two keys subdivides the segment, cutting them).
+    _sub = bpy.data.objects.new("Subframe", None)
+    bpy.context.collection.objects.link(_sub)
+    _sub_keys = [[24, 0.0, "linear"], [24.5, 1.0, "step"], [25, 0.5, "smooth"]]
+    RenderEffects.apply_channel_records(_sub, {"user_0": {"keys": _sub_keys}})
+    _sub_interps = [
+        k.interpolation
+        for k in RenderEffects._fcurve(_sub, '["user_0"]').keyframe_points
+    ]
+    check(
+        "apply_channel_records: a subframe key leaves its whole-frame "
+        "neighbour's interpolation",
+        _sub_interps == ["LINEAR", "CONSTANT", "BEZIER"],
+        _sub_interps,
+    )
+    _free = bpy.data.objects.new("FreeHandles", None)
+    bpy.context.collection.objects.link(_free)
+    for _f, _v in ((0, 0.0), (10, 1.0), (20, 0.0)):
+        _free["user_0"] = _v
+        _free.keyframe_insert('["user_0"]', frame=_f)
+    _pts_free = RenderEffects._fcurve(_free, '["user_0"]').keyframe_points
+    _pts_free[1].handle_left_type = _pts_free[1].handle_right_type = "FREE"
+    _pts_free[1].handle_left = (8.0, 5.0)
+    _pts_free[1].handle_right = (12.0, -1.0)
+    RenderEffects.apply_channel_records(
+        _free, {"user_0": {"keys": [[5, 0.25, "linear"], [10, 3.0, "smooth"]]}}
+    )
+    _by_frame = {k.co[0]: k for k in _pts_free}
+    check(
+        "apply_channel_records: a replaced FREE key keeps its handles, "
+        "shifted with its value",
+        sorted(_by_frame) == [0.0, 5.0, 10.0, 20.0]
+        and tuple(_by_frame[10.0].co) == (10.0, 3.0)
+        and (_by_frame[10.0].handle_left_type, _by_frame[10.0].handle_right_type)
+        == ("FREE", "FREE")
+        and tuple(_by_frame[10.0].handle_left) == (8.0, 7.0)
+        and tuple(_by_frame[10.0].handle_right) == (12.0, 1.0)
+        and _by_frame[5.0].handle_left_type == "AUTO_CLAMPED",
+        [(tuple(k.co), tuple(k.handle_left), tuple(k.handle_right)) for k in _pts_free],
+    )
+
+    # The complexity guard: one curve lookup per label (two when it makes the
+    # curve), never a per-key insert with its curve scan.
+    _calls = {"_fcurve": 0, "_set_key": 0}
+    _orig = {name: RenderEffects.__dict__[name] for name in _calls}
+
+    def _counting(name):
+        inner = _orig[name].__func__
+
+        def spy(*args, **kwargs):
+            _calls[name] += 1
+            return inner(*args, **kwargs)
+
+        return staticmethod(spy)
+
+    try:
+        for _name in _calls:
+            setattr(RenderEffects, _name, _counting(_name))
+        _guard = bpy.data.objects.new("Guard", None)
+        bpy.context.collection.objects.link(_guard)
+        _recs = _records(200, labels=5)
+        RenderEffects.apply_channel_records(_guard, _recs)
+    finally:
+        for _name, _fn in _orig.items():
+            setattr(RenderEffects, _name, _fn)
+    check(
+        "apply_channel_records: no per-key insert, a curve lookup or two per label",
+        _calls["_set_key"] == 0 and _calls["_fcurve"] <= 2 * len(_recs),
+        _calls,
+    )
 
 except Exception as e:
     traceback.print_exc()

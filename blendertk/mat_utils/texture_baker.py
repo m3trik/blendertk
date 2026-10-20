@@ -22,9 +22,10 @@ The engine surface is Qt-free and defers ``import bpy`` (headless-importable).
 """
 
 import logging
+import math
 import os
 import contextlib
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pythontk as ptk
 
@@ -328,8 +329,9 @@ class TextureBaker(ptk.LoggingMixin):
         # node goes there; the object's own materials (resolved above, which is what
         # named the map) are untouched.
         if shader is not None:
-            if not shader.use_nodes:
-                shader.use_nodes = True
+            from blendertk.mat_utils._mat_utils import MatUtils
+
+            MatUtils.get_node_tree(shader, create=True)
             materials = [shader]
         # Add a selected+active image-texture node to every material so Cycles bakes into it.
         added = []
@@ -391,6 +393,200 @@ class TextureBaker(ptk.LoggingMixin):
                     if slots is not None and len(slots) == 1 and slots[0] is None:
                         slots.clear()
         return path
+
+    # ------------------------------------------------------------------
+    # The panorama -- the HDR a reflection probe is
+    # ------------------------------------------------------------------
+
+    #: The panorama camera's turn (Euler XYZ, radians). Cycles' equirectangular
+    #: camera centres its own -Z axis; turned so, the render is the probe
+    #: readers' layout with Blender's Z-up axes read as glTF's Y-up ones
+    #: ``(x, z, -y)``: +X at the centre, -Y (glTF +Z) a quarter right, +Y a
+    #: quarter left, +Z the top row (measured against coloured walls).
+    PANORAMA_TURN: Tuple[float, float, float] = (math.pi / 2.0, 0.0, -math.pi / 2.0)
+
+    def render_panorama(
+        self,
+        position: Sequence[float],
+        path: str,
+        width: int = 1024,
+        hide=None,
+        lights=None,
+    ) -> Optional[str]:
+        """Render an equirectangular HDR of the scene seen from *position* to *path*.
+
+        The camera render a reflection probe is (``LightmapBaker.bake_probe``;
+        mirror of mayatk's): Cycles' equirectangular camera at *position*
+        (world units), with this baker's samples, bounces, adaptive sampling,
+        denoise and device -- the bake's own configuration
+        (:meth:`_configure_bake_scene`), so the probe renders as the maps it
+        rides with -- and every light visible to camera rays, the world's
+        included: a reflection sees a light's own radiance, so a map that
+        stands in for reflections must. *hide* names meshes the camera sees
+        through while they still shade the room (objects that move: a probe is
+        the static room). The film exposure is pinned to 1 and the compositor
+        and sequencer are off; the view transform and its exposure never reach
+        an EXR. Nothing in the scene is left changed, the selection included.
+
+        The EXR (half float, the scene's linear working space -- the maps')
+        is laid out as three.js reads an equirect in glTF's Y-up axes -- ``u =
+        0.5 + atan2(z, x) / 2pi``, top row +Y -- with Blender's Z-up axes read
+        as glTF's ``(x, z, -y)`` (:attr:`PANORAMA_TURN`). Its alpha is 1: the
+        world fills what no geometry does.
+
+        Parameters:
+            position: The camera's world position, in scene units.
+            path: The EXR to write (replaced whole). One held open elsewhere
+                (a viewer, a sync client) costs the name, not the render: the
+                panorama takes an adjacent one (``<stem>_1.exr``).
+            width: The map's width in texels; its height is half.
+            hide: Mesh objects (or names) invisible to the camera.
+            lights: Light objects (or names) made visible to camera rays, each
+                by its own ``visible_camera``; ``None`` for every light in the
+                scene.
+
+        Returns:
+            The path the panorama landed at -- *path*, or an adjacent name when
+            *path* is held -- or ``None`` when Cycles wrote nothing (logged).
+        """
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        scene = bpy.context.scene
+        width = max(8, int(width) // 2 * 2)
+        height = width // 2
+
+        def resolve(items):
+            found = (
+                bpy.data.objects.get(i) if isinstance(i, str) else i for i in items
+            )
+            return [o for o in found if o is not None]
+
+        hidden = [o for o in resolve(hide or ()) if o.type == "MESH"]
+        if lights is None:
+            seen = [o for o in scene.objects if o.type == "LIGHT"]
+        else:
+            seen = [o for o in resolve(lights) if o.type == "LIGHT"]
+        with contextlib.ExitStack() as stack:
+
+            def pin(owner, **values: Any) -> None:
+                """Set *values* on *owner* for the render; put them back after,
+                in the order set (an image format before its depth). The
+                restore is armed before the first write: a value the build
+                refuses still hands back the ones set before it."""
+                if owner is None:
+                    return
+                prior: Dict[str, Any] = {}
+
+                def restore() -> None:
+                    for attr, value in prior.items():
+                        try:
+                            setattr(owner, attr, value)
+                        except Exception as e:  # never leave the scene silently changed
+                            self.logger.error(
+                                "Could not restore %s.%s: %s", owner, attr, e
+                            )
+
+                stack.callback(restore)
+                for attr, value in values.items():
+                    if not hasattr(owner, attr):
+                        continue
+                    prior[attr] = getattr(owner, attr)
+                    setattr(owner, attr, value)
+
+            # Every object made here is removed after, and the selection and
+            # the active object come back as found.
+            stack.enter_context(CoreUtils.window_context_override())
+            stack.enter_context(CoreUtils.preserved_selection())
+            tmp = stack.enter_context(
+                ptk.TempArtifacts("bake_panorama", policy="scoped")
+            )
+            staged = os.path.join(tmp.dir_path(), "panorama.exr")
+            data = bpy.data.cameras.new("bake_panorama")
+            stack.callback(bpy.data.cameras.remove, data)
+            data.type = "PANO"
+            if hasattr(data, "panorama_type"):
+                data.panorama_type = "EQUIRECTANGULAR"
+            else:  # Blender < 4.0 kept it on the Cycles settings
+                data.cycles.panorama_type = "EQUIRECTANGULAR"
+            data.clip_start = 0.001
+            camera = bpy.data.objects.new("bake_panorama", data)
+            stack.callback(bpy.data.objects.remove, camera, do_unlink=True)
+            scene.collection.objects.link(camera)
+            camera.location = tuple(float(c) for c in position)
+            camera.rotation_mode = "XYZ"
+            camera.rotation_euler = self.PANORAMA_TURN
+            prev = self._configure_bake_scene(use_pass_color=True)
+            stack.callback(self._restore_bake_scene, prev)
+            self._apply_device(width * height * self.samples)
+            pin(scene, camera=camera)
+            render = scene.render
+            pin(
+                render,
+                resolution_x=width,
+                resolution_y=height,
+                resolution_percentage=100,
+                pixel_aspect_x=1.0,
+                pixel_aspect_y=1.0,
+                use_border=False,
+                film_transparent=False,
+                use_compositing=False,
+                use_sequencer=False,
+                use_multiview=False,
+                use_motion_blur=False,
+                use_stamp=False,
+                use_file_extension=True,
+                filepath=staged,
+            )
+            # ``media_type`` leads: Blender 5.x offers only the file formats its
+            # media type allows, so a scene saved with Video or Multi-Layer EXR
+            # output refused OPEN_EXR (4.x has none; skipped).
+            pin(
+                render.image_settings,
+                media_type="IMAGE",
+                file_format="OPEN_EXR",
+                color_depth="16",
+                color_mode="RGBA",
+                exr_codec="ZIP",
+            )
+            for light in seen:
+                pin(light, visible_camera=True)
+            world = scene.world
+            if world is not None:
+                pin(getattr(world, "cycles_visibility", None), camera=True)
+            for mesh in hidden:
+                pin(mesh, visible_camera=False)
+            layer = CoreUtils._active_view_layer()
+            kwargs = {"layer": layer.name} if layer is not None else {}
+            bpy.ops.render.render(write_still=True, **kwargs)
+            if not os.path.isfile(staged):
+                self.logger.warning("Panorama not rendered: Cycles wrote no image.")
+                return None
+            return self._place_panorama(staged, path)
+
+    def _place_panorama(self, staged: str, path: str) -> str:
+        """Move the rendered *staged* panorama onto *path*; an adjacent name
+        (``<stem>_1.exr``, ...) when *path* is held open. The old file is never
+        deleted first (``ptk.FileUtils.move_file`` swaps in one rename), so a
+        failed move leaves it as it was."""
+        folder = os.path.dirname(os.path.abspath(path))
+        name = os.path.basename(path)
+        try:
+            ptk.FileUtils.move_file(staged, folder, new_name=name)
+            return path
+        except OSError:
+            stem, ext = os.path.splitext(name)
+            taken = {os.path.join(folder, n) for n in os.listdir(folder)}
+            beside = ptk.FileUtils.unique_path(folder, stem, ext, taken)
+            ptk.FileUtils.move_file(staged, folder, new_name=os.path.basename(beside))
+            self.logger.warning(
+                "%s is held by another process (open in a viewer, or a sync "
+                "client); wrote the panorama as %s instead.",
+                name,
+                os.path.basename(beside),
+            )
+            return beside
 
     def _configure_bake_scene(self, use_pass_color: bool) -> Dict[str, Any]:
         """Switch the scene to a deterministic Cycles bake config; return the prior state.
@@ -1018,8 +1214,7 @@ class TextureBaker(ptk.LoggingMixin):
             MatUtils.assign_mat(obj, temporary)
             materials = [temporary]
         for mat in materials:
-            if not mat.use_nodes:
-                mat.use_nodes = True
+            MatUtils.get_node_tree(mat, create=True)
         return materials, temporary
 
     def _resolve_stem(self, obj, stem) -> Optional[str]:
@@ -1064,14 +1259,14 @@ class TextureBaker(ptk.LoggingMixin):
         any failure.
         """
         try:
+            from blendertk.mat_utils._mat_utils import MatUtils
+
             images = []
             for slot in getattr(obj, "material_slots", []):
-                mat = slot.material
-                if not mat or not mat.use_nodes:
+                tree = MatUtils.get_node_tree(slot.material)
+                if tree is None:
                     continue
-                images.extend(
-                    getattr(node, "image", None) for node in mat.node_tree.nodes
-                )
+                images.extend(getattr(node, "image", None) for node in tree.nodes)
             return ptk.MapFactory.dominant_texture_set(
                 TextureBaker.image_sources(images)
             )

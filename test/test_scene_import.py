@@ -527,7 +527,7 @@ try:
     # is pinned below, and pinning the literal here would just restate it.
     check(
         "visibility replay shifts by the FBX importer's anim_offset (frame alignment)",
-        "frame + frame_offset"
+        "frame_offset=frame_offset"
         in _inspect.getsource(MayaSceneImport._apply_visibility_manifest)
         and 'get("anim_offset"' in import_src,
     )
@@ -2316,7 +2316,8 @@ try:
 
         check(
             "fbx_options forwarded over the shared FBX_IMPORT_OPTIONS",
-            calls["opts"] == dict(FBX_IMPORT_OPTIONS, use_anim=False),
+            {k: v for k, v in calls["opts"].items() if k != "channels"}
+            == dict(FBX_IMPORT_OPTIONS, use_anim=False),
             str(calls["opts"]),
         )
         check(
@@ -2689,9 +2690,39 @@ try:
             _json_pl.dump({"version": 1, "transforms": {"grp": "group"}}, fh)
         check(
             "import_payload: fbx_options merge over FBX_IMPORT_OPTIONS",
-            _pl_seen.get("opts") == _FBX_OPTS,
+            {k: v for k, v in (_pl_seen.get("opts") or {}).items() if k != "channels"}
+            == _FBX_OPTS,
             str(_pl_seen.get("opts")),
         )
+        # What the manifest replays from the source scene -- its visibility
+        # section, its shot section's channel keys (when the scene data lands)
+        # -- the FBX's own curves must not land as well; whatever it does not
+        # carry, they do (FbxUtils.import_fbx's ``channels``).
+        for _sections, _scene_data, _want in (
+            ({"transforms": {"grp": "group"}}, True, ("visibility", "properties")),
+            ({"visibility": {"grp": [[1, 0]]}}, True, ("properties",)),
+            ({"shots": _shots_section}, True, ("visibility",)),
+            ({"shots": _shots_section}, False, ("visibility", "properties")),
+        ):
+            with open(_pl_fbx + ".manifest.json", "w", encoding="utf-8") as fh:
+                _json_pl.dump({"version": 1, **_sections}, fh)
+            _pl_seen.clear()
+            try:  # stop right after the import: only its options are asked for
+                MayaSceneImport().import_payload(
+                    _pl_fbx,
+                    reduce_keys=False,
+                    scene_data=_scene_data,
+                    progress=lambda d, t, m: d == 0,
+                )
+            except ptk.OperationCancelled:
+                pass
+            _got = (_pl_seen.get("opts") or {}).get("channels")
+            check(
+                f"import_payload: the FBX lands {_want} of what its importer drops "
+                f"(manifest {sorted(_sections)}, scene_data={_scene_data})",
+                _got == _want,
+                str(_got),
+            )
         _pl_seen.clear()
         try:
             MayaSceneImport().import_payload(

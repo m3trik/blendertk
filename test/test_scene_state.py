@@ -36,10 +36,11 @@ def check(name, cond, detail=""):
 try:
     import bpy
     from blendertk.env_utils.scene_state import SceneState
+    from blendertk.mat_utils._mat_utils import MatUtils
 
     def fresh(name):
         mat = bpy.data.materials.new(name)
-        mat.use_nodes = True
+        MatUtils.get_node_tree(mat, create=True)
         return mat
 
     def principled(mat):
@@ -184,6 +185,166 @@ try:
         isinstance(built, dict)
         and built.get("ShadowPlaneLike", {}).get("mode") == "BLEND",
         str(built),
+    )
+
+    # --- unlit: Blender's own unlit model (mirror of mayatk's surfaceShader) --
+    # FBX2glTF makes every material lit PBR; a shadow plane reached WebXR lit
+    # and read BRIGHTER than its floor (Maya side, 2026-10-15).
+    check(
+        "unlit is a declared section",
+        SceneState.READERS.get("unlit") == "_read_unlit",
+    )
+
+    def unlit_of(mat):
+        return mat.name in SceneState._read_unlit([mat], {})
+
+    emits = fresh("EmissionOnly")
+    nt = emits.node_tree
+    emis = nt.nodes.new("ShaderNodeEmission")
+    out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
+    nt.links.new(out.inputs["Surface"], emis.outputs[0])
+    check("an Emission shader alone reads unlit", unlit_of(emits))
+    check(
+        "the shadow-plane shape (Emission mixed with Transparent) reads unlit",
+        unlit_of(bpy.data.materials["ShadowPlaneLike"]),
+    )
+    check("a Principled BSDF is lit", not unlit_of(fresh("LitPlain")))
+    check(
+        "a Transparent BSDF mixed with a Principled is lit",
+        not unlit_of(mixed),
+    )
+    glow = fresh("EmissionOverLit")
+    nt = glow.node_tree
+    add = nt.nodes.new("ShaderNodeAddShader")
+    emis = nt.nodes.new("ShaderNodeEmission")
+    out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
+    nt.links.new(add.inputs[0], emis.outputs[0])
+    nt.links.new(add.inputs[1], principled(glow).outputs[0])
+    nt.links.new(out.inputs["Surface"], add.outputs[0])
+    check("Emission added over a BSDF is lit", not unlit_of(glow))
+
+    # --- base colour alpha: the scalar part of a material's opacity ---------
+    # Mirror of mayatk's ``TestOpacityFactor``: glTF states it as
+    # ``baseColorFactor[3]`` and the FBX drops it. A shadow plane held at a
+    # static 0.836 fade reached WebXR at alpha 1.0 -- solid black where the
+    # viewport drew it half-transparent (Maya side, 2026-10-15).
+    def alpha_of(mat):
+        return (SceneState._read_base_color([mat], {}).get(mat.name) or {}).get("alpha")
+
+    def faded(nt, into, scalar=0.836):
+        """Texture alpha x a Value node through a Math MULTIPLY, into *into*."""
+        tex = nt.nodes.new("ShaderNodeTexImage")
+        fade = nt.nodes.new("ShaderNodeValue")
+        fade.outputs[0].default_value = scalar
+        mult = nt.nodes.new("ShaderNodeMath")
+        mult.operation = "MULTIPLY"
+        nt.links.new(mult.inputs[0], tex.outputs["Alpha"])
+        nt.links.new(mult.inputs[1], fade.outputs[0])
+        nt.links.new(into, mult.outputs[0])
+        return tex
+
+    fade_mat = fresh("FadeMat")
+    faded(fade_mat.node_tree, principled(fade_mat).inputs["Alpha"])
+    check(
+        "texture alpha x a fade carries the fade",
+        abs((alpha_of(fade_mat) or 0.0) - 0.836) < 1e-5,
+        str(alpha_of(fade_mat)),
+    )
+    swapped = fresh("FadeSwapped")
+    nt = swapped.node_tree
+    tex = nt.nodes.new("ShaderNodeTexImage")
+    mult = nt.nodes.new("ShaderNodeMath")
+    mult.operation = "MULTIPLY"
+    mult.inputs[0].default_value = 0.25
+    nt.links.new(mult.inputs[1], tex.outputs["Alpha"])
+    nt.links.new(principled(swapped).inputs["Alpha"], mult.outputs[0])
+    check(
+        "...the scalar on either input, a bare constant too",
+        abs((alpha_of(swapped) or 0.0) - 0.25) < 1e-5,
+        str(alpha_of(swapped)),
+    )
+    tint = fresh("Tint")
+    principled(tint).inputs["Alpha"].default_value = 0.5
+    check(
+        "a constant opacity carries itself",
+        abs((alpha_of(tint) or 0.0) - 0.5) < 1e-5,
+        str(alpha_of(tint)),
+    )
+    check(
+        "...beside the constant colour",
+        "color" in (SceneState._read_base_color([tint], {}).get("Tint") or {}),
+    )
+    bare = fresh("Bare")
+    nt = bare.node_tree
+    tex = nt.nodes.new("ShaderNodeTexImage")
+    nt.links.new(principled(bare).inputs["Alpha"], tex.outputs["Alpha"])
+    check("a texture alone states nothing", alpha_of(bare) is None)
+    check("an opaque material states nothing", alpha_of(fresh("Solid")) is None)
+
+    # The shadow rig's own shape: no Principled on the surface, the fade
+    # reaching the Mix Shader's factor against its Transparent BSDF.
+    rig_like = fresh("RigFade")
+    nt = rig_like.node_tree
+    mix = nt.nodes.new("ShaderNodeMixShader")
+    transp = nt.nodes.new("ShaderNodeBsdfTransparent")
+    emis = nt.nodes.new("ShaderNodeEmission")
+    out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
+    nt.links.new(mix.inputs[1], transp.outputs[0])
+    nt.links.new(mix.inputs[2], emis.outputs[0])
+    nt.links.new(out.inputs["Surface"], mix.outputs[0])
+    faded(nt, mix.inputs["Fac"], scalar=0.6)
+    principled(rig_like).inputs["Alpha"].default_value = 0.2  # unwired: not read
+    check(
+        "the shadow rig's fade reads through its Mix Shader factor",
+        abs((alpha_of(rig_like) or 0.0) - 0.6) < 1e-5,
+        str(alpha_of(rig_like)),
+    )
+
+    # A detached plane's shape: the active output mixes on the PNG's own
+    # alpha (its fade already baked in), and an inactive second output holds
+    # a Principled BSDF for the exporters. Neither states a factor.
+    detached = fresh("Detached")
+    nt = detached.node_tree
+    nt.nodes.clear()
+    tex = nt.nodes.new("ShaderNodeTexImage")
+    emis = nt.nodes.new("ShaderNodeEmission")
+    transp = nt.nodes.new("ShaderNodeBsdfTransparent")
+    mix = nt.nodes.new("ShaderNodeMixShader")
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    nt.links.new(tex.outputs["Color"], emis.inputs["Color"])
+    nt.links.new(tex.outputs["Alpha"], mix.inputs["Fac"])
+    nt.links.new(transp.outputs[0], mix.inputs[1])
+    nt.links.new(emis.outputs[0], mix.inputs[2])
+    nt.links.new(mix.outputs[0], out.inputs["Surface"])
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.inputs["Alpha"].default_value = 0.3
+    export = nt.nodes.new("ShaderNodeOutputMaterial")
+    nt.links.new(bsdf.outputs[0], export.inputs["Surface"])
+    out.is_active_output = True
+    export.is_active_output = False
+    try:
+        got = alpha_of(detached)
+    except Exception as exc:  # noqa: BLE001 -- the check IS that nothing raises
+        got = f"error: {exc}"
+    check(
+        "a detached plane states no factor (its inactive Principled unread)",
+        got is None,
+        str(got),
+    )
+
+    # --- emissive: a mapped emission switched off ships off ------------------
+    # The FBX hands the map on and FBX2glTF glows it at 1.0, so a Strength-0
+    # material omitted from the section reached WebXR lit (Maya's twin, measured
+    # on a production room's ceiling panels, 2026-10-17).
+    dark = fresh("emissive_off")
+    principled(dark).inputs["Emission Strength"].default_value = 0.0
+    entry = SceneState._read_emissive(
+        [dark], {dark.name: {"emission": "C:/maps/panel_Emissive.png"}}
+    ).get(dark.name)
+    check(
+        "a mapped emission at strength 0 ships off (factor 0, its map named)",
+        entry == {"texture": "C:/maps/panel_Emissive.png", "color": [0.0, 0.0, 0.0]},
+        str(entry),
     )
 
 except Exception:

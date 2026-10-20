@@ -128,6 +128,11 @@ class ShadowRigSlots(ptk.LoggingMixin):
                     "source (world units; a directional light: degrees). It "
                     "lives on the source, so every rig it lights, Unity and "
                     "the viewer share one penumbra; 0 is sharp.",
+                    "<b>Intensity</b> (overall darkness, 0-1) and <b>Ground "
+                    "Y</b> (the floor's height -- Blender's Z -- when it is not "
+                    "at 0) build into a new rig, and apply at once to the "
+                    "rig(s) the selection touches -- a baked or unlinked "
+                    "plane too.",
                     "A committed <b>Horizon</b> rig shows its live preview at "
                     "once, so its outline morphs as the light moves; the "
                     "<b>Live Horizon Preview</b> box mirrors what stands.",
@@ -176,13 +181,14 @@ class ShadowRigSlots(ptk.LoggingMixin):
                         "Plane properties",
                         [
                             "<b>shadowIntensity</b> / <b>falloffPower</b> — overall "
-                            "strength and how fast an elongated shadow lightens.",
+                            "strength (the panel's Intensity) and how fast an "
+                            "elongated shadow lightens.",
                             "<b>maxStretch</b> — cap on the shadow's reach, in "
                             "object heights.",
                             "<b>fadeHeight</b> — rise off the ground at which the "
                             "shadow has fully faded.",
                             "<b>groundHeight</b> — world Z of the ground the "
-                            "shadow lies on.",
+                            "shadow lies on (the panel's Ground Y).",
                         ],
                     ),
                 ],
@@ -402,7 +408,8 @@ class ShadowRigSlots(ptk.LoggingMixin):
                 title="Delete Rig",
                 body="Tears down the rig(s) the selection touches — plane, "
                 "group, drivers, material and contact empty. The targets "
-                "and the source are kept.",
+                "and the source are kept. Its option box holds <b>Detach to "
+                "Plane</b>: keep the plane, drop the rig.",
             )
         )
 
@@ -519,6 +526,30 @@ class ShadowRigSlots(ptk.LoggingMixin):
                         body="Un-bakes the rig(s) the selection touches: drops the "
                         "baked keys and rebuilds the live drivers from the rig's "
                         "stamped source and targets.",
+                    ),
+                ),
+            ],
+        )
+
+    def b009_init(self, widget):
+        """Delete Rig's option box: Detach to Plane, the teardown that keeps
+        the plane."""
+        self._add_option_actions(
+            widget,
+            "Delete",
+            [
+                (
+                    "btn_detach",
+                    "Detach to Plane",
+                    self.detach_to_plane,
+                    self.sb.tooltip.fmt(
+                        title="Detach to Plane",
+                        body="Turns the rig(s) the selection touches into plain "
+                        "textured planes where they stand: one unlit material "
+                        "and one PNG (the current fade baked into its alpha). "
+                        "The drivers, contact empty and every rig property go, "
+                        "so nothing extra exports -- for a shadow that no "
+                        "longer moves. Exports unlit to WebXR.",
                     ),
                 ),
             ],
@@ -774,12 +805,9 @@ class ShadowRigSlots(ptk.LoggingMixin):
 
     @staticmethod
     def _undo_push(message):
-        import bpy
+        from blendertk.core_utils._core_utils import CoreUtils
 
-        try:
-            bpy.ops.ed.undo_push(message=message)
-        except RuntimeError:
-            pass  # headless / no undo stack
+        CoreUtils.undo_push(message)  # supplies the window a Qt slot runs without
 
     def chk_follow_init(self, widget):
         """Follow Source arms the engine's watcher from the box's (saved)
@@ -859,6 +887,32 @@ class ShadowRigSlots(ptk.LoggingMixin):
                 f"<b>{name}</b>: {value:.3g} {units} ({origin}).",
             )
         )
+
+    def s002(self, value):
+        """Intensity: the overall darkness a new rig builds with, applied at
+        once to the rig(s) the selection touches (:meth:`ShadowRig.set_intensity`
+        -- a baked or unlinked plane's own fade is rescaled; one undo step).
+        Under Preview it rebuilds the previewed rig instead."""
+        self._retune_selected(ShadowRig.set_intensity, value)
+
+    def s003(self, value):
+        """Ground Y: the floor's world height (Blender's Z) a new rig builds
+        on, applied at once to the rig(s) the selection touches
+        (:meth:`ShadowRig.set_ground_height`; one undo step)."""
+        self._retune_selected(ShadowRig.set_ground_height, value)
+
+    def _retune_selected(self, setter, value):
+        """Hand *value* to *setter* for the selection's planes; with nothing
+        selected (or no rig in it) the box is only the next build's value."""
+        import blendertk as btk
+
+        if self.preview.is_enabled:
+            self.preview.refresh()
+            return
+        sel = [o for o in (btk.selected_objects() or []) if o is not None]
+        planes = ShadowRig.planes_for_nodes(sel) if sel else []
+        if planes:
+            setter(planes, value)
 
     def chk_horizon_preview_init(self, widget):
         """The box mirrors the FILE, never a saved setting: checked while a
@@ -1135,6 +1189,24 @@ class ShadowRigSlots(ptk.LoggingMixin):
         self._sync_preview_box()
         self.sb.message_box(f"Deleted {len(deleted)} shadow rig(s).")
 
+    def detach_to_plane(self):
+        """Detach to Plane (Delete Rig's option box): the rig(s) the selection
+        touches become plain textured planes (:meth:`ShadowRig.detach_planes`,
+        one undo step of its own)."""
+        planes = self._selected_planes("detach")
+        if not planes:
+            return
+        names = [p.name for p in planes]
+        done = ShadowRig.detach_planes(planes)
+        self._sync_preview_box()
+        self.sb.message_box(
+            self._summary(
+                "Detached to plane",
+                list(done),
+                [f"{n}: no silhouette on disk" for n in names if n not in done],
+            )
+        )
+
     def b010(self):
         """Pack Atlas: pack or repack every shadow rig's tiles into the file's
         atlases (one per kind)."""
@@ -1171,8 +1243,16 @@ class ShadowRigSlots(ptk.LoggingMixin):
         for group in groups:
             rigs.extend(
                 builder(
-                    group, names, texture_res=self._resolution(), recursive=recursive
+                    group,
+                    names,
+                    texture_res=self._resolution(),
+                    recursive=recursive,
+                    ground_height=self.ui.s003.value(),
                 )
+            )
+        if self.ui.s002.value() < 1.0:
+            ShadowRig.set_intensity(
+                [rig.shadow_plane for rig in rigs], self.ui.s002.value()
             )
         self._built_sources = names
         # Packing is deferred to the commit hook (see _pack_after_commit).

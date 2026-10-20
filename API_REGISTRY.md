@@ -74,6 +74,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`core_utils/diagnostics/uv_diag.py`](#core_utils--diagnostics--uv_diag) — UV diagnostics -- the Blender counterpart of mayatk's
 - [`core_utils/preview.py`](#core_utils--preview) — Live-preview driver for the tentacle Blender tool panels — the Blender analogue of
 - [`core_utils/script_job_manager.py`](#core_utils--script_job_manager) — Centralized Blender event-subscription manager — the Blender counterpart of mayatk's
+- [`core_utils/units.py`](#core_utils--units) — Blender's lengths and angles, converted by the kind of value that holds them.
 - [`display_utils/_display_utils.py`](#display_utils--_display_utils) — Display utilities — the exploded-view toggle (mirror of mayatk's
 - [`display_utils/color_id.py`](#display_utils--color_id) — Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui``.
 - [`display_utils/exploded_view.py`](#display_utils--exploded_view) — Exploded View — Switchboard slot wiring for the co-located ``exploded_view.ui``.
@@ -133,6 +134,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`env_utils/workspace_editor.py`](#env_utils--workspace_editor) — blendertk Workspace Editor — the minimal take on Maya's File ▸ Project Window: one
 - [`light_utils/_light_utils.py`](#light_utils--_light_utils) — Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 - [`light_utils/hdr_manager.py`](#light_utils--hdr_manager) — Blender world-HDRI environment manager.
+- [`light_utils/lightmap_baker/_probe_placement.py`](#light_utils--lightmap_baker--_probe_placement) — Where a lightmap bake's reflection probe stands -- Blender's scene for the placement.
 - [`light_utils/lightmap_baker/lightmap_baker.py`](#light_utils--lightmap_baker--lightmap_baker) — High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 - [`light_utils/lightmap_baker/lightmap_baker_slots.py`](#light_utils--lightmap_baker--lightmap_baker_slots) — The Lightmap Baker panel: Switchboard slots for ``lightmap_baker.ui`` (Blender).
 - [`light_utils/lightmap_baker/lightmap_records.py`](#light_utils--lightmap_baker--lightmap_records) — The scene record a lightmap bake leaves in Blender: markers, manifest, and the files they name.
@@ -192,6 +194,10 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`nurbs_utils/curve_to_tube.py`](#nurbs_utils--curve_to_tube) — Curve to Tube tool — Blender port of mayatk's ``nurbs_utils.curve_to_tube``.
 - [`nurbs_utils/image_tracer.py`](#nurbs_utils--image_tracer) — Image Tracer tool — Blender port of mayatk's ``nurbs_utils.image_tracer``.
 - [`rig_utils/_rig_utils.py`](#rig_utils--_rig_utils) — Shared procedural-rig primitives — Blender port of mayatk's ``rig_utils.RigUtils``.
+- [`rig_utils/articulated_rig/_articulated_rig.py`](#rig_utils--articulated_rig--_articulated_rig) — Articulated Rig engine (Blender) -- rigid parts on hinge, swivel, ball and slide joints.
+- [`rig_utils/articulated_rig/_solver_handler.py`](#rig_utils--articulated_rig--_solver_handler) — The end control's live solve (Blender) -- the twin of mayatk's ``_solver_expression.py``.
+- [`rig_utils/articulated_rig/articulated_rig_slots.py`](#rig_utils--articulated_rig--articulated_rig_slots) — Articulated Rig panel (Blender) -- the Switchboard slots for ``articulated_rig.ui``.
+- [`rig_utils/articulated_rig/grab_tool.py`](#rig_utils--articulated_rig--grab_tool) — The viewport grab for articulated rigs (Blender): press on a rigged part, drag, let
 - [`rig_utils/controls.py`](#rig_utils--controls) — Rig control-shape factory — Blender port of mayatk's ``rig_utils.controls.Controls``.
 - [`rig_utils/rig_graph_build.py`](#rig_utils--rig_graph_build) — Build a RigGraph in Blender -- phase 3 of the rig-transfer stack.
 - [`rig_utils/rig_graph_extract.py`](#rig_utils--rig_graph_extract) — Read a Blender rig into a RigGraph -- the Blender side of phase 2.
@@ -222,6 +228,8 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`uv_utils/rizom_bridge/parameters.py`](#uv_utils--rizom_bridge--parameters) — Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 - [`uv_utils/rizom_bridge/rizom_bridge_slots.py`](#uv_utils--rizom_bridge--rizom_bridge_slots) — Slots for the RizomUV bridge panel.
 - [`uv_utils/shell_xform.py`](#uv_utils--shell_xform) — Dedicated UV shell-transform panel (Blender).
+- [`uv_utils/texture_combine/texture_combine.py`](#uv_utils--texture_combine--texture_combine) — Several materials into ONE: one atlas, one material, in place -- no duplicated meshes.
+- [`uv_utils/texture_combine/texture_combine_slots.py`](#uv_utils--texture_combine--texture_combine_slots) — The Texture Combine panel: Switchboard slots for ``texture_combine.ui``.
 - [`uv_utils/texture_transfer.py`](#uv_utils--texture_transfer) — Transfer a mesh's textures from one UV layout to another -- no rays, no bake.
 - [`xform_utils/_xform_utils.py`](#xform_utils--_xform_utils) — Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,
 - [`xform_utils/matrices.py`](#xform_utils--matrices) — Matrix utilities — the Blender counterpart of mayatk's ``xform_utils.matrices``
@@ -238,7 +246,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 
 Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 
-- **[`class AnimUtils(_AnimUtilsInternal)`](blendertk/blendertk/anim_utils/_anim_utils.py#L967)** — Namespace mirror (helpers also exposed module-level).
+- **[`class AnimUtils(_AnimUtilsInternal)`](blendertk/blendertk/anim_utils/_anim_utils.py#L1091)** — Namespace mirror (helpers also exposed module-level).
   - `AnimUtils.normalize_optimize_level(cls, level)` *(class)* — The canonical :attr:`OPTIMIZE_LEVELS` key *level* names, or None for OFF.
   - `AnimUtils.resolve_optimize_level(cls, level)` *(class)* — Resolve an optimization level into :meth:`optimize_keys` kwargs.
   - `AnimUtils.key_arrays(fc)` *(static)* — ``(times, values)`` of *fc*'s keyframe points as plain float lists (time order).
@@ -269,6 +277,7 @@ Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror 
   - `AnimUtils.set_interpolation(objects, interpolation='CONSTANT', handle=None)` *(static)* — Set fcurve key ``interpolation`` (``CONSTANT`` / ``LINEAR`` / ``BEZIER`` / ``SINE`` …) on
   - `AnimUtils.set_stepped(objects, stepped=True)` *(static)* — Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.
   - `AnimUtils.step_visibility_keys(objects)` *(static)* — Force CONSTANT interpolation on the ``hide_viewport`` / ``hide_render``
+  - `AnimUtils.replay_visibility(obj, keys, frame_offset=0.0)` *(static)* — Key a carried visibility curve onto *obj* as its ``hide_viewport`` +
   - `AnimUtils.delete_keys(objects, time=None, on_delete=None)` *(static)* — Remove animation from the given objects — mirror of ``mtk.delete_keys``.
   - `AnimUtils.fit_playback_range(objects=None)` *(static)* — Set the scene frame range to the keyed extent of ``objects`` (or every scene object).
   - `AnimUtils.copy_keys(source, mode='action')` *(static)* — Return a copy-buffer for :func:`paste_keys` — mirror of ``mtk.AnimUtils.copy_keys`` (same
@@ -937,6 +946,10 @@ Switchboard slots for the Shots settings UI.
   - `ShotsController.scope_count(cls, shots, scope: str) -> str` *(class)* — *shots* counted the way the questions say it: "all 4 shot(s)",
   - `ShotsController.delete_scope(self) -> str` — The scope Delete Shots takes (``"stale"`` until one is picked).
   - `ShotsController.label_delete_shots(self) -> None` — Name the picked scope on Delete Shots: "Delete Empty Shots".
+  - `ShotsController.swap_mode(self) -> str` — Swap With's mode: ``"swap"`` (until one is picked) or ``"copy"``.
+  - `ShotsController.swap_target(self)` — The other shot's id -- swapped with, or copied over -- or ``None``.
+  - `ShotsController.swap_retain(self) -> list` — The fields Swap With leaves in place: its checked Retain options.
+  - `ShotsController.label_swap_shot(self, *_args) -> None` — Name the mode and the picked shot on Swap With: "Swap With: Shot_3",
   - `ShotsController.label_shift_all(self, *_args) -> None` — Name the frame on Shift To: "Shift To: 1".
   - `ShotsController.label_apply_gap(self, *_args) -> None` — Name the amount on Apply Gap: "Apply Gap: 12".
   - `ShotsController.on_delete_shot(self) -> None` — Delete the active shot after confirmation.
@@ -946,11 +959,12 @@ Switchboard slots for the Shots settings UI.
   - `ShotsController.on_delete_stale_shots(self) -> None` **DEPRECATED (remove in 0.16.0)**
   - `ShotsController.on_delete_all_shots(self) -> None` **DEPRECATED (remove in 0.16.0)**
   - `ShotsController.on_move_shot(self) -> None` — Move the active shot to the position specified by spn_move_to.
+  - `ShotsController.on_swap_shot(self) -> None` — Swap With, in the mode its option box picks: trade the active
   - `ShotsController.on_trim_empty(self, edge: str = 'both') -> None` — Trim empty space from the active shot, at *edge*.
   - `ShotsController.on_trim_all_shots(self, edge: str = 'both') -> None` — Trim empty space from every shot, at *edge*.
   - `ShotsController.on_shift_all_shots(self, start: float) -> None` — Shift every shot so the first one starts on *start*.
   - `ShotsController.on_add_space(self, edge: str = 'leading') -> None` — Pad the active shot with ``spn_space`` frames of room at *edge*.
-- **[`class ShotsSlots(pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shots_slots.py#L1422)** — Switchboard slot class — routes UI events to the controller.
+- **[`class ShotsSlots(pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shots_slots.py#L1592)** — Switchboard slot class — routes UI events to the controller.
   - `ShotsSlots.header_init(self, widget)` — Configure header help text.
   - `ShotsSlots.spn_detection(self, value)` — Detection threshold changed.
   - `ShotsSlots.cmb_detection_mode(self, index)` — Detection mode combobox changed.
@@ -966,6 +980,9 @@ Switchboard slots for the Shots settings UI.
   - `ShotsSlots.btn_delete_shots(self)` — Delete the shots of the scope picked in the option box (All Shots).
   - `ShotsSlots.cmb_delete_scope(self, index)` — A scope was picked: the button says what a click now deletes.
   - `ShotsSlots.btn_move_shot(self)` — Move shot to the position in spn_move_to.
+  - `ShotsSlots.btn_swap_shot(self)` — Swap with, or copy over, the shot picked in the option box.
+  - `ShotsSlots.cmb_swap_with(self, index)` — A shot was picked: the button names what a click swaps with.
+  - `ShotsSlots.cmb_swap_mode(self, index)` — A mode was picked: the button says what a click now does.
   - `ShotsSlots.btn_apply_gap(self)` — Apply gap value with the scope selected in the option box.
   - `ShotsSlots.btn_shift_all(self)` — Re-base every shot onto the frame in the option box (spn_shift_all).
   - `ShotsSlots.btn_trim_empty(self)` — Trim both ends of the selected shot.
@@ -1050,9 +1067,9 @@ Dedicated stagger-keys module to keep AnimUtils lean and testable (mirror of may
 
 Scene-wide audio-clip utilities over Blender's Video Sequence Editor (VSE).
 
-- [`DEFAULT_CHANNEL`](blendertk/blendertk/audio_utils/_audio_utils.py#L59) — constant
-- [`MAX_CHANNEL_SEARCH`](blendertk/blendertk/audio_utils/_audio_utils.py#L62) — constant
-- **[`class AudioUtils(pythontk.LoggingMixin)`](blendertk/blendertk/audio_utils/_audio_utils.py#L73)** — Scene-wide audio-clip CRUD over Blender's Video Sequence Editor.
+- [`DEFAULT_CHANNEL`](blendertk/blendertk/audio_utils/_audio_utils.py#L61) — constant
+- [`MAX_CHANNEL_SEARCH`](blendertk/blendertk/audio_utils/_audio_utils.py#L64) — constant
+- **[`class AudioUtils(pythontk.LoggingMixin)`](blendertk/blendertk/audio_utils/_audio_utils.py#L75)** — Scene-wide audio-clip CRUD over Blender's Video Sequence Editor.
   - `AudioUtils.ensure_sequence_editor(scene=None)` *(static)* — Return *scene*'s sequence editor, creating it if this is the first strip.
   - `AudioUtils.get_sequence_editor(scene=None)` *(static)* — Return *scene*'s sequence editor, or ``None`` when it doesn't exist yet.
   - `AudioUtils.list_clips(cls, scene=None) -> List[Dict]` *(class)* — Return every sound strip in *scene* as a plain dict, sorted by visible start frame.
@@ -1071,6 +1088,9 @@ Scene-wide audio-clip utilities over Blender's Video Sequence Editor (VSE).
   - `AudioUtils.cached_waveform(cls, path: str) -> List[Tuple[float, float]]` *(class)* — Waveform envelope for *path*, computed once per path (mirror of mayatk).
   - `AudioUtils.clear_waveform_cache() -> None` *(static)* — Drop all cached waveform envelopes.
   - `AudioUtils.sync_scene_range(cls, scene=None, extend_only: bool = True) -> Tuple[int, int]` *(class)* — Fit *scene*'s frame range to the loaded clips.
+  - `AudioUtils.bake_events(cls, scene=None) -> List[Tuple[int, str]]` *(class)* — ``[(frame, track id), ...]`` for every strip that plays, by frame.
+  - `AudioUtils.track_files(cls, track_ids: List[str], scene=None) -> List[Tuple[str, str]]` *(class)* — ``(file name, path)`` of each track in *track_ids* whose file exists.
+  - `AudioUtils.export_record(cls, ctx: 'ptk.ExportContext') -> Optional['ptk.Record']` *(class)* — The ``audio_manifest`` record for this scene, or ``None`` when there
 
 <a id="audio_utils--audio_clips"></a>
 ### `audio_utils/audio_clips.py`
@@ -1137,13 +1157,14 @@ Per-camera visibility sets — rolled infrastructure for Maya's camera-sets isol
 
 Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 
-- **[`class CoreUtils(pythontk.CoreUtils, _CoreUtilsInternal)`](blendertk/blendertk/core_utils/_core_utils.py#L427)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
+- **[`class CoreUtils(pythontk.CoreUtils, _CoreUtilsInternal)`](blendertk/blendertk/core_utils/_core_utils.py#L462)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
   - `CoreUtils.strip_dup_suffix(name: str) -> str` *(static)* — Strip Blender's ``.NNN`` name-collision suffix (``Cube.001`` -> ``Cube``).
   - `CoreUtils.all_ids(library=None) -> list` *(static)* — Every datablock in the file, across every ID collection -- or only
   - `CoreUtils.undo_chunk(name: str = '')` *(static)* — Collapse every change made inside the block into ONE Blender undo step.
+  - `CoreUtils.undo_push(message: str = '') -> bool` *(static)* — Push ONE Blender undo step from whatever context the caller runs in.
   - `CoreUtils.visible_override(objects)` *(static)* — Yield with *objects* temporarily visible, selectable and renderable.
   - `CoreUtils.undoable(fn)` *(static)* — Wrap ``fn`` so its changes collapse into a single Blender undo step.
-  - `CoreUtils.undo_checkpoint(fn)` *(static)* — Like :func:`undoable`, but pushes the restore point BEFORE ``fn`` runs (not after).
+  - `CoreUtils.undo_checkpoint(fn)` *(static)* — Like :func:`undoable` -- ``fn`` is ONE undo step -- for a body that builds **drivers**.
   - `CoreUtils.get_env_info(key=None)` *(static)* — Return Blender scene / environment info (mirror of ``mtk.get_env_info``).
   - `CoreUtils.ensure_packages(packages, add_to_path=True)` *(static)* — Make arbitrary pip packages importable in Blender's Python.
   - `CoreUtils.ensure_image_deps(packages=None, add_to_path=True)` *(static)* — Make image-processing libraries importable in Blender's Python (default: Pillow → ``PIL``).
@@ -1294,6 +1315,18 @@ Centralized Blender event-subscription manager — the Blender counterpart of ma
   - `ScriptJobManager.print_status(self) -> None` — Pretty-print :meth:`status` for interactive debugging.
   - `ScriptJobManager.teardown(self) -> None` — Remove every installed master handler and drop all subscriptions.
 
+<a id="core_utils--units"></a>
+### `core_utils/units.py`
+
+Blender's lengths and angles, converted by the kind of value that holds them.
+
+- **[`class Units(pythontk.HelpMixin)`](blendertk/blendertk/core_utils/units.py#L29)** — Lengths and angles between Blender's units and the ones a deliverable
+  - `Units.working_as(linear: Optional[str] = None, angle: Optional[str] = None) -> '_WorkingAs'` *(static)* — The scene's display units set to *linear* and *angle* for a block or
+  - `Units.working(cls, kind: str = 'linear') -> str` *(class)* — The display unit now: ``"m"``, ``"cm"``, ``"in"`` ...
+  - `Units.metres_per(cls, unit: str = 'internal') -> float` *(class)* — Metres in one *unit* (``"internal"``, ``"working"`` or a unit name).
+  - `Units.convert(cls, value: Any, source: str = 'internal', target: str = 'm') -> Any` *(class)* — A length (or lengths) from *source* units to *target* units.
+  - `Units.angle(cls, value: Any, source: str = 'working', target: str = 'deg') -> Any` *(class)* — An angle (or angles) from *source* units to *target* units.
+
 <a id="display_utils--_display_utils"></a>
 ### `display_utils/_display_utils.py`
 
@@ -1334,7 +1367,7 @@ Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui
   - `ColorId.get_objects_by_color(cls, target_color: Color, threshold: float = 0.1, check_material: bool = False, check_object: bool = False, check_vertex: bool = False, check_outliner: bool = False, check_set: bool = False) -> List` *(class)* — View-layer mesh objects whose color (on any enabled channel) is within ``threshold``.
   - `ColorId.reset_colors(cls, objects: Sequence, reset_material: bool = True, reset_object: bool = True, reset_vertex: bool = True, reset_outliner: bool = True, reset_sets: bool = True) -> None` *(class)* — Clear color assignments on ``objects`` for the chosen channels.
   - `ColorId.reset_vertex_colors(obj) -> None` *(static)* — Remove every color attribute from a mesh object.
-- **[`class ColorIdSlots(pythontk.LoggingMixin)`](blendertk/blendertk/display_utils/color_id.py#L528)** — Switchboard slot wiring for the Color ID panel (swatch palette + channels + presets).
+- **[`class ColorIdSlots(pythontk.LoggingMixin)`](blendertk/blendertk/display_utils/color_id.py#L532)** — Switchboard slot wiring for the Color ID panel (swatch palette + channels + presets).
   - `ColorIdSlots.header_init(self, widget)` — Configure header help text and preset combobox.
   - `ColorIdSlots.selected_objects(self) -> List` *(property)* — Return the currently selected objects, or an empty list if none are selected.
   - `ColorIdSlots.selected_button(self)` *(property)* — Return the currently checked swatch button in the palette group.
@@ -1720,7 +1753,7 @@ Target Weld — interactive drag-a-vertex-onto-another merge tool.
 - [`PICK_RADIUS`](blendertk/blendertk/edit_utils/target_weld.py#L58) — constant
 - [`MARKER_SIZE`](blendertk/blendertk/edit_utils/target_weld.py#L59) — constant
 - [`HALO_SIZE`](blendertk/blendertk/edit_utils/target_weld.py#L60) — constant
-- **[`class TargetWeld(_TargetWeldInternal)`](blendertk/blendertk/edit_utils/target_weld.py#L526)** — Namespace class (mirror of the co-located-tool convention;
+- **[`class TargetWeld(_TargetWeldInternal)`](blendertk/blendertk/edit_utils/target_weld.py#L527)** — Namespace class (mirror of the co-located-tool convention;
   - `TargetWeld.activate(merge_to_center: bool = False) -> bool` *(static)* — Public entry point — start the interactive Target Weld tool (see :meth:`target_weld`).
   - `TargetWeld.project_points(mvp: np.ndarray, coords: np.ndarray, width: float, height: float) -> Tuple[np.ndarray, np.ndarray]` *(static)* — Project ``coords`` (N,3) through the 4x4 ``mvp`` into pixel space.
   - `TargetWeld.pick_screen_point(mouse_xy: Sequence[float], points_xy: np.ndarray, depths: np.ndarray, radius: float = PICK_RADIUS, exclude: Optional[int] = None) -> Optional[int]` *(static)* — Index of the best pick candidate within ``radius`` px of ``mouse_xy``, or ``None``.
@@ -1796,7 +1829,7 @@ Launch a FRESH headless Blender to run a script / code string and capture its ou
 
 FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.fbx_utils``
 
-- **[`class FbxUtils(_FbxUtilsInternal)`](blendertk/blendertk/env_utils/fbx_utils.py#L1589)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
+- **[`class FbxUtils(_FbxUtilsInternal)`](blendertk/blendertk/env_utils/fbx_utils.py#L1977)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
   - `FbxUtils.producers(cls, only: Optional[Iterable[Any]] = None) -> Dict[Any, Callable]` *(class)* — :attr:`PRODUCERS` resolved to callables, unimportable ones skipped;
   - `FbxUtils.export_context(cls, mode: str = ptk.ExportContext.PIPELINE, **decisions) -> ptk.ExportContext` *(class)* — A context for this file: provenance filled in, *decisions*
   - `FbxUtils.publish(cls, ctx: Optional[ptk.ExportContext] = None, only: Optional[Iterable[Any]] = None) -> ptk.ExportSnapshot` *(class)* — Assemble every producer's record and commit the carrier ONCE
@@ -1818,10 +1851,11 @@ FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.
   - `FbxUtils.stage_curve_proxy(name: str, parent, fcurve, *markers: str)` *(static)* — Stage one transient Empty whose ``scale.x`` carries *fcurve*, for an FBX write.
   - `FbxUtils.apply_takes_from_node(node=None, attr=None) -> int` *(static)* — Arm the takes the scene declares for the next write.
   - `FbxUtils.export(filepath=None, objects=None, selection_only=True, strict=False, **fbx_opts)` *(static)* — Export to an FBX file — the consolidated counterpart of mayatk's ``FbxUtils.export``.
-  - `FbxUtils.import_fbx(filepath, stash=True, logger=None, **fbx_opts)` *(static)* — Import an FBX file -- ALL of its animation (over ``bpy.ops.import_scene.fbx``).
+  - `FbxUtils.import_fbx(filepath, stash=True, logger=None, channels=IMPORT_CHANNELS, **fbx_opts)` *(static)* — Import an FBX file -- ALL of its animation (over ``bpy.ops.import_scene.fbx``).
   - `FbxUtils.scene_settings(filepath)` *(static)* — The time setup an FBX file itself carries, as a (partial) ``scene`` record
   - `FbxUtils.export_selection_fbx(filepath=None, objects=None, strict=False, **fbx_opts)` *(static)* — Export the selection (or ``objects``) to an FBX file for an external-app hand-off.
-  - `FbxUtils.embed_dependencies(file_path: str, search_dirs: Optional[Iterable[str]] = None, logger: Optional[logging.Logger] = None) -> Optional[Dict[str, Any]]` *(static)* — Embed every file a written FBX's scene records name, in place.
+  - `FbxUtils.embed_dependencies(file_path: str, search_dirs: Optional[Iterable[str]] = None, logger: Optional[logging.Logger] = None, walk_root: Optional[str] = None, files: Optional[Iterable[Any]] = None) -> Optional[Dict[str, Any]]` *(static)* — Embed every file a written FBX's scene records name, in place.
+  - `FbxUtils.finish_deliverable(file_path: str, glb: Optional[str] = None, search_dirs: Optional[Iterable[str]] = None, logger: Optional[logging.Logger] = None, walk_root: Optional[str] = None, files: Optional[Iterable[Any]] = None) -> Optional[Dict[str, Any]]` *(static)* — The passes a written FBX deliverable takes, in place.
 
 <a id="env_utils--handoff_export"></a>
 ### `env_utils/handoff_export.py`
@@ -1830,6 +1864,7 @@ Blender-side selection + export hooks shared by the hand-off bridge engines.
 
 - **[`class BlenderExportMixin`](blendertk/blendertk/env_utils/handoff_export.py#L25)** — The Blender producer hooks for hand-off bridges (``_resolve_objects`` + ``_produce``).
   - `BlenderExportMixin.lightmap_search_dirs(self) -> List[str]` — Where Blender's map files live now (:class:`pythontk.PreviewBridge` hook).
+  - `BlenderExportMixin.hdr_codec(self) -> Any` — What a GLB built here encodes its float images with (:class:`pythontk.PreviewBridge` hook).
   - `BlenderExportMixin.scope_closure(cls, objects, params: Optional[Dict[str, Any]] = None) -> List[Any]` *(class)* — What a send of *objects* under *params*' Scope ships: their hierarchy closure.
 
 <a id="env_utils--hierarchy_sync--_fbx_stage_worker"></a>
@@ -1888,7 +1923,7 @@ Slots for the Hierarchy Sync panel -- Blender port of mayatk's ``env_utils.hiera
   - `HierarchySyncController.log_diff_results(self)` — Log detailed hierarchy difference analysis results using rich formatting.
   - `HierarchySyncController.get_recent_reference_scenes(self) -> List[str]` — Get recent reference scenes from settings.
   - `HierarchySyncController.save_recent_reference_scene(self, scene_path: str)` — Save reference scene to recent list.
-- **[`class HierarchySyncSlots(pythontk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/hierarchy_sync_slots.py#L936)** — Slots class for hierarchy management UI operations.
+- **[`class HierarchySyncSlots(pythontk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/hierarchy_sync_slots.py#L930)** — Slots class for hierarchy management UI operations.
   - `HierarchySyncSlots.header_init(self, widget)` — Initialize the header widget.
   - `HierarchySyncSlots.tree000_init(self, widget)` — Initialize the reference/linked hierarchy tree widget.
   - `HierarchySyncSlots.tree001_init(self, widget)` — Initialize the current scene hierarchy tree widget.
@@ -2191,7 +2226,7 @@ Reference Manager tool panel — Switchboard slot wiring for the co-located ``re
 Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 
 - **[`class SceneExporter(pythontk.SceneExporterBase)`](blendertk/blendertk/env_utils/scene_exporter/_scene_exporter.py#L126)** — Blender's Scene Exporter: the export write, its scope and its FBX
-  - `SceneExporter.perform_export(self, export_dir: str, objects: Optional[Union[List, Callable]] = None, preset_name: Optional[str] = None, output_name: Optional[str] = None, export_visible: bool = True, create_log_file: bool = False, timestamp: bool = False, name_regex: Optional[str] = None, log_level: Optional[str] = None, hide_log_file: Optional[bool] = None, log_handler: Optional[object] = None, tasks: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None, progress_callback: Optional[Callable[[int, int, Optional[str]], Any]] = None) -> bool` — Perform the export operation, including initialization and task management.
+  - `SceneExporter.perform_export(self, export_dir: str, objects: Optional[Union[List, Callable]] = None, preset_name: Optional[str] = None, output_name: Optional[str] = None, export_visible: bool = True, create_log_file: bool = False, timestamp: bool = False, name_regex: Optional[str] = None, log_level: Optional[str] = None, log_handler: Optional[object] = None, tasks: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None, progress_callback: Optional[Callable[[int, int, Optional[str]], Any]] = None) -> bool` — Perform the export operation, including initialization and task management.
   - `SceneExporter.name_context(self, name_regex: Optional[str] = None) -> Dict[str, str]` — Live value for every token in :attr:`NAME_TOKENS` but the counter.
   - `SceneExporter.resolve_export_path(self, pattern: Optional[str] = None, export_dir: Optional[str] = None, output_format: str = 'fbx', name_regex: Optional[str] = None, report: bool = True, version_format: str = '', timestamp: bool = False) -> Dict[str, Any]` — Resolve the Output Filename field into the file(s) an export writes.
   - `SceneExporter.generate_export_path(self, version_format: str = '', extension: str = '.fbx', output_format: Optional[str] = None) -> str` — The full export path, from the fields :meth:`perform_export` stamps.
@@ -2213,7 +2248,7 @@ Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSl
   - `SceneExporterSlots.confirm(self, question: str) -> bool` — The engine's consent seam as the panel's modal Yes/No.
   - `SceneExporterSlots.decide_check_failure(self, check: str, messages: List[str], remaining: List[str]) -> str` — The engine's check-failure seam as the panel's three-button dialog.
   - `SceneExporterSlots.workspace(self)` *(property)*
-  - `SceneExporterSlots.header_init(self, widget)` — Initialize the header widget (log options;
+  - `SceneExporterSlots.header_init(self, widget)` — Initialize the header widget (its help;
   - `SceneExporterSlots.presets(self) -> Dict[str, Optional[str]]` *(property)* — FBX export-option presets available for ``cmb000``, keyed by name (``"None"``
   - `SceneExporterSlots.cmb000_init(self, widget) -> None` — Init FBX export-option preset combo (mirror of mayatk's ``cmb000_init`` -- see
   - `SceneExporterSlots.txt000_init(self, widget) -> None` — Init Output Directory
@@ -2416,7 +2451,7 @@ blendertk Workspace Editor — the minimal take on Maya's File ▸ Project Windo
 
 Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 
-- **[`class LightUtils(_LightUtilsInternal)`](blendertk/blendertk/light_utils/_light_utils.py#L131)** — Namespace mirror of mayatk's ``light_utils`` (helpers also exposed module-level).
+- **[`class LightUtils(_LightUtilsInternal)`](blendertk/blendertk/light_utils/_light_utils.py#L122)** — Namespace mirror of mayatk's ``light_utils`` (helpers also exposed module-level).
   - `LightUtils.set_world_hdri(filepath=None, strength=None, rotation=0.0, visible=True, intensity=None, exposure=None)` *(static)* — Set (or update) the world environment from an HDR image.
   - `LightUtils.get_world_hdri()` *(static)* — The current world-HDRI state as a dict (``filepath``/``strength``/``intensity``/
   - `LightUtils.set_world_ray_visibility(diffuse=None, glossy=None)` *(static)* — Toggle whether the world environment contributes to **diffuse** / **glossy** lighting — the
@@ -2455,15 +2490,22 @@ Blender world-HDRI environment manager.
   - `HdrManagerSlots.clear_network(self) -> None` — Delete the world HDRI network and reset the UI to defaults.
   - `HdrManagerSlots.ctx_reveal_in_explorer(self) -> None` — Reveal the environment's HDR texture file in the OS file manager.
 
+<a id="light_utils--lightmap_baker--_probe_placement"></a>
+### `light_utils/lightmap_baker/_probe_placement.py`
+
+Where a lightmap bake's reflection probe stands -- Blender's scene for the placement.
+
+- **[`class ProbePlacement(pythontk.ProbePlacement)`](blendertk/blendertk/light_utils/lightmap_baker/_probe_placement.py#L68)** — Place a lightmap bake's reflection probe in the Blender scene
+
 <a id="light_utils--lightmap_baker--lightmap_baker"></a>
 ### `light_utils/lightmap_baker/lightmap_baker.py`
 
 High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 
-- **[`class LightmapBakeResult`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L66)** — What one :meth:`LightmapBaker.bake` did -- the same shape in mayatk and blendertk.
+- **[`class LightmapBakeResult`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L69)** — What one :meth:`LightmapBaker.bake` did -- the same shape in mayatk and blendertk.
   - `LightmapBakeResult.files(self) -> List[str]` *(property)* — The distinct map files, sorted: an atlas 40 objects share counts once.
   - `LightmapBakeResult.folders(self) -> List[str]` *(property)* — The distinct folders the maps landed in, compared the way the disk does.
-- **[`class LightmapBaker(pythontk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L122)** — Orchestrate the Blender lightmap workflow: UV2 -> Cycles bake -> engine export prep.
+- **[`class LightmapBaker(pythontk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L218)** — Orchestrate the Blender lightmap workflow: UV2 -> Cycles bake -> engine export prep.
   - `LightmapBaker.resolution(self) -> int` *(property)*
   - `LightmapBaker.samples(self) -> int` *(property)*
   - `LightmapBaker.denoise(self) -> bool` *(property)*
@@ -2474,13 +2516,16 @@ High-level lightmap baking workflow for Blender -> game engines (Unity-first).
   - `LightmapBaker.from_preset(cls, name: str, **overrides) -> 'LightmapBaker'` *(class)* — Construct a baker from a named preset.
   - `LightmapBaker.bake_targets(cls, objects=None) -> List[str]` *(class)* — The names of the meshes a bake of *objects* acts on (default: the selection).
   - `LightmapBaker.bake(self, objects=None, packing: str = 'atlas', output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap', on_progress: Optional[Callable[[int, int, str], bool]] = None, intensity: float = 1.0, **kwargs) -> LightmapBakeResult` — Bake *objects*' lightmaps and record them: the whole workflow, as the panel runs it.
-  - `LightmapBaker.preflight(self) -> Optional[str]` — Why this file cannot bake now, or ``None`` (mirror of mayatk's).
+  - `LightmapBaker.stale_report(self, objects=None, reach: Optional[float] = None)` — What a re-bake of the changed objects would redo, and why -- the dry run.
+  - `LightmapBaker.rebake_changed(self, packing: Optional[str] = None, reach: Optional[float] = None, lighting: bool = True, **bake_kwargs) -> LightmapBakeResult` — Re-bake what changed since the last bake, and what that change shades.
+  - `LightmapBaker.bake_probe(self, maps: Optional[Dict[str, str]] = None) -> Optional[str]` — Capture the room the file's bake lit as a reflection probe, and record it.
+  - `LightmapBaker.preflight(self, objects=None) -> Optional[str]` — Why this file cannot bake *objects* now, or ``None`` (mirror of mayatk's).
   - `LightmapBaker.bake_verdict(self, paths) -> Optional[str]` — A warning about a finished bake's level, or ``None`` when it is plausible.
   - `LightmapBaker.bake_separated(self, objects=None, prefix: str = 'lightmap_irr_', **kwargs) -> Dict[str, str]` — Bake a **lighting-only** irradiance lightmap per object -- THE bake.
   - `LightmapBaker.bake_atlas(self, objects=None, output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap', claims: Optional[Dict[str, Any]] = None, **kwargs) -> Dict[str, Tuple[str, List[float]]]` — Bake a material-atlased lighting-only lightmap set — plan first, then bake to plan.
   - `LightmapBaker.atlas_plan(self, objects) -> Dict[str, List[Tuple[str, List[float]]]]` — ``{material: [(object_name, rect), ...]}`` — the atlas layout, decided before baking.
   - `LightmapBaker.plan_sizes(self, plan: Dict[str, List[Tuple[str, List[float]]]]) -> Dict[str, Tuple[int, int]]` — ``{object_name: (width, height)}`` — the pixel footprint each object occupies.
-  - `LightmapBaker.pack_atlas(self, mapping: Dict[str, str], output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap', plan: Optional[Dict[str, List[Tuple[str, List[float]]]]] = None, claims: Optional[Dict[str, Any]] = None) -> Dict[str, Tuple[str, List[float]]]` — Consolidate ``{object_name: per_object_exr}`` into one atlas EXR per primary material.
+  - `LightmapBaker.pack_atlas(self, mapping: Dict[str, str], output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap', plan: Optional[Dict[str, List[Tuple[str, List[float]]]]] = None, claims: Optional[Dict[str, Any]] = None, regions: Optional[Dict[str, Tuple[float, float, float, float]]] = None) -> Dict[str, Tuple[str, List[float]]]` — Consolidate ``{object_name: per_object_exr}`` into one atlas EXR per primary material.
   - `LightmapBaker.commit_lightmap(self, mapping: Dict[str, str], intensity: float = 1.0, scale_offsets: Optional[Dict[str, List[float]]] = None, uv_rects: Optional[Dict[str, List[float]]] = None) -> Dict[str, str]` — Record maps baked elsewhere: :meth:`LightmapRecords.commit`.
   - `LightmapBaker.revert(self, objects=None) -> List[str]` — Take the lightmaps off *objects*, or off every baked object for ``None``.
   - `LightmapBaker.revert_lightmap(self, objects=None) -> List[str]` — :meth:`revert`, under its original name.
@@ -2501,16 +2546,21 @@ High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 
 The Lightmap Baker panel: Switchboard slots for ``lightmap_baker.ui`` (Blender).
 
-- **[`class LightmapBakerSlots(pythontk.LoggingMixin, pythontk.HelpMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker_slots.py#L24)** — Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
+- **[`class LightmapBakerSlots(pythontk.LoggingMixin, pythontk.HelpMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker_slots.py#L28)** — Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
   - `LightmapBakerSlots.header_init(self, widget) -> None` — Configure the header chrome (menu / collapse / hide), menu, help text.
   - `LightmapBakerSlots.cmb000_init(self, widget) -> None` — Wire the Preset combo: uitk's preset template over the shared store.
   - `LightmapBakerSlots.btn_reset_defaults_init(self, widget) -> None` — Wire Reset to Defaults to uitk's shared reset grammar.
-  - `LightmapBakerSlots.cmb002_init(self, widget) -> None` — Populate the Packing combobox;
+  - `LightmapBakerSlots.cmb002_init(self, widget) -> None` — Populate the Packing combobox (Atlas by Material is the default) and
   - `LightmapBakerSlots.cmb_scope_init(self, widget) -> None` — Populate the Scope combobox (Selected is the default) and hang the
-  - `LightmapBakerSlots.set_exclusions_init(self, widget) -> None` — Hang Select / Clear off the Exclude row, and make its hover live.
+  - `LightmapBakerSlots.cmb_scope(self, index) -> None` — Choosing Changed says what a bake would redo, in the footer.
+  - `LightmapBakerSlots.set_exclusions_init(self, widget) -> None` — Hang Select / Clear off the Exclude row (:meth:`_init_set_row`).
   - `LightmapBakerSlots.set_exclusions(self) -> None` — Make the selection the Exclude set;
-  - `LightmapBakerSlots.select_exclusions(self) -> None` — Select the Exclude set's members.
+  - `LightmapBakerSlots.select_exclusions(self) -> None` — Select the Exclude set's members (:meth:`_select_set_row`).
   - `LightmapBakerSlots.clear_exclusions(self) -> None` — Remove the Exclude set;
+  - `LightmapBakerSlots.set_isolation_init(self, widget) -> None` — Hang Select / Clear off the Isolate row (:meth:`_init_set_row`).
+  - `LightmapBakerSlots.set_isolation(self) -> None` — Make the selection the Isolate set;
+  - `LightmapBakerSlots.select_isolation(self) -> None` — Select the Isolate set's members (:meth:`_select_set_row`).
+  - `LightmapBakerSlots.clear_isolation(self) -> None` — Remove the Isolate set;
   - `LightmapBakerSlots.select_bake_set_init(self, widget) -> None` — Hang Save After Bake, the naming switch and Clear off the Bake Set row.
   - `LightmapBakerSlots.select_bake_set(self) -> None` — Select the Bake Set's members (as :meth:`select_exclusions` selects).
   - `LightmapBakerSlots.clear_bake_set(self) -> None` — Remove the file's Bake Set;
@@ -2521,6 +2571,7 @@ The Lightmap Baker panel: Switchboard slots for ``lightmap_baker.ui`` (Blender).
   - `LightmapBakerSlots.txt000_init(self, widget) -> None` — Add the Prefix / Suffix / Auto picker to the name-affix field.
   - `LightmapBakerSlots.b000(self) -> None` — Bake lightmaps for the Scope, minus the Exclude set (:meth:`LightmapBaker.bake`).
   - `LightmapBakerSlots.revert_to_source(self) -> None` — Take the lightmaps off the selected objects (or every baked one), once confirmed.
+  - `LightmapBakerSlots.list_changed_objects(self) -> None` — Select what a Changed bake would re-bake, and list each with why.
   - `LightmapBakerSlots.open_output(self) -> None` — Open the bake's output folder in the file manager.
 
 <a id="light_utils--lightmap_baker--lightmap_records"></a>
@@ -2528,11 +2579,15 @@ The Lightmap Baker panel: Switchboard slots for ``lightmap_baker.ui`` (Blender).
 
 The scene record a lightmap bake leaves in Blender: markers, manifest, and the files they name.
 
-- **[`class LightmapRecords(pythontk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_records.py#L50)** — Blender's lightmap markers and manifest, and the files they name.
+- **[`class LightmapRecords(pythontk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_records.py#L61)** — Blender's lightmap markers and manifest, and the files they name.
   - `LightmapRecords.baked_objects(cls, objects=None) -> List[str]` *(class)* — The objects :meth:`revert` would take the lightmap from (names).
   - `LightmapRecords.lightmap_info(cls, obj) -> Dict[str, Any]` *(class)* — *obj*'s committed lightmap -- its marker plus where the map is NOW.
-  - `LightmapRecords.commit(cls, mapping: Dict[str, str], scale_offsets: Optional[Dict[str, List[float]]] = None, intensity: float = 1.0, written: bool = True) -> Dict[str, str]` *(class)* — Record a lighting-only bake (changes nothing about the material/UVs).
+  - `LightmapRecords.commit(cls, mapping: Dict[str, str], scale_offsets: Optional[Dict[str, List[float]]] = None, intensity: float = 1.0, written: bool = True, cells: Optional[Dict[str, Dict[str, Any]]] = None, lighting: Optional[Dict[str, Any]] = None) -> Dict[str, str]` *(class)* — Record a lighting-only bake (changes nothing about the material/UVs).
+  - `LightmapRecords.bake_state(cls) -> Dict[str, Any]` *(class)* — This file's bake baseline, decoded (``ptk.BakeBaseline.decode``).
+  - `LightmapRecords.scene_state(cls, objects=None) -> Dict[str, Any]` *(class)* — The file as a bake sees it, for ``ptk.BakeBaseline``: every static
   - `LightmapRecords.revert(cls, objects=None) -> List[str]` *(class)* — Undo :meth:`commit` -- restore any legacy UV remap, drop the markers, republish.
+  - `LightmapRecords.probe(cls) -> Optional[Dict[str, Any]]` *(class)* — This file's reflection probe, or ``None`` (mirror of mayatk's).
+  - `LightmapRecords.commit_probe(cls, path: str, position: Sequence[float], box: Optional[Sequence[Sequence[float]]] = None) -> Dict[str, Any]` *(class)* — Record the reflection probe the bake wrote to *path*, and republish.
   - `LightmapRecords.project_root() -> Optional[str]` *(static)* — The project this file's lightmaps belong to;
   - `LightmapRecords.superseding(cls, objects) -> Iterator[List[str]]` *(class)* — Around a re-bake's :meth:`commit`: set aside the maps *objects* stop reading.
   - `LightmapRecords.migrate_legacy(cls, objects=None) -> List[str]` *(class)* — Bring markers older than the rect-binding contract up to date, losslessly.
@@ -2544,7 +2599,7 @@ The scene record a lightmap bake leaves in Blender: markers, manifest, and the f
   - `LightmapRecords.search_dirs(cls, objects=None) -> List[str]` *(class)* — Where this scene's lightmaps can be found NOW, for a consumer that joins.
   - `LightmapRecords.heal_lightmap_paths(cls, objects=None) -> Dict[str, Any]` *(class)* — Rewrite stale marker hints to where the maps actually are;
   - `LightmapRecords.normalize_lightmap_paths(cls, objects=None, relative: bool = True) -> int` *(class)* — Rewrite every in-scope marker's folder to its portable (or absolute) spelling.
-  - `LightmapRecords.relocate_lightmaps(cls, dest_dir: str, source_dir: str = '', mode: str = 'copy', objects=None, dry_run: bool = False) -> Dict[str, Any]` *(class)* — Gather the scene's lightmaps into *dest_dir* and repoint the markers.
+  - `LightmapRecords.relocate_lightmaps(cls, dest_dir: str, source_dir: str = '', mode: str = 'copy', objects=None, dry_run: bool = False, maps: Optional[Iterable[str]] = None) -> Dict[str, Any]` *(class)* — Gather the scene's lightmaps into *dest_dir* and repoint the markers.
   - `LightmapRecords.repath_lightmaps(cls, dirs_by_map: Dict[str, str], objects=None, relative: bool = True) -> int` *(class)* — Point every in-scope marker naming a map in *dirs_by_map* at its new folder.
   - `LightmapRecords.rename_lightmap(cls, old_name: str, new_name: str) -> int` *(class)* — Re-stamp every record naming map *old_name* with *new_name*.
   - `LightmapRecords.transfer_lightmaps(cls, targets, source, *, output_dir: Optional[str] = None, output_name: Optional[str] = None, size: Optional[int] = None, supersample: int = 2, padding: int = -1) -> Dict[str, Dict[str, str]]` *(class)* — Carry each source mesh's committed lightmap onto its paired target.
@@ -2554,12 +2609,15 @@ The scene record a lightmap bake leaves in Blender: markers, manifest, and the f
 
 Ship a committed lightmap bake in a web (GLB) deliverable.
 
-- **[`class LightmapWebExport(pythontk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/web_export.py#L56)** — Ship a scene's committed lightmaps in a natively-exported GLB.
+- **[`class LightmapWebExport(pythontk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/web_export.py#L61)** — Ship a scene's committed lightmaps in a natively-exported GLB.
   - `LightmapWebExport.encode_for_web(cls, mapping: Dict[str, str], output_dir: Optional[str] = None, percentile: Optional[float] = None, suffix: str = '') -> Dict[str, Tuple[str, float]]` *(class)* — Encode linear HDR lightmap EXRs as sRGB PNGs the browser can load.
+  - `LightmapWebExport.encode_hdr_for_web(cls, path: str, percentile: Optional[float] = None) -> Tuple[bytes, float]` *(class)* — A linear HDR image as sRGB PNG bytes for the web, and its scalar.
   - `LightmapWebExport.wire_lightmaps(self, encoded: Dict[str, Tuple[str, float]], carrier: str = 'occlusion', uv_set: Optional[str] = None, rects: Optional[Dict[str, List[float]]] = None) -> Dict[str, Any]` — Wire each lightmap into a real glTF texture slot on the lightmap UV.
   - `LightmapWebExport.unwire_lightmaps(token: Dict[str, Any]) -> List[str]` *(static)* — Undo :meth:`wire_lightmaps`: restore the slots, drop the clones, unwire the rest.
   - `LightmapWebExport.build_manifest(self, encoded: Dict[str, Tuple[str, float]], carrier: str, lighting: Optional[Dict[str, Any]] = None) -> Dict[str, Any]` — The ``lightmap_web`` manifest the viewer reads to rebind the carrier slot.
   - `LightmapWebExport.export_glb(self, path: str, objects=None, manifest: Optional[Dict[str, Any]] = None, texture_max_size: Optional[int] = 2048, image_format: str = 'WEBP', image_quality: int = 85) -> str` — Export a GLB through Blender's native glTF exporter.
+  - `LightmapWebExport.embed_probe(self, glb_path: str) -> Optional[Dict[str, Any]]` — Embed the file's reflection probe in a natively exported GLB;
+  - `LightmapWebExport.encode_hdr_radiance(path: str) -> bytes` *(static)* — An HDR image file (EXR/HDR) as Radiance ``.hdr`` bytes, by Blender's own writer.
   - `LightmapWebExport.wired_for_export(self, objects=None, carrier: str = 'occlusion', percentile: Optional[float] = None, glb_path: Optional[str] = None) -> Iterator[Optional[Dict[str, Any]]]` — The scene's COMMITTED lightmaps, wired for a native glTF export.
 
 <a id="mat_utils--_mat_utils"></a>
@@ -2567,10 +2625,11 @@ Ship a committed lightmap bake in a web (GLB) deliverable.
 
 Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
 
-- [`SHADER_TEMPLATES`](blendertk/blendertk/mat_utils/_mat_utils.py#L1239) — constant
-- **[`class MatUpdater(pythontk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1351)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
+- [`SHADER_TEMPLATES`](blendertk/blendertk/mat_utils/_mat_utils.py#L1258) — constant
+- **[`class MatUpdater(pythontk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1370)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
   - `MatUpdater.update_materials(cls, materials=None, config=None, verbose=False, progress_callback=None)` *(class)* — Reprocess the textures of ``materials`` and repath their image nodes to the results.
-- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1626)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
+- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1645)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
+  - `MatUtils.get_node_tree(idblock, create: bool = False)` *(static)* — The node tree *idblock* renders through, or ``None``.
   - `MatUtils.get_mats(objects)` *(static)* — Unique materials assigned to the given object(s), in slot order.
   - `MatUtils.create_mat(mat_type='standard', name='')` *(static)* — Create a new material (mirror of ``mtk.MatUtils.create_mat``).
   - `MatUtils.assign_mat(objects, material)` *(static)* — Assign ``material`` to the given object(s) — whole-object assignment (all slots).
@@ -2630,7 +2689,8 @@ Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_b
   - `ArnoldBridge.temporary(self, materials) -> Iterator[List[str]]` — Bridge nothing for the block: there is no Arnold graph to add (see
   - `ArnoldBridge.get_bridge(self, material) -> Optional[str]`
   - `ArnoldBridge.has_bridge(self, material) -> bool`
-- **[`class ArnoldBridgeSlots(pythontk.LoggingMixin, pythontk.HelpMixin)`](blendertk/blendertk/mat_utils/arnold_bridge.py#L98)** — Switchboard slots for the ``arnold_bridge.ui`` panel -- every control disabled.
+  - `ArnoldBridge.authored_plug(plug: str) -> str` *(static)* — *plug* itself: no bridge follows a material here (see the module docstring).
+- **[`class ArnoldBridgeSlots(pythontk.LoggingMixin, pythontk.HelpMixin)`](blendertk/blendertk/mat_utils/arnold_bridge.py#L103)** — Switchboard slots for the ``arnold_bridge.ui`` panel -- every control disabled.
   - `ArnoldBridgeSlots.header_init(self, widget) -> None` — Configure the help text (no menu actions -- the panel is inert).
   - `ArnoldBridgeSlots.cmb000_init(self, widget) -> None` — Populate with mayatk's scope labels for visual parity (the combo itself stays
 
@@ -2639,7 +2699,7 @@ Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_b
 
 Scene-stored bake sets: named object sets the bake tools read (Blender).
 
-- **[`class BakeSet`](blendertk/blendertk/mat_utils/bake_sets.py#L47)** — A file's named object set, stored as a stamped, render-neutral Collection.
+- **[`class BakeSet`](blendertk/blendertk/mat_utils/bake_sets.py#L49)** — A file's named object set, stored as a stamped, render-neutral Collection.
   - `BakeSet.conventional_name(cls) -> str` *(class)* — :attr:`SET_NAME` spelled by the naming convention (``lightmapBaker_baked_SET``).
   - `BakeSet.name(cls) -> Optional[str]` *(class)* — The name of this file's set collection, or ``None``.
   - `BakeSet.respell(cls, conventional: bool) -> Optional[str]` *(class)* — Rename the set's collection plain or by the convention;
@@ -2649,10 +2709,13 @@ Scene-stored bake sets: named object sets the bake tools read (Blender).
   - `BakeSet.meshes(cls) -> List[Any]` *(class)* — The mesh objects the set covers -- a member counts its descendants.
   - `BakeSet.define(cls, objects: Optional[List[Any]] = None, conventional: bool = False) -> List[Any]` *(class)* — Replace the set's contents with *objects* (default: the selection).
   - `BakeSet.clear(cls) -> None` *(class)* — Remove the set's collection (one undo step);
-- **[`class BakeSourceSet(BakeSet)`](blendertk/blendertk/mat_utils/bake_sets.py#L276)** — The file's bake source, shared by the Substance and Marmoset bridges.
+- **[`class BakeSourceSet(BakeSet)`](blendertk/blendertk/mat_utils/bake_sets.py#L278)** — The file's bake source, shared by the Substance and Marmoset bridges.
   - `BakeSourceSet.companion_path(cls, export_path: str) -> str` *(class)* — ``.../asset.fbx`` -> ``.../asset_source.fbx``.
-- **[`class LightmapExcludeSet(BakeSet)`](blendertk/blendertk/mat_utils/bake_sets.py#L316)** — Objects every lightmap bake of the file gives no map of their own.
-- **[`class LightmapBakeSet(BakeSet)`](blendertk/blendertk/mat_utils/bake_sets.py#L335)** — The objects the last lightmap bake acted on.
+- **[`class LightmapExcludeSet(BakeSet)`](blendertk/blendertk/mat_utils/bake_sets.py#L318)** — Objects every lightmap bake of the file gives no map of their own.
+- **[`class LightmapIsolateSet(BakeSet)`](blendertk/blendertk/mat_utils/bake_sets.py#L337)** — Objects that bake in a pass of their own, out of every other bake's render.
+  - `LightmapIsolateSet.groups(cls) -> List[List[Any]]` *(class)* — The set's meshes by member: what lies under each one moves together.
+  - `LightmapIsolateSet.meshes(cls) -> List[Any]` *(class)* — Every mesh :meth:`groups` holds: each member with all it carries.
+- **[`class LightmapBakeSet(BakeSet)`](blendertk/blendertk/mat_utils/bake_sets.py#L396)** — The objects the last lightmap bake acted on.
 
 <a id="mat_utils--emissive_groups"></a>
 ### `mat_utils/emissive_groups.py`
@@ -2762,10 +2825,10 @@ Blender-side glue for the Marmoset Toolbag engine -- mirror of mayatk's
 
 Drive Marmoset Toolbag from the outside -- launch + templated automation.
 
-- [`APP`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L44) — constant
-- [`SEND_TO`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L63) — constant
-- [`ROUND_TRIP`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L64) — constant
-- **[`class MarmosetEngine(pythontk.Deliverer, pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L75)** — Export-agnostic Marmoset Toolbag automation -- a hand-off :class:`pythontk.Deliverer`.
+- [`APP`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L45) — constant
+- [`SEND_TO`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L64) — constant
+- [`ROUND_TRIP`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L65) — constant
+- **[`class MarmosetEngine(pythontk.Deliverer, pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L76)** — Export-agnostic Marmoset Toolbag automation -- a hand-off :class:`pythontk.Deliverer`.
   - `MarmosetEngine.toolbag_path(self) -> Optional[str]` *(property)* — Resolve the Toolbag executable path.
   - `MarmosetEngine.toolbag_log_path(self) -> Optional[str]` *(property)* — Resolve Toolbag's application log file (script prints + tracebacks).
   - `MarmosetEngine.preflight(self, bridge, request) -> bool` — Validate the (template, mode) before the bridge produces its payload.
@@ -2781,9 +2844,9 @@ Drive Marmoset Toolbag from the outside -- launch + templated automation.
 
 Shared helpers for Marmoset Toolbag template scripts.
 
-- [`SLOT_MAP`](blendertk/blendertk/mat_utils/marmoset_bridge/_toolbag_helpers.py#L645) — constant
-- [`MODULE_NEUTRAL_FIELDS`](blendertk/blendertk/mat_utils/marmoset_bridge/_toolbag_helpers.py#L668) — constant
-- [`SUBROUTINE_FIXES`](blendertk/blendertk/mat_utils/marmoset_bridge/_toolbag_helpers.py#L681) — constant
+- [`SLOT_MAP`](blendertk/blendertk/mat_utils/marmoset_bridge/_toolbag_helpers.py#L656) — constant
+- [`MODULE_NEUTRAL_FIELDS`](blendertk/blendertk/mat_utils/marmoset_bridge/_toolbag_helpers.py#L679) — constant
+- [`SUBROUTINE_FIXES`](blendertk/blendertk/mat_utils/marmoset_bridge/_toolbag_helpers.py#L692) — constant
 - **[`class ToolbagHelpers(_ToolbagHelpersInternal)`](blendertk/blendertk/mat_utils/marmoset_bridge/_toolbag_helpers.py#L200)** — ToolbagHelpers — module namespace.
   - `ToolbagHelpers.derive_per_run_log_path(manifest_path)` *(static)* — Return the ``<base>.toolbag.log`` path next to *manifest_path*.
   - `ToolbagHelpers.begin_log(reference_path)` *(static)* — Start a fresh log file alongside *reference_path*.
@@ -2801,7 +2864,7 @@ Shared helpers for Marmoset Toolbag template scripts.
 
 Slots for the Marmoset Toolbag bridge panel -- mirror of mayatk's
 
-- **[`class MarmosetBridgeSlots(BlenderBridgeSlotsBase)`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_bridge_slots.py#L31)** — Slots wired to ``marmoset_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
+- **[`class MarmosetBridgeSlots(BlenderBridgeSlotsBase)`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_bridge_slots.py#L33)** — Slots wired to ``marmoset_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
   - `MarmosetBridgeSlots.params_module(self)` *(property)*
   - `MarmosetBridgeSlots.template_dir(self) -> Path` *(property)*
   - `MarmosetBridgeSlots.make_bridge(self) -> MarmosetBridge`
@@ -2869,7 +2932,8 @@ The in-application half of the RPC pair: registry + marshaller + server.
   - `RpcPlugin.is_running(self)` — True while the HTTP server is bound.
   - `RpcPlugin.address(self)` *(property)* — The bound ``(host, port)``, or ``None`` when not running.
   - `RpcPlugin.start(self, port=None, host=None)` — Bind and serve on a daemon thread.
-  - `RpcPlugin.stop(self)` — Shut the server down (host teardown hook, tests, hot-reload).
+  - `RpcPlugin.serve(self, port=None, host=None)` — Bind and serve on the CALLING thread until :meth:`stop`;
+  - `RpcPlugin.stop(self)` — Shut the server down (host teardown hook, tests, hot-reload, an op).
   - `RpcPlugin.autostart(self)` — Start on plugin load, but only when actually hosted.
   - `RpcPlugin.autostart_safely(self)` — :meth:`autostart`, but a failure is logged instead of raised.
 
@@ -2894,8 +2958,8 @@ Toolbag-specific system ops.
 Registry of user-tunable Marmoset Toolbag parameters exposed to the bridge UI.
 
 - [`PARAMS`](blendertk/blendertk/mat_utils/marmoset_bridge/parameters.py#L24) — constant
-- [`SUPERSESSIONS`](blendertk/blendertk/mat_utils/marmoset_bridge/parameters.py#L383) — constant
-- **[`class Parameters(ParamRegistry)`](blendertk/blendertk/mat_utils/marmoset_bridge/parameters.py#L402)** — Parameters — module namespace.
+- [`SUPERSESSIONS`](blendertk/blendertk/mat_utils/marmoset_bridge/parameters.py#L399) — constant
+- **[`class Parameters(ParamRegistry)`](blendertk/blendertk/mat_utils/marmoset_bridge/parameters.py#L418)** — Parameters — module namespace.
 
 <a id="mat_utils--marmoset_bridge--template_params"></a>
 ### `mat_utils/marmoset_bridge/template_params.py`
@@ -2903,7 +2967,7 @@ Registry of user-tunable Marmoset Toolbag parameters exposed to the bridge UI.
 Plain default values + literal formatting for Marmoset template tokens.
 
 - [`DEFAULTS`](blendertk/blendertk/mat_utils/marmoset_bridge/template_params.py#L26) — constant
-- **[`class TemplateParams`](blendertk/blendertk/mat_utils/marmoset_bridge/template_params.py#L97)** — TemplateParams — module namespace.
+- **[`class TemplateParams`](blendertk/blendertk/mat_utils/marmoset_bridge/template_params.py#L101)** — TemplateParams — module namespace.
   - `TemplateParams.derive_auto_maps(manifest: Dict[str, Any]) -> Dict[str, bool]` *(static)* — Return the ``{MAP_*: bool}`` roster *manifest*'s textures imply.
   - `TemplateParams.derive_bake_values(values: Dict[str, Any]) -> Dict[str, Any]` *(static)* — Return the managed bake tokens derived from *values*.
   - `TemplateParams.python_literal(value: Any) -> str` *(static)* — Format *value* as a Python source literal for template substitution.
@@ -3220,7 +3284,8 @@ The in-application half of the RPC pair: registry + marshaller + server.
   - `RpcPlugin.is_running(self)` — True while the HTTP server is bound.
   - `RpcPlugin.address(self)` *(property)* — The bound ``(host, port)``, or ``None`` when not running.
   - `RpcPlugin.start(self, port=None, host=None)` — Bind and serve on a daemon thread.
-  - `RpcPlugin.stop(self)` — Shut the server down (host teardown hook, tests, hot-reload).
+  - `RpcPlugin.serve(self, port=None, host=None)` — Bind and serve on the CALLING thread until :meth:`stop`;
+  - `RpcPlugin.stop(self)` — Shut the server down (host teardown hook, tests, hot-reload, an op).
   - `RpcPlugin.autostart(self)` — Start on plugin load, but only when actually hosted.
   - `RpcPlugin.autostart_safely(self)` — :meth:`autostart`, but a failure is logged instead of raised.
 
@@ -3309,8 +3374,9 @@ Render the current Painter project via Iray (JS body unverified).
 
 Bake an object's shaded surface (material under scene lighting) to a texture — the Blender
 
-- **[`class TextureBaker(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/texture_baker.py#L42)** — Generic Cycles bake-to-texture primitive (mirror of mayatk's ``TextureBaker``).
+- **[`class TextureBaker(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/texture_baker.py#L43)** — Generic Cycles bake-to-texture primitive (mirror of mayatk's ``TextureBaker``).
   - `TextureBaker.bake(self, objects=None, *, bake_type: str = 'COMBINED', pass_filter: Optional[set] = None, use_pass_color: bool = True, output_dir: Optional[str] = None, prefix: str = '', suffix: str = '', margin: Optional[int] = None, uv_set=None, stem: Optional[Any] = None, size: Optional[Any] = None, on_progress: Optional[Callable[[int, int, str], bool]] = None, colorspace: str = 'Non-Color', claims: Optional[Any] = None, shader: Optional[Any] = None) -> Dict[str, str]` — Bake each object's shaded surface to a per-object EXR.
+  - `TextureBaker.render_panorama(self, position: Sequence[float], path: str, width: int = 1024, hide=None, lights=None) -> Optional[str]` — Render an equirectangular HDR of the scene seen from *position* to *path*.
   - `TextureBaker.denoise_image(cls, path: str, output: Optional[str] = None, gpu: Optional[bool] = None) -> Optional[str]` *(class)* — Denoise a baked EXR in place (or to *output*) with OpenImageDenoise.
   - `TextureBaker.denoise_images(cls, paths: Iterable[str], outputs: Optional[Iterable[Optional[str]]] = None, gpu: Optional[bool] = None) -> Dict[str, str]` *(class)* — Denoise several baked EXRs through ONE compositor build and ONE engine flip.
   - `TextureBaker.resolve_meshes(objects, descendants: bool = False) -> List[Any]` *(static)* — Normalize ``objects`` (refs / names / None=selection) to mesh objects.
@@ -3375,7 +3441,7 @@ Node / datablock utilities — instancing via shared object data.
 
 Channels — Blender attribute query / mutation logic.
 
-- **[`class Channels`](blendertk/blendertk/node_utils/attributes/channels/_channels.py#L23)** — Blender attribute query / mutation logic.
+- **[`class Channels`](blendertk/blendertk/node_utils/attributes/channels/_channels.py#L25)** — Blender attribute query / mutation logic.
   - `Channels.is_pinned(self)` *(property)*
   - `Channels.single_object_mode(self)` *(property)*
   - `Channels.pin_targets(self, objects)` — Pin the manager to a fixed object list;
@@ -3388,6 +3454,7 @@ Channels — Blender attribute query / mutation logic.
   - `Channels.toggle_lock(cls, objects, descriptor)` *(class)* — Toggle the lock state of *descriptor* across *objects* (transform channels only).
   - `Channels.set_lock(cls, objects, descriptors, lock)` *(class)* — Lock or unlock *descriptors* across all *objects* (transform channels only).
   - `Channels.classify_connection(cls, obj, descriptor)` *(class)* — Classify what drives *descriptor* on *obj*.
+  - `Channels.is_off_curve(cls, obj, descriptor, tolerance=1e-06)` *(class)* — Return ``True`` if keyed *descriptor* on *obj* holds a value its F-curve does not.
   - `Channels.build_table_data(cls, objects, filter_key='custom', invert=False)` *(class)* — Build ``(rows, states)`` for the table.
   - `Channels.set_channel_value(cls, objects, descriptor, text)` *(class)* — Parse *text* and set *descriptor* on all *objects*.
   - `Channels.reset_to_default(cls, objects, descriptors)` *(class)* — Reset *descriptors* to their default values across all *objects*.
@@ -3412,7 +3479,7 @@ Channels — Blender attribute query / mutation logic.
 
 UI slots for the Channels panel (``channels.ui``).
 
-- **[`class ChannelsSlots`](blendertk/blendertk/node_utils/attributes/channels/channels_slots.py#L31)** — Switchboard slots for the Channels panel.
+- **[`class ChannelsSlots`](blendertk/blendertk/node_utils/attributes/channels/channels_slots.py#L32)** — Switchboard slots for the Channels panel.
   - `ChannelsSlots.apply_launch_config(self, targets=None, filter=None, search=None)` — Configure the window from an external launch call (mirror of mayatk).
   - `ChannelsSlots.cmb000_init(self, widget)` — Populate the filter combobox + wire its invert action (bpy-free).
   - `ChannelsSlots.cmb000(self, index)` — Filter changed — refresh table.
@@ -3535,13 +3602,121 @@ Shared procedural-rig primitives — Blender port of mayatk's ``rig_utils.RigUti
   - `RigUtils.remove_driver(obj, data_path, index=None)` *(static)* — Remove a driver on ``obj.<data_path>[index]`` if present (idempotent;
   - `RigUtils.lock_channels(obj, location=None, rotation=None, scale=None)` *(static)* — Lock the given transform channels (each a 3-tuple of bools, or ``None`` to leave as-is).
 
+<a id="rig_utils--articulated_rig--_articulated_rig"></a>
+### `rig_utils/articulated_rig/_articulated_rig.py`
+
+Articulated Rig engine (Blender) -- rigid parts on hinge, swivel, ball and slide joints.
+
+- **[`class ArticulatedRig(pythontk.LoggingMixin, _ArticulatedRigInternal)`](blendertk/blendertk/rig_utils/articulated_rig/_articulated_rig.py#L471)** — One articulated rig in the scene, bound to its armature.
+  - `ArticulatedRig.group(self)` *(property)* — The rig's armature object.
+  - `ArticulatedRig.spec(self) -> Dict[str, Any]` *(property)* — The stamped plan (a fresh copy): name, links, joints, parts.
+  - `ArticulatedRig.name(self) -> str` *(property)*
+  - `ArticulatedRig.scene_data(cls, node) -> Optional[Dict[str, Any]]` *(class)* — The :attr:`DATA_ATTR` plan on *node*, or None.
+  - `ArticulatedRig.scene_rigs(cls) -> List['ArticulatedRig']` *(class)* — Every articulated rig in the scene (duplicated records skipped).
+  - `ArticulatedRig.for_node(cls, node) -> Optional['ArticulatedRig']` *(class)* — The rig *node* belongs to -- its armature, a joint or control bone, a part
+  - `ArticulatedRig.end_control(self)` *(property)* — The end control's bone (a ``PoseBone``), or None (built without one).
+  - `ArticulatedRig.solver(self)` *(property)* — What solves the end control -- blendertk's installed handler -- or None: no
+  - `ArticulatedRig.ik_blend(self) -> float` — How much the end control's solve adds over FK: 1 places the end link on the
+  - `ArticulatedRig.analyze(cls, nodes, root=None, ordered: bool = False) -> Dict[str, Any]` *(class)* — Propose a rig for *nodes*: one link per part, and how and where each joins
+  - `ArticulatedRig.create(cls, links: Sequence[Any], joints: Optional[Sequence[Dict[str, Any]]] = None, name: Optional[str] = None, parent=None, end_control: bool = True) -> 'ArticulatedRig'` *(class)* — Build a rig -- one undo step.
+  - `ArticulatedRig.teardown(self) -> None` — Remove the rig -- one undo step -- and hand every part back exactly as it
+  - `ArticulatedRig.rebuild(self, spec: Optional[Dict[str, Any]] = None) -> 'ArticulatedRig'` — Build the rig again from *spec* (default: its own plan) -- one undo step --
+  - `ArticulatedRig.insert_joint(self, members, joint_type: Optional[str] = None, **fields) -> 'ArticulatedRig'` — Split a link: *members* leave the link they ride and get a joint of their
+  - `ArticulatedRig.remove_joint(self, joint_id: str) -> 'ArticulatedRig'` — Fold *joint_id*'s link back into the link it hangs off -- one undo step: its
+  - `ArticulatedRig.edit_joint(self, joint_id: str, **fields) -> 'ArticulatedRig'` — Change a joint's ``type``, ``position``, ``aim`` or ``normal`` (world space),
+  - `ArticulatedRig.set_end_control(self, enabled: bool = True, part=None) -> 'ArticulatedRig'` — Give the rig an end control, move it to another link, or drop it -- one undo
+  - `ArticulatedRig.set_limits(self, joint_id: str, channel: str, minimum: Optional[float], maximum: Optional[float]) -> None` — Bound one channel (degrees, or a slide's units in the rig's space);
+  - `ArticulatedRig.set_limit_from_pose(self, joint_id: str, channel: str, side: str) -> float` — Take the channel's current value -- the pose as it stands, the end control's
+  - `ArticulatedRig.set_weight(self, joint_id: str, weight: float, channel: Optional[str] = None) -> None` — How readily *joint_id* moves when the end control or a grab pulls the rig,
+  - `ArticulatedRig.adjusting(self) -> bool` *(property)* — Whether the rig's pivots are out for adjusting (:meth:`begin_adjust`).
+  - `ArticulatedRig.adjust_handles(self) -> Dict[str, Any]` — The pivot handles while adjusting (Empties), by what each places: a joint
+  - `ArticulatedRig.begin_adjust(self) -> Dict[str, Any]` — Put the rig's pivots out for adjusting -- one undo step: a handle where every
+  - `ArticulatedRig.end_adjust(self, apply: bool = True) -> bool` — Lock the pivots again -- one undo step: the rig rebuilt with every joint
+  - `ArticulatedRig.joint_ids(self) -> List[str]` — The joints' ids -- each its link's first part -- parent first.
+  - `ArticulatedRig.joint_id_of(self, node) -> Optional[str]` — The id of the joint *node* is -- its deform or control bone -- or rides (a
+  - `ArticulatedRig.joint(self, joint_id: str)` — The deform bone (a ``PoseBone``) of *joint_id* -- the joint that ships.
+  - `ArticulatedRig.control(self, joint_id: str)` — The FK control bone (a ``PoseBone``) of *joint_id*.
+  - `ArticulatedRig.controls(self) -> list` — Every control of the rig: the FK controls parent first, then the end
+  - `ArticulatedRig.state(self, slots: Optional[Sequence[Tuple[Any, str]]] = None) -> List[float]` — The rig's pose, in :meth:`model` state order: each channel's FK value plus
+  - `ArticulatedRig.fk_state(self, slots: Optional[Sequence[Tuple[Any, str]]] = None) -> List[float]` — The FK controls' channel values, in :meth:`model` state order: degrees for a
+  - `ArticulatedRig.channel_value(self, joint_id: str, channel: str) -> float` — One channel as the pose stands (FK plus the end control's solve).
+  - `ArticulatedRig.set_state(self, values: Sequence[float], key: Optional[bool] = None, slots: Optional[Sequence[Tuple[Any, str]]] = None) -> None` — Set the FK controls to *values* (model state order: degrees, the rig's
+  - `ArticulatedRig.install(cls) -> bool` *(class)* — Install the end controls' solve for this session: blendertk's persistent
+  - `ArticulatedRig.uninstall(cls) -> None` *(class)* — Remove the solve's handlers;
+  - `ArticulatedRig.repair_scene(cls) -> int` *(class)* — Give every rig in the scene whose end control has no solve its solve back.
+  - `ArticulatedRig.ensure_solver(self) -> bool` — Make the end control live: install the solve's handlers when this session
+  - `ArticulatedRig.match_end_control(self, key: Optional[bool] = None) -> None` — Put the end control where the end link is now -- after FK posing, or when it
+  - `ArticulatedRig.switch_ik(self, on: Optional[bool] = None, key: Optional[bool] = None) -> bool` — Switch the end control's solve on or off (default: flip it) without the pose
+  - `ArticulatedRig.reset_pose(self, key: Optional[bool] = None) -> None` — Every control back to rest -- FK at 0, the end control on its rest frame --
+  - `ArticulatedRig.record(self) -> Dict[str, Any]` — This rig's entry in the ``articulation`` record: its joints
+  - `ArticulatedRig.model(self) -> 'ptk.ArticulationModel'` — The runtime model of this rig -- what the engines pose.
+  - `ArticulatedRig.export_record(cls, ctx) -> Optional['ptk.Record']` *(class)* — The ``articulation`` record for this scene, or None when it has no rig --
+  - `ArticulatedRig.refresh_export_metadata(cls) -> Optional[str]` *(class)* — Publish the ``articulation`` record now -- the authoring-time half of
+  - `ArticulatedRig.grab_begin(self, node, point: Sequence[float]) -> Dict[str, Any]` — Take hold of *node* (a part, or anything under one) at the world *point*.
+  - `ArticulatedRig.held_point(self, hold: Dict[str, Any]) -> Tuple[float, float, float]` — Where a hold's point is now, in world space -- read off the model of the
+  - `ArticulatedRig.pose_to(self, node, target: Sequence[float], point: Optional[Sequence[float]] = None, key: Optional[bool] = None, attempts: int = 8) -> float` — Bring a part's *point* (default its origin) to the world *target* -- the
+  - `ArticulatedRig.grab_to(self, hold: Dict[str, Any], target: Sequence[float], turn: Optional[Sequence[float]] = None, key: Optional[bool] = None) -> List[float]` — Move a hold's point to the world *target* and pose the rig there.
+  - `ArticulatedRig.key_hold(self, hold: Dict[str, Any], key: Optional[bool] = None) -> None` — Key what a hold moved -- the end control it dragged, else the FK controls --
+
+<a id="rig_utils--articulated_rig--_solver_handler"></a>
+### `rig_utils/articulated_rig/_solver_handler.py`
+
+The end control's live solve (Blender) -- the twin of mayatk's ``_solver_expression.py``.
+
+- **[`class SolverHandler`](blendertk/blendertk/rig_utils/articulated_rig/_solver_handler.py#L43)** — The handlers that keep every articulated rig's end control solved, and the bake
+  - `SolverHandler.install(cls) -> bool` *(class)* — Install the handlers (persistent: they survive a file load) and mute every
+  - `SolverHandler.uninstall(cls) -> None` *(class)* — Remove the handlers and unmute every rig's baked curves: without the
+  - `SolverHandler.installed(cls) -> bool` *(class)* — Whether the handlers are installed (any copy of them).
+  - `SolverHandler.ensure_installed(cls) -> bool` *(class)* — :meth:`install` unless a copy of the handlers already is (the engine's lazy
+  - `SolverHandler.handler(cls)` *(class)* — The installed ``depsgraph_update_post`` handler, or None.
+  - `SolverHandler.suspended(cls) -> Iterator[None]` *(class)* — Hold the handlers off for the block (a rebuild's half-built bones).
+  - `SolverHandler.rigs(cls, objects=None) -> List[Any]` *(class)* — The rigs with an end control among *objects* (default: every object in the
+  - `SolverHandler.mute_all(cls, mute: bool) -> None` *(class)* — Mute (or unmute) every rig's baked MCH curves -- read off the stamped
+  - `SolverHandler.solve(cls, rig, depsgraph=None) -> bool` *(class)* — Write *rig*'s MCH offsets for its inputs as *depsgraph* evaluated them (the
+
+<a id="rig_utils--articulated_rig--articulated_rig_slots"></a>
+### `rig_utils/articulated_rig/articulated_rig_slots.py`
+
+Articulated Rig panel (Blender) -- the Switchboard slots for ``articulated_rig.ui``.
+
+- **[`class ArticulatedRigSlots(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/articulated_rig/articulated_rig_slots.py#L42)** — Slots for the Articulated Rig panel.
+  - `ArticulatedRigSlots.header_init(self, widget)`
+  - `ArticulatedRigSlots.btn_ik_fk_init(self, widget)` — Switch IK / FK's option box: put the end control back on the end
+  - `ArticulatedRigSlots.parse_limits(text: str, channels: Sequence[str]) -> Dict[str, Tuple[Optional[float], Optional[float]]]` *(static)* — The limits typed into a Limits cell (``ptk.ArticulationPlan.
+  - `ArticulatedRigSlots.refresh_table(self)`
+  - `ArticulatedRigSlots.btn_analyze(self)`
+  - `ArticulatedRigSlots.btn_build(self)`
+  - `ArticulatedRigSlots.btn_grab(self)`
+  - `ArticulatedRigSlots.btn_ik_fk(self)`
+  - `ArticulatedRigSlots.match_end_control(self)`
+  - `ArticulatedRigSlots.btn_rest(self)`
+  - `ArticulatedRigSlots.btn_insert(self)`
+  - `ArticulatedRigSlots.btn_fold(self)`
+  - `ArticulatedRigSlots.btn_limits_from_pose(self)`
+  - `ArticulatedRigSlots.btn_clear_limits(self)`
+  - `ArticulatedRigSlots.btn_rebuild(self)`
+  - `ArticulatedRigSlots.btn_remove(self)`
+
+<a id="rig_utils--articulated_rig--grab_tool"></a>
+### `rig_utils/articulated_rig/grab_tool.py`
+
+The viewport grab for articulated rigs (Blender): press on a rigged part, drag, let
+
+- **[`class ArticulatedRigGrab(pythontk.LoggingMixin, _ArticulatedRigGrabInternal)`](blendertk/blendertk/rig_utils/articulated_rig/grab_tool.py#L158)** — Grab and drag the parts of articulated rigs in the viewport.
+  - `ArticulatedRigGrab.activate(cls) -> bool` *(class)* — Make the grab the active tool in the 3D viewport -- first giving any end
+  - `ArticulatedRigGrab.pick(origin: Sequence[float], direction: Sequence[float]) -> Optional[Tuple[ArticulatedRig, Any, Tuple[float, float, float]]]` *(static)* — The rigged part a world ray hits first: ``(rig, part, point)``, or None.
+  - `ArticulatedRigGrab.press(self, origin: Sequence[float], direction: Sequence[float]) -> bool` — Take hold of whatever rigged part the ray hits.
+  - `ArticulatedRigGrab.drag(self, origin: Sequence[float], direction: Sequence[float]) -> Optional[list]` — Move the held point to where the ray crosses the view-facing plane through
+  - `ArticulatedRigGrab.release(self) -> None` — Let go: key what the drag moved (the end control, or the FK controls) when
+  - `ArticulatedRigGrab.ray(cls, context, event) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]` *(class)* — The world pick ray under the cursor of a viewport *event*: from the eye
+
 <a id="rig_utils--controls"></a>
 ### `rig_utils/controls.py`
 
 Rig control-shape factory — Blender port of mayatk's ``rig_utils.controls.Controls``.
 
 - **[`class ControlNodes`](blendertk/blendertk/rig_utils/controls.py#L31)** — Return bundle of :meth:`Controls.create` — mirror of mayatk's ``ControlNodes``.
-- **[`class Controls(_ControlsInternal)`](blendertk/blendertk/rig_utils/controls.py#L110)** — Rig control-shape factory (curve-object widgets) — Blender mirror of mayatk's ``Controls``.
+- **[`class Controls(_ControlsInternal)`](blendertk/blendertk/rig_utils/controls.py#L163)** — Rig control-shape factory (curve-object widgets) — Blender mirror of mayatk's ``Controls``.
   - `Controls.register_preset(cls, name, builder)` *(class)* — Register a custom shape *builder* (``() -> List[(points, cyclic)]``, pure geometry in the
   - `Controls.shapes(cls) -> List[str]` *(class)* — Sorted names of the registered shapes (for a UI combo / validation).
   - `Controls.create(cls, shape='circle', name='ctrl', size=1.0, axis='y', color=None, location=(0, 0, 0), group=False, collection=None, return_nodes=False)` *(class)* — Build a control curve object in *shape*, scaled by *size*, oriented by *axis*, optionally
@@ -3575,7 +3750,7 @@ Read a Blender rig into a RigGraph -- the Blender side of phase 2.
 
 Shadow Rig engine — the panel (``shadow_rig_slots.py``) drives the co-located ``shadow_rig.ui``.
 
-- **[`class ShadowRig(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/shadow_rig/_shadow_rig.py#L78)** — Projected-shadow rig for engine export (mirror of mayatk's ``ShadowRig``).
+- **[`class ShadowRig(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/shadow_rig/_shadow_rig.py#L84)** — Projected-shadow rig for engine export (mirror of mayatk's ``ShadowRig``).
   - `ShadowRig.has_mesh_geometry(obj, recursive=True)` *(static)* — Does *obj* carry (or, with *recursive*, contain) mesh geometry a
   - `ShadowRig.create_contact_locator(self)` — Empty at the footprint's lowest point (min-Z), hung on :meth:`_contact_parent`.
   - `ShadowRig.ensure_source(cls, source_name=DEFAULT_SOURCE_NAME, position=(5.0, 5.0, 10.0))` *(class)* — The object named *source_name*, created as an Empty if absent.
@@ -3602,6 +3777,10 @@ Shadow Rig engine — the panel (``shadow_rig_slots.py``) drives the co-located 
   - `ShadowRig.unbake_planes(cls, planes=None)` *(class)* — Restore the live drivers on baked shadow planes — the reverse of
   - `ShadowRig.delete(self, delete_textures=False)` — Delete this rig completely.
   - `ShadowRig.delete_rigs(cls, planes=None, delete_textures=False)` *(class)* — Tear down shadow rig(s) completely — live or baked (mirror of
+  - `ShadowRig.plane_materials(cls, planes=None)` *(class)* — The materials shadow *planes* wear (every plane when None), once each.
+  - `ShadowRig.set_intensity(cls, planes, value)` *(class)* — Overall darkness of *planes*' shadows, 0-1: the ``shadowIntensity``
+  - `ShadowRig.set_ground_height(cls, planes, value)` *(class)* — World height of the floor under *planes*: the ``groundHeight`` stamp
+  - `ShadowRig.detach_planes(cls, planes=None, suffix='_plane')` *(class)* — Turn shadow rig(s) into plain textured planes: no rig, nothing extra.
   - `ShadowRig.from_plane(cls, plane)` *(class)* — A rig instance re-attached to an existing *plane* via its stamps, or None when the
   - `ShadowRig.set_source(self, source_name, position=(5.0, 5.0, 10.0), size=None)` — Re-point this rig at another source — an existing object or light, or an empty to
   - `ShadowRig.rebuild(cls, plane, texture_res=None, recursive=None)` *(class)* — Tear a rig down and build it again from its own stamps — the same targets, source
@@ -3612,7 +3791,7 @@ Shadow Rig engine — the panel (``shadow_rig_slots.py``) drives the co-located 
   - `ShadowRig.refresh_silhouette(cls, planes=None, size=None, refit=None)` *(class)* — Re-rasterize shadow planes' silhouettes from their source's CURRENT position,
   - `ShadowRig.export_record(cls, ctx)` *(class)* — The ``shadow_metadata`` record for this file, or ``None`` when it
   - `ShadowRig.refresh_export_metadata(cls)` *(class)* — Republish the ``shadow_metadata`` channel on the ``data_export``
-  - `ShadowRig.unit_scale()` *(static)* — Metres per scene linear unit (the record's ``unit_scale``): an
+  - `ShadowRig.unit_scale()` *(static)* — Metres per Blender unit (the record's ``unit_scale``), read when the
   - `ShadowRig.plane_record(cls, plane)` *(class)* — One plane's ``shadow_metadata`` v2 record (the engine contract in
   - `ShadowRig.plane_type(cls, plane)` *(class)* — The rig type stamped on *plane* (``projected`` for a rig built
   - `ShadowRig.horizon_output_path(self)` — ``<base>_horizon.png`` beside the silhouette.
@@ -3657,12 +3836,15 @@ Shadow Rig panel (Blender) — the Switchboard slots for ``shadow_rig.ui``.
   - `ShadowRigSlots.txt_source_init(self, widget)` — Source Name's option box: the two actions about the source --
   - `ShadowRigSlots.b003_init(self, widget)` — Recalculate Silhouette's option box: the deeper updates of an
   - `ShadowRigSlots.b002_init(self, widget)` — Bake to Keyframes' option box: Restore Expression, its inverse.
+  - `ShadowRigSlots.b009_init(self, widget)` — Delete Rig's option box: Detach to Plane, the teardown that keeps
   - `ShadowRigSlots.prepare_operation(self, objects)` — Preview's one-shot precondition, run at enable outside the datablock snapshot:
   - `ShadowRigSlots.b001_init(self, widget)` — Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the
   - `ShadowRigSlots.chk_follow_init(self, widget)` — Follow Source arms the engine's watcher from the box's (saved)
   - `ShadowRigSlots.chk_follow(self, checked)` — Follow Source: re-render a silhouette as soon as its source -- or
   - `ShadowRigSlots.s001_init(self, widget)` — Softness shows the file's value for the first Source Name -- its
   - `ShadowRigSlots.s001(self, value)` — Softness: the diameter the shadow gives the source(s) named in
+  - `ShadowRigSlots.s002(self, value)` — Intensity: the overall darkness a new rig builds with, applied at
+  - `ShadowRigSlots.s003(self, value)` — Ground Y: the floor's world height (Blender's Z) a new rig builds
   - `ShadowRigSlots.chk_horizon_preview_init(self, widget)` — The box mirrors the FILE, never a saved setting: checked while a
   - `ShadowRigSlots.chk_horizon_preview(self, checked)` — Live Horizon Preview: a viewport overlay on the horizon plane(s) the
   - `ShadowRigSlots.b002(self)` — Bake to Keyframes: bake the rig(s) the selection touches (or all) to keys over
@@ -3673,6 +3855,7 @@ Shadow Rig panel (Blender) — the Switchboard slots for ``shadow_rig.ui``.
   - `ShadowRigSlots.rebuild_rig(self)` — Rebuild Rig (Recalculate's option box): re-create the rig(s) the
   - `ShadowRigSlots.restore_expression(self)` — Restore Expression (Bake's option box): un-bake the rig(s) the
   - `ShadowRigSlots.b009(self)` — Delete Rig: tear down the rig(s) the selection touches.
+  - `ShadowRigSlots.detach_to_plane(self)` — Detach to Plane (Delete Rig's option box): the rig(s) the selection
   - `ShadowRigSlots.b010(self)` — Pack Atlas: pack or repack every shadow rig's tiles into the file's
   - `ShadowRigSlots.perform_operation(self, objects)` — Build one shadow rig per source for the selected target(s).
 
@@ -4036,11 +4219,11 @@ RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 
 - [`PARAMS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L47) — constant
-- [`DERIVED_KEYS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L491) — constant
-- [`HOST_TOKEN_DEFAULTS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L501) — constant
-- [`MIN_VERSIONS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L708) — constant
-- [`FBX_USE_UV_SET_NAMES_MIN_VERSION`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L718) — constant
-- **[`class Parameters(ParamRegistry)`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L510)** — Parameters — module namespace.
+- [`DERIVED_KEYS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L507) — constant
+- [`HOST_TOKEN_DEFAULTS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L517) — constant
+- [`MIN_VERSIONS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L724) — constant
+- [`FBX_USE_UV_SET_NAMES_MIN_VERSION`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L734) — constant
+- **[`class Parameters(ParamRegistry)`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L526)** — Parameters — module namespace.
   - `Parameters.expand_includes(script_text: str) -> str` *(static)* — Expand ``__PACK_BLOCK__``-style include tokens to their partial's text.
   - `Parameters.preset_min_version(script_text: str) -> 'tuple[int, ...] | None'` *(static)* — Minimum Rizom version a preset declares, or ``None`` if ungated.
   - `Parameters.referenced_keys(cls, script_text: str) -> 'set[str]'` *(class)* — Registered keys present in *script_text* (delegates to uitk.bridge).
@@ -4053,7 +4236,7 @@ Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 
 Slots for the RizomUV bridge panel.
 
-- **[`class RizomBridgeSlots(BlenderBridgeSlotsBase)`](blendertk/blendertk/uv_utils/rizom_bridge/rizom_bridge_slots.py#L74)** — Slots wired to ``rizom_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
+- **[`class RizomBridgeSlots(BlenderBridgeSlotsBase)`](blendertk/blendertk/uv_utils/rizom_bridge/rizom_bridge_slots.py#L76)** — Slots wired to ``rizom_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
   - `RizomBridgeSlots.params_module(self)` *(property)*
   - `RizomBridgeSlots.template_dir(self) -> Path` *(property)*
   - `RizomBridgeSlots.make_bridge(self) -> RizomUVBridge`
@@ -4098,13 +4281,87 @@ Dedicated UV shell-transform panel (Blender).
   - `ShellXformSlots.randomize_shells(self)` — Randomly offset the selected shells.
   - `ShellXformSlots.open_uv_editor(self)` — Open Blender's UV Editor.
 
+<a id="uv_utils--texture_combine--texture_combine"></a>
+### `uv_utils/texture_combine/texture_combine.py`
+
+Several materials into ONE: one atlas, one material, in place -- no duplicated meshes.
+
+- **[`class CombineInputs`](blendertk/blendertk/uv_utils/texture_combine/texture_combine.py#L78)** — What :meth:`TextureCombine.gather` read: the scene side of a combine.
+- **[`class TextureCombine(pythontk.LoggingMixin, _TextureCombineInternal)`](blendertk/blendertk/uv_utils/texture_combine/texture_combine.py#L556)** — Combine the selected meshes' materials into one atlas and one material.
+  - `TextureCombine.names(cls) -> List[str]` *(class)* — The combines this file holds, oldest first.
+  - `TextureCombine.entry(cls, name: str) -> Optional[Dict[str, Any]]` *(class)* — A combine's record entry (settings, rows, meshes, sources), or ``None``.
+  - `TextureCombine.members(cls, name: str) -> List[str]` *(class)* — The live objects a combine moved (every linked duplicate), by name.
+  - `TextureCombine.owner(cls, objects) -> Optional[str]` *(class)* — The combine any of *objects* belongs to, or ``None``.
+  - `TextureCombine.stale(cls, name: str) -> List[str]` *(class)* — The source maps of *name* revised (or gone) since it was combined.
+  - `TextureCombine.gather(self, objects=None) -> CombineInputs` — Read the islands, materials and maps of *objects* (default: selection).
+  - `TextureCombine.inputs_for(self, name: str) -> CombineInputs` — A stored combine's inputs AS THEY WERE before it ran.
+  - `TextureCombine.apply_rows(self, inputs: CombineInputs, rows: Sequence[Dict[str, Any]] = ()) -> None` — Set every island's scale from the override *rows* -- the most
+  - `TextureCombine.plan(self, inputs: CombineInputs, *, sizing: str = 'proportional', normalize: str = 'resolution')` — Estimate the atlas for *inputs* (nothing packed) -- a
+  - `TextureCombine.default_name(self, transforms: Sequence[str]) -> str` — What a blank name stands for: the meshes' common name.
+  - `TextureCombine.combine(self, objects=None, *, name: Optional[str] = None, rows: Sequence[Dict[str, Any]] = (), sizing: str = 'proportional', normalize: str = 'resolution', map_size: int = 4096, padding: Optional[int] = None, rotate: bool = True, supersample: int = 2, texture_padding: int = -1, output_dir: Optional[str] = None, assign_prefix: str = '', assign_suffix: Optional[str] = None, lightmaps: bool = True, inputs: Optional[CombineInputs] = None) -> Dict[str, Any]` — Combine *objects*' materials into one atlas and one material.
+  - `TextureCombine.recombine(self, name: str) -> Dict[str, Any]` — Re-read *name*'s source maps into its CURRENT layout -- a revision.
+  - `TextureCombine.restore(self, name: str, forget: bool = True) -> List[str]` — Put *name*'s meshes back: original UVs and materials, exactly.
+  - `TextureCombine.update(self, name: str, **changes) -> Dict[str, Any]` — Re-pack *name* with changed settings or rows, keeping its name.
+  - `TextureCombine.forget(cls, name: str) -> bool` *(class)* — Drop *name*'s record entry, leaving the file as it is.
+  - `TextureCombine.consolidate_lightmaps(self, transforms: Sequence[str], name: str) -> Dict[str, Any]` — Bring the combined objects' committed lightmaps under the new material.
+  - `TextureCombine.resolve_meshes(cls, objects=None) -> List[str]` *(class)* — Mesh object names under *objects*, order kept.
+
+<a id="uv_utils--texture_combine--texture_combine_slots"></a>
+### `uv_utils/texture_combine/texture_combine_slots.py`
+
+The Texture Combine panel: Switchboard slots for ``texture_combine.ui``.
+
+- **[`class TextureCombineSlots(pythontk.LoggingMixin)`](blendertk/blendertk/uv_utils/texture_combine/texture_combine_slots.py#L37)** — Switchboard slots for the ``texture_combine.ui`` panel.
+  - `TextureCombineSlots.header_init(self, widget) -> None`
+  - `TextureCombineSlots.cmb_mode_init(self, widget) -> None`
+  - `TextureCombineSlots.open_output_folder(self) -> None`
+  - `TextureCombineSlots.cmb_set_init(self, widget) -> None`
+  - `TextureCombineSlots.select_set(self) -> None`
+  - `TextureCombineSlots.recombine_set(self) -> None`
+  - `TextureCombineSlots.restore_set(self) -> None`
+  - `TextureCombineSlots.forget_set(self) -> None`
+  - `TextureCombineSlots.tbl_sources_init(self, widget) -> None`
+  - `TextureCombineSlots.parse_scale(text: str) -> Optional[float]` *(static)* — ``0.33``, ``1/3`` or ``33%`` as a float, ``None`` when unreadable.
+  - `TextureCombineSlots.select_row_members(self) -> None`
+  - `TextureCombineSlots.remove_override(self) -> None`
+  - `TextureCombineSlots.reset_scales(self) -> None`
+  - `TextureCombineSlots.b001(self) -> None` — Add the selected meshes as one mesh override row each.
+  - `TextureCombineSlots.b002(self) -> None` — Add the islands under the selected faces as an override row.
+  - `TextureCombineSlots.cmb_sizing_init(self, widget) -> None`
+  - `TextureCombineSlots.cmb_normalize_init(self, widget) -> None`
+  - `TextureCombineSlots.cmb_atlas_init(self, widget) -> None`
+  - `TextureCombineSlots.s_spacing_init(self, widget) -> None`
+  - `TextureCombineSlots.chk_rotate_init(self, widget) -> None`
+  - `TextureCombineSlots.chk_lightmaps_init(self, widget) -> None`
+  - `TextureCombineSlots.cmb_tt_transfer_init(self, widget) -> None`
+  - `TextureCombineSlots.cmb_tt_source_init(self, widget) -> None`
+  - `TextureCombineSlots.cmb_tt_targets_init(self, widget) -> None`
+  - `TextureCombineSlots.cmb_tt_resolution_init(self, widget) -> None`
+  - `TextureCombineSlots.t_tt_dst_uvset_init(self, widget) -> None`
+  - `TextureCombineSlots.chk_tt_lightmaps_init(self, widget) -> None`
+  - `TextureCombineSlots.t_name_init(self, widget) -> None`
+  - `TextureCombineSlots.record_name(self, name: str) -> None`
+  - `TextureCombineSlots.t_output_init(self, widget) -> None`
+  - `TextureCombineSlots.cmb_quality_init(self, widget) -> None`
+  - `TextureCombineSlots.s_padding_init(self, widget) -> None`
+  - `TextureCombineSlots.chk_assign_init(self, widget) -> None`
+  - `TextureCombineSlots.t_affix_init(self, widget) -> None`
+  - `TextureCombineSlots.material_affix(self)` — ``(assign_prefix, assign_suffix)`` from the affix row (blank: Auto).
+  - `TextureCombineSlots.cmb_shader_init(self, widget) -> None`
+  - `TextureCombineSlots.overwrites_target(self) -> bool` — Whether the Material row re-uses the target's material in place --
+  - `TextureCombineSlots.assign_options(self) -> Dict[str, Any]`
+  - `TextureCombineSlots.sync_shared(self, textures: bool = True) -> None` — Transfer mode: the Output / Material rows follow the texture pass.
+  - `TextureCombineSlots.status(self, text: str) -> None`
+  - `TextureCombineSlots.b000(self) -> None` — Run the current mode.
+  - `TextureCombineSlots.combine(self) -> None`
+
 <a id="uv_utils--texture_transfer"></a>
 ### `uv_utils/texture_transfer.py`
 
 Transfer a mesh's textures from one UV layout to another -- no rays, no bake.
 
-- **[`class TextureTransfer(pythontk.LoggingMixin, _TextureTransferInternal)`](blendertk/blendertk/uv_utils/texture_transfer.py#L469)** — Move textures between UV layouts of the same mesh(es) -- see module doc.
-  - `TextureTransfer.transfer(self, targets, source=None, *, source_uv_set: Optional[str] = None, target_uv_set: Optional[str] = None, channels: Optional[Sequence[str]] = None, size: Optional[int] = None, supersample: int = 2, padding: int = -1, output_dir: Optional[str] = None, name_format: str = '{material}_{channel}', output_name: Optional[str] = None, normal_convention: Optional[str] = None, source_mask_from_uvs: bool = True, assign: bool = False, assign_prefix: str = '', assign_suffix: Optional[str] = None, assign_from: str = 'target') -> Dict[str, Dict[str, str]]` — Transfer the source material(s)' maps onto the target UV layout.
+- **[`class TextureTransfer(pythontk.LoggingMixin, _TextureTransferInternal)`](blendertk/blendertk/uv_utils/texture_transfer.py#L499)** — Move textures between UV layouts of the same mesh(es) -- see module doc.
+  - `TextureTransfer.transfer(self, targets, source=None, *, source_uv_set: Optional[str] = None, target_uv_set: Optional[str] = None, channels: Optional[Sequence[str]] = None, size: Optional[int] = None, supersample: int = 2, padding: int = -1, output_dir: Optional[str] = None, name_format: str = '{material}_{channel}', output_name: Optional[str] = None, normal_convention: Optional[str] = None, source_mask_from_uvs: bool = True, assign: bool = False, assign_prefix: str = '', assign_suffix: Optional[str] = None, assign_from: str = 'target', source_materials: Optional[Dict[Any, Tuple[Sequence, Sequence[int]]]] = None) -> Dict[str, Dict[str, str]]` — Transfer the source material(s)' maps onto the target UV layout.
   - `TextureTransfer.default_output_dir(cls) -> str` *(class)* — Where the maps go when the caller names no directory: the scene
   - `TextureTransfer.output_base_dir() -> Optional[str]` *(static)* — The directory a RELATIVE output entry is resolved against.
   - `TextureTransfer.resolve_output_dir(cls, entry: Optional[str] = None) -> str` *(class)* — The absolute output directory for a user-typed *entry*.

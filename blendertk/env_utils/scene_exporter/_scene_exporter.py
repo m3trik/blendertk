@@ -186,6 +186,13 @@ class SceneExporter(ptk.SceneExporterBase):
         since="2026-09-23",
         reason="Write '{scene:PATTERN->REPLACEMENT}' into output_name instead.",
     )
+    @ptk.Deprecation.parameter(
+        "hide_log_file",
+        drop=True,
+        remove_in="0.21.0",
+        since="2026-10-14",
+        reason="The run log lives in the per-user cache, never beside the export.",
+    )
     def perform_export(
         self,
         export_dir: str,
@@ -197,7 +204,6 @@ class SceneExporter(ptk.SceneExporterBase):
         timestamp: bool = False,
         name_regex: Optional[str] = None,
         log_level: Optional[str] = None,
-        hide_log_file: Optional[bool] = None,
         log_handler: Optional[object] = None,
         tasks: Optional[Dict[str, Any]] = None,
         usd_options: Optional[Dict[str, Any]] = None,
@@ -229,6 +235,14 @@ class SceneExporter(ptk.SceneExporterBase):
         pythontk 0.12.0). They fold into *output_name* once, here
         (``ptk.ExportProfile.fold_legacy_naming``), and the log names the
         pattern that says the same thing (mirror of mayatk).
+
+        *create_log_file* appends the run to the .blend's log -- one file per
+        scene in the per-user cache, its runs trimmed to the newest
+        (``ptk.SceneExporterBase.log_file_path``) -- never a file beside the
+        export, recording down to DEBUG whatever *log_level* shows; the
+        panel always sets it.
+        *hide_log_file* is retired
+        (warns; removed in 0.21.0): nothing lands in the export folder to hide.
         """
         # First, so a caller's level/handler sees every message of this run,
         # the early aborts below included.
@@ -257,7 +271,6 @@ class SceneExporter(ptk.SceneExporterBase):
         self.preset_name = preset_name
         self.output_name = output_name
         self.create_log_file = create_log_file
-        self.hide_log_file = hide_log_file
 
         tasks = dict(tasks) if tasks else {}
         # Every UI-only setting the export button's dict carries beside the
@@ -330,28 +343,6 @@ class SceneExporter(ptk.SceneExporterBase):
         )
         self.export_path = resolved["path"]
         self.logger.debug(f"Generated export path: {self.export_path}")
-
-        if self.create_log_file:
-            self._setup_file_logging()
-
-        # The FBX export kwargs for this run: the named preset merged over the
-        # built-in defaults, or the defaults alone when no preset is selected.
-        # Called unconditionally so a prior run's loaded preset never leaks
-        # into one with none picked. Whatever the preset says, the deliverable
-        # carries its media (``_SELF_CONTAINED_FBX_OPTIONS``), so the texture
-        # passes stage in scratch for every FBX (``_texture_staging_dir``).
-        self.load_fbx_export_preset(self.preset_name)
-        preset = getattr(self, "_fbx_preset_options", None) or {}
-        overridden = [
-            key
-            for key, value in self._SELF_CONTAINED_FBX_OPTIONS.items()
-            if key in preset and preset[key] != value
-        ]
-        if overridden:
-            self.logger.info(
-                f"FBX preset overridden: {', '.join(overridden)} -- the "
-                "deliverable carries its media; the preset's other settings stand."
-            )
         run = run.replace(
             export_path=self.export_path,
             # A versioned name routes the sidecar through the base stem so
@@ -363,10 +354,8 @@ class SceneExporter(ptk.SceneExporterBase):
         # so a run with no task checked still starts clean.
         self.task_manager.begin_run(run)
 
-        initialized_objs = self._initialize_objects(objects)
-        if not initialized_objs:
-            self.logger.error("Export aborted: No objects available for export.")
-            return False
+        if self.create_log_file:
+            self._setup_file_logging()
 
         # Everything from here on can stage export-transient state (scene units,
         # the bake frame range, EmissiveGroups' keyed-weight curve proxies) that
@@ -384,7 +373,39 @@ class SceneExporter(ptk.SceneExporterBase):
         # their keys to the active shot.
         transient = contextlib.ExitStack()
         transient.enter_context(ptk.ShotStore.transient_edit())
+        succeeded = False
         try:
+            # Inside the try (mirror of mayatk), so the finally below closes the
+            # run's log on these exits too: a preset that would not load raised,
+            # and an empty export set returned, before it -- leaving the log
+            # file locked on Windows until the next run (2026-10-13).
+            #
+            # The FBX export kwargs for this run: the named preset merged over
+            # the built-in defaults, or the defaults alone when no preset is
+            # selected. Called unconditionally so a prior run's loaded preset
+            # never leaks into one with none picked. Whatever the preset says,
+            # the deliverable carries its media (``_SELF_CONTAINED_FBX_OPTIONS``),
+            # so the texture passes stage in scratch for every FBX
+            # (``_texture_staging_dir``).
+            self.load_fbx_export_preset(self.preset_name)
+            preset = getattr(self, "_fbx_preset_options", None) or {}
+            overridden = [
+                key
+                for key, value in self._SELF_CONTAINED_FBX_OPTIONS.items()
+                if key in preset and preset[key] != value
+            ]
+            if overridden:
+                self.logger.info(
+                    f"FBX preset overridden: {', '.join(overridden)} -- the "
+                    "deliverable carries its media; the preset's other settings "
+                    "stand."
+                )
+
+            initialized_objs = self._initialize_objects(objects)
+            if not initialized_objs:
+                self.logger.error("Export aborted: No objects available for export.")
+                return False
+
             self._progress_note("Preparing export…")
             # Each failed check is decided where it fails (mirror of mayatk:
             # SceneExporterBase._run_task_pipeline); a stop returns here and
@@ -419,7 +440,8 @@ class SceneExporter(ptk.SceneExporterBase):
                 self.logger.error("No objects to export.")
                 return False
 
-            return self._write_export(export_objects, start_time)
+            succeeded = self._write_export(export_objects, start_time)
+            return succeeded
         except ptk.OperationCancelled as e:
             # The progress callback asked to stop (Esc held over the panel's
             # footer; a headless caller's own gate). Only reachable before the
@@ -444,9 +466,8 @@ class SceneExporter(ptk.SceneExporterBase):
             # "restorable" contract.
             # Closed here rather than around the write: a failed check or an
             # aborted task returns before the write and used to leak the handler
-            # (and with it the open .log file).
-            if self.create_log_file:
-                self.close_file_handlers()
+            # (and with it the open .log file). The footer says how it ended.
+            self._close_file_logging(succeeded)
 
     def _filter_exportable(self, objects: List) -> List:
         """Drop objects the selection-based FBX funnel cannot ship — hidden,
@@ -573,7 +594,7 @@ class SceneExporter(ptk.SceneExporterBase):
                         stage_store.keep(stage_dir)  # the only copy
                     export_succeeded = False
                     return False
-                self.logger.success(f"GLB created: {deliverable_path}")
+                self._glb_created(deliverable_path)
 
             elapsed = time.time() - start_time
             export_info_lines = [
@@ -614,13 +635,16 @@ class SceneExporter(ptk.SceneExporterBase):
             # shipped.
             if not run.glb_only and not run.usd:
                 self.task_manager.ship_declared_takes(fbx_write_path)
-                # Every file the scene records name by file name (the
-                # lightmaps, the reflection probe, the shadow maps) goes
-                # INSIDE the FBX, so nothing ships beside it -- after the
-                # GLB, which binds its own copies. Mirror of mayatk.
-                FbxUtils.embed_dependencies(
+                # The FBX made to read as its GLB twin does -- each pivot set
+                # its own mesh, the probe's highlight copies (the GLB's) in,
+                # and every file the scene records name by file name (the
+                # lightmaps, the reflection probe, the shadow maps) INSIDE it
+                # -- after the GLB, which binds its own copies. Mirror of
+                # mayatk.
+                FbxUtils.finish_deliverable(
                     fbx_write_path,
-                    self.task_manager._lightmap_search_dirs(),
+                    glb=glb_alongside,
+                    search_dirs=self.task_manager._lightmap_search_dirs(),
                     logger=self.logger,
                 )
                 # The finished files, into place (mirror of mayatk): the FBX is
@@ -642,7 +666,7 @@ class SceneExporter(ptk.SceneExporterBase):
                             stage_store.keep(stage_dir)  # the only copy
                         glb_alongside = None
                     if glb_alongside:
-                        self.logger.success(f"GLB created: {glb_alongside}")
+                        self._glb_created(glb_alongside)
 
             # Write the scene-data sidecar (hierarchy baseline + data_export
             # snapshot) as the single LAST step of every mode, so it can

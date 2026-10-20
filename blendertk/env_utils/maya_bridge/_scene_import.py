@@ -821,6 +821,18 @@ class MayaSceneImport(ptk.LoggingMixin):
         # The fallback matches FbxUtils.import_fbx's own default, so a caller that
         # passes options WITHOUT the key gets the shift the importer really used.
         frame_offset = 0.0 if is_usd else float(fbx_opts.get("anim_offset", 0.0))
+        # What the manifest replays from the source scene itself -- the baked
+        # visibility (inherited, driven), the shot section's authored channel
+        # keys -- the FBX's own curves (a per-frame bake of the same) must not
+        # land as well; what it does not carry, they do.
+        fbx_channels = tuple(
+            family
+            for family, carried in (
+                ("visibility", manifest.carries(manifest.VISIBILITY)),
+                ("properties", bool(scene_data) and manifest.carries(manifest.SHOTS)),
+            )
+            if not carried
+        )
         imported: List[Any] = []
 
         def import_file():
@@ -834,7 +846,7 @@ class MayaSceneImport(ptk.LoggingMixin):
             else:
                 from blendertk.env_utils.fbx_utils import FbxUtils
 
-                imported = FbxUtils.import_fbx(src, **fbx_opts)
+                imported = FbxUtils.import_fbx(src, channels=fbx_channels, **fbx_opts)
 
         def replay_instances():
             # A partially shared scene renders correctly and only betrays itself when
@@ -2621,8 +2633,10 @@ class MayaSceneImport(ptk.LoggingMixin):
         Best-effort by contract: a failed replay must never break an import whose
         geometry + transform animation already landed. Objects match by SHORT name
         (the importer may suffix ``.001``), the same convention the texture manifest
-        uses. Values are Maya ``.visibility`` (``0`` = hidden); interpolation is
-        forced CONSTANT (visibility is boolean — Bezier would ramp it)."""
+        uses. Values are Maya ``.visibility`` (``0`` = hidden), landed by
+        ``AnimUtils.replay_visibility`` -- the landing a plain ``FbxUtils.import_fbx``
+        gives an FBX's own ``Visibility`` curves, so both doors key the same
+        channels, stepped (visibility is boolean — Bezier would ramp it)."""
         import json
 
         try:
@@ -2638,6 +2652,7 @@ class MayaSceneImport(ptk.LoggingMixin):
             import bpy  # noqa: F401
         except ImportError:
             return  # no Blender (the .venv degradation path) -> nothing to key
+        from blendertk.anim_utils._anim_utils import AnimUtils
 
         by_short: Dict[str, List[Any]] = {}
         for obj in imported:
@@ -2647,13 +2662,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         for short, keys in vis.items():
             for obj in by_short.get(short, []):
                 try:
-                    for frame, value in keys:
-                        hidden = float(value) == 0.0  # Maya .visibility 0 = hidden
-                        obj.hide_render = hidden
-                        obj.hide_viewport = hidden
-                        obj.keyframe_insert("hide_render", frame=frame + frame_offset)
-                        obj.keyframe_insert("hide_viewport", frame=frame + frame_offset)
-                    self._step_visibility_fcurves(obj)
+                    AnimUtils.replay_visibility(obj, keys, frame_offset=frame_offset)
                     keyed += 1
                 except Exception as e:  # noqa: BLE001
                     self.logger.debug(f"Visibility replay skipped for {obj.name}: {e}")
@@ -2730,16 +2739,6 @@ class MayaSceneImport(ptk.LoggingMixin):
         if stepped:
             self.logger.info(f"Restored {stepped} stepped key(s) (CONSTANT).")
         return stepped
-
-    @staticmethod
-    def _step_visibility_fcurves(obj: Any) -> None:
-        """Force CONSTANT interpolation on *obj*'s ``hide_*`` fcurves — visibility is
-        boolean, so the default Bezier would ramp the toggle. One implementation with
-        the USD route's replay (:meth:`UsdUtils.apply_visibility`), which needs the
-        same step for the same reason."""
-        from blendertk.anim_utils._anim_utils import AnimUtils
-
-        AnimUtils.step_visibility_keys(obj)
 
     def _claim_material_name(self, material: Any, desired: str) -> None:
         """Rename *material* to *desired* once that name is free.

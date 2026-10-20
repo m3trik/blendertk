@@ -207,8 +207,8 @@ class RigUtils:
           and :meth:`remove_locator` hands every channel back. An object whose
           transform something writes (keys, an NLA strip, drivers, a constraint)
           keeps its channels, the inverse cancelling the pose the group took, so its
-          animation plays as before -- where mayatk's freeze plays the keys offset by
-          that pose.
+          animation plays as before -- as mayatk's, which cancels it in the object's
+          ``offsetParentMatrix``.
 
         A group -- an Empty standing for a Maya group (:meth:`NodeUtils.is_group`) --
         gets its rig on the world bounding-box centre of its contents, turned like the
@@ -993,13 +993,9 @@ class RigUtils:
         let the depsgraph settle the new drivers/relations (``view_layer.update()``), THEN re-assign
         each expression to force a recompile against the now-complete variable set.
         """
-        import bpy
+        from blendertk.core_utils._core_utils import CoreUtils
 
-        bpy.context.view_layer.update()  # settle new drivers + relations first
-        for obj in objects:
-            ad = getattr(obj, "animation_data", None)
-            for d in ad.drivers if ad else ():
-                d.driver.expression = d.driver.expression  # re-assign -> recompile
+        CoreUtils._recompile_drivers(objects)
 
     @staticmethod
     def add_distance_driver(

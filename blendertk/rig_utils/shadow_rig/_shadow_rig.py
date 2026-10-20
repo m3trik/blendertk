@@ -46,12 +46,18 @@ Material: unlit **black Emission** mixed against a **Transparent BSDF** by ``tex
 opacity`` — a node graph, so it renders the silhouette and the fade per pixel. The PNG is
 persisted via ``bpy.data.images`` (no cv2/PIL dependency); the rasterizer's rows run from the
 light-side edge, which Blender's bottom-up pixel rows put on the plane's ``V = 0`` (near) edge.
+The GLB sidecar's ``unlit`` section (``SceneState._read_unlit``) marks the material
+``KHR_materials_unlit``: FBX2glTF makes it lit PBR, and the environment's specular made a
+shadow brighter than its floor.
 
 **Re-attaching.** The plane links its targets (a JSON name list), source and contact (ID
 pointers), and stamps its measurements and canvas, so :meth:`ShadowRig.for_node` /
 :meth:`ShadowRig.from_plane` rebuild an instance from any of the rig's objects for the panel's
 Utility section: :meth:`set_source`, :meth:`rebuild`, :meth:`unbake_planes`,
 :meth:`refresh_silhouette`, :meth:`delete_rigs` — on rigs built in an earlier session too.
+A shadow that no longer moves (its links broken on purpose) becomes a plain textured plane
+with :meth:`ShadowRig.detach_planes` -- one unlit material and one PNG, nothing of the rig
+left to export.
 
 **Engine hand-off.** ``refresh_export_metadata`` publishes a ``shadow_metadata`` JSON channel
 onto the shared ``data_export`` carrier (``btk.DataNodes``) at authoring time
@@ -909,7 +915,9 @@ class ShadowRig(ptk.LoggingMixin):
         ``bpy.data.images`` datablock *name*, and return the datablock.
 
         An existing image of a different size cannot be resized in place, so
-        it is removed and recreated; a read-only dir / locked file warns and
+        a new datablock takes over its users (the rig's image node) before it
+        is removed -- removed bare, a Recalculate at a new size left the plane
+        sampling NO image; a read-only dir / locked file warns and
         keeps the in-memory datablock. Blender's pixel buffer runs BOTTOM-up:
         ``flip=False`` lays row 0 of *arr* on the image's ``V = 0`` edge (the
         silhouette's light-side edge), ``flip=True`` writes *arr* top-down so
@@ -927,8 +935,12 @@ class ShadowRig(ptk.LoggingMixin):
         h, w = int(arr.shape[0]), int(arr.shape[1])
         img = bpy.data.images.get(name)
         if img is not None and tuple(img.size) != (w, h):
-            bpy.data.images.remove(img)  # resolution changed — no in-place resize
-            img = None
+            # Resolution changed -- no in-place resize: the new datablock takes
+            # every user first, then the old name.
+            old, img = img, bpy.data.images.new(name, w, h, alpha=True)
+            old.user_remap(img)
+            bpy.data.images.remove(old)
+            img.name = name
         if img is None:
             img = bpy.data.images.new(name, w, h, alpha=True)
         # BEFORE the pixel write — the transform is applied on assignment.
@@ -992,16 +1004,18 @@ class ShadowRig(ptk.LoggingMixin):
     # ------------------------------------------------------------------ material (unlit transparent)
     def create_material(self):
         """Unlit black Emission mixed with a Transparent BSDF by ``tex.alpha × opacity`` (opacity a
-        driven Value node). Reused by name so a preview refresh / rebuild doesn't orphan materials."""
+        driven Value node), plus the exporters' inactive output (:meth:`_add_export_output`).
+        Reused by name so a preview refresh / rebuild doesn't orphan materials."""
         import bpy
 
         if self.image is None:
             raise ValueError("Texture not created yet")
 
+        from blendertk.mat_utils._mat_utils import MatUtils
+
         mat_name = f"{self._base}_shadow_mat"
         mat = bpy.data.materials.get(mat_name) or bpy.data.materials.new(mat_name)
-        mat.use_nodes = True
-        nt = mat.node_tree
+        nt = MatUtils.get_node_tree(mat, create=True)
         nt.nodes.clear()
 
         out = nt.nodes.new("ShaderNodeOutputMaterial")
@@ -1024,6 +1038,7 @@ class ShadowRig(ptk.LoggingMixin):
         nt.links.new(transp.outputs[0], mix.inputs[1])
         nt.links.new(emis.outputs[0], mix.inputs[2])
         nt.links.new(mix.outputs[0], out.inputs["Surface"])
+        self._add_export_output(nt, tex, out)
 
         # Legacy-EEVEE transparency knobs; EEVEE-Next (Blender 4.2+) dropped them (alpha is
         # socket-driven via the Transparent/Mix graph), so guard rather than require.
@@ -1037,6 +1052,35 @@ class ShadowRig(ptk.LoggingMixin):
         self.shadow_plane.data.materials.append(mat)
         self.material = mat
         return mat
+
+    @staticmethod
+    def _add_export_output(nt, tex, active):
+        """Give a shadow material the exporters' view of its silhouette.
+
+        A Principled BSDF fed *tex*'s colour and alpha, on a second output that
+        stays INACTIVE beside *active*, the one Blender renders: the FBX
+        exporter and ``MatManifest`` find a material's textures through a
+        Principled BSDF only, and without one the FBX carried a bare material
+        and the GLB a 0.8-grey quad at the fade's alpha, no silhouette
+        (measured 2026-10-16). It reads the render's own image node, never a
+        copy, so a re-render or an atlas rebind reaches the export as well. The
+        fade is not wired here: the scene sidecar reads it off the active mix
+        (``SceneState._opacity_factor``). Shared by the live rig
+        (:meth:`create_material`) and a detached plane
+        (:meth:`_assign_unlit_texture`).
+
+        Returns:
+            The Principled BSDF node.
+        """
+        bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+        nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+        nt.links.new(tex.outputs["Alpha"], bsdf.inputs["Alpha"])
+        export = nt.nodes.new("ShaderNodeOutputMaterial")
+        export.name = export.label = "Export Output"
+        nt.links.new(bsdf.outputs[0], export.inputs["Surface"])
+        active.is_active_output = True
+        export.is_active_output = False
+        return bsdf
 
     # ------------------------------------------------------------------ drivers
     def setup_drivers(self):
@@ -1613,6 +1657,362 @@ class ShadowRig(ptk.LoggingMixin):
             cls.refresh_export_metadata()
         return deleted
 
+    @classmethod
+    def plane_materials(cls, planes=None):
+        """The materials shadow *planes* wear (every plane when None), once each.
+
+        What an exporter asks to shade unlit (``SceneState._read_unlit``). The
+        Live Horizon Preview draws over a plane without touching its slots, so
+        they ARE the real material (mayatk looks through its stand-in).
+        """
+        found = {}
+        for plane in cls.find_shadow_planes(planes):
+            for mat in getattr(plane.data, "materials", None) or []:
+                if mat is not None:
+                    found.setdefault(mat.name, mat)
+        return list(found.values())
+
+    @classmethod
+    def set_intensity(cls, planes, value):
+        """Overall darkness of *planes*' shadows, 0-1: the ``shadowIntensity``
+        dial (the record's ``intensity``). Mirror of mayatk's.
+
+        A live rig's material driver multiplies it into the fade. A plane the
+        drivers no longer drive -- baked to keys, or its links broken on
+        purpose -- carries its fade (the ``opacity`` prop) itself, already
+        holding the old intensity, so that fade is rescaled by new / old: its
+        shape kept, the dial meaning the same everywhere (Unity and the viewer
+        take the exported opacity as the intensity already applied).
+
+        Parameters:
+            planes: Shadow plane object(s)/name(s), or anything that resolves
+                one (:meth:`find_shadow_planes`).
+            value: The new intensity, clamped to 0-1.
+
+        Returns:
+            The planes changed.
+        """
+        value = min(1.0, max(0.0, float(value)))
+
+        def rescale(plane, old, how, curves):
+            if how == "keys":
+                ratio = value / old if old > 1e-6 else None
+                for fc in curves:
+                    # Nothing left to scale from zero: the dial is the fade.
+                    cls._remap_key_values(
+                        fc, (lambda v: v * ratio) if ratio is not None else None, value
+                    )
+            elif how is None:
+                current = float(plane.get(cls.OPACITY_ATTR, 1.0))
+                plane[cls.OPACITY_ATTR] = (
+                    min(1.0, current * value / old) if old > 1e-6 else value
+                )
+
+        return cls._retune(
+            planes,
+            "shadowIntensity",
+            value,
+            (f'["{cls.OPACITY_ATTR}"]', 0),
+            rescale,
+            "Shadow Intensity",
+        )
+
+    @classmethod
+    def set_ground_height(cls, planes, value):
+        """World height of the floor under *planes*: the ``groundHeight`` stamp
+        (the record's ``ground``) the live drivers lay the plane on, plus
+        :attr:`GROUND_OFFSET` -- for a floor that is not at 0. Mirror of
+        mayatk's (its ``translateY`` is Blender's up channel, ``location[2]``).
+
+        A plane the drivers no longer drive is laid on it too: a held
+        ``location[2]`` is set to the floor plus the offset, as the live
+        driver writes it (the stamp may be stale on a plane moved by hand);
+        keyed ones shift by the difference (they were baked from the old
+        stamp).
+
+        Parameters:
+            planes: Shadow plane object(s)/name(s), or anything that resolves
+                one (:meth:`find_shadow_planes`).
+            value: The floor's new height (world units, Blender's Z).
+
+        Returns:
+            The planes changed.
+        """
+        value = float(value)
+
+        def move(plane, old, how, curves):
+            if how == "keys":
+                for fc in curves:
+                    cls._remap_key_values(fc, lambda v: v + value - old)
+            elif how is None:
+                plane.location[2] = value + cls.GROUND_OFFSET
+
+        return cls._retune(
+            planes,
+            "groundHeight",
+            value,
+            ("location", 2),
+            move,
+            "Shadow Ground Height",
+        )
+
+    @classmethod
+    def _retune(cls, planes, stamp, value, channel, carry, label):
+        """Set *stamp* to *value* on every shadow plane in *planes*, and hand
+        what a live driver would have done with it to ``carry(plane, old, how,
+        curves)`` -- *how* is ``"driven"`` (a driver owns *channel*, a
+        ``(data_path, index)``, and reads the stamp itself; it outranks any
+        keys), ``"keys"`` (fcurves of the plane's action do: *curves*) or None
+        (it holds a value of its own). One undo step; republishes the export
+        record."""
+        import blendertk as btk
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        data_path, index = channel
+        changed = []
+        with CoreUtils.undo_chunk(label):
+            for plane in cls.find_shadow_planes(planes):
+                if plane.get(stamp) is None:
+                    continue
+                old = float(plane[stamp])
+                plane[stamp] = value
+                ad = plane.animation_data
+                curves = []
+                if ad is not None and any(
+                    d.data_path == data_path and d.array_index == index
+                    for d in ad.drivers
+                ):
+                    how = "driven"
+                else:
+                    curves = [
+                        fc
+                        for fc in btk.AnimUtils.get_fcurves([plane])
+                        if fc.data_path == data_path and fc.array_index == index
+                    ]
+                    how = "keys" if curves else None
+                carry(plane, old, how, curves)
+                plane.update_tag()
+                changed.append(plane)
+            if changed:
+                cls.refresh_export_metadata()
+        return changed
+
+    @staticmethod
+    def _remap_key_values(fc, fn, constant=None):
+        """Map every key value of *fc* (and both its handles, so the curve's
+        shape rides along) through *fn*; with *fn* None, set them all to
+        *constant* (handles flat)."""
+        n = len(fc.keyframe_points)
+        if not n:
+            return
+        for prop in ("co", "handle_left", "handle_right"):
+            values = [0.0] * (2 * n)
+            fc.keyframe_points.foreach_get(prop, values)
+            values[1::2] = [fn(v) if fn is not None else constant for v in values[1::2]]
+            fc.keyframe_points.foreach_set(prop, values)
+        fc.update()
+
+    @classmethod
+    def _rig_attr_names(cls):
+        """Every custom property the rig stamps on a plane (or its group), by name."""
+        from blendertk.rig_utils.shadow_rig.shadow_preview import ShadowPreview
+
+        names = set(cls._PLANE_VARS.values()) | {
+            "basePlaneSize",
+            "objectHeight",
+            "footprintRadius",
+            "sourceSize",
+            ShadowPreview.HIDDEN_PROP,
+        }
+        for key, value in vars(cls).items():
+            if key.endswith(("_ATTR", "_PROP")) and isinstance(value, str):
+                names.add(value)
+            elif key.endswith(("_ATTRS", "_PROPS")) and isinstance(value, tuple):
+                names.update(v for v in value if isinstance(v, str))
+        return names
+
+    @staticmethod
+    def _remove_fcurves(obj, data_path):
+        """Delete the keyed curves on *data_path* from the action animating *obj*.
+
+        Through the slot that animates it (``AnimUtils.get_fcurves``): another
+        ID's curves in a shared action are never touched.
+        """
+        import blendertk as btk  # bound late: anim_utils ranks above rig_utils
+
+        anim = btk.AnimUtils
+        action, slot = anim._animating(getattr(obj, "animation_data", None))
+        if action is None:
+            return
+        for fc in [f for f in anim.get_fcurves([obj]) if f.data_path == data_path]:
+            anim._remove_fcurve(action, slot, fc)
+
+    @classmethod
+    def detach_planes(cls, planes=None, suffix="_plane"):
+        """Turn shadow rig(s) into plain textured planes: no rig, nothing extra.
+
+        For a shadow that stays where it is (a static prop's, its links broken
+        on purpose): what exports is a quad, one unlit material and one PNG.
+        Mirror of mayatk's. Per plane --
+
+        * the silhouette is written to ``<silhouette><suffix>.png`` beside it
+          with the plane's CURRENT fade (``opacity``) multiplied into its
+          alpha -- the one value the rig's material computed per frame;
+        * the material becomes Blender's unlit model (:meth:`_assign_unlit_texture`:
+          an Emission shader mixed with a Transparent BSDF by that PNG's
+          alpha), which the GLB writes ``KHR_materials_unlit``
+          (``SceneState._read_unlit``) and the FBX carries as a plain
+          textured material;
+        * the drivers, the contact empty and the old material go, and so does
+          every custom property the rig stamped (on the plane, and the driven
+          intermediates on its group) -- the plane is no longer a shadow
+          plane, so no tool re-places, re-renders or exports it as one.
+
+        The plane keeps its world transform where the rig left it, and its
+        group (the parent its keys are in); any keys on its transform channels
+        stay, and the opacity keys go with the fade. An atlased plane is
+        unpacked first, so its UVs span its own PNG. One undo step; the
+        ``shadow_metadata`` channel is republished after.
+
+        Parameters:
+            planes: Shadow plane object(s)/name(s), or anything that resolves
+                one (:meth:`find_shadow_planes`); ``None`` detaches every rig.
+            suffix: Appended to the silhouette's file stem for the new PNG.
+
+        Returns:
+            ``{plane name: png path}`` for each plane detached.
+        """
+        import bpy
+        import numpy as np
+
+        from blendertk.core_utils._core_utils import CoreUtils
+        from blendertk.rig_utils.shadow_rig.shadow_preview import ShadowPreview
+
+        planes = [
+            p
+            for p in cls.find_shadow_planes(planes)
+            if not (p.library or p.override_library)
+        ]
+        done = {}
+        if not planes:
+            return done
+        with CoreUtils.undo_chunk("Detach Shadow Planes"):
+            atlased = [p for p in planes if cls.plane_is_atlased(p)]
+            if atlased:
+                cls.unpack_atlas(atlased)
+            bpy.context.view_layer.update()
+            depsgraph = CoreUtils._evaluated_depsgraph()
+            for plane in planes:
+                if ShadowPreview.is_attached(plane):
+                    ShadowPreview.detach(plane)
+                source = cls._plane_texture_path(plane)
+                pixels = (
+                    cls._read_png(source) if source and os.path.isfile(source) else None
+                )
+                if pixels is None:
+                    cls.logger.warning(
+                        f"Not detached: {plane.name} has no silhouette on disk "
+                        f"({source or 'no image node'})."
+                    )
+                    continue
+                evaluated = plane.evaluated_get(depsgraph)
+                fade = float(evaluated.get(cls.OPACITY_ATTR, 1.0))
+                world = evaluated.matrix_world.copy()
+                rgba = np.array(pixels, dtype=np.float32)
+                rgba[..., 3] = np.rint(rgba[..., 3] * max(0.0, min(1.0, fade)))
+                stem, _ext = os.path.splitext(source)
+                path = f"{stem}{suffix}.png"
+                image = cls._save_image(
+                    os.path.basename(stem) + suffix,
+                    rgba.astype(np.uint8),
+                    path,
+                    flip=True,  # _read_png reads the top row first
+                )
+
+                cls._strip_drivers(plane)
+                cls._remove_fcurves(plane, f'["{cls.OPACITY_ATTR}"]')
+                contact = cls._plane_contact(plane)
+                old = list(dict.fromkeys(m for m in plane.data.materials if m))
+                names = cls._rig_attr_names()
+                for name in names:
+                    if name in plane:
+                        del plane[name]
+                group = plane.parent
+                if group is not None and group.name.endswith("_shadow_grp"):
+                    for name in names:
+                        if name in group:
+                            del group[name]
+                try:
+                    if isinstance(contact, bpy.types.Object) and contact != plane:
+                        bpy.data.objects.remove(contact, do_unlink=True)
+                except (ReferenceError, RuntimeError):
+                    pass  # already gone (dead pointer)
+                cls._assign_unlit_texture(plane, image)
+                for mat in old:
+                    node = (
+                        mat.node_tree.nodes.get("shadow_tex") if mat.node_tree else None
+                    )
+                    img = getattr(node, "image", None) if node is not None else None
+                    if mat.users == 0:
+                        bpy.data.materials.remove(mat)
+                    if img is not None and img != image and img.users == 0:
+                        bpy.data.images.remove(img)
+                # The drivers placed it; nothing does now. Where it stood.
+                plane.matrix_world = world
+                done[plane.name] = path
+            if done:
+                cls.refresh_export_metadata()
+        if done:
+            cls.logger.info(
+                f"Detached {len(done)} shadow plane(s) to textured planes: "
+                + ", ".join(done)
+            )
+        return done
+
+    @classmethod
+    def _assign_unlit_texture(cls, plane, image):
+        """Give *plane* a fresh unlit material showing *image* (colour + alpha).
+
+        Blender's unlit model on the ACTIVE output -- an Emission shader
+        (strength 1, the texture's colour) mixed with a Transparent BSDF by the
+        texture's alpha: what Blender renders and ``SceneState._read_unlit``
+        reads unlit. Beside it, the exporters' inactive output
+        (:meth:`_add_export_output`): without it the FBX carried a bare
+        material and the PNG never reached the GLB.
+        """
+        import bpy
+
+        from blendertk.mat_utils._mat_utils import MatUtils
+
+        name = f"{plane.name}_mat"
+        mat = bpy.data.materials.new(name)
+        nt = MatUtils.get_node_tree(mat, create=True)
+        nt.nodes.clear()
+        tex = nt.nodes.new("ShaderNodeTexImage")
+        tex.name = "plane_tex"
+        tex.image = image
+        emis = nt.nodes.new("ShaderNodeEmission")
+        emis.inputs["Strength"].default_value = 1.0
+        transp = nt.nodes.new("ShaderNodeBsdfTransparent")
+        mix = nt.nodes.new("ShaderNodeMixShader")
+        out = nt.nodes.new("ShaderNodeOutputMaterial")
+        nt.links.new(tex.outputs["Color"], emis.inputs["Color"])
+        nt.links.new(tex.outputs["Alpha"], mix.inputs["Fac"])
+        nt.links.new(transp.outputs[0], mix.inputs[1])
+        nt.links.new(emis.outputs[0], mix.inputs[2])
+        nt.links.new(mix.outputs[0], out.inputs["Surface"])
+        cls._add_export_output(nt, tex, out)
+        # Legacy-EEVEE transparency knobs (as create_material's); EEVEE-Next
+        # reads the Transparent/Mix graph, so guard rather than require.
+        for attr, val in (("blend_method", "BLEND"), ("shadow_method", "NONE")):
+            try:
+                setattr(mat, attr, val)
+            except (AttributeError, TypeError):
+                pass
+        plane.data.materials.clear()
+        plane.data.materials.append(mat)
+        return mat
+
     # ------------------------------------------------------------------ export metadata
     @staticmethod
     def _plane_texture_image(plane):
@@ -2141,15 +2541,15 @@ class ShadowRig(ptk.LoggingMixin):
 
     @staticmethod
     def unit_scale():
-        """Metres per scene linear unit (the record's ``unit_scale``): an
-        engine that imported in metres multiplies the record's lengths.
-        Blender's ``unit_settings.scale_length`` IS that number (1.0 in a
-        default file, where one Blender unit is one metre)."""
-        import bpy
+        """Metres per Blender unit (the record's ``unit_scale``), read when the
+        record is produced: the stamps are Blender units, the units the FBX
+        write ships the geometry in, so an engine that imported in metres
+        multiplies the record's lengths by what it scaled the geometry by.
+        ``btk.Units.metres_per`` -- the scene's ``scale_length``, 1 under a
+        unit system of None, as the writer reads it."""
+        from blendertk.core_utils.units import Units
 
-        scene = bpy.context.scene
-        scale = getattr(getattr(scene, "unit_settings", None), "scale_length", 1.0)
-        return float(scale or 1.0)
+        return Units.metres_per("internal")
 
     @classmethod
     def _plane_prop(cls, plane, name, default=None):

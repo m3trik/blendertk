@@ -73,7 +73,8 @@ class _ControlsInternal(object):
         return [(b, True), (t, True), *verticals]
 
     @staticmethod
-    def _sphere(segments: int = 24) -> List[Polyline]:
+    def _target(segments: int = 24) -> List[Polyline]:
+        """Three orthogonal circles (a gimbal) -- mayatk's ``target``."""
         import math
 
         rings = []
@@ -87,6 +88,58 @@ class _ControlsInternal(object):
                 )
             rings.append((ring, True))
         return rings
+
+    @staticmethod
+    def _ball() -> List[Polyline]:
+        """An icosahedron's 30 edges -- mayatk's ``ball`` (and ``sphere``)."""
+        phi = (1.0 + 5.0**0.5) / 2.0
+        scale = 1.0 / (1.0 + phi**2) ** 0.5
+        verts = [
+            (0, 1, phi),
+            (0, -1, phi),
+            (0, 1, -phi),
+            (0, -1, -phi),
+            (1, phi, 0),
+            (-1, phi, 0),
+            (1, -phi, 0),
+            (-1, -phi, 0),
+            (phi, 0, 1),
+            (-phi, 0, 1),
+            (phi, 0, -1),
+            (-phi, 0, -1),
+        ]
+        verts = [(x * scale, y * scale, z * scale) for x, y, z in verts]
+        # Every pair at the edge length (2 before the scale) is an edge.
+        edges = [
+            (i, j)
+            for i in range(12)
+            for j in range(i + 1, 12)
+            if abs(sum((a - b) ** 2 for a, b in zip(verts[i], verts[j])) - 4 * scale**2)
+            < 1e-9
+        ]
+        return [([verts[i], verts[j]], False) for i, j in edges]
+
+    @staticmethod
+    def _two_way_arrow() -> List[Polyline]:
+        """A two-way arrow along X with depth -- mayatk's ``two_way_arrow`` (its
+        outline in the XY plane here, the depth along +Z, the canonical normal)."""
+        outline = [
+            (-1.6, 0.0),
+            (-1.1, 0.55),
+            (-1.1, 0.22),
+            (1.1, 0.22),
+            (1.1, 0.55),
+            (1.6, 0.0),
+            (1.1, -0.55),
+            (1.1, -0.22),
+            (-1.1, -0.22),
+            (-1.1, -0.55),
+        ]
+        d = 0.12
+        top = [(x, y, d) for x, y in outline]
+        bottom = [(x, y, -d) for x, y in outline]
+        struts = [([top[i], bottom[i]], False) for i in (0, 1, 4, 5, 6, 9)]
+        return [(top, True), (bottom, True), *struts]
 
     @staticmethod
     def _arrow() -> List[Polyline]:
@@ -121,8 +174,11 @@ class Controls(_ControlsInternal):
         "diamond": _ControlsInternal._diamond,
         "cube": _ControlsInternal._cube,
         "box": _ControlsInternal._cube,  # alias (mayatk's "box")
-        "sphere": _ControlsInternal._sphere,
-        "ball": _ControlsInternal._sphere,  # alias (mayatk's "ball")
+        # mayatk's: ``sphere`` and ``ball`` the icosahedron, ``target`` three rings.
+        "sphere": _ControlsInternal._ball,
+        "ball": _ControlsInternal._ball,
+        "target": _ControlsInternal._target,
+        "two_way_arrow": _ControlsInternal._two_way_arrow,
         "arrow": _ControlsInternal._arrow,
     }
 

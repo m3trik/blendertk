@@ -48,6 +48,12 @@ import pythontk as ptk  # noqa: E402 -- after the sibling paths above
 # %LOCALAPPDATA%/uitk store (pythontk.core_utils.user_config.user_config_root honors this).
 _PRESETS_ROOT = tempfile.mkdtemp(prefix="btk_scnexp_presets_")
 os.environ["UITK_PRESETS_ROOT"] = _PRESETS_ROOT
+# Likewise the per-user cache the run logs land in, when the runner's sandbox
+# has not already redirected it.
+_CACHE_ROOT = None
+if not os.environ.get("PYTHONTK_CACHE_ROOT"):
+    _CACHE_ROOT = tempfile.mkdtemp(prefix="btk_scnexp_cache_")
+    os.environ["PYTHONTK_CACHE_ROOT"] = _CACHE_ROOT
 
 lines = []
 
@@ -60,6 +66,7 @@ def check(name, cond, detail=""):
 
 try:
     import bpy
+    from blendertk.mat_utils._mat_utils import MatUtils
     from blendertk.env_utils.scene_exporter._scene_exporter import (
         SceneExporter,
         _DEFAULT_FBX_OPTIONS,
@@ -72,22 +79,76 @@ try:
 
     tmp = tempfile.mkdtemp(prefix="btk_scnexp_")
 
-    # ---- hide_log_file: a dot-prefixed name off Windows (the attribute on Windows) ---------
+    # ---- run log: ONE per .blend in the user cache, never one per export beside it ---------
+    # (mirror of mayatk; ptk.SceneExporterBase.log_file_path / RunLog)
+    import logging as _std_logging
+    import warnings as _warnings
     from unittest.mock import patch as _patch
 
-    _exp = SceneExporter.__new__(SceneExporter)
-    _exp.export_dir = tmp
-    for _os_name, _hide, _want in (
-        ("nt", True, "hero.log"),  # Windows hides it with the file attribute
-        ("posix", True, ".hero.log"),
-        ("posix", False, "hero.log"),
+    _exp = SceneExporter()
+    _exp._saved_scene_path = lambda: os.path.join(tmp, "shot1", "hero.blend")
+    _log = _exp.log_file_path()
+    check(
+        "the run log is the .blend's, in the user cache",
+        os.path.basename(_log).startswith("hero_")
+        and _log.endswith(".log")
+        and os.path.dirname(_log) != tmp,
+        _log,
+    )
+    _exp._saved_scene_path = lambda: os.path.join(tmp, "shot2", "hero.blend")
+    check(
+        "a same-named .blend elsewhere keeps its own log", _exp.log_file_path() != _log
+    )
+
+    # REGRESSION (2026-10-13): the log opened before the FBX preset loaded and the
+    # export set resolved, and both exits there skipped the finally that closes
+    # it -- the file stayed locked on Windows until the next run (mayatk fixed
+    # its copy 2026-09-15).
+    def _file_handlers(exp):
+        return [
+            h for h in exp.logger.handlers if isinstance(h, _std_logging.FileHandler)
+        ]
+
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    _cube = bpy.context.active_object
+    _abort_dir = os.path.join(tmp, "abort")
+    os.makedirs(_abort_dir, exist_ok=True)
+    _exp = SceneExporter()
+    with _patch.object(_exp, "_initialize_objects", return_value=[]):
+        _r = _exp.perform_export(
+            export_dir=_abort_dir, objects=[_cube], create_log_file=True
+        )
+    check("an empty export set returns False", _r is False, _r)
+    check("an empty export set closes the run log", not _file_handlers(_exp))
+    _raised = False
+    with _patch.object(
+        _exp, "load_fbx_export_preset", side_effect=RuntimeError("bad preset")
     ):
-        _exp.hide_log_file = _hide
-        with _patch.object(os, "name", _os_name):
-            _got = os.path.basename(
-                _exp.generate_log_file_path(os.path.join(tmp, "hero.fbx"))
+        try:
+            _exp.perform_export(
+                export_dir=_abort_dir,
+                objects=[_cube],
+                preset_name="bad",
+                create_log_file=True,
             )
-        check(f"log name on {_os_name}, hide={_hide}", _got == _want, _got)
+        except RuntimeError:
+            _raised = True
+    check("a preset that will not load raises", _raised)
+    check("a preset that will not load closes the run log", not _file_handlers(_exp))
+    _exp.close_file_handlers()
+    check(
+        "no log lands beside the export",
+        not [f for f in os.listdir(_abort_dir) if f.endswith(".log")],
+        os.listdir(_abort_dir),
+    )
+    with _warnings.catch_warnings(record=True) as _caught:
+        _warnings.simplefilter("always")
+        _exp.perform_export(export_dir=os.path.join(tmp, "missing"), hide_log_file=True)
+    check(
+        "hide_log_file is retired (warns)",
+        any(issubclass(w.category, DeprecationWarning) for w in _caught),
+    )
 
     # ---- store identity: the FBX tier must NOT be the window-template dir ------------------
     # REGRESSION (2026-08-19): PRESET_NAME was "scene_exporter", which resolved the user
@@ -429,14 +490,14 @@ try:
     from blendertk.env_utils.fbx_utils import FbxUtils as _StageFbxUtils
 
     _seen_stage = {}
-    _real_embed = _StageFbxUtils.embed_dependencies
+    _real_finish = _StageFbxUtils.finish_deliverable
 
-    def _spy_embed(path, *a, **k):
-        _seen_stage["embed"] = path
-        return _real_embed(path, *a, **k)
+    def _spy_finish(path, *a, **k):
+        _seen_stage["finish"] = path
+        return _real_finish(path, *a, **k)
 
     with _stage_mock.patch.object(
-        _StageFbxUtils, "embed_dependencies", staticmethod(_spy_embed)
+        _StageFbxUtils, "finish_deliverable", staticmethod(_spy_finish)
     ):
         staged_ok = SceneExporter().perform_export(
             export_dir=out_dir,
@@ -448,8 +509,8 @@ try:
         "the FBX is finished away from the output folder and delivered once",
         staged_ok is True
         and os.path.isfile(os.path.join(out_dir, "staged_test.fbx"))
-        and "embed" in _seen_stage
-        and os.path.normcase(os.path.dirname(os.path.abspath(_seen_stage["embed"])))
+        and "finish" in _seen_stage
+        and os.path.normcase(os.path.dirname(os.path.abspath(_seen_stage["finish"])))
         != os.path.normcase(os.path.abspath(out_dir))
         and not [n for n in os.listdir(out_dir) if n.endswith(".part")],
         f"ok={staged_ok} seen={_seen_stage}",
@@ -1296,7 +1357,7 @@ try:
     tex_cube = bpy.context.active_object
     tex_cube.name = "PathScopeCube"
     mat = bpy.data.materials.new("PathScopeMat")
-    mat.use_nodes = True
+    MatUtils.get_node_tree(mat, create=True)
     tex_node = mat.node_tree.nodes.new("ShaderNodeTexImage")
     tex_node.image = bpy.data.images.load(good_tex)
     tex_cube.data.materials.append(mat)
@@ -1756,7 +1817,7 @@ try:
     pu_cube = bpy.context.active_object
     pu_cube.name = "PackedUdimCube"
     pu_mat = bpy.data.materials.new("PackedUdimMat")
-    pu_mat.use_nodes = True
+    MatUtils.get_node_tree(pu_mat, create=True)
     pu_cube.data.materials.append(pu_mat)
 
     # A real PNG on disk, loaded then PACKED, then its disk copy deleted and the stored
@@ -2076,6 +2137,11 @@ try:
 
     exp9 = SceneExporter()
     exp9.task_manager.create_glb = _fake_glb
+    import io as _io
+
+    _panel_text = _io.StringIO()
+    _panel = _std_logging.StreamHandler(_panel_text)
+    exp9.logger.addHandler(_panel)
     result = exp9.perform_export(
         export_dir=glb_dir,
         objects=[gcube],
@@ -2096,6 +2162,37 @@ try:
             or set()
         ),
     )
+    exp9.logger.removeHandler(_panel)
+    # The run's last line opens the shipped GLB in the WebXR preview, through
+    # the panel's dispatcher (mirror of mayatk's). Added: 2026-10-14
+    import html as _html
+    import re
+    from types import SimpleNamespace as _NS
+    from unittest import mock as _mock
+    from urllib.parse import urlsplit as _urlsplit
+
+    from blendertk.env_utils.webxr_preview import WebXrPreview as _WebXr
+    from blendertk.ui_utils._ui_utils import UiUtils as _UiUtils
+
+    _last = _panel_text.getvalue().strip().splitlines()[-1]
+    _href = re.search(r'href="(action://preview[^"]+)"', _last)
+    check("a GLB export ends with an Open in WebXR link", _href is not None, _last)
+    if _href:
+        _parts = _urlsplit(_html.unescape(_href.group(1)))
+        _url = _NS(
+            scheme=lambda: _parts.scheme,
+            host=lambda: _parts.netloc,
+            query=lambda: _parts.query,
+        )
+        with _mock.patch.object(_WebXr, "preview_file", return_value=True) as _shown:
+            _handled = _UiUtils.dispatch_log_link(_url)
+        check(
+            "clicking it shows that GLB in the WebXR preview",
+            _handled
+            and os.path.normcase(_shown.call_args.args[0])
+            == os.path.normcase(os.path.join(glb_dir, "glb_order_ok.glb")),
+            f"{_shown.call_args}",
+        )
 
     # ---- FBX+GLB: the sidecar must be the LAST step ------------------------------------
     # glb-only ordering is covered above; this is the mode that was actually wrong -- the
@@ -2327,6 +2424,45 @@ try:
         == [os.path.join(tmp, "ow.fbx"), os.path.join(tmp, "ow.glb")],
         f"{_ow_tm._deliverable_paths()}",
     )
+    # REGRESSION (2026-10-19): only a held FILE failed the check, so an existing
+    # folder this user cannot write to passed it and the run failed at the write.
+    # A real ACL denial (a folder's read-only attribute stops no write on
+    # Windows), lifted before the folder goes. Mirror of mayatk's
+    # test_fails_when_the_destination_folder_is_not_writable.
+    if os.name == "nt":
+        import getpass as _getpass
+        import subprocess as _subprocess
+
+        _deny_dir = tempfile.mkdtemp(prefix="btk_scnexp_denied_")
+        _deny_user = _getpass.getuser()
+        _denied = (
+            _subprocess.run(
+                ["icacls", _deny_dir, "/deny", f"{_deny_user}:(W)"],
+                capture_output=True,
+            ).returncode
+            == 0
+        )
+        try:
+            _ow_tm.begin_run(
+                ptk.ExportRun(
+                    export_path=os.path.join(_deny_dir, "ow.fbx"),
+                    output_format="fbx_glb",
+                )
+            )
+            _dn_status, _dn_msgs = _ow_tm.check_output_writable()
+        finally:
+            _subprocess.run(
+                ["icacls", _deny_dir, "/remove:d", _deny_user], capture_output=True
+            )
+            shutil.rmtree(_deny_dir, ignore_errors=True)
+        check(
+            "check_output_writable fails on a folder this user cannot write",
+            _denied
+            and not _dn_status
+            and any("the folder is not writable" in m for m in _dn_msgs)
+            and any("ow.glb" in m for m in _dn_msgs),
+            f"denied={_denied} {_dn_msgs}",
+        )
 
     # ---- _live_objects: a removed datablock never poisons a bulk read -----------------
     _lo_tm = SceneExporter().task_manager
@@ -2345,14 +2481,14 @@ try:
     # ---- exclude_hdr: a real filter (was a documented no-op) --------------------------
     _hdr_tm = SceneExporter().task_manager
     _hdr_light_data = bpy.data.lights.new("HdrSun", type="SUN")
-    _hdr_light_data.use_nodes = True
+    MatUtils.get_node_tree(_hdr_light_data, create=True)
     _hdr_light_data.node_tree.nodes.new("ShaderNodeTexEnvironment")
     _hdr_light = bpy.data.objects.new("HdrSun", _hdr_light_data)
     _plain_light = bpy.data.objects.new(
         "PlainSun", bpy.data.lights.new("PlainSun", type="SUN")
     )
     _dome_mat = bpy.data.materials.new("HdrDome")
-    _dome_mat.use_nodes = True
+    MatUtils.get_node_tree(_dome_mat, create=True)
     _dome_mat.node_tree.nodes.new("ShaderNodeTexEnvironment")
     _dome = bpy.data.objects.new("HdrDome", bpy.data.meshes.new("HdrDomeMesh"))
     _dome.data.materials.append(_dome_mat)
@@ -2644,14 +2780,14 @@ try:
     # The WebXR preview offers these rows by the label and table pythontk
     # declares (ExportProfile.GLB_ROWS / the combo tables); a row renamed or
     # re-tabled here without it would leave the two panels naming the same
-    # setting differently, and Baked Reflections starts where the lighting
-    # recipe itself stands. Mirrors mayatk's test. Added: 2026-09-21
+    # setting differently. Baked Reflections retired 2026-10-19: the
+    # deliverable publishes the lighting recipe's own level. Mirrors mayatk's
+    # test. Added: 2026-09-21
     _glb_tables = {
         "texture_file_type": ptk.ExportProfile.texture_file_type_options(),
         "optimize_textures": ptk.ExportProfile.optimize_textures_options(),
         "secondary_max_size": ptk.ExportProfile.SECONDARY_MAX_SIZE_OPTIONS,
         "uastc_rdo": ptk.ExportProfile.UASTC_RDO_OPTIONS,
-        "baked_reflections": ptk.ExportProfile.BAKED_REFLECTIONS_OPTIONS,
     }
     check(
         "the GLB rows are the ones the WebXR preview mirrors",
@@ -2663,12 +2799,51 @@ try:
         ),
         f"{[(row, _tf_defs[row].get('set_row_label')) for row in ptk.ExportProfile.GLB_ROWS]}",
     )
-    _reflections = _tf_defs["baked_reflections"]
+    check("no panel row offers Baked Reflections", "baked_reflections" not in _tf_defs)
+    # A fix and its check were two rows for one concern: the panel offers the
+    # fix alone, default on as the check was, and the export button arms the
+    # check after it. Mirrors mayatk's test. Added: 2026-10-19
+    _fix_tm = SceneExporter().task_manager
+    _fixes = {
+        fix: check_name
+        for fix, check_name in ptk.ExportProfile.VERIFYING_CHECKS.items()
+        if fix in _fix_tm.task_definitions
+        and fix not in ("convert_textures", "optimize_textures")
+    }
+    _fix_tasks = ptk.ExportProfile.run_config(
+        {
+            ptk.ExportProfile.widget_key(fix, _fix_tm.task_definitions[fix]): True
+            for fix in _fixes
+        },
+        _fix_tm.task_definitions,
+        _fix_tm.check_definitions,
+    )["tasks"]
     check(
-        "Baked Reflections starts at the lighting recipe's own level",
-        list(_reflections["add"].values())[_reflections["setCurrentIndex"]]
-        == ptk.ExportProfile.baked_reflections_default(),
-        f"{_reflections.get('setCurrentIndex')}",
+        "each fix row stands in for the check that verifies it",
+        set(_fixes)
+        == {"reassign_duplicate_materials", "snap_keys_to_frame", "tie_all_keyframes"}
+        and all(
+            check_name not in _fix_tm.check_definitions
+            and callable(getattr(_fix_tm, check_name, None))
+            and _fix_tm.task_definitions[fix]["setChecked"] is True
+            and _fix_tasks.get(check_name)
+            for fix, check_name in _fixes.items()
+        ),
+        f"{_fixes} -> {sorted(k for k in _fix_tasks if k.startswith('check_'))}",
+    )
+    check(
+        "every panel run makes the writability check, with no row, override or not",
+        "check_output_writable" not in _fix_tm.check_definitions
+        and all(
+            ptk.ExportProfile.run_config(
+                {},
+                _fix_tm.task_definitions,
+                _fix_tm.check_definitions,
+                override_checks=_override,
+            )["tasks"].get("check_output_writable")
+            is True
+            for _override in (False, True)
+        ),
     )
     _tf_options = list(SceneExporter().task_manager._texture_file_type_options.items())
     check(
@@ -2783,12 +2958,32 @@ try:
         def wire_combo(self, widget, placeholder=None):
             _events.append(("wire_combo", widget))
 
+        def read(self, name):
+            # The released default for the pair retired 2026-10-19: the check
+            # row on, its fix off.
+            return {"snap_keys_to_frame": False, "check_floating_point_keys": True}
+
     class _UIStub:
         presets = _PresetMgrStub()
 
+    class _PresetComboStub:
+        """cmb007: ``cmb007_init`` wires ``activated``; emit is a user's pick."""
+
+        def __init__(self):
+            self.picked = []
+
+        @property
+        def activated(self):
+            return _NS(connect=self.picked.append)
+
+        def itemText(self, index):
+            return "Released"
+
     _sl = _Slots.__new__(_Slots)
     _sl.ui = _UIStub()
-    _sl.cmb007_init(object())
+    _sl.task_manager = SceneExporter().task_manager
+    _combo = _PresetComboStub()
+    _sl.cmb007_init(_combo)
     _kinds = [k for k, _ in _events]
     check(
         "cmb007_init adopts the panel logger on the preset manager before wire_combo",
@@ -2796,6 +2991,158 @@ try:
         and _kinds.index("use_logger") < _kinds.index("wire_combo")
         and _events[_kinds.index("use_logger")][1] is _Slots.logger,
         f"{_kinds}",
+    )
+    # A preset picked that asks for a check row retired 2026-10-19 says so
+    # (mirror of mayatk's test_a_preset_asking_for_a_retired_naming_row_says_so).
+    _said = []
+
+    class _SaidLog(_std_logging.Handler):
+        def emit(self, record):
+            _said.append(record.getMessage())
+
+    _said_handler = _SaidLog(level=_std_logging.WARNING)
+    _sl.logger.addHandler(_said_handler)
+    try:
+        for _slot in _combo.picked:
+            _slot(0)
+    finally:
+        _sl.logger.removeHandler(_said_handler)
+    check(
+        "a picked preset asking for a retired check row names the fix to turn on",
+        any(
+            "'Released'" in m and "Floating Point Keys" in m and "Snap Keys" in m
+            for m in _said
+        ),
+        f"{_said}",
+    )
+
+    # The panel's own saved state outlives the rows retired 2026-10-19 too: a
+    # restore skips a key no widget takes, so Snap Keys To Frame saved off lost
+    # the check its retired row had run, with nothing said. The panel says it
+    # once when it opens (REGRESSION 2026-10-19; mirror of mayatk's
+    # TestRetiredPanelState). A real uitk store only inside the settings
+    # sandbox (it redirects QSettings off the registry); a Blender with no Qt
+    # binding gets a dict with the same surface.
+    class _DictStore:
+        def __init__(self):
+            self.data = {}
+
+        def setValue(self, key, value):
+            self.data[key] = value
+
+        def keys(self):
+            return list(self.data)
+
+        def value(self, key, default=None):
+            return self.data.get(key, default)
+
+        def remove(self, key):
+            for _k in [k for k in self.data if k == key or k.startswith(key + "/")]:
+                del self.data[_k]
+
+        def clear(self):
+            self.data.clear()
+
+    try:
+        from uitk.testing import TestSandbox as _TestSandbox
+
+        if not _TestSandbox.is_active():
+            raise RuntimeError("the uitk settings sandbox is not active")
+        from uitk.managers.settings_manager import SettingsManager as _SettingsManager
+
+        _ps_store = _SettingsManager(namespace="switchboard/test_btk_retired_state")
+        _ps_kind = "sandboxed QSettings"
+    except Exception as _ps_error:  # no Qt binding / no sandbox: never the registry
+        _ps_store, _ps_kind = _DictStore(), f"dict store ({_ps_error!r})"
+    try:
+        _ps_store.setValue("snap_keys_to_frame/toggled", False)
+        _ps_store.setValue("check_floating_point_keys/toggled", True)
+        _ps_store.setValue("baked_reflections/currentIndexChanged", "Quarter")
+        _ps_store.setValue("cmb004/currentIndexChanged", 1)
+        _ps_exp = SceneExporter()
+        _ps_said = []
+
+        class _PsLog(_std_logging.Handler):
+            def emit(self, record):
+                _ps_said.append(record.getMessage())
+
+        _ps_handler = _PsLog(level=_std_logging.INFO)
+        _ps_level = _ps_exp.logger.level
+        _ps_exp.logger.setLevel(_std_logging.INFO)
+        _ps_exp.logger.addHandler(_ps_handler)
+        try:
+            _ps_exp._note_retired_panel_state(_ps_store)
+            _ps_first = list(_ps_said)
+            _ps_exp._note_retired_panel_state(_ps_store)
+            _ps_second = _ps_said[len(_ps_first) :]
+        finally:
+            _ps_exp.logger.removeHandler(_ps_handler)
+            _ps_exp.logger.setLevel(_ps_level)
+        _ps_keys = sorted(_ps_store.keys())
+    finally:
+        _ps_store.clear()
+    check(
+        "the panel's saved state says once what its retired rows no longer do",
+        any("Floating Point Keys (Snap Keys To Frame)" in m for m in _ps_first)
+        and any("Baked Reflections to Quarter" in m for m in _ps_first)
+        and _ps_second == []
+        and _ps_keys == ["cmb004/currentIndexChanged", "snap_keys_to_frame/toggled"],
+        f"{_ps_kind}: {_ps_first} then {_ps_second}; kept {_ps_keys}",
+    )
+    # Wired in __init__, with the window's own settings store.
+    from unittest import mock as _ps_mock
+
+    _ps_sb = _ps_mock.MagicMock()
+    _ps_logger = _Slots.logger
+    _ps_logger_level = _ps_logger.level
+    try:
+        with _ps_mock.patch.object(
+            _Slots, "_note_retired_panel_state", autospec=True
+        ) as _ps_note, _ps_mock.patch.object(
+            _ps_logger, "set_text_handler"
+        ), _ps_mock.patch.object(
+            _ps_logger, "setup_logging_redirect"
+        ), _ps_mock.patch.object(
+            _ps_logger, "hide_logger_name"
+        ):
+            _ps_slots = _Slots(_ps_sb, log_level=_ps_logger_level or "WARNING")
+        _ps_calls = _ps_note.call_args_list
+    finally:
+        _ps_logger.setLevel(_ps_logger_level)
+    check(
+        "the panel says its retired saved state when it opens",
+        _ps_calls
+        == [_ps_mock.call(_ps_slots, _ps_sb.loaded_ui.scene_exporter.settings)],
+        f"{_ps_calls}",
+    )
+    # A saved RegEx field (retired) folds into the Output Filename's SAVED
+    # pattern when the panel opens, through the window's state manager -- so
+    # the restore that follows shows it. REGRESSION 2026-10-19: it was read as
+    # settings.value("txt002"), but the switchboard saves txt002/textChanged,
+    # and a fold set on the widget was overwritten by that restore anyway
+    # (mirror of mayatk's TestRetiredPanelState).
+    _rx_sb = _ps_mock.MagicMock()
+    _rx_ui = _rx_sb.loaded_ui.scene_exporter
+    _rx_ui.settings = _DictStore()
+    _rx_ui.settings.setValue("txt001/textChanged", "WIP_*")
+    _rx_ui.settings.setValue("txt002/textChanged", "test_|prod_")
+    _rx_ui.txt001.objectName.return_value = "txt001"
+    _rx_ui.state.save.side_effect = lambda _w, value: _rx_ui.settings.setValue(
+        "txt001/textChanged", value
+    )
+    try:
+        with _ps_mock.patch.object(_ps_logger, "set_text_handler"), _ps_mock.patch.object(
+            _ps_logger, "setup_logging_redirect"
+        ), _ps_mock.patch.object(_ps_logger, "hide_logger_name"):
+            _Slots(_rx_sb, log_level=_ps_logger_level or "WARNING")
+    finally:
+        _ps_logger.setLevel(_ps_logger_level)
+    _rx_saves = _rx_ui.state.save.call_args_list
+    check(
+        "a saved RegEx field folds into the Output Filename's saved pattern on open",
+        _rx_saves == [_ps_mock.call(_rx_ui.txt001, "WIP_{scene:test_->prod_}")]
+        and _rx_ui.settings.data == {"txt001/textChanged": "WIP_{scene:test_->prod_}"},
+        f"{_rx_saves}; kept {_rx_ui.settings.data}",
     )
 
     # ---- "Override Checks" (b009) is a per-run escape hatch, not a sticky mode ----------
@@ -2845,9 +3192,7 @@ try:
                     "txt001",
                     "txt003",
                     "b009",
-                    "b011",
                     "cmb000",
-                    "cmb003",
                     "cmb004",
                 )
             }
@@ -2874,6 +3219,18 @@ try:
         "a failed export leaves Override Checks armed for the retry",
         len(_fail_calls) == 1 and _fail.ui.b009.isChecked(),
         f"calls={len(_fail_calls)}",
+    )
+
+    # No log options (2026-10-14, mirror of mayatk): every export keeps the
+    # .blend's run log and sets no level -- the log records DEBUG by itself.
+    _log_calls = []
+    _override_slots(True, _log_calls).b000()
+    check(
+        "every export keeps the run log and sets no level",
+        _log_calls
+        and _log_calls[0].get("create_log_file") is True
+        and "log_level" not in _log_calls[0],
+        _log_calls and sorted(_log_calls[0]),
     )
 
     # Disarming happens AFTER the run -- the run itself still overrides. The
@@ -2991,10 +3348,10 @@ try:
         and _build.call_args.kwargs.get("key_tolerance") == 1e-4,
         f"built={_built!r} kwargs={_build.call_args.kwargs if _build.called else None}",
     )
-    # The Baked Reflections row: one decision, both carriers -- the GLB's
-    # envelope and the FBX's handoff record. Mirrors mayatk's tests.
+    # The lighting recipe: no panel row overrides it since Baked Reflections
+    # retired (2026-10-19), so neither carrier -- the GLB's envelope, the
+    # FBX's handoff record -- is handed an override. Mirrors mayatk's tests.
     # Added: 2026-09-21
-    _tm.run = _tm.run.replace(baked_reflections=0.5)
     with (
         _mock.patch.object(ptk.GlbPipeline, "build", return_value={"glb": "x.glb"}),
         _mock.patch.object(ptk.GlbPipeline, "envelope", return_value={}) as _envelope,
@@ -3002,28 +3359,22 @@ try:
     ):
         _tm.create_glb("x.fbx", announce=False)
     check(
-        "create_glb hands the run's lighting choices to the envelope",
-        _envelope.called
-        and _envelope.call_args.kwargs.get("rendering")
-        == {"lightmappedMaterials": {"envMapIntensity": 0.5}},
+        "create_glb hands the envelope no lighting override",
+        _envelope.called and _envelope.call_args.kwargs.get("rendering") == {},
         f"{_envelope.call_args.kwargs if _envelope.called else None}",
     )
     from blendertk.env_utils.fbx_utils import FbxUtils as _FbxUtils
 
-    _tm.run = _tm.run.replace(baked_reflections=0.0)
     with (
         _mock.patch.object(_FbxUtils, "publish", return_value=None) as _publish,
         _mock.patch.object(_tm, "stage_deferred_restore"),
     ):
         _tm._publish_scene_records()
     check(
-        "the FBX handoff record is given the run's lighting choices",
-        _publish.called
-        and _publish.call_args[0][0].rendering
-        == {"lightmappedMaterials": {"envMapIntensity": 0.0}},
+        "the FBX handoff record is given no lighting override",
+        _publish.called and _publish.call_args[0][0].rendering == {},
         f"{_publish.call_args if _publish.called else None}",
     )
-    _tm.run = _tm.run.replace(baked_reflections=None)
     _tm.run = _tm.run.replace(
         secondary_max_size=None, uastc_rdo=None, glb_key_tolerance=None
     )
@@ -3540,7 +3891,7 @@ try:
     bpy.ops.mesh.primitive_cube_add()
     _rp_obj = bpy.context.object
     _rp_mat = bpy.data.materials.new("RelPathMat")
-    _rp_mat.use_nodes = True
+    MatUtils.get_node_tree(_rp_mat, create=True)
     _rp_img = bpy.data.images.new("wood_ext", 4, 4)
     _rp_img.filepath = _ext_tex
     _rp_node = _rp_mat.node_tree.nodes.new("ShaderNodeTexImage")
@@ -3778,13 +4129,7 @@ try:
         tb_cube = bpy.context.active_object
         tb_cube.name = "OptimizeCube"
         tb_mat = bpy.data.materials.new("OptimizeMat")
-        # 5.x+: use_nodes is deprecated (reading warns) and pinned True
-        # regardless — materials already carry a node_tree; 6.0 removes the
-        # attribute (reading raises). Version-gated, not probed, so the
-        # attribute is never touched where it no longer behaves as a toggle
-        # (mirror of light_utils._LightUtilsInternal._world_node_tree).
-        if bpy.app.version < (5, 0):
-            tb_mat.use_nodes = True
+        MatUtils.get_node_tree(tb_mat, create=True)
         tb_tex_node = tb_mat.node_tree.nodes.new("ShaderNodeTexImage")
         # A palette-mode normal map — the per-map-type pass must coerce
         # P->RGB (palette transparency reads as alpha downstream); its
@@ -4053,8 +4398,7 @@ try:
     bpy.ops.mesh.primitive_cube_add()
     seq_cube = bpy.context.active_object
     seq_mat = bpy.data.materials.new("SeqMat")
-    if bpy.app.version < (5, 0):
-        seq_mat.use_nodes = True
+    MatUtils.get_node_tree(seq_mat, create=True)
     seq_cube.data.materials.append(seq_mat)
 
     found_img = bpy.data.images.new("found_seq", 4, 4)
@@ -5421,6 +5765,8 @@ try:
 
     shutil.rmtree(tmp, ignore_errors=True)
     shutil.rmtree(_PRESETS_ROOT, ignore_errors=True)
+    if _CACHE_ROOT:
+        shutil.rmtree(_CACHE_ROOT, ignore_errors=True)
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

@@ -16,6 +16,9 @@ GLB is exported from Blender natively:
 * **Export** -- :meth:`~LightmapWebExport.export_glb` plus the ``lightmap_web`` extras
   manifest the viewer reads; :meth:`~LightmapWebExport.wired_for_export` wraps all of it
   around any native glTF export, feeding itself from the committed markers.
+* **Probe** -- :meth:`~LightmapWebExport.embed_probe`: the bake's reflection probe
+  (``LightmapBaker.bake_probe``), embedded in the written GLB as the manifest's
+  ``probe``, through Blender's own Radiance writer.
 
 (The Maya-side GLB path needs none of this: its deliverable converts through
 ``ptk.MeshConvert.fbx_to_glb``, whose ``apply_glb_lightmaps`` reads the same manifest back
@@ -32,9 +35,11 @@ group, which is exactly one texture per glTF material.
 **A lightmap's dynamic range does not fit in a PNG.** A real interior bake measured
 0 -> 129.8 with a mean of 0.33 (emissive fixtures against a dim room), so clamping at 1.0
 blows out the fixtures and crushes everything else. :meth:`encode_for_web` instead divides
-by a high percentile, records that divisor per map, and the viewer multiplies it back
-through three.js's ``lightMapIntensity``. The few texels above the percentile clip, which is
-the correct trade -- they are the light sources themselves.
+by the map's peak, held between its 99.5th percentile and four times that
+(``ptk.ImgUtils.encode_hdr_pixels_for_web``), records that divisor per map, and the viewer
+multiplies it back through three.js's ``lightMapIntensity``. Dividing by the percentile
+itself clipped lit surfaces, not light sources: a production room's backsplash and floor
+pools went flat. Only what passes the cap clips, scaled whole so its hue survives.
 
 The engine surface is Qt-free and defers ``import bpy`` (headless-importable).
 """
@@ -77,9 +82,9 @@ class LightmapWebExport(ptk.LoggingMixin):
     #: budget can tell it apart from a source map (see :meth:`_downsize_images`).
     LIGHTMAP_IMAGE_MARKER: str = "btk_lightmap"
 
-    #: Percentile used as the encode divisor. High enough that only genuine light sources
-    #: clip, low enough that the mid-tones keep their 8-bit precision.
-    DEFAULT_PERCENTILE: float = 99.5
+    #: The floor of the encode divisor, as a percentile of a map's lit values: pythontk's
+    #: ``ImgUtils.HDR_WEB_PERCENTILE``, whose encode this is (see :meth:`encode_for_web`).
+    DEFAULT_PERCENTILE: float = ptk.ImgUtils.HDR_WEB_PERCENTILE
 
     #: Name Blender's glTF exporter looks for to route a value into ``occlusionTexture``.
     _GLTF_OUTPUT_GROUP: str = "glTF Material Output"
@@ -115,9 +120,11 @@ class LightmapWebExport(ptk.LoggingMixin):
         """Encode linear HDR lightmap EXRs as sRGB PNGs the browser can load.
 
         Each unique source file is encoded once (an atlas shared by six objects costs one
-        PNG, not six). The divisor is that map's *percentile* value, so the useful range
-        fills the 8-bit encoding and only genuine light sources clip; it is returned so the
-        viewer can multiply it back and recover the original intensity.
+        PNG, not six). The pixels go through ``ptk.ImgUtils.encode_hdr_pixels_for_web``
+        (the divisor is the map's peak, held between its :attr:`DEFAULT_PERCENTILE` and
+        ``ptk.ImgUtils.HDR_WEB_HEADROOM`` times that; the hue-keeping clip; the dither),
+        so a Blender map encodes as a cv2 one does; the divisor is returned so the viewer
+        can multiply it back and recover the original intensity.
 
         Blender's save-time colour management is the trap here, and it is not symmetric:
         the destination image's colorspace must be set to ``Non-Color`` **before** its
@@ -131,17 +138,14 @@ class LightmapWebExport(ptk.LoggingMixin):
             output_dir: Destination. Defaults to a fresh ``TempArtifacts``
                 folder (``lightmap_web``): the PNGs are export intermediates,
                 never files beside the authored EXRs.
-            percentile: Encode divisor percentile. Default :attr:`DEFAULT_PERCENTILE`.
+            percentile: Divide by this percentile of the lit values instead (the
+                encode before 2026-10-17). Default: the peak, as above.
             suffix: Appended to the PNG stem.
 
         Returns:
             ``{object_name: (png_path, scalar)}`` -- multiply the sampled colour by
             ``scalar`` to recover linear intensity.
         """
-        import bpy
-        import numpy as np
-
-        percentile = cls.DEFAULT_PERCENTILE if percentile is None else float(percentile)
         if not output_dir:
             output_dir = ptk.TempArtifacts("lightmap_web").dir_path()
         encoded: Dict[str, Tuple[str, float]] = {}
@@ -155,65 +159,95 @@ class LightmapWebExport(ptk.LoggingMixin):
             if not os.path.isfile(src):
                 continue
 
-            image = None
-            try:
-                image = bpy.data.images.load(key)
-                width, height = image.size
-                buf = np.empty(len(image.pixels), dtype=np.float32)
-                image.pixels.foreach_get(buf)
-                px = buf.reshape(-1, image.channels)
-                rgb = px[:, :3]
-
-                lit = rgb[rgb > 0.0]
-                scalar = float(np.percentile(lit, percentile)) if lit.size else 1.0
-                scalar = max(scalar, 1e-6)
-
-                # Quantized HERE, by the pythontk twin's stochastic rounding
-                # (``ImgUtils.quantize_8bit``): Blender's own 8-bit save rounds to
-                # nearest, which terraced smooth walls into contour bands; exact
-                # codes survive that save unchanged.
-                out_rgb = (
-                    ptk.ImgUtils.quantize_8bit(
-                        cls._linear_to_srgb(np.clip(rgb / scalar, 0.0, 1.0))
-                    )
-                    / 255.0
-                )
-            finally:
-                if image is not None:
-                    bpy.data.images.remove(image)
-
             stem = os.path.splitext(os.path.basename(src))[0] + suffix
-            directory = output_dir
-            os.makedirs(directory, exist_ok=True)
-            dst = os.path.join(directory, f"{stem}.png")
-
-            out = bpy.data.images.new(
-                os.path.basename(dst), width=width, height=height, alpha=False
-            )
-            try:
-                # BEFORE the pixel write — see the docstring.
-                out.colorspace_settings.name = "Non-Color"
-                flat = np.ones((out_rgb.shape[0], 4), dtype=np.float32)
-                flat[:, :3] = out_rgb
-                out.pixels.foreach_set(flat.reshape(-1))
-                out.filepath_raw = dst
-                out.file_format = "PNG"
-                out.save()
-            finally:
-                bpy.data.images.remove(out)
+            os.makedirs(output_dir, exist_ok=True)
+            dst = os.path.join(output_dir, f"{stem}.png")
+            scalar = cls._encode_png(key, dst, percentile)
 
             done[key] = (dst, scalar)
             encoded[name] = done[key]
 
         return encoded
 
-    @staticmethod
-    def _linear_to_srgb(a):
-        """Vectorized linear -> sRGB transfer (the IEC 61966-2-1 piecewise curve)."""
+    @classmethod
+    def _encode_png(cls, src: str, dst: str, percentile: Optional[float]) -> float:
+        """Encode the linear HDR image *src* as the sRGB PNG *dst*; its scalar.
+
+        One map of :meth:`encode_for_web` (see there): Blender reads the
+        pixels, ``ptk.ImgUtils.encode_hdr_pixels_for_web`` encodes them, and
+        Blender saves the codes ``Non-Color`` -- set BEFORE the pixels.
+
+        Raises:
+            ValueError: Blender could not read *src*.
+        """
+        import bpy
         import numpy as np
 
-        a = np.clip(a, 0.0, 1.0)
-        return np.where(a <= 0.0031308, a * 12.92, 1.055 * np.power(a, 1 / 2.4) - 0.055)
+        try:
+            image = bpy.data.images.load(src, check_existing=False)
+        except RuntimeError as e:
+            raise ValueError(f"Unreadable image: {src} ({e})") from e
+        try:
+            width, height = image.size
+            buf = np.empty(len(image.pixels), dtype=np.float32)
+            image.pixels.foreach_get(buf)
+            px = buf.reshape(-1, image.channels)
+            # Quantized HERE (stochastic rounding, inside the pythontk encode):
+            # Blender's own 8-bit save rounds to nearest, which terraced smooth
+            # walls into contour bands; exact codes survive that save unchanged.
+            codes, scalar = ptk.ImgUtils.encode_hdr_pixels_for_web(
+                px[:, :3], percentile
+            )
+            out_rgb = codes / 255.0
+        finally:
+            bpy.data.images.remove(image)
+
+        out = bpy.data.images.new(
+            os.path.basename(dst), width=width, height=height, alpha=False
+        )
+        try:
+            # BEFORE the pixel write -- see encode_for_web's docstring.
+            out.colorspace_settings.name = "Non-Color"
+            flat = np.ones((out_rgb.shape[0], 4), dtype=np.float32)
+            flat[:, :3] = out_rgb
+            out.pixels.foreach_set(flat.reshape(-1))
+            out.filepath_raw = dst
+            out.file_format = "PNG"
+            out.save()
+        finally:
+            bpy.data.images.remove(out)
+        return scalar
+
+    @classmethod
+    def encode_hdr_for_web(
+        cls, path: str, percentile: Optional[float] = None
+    ) -> Tuple[bytes, float]:
+        """A linear HDR image as sRGB PNG bytes for the web, and its scalar.
+
+        The twin of ``ptk.ImgUtils.encode_hdr_for_web`` -- the same encode
+        (``ptk.ImgUtils.encode_hdr_pixels_for_web``; both suites pin it) --
+        through Blender's own image I/O, so with :meth:`encode_hdr_radiance`
+        this class is the HDR codec a GLB built in Blender hands the pipeline
+        (``ptk.GlbPipeline.build(hdr_codec=)``): Blender's Python has no cv2,
+        pythontk's only float-image codec, and without it a Scene Exporter GLB
+        or a WebXR push of a baked scene shipped unlit (measured 2026-10-17).
+
+        Parameters:
+            path: An EXR/HDR file.
+            percentile: See :meth:`encode_for_web` (default: the peak).
+
+        Returns:
+            ``(png_bytes, scalar)`` -- multiply the decoded colour by ``scalar``
+            to recover linear intensity.
+
+        Raises:
+            ValueError: Blender could not read the file.
+        """
+        with ptk.TempArtifacts("lightmap_web_png", policy="scoped") as tmp:
+            dst = os.path.join(tmp.dir_path(), "lightmap.png")
+            scalar = cls._encode_png(path, dst, percentile)
+            with open(dst, "rb") as fh:
+                return fh.read(), scalar
 
     # ------------------------------------------------------------------ carry
 
@@ -419,22 +453,12 @@ class LightmapWebExport(ptk.LoggingMixin):
         """
         import bpy
 
-        # Find-or-create the tree, GUARDED on its absence rather than assigning
-        # ``use_nodes`` unconditionally: the attribute is deprecated on 5.x (the assignment
-        # is ignored -- it reads back True) and removed in 6.0, but it is still the only way
-        # to build a tree on the 4.x we also support, where a new material genuinely has
-        # none. Same shape as ``_LightUtilsInternal._world_node_tree``.
-        nt = material.node_tree
-        # Second clause is 4.x-only and is what a bare `nt is None` guard
-        # misses: there a material can carry a tree while ``use_nodes`` is
-        # False, and both the renderer and the glTF exporter ignore the tree in
-        # that state -- so the lightmap nodes would be added to a tree nothing
-        # reads. The unconditional write this guard replaced covered that.
-        # Version-gated because reading ``use_nodes`` on 5.x warns (and it is
-        # pinned True) and 6.0 removes it, so 5.x+ never evaluates it.
-        if nt is None or (bpy.app.version < (5, 0) and not material.use_nodes):
-            material.use_nodes = True
-            nt = material.node_tree
+        # Through the one ``use_nodes`` gate: on 4.x a material can carry a tree
+        # while nodes are off, and both the renderer and the glTF exporter ignore
+        # it there -- the lightmap nodes would land in a tree nothing reads.
+        from blendertk.mat_utils._mat_utils import MatUtils
+
+        nt = MatUtils.get_node_tree(material, create=True)
 
         image = bpy.data.images.load(os.path.abspath(png), check_existing=True)
         image.colorspace_settings.name = "sRGB"
@@ -692,7 +716,92 @@ class LightmapWebExport(ptk.LoggingMixin):
         # EXR at 1.0 beside its authoring folder -- so the file is told what it
         # ships. A no-op on an unbaked scene.
         ptk.MeshConvert.fix_glb_lightmap_metadata(path)
+        self.embed_probe(path)
         return path
+
+    # ------------------------------------------------------------------ probe
+
+    def embed_probe(self, glb_path: str) -> Optional[Dict[str, Any]]:
+        """Embed the file's reflection probe in a natively exported GLB; its entry, or ``None``.
+
+        The probe is the room the bake lit, as an HDR
+        (``LightmapBaker.bake_probe``): what the lightmaps cannot hold -- the
+        reflections on every baked surface, which are a metal's whole look,
+        and the light on everything unbaked. The viewer reads it from the
+        ``lightmap_web`` manifest's ``probe`` (pythontk's ``kernel/probe.js``),
+        as Radiance bytes in a view of the file's own buffer -- which exists
+        only once the export has written the file, so this runs after it
+        (``ptk.MeshConvert.embed_glb_lightmap_probe``; the FBX route's
+        ``apply_glb_lightmaps`` embeds it the same way as it binds). The file
+        is found where the scene's records say
+        (:meth:`LightmapRecords.search_dirs`) and encoded by Blender's own
+        Radiance writer (:meth:`encode_hdr_radiance`): Blender ships no cv2.
+
+        A file with no ``lightmap_web`` (nothing wired), or a scene with no
+        probe, is left as found; one that carries the probe already keeps it.
+        The point and box are read at the native exporter's unit -- one Blender
+        unit, one metre -- not the record's ``unit_scale``, which is the FBX
+        route's: Blender's glTF exporter ignores ``scale_length``.
+
+        Parameters:
+            glb_path: The GLB the native export wrote (modified in place).
+
+        Returns:
+            The ``lightmap_web`` probe entry, or ``None``.
+        """
+        probe = LightmapRecords.probe()
+        if not probe or not glb_path or not os.path.isfile(glb_path):
+            return None
+        # In the native GLB's own units: Blender's glTF exporter writes one
+        # Blender unit as one metre whatever the scene's scale_length
+        # (measured 2026-10-17: a 1 BU = 1 cm scene's node at 100 BU wrote
+        # 100), so the record's unit_scale -- right for the FBX route, which
+        # honours it -- put a centimetre scene's probe 100x too near the origin.
+        probe = dict(probe, unit_scale=1.0)
+        return ptk.MeshConvert.embed_glb_lightmap_probe(
+            glb_path,
+            probe,
+            LightmapRecords.search_dirs(),
+            hdr_codec=type(self),
+        )
+
+    @staticmethod
+    def encode_hdr_radiance(path: str) -> bytes:
+        """An HDR image file (EXR/HDR) as Radiance ``.hdr`` bytes, by Blender's own writer.
+
+        The twin of ``ptk.ImgUtils.encode_hdr_radiance``, which reads through
+        cv2 -- absent from Blender's Python; with :meth:`encode_hdr_for_web`
+        this class is the HDR codec a GLB built in Blender hands the pipeline.
+        The pixels stay as stored (a float image is written linear, no view
+        transform); the rows run top-down (``-Y h +X w``), as every Radiance
+        reader -- three.js' ``RGBELoader`` included -- expects.
+
+        Raises:
+            ValueError: Blender could not read the file or write the HDR.
+        """
+        import bpy
+
+        try:
+            image = bpy.data.images.load(path, check_existing=False)
+        except RuntimeError as e:
+            raise ValueError(f"Unreadable image: {path} ({e})") from e
+        try:
+            # A loaded image reads its file lazily: repointed first, it saves
+            # "no image data". Its pixels are read here, from *path*.
+            if not len(image.pixels) or not image.has_data:
+                raise ValueError(f"Unreadable image: {path}")
+            with ptk.TempArtifacts("probe_radiance", policy="scoped") as tmp:
+                out = os.path.join(tmp.dir_path(), "probe.hdr")
+                image.filepath_raw = out
+                image.file_format = "HDR"
+                try:
+                    image.save()
+                except RuntimeError as e:
+                    raise ValueError(f"Radiance HDR encode failed for {path}") from e
+                with open(out, "rb") as fh:
+                    return fh.read()
+        finally:
+            bpy.data.images.remove(image)
 
     def _downsize_images(self, max_size: Optional[int]) -> List[Any]:
         """Scale every source image whose longest edge exceeds *max_size*; return those touched.
@@ -763,7 +872,8 @@ class LightmapWebExport(ptk.LoggingMixin):
         *glb_path* is the GLB the block writes. Blender's exporter ships each object's
         marker (and the data_export manifest) as the scene holds them -- the EXR at
         1.0 beside its authoring folder -- so on a clean exit that file is corrected
-        to what it ships (``ptk.MeshConvert.fix_glb_lightmap_metadata``).
+        to what it ships (``ptk.MeshConvert.fix_glb_lightmap_metadata``) and
+        given the scene's reflection probe (:meth:`embed_probe`).
         :meth:`export_glb` does this for its own file; a caller exporting directly
         passes *glb_path*.
         """
@@ -842,6 +952,7 @@ class LightmapWebExport(ptk.LoggingMixin):
             yield manifest
             if glb_path and os.path.isfile(glb_path):
                 ptk.MeshConvert.fix_glb_lightmap_metadata(glb_path)
+                self.embed_probe(glb_path)
         finally:
             self.unwire_lightmaps(token)
             if prior is None:

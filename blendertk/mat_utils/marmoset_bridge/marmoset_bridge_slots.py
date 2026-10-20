@@ -13,6 +13,8 @@ description) lives upstream. This file owns only Marmoset-specific bits, mirrori
 import traceback
 from pathlib import Path
 
+from uitk.switchboard import Cancelable
+
 from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
 
 from blendertk.mat_utils.marmoset_bridge._marmoset_bridge import (
@@ -70,6 +72,9 @@ class MarmosetBridgeSlots(BlenderBridgeSlotsBase):
                     "re-surfaces generated maps as clickable links in the "
                     "log panel below. Only a bake with <b>Assign Material</b> "
                     "on changes the scene (see below).",
+                    "A roundtrip runs Toolbag hidden: <b>hold Esc</b> to "
+                    "cancel one, or tick <b>Show App Window</b> to see (and "
+                    "answer) a dialog it stops on.",
                 ],
             ),
         ],
@@ -166,6 +171,9 @@ class MarmosetBridgeSlots(BlenderBridgeSlotsBase):
     # b000 -- the per-bridge send action
     # ------------------------------------------------------------------
 
+    # Inside the dispatcher's CancelScope: a roundtrip's hidden Toolbag polls it, so holding
+    # Esc (or the long-run dialog's Cancel) ends a bake stuck on a dialog no one can see.
+    @Cancelable(300, message="Marmoset Toolbag run")
     def b000(self):
         """Process selected objects with the chosen template + mode."""
         # Scope (Selected / Entire Scene / Visible Only) resolves via the shared

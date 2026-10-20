@@ -294,7 +294,138 @@ try:
         and "TexA_Diffuse.png" in script_t.replace("\\", "/"),
     )
 
-    # ---- marmoset hand-off scratch lifetime ---------------------------------
+    # ---- a hidden app run can be shown, and cancelled -------------------------
+    # A hidden RizomUV / Toolbag waiting on a dialog can't be answered (mirror of
+    # mayatk, 2026-10-19). The Marmoset panel's Show App Window (SHOW_APP_WINDOW,
+    # off by default, on the bake template -- the one with a roundtrip) shows
+    # Toolbag for that run; Esc held during a hidden bake (the CancelScope the
+    # panel's @Cancelable Send activates; a real run polls it) ends Toolbag: the
+    # log says so and OperationCancelled reaches the caller, never an ordinary
+    # failure. The RizomUV half is test_rizom_roundtrip.py's.
+    import ast
+    import logging
+    from unittest import mock as _show_mock
+
+    import pythontk as ptk
+    from blendertk.mat_utils.marmoset_bridge import parameters as _mm_params
+    from blendertk.mat_utils.marmoset_bridge._marmoset_engine import (
+        MarmosetEngine as _MmEngine,
+        ROUND_TRIP as _MM_RT,
+        _TEMPLATE_DIR as _MM_TEMPLATES,
+    )
+
+    _mm_show = _mm_params.PARAMS.get("SHOW_APP_WINDOW")
+    check(
+        "Marmoset Show App Window is an off-by-default toggle whose tooltip says why",
+        _mm_show is not None
+        and (_mm_show.kind, _mm_show.default) == ("bool", False)
+        and "dialog" in _mm_show.tooltip,
+        repr(_mm_show),
+    )
+    with open(os.path.join(_MM_TEMPLATES, "bake.py"), encoding="utf-8") as fh:
+        _mm_bake_keys = _mm_params.Parameters.referenced_keys(fh.read())
+    check("...its row is on the bake template", "SHOW_APP_WINDOW" in _mm_bake_keys)
+
+    _mm_model = os.path.join(tmp, "show_model.fbx")
+    open(_mm_model, "wb").close()
+    _mm_run_path = "blendertk.mat_utils.marmoset_bridge._marmoset_engine.AppLauncher.run"
+
+    class _MmWarnings(logging.Handler):
+        def __init__(self):
+            super().__init__(logging.WARNING)
+            self.messages = []
+
+        def emit(self, record):
+            self.messages.append(record.getMessage())
+
+    def _mm_roundtrip(params, run, warned):
+        """One standalone bake roundtrip through *run*, its warnings into
+        *warned*; returns the patched run."""
+        engine = _MmEngine(toolbag_path="not-used.exe")
+        engine.logger.addHandler(warned)
+        try:
+            with _show_mock.patch(_mm_run_path, side_effect=run) as patched:
+                engine.send(
+                    model_path=_mm_model,
+                    output_dir=os.path.join(tmp, "mm_show"),
+                    template="bake",
+                    mode=_MM_RT,
+                    params=params,
+                )
+        finally:
+            engine.logger.removeHandler(warned)
+        return patched
+
+    def _mm_bakes_nothing(exe, args=None, timeout=None, **kwargs):
+        return _show_mock.MagicMock(returncode=0, stdout="", stderr="")
+
+    _mm_hidden = []
+    for _params in ({}, {"SHOW_APP_WINDOW": False}, {"SHOW_APP_WINDOW": True}):
+        _patched = _mm_roundtrip(_params, _mm_bakes_nothing, _MmWarnings())
+        _mm_hidden.append(_patched.call_args.kwargs.get("hidden"))
+    check(
+        "Show App Window shows Toolbag for the roundtrip, as ROUNDTRIP_HIDDEN = False does",
+        _mm_hidden == [True, True, False],
+        _mm_hidden,
+    )
+
+    def _mm_cancelled(exe, args=None, timeout=None, **kwargs):
+        ptk.CancelScope.check()  # the checkpoint a hidden run polls
+        raise AssertionError("the run never reached its checkpoint")
+
+    _mm_scope = ptk.CancelScope("Toolbag")
+    _mm_scope.cancel("escape")
+    _mm_warned, _mm_raised = _MmWarnings(), None
+    try:
+        with _mm_scope.activate():
+            _mm_roundtrip({}, _mm_cancelled, _mm_warned)
+    except ptk.OperationCancelled as error:
+        _mm_raised = error
+    except Exception as error:  # reported by the check below
+        _mm_raised = error
+    check(
+        "Esc during a hidden bake raises OperationCancelled",
+        isinstance(_mm_raised, ptk.OperationCancelled),
+        repr(_mm_raised),
+    )
+    check(
+        "...and the log says the roundtrip was cancelled",
+        any("cancelled" in m for m in _mm_warned.messages),
+        _mm_warned.messages,
+    )
+
+    def _decorated_cancelable(path, cls_name, method="b000"):
+        """Whether *cls_name.method* in *path* carries ``@Cancelable(...)`` -- read
+        from source: the slots module needs Qt, which --background lacks."""
+        with open(path, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == cls_name:
+                for item in node.body:
+                    if isinstance(item, ast.FunctionDef) and item.name == method:
+                        return any(
+                            isinstance(d, ast.Call)
+                            and getattr(d.func, "id", getattr(d.func, "attr", ""))
+                            == "Cancelable"
+                            for d in item.decorator_list
+                        )
+        return False
+
+    for _subpath, _module, _slots_cls in (
+        (("uv_utils", "rizom_bridge"), "rizom_bridge_slots.py", "RizomBridgeSlots"),
+        (
+            ("mat_utils", "marmoset_bridge"),
+            "marmoset_bridge_slots.py",
+            "MarmosetBridgeSlots",
+        ),
+    ):
+        check(
+            f"{_slots_cls}.b000 runs in the dispatcher's CancelScope (@Cancelable)",
+            _decorated_cancelable(
+                os.path.join(REPO, "blendertk", *_subpath, _module), _slots_cls
+            ),
+        )
+
     # A bake ROUNDTRIP consumes its own hand-off artifacts (Toolbag runs
     # blocking, the maps are relocated beside the .blend), so they must stage
     # in a temp dir the run then removes -- not beside the .blend, where they

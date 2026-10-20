@@ -280,6 +280,45 @@ try:
         raised = True
     check("unknown shape raises ValueError", raised)
 
+    # mayatk's articulated-rig presets: target (three rings), ball / sphere (the
+    # icosahedron's 30 edges on the unit sphere), two_way_arrow (along X, with depth).
+    reset()
+    target = Controls.create("target", name="target_ctrl", size=2.0)
+    check(
+        "target is three cyclic rings of the size's radius",
+        len(target.data.splines) == 3
+        and all(s.use_cyclic_u for s in target.data.splines)
+        and all(
+            abs(Vector(p.co[:3]).length - 2.0) < 1e-4
+            for s in target.data.splines
+            for p in s.points
+        ),
+    )
+    for preset in ("ball", "sphere"):
+        reset()
+        ball = Controls.create(preset, name=f"{preset}_ctrl")
+        check(
+            f"{preset} is the icosahedron's 30 edges on the unit sphere",
+            len(ball.data.splines) == 30
+            and all(len(s.points) == 2 for s in ball.data.splines)
+            and all(
+                abs(Vector(p.co[:3]).length - 1.0) < 1e-5
+                for s in ball.data.splines
+                for p in s.points
+            ),
+            len(ball.data.splines),
+        )
+    reset()
+    arrow = Controls.create("two_way_arrow", name="slide_ctrl", axis="z")
+    pts = [p.co for s in arrow.data.splines for p in s.points]
+    check(
+        "two_way_arrow points both ways along X, in the XY plane with depth",
+        abs(max(p[0] for p in pts) - 1.6) < 1e-5
+        and abs(min(p[0] for p in pts) + 1.6) < 1e-5
+        and max(abs(p[1]) for p in pts) < 0.56
+        and abs(max(abs(p[2]) for p in pts) - 0.12) < 1e-5,
+    )
+
     # ============================ TubePath centerline extraction ============================
     from blendertk.rig_utils.tube_rig.tube_path import TubePath
 

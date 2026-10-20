@@ -282,6 +282,241 @@ try:
     finally:
         _Env.set_current_workspace(_pin)
 
+    # ---- render_panorama: the HDR a reflection probe is ---------------------
+    # Mirror of mayatk's TestRenderPanorama. Its layout is a contract with every
+    # reader (the GLB's probe, the WebXR page's equirect lookup): u = 0.5 +
+    # atan2(z, x) / 2pi, top row +Y, in glTF's Y-up axes -- which Blender's Z-up
+    # ones are read as (x, z, -y). Cycles' panorama camera centres its own -Z,
+    # so only walls of a known colour each way can see a turn.
+    import math as _math
+
+    import numpy as _np
+
+    reset()
+
+    def pano_wall(name, location, rotation, rgb, strength=1.0):
+        bpy.ops.mesh.primitive_plane_add(size=4, location=location, rotation=rotation)
+        wall = bpy.context.active_object
+        wall.name = name
+        mat = bpy.data.materials.new(name)
+        nt = btk.MatUtils.get_node_tree(mat, create=True)
+        nt.nodes.clear()
+        emit = nt.nodes.new("ShaderNodeEmission")  # flat: the colour, unlit
+        emit.inputs["Color"].default_value = (*rgb, 1.0)
+        emit.inputs["Strength"].default_value = strength
+        out = nt.nodes.new("ShaderNodeOutputMaterial")
+        nt.links.new(emit.outputs[0], out.inputs["Surface"])
+        wall.data.materials.append(mat)
+        return wall
+
+    _quarter = _math.radians(90)
+    pano_walls = {
+        "pxWall": ((1.2, 0, 0), (0, _quarter, 0), (1.0, 0.0, 0.0)),  # +X red
+        "nxWall": ((-1.2, 0, 0), (0, _quarter, 0), (0.0, 0.0, 1.0)),  # -X blue
+        "nyWall": ((0, -1.2, 0), (_quarter, 0, 0), (0.0, 1.0, 0.0)),  # glTF +Z green
+        "pyWall": ((0, 1.2, 0), (_quarter, 0, 0), (1.0, 1.0, 1.0)),  # glTF -Z white
+        "pzWall": ((0, 0, 1.2), (0, 0, 0), (1.0, 1.0, 0.0)),  # up: yellow
+    }
+    for _name, (_loc, _rot, _rgb) in pano_walls.items():
+        pano_wall(_name, _loc, _rot, _rgb)
+    pano_dir = os.path.join(tmp, "pano")
+    os.makedirs(pano_dir, exist_ok=True)
+
+    def read_exr(path):
+        """The EXR top-down, ``(h, w, channels)``."""
+        img = bpy.data.images.load(path, check_existing=False)
+        try:
+            w, h = img.size
+            px = _np.empty(w * h * img.channels, dtype=_np.float32)
+            img.pixels.foreach_get(px)
+            return px.reshape(h, w, img.channels)[::-1]
+        finally:
+            bpy.data.images.remove(img)
+
+    def render_pano(name="probe.exr", **kwargs):
+        path = os.path.join(pano_dir, name)
+        out = TextureBaker(samples=1, device="CPU", denoise=False).render_panorama(
+            (0, 0, 0), path, width=64, **kwargs
+        )
+        return out, (read_exr(out) if out and os.path.isfile(out) else None)
+
+    def dominant(img, u, row=16):
+        """The strongest channel ('r', 'g', 'b' or 'white') at *u* on the horizon."""
+        r, g, b = (float(c) for c in img[row, int(u * img.shape[1]), :3])
+        if min(r, g, b) > 0.5 * max(r, g, b):
+            return "white"
+        return "rgb"[[r, g, b].index(max(r, g, b))]
+
+    out, img = render_pano()
+    check(
+        "render_panorama writes the path asked for, 2:1 at the width asked for",
+        out == os.path.join(pano_dir, "probe.exr")
+        and img is not None
+        and img.shape[:2] == (32, 64),
+        f"{out} {None if img is None else img.shape}",
+    )
+    if img is not None:
+        layout = {
+            "+X at the centre": dominant(img, 0.5) == "r",
+            "glTF +Z (Blender -Y) a quarter right": dominant(img, 0.75) == "g",
+            "glTF -Z (Blender +Y) a quarter left": dominant(img, 0.25) == "white",
+            "-X at the seam": dominant(img, 0.02) == "b",
+            "+Z (glTF +Y) the top row": float(img[0, 32, 0]) > 0.5
+            and float(img[0, 32, 1]) > 0.5
+            and float(img[0, 32, 2]) < 0.2,
+        }
+        check(
+            "the panorama is laid out as its readers read it",
+            all(layout.values()),
+            [k for k, v in layout.items() if not v],
+        )
+        check(
+            "the walls render at their own linear level (no view transform)",
+            abs(float(img[16, 32, 0]) - 1.0) < 0.1,
+            float(img[16, 32, 0]),
+        )
+
+    # What moves is seen through, and nothing in the scene is left changed --
+    # the camera, the light's own camera switch, the render settings, the
+    # selection.
+    blocker = pano_wall("blocker", (0.6, 0, 0), (0, _quarter, 0), (0.0, 0.0, 0.0))
+    bpy.ops.object.light_add(type="POINT", location=(0, 0, -1.0))
+    pano_light = bpy.context.active_object
+    pano_light.visible_camera = False
+    scene = bpy.context.scene
+    before = {
+        "camera": scene.camera,
+        "engine": scene.render.engine,
+        "res": (scene.render.resolution_x, scene.render.resolution_y),
+        "format": scene.render.image_settings.file_format,
+        "filepath": scene.render.filepath,
+        "film_transparent": scene.render.film_transparent,
+        "cameras": len(bpy.data.cameras),
+        "objects": len(bpy.data.objects),
+    }
+    for o in list(bpy.context.view_layer.objects):
+        o.select_set(o == blocker)
+    bpy.context.view_layer.objects.active = blocker
+    _, seen = render_pano("seen.exr")
+    check(
+        "the blocker hides the red wall",
+        seen is not None and float(seen[16, 32, 0]) < 0.05,
+        None if seen is None else float(seen[16, 32, 0]),
+    )
+    _, through = render_pano("through.exr", hide=[blocker])
+    check(
+        "a hidden mesh is seen through",
+        through is not None and dominant(through, 0.5) == "r",
+    )
+    after = {
+        "camera": scene.camera,
+        "engine": scene.render.engine,
+        "res": (scene.render.resolution_x, scene.render.resolution_y),
+        "format": scene.render.image_settings.file_format,
+        "filepath": scene.render.filepath,
+        "film_transparent": scene.render.film_transparent,
+        "cameras": len(bpy.data.cameras),
+        "objects": len(bpy.data.objects),
+    }
+    check("render_panorama leaves the scene as found", after == before, after)
+    check(
+        "...the light's camera switch and the blocker's included",
+        pano_light.visible_camera is False and blocker.visible_camera is True,
+    )
+    check(
+        "...and the selection",
+        [o.name for o in bpy.context.view_layer.objects if o.select_get()]
+        == ["blocker"]
+        and bpy.context.view_layer.objects.active == blocker,
+    )
+    bpy.data.objects.remove(blocker, do_unlink=True)
+
+    # A reflection sees a light's own radiance: a light the scene hides from
+    # the camera is seen by the probe, and the world too.
+    pano_light.data.shadow_soft_size = 0.3
+    pano_light.data.energy = 5000.0
+    world = bpy.data.worlds.new("pano_world")
+    btk.MatUtils.get_node_tree(world, create=True)
+    world.node_tree.nodes["Background"].inputs["Color"].default_value = (0.2, 0.2, 0.9, 1)
+    world.cycles_visibility.camera = False
+    scene.world = world
+    bpy.data.objects.remove(bpy.data.objects["pzWall"], do_unlink=True)
+    _, lit = render_pano("lit.exr")
+    check(
+        "a light hidden from the camera is seen by the probe (below)",
+        lit is not None and float(lit[-3:, :, :3].max()) > 5.0,
+        None if lit is None else float(lit[-3:, :, :3].max()),
+    )
+    check(
+        "the world hidden from the camera is seen by the probe (above)",
+        lit is not None and float(lit[0, :, 2].mean()) > 0.5,
+        None if lit is None else float(lit[0, :, 2].mean()),
+    )
+    check(
+        "...and both are handed back hidden",
+        pano_light.visible_camera is False
+        and world.cycles_visibility.camera is False,
+    )
+
+    # The view exposure is a viewing control: it never reaches the probe, as
+    # it never reaches a bake's maps.
+    scene.view_settings.exposure = 3.0
+    _, exposed = render_pano("exposed.exr")
+    check(
+        "the scene's view exposure never reaches the probe",
+        exposed is not None and abs(float(exposed[16, 32, 0]) - 1.0) < 0.1,
+        None if exposed is None else float(exposed[16, 32, 0]),
+    )
+    check("...and is handed back", scene.view_settings.exposure == 3.0)
+    scene.view_settings.exposure = 0.0
+
+    # A probe open in a viewer, or held by a sync client: the render is the
+    # expensive part, the file name is not -- it lands beside it.
+    held = os.path.join(pano_dir, "held.exr")
+    with open(held, "wb") as fh:
+        fh.write(b"held")
+    _held_rendered = None
+    with open(held, "rb"):
+        _held_rendered = TextureBaker(
+            samples=1, device="CPU", denoise=False
+        ).render_panorama((0, 0, 0), held, width=64)
+    check(
+        "a held probe file costs its name, not the render",
+        _held_rendered is not None
+        and os.path.basename(_held_rendered) == "held_1.exr"
+        and os.path.isfile(_held_rendered),
+        _held_rendered,
+    )
+    with open(held, "rb") as fh:
+        check("...and the held file is untouched", fh.read() == b"held")
+
+    # A scene saved with Video (or Multi-Layer EXR) output: Blender 5.x offers
+    # only the file formats its media type allows, so OPEN_EXR was refused and
+    # the probe lost -- the trap the bake's own EXR writers already pin around.
+    _fmt = scene.render.image_settings
+    if hasattr(_fmt, "media_type"):
+        _fmt_prior = (_fmt.media_type, _fmt.file_format)
+        _fmt.media_type, _fmt.file_format = "VIDEO", "FFMPEG"
+        try:
+            _video_out, _video_img = render_pano("video_output.exr")
+            _video_error = None
+        except Exception as e:  # noqa: BLE001 -- the failure is the finding
+            _video_out, _video_img, _video_error = None, None, e
+        check(
+            "a scene saved with Video output still renders its panorama",
+            _video_img is not None and _video_img.shape[:2] == (32, 64),
+            _video_error or _video_out,
+        )
+        check(
+            "...and its output format is handed back",
+            (_fmt.media_type, _fmt.file_format) == ("VIDEO", "FFMPEG"),
+            (_fmt.media_type, _fmt.file_format),
+        )
+        _fmt.media_type, _fmt.file_format = _fmt_prior
+    else:
+        lines.append("OK   (skipped) video output scene: no media_type before 5.0")
+    reset()
+
     import shutil
     shutil.rmtree(tmp, ignore_errors=True)
 

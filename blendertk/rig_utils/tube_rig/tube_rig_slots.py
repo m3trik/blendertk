@@ -132,13 +132,10 @@ class TubeRigSlots(ptk.LoggingMixin):
         return {k: KindFactory.read_value(w) for k, w in self._option_widgets.items()}
 
     # ------------------------------------------------------------------ build
-    # NOTE: not decorated -- `TubeRig.build` already pushes one. Blender's
-    # `undo_push` is a flat checkpoint marker, not a Maya-style
-    # openChunk/closeChunk pair, so a second decorator here would make TWO undo
-    # steps for one click rather than nesting into one (same reasoning as
-    # `WheelRigSlots.b000`). The granular steps below DO carry it, because the
-    # methods they call are also reached from inside `build` and decorating
-    # those would split every full build in three.
+    # NOTE: not decorated -- `TubeRig.build` is already one undo step and
+    # recompiles its drivers after pushing it; an outer `undoable` would push
+    # again after that recompile and re-stale them (same as
+    # `WheelRigSlots.b000`). The granular step slots below carry their own.
     def b000(self):
         """Build Rig — run the selected strategy on the selected tube mesh."""
         meshes = [o for o in CoreUtils.selected_objects() if o.type == "MESH"]

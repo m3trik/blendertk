@@ -16,11 +16,19 @@ the maps; :class:`LightmapRecords` records them and answers for them afterwards:
   ``data_export`` Empty, rebuilt from the markers:
   :meth:`LightmapRecords.export_record` (the ``FbxUtils.PRODUCERS`` entry) and
   :meth:`LightmapRecords.refresh_export_metadata`.
+* **The reflection probe** -- the room the bake lit, as an HDR
+  (``LightmapBaker.bake_probe``): :meth:`LightmapRecords.probe` /
+  :meth:`LightmapRecords.commit_probe`, published in the manifest as ``probe``.
 * **Dependencies** -- where the files the markers name are NOW, and rewriting
   the stored folders. The rules are pythontk's generic
   :class:`~pythontk.FileDependencies` (files a record names by name plus a
   recorded folder), which mayatk's twin uses too; this class hands it the
   markers and Blender's own ways of resolving a folder and copying a file.
+* **The bake baseline** -- what each map was baked against, so a re-bake
+  redoes only what changed (``LightmapBaker.rebake_changed``): every commit
+  rolls the private ``ptk.SceneRecords.LIGHTMAP_BAKE_STATE`` record forward
+  (``ptk.BakeBaseline.advance``) from :meth:`LightmapRecords.scene_state`;
+  :meth:`LightmapRecords.bake_state` reads it back. Mirror of mayatk's.
 
 Every method is a classmethod: the record is file state, so the Texture Path
 Editor, the Scene Exporter and the FBX producer read it without building a
@@ -28,6 +36,7 @@ baker. The engine surface imports without ``bpy`` (deferred into the calls).
 """
 
 import contextlib
+import hashlib
 import json
 import os
 from typing import (
@@ -35,9 +44,11 @@ from typing import (
     Any,
     Dict,
     FrozenSet,
+    Iterable,
     Iterator,
     List,
     Optional,
+    Sequence,
     Tuple,
 )
 
@@ -227,6 +238,9 @@ class LightmapRecords(ptk.LoggingMixin):
         if not (hints or writers):
             return
         named = {cls._hint_key(i.get("map")) for _o, i in cls._marker_records()}
+        probe = cls.probe()
+        if probe:
+            named.add(cls._hint_key(probe["map"]))
         kept = {k: v for k, v in hints.items() if k in named}
         if kept != hints:
             cls._save_folder_hints(kept)
@@ -335,6 +349,8 @@ class LightmapRecords(ptk.LoggingMixin):
         scale_offsets: Optional[Dict[str, List[float]]] = None,
         intensity: float = 1.0,
         written: bool = True,
+        cells: Optional[Dict[str, Dict[str, Any]]] = None,
+        lighting: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, str]:
         """Record a lighting-only bake (changes nothing about the material/UVs).
 
@@ -342,7 +358,12 @@ class LightmapRecords(ptk.LoggingMixin):
         (this file) in the private records, then republishes the scene-wide
         manifest onto the shared ``data_export`` carrier so it rides the FBX.
         Files are never touched: a re-bake sets aside the maps it superseded
-        around its commit (:meth:`superseding`). Mirror of mayatk's.
+        around its commit (:meth:`superseding`). Last, the bake baseline steps
+        forward (:meth:`bake_state`): each recorded object as baked now,
+        against the file as it stands (:meth:`scene_state`) -- what a later
+        re-bake of the changed objects diffs against. A baseline that cannot be
+        read or written is logged and never costs the commit. Mirror of
+        mayatk's.
 
         Parameters:
             mapping: ``{object name: lightmap path}``.
@@ -357,6 +378,15 @@ class LightmapRecords(ptk.LoggingMixin):
                 another object -- and leaves the writer record alone, so a
                 later re-bake never sets aside a file another file still
                 reads (:meth:`superseding`).
+            cells: ``{object name: {"cell": [sx, sy, ox, oy], "extent": [w,
+                h], "size": px, "packing": "atlas" | "per_object"}}`` -- where
+                in its map each object was written: its atlas cell, the extent
+                the cell was sized for and the map's size. Only an object whose
+                cell is recorded can be written back into it later
+                (``LightmapBaker._in_place_plan``); any key may be absent.
+            lighting: The lighting the bake rendered with
+                (``LightmapBaker._lighting_state``); ``None`` records none, and a
+                later lighting change then stales nothing.
 
         Returns:
             ``{object name: lightmap path}`` for each object recorded (a name
@@ -365,7 +395,9 @@ class LightmapRecords(ptk.LoggingMixin):
         from blendertk.uv_utils._uv_utils import LIGHTMAP_UV_SET, UvUtils
 
         scale_offsets = scale_offsets or {}
+        cells = cells or {}
         recorded: Dict[str, str] = {}
+        baked: Dict[str, Dict[str, Any]] = {}
         folders: Dict[str, str] = {}
         for name, path in mapping.items():
             obj = cls._object(name)
@@ -395,6 +427,7 @@ class LightmapRecords(ptk.LoggingMixin):
                 info["uvRect"] = [float(v) for v in rect]
             cls._write_marker(obj, info)
             recorded[name] = path
+            baked[obj.name] = dict(cells.get(name) or {}, map=info["map"])
 
         if recorded:
             hints = cls._folder_hints()
@@ -409,7 +442,289 @@ class LightmapRecords(ptk.LoggingMixin):
                 writers.update(dict.fromkeys(folders, DataNodes.writer_stamp()))
                 cls._save_writers(writers)
             cls._publish()
+            cls._advance_bake_state(baked, lighting)
         return recorded
+
+    # ------------------------------------------------------------------
+    # The bake baseline -- what each map was baked against
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def bake_state(cls) -> Dict[str, Any]:
+        """This file's bake baseline, decoded (``ptk.BakeBaseline.decode``).
+
+        ``{"version", "serial", "objects", "lightings"}``: per object (its
+        name) the state its map was baked against, when it last baked, its
+        atlas cell, and the lighting it saw -- the private
+        ``ptk.SceneRecords.LIGHTMAP_BAKE_STATE`` record on ``data_internal``,
+        rolled forward by every :meth:`commit`. Never on a marker: a marker
+        rides the FBX, and this is build state. An empty record (serial 0)
+        when the file has none or it cannot be read. Mirror of mayatk's.
+        """
+        stored = ptk.SceneRecords.LIGHTMAP_BAKE_STATE.load(cls._data_nodes(), None)
+        return ptk.BakeBaseline.decode(stored)
+
+    @classmethod
+    def scene_state(cls, objects=None) -> Dict[str, Any]:
+        """The file as a bake sees it, for ``ptk.BakeBaseline``: every static
+        participant's state, role and marker.
+
+        The participants are what a bake renders as the room
+        (``LightmapBaker._out_of_render``): every object carrying a marker,
+        the :class:`~blendertk.LightmapExcludeSet`'s meshes and the
+        :class:`~blendertk.LightmapIsolateSet`'s -- each keyed by its object
+        name. Per object (:meth:`_object_state`): its world matrix and box,
+        fingerprints of its evaluated object-space points and of its lightmap
+        UV layer (``ptk.BakeBaseline.signature``), its material slots and
+        primary material (the atlas group), and whether Cycles renders it into
+        the other objects' passes. Its role: ``excluded`` (in the Exclude set,
+        which wins), ``isolated``, else ``baked``. Mirror of mayatk's.
+
+        Parameters:
+            objects: Limit the read to these objects (names or datablocks) and
+                what lies under them; ``None`` reads every participant -- what
+                a commit and the stale rule need, since a change anywhere may
+                shade an object.
+
+        Returns:
+            ``{name: {"state", "role", "marker"}}`` (see ``ptk.BakeBaseline``).
+        """
+        import bpy
+
+        from blendertk.mat_utils.bake_sets import LightmapExcludeSet, LightmapIsolateSet
+
+        Role = ptk.BakeBaseline.Role
+        markers = {obj.name: info for obj, info in cls._marker_records()}
+        excluded = {obj.name for obj in LightmapExcludeSet.meshes()}
+        isolated = {obj.name for obj in LightmapIsolateSet.meshes()}
+        names = list(markers) + sorted((excluded | isolated) - set(markers))
+        if objects is not None:
+            scoped: set = set()
+            for o in ptk.make_iterable(objects):
+                root = cls._object(o)
+                if root is not None:
+                    scoped.update(x.name for x in (root, *root.children_recursive))
+            names = [n for n in names if n in scoped]
+        from blendertk.core_utils._core_utils import CoreUtils
+        from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+
+        rendered = LightmapBaker._rendered_collections()
+        # The window's layer, as the bake renders: windowless, the context's
+        # depsgraph is the default layer's and skips what is excluded there.
+        depsgraph = CoreUtils._evaluated_depsgraph()
+        scene: Dict[str, Any] = {}
+        for name in names:
+            obj = bpy.data.objects.get(name)
+            state = cls._object_state(obj, rendered, depsgraph) if obj else None
+            if state is None:
+                continue
+            info = markers.get(name)
+            scene[name] = {
+                "state": state,
+                "role": (
+                    Role.EXCLUDED
+                    if name in excluded
+                    else Role.ISOLATED
+                    if name in isolated
+                    else Role.BAKED
+                ).value,
+                "marker": {
+                    "map": info.get("map"),
+                    "scaleOffset": info.get(
+                        "scaleOffset", list(cls.IDENTITY_SCALE_OFFSET)
+                    ),
+                }
+                if info
+                else None,
+            }
+        return scene
+
+    @classmethod
+    def _object_state(
+        cls, obj, rendered=None, depsgraph=None
+    ) -> Optional[Dict[str, Any]]:
+        """*obj*'s state for :meth:`scene_state`, or ``None`` when it has no mesh.
+
+        Read off the EVALUATED mesh (what Cycles renders: its modifiers
+        applied) through ``foreach_get``: the object-space points and the
+        polygons' vertex loops (``ptk.BakeBaseline.signature``), the world box
+        of those points under ``matrix_world``, and the lightmap UV layer's
+        loop UVs -- one id per distinct (vertex, uv), Blender's twin of Maya's
+        shared UV ids. ``matrix_world`` column by column, its translation at
+        ``[12:15]`` (``ptk.BakeBaseline``'s order). Its ``rendered`` is whether
+        Cycles renders it into the OTHER objects' passes
+        (``LightmapBaker._renders``): one hidden from the render shades
+        nothing. *rendered* (``LightmapBaker._rendered_collections``) and
+        *depsgraph* (the evaluated one) are passed when the caller read them
+        for many objects. Mirror of mayatk's.
+        """
+        import numpy as np
+
+        from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+        from blendertk.uv_utils._uv_utils import LIGHTMAP_UV_SET, UvUtils
+
+        if obj is None or obj.type != "MESH":
+            return None
+        if depsgraph is None:
+            from blendertk.core_utils._core_utils import CoreUtils
+
+            depsgraph = CoreUtils._evaluated_depsgraph()
+        if rendered is None:
+            rendered = LightmapBaker._rendered_collections()
+        evaluated = mesh = None
+        try:
+            evaluated = obj.evaluated_get(depsgraph)
+            mesh = evaluated.to_mesh()
+            n_verts, n_loops = len(mesh.vertices), len(mesh.loops)
+            points = np.empty(n_verts * 3, dtype=np.float32)
+            mesh.vertices.foreach_get("co", points)
+            points = points.astype(np.float64).reshape(-1, 3)
+            counts = np.empty(len(mesh.polygons), dtype=np.int64)
+            mesh.polygons.foreach_get("loop_total", counts)
+            verts = np.empty(n_loops, dtype=np.int64)
+            mesh.loops.foreach_get("vertex_index", verts)
+            m = np.array(obj.matrix_world, dtype=np.float64)
+            matrix = [float(v) for v in m.T.reshape(-1)]  # column by column
+            world = points @ m[:3, :3].T + m[:3, 3]
+            layout = None
+            layer = mesh.uv_layers.get(
+                UvUtils.find_lightmap_uv_set(obj) or LIGHTMAP_UV_SET
+            )
+            if layer is not None and n_loops:
+                uv = np.empty(n_loops * 2, dtype=np.float32)
+                layer.data.foreach_get("uv", uv)
+                keys = np.column_stack([verts, uv.reshape(-1, 2).view(np.int32)])
+                _unique, first, ids = np.unique(
+                    keys, axis=0, return_index=True, return_inverse=True
+                )
+                layout = ptk.BakeBaseline.signature(
+                    uv.astype(np.float64).reshape(-1, 2)[first],
+                    counts,
+                    ids.reshape(-1),
+                    dims=2,
+                )
+            slots = [s.material.name if s.material else "" for s in obj.material_slots]
+            indices = np.zeros(len(mesh.polygons), dtype=np.int64)
+            mesh.polygons.foreach_get("material_index", indices)
+            materials = hashlib.blake2b(digest_size=16)
+            materials.update(json.dumps(slots).encode("utf-8"))
+            materials.update(indices.astype("<i8").tobytes())
+            return {
+                "matrix": matrix,
+                "bbox": [world.min(axis=0).tolist(), world.max(axis=0).tolist()]
+                if len(world)
+                else None,
+                "geometry": ptk.BakeBaseline.signature(points, counts, verts),
+                "layout": layout,
+                "materials": materials.hexdigest(),
+                "group": cls._primary_material(obj) or "",
+                "rendered": bool(LightmapBaker._renders(obj, rendered)),
+            }
+        except Exception as error:  # a participant unread is gone, never a raise
+            cls.logger.debug("Lightmap baseline: %s not read (%s).", obj.name, error)
+            return None
+        finally:
+            if evaluated is not None and mesh is not None:
+                evaluated.to_mesh_clear()
+
+    @staticmethod
+    def _primary_material(obj) -> Optional[str]:
+        """Name of the material covering the most faces of *obj* -- its atlas group.
+
+        A single-slot object's material wins outright; otherwise the slot most
+        polygons use. ``None`` when nothing is assigned. One rule for the
+        atlas plan (``LightmapBaker._primary_material``) and the baseline's
+        ``group`` (mirror of mayatk's).
+        """
+        slots = getattr(obj, "material_slots", None)
+        if not slots:
+            return None
+        mats = [s.material for s in slots]
+        named = [m for m in mats if m is not None]
+        if not named:
+            return None
+        if len(mats) == 1:
+            return mats[0].name
+        import numpy as np
+
+        # One bulk read (every participant passes here at each commit): faces
+        # per slot, a tie going to the material whose first face comes first.
+        polygons = obj.data.polygons
+        indices = np.empty(len(polygons), dtype=np.int64)
+        polygons.foreach_get("material_index", indices)
+        slots, first, per_slot = np.unique(
+            indices, return_index=True, return_counts=True
+        )
+        counts: Dict[str, int] = {}
+        for _first, slot, count in sorted(zip(first, slots, per_slot)):
+            if 0 <= slot < len(mats) and mats[slot] is not None:
+                name = mats[slot].name
+                counts[name] = counts.get(name, 0) + int(count)
+        return max(counts, key=counts.get) if counts else named[0].name
+
+    @classmethod
+    def _missing_maps(cls) -> List[str]:
+        """The marked objects whose map is on disk nowhere (:meth:`_reads`)."""
+        return [name for name, _map, path in cls._reads() if not path]
+
+    @classmethod
+    def _advance_bake_state(
+        cls,
+        baked: Dict[str, Dict[str, Any]],
+        lighting: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Roll the bake baseline forward over *baked* (``ptk.BakeBaseline.advance``).
+
+        *baked*: ``{name: {"map", "cell", "extent", "size", "packing"}}`` --
+        what :meth:`commit` just recorded. Logged, never raised: the markers
+        are committed by now, and a baseline that cannot be written costs only
+        the next re-bake's precision. Mirror of mayatk's.
+        """
+        try:
+            spec = ptk.SceneRecords.LIGHTMAP_BAKE_STATE
+            store = cls._data_nodes()
+            record = ptk.BakeBaseline.advance(
+                spec.load(store, None),
+                cls.scene_state(),
+                baked=baked,
+                lighting=lighting,
+            )
+            spec.save(store, record)
+        except Exception as error:
+            cls.logger.warning(
+                "Lightmap bake baseline not recorded (%s): Re-bake Changed will "
+                "not see this bake's objects as baked.",
+                error,
+            )
+
+    @classmethod
+    def _inherit_bake_state(cls, pairs: Dict[str, Tuple[str, bool]]) -> None:
+        """Give each carried target its source's bake (:meth:`transfer_lightmaps`).
+
+        *pairs*: ``{target: (source, rebound)}`` (names). A target's map was
+        baked when, and under the lighting, its source's was; a REBOUND one
+        also reads the very cell its source owns, so it takes the cell with it
+        -- a resampled one has a map of its own. Mirror of mayatk's.
+        """
+        try:
+            spec = ptk.SceneRecords.LIGHTMAP_BAKE_STATE
+            store = cls._data_nodes()
+            record = ptk.BakeBaseline.decode(spec.load(store, None))
+            entries = record["objects"]
+            for target, (source, rebound) in pairs.items():
+                if target not in entries or source not in entries:
+                    continue
+                inherited = ["baked_at", "lighting"]
+                if rebound:
+                    inherited += ["cell", "extent", "size", "packing"]
+                else:
+                    entries[target].update(
+                        cell=None, extent=None, size=None, packing="per_object"
+                    )
+                entries[target].update({k: entries[source][k] for k in inherited})
+            spec.save(store, ptk.BakeBaseline.encode(record))
+        except Exception as error:
+            cls.logger.warning("Lightmap bake baseline not carried over (%s).", error)
 
     @classmethod
     def revert(cls, objects=None) -> List[str]:
@@ -424,7 +739,11 @@ class LightmapRecords(ptk.LoggingMixin):
         otherwise left in place. ``objects=None`` clears every marked object.
         One undo step (mirror of mayatk's chunk), so a single Ctrl+Z puts every
         marker, the manifest and the folder record back -- a raw ``bpy.data``
-        edit pushes none of its own. Returns the names cleared.
+        edit pushes none of its own. When no marker is left, the reflection
+        probe's record and the bake baseline (:meth:`bake_state`) go too; a
+        partial revert leaves the baseline, which then reads the objects it
+        took out as gone from the room, so their neighbours read as changed.
+        Returns the names cleared.
         """
         from blendertk.core_utils._core_utils import CoreUtils
 
@@ -440,9 +759,148 @@ class LightmapRecords(ptk.LoggingMixin):
             cls._restore_lightmap_uvs(obj, info)
             del obj[cls.LIGHTMAP_INFO_PROP]
             cleared.append(obj.name)
+        if cleared and not cls._marked_objects(None):
+            # The probe was the bake's: with no bake left, nothing reads it --
+            # nor any baseline: a bake from here is a first bake.
+            ptk.SceneRecords.LIGHTMAP_PROBE.clear(cls._data_nodes())
+            ptk.SceneRecords.LIGHTMAP_BAKE_STATE.clear(cls._data_nodes())
         if cleared:
             cls._publish()
         return cleared
+
+    # ------------------------------------------------------------------
+    # The reflection probe -- the room the bake lit, as an HDR
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _data_nodes():
+        """The scene store the records live in (``DataNodes``), imported late."""
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        return DataNodes
+
+    @classmethod
+    def probe(cls) -> Optional[Dict[str, Any]]:
+        """This file's reflection probe, or ``None`` (mirror of mayatk's).
+
+        ``{"map", "position", "box", "unit_scale"}``: the HDR's file name, the
+        point it was captured from and the box its reflections project onto
+        (``[[min], [max]]``, or ``None`` for an open scene), in Blender units
+        and in the probe's Y-up axes -- glTF's, which Blender's Z-up ones are
+        read as ``(x, z, -y)`` (``LightmapBaker.bake_probe``) -- what
+        :meth:`commit_probe` recorded. ``unit_scale`` is the metres per unit
+        at the BAKE; the manifest publishes the probe labelled with the
+        export's own (:meth:`_record`), which the geometry is written in.
+        """
+        data = ptk.SceneRecords.LIGHTMAP_PROBE.load(cls._data_nodes(), None)
+        if not isinstance(data, dict) or not data.get("map"):
+            return None
+        return {k: data.get(k) for k in ("map", "position", "box", "unit_scale")}
+
+    @classmethod
+    def commit_probe(
+        cls,
+        path: str,
+        position: Sequence[float],
+        box: Optional[Sequence[Sequence[float]]] = None,
+    ) -> Dict[str, Any]:
+        """Record the reflection probe the bake wrote to *path*, and republish.
+
+        Mirror of mayatk's. The probe is the room the bake lit, captured as an
+        HDR from *position* (``LightmapBaker.bake_probe``): what the lightmaps
+        cannot hold -- the reflections on every baked surface, which are a
+        metal's whole look, and the light on everything unbaked. Its file's
+        folder and writer go in the private records like any map's
+        (:meth:`search_dirs` then finds it for a GLB build); the file's
+        previous probe file, when it is another file -- another name, or the
+        same name in another folder -- is set aside when this file wrote it
+        inside its project: the rule :meth:`superseding` applies to maps.
+
+        Parameters:
+            path: The probe's EXR.
+            position: Where it was captured, in scene units and the probe's
+                Y-up axes (see :meth:`probe`).
+            box: ``[[min], [max]]`` its reflections project onto, likewise;
+                ``None`` for an open scene, read as distant.
+
+        Returns:
+            The record (see :meth:`probe`).
+        """
+        from blendertk.core_utils.units import Units
+
+        previous = cls.probe()
+        name = os.path.basename(path)
+        record = {
+            "map": name,
+            "position": [float(c) for c in position],
+            "box": [[float(c) for c in corner] for corner in box] if box else None,
+            # Metres per Blender unit at the bake: what the numbers were read
+            # under. An export labels them with its own (:meth:`_record`).
+            "unit_scale": Units.metres_per("internal"),
+        }
+        data_nodes = cls._data_nodes()
+        hints = cls._folder_hints()
+        writers = cls._writers()
+        # Resolved BEFORE this probe's records replace the previous one's: a
+        # re-bake into another folder writes the same NAME, and its record
+        # then names the new folder alone -- the old file was left behind,
+        # read by nothing.
+        superseded = cls._own_probe_file(previous, hints, writers) if previous else None
+        ptk.SceneRecords.LIGHTMAP_PROBE.save(data_nodes, record)
+        key = cls._hint_key(name)
+        hints[key] = cls._portable_dir(path)
+        cls._save_folder_hints(hints)
+        writers[key] = data_nodes.writer_stamp()
+        cls._save_writers(writers)
+        if superseded:
+            # Kept when it IS the new file, however spelled (the new probe
+            # reads it); set aside when it is another.
+            retired = ptk.FileDependencies.remove_superseded(
+                [superseded], [("", name, path)]
+            )
+            if retired:
+                cls.logger.info(
+                    "Set aside the superseded reflection probe %s -- in the "
+                    "Recycle Bin, or a temp folder kept 30 days.",
+                    retired[0],
+                )
+        cls._publish()
+        return record
+
+    @classmethod
+    def _own_probe_file(
+        cls,
+        probe: Dict[str, Any],
+        hints: Dict[str, str],
+        writers: Dict[str, str],
+    ) -> Optional[str]:
+        """*probe*'s file, when it is this file's to set aside once superseded.
+
+        Written by this file (``DataNodes.written_here``: never a Save As
+        copy's source, which still reads it), recorded in its folder record,
+        on disk, and inside its project (:meth:`project_root`) -- the rules
+        :meth:`superseding` holds a map to. ``None`` otherwise.
+        """
+        name = os.path.basename(str(probe["map"]))
+        key = cls._hint_key(name)
+        folder = hints.get(key)
+        root = cls.project_root()
+        if not (folder and root and cls._data_nodes().written_here(writers.get(key))):
+            return None
+        path = os.path.join(cls._resolved_dir(folder, name), name)
+        if os.path.isfile(path) and ptk.FileUtils.is_under(os.path.abspath(path), root):
+            return path
+        return None
+
+    @classmethod
+    def _probe_ref(cls) -> Optional[Tuple[str, str, str]]:
+        """The probe as a file reference for :meth:`_resolve`: no owner (it is
+        the file's, no object's), its file name and its recorded folder."""
+        probe = cls.probe()
+        if not probe:
+            return None
+        name = os.path.basename(str(probe["map"]))
+        return ("", name, cls._folder_hints().get(cls._hint_key(name), ""))
 
     @staticmethod
     def project_root() -> Optional[str]:
@@ -838,8 +1296,20 @@ class LightmapRecords(ptk.LoggingMixin):
         # where they live (:meth:`search_dirs`, from the markers' own portable
         # folders) -- a build-time hint that does not belong in a deliverable.
         # Before 0.8.0 this published the ABSOLUTE authoring folders (``dir`` /
-        # ``dirs``); a manifest carrying them still reads.
-        return ptk.SceneRecords.LIGHTMAPS.make({"objects": entries})
+        # ``dirs``); a manifest carrying them still reads. The bake's
+        # reflection probe rides beside them, by file name like a map
+        # (``ptk.MeshConvert.apply_glb_lightmaps`` embeds it).
+        manifest: Dict[str, Any] = {"objects": entries}
+        probe = cls.probe()
+        if probe:
+            # Its Blender units, labelled with the metres per unit NOW -- what
+            # the FBX write scales the geometry by (the Scene Exporter sets the
+            # units before it produces this) -- never the bake's: a centimetre
+            # bake exported in metres labelled its probe 100x too near.
+            from blendertk.core_utils.units import Units
+
+            manifest["probe"] = dict(probe, unit_scale=Units.metres_per("internal"))
+        return ptk.SceneRecords.LIGHTMAPS.make(manifest)
 
     # ------------------------------------------------------------------
     # Dependencies -- the maps the markers name, on disk NOW
@@ -872,9 +1342,18 @@ class LightmapRecords(ptk.LoggingMixin):
 
     @classmethod
     def _resolve(
-        cls, objects=None, search_dirs=None, walk: bool = True
+        cls,
+        objects=None,
+        search_dirs=None,
+        walk: bool = True,
+        maps: Optional[Iterable[str]] = None,
     ) -> List[Dict[str, Any]]:
-        """The markers' maps through :meth:`ptk.FileDependencies.resolve`, Blender's way."""
+        """The markers' maps through :meth:`ptk.FileDependencies.resolve`, Blender's way.
+
+        *maps* narrows the read to those file names (any case), the probe's
+        included -- a scope by FILE, where *objects* scopes by reader. Mirror
+        of mayatk's.
+        """
         hints = cls._folder_hints()
         libraries: Dict[int, Dict[str, str]] = {}
         refs = [
@@ -885,9 +1364,18 @@ class LightmapRecords(ptk.LoggingMixin):
             )
             for obj, info in cls._marker_records(objects)
         ]
+        # The probe is the file's, no object's: a whole-file read lists it,
+        # and so does any read holding a baked object -- the manifest carries
+        # the probe beside every set of entries, so what ships it must find it.
+        probe = cls._probe_ref() if objects is None or refs else None
+        if probe:
+            refs.append(probe)
+        if maps is not None:
+            named = {os.path.basename(str(m)).lower() for m in maps}
+            refs = [ref for ref in refs if ref[1].lower() in named]
         if not refs:
             return []
-        return ptk.FileDependencies.resolve(
+        deps = ptk.FileDependencies.resolve(
             refs,
             search_dirs=cls._texture_search_dirs()
             if search_dirs is None
@@ -895,6 +1383,9 @@ class LightmapRecords(ptk.LoggingMixin):
             walk_root=cls._walk_root() if walk else "",
             resolve_hint=cls._resolved_dir,
         )
+        for dep in deps:
+            dep["owners"] = [o for o in dep["owners"] if o]
+        return deps
 
     @staticmethod
     def _as_lightmap(dep: Dict[str, Any]) -> Dict[str, Any]:
@@ -928,6 +1419,11 @@ class LightmapRecords(ptk.LoggingMixin):
         the whole textures folder; a UNIQUE hit resolves it, several same-named
         files leave it unresolved with the count in ``note`` rather than
         guessed at (:meth:`ptk.FileDependencies.resolve`). Mirror of mayatk's.
+
+        *objects* scopes to those objects and their descendants (``None``: every
+        marker in the file). The file's reflection probe comes along whenever
+        the scope holds a baked object, as it does in the manifest, with no
+        object of its own (``"objects": []``).
         """
         return [cls._as_lightmap(d) for d in cls._resolve(objects, search_dirs, walk)]
 
@@ -1002,6 +1498,7 @@ class LightmapRecords(ptk.LoggingMixin):
         mode: str = "copy",
         objects=None,
         dry_run: bool = False,
+        maps: Optional[Iterable[str]] = None,
     ) -> Dict[str, Any]:
         """Gather the scene's lightmaps into *dest_dir* and repoint the markers.
 
@@ -1011,6 +1508,9 @@ class LightmapRecords(ptk.LoggingMixin):
         source already in *dest_dir* needs no file operation and still gets its
         hint rewritten. Relocation goes through the panel's own collision
         policy (``_safe_relocate``: same-size = reuse, different-size = skip).
+        *maps* narrows it to those file names -- the reflection probe's too,
+        which no object reads -- where *objects* narrows it to their readers
+        (mirror of mayatk's).
 
         Returns::
 
@@ -1018,7 +1518,7 @@ class LightmapRecords(ptk.LoggingMixin):
              "copied": [(src, dst)], "updated": markers rewritten}
         """
         plan = ptk.FileDependencies.relocate(
-            cls._resolve(objects),
+            cls._resolve(objects, maps=maps),
             dest_dir,
             source_dir=source_dir,
             mode=mode,
@@ -1158,6 +1658,21 @@ class LightmapRecords(ptk.LoggingMixin):
             if "dir" in info:
                 info.pop("dir")
                 cls._write_marker(obj, info)
+        # The probe has no marker and no objects: it follows when its file is
+        # named, whatever the scope.
+        probe = cls.probe()
+        name = os.path.basename(str(probe["map"])) if probe else ""
+        new_dir = dirs_by_map.get(name.lower()) if name else None
+        if new_dir is not None:
+            spelling = (
+                cls._portable_dir(os.path.join(new_dir, name))
+                if relative
+                else ptk.FileUtils.format_path(os.path.abspath(new_dir))
+            )
+            current = hints.get(cls._hint_key(name), "")
+            if ptk.FileUtils.format_path(current) != spelling:
+                count += 1
+            hints[cls._hint_key(name)] = spelling
         if hints != before:
             cls._save_folder_hints(hints)
         if count:
@@ -1175,15 +1690,16 @@ class LightmapRecords(ptk.LoggingMixin):
         follows the file -- which the caller renames
         (``MatUtils.rename_texture_file``); files are never touched here.
         Matched case-insensitively, file-wide (a map is one file whoever reads
-        it). One undo step. (mayatk's also re-stamps its reflection probe's
-        record; a Blender bake writes no probe yet.)
+        it). The reflection probe's record is re-stamped too when it names the
+        file. One undo step.
 
         Parameters:
             old_name: The map's file name (or path) as the records name it.
             new_name: Its new file name (or path; only the name is kept).
 
         Returns:
-            How many markers now name *new_name*.
+            How many records now name *new_name*: the markers, plus one for
+            the probe.
 
         Raises:
             ValueError: A LINKED object's marker names the map -- its marker
@@ -1207,10 +1723,16 @@ class LightmapRecords(ptk.LoggingMixin):
                 f"{old_name} is bound by linked object(s) {', '.join(linked)}: "
                 "their markers are their library's -- rename it there."
             )
+        count = len(named)
         with CoreUtils.undo_chunk("Rename Lightmap"):
             for obj, info in named:
                 info["map"] = new_name
                 cls._write_marker(obj, info)
+            probe = ptk.SceneRecords.LIGHTMAP_PROBE.load(cls._data_nodes(), None)
+            if isinstance(probe, dict) and cls._hint_key(probe.get("map")) == old_key:
+                probe["map"] = new_name
+                ptk.SceneRecords.LIGHTMAP_PROBE.save(cls._data_nodes(), probe)
+                count += 1
             new_key = cls._hint_key(new_name)
             for load, save in (
                 (cls._folder_hints, cls._save_folder_hints),
@@ -1220,9 +1742,9 @@ class LightmapRecords(ptk.LoggingMixin):
                 if old_key in record:
                     record[new_key] = record.pop(old_key)
                     save(record)
-            if named:
+            if count:
                 cls._publish()
-        return len(named)
+        return count
 
     # --------------------------------------------------------- transfer
     @classmethod
@@ -1248,7 +1770,10 @@ class LightmapRecords(ptk.LoggingMixin):
         and written as a half-float EXR, ``<output_name>_Lightmap.exr``
         (several targets append each one's name). Either way the target is
         committed (:meth:`commit`) with the source's
-        intensity. A target with no lightmap UV map is GIVEN the source's (the
+        intensity, and takes its source's place in the bake baseline
+        (:meth:`bake_state`): baked when and under the lighting its source was
+        -- in its source's cell, when rebound. A target with no lightmap UV
+        map is GIVEN the source's (the
         pair shares topology: :meth:`UvUtils.export_uv_layout` ->
         :meth:`UvUtils.apply_uv_layout`), and is then rebound -- mirror of
         mayatk. A source with no lightmap is skipped quietly; a missing map or
@@ -1349,6 +1874,7 @@ class LightmapRecords(ptk.LoggingMixin):
             plan.append(
                 {
                     "owner": tgt.name,
+                    "source": src.name,
                     "name": tgt.name,
                     "path": info["path"],
                     "scale_offset": info["scaleOffset"],
@@ -1398,6 +1924,14 @@ class LightmapRecords(ptk.LoggingMixin):
                     "path": path,
                     "how": "resampled" if fresh else "rebound",
                 }
+        # The bake baseline: a target's map was baked when its source's was.
+        cls._inherit_bake_state(
+            {
+                job["owner"]: (job["source"], job["owner"] not in written)
+                for job in plan
+                if job["owner"] in results
+            }
+        )
         return results
 
     # ----------------------------------------------------- lightmap IO

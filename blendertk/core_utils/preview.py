@@ -203,7 +203,7 @@ class Preview:
         operation once directly on the current selection (the Maya commit-without-preview
         behavior) — unless the panel opted into ``require_preview``, where a commit with no
         preview running is a no-op."""
-        import bpy
+        from blendertk.core_utils._core_utils import CoreUtils
 
         if not self._enabled:
             if self.require_preview:
@@ -224,7 +224,8 @@ class Preview:
             self._sync_commit_enabled(False)
         if self.finalize_func:
             self.finalize_func()
-        bpy.ops.ed.undo_push(message=self.undo_message)
+        # From a Qt click this runs window-less, where a bare ed.undo_push raised.
+        CoreUtils.undo_push(self.undo_message)
 
     # ------------------------------------------------------------------ internals
     def _on_toggled(self, state):

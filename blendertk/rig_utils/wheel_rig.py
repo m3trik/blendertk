@@ -578,10 +578,9 @@ class WheelRigSlots(ptk.LoggingMixin):
 
             return self._wheel_rig
 
-    # NOTE: not decorated with `undo_checkpoint` (unlike mayatk's `@CoreUtils.undoable` here) —
-    # `WheelRig.rig_rotation` already pushes one; Blender's `undo_push` is a flat checkpoint
-    # marker (not a Maya-style openChunk/closeChunk pair), so stacking a second decorator here
-    # would create TWO undo steps for one click instead of nesting into one.
+    # NOTE: not decorated (unlike mayatk's `@CoreUtils.undoable` here) — `WheelRig.rig_rotation`
+    # is already one undo step and recompiles its drivers after pushing it; an outer `undoable`
+    # would push again after that recompile and re-stale them (see `CoreUtils.undo_checkpoint`).
     def b000(self):
         """Create or update Wheel Rig."""
         wheel_rig = self.wheel_rig

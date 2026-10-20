@@ -518,12 +518,9 @@ class HierarchySyncController(ptk.LoggingMixin):
         self.logger.result(f"[{mode}] Repairs — {', '.join(parts)}")
 
         if not dry_run:
-            import bpy
+            from blendertk.core_utils._core_utils import CoreUtils
 
-            try:
-                bpy.ops.ed.undo_push(message="Hierarchy Sync: Repair Hierarchies")
-            except RuntimeError:
-                pass
+            CoreUtils.undo_push("Hierarchy Sync: Repair Hierarchies")
             self._clear_analysis_cache()
 
         return True
@@ -580,12 +577,9 @@ class HierarchySyncController(ptk.LoggingMixin):
         )
 
         if success and not dry_run:
-            import bpy
+            from blendertk.core_utils._core_utils import CoreUtils
 
-            try:
-                bpy.ops.ed.undo_push(message="Hierarchy Sync: Pull Objects")
-            except RuntimeError:
-                pass
+            CoreUtils.undo_push("Hierarchy Sync: Pull Objects")
             self._clear_analysis_cache()
             self.refresh_trees()
 
@@ -1930,8 +1924,6 @@ class HierarchySyncSlots(ptk.LoggingMixin):
             self.logger.warning("No items selected to delete.")
             return
 
-        import bpy
-
         objects = []
         for item in items:
             obj = item.data(0, self.sb.QtCore.Qt.UserRole)
@@ -1961,14 +1953,13 @@ class HierarchySyncSlots(ptk.LoggingMixin):
         self.logger.info(
             f"Deleted {len(names)} object(s) (selected: {', '.join(selected_names)})"
         )
-        # Undo integration is best-effort and must NOT gate the tree refresh: bpy.ops.ed.undo_push
-        # needs a window context the tentacle Qt event-pump may lack (raises RuntimeError). Keeping
-        # it inside the delete try previously swallowed that error and returned before refreshing,
-        # so the object vanished from the scene but its row stayed in the table.
-        try:
-            bpy.ops.ed.undo_push(message="Hierarchy Sync: Delete Selected Objects")
-        except RuntimeError:
-            pass
+        # The push must NOT gate the tree refresh: kept inside the delete try, a failed push
+        # once returned before refreshing, so the object vanished from the scene but its row
+        # stayed in the table. CoreUtils.undo_push supplies the window a Qt slot lacks and
+        # never raises.
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        CoreUtils.undo_push("Hierarchy Sync: Delete Selected Objects")
 
         self.controller.refresh_trees()
 

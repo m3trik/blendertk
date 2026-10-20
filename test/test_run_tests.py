@@ -341,6 +341,78 @@ print("===RESULT: PASS=== (1/1)")
         self.assertEqual(python_cmd[-1], str(self.suite))
 
 
+class TestChildPackagesSandbox(unittest.TestCase):
+    """Every child provisions packages inside the run's temp root.
+
+    ``CoreUtils.ensure_packages`` pip-installs what a tool needs (Pillow, the
+    xatlas packer Texture Combine drives) into Blender's per-version
+    ``scripts/addons/modules`` -- the user's real profile, so a test run
+    installed into it (2026-10-17: xatlas, by test_texture_combine). The
+    child is handed ``BLENDERTK_PACKAGES_DIR`` inside the root before its
+    suite's first line, and the install target honours it; what the profile
+    already holds stays importable, read-only.
+    """
+
+    PROBE = r"""
+import json, os, sys
+
+report = {{"env": os.environ.get("BLENDERTK_PACKAGES_DIR")}}
+try:
+    import bpy  # noqa: F401
+except ImportError:
+    pass
+else:
+    sys.path[:0] = {roots!r}
+    from blendertk.core_utils._core_utils import _CoreUtilsInternal
+
+    report["target"] = _CoreUtilsInternal._engine_install_dirs()[0]
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "report.json"), "w") as fh:
+    json.dump(report, fh)
+print("OK   probed")
+print("===RESULT: PASS=== (1/1)")
+"""
+
+    def setUp(self):
+        self.work = os.path.join(HERE, "temp_tests", f"child_packages_{os.getpid()}")
+        os.makedirs(self.work, exist_ok=True)
+        self.addCleanup(shutil.rmtree, self.work, True)
+        self.root = os.path.join(self.work, "root")
+        os.makedirs(self.root, exist_ok=True)
+        repo = os.path.dirname(HERE)
+        roots = [repo, os.path.join(os.path.dirname(repo), "pythontk")]
+        self.suite = Path(self.work, "probe_suite.py")
+        self.suite.write_text(self.PROBE.format(roots=roots), encoding="utf-8")
+        self.report = os.path.join(self.work, "report.json")
+
+    _hosts = TestChildTempRoot._hosts
+    _blender = staticmethod(TestChildTempRoot._blender)
+
+    def test_each_child_installs_packages_inside_the_run(self):
+        root = os.path.normcase(os.path.abspath(self.root)) + os.sep
+        for label, kwargs in self._hosts():
+            with self.subTest(host=label):
+                if os.path.exists(self.report):
+                    os.remove(self.report)
+                runner = run_tests.BlenderTestRunner(
+                    blender=self._blender() or "blender"
+                )
+                runner.temp_root = self.root
+                env = {name: self.root for name in ("TMPDIR", "TEMP", "TMP")}
+                with mock.patch.dict(os.environ, env):
+                    os.environ.pop("BLENDERTK_PACKAGES_DIR", None)
+                    passed, ok, failed, _ = runner.run_suite(self.suite, **kwargs)
+                self.assertTrue(passed, f"the probe failed: {ok} ok / {failed} failed")
+                with open(self.report, encoding="utf-8") as fh:
+                    report = json.load(fh)
+                for key in ("env", "target") if label == "blender" else ("env",):
+                    path = report.get(key)
+                    self.assertTrue(
+                        path
+                        and os.path.normcase(os.path.abspath(path)).startswith(root),
+                        f"{label} {key} resolved outside the run's temp root: {path!r}",
+                    )
+
+
 if __name__ == "__main__":
     argv = [sys.argv[0]] + (
         sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []

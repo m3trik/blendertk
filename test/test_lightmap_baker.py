@@ -737,6 +737,243 @@ try:
     for dup in partials:
         bpy.data.objects.remove(dup, do_unlink=True)
 
+    # --- coplanar atlas members meet in one value at every edge they share ---
+    # Twin of mayatk (test_noisy_coplanar_panels_read_one_value_along_their_edge,
+    # test_a_corner_is_not_stitched, test_a_panel_lying_on_another_along_its_
+    # border_is_not_stitched): every member is its own cell with its own
+    # sampling noise, so however well each cell is finished, two coplanar
+    # panels disagree along the edge they share and a tiled wall reads as a
+    # patchwork. The pack STITCHES every open edge two members share in one
+    # plane (ptk.ImgUtils.atlas_seam_pairs -> stitch_seams); a corner and a
+    # decal along a border are left alone. The second panel is a LINKED
+    # duplicate: the edges are read per object, through its own matrix_world.
+    from blendertk.uv_utils._uv_utils import LIGHTMAP_UV_SET as _LM_SET
+
+    seam_mat = btk.create_mat("standard", name="seam_mat")
+    seam_objs = []
+    SEAM_W, SEAM_D = 2.0, 1.3
+    SEAM_X0 = 40.0  # clear of the earlier sections' objects (a cube at the origin)
+
+    def _seam_panel(name, corners=None, mesh=None, location=(0.0, 0.0, 0.0)):
+        """A one-quad panel, its lightmap layer the unit square over it."""
+        if mesh is None:
+            mesh = bpy.data.meshes.new(name)
+            mesh.from_pydata(corners, [], [(0, 1, 2, 3)])
+            for layer_name in ("UVMap", _LM_SET):
+                mesh.uv_layers.new(name=layer_name).data.foreach_set(
+                    "uv", [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0]
+                )
+        obj = bpy.data.objects.new(name, mesh)
+        bpy.context.collection.objects.link(obj)
+        obj.location = location
+        btk.assign_mat(obj, seam_mat)
+        seam_objs.append(obj)
+        return obj
+
+    def _flat(x0, x1, z=0.0):
+        x0, x1 = SEAM_X0 + x0, SEAM_X0 + x1
+        return [(x0, 0.0, z), (x1, 0.0, z), (x1, SEAM_D, z), (x0, SEAM_D, z)]
+
+    def _seam_tile(name, size, value, noise=0.0, seed=0):
+        """A uniform tile at *size*, with iid relative noise per texel."""
+        w, h = size
+        rgb = np.full((h, w), value, np.float32)
+        if noise:
+            rng = np.random.default_rng(seed)
+            rgb *= (1.0 + noise * rng.standard_normal(rgb.shape)).astype(np.float32)
+        buf = np.ones((h, w, 4), np.float32)
+        buf[..., :3] = rgb[..., None]
+        p = os.path.join(tmp_dir, name)
+        img = bpy.data.images.new(name, w, h, float_buffer=True)
+        img.colorspace_settings.name = "Non-Color"
+        img.pixels.foreach_set(buf.reshape(-1))
+        img.filepath_raw = p
+        img.file_format = "OPEN_EXR"
+        img.save()
+        bpy.data.images.remove(img)
+        return p
+
+    def _seam_reader(packed):
+        """``read(obj, point)``: the packed atlas at *point* through obj's own rect."""
+        img = bpy.data.images.load(next(iter(packed.values()))[0])
+        img.colorspace_settings.name = "Non-Color"
+        buf = np.empty(len(img.pixels), np.float32)
+        img.pixels.foreach_get(buf)
+        lum = np.flipud(buf.reshape(img.size[1], img.size[0], img.channels))[..., 0]
+        bpy.data.images.remove(img)
+        h, w = lum.shape
+
+        def read(obj, point):
+            # *point* in the fixture's own frame (x from SEAM_X0).
+            point = np.asarray(point, np.float64) + (SEAM_X0, 0.0, 0.0)
+            uvs, pts = btk.UvUtils.get_uv_world_triangles(obj, _LM_SET)
+            for uv, (a0, b0, c0) in zip(uvs, pts):
+                nrm = np.cross(b0 - a0, c0 - a0)
+                nn = float(nrm @ nrm)
+                q = point - ((point - a0) @ nrm) / nn * nrm
+                w0 = np.cross(c0 - b0, q - b0) @ nrm / nn
+                w1 = np.cross(a0 - c0, q - c0) @ nrm / nn
+                if min(w0, w1, 1.0 - w0 - w1) >= -1e-6:
+                    u, v = w0 * uv[0] + w1 * uv[1] + (1.0 - w0 - w1) * uv[2]
+                    break
+            else:
+                raise RuntimeError(f"{point} is not on {obj.name}")
+            sx, sy, ox, oy = packed[obj.name][1]
+            x = (u * sx + ox) * w - 0.5
+            y = (1.0 - (v * sy + oy)) * h - 0.5
+            x0, y0 = int(np.floor(x)), int(np.floor(y))
+            fx, fy = x - x0, y - y0
+
+            def tap(r, c):
+                return float(lum[min(max(r, 0), h - 1), min(max(c, 0), w - 1)])
+
+            return (
+                (1 - fx) * (1 - fy) * tap(y0, x0)
+                + fx * (1 - fy) * tap(y0, x0 + 1)
+                + (1 - fx) * fy * tap(y0 + 1, x0)
+                + fx * fy * tap(y0 + 1, x0 + 1)
+            )
+
+        return read
+
+    def _seam_pack(objs, values, noise=0.0):
+        seam_baker = LightmapBaker(resolution=64)
+        bpy.context.view_layer.update()
+        seam_plan = seam_baker.atlas_plan([o.name for o in objs])
+        seam_sizes = seam_baker.plan_sizes(seam_plan)
+        mapping = {
+            o.name: _seam_tile(f"{o.name}.exr", seam_sizes[o.name], val, noise, seed=i)
+            for i, (o, val) in enumerate(zip(objs, values))
+        }
+        return seam_baker.pack_atlas(
+            mapping, output_dir=tmp_dir, suffix="_SeamLM", plan=seam_plan
+        )
+
+    seam_a = _seam_panel("seamA", _flat(0.0, SEAM_W))
+    seam_b = _seam_panel("seamB", mesh=seam_a.data, location=(SEAM_W, 0.0, 0.0))
+    seam_read = _seam_reader(_seam_pack([seam_a, seam_b], [1.0, 1.0], noise=0.08))
+    seam_steps = []
+    for y in np.linspace(0.03, 0.97, 25) * SEAM_D:
+        ra = seam_read(seam_a, (SEAM_W - 1e-4, y, 0.0))
+        rb = seam_read(seam_b, (SEAM_W + 1e-4, y, 0.0))
+        seam_steps.append(abs(ra - rb) / ((ra + rb) / 2.0))
+    check(
+        "atlas: noisy coplanar members read one value along their shared edge",
+        max(seam_steps) < 0.01,
+        f"seam step median {100 * float(np.median(seam_steps)):.2f}% "
+        f"max {100 * max(seam_steps):.2f}%",
+    )
+
+    # A wall standing on the floor's far edge (shares it, not its plane).
+    seam_floor = _seam_panel("seamFloor", _flat(0.0, SEAM_W))
+    seam_wall = _seam_panel(
+        "seamWall",
+        [
+            (SEAM_X0, SEAM_D, 0.0),
+            (SEAM_X0 + SEAM_W, SEAM_D, 0.0),
+            (SEAM_X0 + SEAM_W, SEAM_D, SEAM_D),
+            (SEAM_X0, SEAM_D, SEAM_D),
+        ],
+    )
+    corner_read = _seam_reader(_seam_pack([seam_floor, seam_wall], [1.0, 2.0]))
+    corner = [
+        (
+            corner_read(seam_floor, (x, SEAM_D - 1e-3, 0.0)),
+            corner_read(seam_wall, (x, SEAM_D, 1e-3)),
+        )
+        for x in np.linspace(0.1, 0.9, 5) * SEAM_W
+    ]
+    check(
+        "atlas: a wall meeting a floor is not stitched (an edge, not a plane)",
+        all(abs(f - 1.0) < 0.02 and abs(wl - 2.0) < 0.04 for f, wl in corner),
+        f"{corner}",
+    )
+
+    # A ramp folding 30 degrees up off the floor's edge: across the edge, but
+    # not in its plane (the 90-degree wall above is refused by its side alone).
+    cos30, sin30 = math.cos(math.radians(30.0)), math.sin(math.radians(30.0))
+    seam_flat = _seam_panel("seamFlat", _flat(0.0, SEAM_W))
+    seam_ramp = _seam_panel(
+        "seamRamp",
+        [
+            (SEAM_X0, SEAM_D, 0.0),
+            (SEAM_X0 + SEAM_W, SEAM_D, 0.0),
+            (SEAM_X0 + SEAM_W, SEAM_D + SEAM_D * cos30, SEAM_D * sin30),
+            (SEAM_X0, SEAM_D + SEAM_D * cos30, SEAM_D * sin30),
+        ],
+    )
+    fold_read = _seam_reader(_seam_pack([seam_flat, seam_ramp], [1.0, 2.0]))
+    fold = [
+        (
+            fold_read(seam_flat, (x, SEAM_D - 1e-3, 0.0)),
+            fold_read(seam_ramp, (x, SEAM_D + 1e-3 * cos30, 1e-3 * sin30)),
+        )
+        for x in np.linspace(0.1, 0.9, 5) * SEAM_W
+    ]
+    check(
+        "atlas: a panel folding off another's edge is not stitched",
+        all(abs(f - 1.0) < 0.02 and abs(r - 2.0) < 0.04 for f, r in fold),
+        f"{fold}",
+    )
+
+    # A decal along a panel's border: the edge's LINE, both faces on one side.
+    seam_base = _seam_panel("seamBase", _flat(0.0, SEAM_W))
+    seam_decal = _seam_panel("seamDecal", _flat(SEAM_W / 2.0, SEAM_W))
+    decal_read = _seam_reader(_seam_pack([seam_base, seam_decal], [1.0, 2.0]))
+    decal = [
+        (
+            decal_read(seam_base, (SEAM_W - 1e-3, y, 0.0)),
+            decal_read(seam_decal, (SEAM_W - 1e-3, y, 0.0)),
+        )
+        for y in np.linspace(0.1, 0.9, 5) * SEAM_D
+    ]
+    check(
+        "atlas: a decal along a panel's border is not stitched",
+        all(abs(bv - 1.0) < 0.02 and abs(dv - 2.0) < 0.04 for bv, dv in decal),
+        f"{decal}",
+    )
+
+    # The same through a real Cycles bake: two floor panels under a soft light
+    # and an occluder's penumbra, each baked with its own noise. Measured per
+    # seam sample (2026-10-16, 16 samples, denoised): median 0.4-1.8%, max up
+    # to 5.7% before the stitch.
+    for obj in (seam_floor, seam_wall, seam_flat, seam_ramp, seam_base, seam_decal):
+        obj.hide_render = True
+    seam_light = bpy.data.objects.new(
+        "seamLight", bpy.data.lights.new("seamLight", type="AREA")
+    )
+    seam_light.data.energy, seam_light.data.size = 300.0, 1.2
+    bpy.context.collection.objects.link(seam_light)
+    seam_light.location = (SEAM_X0 + SEAM_W + 0.5, SEAM_D * 0.6, 1.4)
+    seam_occ = _seam_panel(
+        "seamOccluder",
+        [
+            (SEAM_X0 + SEAM_W - 0.4, 0.3, 0.5),
+            (SEAM_X0 + SEAM_W + 0.2, 0.3, 0.5),
+            (SEAM_X0 + SEAM_W + 0.2, 0.9, 0.5),
+            (SEAM_X0 + SEAM_W - 0.4, 0.9, 0.5),
+        ],
+    )
+    seam_occ.data.materials.clear()
+    seam_occ.data.materials.append(btk.create_mat("standard", name="seam_occ_mat"))
+    baked_seams = LightmapBaker(resolution=128, samples=16, bounces=2).bake_atlas(
+        [seam_a.name, seam_b.name], output_dir=os.path.join(tmp_dir, "seam_bake")
+    )
+    baked_read = _seam_reader(baked_seams)
+    baked_steps = []
+    for y in np.linspace(0.03, 0.97, 33) * SEAM_D:
+        ra = baked_read(seam_a, (SEAM_W - 1e-4, y, 0.0))
+        rb = baked_read(seam_b, (SEAM_W + 1e-4, y, 0.0))
+        baked_steps.append(abs(ra - rb) / max((ra + rb) / 2.0, 1e-9))
+    check(
+        "atlas: a Cycles-baked pair of coplanar panels meets in one value",
+        len(baked_seams) == 2 and max(baked_steps) < 0.005,
+        f"seam step median {100 * float(np.median(baked_steps)):.2f}% "
+        f"max {100 * max(baked_steps):.2f}%",
+    )
+    for obj in seam_objs + [seam_light]:
+        bpy.data.objects.remove(obj, do_unlink=True)
+
     # --- delivered maps are written like mayatk's: half float, ZIP ---------
     # Image.save() wrote uncompressed 32-bit -- 16.8 MB per 1024 atlas on the
     # production office against Arnold's ~2 MB -- and the per-object writes
@@ -1523,7 +1760,7 @@ try:
     # LightUtils.world_emits primitive itself is unit-tested in
     # test_light_utils.py; this pins that the guard consults it.)
     w = bpy.data.worlds.new("probe_world")
-    w.use_nodes = True
+    btk.MatUtils.get_node_tree(w, create=True)
     scene.world = w
     bg = next(n for n in w.node_tree.nodes if n.type == "BACKGROUND")
     bg.inputs["Strength"].default_value = 1.0
@@ -1865,6 +2102,279 @@ try:
         f"{wf}",
     )
 
+    # --- Include Scene Lighting / Include Hidden Lights (mayatk parity) -------
+    # Which lights light a bake: every scene light (the default) or only the
+    # Scope's own -- the rest switched off for the bake and handed back; the
+    # world by its own switch, whatever the first says; and, with Include Hidden
+    # Lights, the hidden ones of that set switched on -- a light whose COLLECTION
+    # hides it too, without revealing what else the collection holds. The lights
+    # at render time are recorded by a stand-in for the bake primitive.
+    from blendertk.core_utils._core_utils import CoreUtils as _SlCore
+
+    sl_dir = os.path.join(tmp_dir, "scene_lights")
+    # The scene's other lights out of the way for this section, put back after.
+    sl_prior = {
+        o.name: o.hide_render for o in bpy.context.scene.objects if o.type == "LIGHT"
+    }
+    for _name in sl_prior:
+        bpy.data.objects[_name].hide_render = True
+
+    def _sl_parent(child, parent):
+        child.parent = parent
+        child.matrix_parent_inverse = parent.matrix_world.inverted()
+
+    def _sl_light(name, loc, energy=500.0, parent=None):
+        bpy.ops.object.light_add(type="POINT", location=loc)
+        lamp = bpy.context.active_object
+        lamp.name = name
+        lamp.data.energy = energy
+        if parent is not None:
+            _sl_parent(lamp, parent)
+        return lamp
+
+    bpy.ops.object.empty_add(location=(60, 0, 0))
+    sl_module = bpy.context.active_object
+    sl_module.name = "sl_module"
+    bpy.ops.mesh.primitive_plane_add(size=2, location=(60, 0, 0))
+    sl_plane = bpy.context.active_object
+    sl_plane.name = "sl_plane"
+    btk.assign_mat(sl_plane, mat)
+    _sl_parent(sl_plane, sl_module)
+    sl_inside = _sl_light("sl_inside", (60, 0, 2), parent=sl_module)
+    sl_outside = _sl_light("sl_outside", (60, 0, 2.5))
+    sl_own_hidden = _sl_light("sl_own_hidden", (60, 0, 3))
+    sl_own_hidden.hide_render = True
+    sl_rig = bpy.data.collections.new("sl_hidden_rig")
+    bpy.context.scene.collection.children.link(sl_rig)
+    sl_rig_lamp = _sl_light("sl_rig_lamp", (60, 0, 3.5))
+    bpy.ops.mesh.primitive_cube_add(size=0.2, location=(60, 0, 1))
+    sl_rig_prop = bpy.context.active_object
+    sl_rig_prop.name = "sl_rig_prop"
+    for _o in (sl_rig_lamp, sl_rig_prop):
+        for _c in list(_o.users_collection):
+            _c.objects.unlink(_o)
+        sl_rig.objects.link(_o)
+    sl_rig.hide_render = True
+
+    def _sl_rendered(obj):
+        rendered = LightmapBaker._render_collections(_SlCore._active_view_layer())
+        return not obj.hide_render and any(
+            c.name in rendered for c in obj.users_collection
+        )
+
+    def _sl_bake(objects, fail=False, **switches):
+        """bake() with the primitive recording what rendered; ``(seen, result)``."""
+        baker = LightmapBaker.from_preset(
+            "preview", resolution=32, samples=1, denoise=False, device="CPU", **switches
+        )
+        seen = {}
+
+        def record(members, **kwargs):
+            if fail:
+                raise RuntimeError("bake blew up")
+            seen.update(
+                {
+                    o.name: _sl_rendered(o)
+                    for o in bpy.context.scene.objects
+                    if o.type in ("LIGHT", "MESH") and o.name.startswith("sl_")
+                }
+            )
+            seen["<world>"] = bpy.context.scene.world is not None
+            return {}
+
+        with _mock.patch.object(baker._texture_baker, "bake", side_effect=record):
+            result = baker.bake(objects, packing="per_object", output_dir=sl_dir)
+        return seen, result
+
+    check(
+        "the lighting switches default to every light and no hidden one",
+        (LightmapBaker().include_scene_lights, LightmapBaker().include_hidden_lights)
+        == (True, False),
+    )
+    seen, _r = _sl_bake([sl_plane])
+    check(
+        "every scene light lights the bake by default",
+        seen.get("sl_inside") and seen.get("sl_outside"),
+        seen,
+    )
+    seen, _r = _sl_bake([sl_module], include_scene_lights=False)
+    check(
+        "Include Scene Lighting off: the Scope's light lights it, one outside does not",
+        seen.get("sl_inside") is True and seen.get("sl_outside") is False,
+        seen,
+    )
+    check(
+        "...and the light outside is handed back as found",
+        sl_outside.hide_render is False,
+    )
+    seen, _r = _sl_bake([sl_plane, sl_outside], include_scene_lights=False)
+    check(
+        "a light handed to the bake is in its Scope",
+        seen.get("sl_outside") is True and seen.get("sl_inside") is False,
+        seen,
+    )
+    world_before = bpy.context.scene.world
+    seen, _r = _sl_bake([sl_plane], include_scene_lights=False)
+    seen_off, _r = _sl_bake([sl_plane], include_environment=False)
+    check(
+        "the world answers only to Include Environment, not to the Scope",
+        world_before is None
+        or (seen.get("<world>") is True and seen_off.get("<world>") is False),
+        f"{seen.get('<world>')} {seen_off.get('<world>')}",
+    )
+    seen, _r = _sl_bake([sl_plane])
+    check(
+        "hidden lights stay off by default",
+        seen.get("sl_own_hidden") is False and seen.get("sl_rig_lamp") is False,
+        seen,
+    )
+    seen, _r = _sl_bake([sl_plane], include_hidden_lights=True)
+    check(
+        "Include Hidden Lights switches on a hidden light and a collection-hidden one",
+        seen.get("sl_own_hidden") is True and seen.get("sl_rig_lamp") is True,
+        seen,
+    )
+    check(
+        "...without revealing what else the collection hides",
+        seen.get("sl_rig_prop") is False,
+        seen,
+    )
+    check(
+        "...and hands both back hidden",
+        sl_own_hidden.hide_render is True
+        and sl_rig.hide_render is True
+        and sl_rig_lamp.name not in bpy.context.scene.collection.objects
+        and not _sl_rendered(sl_rig_lamp),
+    )
+    seen, _r = _sl_bake(
+        [sl_module], include_scene_lights=False, include_hidden_lights=True
+    )
+    check(
+        "with the master off only the Scope's hidden lights are switched on",
+        seen.get("sl_own_hidden") is False and seen.get("sl_rig_lamp") is False,
+        seen,
+    )
+    try:
+        _sl_bake(
+            [sl_module],
+            fail=True,
+            include_scene_lights=False,
+            include_hidden_lights=True,
+        )
+    except RuntimeError:
+        pass
+    check(
+        "a failed bake hands every light back",
+        sl_outside.hide_render is False
+        and sl_own_hidden.hide_render is True
+        and not _sl_rendered(sl_rig_lamp),
+    )
+
+    # The refusal reads the set the bake renders with.
+    sl_inside.hide_render = True
+    no_env = dict(include_environment=False)
+    check(
+        "every Scope light hidden is refused with the master off",
+        "hidden"
+        in (
+            LightmapBaker(include_scene_lights=False, **no_env).preflight([sl_module])
+            or ""
+        ),
+    )
+    check(
+        "...not with it on (a light outside the Scope lights it)",
+        LightmapBaker(**no_env).preflight([sl_module]) is None,
+    )
+    check(
+        "...nor with Include Hidden Lights on (the bake switches it on)",
+        LightmapBaker(
+            include_scene_lights=False, include_hidden_lights=True, **no_env
+        ).preflight([sl_module])
+        is None,
+    )
+    sl_inside.hide_render = False
+
+    # Presets carry both switches; one saved before they existed builds the defaults.
+    sl_store = ptk.PresetStore(
+        "lightmap",
+        builtin_dir=LightmapBaker.preset_store().builtin_dir,
+        user_dir=os.path.join(sl_dir, "presets"),
+    )
+    sl_store.save(
+        "lightPass",
+        {
+            "resolution": 64,
+            "include_scene_lights": False,
+            "include_hidden_lights": True,
+        },
+    )
+    sl_store.save("olderPass", {"resolution": 64, "include_environment": False})
+    _real_store = LightmapBaker.__dict__["preset_store"]
+    LightmapBaker.preset_store = staticmethod(lambda: sl_store)
+    try:
+        sl_saved = LightmapBaker.from_preset("lightPass")
+        sl_older = LightmapBaker.from_preset("olderPass")
+    finally:
+        LightmapBaker.preset_store = _real_store
+    check(
+        "the lighting switches round-trip through a preset",
+        {"include_scene_lights", "include_hidden_lights"}
+        <= set(LightmapBaker.PRESET_BOOL_KEYS)
+        and (sl_saved.include_scene_lights, sl_saved.include_hidden_lights)
+        == (False, True)
+        and (sl_older.include_scene_lights, sl_older.include_hidden_lights)
+        == (True, False),
+    )
+
+    # A REAL bake per switch: the map changes with it. The plane alone in the
+    # scene's light (the world detached), each pair one switch apart.
+    def _sl_mean(objects, **switches):
+        baker = LightmapBaker.from_preset(
+            "preview",
+            resolution=32,
+            samples=8,
+            denoise=False,
+            device="CPU",
+            include_environment=False,
+            **switches,
+        )
+        result = baker.bake(objects, packing="per_object", output_dir=sl_dir)
+        path = result.maps.get(sl_plane.name)
+        return float(_rgb(path).mean()) if path and os.path.isfile(path) else None
+
+    mean_all = _sl_mean([sl_module])
+    mean_scope = _sl_mean([sl_module], include_scene_lights=False)
+    mean_hidden = _sl_mean([sl_module], include_hidden_lights=True)
+    lines.append(
+        "OK   (measured) real Cycles bake means: every light %s, Scope only %s, "
+        "hidden lights on %s" % (mean_all, mean_scope, mean_hidden)
+    )
+    check(
+        "a real bake: leaving the light outside the Scope out darkens the map",
+        mean_all is not None and mean_scope is not None and mean_scope < mean_all,
+        f"{mean_scope} < {mean_all}",
+    )
+    check(
+        "a real bake: switching the hidden lights on brightens it",
+        mean_hidden is not None and mean_all is not None and mean_hidden > mean_all,
+        f"{mean_hidden} > {mean_all}",
+    )
+    LightmapBaker().revert([sl_plane])
+    for _o in (
+        sl_inside,
+        sl_outside,
+        sl_own_hidden,
+        sl_rig_lamp,
+        sl_rig_prop,
+        sl_plane,
+        sl_module,
+    ):
+        bpy.data.objects.remove(_o, do_unlink=True)
+    bpy.data.collections.remove(sl_rig)
+    for _name, _was in sl_prior.items():
+        if _name in bpy.data.objects:
+            bpy.data.objects[_name].hide_render = _was
+
     # --- the white card: a target bakes its GEOMETRY's light, as Arnold's does ---
     # Baked through its own material (pass colour divided out), a metal had no
     # diffuse lobe and came back near black, and a normal-mapped target took the
@@ -1875,7 +2385,7 @@ try:
         obj = bpy.context.active_object
         obj.name = name
         pm = bpy.data.materials.new(f"{name}_mat")
-        pm.use_nodes = True
+        btk.MatUtils.get_node_tree(pm, create=True)
         pm.node_tree.nodes["Principled BSDF"].inputs[
             "Metallic"
         ].default_value = metallic
@@ -2794,6 +3304,7 @@ try:
         "include_environment": False,
         "denoise": False,
         "beside_textures": True,
+        "reflection_probe": False,
         "device": "CPU",
     }
     scratch_store.save("roomPass", panel_preset)
@@ -2811,7 +3322,8 @@ try:
         (saved.resolution, saved.samples, saved.bounces) == (512, 3, 1)
         and (saved.adaptive, saved.include_environment, saved.denoise)
         == (False, False, False)
-        and saved.beside_textures is True,
+        and saved.beside_textures is True
+        and saved.reflection_probe is False,
     )
     check(
         "...never the device (one machine's hardware), and overrides still win",
@@ -2843,19 +3355,36 @@ try:
                 self.is_on = bool(value)
 
         class _SwitchBox:
-            """A field's option box: the one toggle it carries, found by type."""
+            """A field's option box: its toggles, the first found by type and
+            all of them by ``get_options``, in the order they were added (the
+            Scope field carries three)."""
 
             def __init__(self, on=None):
-                self.toggle = None if on is None else _Toggle(on)
+                self.toggles = [] if on is None else [_Toggle(on)]
                 self.wired = None
+                self.wired_all = []
                 self.actions = []
+
+            @property
+            def toggle(self):
+                return self.toggles[0] if self.toggles else None
+
+            @toggle.setter
+            def toggle(self, value):
+                self.toggles = [] if value is None else [value]
 
             def find_option(self, _option_type):
                 return self.toggle
 
-            def set_toggle(self, *, initial=True, **kwargs):
-                self.toggle = _Toggle(initial)
+            def get_options(self):
+                return list(self.toggles)
+
+            def set_toggle(self, *, initial=True, replace=True, **kwargs):
+                if replace:
+                    self.toggles, self.wired_all = [], []
+                self.toggles.append(_Toggle(initial))
                 self.wired = dict(kwargs, initial=initial)
+                self.wired_all.append(self.wired)
                 return self
 
             def add_action(self, **kwargs):
@@ -2970,6 +3499,9 @@ try:
             beside=False,
             device="AUTO",
             scope="Selected",
+            scene_lights=True,
+            hidden_lights=False,
+            probe=True,
         ):
             """A panel over stub widgets, each wired by its own ``_init``."""
             p = LightmapBakerSlots.__new__(LightmapBakerSlots)
@@ -2983,6 +3515,7 @@ try:
                 txt_output_dir=_Line(placeholder="sourceimages"),
                 txt000=_Line("_Lightmap", "_Lightmap"),
                 lbl_exclude=_Label(),
+                lbl_isolate=_Label(),
                 footer=_Footer(),
             )
             p.ui = ui
@@ -3001,10 +3534,13 @@ try:
                 [v for _t, v in LightmapBakerSlots._DEVICES].index(device)
             )
             for key, on in (
+                ("include_scene_lights", scene_lights),
                 ("include_environment", environment),
+                ("include_hidden_lights", hidden_lights),
                 ("adaptive", adaptive),
                 ("denoise", denoise),
                 ("beside_textures", beside),
+                ("reflection_probe", probe),
             ):
                 p._set_toggle_state(key, on)
             return p
@@ -3030,8 +3566,45 @@ try:
             "each field wires its own switch under a panel-scoped key",
             fresh_panel.ui.spn_samples.option_box.wired["settings_key"]
             == "lightmap_baker_adaptive"
-            and fresh_panel.ui.cmb_scope.option_box.wired["settings_key"]
-            == "lightmap_baker_include_environment",
+            and [
+                w["settings_key"] for w in fresh_panel.ui.cmb_scope.option_box.wired_all
+            ]
+            == [
+                "lightmap_baker_include_scene_lights",
+                "lightmap_baker_include_environment",
+                "lightmap_baker_include_hidden_lights",
+            ],
+        )
+        _scope_wired = fresh_panel.ui.cmb_scope.option_box.wired_all
+        _icons = os.path.join(os.path.dirname(__import__("uitk").__file__), "icons")
+        check(
+            "the Scope carries Include Scene Lighting, Include Environment and "
+            "Include Hidden Lights, in that order (on, on, off), each read from "
+            "its own button, every icon one uitk ships",
+            [w["initial"] for w in _scope_wired] == [True, True, False]
+            and (
+                fresh_panel._include_scene_lights(),
+                fresh_panel._include_environment(),
+                fresh_panel._include_hidden_lights(),
+            )
+            == (True, True, False)
+            and all(
+                os.path.isfile(os.path.join(_icons, f"{w[k]}.svg"))
+                for w in _scope_wired
+                for k in ("icon", "icon_off")
+                if w.get(k)
+            ),
+            f"{_scope_wired}",
+        )
+        flipped = _panel(scene_lights=False, hidden_lights=True)
+        check(
+            "...and flipping one never reads as another",
+            (
+                flipped._include_scene_lights(),
+                flipped._include_environment(),
+                flipped._include_hidden_lights(),
+            )
+            == (False, True, True),
         )
         check(
             "the switches ship on, Beside Material Textures off",
@@ -3039,8 +3612,24 @@ try:
                 fresh_panel._adaptive(),
                 fresh_panel._denoise(),
                 fresh_panel._beside_textures(),
+                fresh_panel._reflection_probe(),
             )
-            == (True, True, False),
+            == (True, True, False, True),
+        )
+        check(
+            "the Packing field carries the Reflection Probe camera switch",
+            fresh_panel.ui.cmb002.option_box.wired.get("settings_key")
+            == "lightmap_baker_reflection_probe"
+            and fresh_panel.ui.cmb002.option_box.wired.get("icon") == "camera"
+            and os.path.isfile(
+                os.path.join(
+                    os.path.dirname(__import__("uitk").__file__),
+                    "icons",
+                    "camera.svg",
+                )
+            )
+            and _panel(probe=False)._reflection_probe() is False,
+            fresh_panel.ui.cmb002.option_box.wired,
         )
         check(
             "the switches are keyed as the preset store keys them",
@@ -3109,6 +3698,9 @@ try:
             adaptive=False,
             denoise=False,
             beside=True,
+            scene_lights=False,
+            hidden_lights=True,
+            probe=False,
         )
         tuned_values = tuned._preset_values()
         check(
@@ -3119,10 +3711,13 @@ try:
                 "resolution": 2048,
                 "samples": 64,
                 "bounces": 2,
+                "include_scene_lights": False,
                 "include_environment": False,
+                "include_hidden_lights": True,
                 "adaptive": False,
                 "denoise": False,
                 "beside_textures": True,
+                "reflection_probe": False,
             },
             f"{tuned_values}",
         )
@@ -3138,7 +3733,15 @@ try:
             applied == len(tuned_values) and reloaded._preset_values() == tuned_values,
             f"{applied} {reloaded._preset_values()}",
         )
-        keep = _panel(environment=False, adaptive=False, denoise=False, beside=True)
+        keep = _panel(
+            environment=False,
+            adaptive=False,
+            denoise=False,
+            beside=True,
+            scene_lights=False,
+            hidden_lights=True,
+            probe=False,
+        )
         keep._apply_preset_values(store.load("desktop"))
         kept_values = keep._preset_values()
         check(
@@ -3146,12 +3749,15 @@ try:
             (kept_values["resolution"], kept_values["samples"], kept_values["bounces"])
             == (2048, 2048, 6)
             and (
+                kept_values["include_scene_lights"],
                 kept_values["include_environment"],
+                kept_values["include_hidden_lights"],
                 kept_values["adaptive"],
                 kept_values["denoise"],
                 kept_values["beside_textures"],
+                kept_values["reflection_probe"],
             )
-            == (False, False, False, True),
+            == (False, False, True, False, False, True, False),
             f"{kept_values}",
         )
         bad = _panel(samples=64)
@@ -3191,6 +3797,7 @@ try:
                 "header",
                 "cmb_scope",
                 "exclude_layout",
+                "isolate_layout",
                 "bake_set_layout",
                 "cmb002",
                 "cmb_device",
@@ -3201,6 +3808,11 @@ try:
                 "footer",
             ],
             f"{_layout_items('main_layout')}",
+        )
+        check(
+            "the Isolate row mirrors the Exclude row: a label and one button",
+            _layout_items("isolate_layout") == ["lbl_isolate", "set_isolation"],
+            f"{_layout_items('isolate_layout')}",
         )
         check(
             "the Bake Set row mirrors the Exclude row: a label and one button "
@@ -3332,6 +3944,9 @@ try:
         class _FakeWorkflow:
             instances = []
 
+            # The REAL Scope-lights read, as the real exclusion filter below.
+            _scope_lights = staticmethod(LightmapBaker._scope_lights)
+
             def __init__(self, **kwargs):
                 self.kwargs = kwargs
                 self.calls = []
@@ -3342,6 +3957,7 @@ try:
                     LightmapBakeResult,
                 )
 
+                self.bake_objects = list(objects)
                 targets = LightmapBaker.bake_targets(objects)
                 names = [o.name for o in TextureBaker.resolve_meshes(objects)]
                 result = LightmapBakeResult(
@@ -3385,21 +4001,28 @@ try:
                 beside=True,
                 device="CPU",
                 packing="per_object",
+                scene_lights=False,
+                hidden_lights=True,
+                probe=False,
             )
             run._output_dir = lambda: par_dir
             run.b000()
             wf_fake = _FakeWorkflow.instances[0]
             check(
-                "b000 carries Bounces, Adaptive, Beside, Environment, Denoise and "
-                "the Processor to the bake",
+                "b000 carries Bounces, Adaptive, Beside, the three lighting "
+                "switches, Denoise, the Reflection Probe and the Processor to "
+                "the bake",
                 {
-                    k: wf_fake.kwargs[k]
+                    k: wf_fake.kwargs.get(k)
                     for k in (
                         "bounces",
                         "adaptive",
                         "beside_textures",
                         "include_environment",
+                        "include_scene_lights",
+                        "include_hidden_lights",
                         "denoise",
+                        "reflection_probe",
                         "device",
                     )
                 }
@@ -3408,11 +4031,53 @@ try:
                     "adaptive": False,
                     "beside_textures": True,
                     "include_environment": False,
+                    "include_scene_lights": False,
+                    "include_hidden_lights": True,
                     "denoise": False,
+                    "reflection_probe": False,
                     "device": "CPU",
                 },
                 f"{wf_fake.kwargs}",
             )
+            # The Scope's lights ride beside its meshes: what lights the bake
+            # with Include Scene Lighting off (the targets stay the meshes).
+            bpy.ops.object.light_add(type="POINT", location=(0, 0, 3))
+            ex_lamp = bpy.context.active_object
+            ex_lamp.name = "ex_lamp"
+            bpy.ops.object.light_add(type="POINT", location=(0, 0, 4))
+            other_lamp = bpy.context.active_object
+            other_lamp.name = "ex_other_lamp"
+            bpy.ops.object.select_all(action="DESELECT")
+            ex_a.select_set(True)
+            ex_lamp.select_set(True)
+            run.b000()
+            handed = {
+                getattr(o, "name", o) for o in _FakeWorkflow.instances[-1].bake_objects
+            }
+            check(
+                "b000 hands the bake the lights its Scope holds, and only those",
+                "ex_lamp" in handed and "ex_other_lamp" not in handed,
+                f"{sorted(handed)}",
+            )
+            scene_run = _panel(scope="Scene", scene_lights=False)
+            scene_run._output_dir = lambda: par_dir
+            scene_run.b000()
+            handed = {
+                getattr(o, "name", o) for o in _FakeWorkflow.instances[-1].bake_objects
+            }
+            check(
+                "...every scene light under the Scene scope",
+                {"ex_lamp", "ex_other_lamp"} <= handed,
+                f"{sorted(handed)}",
+            )
+            for _o in (ex_lamp, other_lamp):
+                bpy.data.objects.remove(_o, do_unlink=True)
+            _FakeWorkflow.instances = _FakeWorkflow.instances[:1]
+            bpy.ops.object.select_all(action="DESELECT")
+            for obj in (ex_a, ex_b):
+                obj.select_set(True)
+            run.b000()
+            wf_fake = _FakeWorkflow.instances[-1]
             check(
                 "b000 never bakes an excluded object, and says how many it left",
                 wf_fake.calls == [("bake", ("ex_a",), "per_object")]
@@ -3513,6 +4178,45 @@ try:
             row.ui.footer.text(),
         )
         LightmapExcludeSet.clear()
+
+        # The Isolate row: the Exclude row's twin over its own set (mirror of
+        # mayatk's). A door brings the glass under it: they move together.
+        from blendertk.mat_utils.bake_sets import LightmapIsolateSet
+
+        iso_row = _panel()
+        iso_row_door = _par_cube("iso_row_door", (140, 0, 0), size=1.0)
+        iso_row_glass = _par_cube("iso_row_glass", (140, 1, 0), size=1.0)
+        iso_row_glass.parent = iso_row_door
+        bpy.ops.object.select_all(action="DESELECT")
+        iso_row_door.select_set(True)
+        iso_row.set_isolation()
+        check(
+            "the Isolate row stores the selection and counts the meshes under it",
+            iso_row.ui.lbl_isolate.text() == "Isolate (2):"
+            and "2 meshes isolated" in iso_row.ui.footer.text()
+            and iso_row.ui.lbl_exclude.text() == "",
+            f"{iso_row.ui.lbl_isolate.text()} | {iso_row.ui.footer.text()} | "
+            f"{iso_row.ui.lbl_exclude.text()!r}",
+        )
+        bpy.ops.object.select_all(action="DESELECT")
+        iso_row.select_isolation()
+        check(
+            "...Select selects its members",
+            [o.name for o in CoreUtils.selected_objects()] == ["iso_row_door"],
+            f"{[o.name for o in CoreUtils.selected_objects()]}",
+        )
+        iso_row.clear_isolation()
+        check(
+            "...and Clear removes the set and resets the label",
+            not LightmapIsolateSet.exists()
+            and iso_row.ui.lbl_isolate.text() == "Isolate:"
+            and "one pass" in iso_row.ui.footer.text(),
+            f"{iso_row.ui.lbl_isolate.text()} | {iso_row.ui.footer.text()}",
+        )
+        for obj in (iso_row_glass, iso_row_door):
+            mesh = obj.data
+            bpy.data.objects.remove(obj)
+            bpy.data.meshes.remove(mesh)
 
     LightmapBaker().revert()
     for obj in (
@@ -4045,6 +4749,1634 @@ try:
     )
     LightmapRecords.revert()
     bpy.ops.wm.read_factory_settings(use_empty=True)
+
+    # --- the Isolate set: a moving part bakes in a pass of its own ---------
+    # Mirror of mayatk's (production 2026-10-15: a locker door left a
+    # door-shaped shadow on its cabinet's map). Each member -- with the meshes
+    # under it -- bakes alone, the static scene in its render and every other
+    # isolated part out, and is out of every other pass's render.
+    from blendertk.mat_utils.bake_sets import LightmapIsolateSet
+
+    def _iso_cube(name, location, parent=None):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.parent = parent
+        return obj
+
+    iso_cabinet = _iso_cube("iso_cabinet", (0, 0, 0))
+    iso_door = _iso_cube("iso_door", (2, 0, 0))
+    iso_glass = _iso_cube("iso_glass", (2, 1, 0), parent=iso_door)
+    iso_lid = _iso_cube("iso_lid", (4, 0, 0))
+    iso_mat = btk.create_mat("standard", name="iso_shared_mat")
+    for obj in (iso_cabinet, iso_door, iso_glass, iso_lid):
+        btk.assign_mat(obj, iso_mat)
+    # The glass stored beside its door counts with the door, the outermost.
+    LightmapIsolateSet.define([iso_lid, iso_glass, iso_door])
+    iso_groups = sorted(sorted(o.name for o in g) for g in LightmapIsolateSet.groups())
+    check(
+        "Isolate groups keep each member with the meshes under it",
+        iso_groups == [["iso_door", "iso_glass"], ["iso_lid"]],
+        iso_groups,
+    )
+    check(
+        "...and its meshes are the groups flattened",
+        sorted(o.name for o in LightmapIsolateSet.meshes())
+        == ["iso_door", "iso_glass", "iso_lid"],
+        [o.name for o in LightmapIsolateSet.meshes()],
+    )
+
+    iso_dir = os.path.join(tmp_dir, "isolate")
+    iso_passes = []
+
+    def iso_render(_self, meshes, **kw):
+        """One pass as TextureBaker bakes one: names apart within the call only."""
+        hidden = sorted(
+            o.name
+            for o in bpy.context.scene.objects
+            if o.type == "MESH" and o.hide_render
+        )
+        iso_passes.append(([m.name for m in meshes], hidden))
+        progress = kw.get("on_progress")
+        used, out = set(), {}
+        for i, m in enumerate(meshes):
+            if progress and progress(i, len(meshes), m.name) is False:
+                break
+            # One material, one stem: the collision a later pass must avoid.
+            out[m.name] = ptk.FileUtils.unique_path(
+                iso_dir,
+                "iso_shared_Lightmap",
+                ".exr",
+                used,
+                claims=kw.get("claims"),
+                owners=(m.name,),
+            )
+        if progress:
+            progress(len(meshes), len(meshes), "")
+        return out
+
+    def _iso_bake(objects, on_progress=None):
+        iso_passes.clear()
+        with _mock.patch.object(TextureBaker, "bake", iso_render):
+            return LightmapBaker(resolution=32)._bake(
+                objects,
+                output_dir=iso_dir,
+                create_uvs=False,
+                heal=False,
+                on_progress=on_progress,
+                claims=LightmapRecords.claims(),
+            )
+
+    iso_ticks = []
+    iso_maps = _iso_bake(
+        [iso_cabinet, iso_door, iso_lid],
+        on_progress=lambda d, t, n: iso_ticks.append((d, t)) or True,
+    )
+    check(
+        "each isolated member bakes alone, out of the others' render",
+        iso_passes
+        == [
+            (["iso_cabinet"], ["iso_door", "iso_glass", "iso_lid"]),
+            (["iso_door"], ["iso_lid"]),
+            (["iso_lid"], ["iso_door", "iso_glass"]),
+        ],
+        iso_passes,
+    )
+    check(
+        "...every mesh is handed back as found",
+        not any(o.hide_render for o in bpy.context.scene.objects),
+        [o.name for o in bpy.context.scene.objects if o.hide_render],
+    )
+    check(
+        "...a pass names its maps apart from the earlier passes' (one stem)",
+        sorted(iso_maps) == ["iso_cabinet", "iso_door", "iso_lid"]
+        and len({os.path.normcase(p) for p in iso_maps.values()}) == 3,
+        iso_maps,
+    )
+    check(
+        "...and progress runs once across the passes",
+        iso_ticks[-1] == (3, 3)
+        and all(t == 3 for _d, t in iso_ticks)
+        and [d for d, _t in iso_ticks] == sorted(d for d, _t in iso_ticks),
+        iso_ticks,
+    )
+
+    _iso_bake(
+        [iso_cabinet, iso_door, iso_lid],
+        on_progress=lambda d, t, n: n != "iso_door",
+    )
+    check(
+        "a cancel stops the later passes",
+        [names for names, _hidden in iso_passes] == [["iso_cabinet"], ["iso_door"]],
+        iso_passes,
+    )
+
+    iso_packed = {}
+
+    def iso_pack(_self, maps, plan=None, **_kw):
+        iso_packed.update(plan or {})
+        return {}
+
+    iso_passes.clear()
+    with (
+        _mock.patch.object(TextureBaker, "bake", iso_render),
+        _mock.patch.object(LightmapBaker, "pack_atlas", iso_pack),
+    ):
+        LightmapBaker(resolution=64).bake_atlas(
+            [iso_cabinet, iso_door], output_dir=iso_dir
+        )
+    check(
+        "an atlas bake isolates the same way",
+        [names for names, _hidden in iso_passes] == [["iso_cabinet"], ["iso_door"]]
+        and iso_passes[0][1] == ["iso_door", "iso_glass", "iso_lid"]
+        and bool(iso_packed),
+        iso_passes,
+    )
+
+    # A map recorded earlier makes the door "baked before" -- static to the
+    # mover rule; the Isolate set must still take it out.
+    LightmapRecords.commit({iso_door.name: os.path.join(iso_dir, "iso_door_LM.exr")})
+    _iso_bake([iso_cabinet])
+    check(
+        "a member baked before stays out of a later bake's render",
+        iso_passes == [(["iso_cabinet"], ["iso_door", "iso_glass", "iso_lid"])],
+        iso_passes,
+    )
+    LightmapRecords.revert()
+
+    LightmapIsolateSet.clear()
+    check("no Isolate set, no groups", LightmapIsolateSet.groups() == [])
+    _iso_bake([iso_cabinet, iso_door])
+    # The glass is a mesh of its own again: unbaked, it moves.
+    check(
+        "no isolated target is one pass, as before",
+        iso_passes == [(["iso_cabinet", "iso_door"], ["iso_glass", "iso_lid"])],
+        iso_passes,
+    )
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+    # --- ProbePlacement: where the reflection probe stands -----------------
+    # Mirror of mayatk's TestProbePlacement, scene for scene, in Blender's own
+    # units (metres) and axes (Z up). The placement lives once in pythontk
+    # (ptk.ProbePlacement); these prove Blender's rays (BVH, two-sided), bounds
+    # and lights feed it as Maya's do. Each scene is one the first rule put the
+    # probe where it could not see the room: inside a car, a column, a dark
+    # cabinet, an open cupboard; 6 m up a hall; a courtyard read as distant.
+    import bmesh
+
+    from blendertk.light_utils.lightmap_baker._probe_placement import (
+        ProbePlacement,
+    )
+
+    def pp_reset():
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        # No sky unless a scene adds one, as mayatk's scenes have no dome.
+        bpy.context.scene.world = None
+
+    def pp_box(name, size, at, inward=False, extra=()):
+        """A box mesh object in world space (several boxes in one mesh with
+        *extra* ``[(size, at)]``); *inward* turns its faces in, as a room a
+        runtime draws."""
+        mesh = bpy.data.meshes.new(name)
+        bm = bmesh.new()
+        for (sx, sy, sz), (x, y, z) in [(size, at), *extra]:
+            for v in bmesh.ops.create_cube(bm, size=1.0)["verts"]:
+                v.co.x, v.co.y, v.co.z = (
+                    v.co.x * sx + x,
+                    v.co.y * sy + y,
+                    v.co.z * sz + z,
+                )
+        if inward:
+            bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
+        bm.to_mesh(mesh)
+        bm.free()
+        obj = bpy.data.objects.new(name, mesh)
+        bpy.context.scene.collection.objects.link(obj)
+        return obj
+
+    def pp_plane(name, w, d, at=(0.0, 0.0, 0.0)):
+        mesh = bpy.data.meshes.new(name)
+        x, y, z = at
+        mesh.from_pydata(
+            [
+                (x - w / 2, y - d / 2, z),
+                (x + w / 2, y - d / 2, z),
+                (x + w / 2, y + d / 2, z),
+                (x - w / 2, y + d / 2, z),
+            ],
+            [],
+            [(0, 1, 2, 3)],
+        )
+        obj = bpy.data.objects.new(name, mesh)
+        bpy.context.scene.collection.objects.link(obj)
+        return obj
+
+    def pp_light(kind, at=(0.0, 0.0, 0.0), name="ppLight"):
+        light = bpy.data.objects.new(name, bpy.data.lights.new(name, kind))
+        light.location = at
+        bpy.context.scene.collection.objects.link(light)
+        return light
+
+    def pp_site(baked, unbaked=()):
+        return ProbePlacement(baked, unbaked).place()
+
+    def pp_box_is(box, want, delta=0.01):
+        """*box* matches *want*; ``None`` is an open face, pushed out of reach."""
+        if box is None:
+            return False
+        for corner, wanted in zip(box, want):
+            for got, value in zip(corner, wanted):
+                if value is None:
+                    if abs(got) < 500.0:
+                        return False
+                elif abs(got - value) > delta:
+                    return False
+        return True
+
+    def pp_clear_of(position, obj, by=0.3):
+        """*position* is at least *by* outside *obj*'s world bounds."""
+        dg = bpy.context.evaluated_depsgraph_get()
+        ev = obj.evaluated_get(dg)
+        pts = [ev.matrix_world @ v.co for v in ev.data.vertices]
+        lo = [min(p[a] for p in pts) for a in range(3)]
+        hi = [max(p[a] for p in pts) for a in range(3)]
+        gap = [max(l - c, 0.0, c - h) for c, l, h in zip(position, lo, hi)]
+        return sum(g * g for g in gap) ** 0.5 >= by - 0.005
+
+    def pp_near(got, want, delta=0.01):
+        return all(abs(g - w) <= delta for g, w in zip(got, want))
+
+    pp_reset()
+    ground = pp_plane("ppGround", 40, 40)
+    car = pp_box("ppCar", (4.5, 1.8, 1.4), (0, 0, 0.7))
+    pp_light("POINT", (0, 0, 8))
+    site = pp_site([ground, car])
+    check(
+        "probe: a solid at the bake's middle is flown over, never entered",
+        site is not None
+        and pp_near(site.position, (0.0, 0.0, 2.0))
+        and pp_clear_of(site.position, car)
+        and pp_box_is(site.box, [[None, None, 0.0], [None, None, None]])
+        and site.open_faces == 5
+        and site.hide == [],
+        site,
+    )
+
+    pp_reset()
+    room = pp_box("ppRoom", (10, 10, 4), (0, 0, 2), inward=True)
+    column = pp_box("ppColumn", (0.6, 0.6, 4), (0, 0, 2))
+    pp_light("POINT", (3, -3, 3.5))
+    site = pp_site([room, column])
+    check(
+        "probe: a column at the room's middle is stepped around",
+        site is not None
+        and abs(site.position[2] - 2.0) < 0.01
+        and pp_clear_of(site.position, column, by=0.5)
+        and abs(site.position[0]) + abs(site.position[1]) < 2.0
+        and any("ppColumn" in note for note in site.notes)
+        and pp_box_is(site.box, [[-5, -5, 0], [5, 5, 4]]),
+        site,
+    )
+
+    pp_reset()
+    room = pp_box("ppRoom", (10, 10, 4), (0, 0, 2), inward=True)
+    cabinet = pp_box("ppCabinet", (1, 1, 1), (0, 0, 2), inward=True)
+    pp_light("POINT", (3, -3, 3.5))
+    site = pp_site([room, cabinet])
+    check(
+        "probe: a dark cavity at the bake's middle is left for the lit room",
+        site is not None
+        and pp_clear_of(site.position, cabinet)
+        and pp_box_is(site.box, [[-5, -5, 0], [5, 5, 4]]),
+        site,
+    )
+
+    pp_reset()
+    room = pp_box("ppRoom", (6, 6, 3), (0, 0, 1.5))
+    pp_light("POINT", (0, 0, 2.5))
+    site = pp_site([room])
+    check(
+        "probe: a lit room built inside out is still a room",
+        site is not None
+        and pp_near(site.position, (0.0, 0.0, 1.5))
+        and site.notes == []
+        and pp_box_is(site.box, [[-3, -3, 0], [3, 3, 3]]),
+        site,
+    )
+
+    pp_reset()
+    room = pp_box("ppRoom", (10, 10, 4), (0, 0, 2), inward=True)
+    cabinet = pp_box(
+        "ppCabinet",
+        (1.2, 0.03, 2.15),
+        (0, 0.435, 1.075),  # the back; the front (-Y) is open
+        extra=[
+            ((0.03, 0.9, 2.15), (-0.585, 0, 1.075)),
+            ((0.03, 0.9, 2.15), (0.585, 0, 1.075)),
+            ((1.2, 0.9, 0.03), (0, 0, 2.135)),
+            ((1.2, 0.9, 0.03), (0, 0, 0.015)),
+        ],
+    )
+    part = pp_box("ppPart", (0.2, 0.2, 0.2), (0, 0, 1.0))
+    pp_light("POINT", (0, -4.5, 3.0))  # in view through the opening
+    site = pp_site([room, cabinet], [part])
+    check(
+        "probe: an open cupboard over what moves is left through its opening",
+        site is not None
+        and site.reason == "over what moves"
+        and pp_clear_of(site.position, cabinet)
+        and site.position[1] < -0.45
+        and any("ppCabinet" in note for note in site.notes),
+        site,
+    )
+
+    pp_reset()
+    hall = pp_box("ppHall", (20, 20, 12), (0, 0, 6), inward=True)
+    table = pp_box("ppTable", (2.4, 1.0, 0.9), (2, -1, 0.45))
+    pp_light("POINT", (0, 0, 11))
+    site = pp_site([hall, table])
+    check(
+        "probe: a tall hall keeps the probe at eye level",
+        site is not None
+        and abs(site.position[2] - 2.0) < 0.01
+        and pp_box_is(site.box, [[-10, -10, 0], [10, 10, 12]]),
+        site,
+    )
+
+    pp_reset()
+    floor = pp_plane("ppFloor", 12, 12)
+    walls = [
+        pp_box("ppWallN", (12, 0.2, 4), (0, 6, 2)),
+        pp_box("ppWallS", (12, 0.2, 4), (0, -6, 2)),
+        pp_box("ppWallE", (0.2, 12, 4), (6, 0, 2)),
+        pp_box("ppWallW", (0.2, 12, 4), (-6, 0, 2)),
+    ]
+    pp_light("SUN", (0, 0, 10))
+    site = pp_site([floor] + walls)
+    check(
+        "probe: a courtyard reads its sky as distant and projects its walls",
+        site is not None
+        and site.open_faces == 1
+        and pp_box_is(site.box, [[-5.9, -5.9, 0], [5.9, 5.9, None]])
+        and abs(site.position[2] - 2.0) < 0.01,
+        site,
+    )
+
+    pp_reset()
+    floor = pp_plane("ppFloor", 10, 10)
+    faces = ProbePlacement([floor]).faces([0.0, 0.0, 1.0])
+    site = pp_site([floor])
+    check(
+        "probe: a bare ground projects onto the ground alone",
+        [[c is None for c in corner] for corner in faces]
+        == [[True, True, False], [True, True, True]]
+        and abs(faces[0][2]) < 0.001
+        and site is not None
+        and pp_box_is(site.box, [[None, None, 0.0], [None, None, None]])
+        and abs(site.position[2] - 2.0) < 0.01,
+        (faces, site),
+    )
+
+    pp_reset()
+    decal = pp_plane("ppDecal", 0.1, 0.1, (0, 0, 5))
+    site = pp_site([decal])
+    check(
+        "probe: a lone object in empty space is read as distant",
+        site is not None and site.box is None and site.open_faces == 6,
+        site,
+    )
+
+    pp_reset()
+    room = pp_box("ppRoom", (10, 10, 4), (0, 0, 2), inward=True)
+    shelf = pp_box("ppShelf", (2, 1, 0.1), (-3, 1.5, 2.15))
+    prop = pp_box("ppProp", (0.2, 0.2, 0.2), (-3, 1.5, 1.0))
+    pp_light("POINT", (3, -3, 3.5))
+    site = pp_site([room, shelf], [prop])
+    check(
+        "probe: a shelf over what moves is kept clear of",
+        site is not None
+        and site.reason == "over what moves"
+        and pp_clear_of(site.position, shelf)
+        and abs(site.position[0] + 3.0) < 0.01
+        and pp_box_is(site.box, [[-5, -5, 0], [5, 5, 4]]),
+        site,
+    )
+
+    pp_reset()
+    building = pp_box("ppBuilding", (8, 8, 6), (0, 0, 3))
+    _dome_mesh = bpy.data.meshes.new("ppDome")
+    _bm = bmesh.new()
+    bmesh.ops.create_uvsphere(_bm, u_segments=20, v_segments=20, radius=50.0)
+    _bm.to_mesh(_dome_mesh)
+    _bm.free()
+    dome = bpy.data.objects.new("ppDome", _dome_mesh)
+    bpy.context.scene.collection.objects.link(dome)
+    ground = pp_plane("ppGround", 200, 200)
+    prop = pp_box("ppProp", (0.2, 0.2, 0.2), (7, 0, 0.5))
+    pp_light("SUN", (0, 0, 10))
+    site = pp_site([building], [dome, ground, prop])
+    check(
+        "probe: what surrounds the bake stays in view and what moves does not",
+        site is not None
+        and site.hide == ["ppProp"]
+        and site.reason == "over what moves"
+        and site.box is not None
+        and abs(site.box[0][2]) < 0.01
+        and pp_clear_of(site.position, building),
+        site,
+    )
+
+    pp_reset()
+    room = pp_box("ppRoom", (8, 8, 3), (0, 0, 1.5), inward=True)
+    room.rotation_euler = (0.0, 0.0, math.radians(45))
+    pp_light("POINT", (0, 0, 2.5))
+    site = pp_site([room])
+    half = 4 * 2**0.5
+    check(
+        "probe: a turned room projects onto its whole extent",
+        site is not None
+        and pp_box_is(site.box, [[-half, -half, 0], [half, half, 3]], delta=0.02),
+        site,
+    )
+
+    pp_reset()
+    bpy.context.scene.unit_settings.scale_length = 0.01  # a unit is a centimetre
+    room = pp_box("ppRoom", (1000, 1000, 400), (0, 0, 200), inward=True)
+    prop = pp_box("ppProp", (20, 20, 20), (-300, 150, 100))
+    pp_light("POINT", (300, -300, 350))
+    site = pp_site([room], [prop])
+    check(
+        "probe: a room in centimetres measures in centimetres",
+        site is not None
+        and pp_near(site.position, (-300.0, 150.0, 200.0), delta=1.0)
+        and pp_box_is(site.box, [[-500, -500, 0], [500, 500, 400]], delta=1.0),
+        site,
+    )
+    # A unit system of None reads a unit as a metre whatever the scale, as the
+    # exporters and the probe's own record (btk.Units.metres_per) read it.
+    bpy.context.scene.unit_settings.system = "NONE"
+    _none_m = ProbePlacement([room]).INTERNAL_M
+    check(
+        "probe: a unit system of None places in metres, as the record labels it",
+        _none_m == btk.Units.metres_per("internal") == 1.0,
+        _none_m,
+    )
+    bpy.context.scene.unit_settings.system = "METRIC"
+    bpy.context.scene.unit_settings.scale_length = 1.0
+
+    # --- The reflection probe: the room the bake lit, as an HDR -------------
+    # Mirror of mayatk's TestReflectionProbe. A lightmap is irradiance with no
+    # direction, so a baked METAL -- no diffuse -- shows only what it reflects,
+    # and an unbaked object is lit by nothing of the room: mayatk measured a
+    # metal housing at 0.12 of Arnold's luminance under the WebXR preview's
+    # studio, 0.62 with the probe. A fake TextureBaker stands in for Cycles;
+    # the real render is the last block.
+    from blendertk.mat_utils.bake_sets import LightmapExcludeSet as _RpExclude
+
+    rp_dir = os.path.join(tmp_dir, "probe")
+    os.makedirs(rp_dir, exist_ok=True)
+
+    def rp_exr(path, value=0.5, w=8, h=8):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        img = bpy.data.images.new(os.path.basename(path), w, h, float_buffer=True)
+        img.colorspace_settings.name = "Non-Color"  # BEFORE the pixels
+        img.pixels = [value, value, value, 1.0] * (w * h)
+        img.filepath_raw = path
+        img.file_format = "OPEN_EXR"
+        img.save()
+        bpy.data.images.remove(img)
+        return path
+
+    rp_calls = {}
+
+    def rp_fake_bake(meshes, **kw):
+        """A map per object as TextureBaker.bake writes one, asking
+        on_progress before each, as it does."""
+        progress = kw.get("on_progress")
+        out = {}
+        for i, m in enumerate(meshes):
+            if progress and progress(i, len(meshes), m.name) is False:
+                break
+            out[m.name] = rp_exr(
+                os.path.join(kw.get("output_dir") or rp_dir, f"{m.name}_LM.exr")
+            )
+        return out
+
+    def rp_fake_pano(position, path, width=1024, hide=None, lights=None):
+        """The call recorded -- with what rendered as it rendered -- and a
+        2:1 panorama written."""
+        scene = bpy.context.scene
+        rp_calls["pano"] = {
+            "position": [float(c) for c in position],
+            "width": width,
+            "hide": sorted(o if isinstance(o, str) else o.name for o in hide or []),
+            "hidden": sorted(
+                o.name
+                for o in scene.objects
+                if o.type in ("MESH", "LIGHT") and o.hide_render
+            ),
+            "world": scene.world is not None,
+        }
+        return rp_exr(path, 0.5, w=width, h=width // 2)
+
+    def rp_baker(**switches):
+        return LightmapBaker(
+            resolution=1024, samples=1, denoise=False, device="CPU", **switches
+        )
+
+    def rp_bake(objects, baker=None, pano=rp_fake_pano, **kwargs):
+        rp_calls.clear()
+        baker = baker or rp_baker()
+        with (
+            _mock.patch.object(baker._texture_baker, "bake", side_effect=rp_fake_bake),
+            _mock.patch.object(
+                baker._texture_baker, "render_panorama", side_effect=pano
+            ),
+        ):
+            result = baker.bake(
+                objects, packing="per_object", output_dir=rp_dir, **kwargs
+            )
+        return result
+
+    def rp_room():
+        """A 10 x 10 x 4 m room on the floor, a table in it and an unbaked
+        prop beside it, off-centre: ``(room, table, prop)`` (mayatk's, in
+        Blender's axes: Maya's (x, y, z) is Blender's (x, -z, y))."""
+        pp_reset()
+        room = pp_box("pbRoom", (10, 10, 4), (0, 0, 2))
+        table = pp_box("pbTable", (2.4, 1.0, 0.9), (-1, 2, 0.45))
+        prop = pp_box("pbProp", (0.2, 0.2, 0.2), (-3, 1.5, 1.0))
+        return room, table, prop
+
+    def rp_deps(objects=None, walk=False):
+        return {
+            d["map"]: d
+            for d in LightmapRecords.lightmap_dependencies(objects, walk=walk)
+        }
+
+    check(
+        "the reflection probe is a preset switch, on by default",
+        "reflection_probe" in LightmapBaker.PRESET_BOOL_KEYS
+        and LightmapBaker().reflection_probe is True
+        and LightmapBaker.from_preset(
+            "preview", reflection_probe=False
+        ).reflection_probe
+        is False,
+    )
+
+    room, table, prop = rp_room()
+    result = rp_bake([room, table])
+    call = rp_calls.get("pano") or {}
+    check(
+        "a bake captures the room it lit as a probe beside its maps",
+        bool(result.probe)
+        and os.path.normcase(os.path.dirname(result.probe)) == os.path.normcase(rp_dir)
+        and result.probe.endswith("untitled_Probe.exr"),
+        result.probe,
+    )
+    check(
+        "...over what moves, at eye level, half the bake's resolution wide",
+        pp_near(call.get("position", ()), (-3.0, 1.5, 2.0))
+        and call.get("width") == 512,
+        call,
+    )
+    check(
+        "...and what moves is see-through to it",
+        call.get("hide") == ["pbProp"],
+        call,
+    )
+    rp_record = LightmapRecords.probe() or {}
+    check(
+        "the probe is recorded in glTF's Y-up axes (x, z, -y), in scene units",
+        rp_record.get("map") == os.path.basename(result.probe or "")
+        and pp_near(rp_record.get("position") or (), (-3.0, 2.0, -1.5))
+        and rp_record.get("unit_scale") == 1.0
+        and pp_box_is(rp_record.get("box"), [[-5, 0, -5], [5, 4, 5]]),
+        rp_record,
+    )
+    rp_manifest = json.loads(LightmapRecords._record().text)
+    check(
+        "the manifest carries the probe to the GLB",
+        rp_manifest.get("probe") == rp_record,
+        rp_manifest.get("probe"),
+    )
+    rp_name = os.path.basename(result.probe or "")
+    deps = rp_deps(walk=True)
+    check(
+        "the probe is a dependency of the file's, no object's, and resolves",
+        rp_name in deps
+        and deps[rp_name]["objects"] == []
+        and bool(deps[rp_name]["path"]),
+        deps.get(rp_name),
+    )
+    check(
+        "...and a GLB build is handed its folder",
+        os.path.normcase(rp_dir)
+        in [os.path.normcase(d) for d in LightmapRecords.search_dirs()],
+        LightmapRecords.search_dirs(),
+    )
+    check(
+        "a table under the probe is furniture, not the floor",
+        abs(ProbePlacement([room, table]).faces([-1.0, 2.0, 2.0])[0][2]) < 0.01,
+    )
+
+    # The probe shows the room the maps lit: what moves shades neither, while
+    # an Exclude-set member is the room, seen and shading in both.
+    room, table, prop = rp_room()
+    crate = pp_box("pbCrate", (0.5, 0.5, 0.5), (3, -3, 0.25))
+    _RpExclude.define([crate])
+    rp_bake([room, table])
+    call = rp_calls.get("pano") or {}
+    check(
+        "what moves is out of the probe's render as it is out of the bake's",
+        call.get("hidden") == ["pbProp"] and call.get("hide") == ["pbProp"],
+        call,
+    )
+    check(
+        "...and handed back as found",
+        not any(o.hide_render for o in bpy.context.scene.objects),
+    )
+    _RpExclude.clear()
+
+    room, table, prop = rp_room()
+    outside = pp_box("pbOutside", (0.2, 0.2, 0.2), (20, -15, 1.0))
+    rp_bake([room, table])
+    call = rp_calls.get("pano") or {}
+    check(
+        "what moves outside the room does not pull the probe, and is still hidden",
+        pp_near(call.get("position", ())[:2], (-3.0, 1.5))
+        and "pbOutside" in call.get("hide", []),
+        call,
+    )
+
+    # The render does not see a hidden object, so the box must not: a baked
+    # shell around the probe, hidden from the render since its bake.
+    room, table, prop = rp_room()
+    shell = pp_box("pbShell", (2, 2, 2), (-3, 1.5, 2.0))
+    rp_bake([room, table, shell])
+    shell.hide_render = True
+    _probe_baker = rp_baker()
+    with _mock.patch.object(
+        _probe_baker._texture_baker, "render_panorama", side_effect=rp_fake_pano
+    ):
+        _probe_baker.bake_probe()
+    _box = (LightmapRecords.probe() or {}).get("box")
+    check(
+        "a hidden baked object is no wall",
+        _box is not None
+        and all(
+            abs(got - want) < 0.01
+            for got, want in (
+                (_box[0][0], -5),
+                (_box[0][2], -5),
+                (_box[1][0], 5),
+                (_box[1][2], 5),
+            )
+        ),
+        _box,
+    )
+
+    room, table, prop = rp_room()
+    result = rp_bake([room, table])
+    rp_name = os.path.basename(result.probe)
+    moved = os.path.join(rp_dir, "moved")
+    os.makedirs(moved, exist_ok=True)
+    shutil.move(result.probe, os.path.join(moved, rp_name))
+    check(
+        "the probe follows its file when repathed",
+        LightmapRecords.repath_lightmaps({rp_name.lower(): moved}, []) == 1
+        and os.path.normcase(os.path.dirname(rp_deps()[rp_name]["path"] or ""))
+        == os.path.normcase(moved),
+        rp_deps().get(rp_name),
+    )
+    scoped = rp_deps([table])
+    check(
+        "an export of baked objects reads the probe it ships",
+        rp_name in scoped
+        and bool(scoped[rp_name]["path"])
+        and os.path.normcase(moved)
+        in [os.path.normcase(d) for d in LightmapRecords.search_dirs([table])],
+        scoped.get(rp_name),
+    )
+    check(
+        "...and a set with nothing baked ships no probe",
+        LightmapRecords.lightmap_dependencies([prop]) == [],
+    )
+    _relocated = os.path.join(rp_dir, "relocated")
+    _plan = LightmapRecords.relocate_lightmaps(_relocated, maps=[rp_name], dry_run=True)
+    check(
+        "Find & Copy relocates a row's own file -- the probe's, which names no object",
+        [os.path.basename(src) for src, _dst in _plan["relocate"]] == [rp_name],
+        _plan,
+    )
+    _map_row = next(d for d in rp_deps().values() if d["objects"])
+    _plan = LightmapRecords.relocate_lightmaps(
+        _relocated, maps=[_map_row["map"]], dry_run=True
+    )
+    check(
+        "...and a map's row never drags the probe along",
+        [os.path.basename(src) for src, _dst in _plan["relocate"]] == [_map_row["map"]],
+        _plan,
+    )
+
+    # A lightmap is bound by its FILE NAME: renamed on disk, every record
+    # naming it follows -- the probe's too.
+    old_map = _map_row["map"]
+    new_map = "renamed_" + old_map
+    os.rename(
+        _map_row["path"], os.path.join(os.path.dirname(_map_row["path"]), new_map)
+    )
+    renamed = LightmapRecords.rename_lightmap(old_map, new_map)
+    probe_new = "renamed_" + rp_name
+    os.rename(os.path.join(moved, rp_name), os.path.join(moved, probe_new))
+    renamed_probe = LightmapRecords.rename_lightmap(rp_name, probe_new)
+    after = rp_deps()
+    check(
+        "a renamed map is followed by its markers and the probe by its record",
+        renamed == len(_map_row["objects"])
+        and renamed_probe == 1
+        and bool(after.get(new_map, {}).get("path"))
+        and bool(after.get(probe_new, {}).get("path"))
+        and (LightmapRecords.probe() or {}).get("map") == probe_new
+        and old_map not in after,
+        (renamed, renamed_probe, sorted(after)),
+    )
+
+    LightmapRecords.revert([room])
+    _kept = LightmapRecords.probe() is not None
+    LightmapRecords.revert()
+    check(
+        "reverting every bake drops the probe (one baked object keeps it)",
+        _kept and LightmapRecords.probe() is None,
+    )
+
+    room, table, prop = rp_room()
+    result = rp_bake([room, table], baker=rp_baker(reflection_probe=False))
+    check(
+        "with the switch off there is no probe",
+        result.probe is None
+        and "pano" not in rp_calls
+        and LightmapRecords.probe() is None
+        and "probe" not in json.loads(LightmapRecords._record().text),
+        result.probe,
+    )
+
+    def rp_raising(*_a, **_k):
+        raise RuntimeError("Cycles failed")
+
+    room, table, prop = rp_room()
+    _warned = []
+    with _mock.patch.object(
+        LightmapBaker.logger, "warning", side_effect=lambda *a, **k: _warned.append(a)
+    ):
+        result = rp_bake([room, table], pano=rp_raising)
+    check(
+        "a probe that fails never loses the bake",
+        sorted(result.maps) == ["pbRoom", "pbTable"]
+        and result.probe is None
+        and sorted(LightmapRecords.baked_objects()) == ["pbRoom", "pbTable"]
+        and any("Reflection probe not captured" in str(a[0]) for a in _warned),
+        _warned,
+    )
+
+    room, table, prop = rp_room()
+    result = rp_bake([room, table], on_progress=lambda done, _total, _name: done < 1)
+    check(
+        "a cancelled bake captures no probe",
+        len(result.maps) == 1 and result.probe is None and "pano" not in rp_calls,
+        (result.maps, rp_calls),
+    )
+
+    # Lit as the maps were: a world the bake leaves out stays out of its probe,
+    # and a light outside the Scope too.
+    room, table, prop = rp_room()
+    rp_world = bpy.data.worlds.new("rp_world")
+    btk.MatUtils.get_node_tree(rp_world, create=True)
+    bpy.context.scene.world = rp_world
+    lamp = pp_light("POINT", (20, 20, 3), name="pbLamp")
+    rp_bake([room, table], baker=rp_baker(include_environment=False))
+    _no_world = rp_calls.get("pano", {}).get("world")
+    rp_bake([room, table], baker=rp_baker(include_scene_lights=False))
+    _outside = rp_calls.get("pano", {}).get("hidden", [])
+    check(
+        "an environment and lights the bake leaves out stay out of its probe",
+        _no_world is False
+        and "pbLamp" in _outside
+        and bpy.context.scene.world == rp_world
+        and not lamp.hide_render,
+        (_no_world, _outside),
+    )
+
+    def rp_selected():
+        return [o.name for o in bpy.context.view_layer.objects if o.select_get()]
+
+    room, table, prop = rp_room()
+    # Objects made through bpy.data reach the layer's selection only once it
+    # is updated: selected before, select_set is a silent no-op.
+    bpy.context.view_layer.update()
+    for o in list(bpy.context.view_layer.objects):
+        o.select_set(o == prop)
+    _before = rp_selected()
+    rp_bake([room, table])
+    check(
+        "a bake with its probe leaves the selection as it found it",
+        _before == ["pbProp"] and rp_selected() == ["pbProp"],
+        (_before, rp_selected()),
+    )
+
+    # A real Cycles probe of a small lit room: the file is the 2:1 HDR the
+    # record names, at the tier's floor width, and it holds the room's light.
+    pp_reset()
+    rp_room_obj = pp_box("rpRealRoom", (6, 6, 3), (0, 0, 1.5), inward=True)
+    rp_crate = pp_box("rpRealCrate", (1, 1, 1), (1.5, 1.0, 0.5))
+    rp_lamp = pp_light("POINT", (0, 0, 2.6), name="rpRealLamp")
+    rp_lamp.data.energy = 300.0
+    real = LightmapBaker(resolution=64, samples=4, denoise=False, device="CPU").bake(
+        [rp_room_obj, rp_crate], packing="per_object", output_dir=rp_dir
+    )
+    _real_img = None
+    if real.probe and os.path.isfile(real.probe):
+        _img = bpy.data.images.load(real.probe, check_existing=False)
+        try:
+            _px = np.empty(_img.size[0] * _img.size[1] * _img.channels, np.float32)
+            _img.pixels.foreach_get(_px)
+            _real_img = (
+                tuple(_img.size),
+                float(_px.reshape(-1, _img.channels)[:, :3].mean()),
+            )
+        finally:
+            bpy.data.images.remove(_img)
+    check(
+        "a real Cycles bake captures its room as a 2:1 HDR probe, lit",
+        _real_img is not None
+        and _real_img[0] == (256, 128)
+        and _real_img[1] > 0.01
+        and (LightmapRecords.probe() or {}).get("map") == os.path.basename(real.probe),
+        (real.probe, _real_img),
+    )
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+    # --- Re-bake Changed (mirror of mayatk's TestRebakeChanged) ---------------
+    # What a map was baked against is recorded (LightmapRecords.bake_state), so a
+    # re-bake redoes only what changed and what it shades -- and writes those
+    # back into the cells they own in their atlas, each material keeping ONE
+    # atlas. Before it a partial re-bake of an atlas group packed the subset
+    # into an atlas of its own (_1) at another texel density, and nothing said
+    # what had changed since the last bake. A fake bake renders a flat value
+    # per object, so a cell written in place is told from one left as it was.
+    import inspect
+
+    from blendertk.core_utils._core_utils import CoreUtils as _RcCore
+    from blendertk.light_utils.lightmap_baker.lightmap_baker import (
+        LightmapBakeResult as _RcResult,
+    )
+    from blendertk.mat_utils.bake_sets import LightmapExcludeSet as _RcExclude
+    from blendertk.uv_utils._uv_utils import LIGHTMAP_UV_SET
+
+    RC_ATLAS = "Crate_Lightmap.exr"
+    RC_RES = 64
+    _R = ptk.BakeBaseline.Reason
+    rc_values = {}
+    rc_renders = []
+    # The lights in the render at each bake call: the rendered lamp names.
+    rc_lamps = []
+
+    def rc_render(_self, objects=None, **kw):
+        """TextureBaker.bake as one flat value per object, at the size asked."""
+        rc_lamps.append(
+            sorted(
+                o.name
+                for o in bpy.context.scene.objects
+                if o.type == "LIGHT" and not o.hide_render
+            )
+        )
+        out, used = {}, set()
+        for obj in TextureBaker.resolve_meshes(objects):
+            w, h = _self._resolve_size(obj, kw.get("size"))
+            px = np.full((h, w, 4), float(rc_values.get(obj.name, 1.0)), np.float32)
+            px[..., 3] = 1.0
+            path = ptk.FileUtils.unique_path(
+                kw["output_dir"],
+                f"{kw.get('prefix', '')}{obj.name}{kw.get('suffix', '')}",
+                ".exr",
+                used,
+                claims=kw.get("claims"),
+                owners=(obj.name,),
+            )
+            used.add(path)
+            LightmapBaker._write_lightmap_exr(path, px)
+            out[obj.name] = path
+            rc_renders.append(obj.name)
+        return out
+
+    rc_artifacts = ptk.TempArtifacts("btk_rebake", policy="scoped")
+    rc_root = rc_artifacts.__enter__().dir_path()
+    rc_out = os.path.join(rc_root, "maps")
+    rc_patch = _mock.patch.object(TextureBaker, "bake", rc_render)
+    rc_patch.start()
+
+    def rc_reset():
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        rc_values.clear()
+        rc_renders.clear()
+        shutil.rmtree(rc_out, ignore_errors=True)
+        os.makedirs(rc_out)
+
+    def rc_material(name="rcCrate", texture="Crate"):
+        """A material whose texture set names its atlas ``<texture>_Lightmap``."""
+        mat = btk.create_mat("standard", name=f"{name}Mat")
+        if texture:
+            node = mat.node_tree.nodes.new("ShaderNodeTexImage")
+            node.image = bpy.data.images.new(f"{texture}_BaseColor.png", 4, 4)
+        return mat
+
+    def rc_crates(names=("rcA", "rcB", "rcC"), spacing=10.0, mat=None):
+        """Unit cubes on one material, *spacing* apart: far enough that a
+        change to one reaches none of the others."""
+        mat = mat or rc_material()
+        out = []
+        for i, name in enumerate(names):
+            bpy.ops.mesh.primitive_cube_add(size=1.0, location=(i * spacing, 0.0, 0.0))
+            obj = bpy.context.active_object
+            obj.name = name
+            btk.assign_mat(obj, mat)
+            out.append(obj.name)
+        bpy.context.view_layer.update()
+        return out
+
+    def rc_baker(**kw):
+        return LightmapBaker(resolution=RC_RES, reflection_probe=False, **kw)
+
+    def rc_bake(objects, **kw):
+        result = rc_baker().bake(objects, packing="atlas", output_dir=rc_out, **kw)
+        if not result.maps:
+            raise RuntimeError(f"fixture bake of {objects} refused: {result.refused}")
+        return result
+
+    def rc_rebake(**kw):
+        return rc_baker().rebake_changed(output_dir=rc_out, **kw)
+
+    def rc_report(**kw):
+        return rc_baker().stale_report(**kw)
+
+    def rc_atlas(name=RC_ATLAS):
+        return LightmapBaker._read_exr_top_down(os.path.join(rc_out, name))[..., :3]
+
+    def rc_cell(atlas, name):
+        """*name*'s cell in *atlas*, by the cell the record holds for it."""
+        cell = LightmapRecords.bake_state()["objects"][name]["cell"]
+        row0, row1, col0, col1 = ptk.ImgUtils.atlas_pixel_rects([cell], RC_RES)[0]
+        return atlas[row0:row1, col0:col1]
+
+    def rc_files():
+        return sorted(f for f in os.listdir(rc_out) if f.lower().endswith(".exr"))
+
+    def rc_said(method):
+        """What a patched logger method was asked to log, rendered."""
+        return [
+            (c.args[0] % c.args[1:]) if len(c.args) > 1 else str(c.args[0])
+            for c in method.call_args_list
+        ]
+
+    def rc_move(name, dz=0.5):
+        bpy.data.objects[name].location.z += dz
+        bpy.context.view_layer.update()
+
+    def rc_record_maps():
+        return {e["map"] for e in LightmapRecords._record().payload["objects"]}
+
+    try:
+        # -- what is stale ----------------------------------------------------
+        rc_reset()
+        names = rc_crates()
+        rc_bake(names)
+        first = rc_report()
+        rc_blend = os.path.join(rc_root, "rebake_room.blend")
+        bpy.ops.wm.save_as_mainfile(filepath=rc_blend)
+        bpy.ops.wm.open_mainfile(filepath=rc_blend)
+        reopened = rc_report()
+        check(
+            "Re-bake Changed: nothing is stale after a bake, nor after a save and reopen",
+            first.targets == ()
+            and first.untracked == ()
+            and reopened.targets == ()
+            and reopened.untracked == ()
+            and reopened.summary() == "Nothing changed since the last bake.",
+            (first.lines(), reopened.lines()),
+        )
+
+        rc_reset()
+        a, b, c = rc_crates()
+        rc_bake([a, b, c])
+        rc_move(a)
+        report = rc_report()
+        check(
+            "Re-bake Changed: a moved object is stale, and its far neighbours are not",
+            report.targets == (a,) and report.stale.get(a) == (_R.MOVED,),
+            report.lines(),
+        )
+
+        rc_reset()
+        a, b, c = rc_crates()
+        rc_bake([a, b, c])
+        rc_mesh = bpy.data.objects[a].data
+        for vert in list(rc_mesh.vertices)[:4]:
+            vert.co.z += 0.4
+        rc_mesh.update()
+        bpy.context.view_layer.update()
+        report = rc_report()
+        check(
+            "Re-bake Changed: a deformed object is stale",
+            report.targets == (a,) and _R.DEFORMED in report.stale.get(a, ()),
+            report.lines(),
+        )
+
+        rc_reset()
+        names = rc_crates()
+        rc_bake(names)
+        os.remove(os.path.join(rc_out, RC_ATLAS))
+        report = rc_report()
+        check(
+            "Re-bake Changed: a missing map stales its readers",
+            report.targets == tuple(sorted(names))
+            and all(_R.MISSING_MAP in report.stale.get(n, ()) for n in names),
+            report.lines(),
+        )
+
+        rc_reset()
+        a, b, c = rc_crates()
+        rc_bake([a, b, c])
+        bpy.data.objects[a].hide_render = True
+        report = rc_report()
+        check(
+            "Re-bake Changed: an object hidden from the render is stale, and "
+            "cannot bake (it shades nothing)",
+            report.unbakeable == (a,)
+            and report.targets == ()
+            and _R.VISIBILITY in report.stale.get(a, ()),
+            report.lines(),
+        )
+
+        rc_reset()
+        a, b, c = rc_crates()
+        rc_bake([a, b, c])
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(11.2, 0.0, 0.0))
+        rc_stool = bpy.context.active_object
+        rc_stool.name = "rcStool"
+        _RcExclude.define([rc_stool])
+        report = rc_report()
+        check(
+            "Re-bake Changed: an object added to the Exclude set stales its "
+            "neighbour (it is in every bake's render)",
+            report.targets == (b,) and report.neighbours.get(b) == ("rcStool",),
+            report.lines(),
+        )
+
+        rc_reset()
+        bpy.ops.object.light_add(type="POINT", location=(10.0, 0.0, 4.0))
+        rc_lamp = bpy.context.active_object
+        rc_lamp.data.energy = 100.0
+        names = rc_crates()
+        rc_bake(names)
+        before_light = rc_report()
+        rc_lamp.data.energy = 500.0
+        report = rc_report()
+        check(
+            "Re-bake Changed: a changed light stales the whole room, said so, "
+            "and the dry run is repeatable",
+            before_light.targets == ()
+            and report.lighting == (rc_lamp.name,)
+            and report.targets == tuple(sorted(names))
+            and "the whole room" in report.summary()
+            and rc_report() == report,
+            (before_light.lines(), report.lines()),
+        )
+        check(
+            "...and opted out, the lighting is not compared",
+            rc_rebake(lighting=False).maps == {},
+        )
+
+        # A bake re-bakes the way it was LIT (mirror of mayatk's
+        # test_changed_relights_the_way_the_bake_lit_and_settles): Include
+        # Scene Lighting off, a loose lamp handed beside the crates is the
+        # Scope's own. The dry run reads that lamp -- not the lights under
+        # what is baked -- the re-bake is lit by it alone, and a second
+        # Changed finds nothing.
+        rc_reset()
+        a, b = rc_crates(names=("rcA", "rcB"))
+        bpy.ops.object.light_add(type="POINT", location=(0.0, 0.0, 4.0))
+        bpy.context.active_object.name = "rcScopeLamp"
+        bpy.ops.object.light_add(type="POINT", location=(10.0, 0.0, 4.0))
+        bpy.context.active_object.name = "rcLooseLamp"
+
+        def rc_scoped():
+            return rc_baker(include_scene_lights=False)
+
+        rc_scoped().bake([a, b, "rcScopeLamp"], packing="atlas", output_dir=rc_out)
+        rc_rule = next(iter(LightmapRecords.bake_state()["lightings"].values())).get(
+            "@rule"
+        )
+        settled_first = rc_scoped().stale_report()
+        # Changed from a panel whose switch was flipped since (every light):
+        # the recorded rule lights the re-bake, not the baker's own switches.
+        rc_changed = rc_baker()
+        settled_on = rc_changed.stale_report()
+        rc_move(a)
+        rc_lamps.clear()
+        rc_first = rc_changed.rebake_changed(output_dir=rc_out)
+        rc_lit = list(rc_lamps)
+        rc_second = rc_changed.rebake_changed(output_dir=rc_out)
+        check(
+            "Re-bake Changed, Include Scene Lighting off: the dry run reads the "
+            "lights the bake used, the re-bake is lit by them alone (whatever "
+            "the baker's switches), and a second Changed finds nothing",
+            settled_first.targets == ()
+            and settled_on.targets == ()
+            and list(rc_first.maps) == [a]
+            and bool(rc_lit)
+            and all(lamps == ["rcScopeLamp"] for lamps in rc_lit)
+            and rc_changed.include_scene_lights is True
+            and rc_second.maps == {}
+            and rc_scoped().stale_report().targets == (),
+            (settled_first.lines(), list(rc_first.maps), rc_lit, rc_second.refused),
+        )
+        check(
+            "...the bake records the rule it lit by, in mayatk's shape",
+            rc_rule
+            == {
+                "include_scene_lights": False,
+                "include_environment": True,
+                "include_hidden_lights": False,
+                "scope": ["rcScopeLamp"],
+            },
+            rc_rule,
+        )
+
+        # -- written back in place ------------------------------------------
+        rc_reset()
+        a, b, c = rc_crates()
+        rc_values.update(rcA=1.0, rcB=2.0, rcC=3.0)
+        rc_bake([a, b, c])
+        before = rc_atlas()
+        rc_values["rcA"] = 5.0
+        rc_move(a)
+        result = rc_rebake()
+        after = rc_atlas()
+        check(
+            "Re-bake Changed: the changed object is written back into its own "
+            "atlas cell -- no _1 atlas",
+            result.in_place == [a]
+            and result.repacked == {}
+            and list(result.maps) == [a]
+            and rc_files() == [RC_ATLAS]
+            and result.report is not None
+            and result.report.in_place == (a,),
+            (result.in_place, result.repacked, list(result.maps), rc_files()),
+        )
+        check(
+            "...every other cell stays byte-identical",
+            all(np.array_equal(rc_cell(after, n), rc_cell(before, n)) for n in (b, c)),
+        )
+        check(
+            "...and the cell written holds the new bake",
+            bool(np.allclose(rc_cell(after, a), 5.0, atol=1e-3)),
+            float(rc_cell(after, a).mean()),
+        )
+        check(
+            "...nothing is left stale, and what ships names ONE map for the material",
+            rc_report().targets == () and rc_record_maps() == {RC_ATLAS},
+            (rc_report().lines(), rc_record_maps()),
+        )
+
+        # The same partial re-bake shipped natively: one lightmap image for the
+        # material in the GLB (the per-object clones share it).
+        from blendertk.light_utils.lightmap_baker.web_export import LightmapWebExport
+
+        def rc_glb_json(path):
+            import struct
+
+            with open(path, "rb") as fh:
+                data = fh.read()
+            length = struct.unpack_from("<I", data, 12)[0]
+            return json.loads(data[20 : 20 + length].decode("utf-8"))
+
+        rc_glb = os.path.join(rc_root, "rebake.glb")
+        rc_objs = [bpy.data.objects[n] for n in (a, b, c)]
+        rc_web = LightmapWebExport(
+            resolution=RC_RES, samples=1, denoise=False, device=None
+        )
+        with rc_web.wired_for_export(objects=rc_objs) as rc_manifest:
+            rc_web.export_glb(
+                rc_glb, objects=rc_objs, manifest=rc_manifest, texture_max_size=None
+            )
+        rc_gltf = rc_glb_json(rc_glb)
+        rc_carried = [
+            m for m in rc_gltf.get("materials", []) if m.get("occlusionTexture")
+        ]
+
+        def rc_source(texture):
+            """An image index, plain or through an image-format extension."""
+            if "source" in texture:
+                return texture["source"]
+            for ext in (texture.get("extensions") or {}).values():
+                if isinstance(ext, dict) and "source" in ext:
+                    return ext["source"]
+            return None
+
+        rc_images = {
+            rc_source(rc_gltf["textures"][m["occlusionTexture"]["index"]])
+            for m in rc_carried
+        }
+        check(
+            "...and a native GLB export ships ONE lightmap image for the material",
+            len(rc_carried) == 3 and len(rc_images) == 1,
+            f"{len(rc_carried)} carrier material(s), {len(rc_images)} lightmap image(s)",
+        )
+
+        rc_reset()
+        a, b, c = rc_crates()
+        rc_values.update(rcA=1.0, rcB=2.0, rcC=3.0)
+        rc_bake([a, b, c], intensity=math.pi)
+        before = rc_atlas()
+        rc_move(a)
+        result = rc_rebake(intensity=math.pi)
+        after = rc_atlas()
+        check(
+            "Re-bake Changed: intensity is applied ONCE to a cell written in place",
+            result.in_place == [a]
+            and bool(np.allclose(rc_cell(before, b), 2.0 * math.pi, rtol=1e-3))
+            and bool(np.allclose(rc_cell(after, a), math.pi, rtol=1e-3))
+            and np.array_equal(rc_cell(after, b), rc_cell(before, b)),
+            (result.in_place, float(rc_cell(after, a).mean())),
+        )
+
+        rc_reset()
+        a, b, c = rc_crates()
+        rc_bake([a, b, c])
+        bpy.data.objects[a].scale = (2.0, 2.0, 2.0)
+        bpy.context.view_layer.update()
+        with _mock.patch.object(LightmapBaker.logger, "info") as rc_info:
+            result = rc_rebake()
+        why = result.repacked.get(RC_ATLAS, "")
+        check(
+            "Re-bake Changed: a cell that no longer fits re-packs its whole group, "
+            "into its one atlas, and says why",
+            result.in_place == []
+            and sorted(result.maps) == sorted([a, b, c])
+            and list(result.repacked) == [RC_ATLAS]
+            and "no longer fits" in why
+            and "2 other members re-bake with it" in why
+            and rc_files() == [RC_ATLAS]
+            and any(why in m for m in rc_said(rc_info))
+            and rc_report().targets == (),
+            (result.in_place, sorted(result.maps), result.repacked, rc_files()),
+        )
+
+        rc_reset()
+        a, b, c = rc_crates()
+        rc_bake([a, b, c])
+        ptk.SceneRecords.LIGHTMAP_BAKE_STATE.clear(LightmapRecords._data_nodes())
+        first = rc_bake([a])
+        second = rc_bake([a])
+        check(
+            "Re-bake Changed: an atlas baked before change tracking re-packs whole "
+            "ONCE, then goes in place",
+            sorted(first.maps) == sorted([a, b, c])
+            and "no recorded cell" in first.repacked.get(RC_ATLAS, "")
+            and second.in_place == [a]
+            and list(second.maps) == [a]
+            and rc_files() == [RC_ATLAS]
+            and rc_record_maps() == {RC_ATLAS},
+            (first.repacked, second.in_place, list(second.maps), rc_files()),
+        )
+
+        rc_reset()
+        a, b, c = rc_crates()
+        rc_bake([a, b, c])
+        bpy.data.objects[a].scale = (2.0, 2.0, 2.0)
+        bpy.context.view_layer.update()
+        _RcExclude.define([bpy.data.objects[c]])
+        with _mock.patch.object(LightmapBaker.logger, "warning") as rc_warn:
+            result = rc_rebake()
+        check(
+            "Re-bake Changed: a member that cannot bake keeps its atlas, and the "
+            "group takes the next name",
+            sorted(result.maps) == sorted([a, b])
+            and {os.path.basename(p) for p in result.maps.values()}
+            == {"Crate_Lightmap_1.exr"}
+            and LightmapRecords._marker_info(c).get("map") == RC_ATLAS
+            and any("rcC" in m and "cannot bake" in m for m in rc_said(rc_warn)),
+            (result.maps, rc_said(rc_warn)),
+        )
+
+        # Two coplanar panels share an edge: the one re-baked is stitched to the
+        # one left as it was -- the free side moves the whole way, and the held
+        # cell keeps every texel.
+        rc_reset()
+        rc_panel_mat = rc_material("rcPanel", texture=None)
+        rc_panels = []
+        for i in range(2):
+            x0, x1 = 2.0 * i, 2.0 * (i + 1)
+            mesh = bpy.data.meshes.new(f"rcPanel{i}")
+            mesh.from_pydata(
+                [(x0, 0.0, 0.0), (x1, 0.0, 0.0), (x1, 1.3, 0.0), (x0, 1.3, 0.0)],
+                [],
+                [(0, 1, 2, 3)],
+            )
+            mesh.uv_layers.new(name=LIGHTMAP_UV_SET).data.foreach_set(
+                "uv", [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0]
+            )
+            obj = bpy.data.objects.new(f"rcPanel{i}", mesh)
+            bpy.context.collection.objects.link(obj)
+            btk.assign_mat(obj, rc_panel_mat)
+            rc_panels.append(obj.name)
+        bpy.context.view_layer.update()
+        p0, p1 = rc_panels
+        rc_values.update(rcPanel0=1.0, rcPanel1=2.0)
+        panel_atlas = os.path.basename(rc_bake([p0, p1]).maps[p0])
+        before = rc_atlas(panel_atlas)
+        rc_values["rcPanel1"] = 3.0
+        result = rc_bake([p1])
+        after = rc_atlas(panel_atlas)
+        rects = [LightmapRecords._marker_info(n)["scaleOffset"] for n in (p0, p1)]
+        pairs = ptk.ImgUtils.atlas_seam_pairs(
+            [LightmapBaker._boundary_edges(n) for n in (p0, p1)],
+            rects,
+            RC_RES,
+            tolerance=LightmapBaker._SEAM_TOLERANCE,
+            coplanar=LightmapBaker._SEAM_COPLANAR,
+        )
+        held_rows = ptk.ImgUtils.atlas_pixel_rects(
+            [LightmapRecords.bake_state()["objects"][p0]["cell"]], RC_RES
+        )[0]
+
+        def rc_read(image, x, y):
+            full = image[..., 0].astype(np.float64)
+            h, w = full.shape
+            x0, y0 = int(np.floor(x)), int(np.floor(y))
+            fx, fy = x - x0, y - y0
+
+            def tap(r, c):
+                return full[min(max(r, 0), h - 1), min(max(c, 0), w - 1)]
+
+            return (
+                tap(y0, x0) * (1 - fx) * (1 - fy)
+                + tap(y0, x0 + 1) * fx * (1 - fy)
+                + tap(y0 + 1, x0) * (1 - fx) * fy
+                + tap(y0 + 1, x0 + 1) * fx * fy
+            )
+
+        def rc_in_held(x, y):
+            row0, row1, col0, col1 = held_rows
+            return col0 - 0.5 <= x <= col1 - 0.5 and row0 - 0.5 <= y <= row1 - 0.5
+
+        seam = []
+        for xa, ya, xb, yb in pairs:
+            if not rc_in_held(xa, ya):
+                xa, ya, xb, yb = xb, yb, xa, ya
+            seam.append(
+                (
+                    abs(rc_read(after, xa, ya) - rc_read(before, xa, ya)),
+                    abs(rc_read(after, xb, yb) - rc_read(after, xa, ya)),
+                )
+            )
+        check(
+            "Re-bake Changed: a cell written in place meets its held neighbour "
+            "ONE-SIDED -- the held cell keeps every texel, the new one meets it",
+            result.in_place == [p1]
+            and len(pairs) > 0
+            and np.array_equal(rc_cell(after, p0), rc_cell(before, p0))
+            and all(held < 1e-6 and step < 0.02 for held, step in seam)
+            and abs(float(np.median(rc_cell(after, p1))) - 3.0) < 1e-3
+            and abs(float(np.median(rc_cell(after, p0))) - 1.0) < 1e-3,
+            (result.in_place, len(pairs), seam[:4]),
+        )
+
+        rc_reset()
+        a, b, c = rc_crates(spacing=1.5)
+        far = rc_crates(names=("rcFar",), mat=rc_material("rcFarMat", "Far"))[0]
+        bpy.data.objects[far].location.x = 40.0
+        bpy.context.view_layer.update()
+        rc_bake([a, b, c, far])
+        bpy.data.objects.remove(bpy.data.objects[c], do_unlink=True)
+        report = rc_report()
+        pruned_first = report.targets == (b,) and report.neighbours.get(b) == (c,)
+        rc_bake([far])
+        kept = LightmapRecords.bake_state()["objects"].get(c, {}).get("removed_at")
+        still = rc_report().targets
+        rc_bake([a, b, far])
+        check(
+            "Re-bake Changed: what leaves stales its neighbours, and is remembered "
+            "until every map within its reach was baked after it left",
+            pruned_first
+            and kept is not None
+            and still == (b,)
+            and c not in LightmapRecords.bake_state()["objects"]
+            and rc_report().targets == (),
+            (report.lines(), kept, still),
+        )
+
+        rc_reset()
+        names = rc_crates()
+        rc_bake(names)
+        result = rc_rebake()
+        check(
+            "Re-bake Changed: nothing changed bakes nothing, and says so",
+            result.maps == {}
+            and result.refused == "Nothing changed since the last bake."
+            and rc_renders == sorted(names),
+            (result.refused, rc_renders),
+        )
+
+        rc_reset()
+        a, b, c = rc_crates()
+        rc_bake([a, b, c])
+        LightmapRecords.revert([a])
+        partial = a in LightmapRecords.bake_state()["objects"]
+        LightmapRecords.revert()
+        check(
+            "Re-bake Changed: a whole-file revert clears the record (a partial "
+            "one keeps it)",
+            partial and LightmapRecords.bake_state()["objects"] == {},
+        )
+
+        rc_reset()
+        a, b = rc_crates(names=("rcA", "rcB"))
+        rc_bake([a, b])
+        rc_src = bpy.data.objects[a]
+        rc_twin = rc_src.copy()
+        rc_twin.data = rc_src.data.copy()
+        rc_twin.name = "rcTwin"
+        bpy.context.collection.objects.link(rc_twin)
+        bpy.context.view_layer.update()
+        LightmapRecords.transfer_lightmaps([rc_twin], rc_src)
+        state = LightmapRecords.bake_state()["objects"]
+        check(
+            "Re-bake Changed: a transferred lightmap inherits its source's bake "
+            "(rebound: its cell too)",
+            all(
+                state.get("rcTwin", {}).get(k) == state[a][k]
+                for k in ("baked_at", "cell", "lighting", "packing")
+            ),
+            {k: (state.get("rcTwin", {}).get(k), state[a][k]) for k in ("cell",)},
+        )
+
+        # The Maya bridge's template bakes through whatever blendertk the other
+        # DCC has installed: the public call keeps its signature, and the
+        # private one hands back each object's cell for the record.
+        rc_reset()
+        names = rc_crates()
+        rc_done = rc_baker()._bake_atlas(names, output_dir=rc_out)
+        check(
+            "bake_atlas keeps its public signature; _bake_atlas returns the cells",
+            list(inspect.signature(LightmapBaker.bake_atlas).parameters)
+            == ["self", "objects", "output_dir", "prefix", "suffix", "claims", "kwargs"]
+            and set(rc_done.packed) == set(names)
+            and set(rc_done.cells) == set(names)
+            and all(
+                cell["packing"] == "atlas"
+                and cell["size"] == RC_RES
+                and len(cell["cell"]) == 4
+                and len(cell["extent"]) == 2
+                for cell in rc_done.cells.values()
+            ),
+            rc_done.cells,
+        )
+
+        # -- the panel's half: the Changed scope (mirror of TestChangedScope) --
+        if panel_qt is None:
+
+            class _RcWorkflow:
+                instances = []
+                report = ptk.StaleReport()
+                _scope_lights = staticmethod(LightmapBaker._scope_lights)
+
+                def __init__(self, **kwargs):
+                    self.kwargs, self.calls = kwargs, []
+                    self.resolution = kwargs.get("resolution")
+                    _RcWorkflow.instances.append(self)
+
+                def stale_report(self, objects=None, reach=None):
+                    self.calls.append(("stale_report",))
+                    return _RcWorkflow.report
+
+                def rebake_changed(self, **kwargs):
+                    self.calls.append(("rebake_changed",))
+                    self.rebake_kwargs = kwargs
+                    result = _RcResult(report=_RcWorkflow.report)
+                    if not _RcWorkflow.report.targets:
+                        result.refused = _RcWorkflow.report.summary()
+                        return result
+                    for name in _RcWorkflow.report.targets:
+                        result.maps[name] = os.path.join(kwargs["output_dir"], RC_ATLAS)
+                        result.rects[name] = [1.0, 1.0, 0.0, 0.0]
+                    result.in_place = list(_RcWorkflow.report.in_place)
+                    return result
+
+            rc_reset()
+            bpy.ops.mesh.primitive_cube_add(size=1.0)
+            rc_cube = bpy.context.active_object
+            rc_cube.name = "csCube"
+            moved = ptk.StaleReport(
+                targets=("csCube",),
+                stale={"csCube": (_R.MOVED,)},
+                in_place=("csCube",),
+            )
+            rc_real_workflow = slots_mod.LightmapBaker
+            slots_mod.LightmapBaker = _RcWorkflow
+            try:
+                _RcWorkflow.report = moved
+                scope_panel = _panel()
+                scope_panel.ui.cmb_scope.setCurrentIndex(3)
+                check(
+                    "Changed is the FOURTH scope (the combo persists by index) and "
+                    "reads back",
+                    LightmapBakerSlots._SCOPE_LABELS
+                    == ("Selected", "Visible", "Scene", "Changed")
+                    and scope_panel._scope() == "changed",
+                    scope_panel._scope(),
+                )
+
+                _RcWorkflow.instances = []
+                dry = _panel(scope="Changed", res=2048)
+                dry.cmb_scope(3)
+                dry_baker = _RcWorkflow.instances[-1] if _RcWorkflow.instances else None
+                _RcWorkflow.instances = []
+                _panel(scope="Scene").cmb_scope(2)
+                check(
+                    "choosing Changed writes the dry run to the footer, with the "
+                    "panel's dials; no other scope reads the scene",
+                    dry.ui.footer.text() == moved.summary()
+                    and dry_baker is not None
+                    and dry_baker.resolution == 2048
+                    and dry_baker.calls == [("stale_report",)]
+                    and _RcWorkflow.instances == [],
+                    (dry.ui.footer.text(), getattr(dry_baker, "calls", None)),
+                )
+
+                bpy.ops.object.select_all(action="DESELECT")  # Changed needs none
+                _RcWorkflow.instances = []
+                run = _panel(scope="Changed", res=512)
+                run._output_dir = lambda: rc_out
+                run.b000()
+                run_baker = _RcWorkflow.instances[-1] if _RcWorkflow.instances else None
+                check(
+                    "Bake under Changed re-bakes the changed with the panel's dials",
+                    run_baker is not None
+                    and run_baker.resolution == 512
+                    and [c[0] for c in run_baker.calls] == ["rebake_changed"]
+                    and run_baker.rebake_kwargs.get("suffix") == "_Lightmap"
+                    and "1 written back into its atlas cell" in run.ui.footer.text(),
+                    (getattr(run_baker, "calls", None), run.ui.footer.text()),
+                )
+
+                _RcWorkflow.report = ptk.StaleReport()
+                idle = _panel(scope="Changed")
+                idle._output_dir = lambda: rc_out
+                idle.b000()
+                check(
+                    "...with nothing changed it says so",
+                    idle.ui.footer.text() == "Nothing changed since the last bake.",
+                    idle.ui.footer.text(),
+                )
+
+                text = _panel(packing="atlas")._bake_report(
+                    _RcResult(
+                        maps={"csCube": os.path.join(rc_out, RC_ATLAS)},
+                        rects={"csCube": [1.0, 1.0, 0.0, 0.0]},
+                        repacked={RC_ATLAS: "rcA: its cell no longer fits"},
+                    )
+                )
+                check(
+                    "the report names the atlases re-packed whole, and why",
+                    RC_ATLAS in text and "its cell no longer fits" in text,
+                    text,
+                )
+
+                _RcWorkflow.report = moved
+                bpy.ops.object.select_all(action="DESELECT")
+                lister = _panel()
+                with _mock.patch.object(
+                    LightmapBakerSlots.logger, "log_group"
+                ) as rc_group:
+                    lister.list_changed_objects()
+                check(
+                    "List Changed Objects logs each object with why, and selects them",
+                    [o.name for o in _RcCore.selected_objects()] == ["csCube"]
+                    and rc_group.call_args is not None
+                    and rc_group.call_args.args[1] == moved.lines()
+                    and lister.ui.footer.text() == moved.summary(),
+                    (
+                        [o.name for o in _RcCore.selected_objects()],
+                        lister.ui.footer.text(),
+                    ),
+                )
+            finally:
+                slots_mod.LightmapBaker = rc_real_workflow
+    finally:
+        rc_patch.stop()
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        rc_artifacts.__exit__(None, None, None)
 
 except Exception:
     traceback.print_exc()

@@ -239,7 +239,8 @@ class RenderEffects(ptk.LoggingMixin):
         A declared channel is seeded through its own ensurer (limits and the
         colour ramp are the channel's); any other label lands as a float, or
         as one component of an existing vector property. Frames must already
-        be on the scene's clock.
+        be on the scene's clock. Each label's keys land in one bulk write
+        (:meth:`_land_keys`).
         """
         import bpy
 
@@ -259,7 +260,7 @@ class RenderEffects(ptk.LoggingMixin):
             value = rec.get("value")
             if value is not None:
                 cls._set_prop(obj, prop, index, float(value))
-            data_path = f'["{prop}"]'
+            keys = []
             for key in rec.get("keys") or []:
                 try:
                     frame, val = float(key[0]), float(key[1])
@@ -268,9 +269,42 @@ class RenderEffects(ptk.LoggingMixin):
                 interp = cls._BLENDER_FROM_INTERP.get(
                     key[2] if len(key) > 2 else "smooth", "BEZIER"
                 )
-                cls._set_key(obj, data_path, frame, val, interp, index=index)
+                keys.append((frame, val, interp))
+            if keys:
+                cls._land_keys(obj, prop, index, keys)
             written += 1
         return written
+
+    @classmethod
+    def _land_keys(cls, obj, prop: str, index: int, keys: list) -> None:
+        """Key ``(frame, value, interpolation)`` *keys* on *obj*'s custom
+        property *prop* (component *index*, ``-1`` for a scalar) as
+        :meth:`_set_key` per key would, in one bulk write
+        (``AnimUtils._insert_keys``): a key on a keyed frame replaces it, and
+        the property ends at the last key's value. Each interpolation lands on
+        its own point only (``_set_key`` also restyles a subframe key's
+        whole-frame neighbour), and an artist's FREE / ALIGNED handles are not
+        cut by the insert's subdivision.
+
+        The curve is looked up once; a missing one is made by keying the
+        first key, so its action, slot and settings are ``keyframe_insert``'s.
+        Per key, the insert scanned every curve and every point of its own --
+        quadratic in its length (20 curves x 2000 keys: 59 s).
+        """
+        from blendertk.anim_utils._anim_utils import AnimUtils
+
+        data_path = f'["{prop}"]'
+        fc = cls._fcurve(obj, data_path, index)
+        if fc is None:
+            cls._set_prop(obj, prop, index, keys[0][1])
+            obj.keyframe_insert(data_path=data_path, frame=keys[0][0], index=index)
+            fc = cls._fcurve(obj, data_path, index)
+        if fc is None:  # keyed where no slot shows it: key one by one, as ever
+            for frame, value, interp in keys:
+                cls._set_key(obj, data_path, frame, value, interp, index=index)
+            return
+        AnimUtils._insert_keys(fc, keys)
+        cls._set_prop(obj, prop, index, keys[-1][1])
 
     @classmethod
     def objects_with_visibility_keys(cls, objects) -> list:

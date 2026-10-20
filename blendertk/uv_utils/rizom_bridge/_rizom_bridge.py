@@ -123,7 +123,7 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
     # the originals (and never collides with a real object name).
     _TEMP_SUFFIX = "__RZTMP"
 
-    def __init__(self, rizom_path=None, timeout=600):
+    def __init__(self, rizom_path=None, timeout=600, hidden=True):
         """Initialize the RizomUV bridge.
 
         Parameters:
@@ -131,10 +131,17 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
                 PATH / registry / the standard install dirs using ``APP``.
             timeout: Max seconds to wait for the headless round-trip run before killing RizomUV.
                 Simple meshes finish in seconds; dense meshes with high pack mutations take minutes.
+            hidden: RizomUV has no headless mode: run it where no one sees it (Windows,
+                ``AppLauncher.run(hidden=True)``; its window placement is untouched). False shows
+                it -- to watch it work, or answer a dialog it waits on; a run's ``SHOW_APP_WINDOW``
+                param (the panel's Show App Window) shows it for that run alone. Elsewhere it shows
+                either way. A hidden run is cancellable: under an active ``ptk.CancelScope`` (the
+                panel's ``@Cancelable`` Process -- hold Esc) RizomUV is ended at once.
         """
         super().__init__()
         self._rizom_path = rizom_path
         self.timeout = timeout
+        self.hidden = hidden
         self._export_path = None
         self._script_path = None
         self._temp = None  # Round-trip temp store (see _temp_store)
@@ -402,7 +409,8 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
                 ``"unwrap_hybrid"``, ``"optimize"``, ``"pack_into_existing"``). Loaded from
                 ``scripts/<preset>.lua``. Mutually exclusive with *uv_script*.
             params: Optional dict of placeholder overrides (e.g. ``{"ITERATIONS": 25}``). Keys map
-                to ``__KEY__`` tokens in the script (see ``parameters.PARAMS``).
+                to ``__KEY__`` tokens in the script (see ``parameters.PARAMS``). A truthy
+                ``SHOW_APP_WINDOW`` shows RizomUV for this run, as ``hidden=False`` does.
             select_objects: What moves, for a preset that packs a subset of *objects* INTO the
                 layout the rest of them form (``pack_into_existing``, which requires it): objects
                 move whole, and one in Edit Mode moves the shells its selected faces touch. Their
@@ -773,9 +781,14 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         full_script_content = self._construct_full_script(user_script_content)
         self._script_path = self._prepare_script_file(full_script_content)
 
+        # The panel's Show App Window shows RizomUV for this run, as hidden=False does. Esc
+        # reaches a hidden run through an active CancelScope (the panel's @Cancelable Process).
+        hidden = self.hidden and not (self._params or {}).get("SHOW_APP_WINDOW")
+        hides = hidden and ptk.AppLauncher.can_hide()
+        esc = " -- hold Esc to cancel" if hides and ptk.CancelScope.current() else ""
         self.logger.info(
-            f"Running RizomUV with script "
-            f'<a href="action://open?path={self._script_path}">{self._script_path}</a>'
+            f"Running RizomUV{' hidden' if hides else ''} with script "
+            f'<a href="action://open?path={self._script_path}">{self._script_path}</a>{esc}'
         )
         self.logger.debug(f"Script content:\n{full_script_content}")
 
@@ -798,11 +811,25 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
                 exe,
                 args=["-cfi", ptk.AppLauncher.ansi_safe_path(self.script_path)],
                 timeout=self.timeout,
+                hidden=hidden,
             )
+        except ptk.OperationCancelled:
+            # Never folded into the RuntimeError below: a cancel is the user's, not a failure,
+            # and the caller's cancel handling (the panel's dispatcher) reports it.
+            self.logger.warning(
+                "RizomUV cancelled: the run was ended before it saved, so nothing changed."
+            )
+            raise
         except subprocess.TimeoutExpired as e:
+            unseen = (
+                " It ran hidden: a dialog it may have opened waited unseen (tick Show App "
+                "Window, or use RizomUVBridge(hidden=False), to see it)."
+                if hides
+                else ""
+            )
             raise RuntimeError(
                 f"RizomUV did not exit within {self.timeout}s -- killed. "
-                f"For dense meshes, raise RizomUVBridge(timeout=...)."
+                f"For dense meshes, raise RizomUVBridge(timeout=...).{unseen}"
             ) from e
         except FileNotFoundError as e:
             raise RuntimeError(f"RizomUV executable not runnable: {e}") from e

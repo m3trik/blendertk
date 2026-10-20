@@ -951,7 +951,6 @@ class UsdUtils(_UsdUtilsInternal):
             if hidden:
                 invisible.add(path)
         count = 0
-        keyed = []
         for obj in objects:
             path = UsdUtils.prim_path(obj)
             if path in invisible:
@@ -959,12 +958,7 @@ class UsdUtils(_UsdUtilsInternal):
                 obj.hide_render = True
                 count += 1
             elif UsdUtils._key_visibility(obj, tracks.get(path) or ()):
-                keyed.append(obj)
                 count += 1
-        if keyed:
-            from blendertk.anim_utils._anim_utils import AnimUtils
-
-            AnimUtils.step_visibility_keys(keyed)
         return count
 
     @staticmethod
@@ -989,18 +983,18 @@ class UsdUtils(_UsdUtilsInternal):
     def _key_visibility(obj, track) -> bool:
         """Key *obj*'s ``hide_viewport`` / ``hide_render`` from a ``[(time, hidden)]``
         track, one key per CHANGE -- a sample repeating the current state is not a
-        key. False when nothing was keyed (an empty track). The caller decides which
-        prims get here: a track whose value never switches is static, not animation."""
-        previous = None
+        key -- stepped, through the landing every carrier shares
+        (``AnimUtils.replay_visibility``). False when nothing was keyed (an empty
+        track). The caller decides which prims get here: a track whose value never
+        switches is static, not animation."""
+        from blendertk.anim_utils._anim_utils import AnimUtils
+
+        changes, previous = [], None
         for time, hidden in track:
-            if hidden == previous:
-                continue
-            obj.hide_viewport = hidden
-            obj.hide_render = hidden
-            obj.keyframe_insert("hide_viewport", frame=time)
-            obj.keyframe_insert("hide_render", frame=time)
-            previous = hidden
-        return previous is not None
+            if hidden != previous:
+                changes.append((time, not hidden))
+                previous = hidden
+        return AnimUtils.replay_visibility(obj, changes) > 0
 
     @staticmethod
     def activate_uv_map(objects: List[Any], name: str = "map1") -> int:

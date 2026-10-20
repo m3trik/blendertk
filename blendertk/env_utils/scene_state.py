@@ -46,6 +46,7 @@ class SceneState:
         "emissive": "_read_emissive",
         "metallic_roughness": "_read_metallic_roughness",
         "alpha_mode": "_read_alpha_mode",
+        "unlit": "_read_unlit",
     }
 
     @staticmethod
@@ -113,17 +114,112 @@ class SceneState:
         colour already travels through the FBX as a real image, so re-embedding
         it would only bloat the payload. (*textures* is accepted for the
         uniform reader signature; this section has no use for it.)
+
+        Its opacity's scalar part rides as ``alpha`` (:meth:`_opacity_factor`),
+        the factor glTF multiplies into the texture's alpha.
         """
         result: Dict[str, Dict[str, Any]] = {}
         for material in materials:
+            entry: Dict[str, Any] = {}
             node = cls._principled(material)
-            if node is None:
-                continue
-            socket = node.inputs.get("Base Color")
-            if socket is None or socket.is_linked:
-                continue
-            result[material.name] = {"color": list(socket.default_value)[:3]}
+            socket = node.inputs.get("Base Color") if node is not None else None
+            if socket is not None and not socket.is_linked:
+                entry["color"] = list(socket.default_value)[:3]
+            alpha = cls._opacity_factor(material)
+            if alpha is not None:
+                entry["alpha"] = alpha
+            if entry:
+                result[material.name] = entry
         return result
+
+    @classmethod
+    def _opacity_factor(cls, material: Any) -> Optional[float]:
+        """The scalar part of *material*'s opacity -- what glTF states as
+        ``baseColorFactor[3]`` -- or None at 1.0. Mirror of the Maya reader.
+
+        The opacity is the active output's Mix Shader factor when that mixes a
+        Transparent BSDF (on its first shader input) against the surface --
+        the shadow rig's shape, which has no Principled BSDF on the surface --
+        and the Principled ``Alpha`` otherwise. Two shapes of it carry a
+        scalar: a bare constant, and a texture's alpha times a scalar through
+        a Math ``MULTIPLY`` (a constant input or a Value node) -- the shadow
+        rig's silhouette x its plane's ``opacity`` fade, read at the current
+        frame (a keyed fade also ships as a fade track, which drives the same
+        factor). A texture alone states nothing: its alpha rides the base
+        colour texture -- a detached shadow plane, its fade baked into the
+        PNG, whose second (inactive) output's Principled is never read. The
+        FBX carries neither: a shadow plane held at 0.836 reached WebXR at
+        alpha 1.0, solid black where the viewport drew it half-transparent
+        (measured on the Maya side 2026-10-15).
+        """
+        socket = cls._transparent_mix_factor(material)
+        if socket is None:
+            node = cls._principled(material)
+            socket = node.inputs.get("Alpha") if node is not None else None
+        if socket is None:
+            return None
+        try:
+            if not socket.is_linked:
+                factor = float(socket.default_value)
+            else:
+                node = socket.links[0].from_node
+                if node.type != "MATH" or node.operation != "MULTIPLY":
+                    return None
+                factor = None
+                for texture_in, scalar_in in ((0, 1), (1, 0)):
+                    upstream = node.inputs[texture_in]
+                    if upstream.is_linked and upstream.links[
+                        0
+                    ].from_node.type.startswith("TEX_"):
+                        factor = cls._scalar_of(node.inputs[scalar_in])
+                        break
+                if factor is None:
+                    return None
+        except (AttributeError, IndexError, TypeError, ValueError):
+            return None
+        factor = min(1.0, max(0.0, factor))
+        return factor if factor < 1.0 - 1e-4 else None
+
+    @classmethod
+    def _transparent_mix_factor(cls, material: Any) -> Optional[Any]:
+        """The ``Fac`` socket of the Mix Shader on the ACTIVE output's surface
+        when its first shader input is a Transparent BSDF (``Fac`` is then the
+        opacity), else None."""
+        from blendertk.mat_utils._mat_utils import MatUtils
+
+        tree = MatUtils.get_node_tree(material)
+        if tree is None:
+            return None
+        mix = cls._surface_shader(tree)
+        if mix is None:
+            return None
+        if mix.type != "MIX_SHADER" or not mix.inputs[1].is_linked:
+            return None
+        if mix.inputs[1].links[0].from_node.type != "BSDF_TRANSPARENT":
+            return None
+        return mix.inputs[0]
+
+    @staticmethod
+    def _surface_shader(tree: Any) -> Optional[Any]:
+        """The node feeding the ACTIVE material output's Surface (the first
+        output when none is flagged active), or None when nothing does. A tree
+        may hold several outputs -- a detached shadow plane's keeps an inactive
+        one for the exporters -- and only the active one renders
+        (``MatUtils``' own read, ``_tree_surface_node``)."""
+        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
+
+        return _MatUtilsInternal._tree_surface_node(tree)
+
+    @staticmethod
+    def _scalar_of(socket: Any) -> Optional[float]:
+        """A float socket's constant: its own value, or a Value node's feeding
+        it; None for anything else (a texture, a graph)."""
+        if not socket.is_linked:
+            return float(socket.default_value)
+        source = socket.links[0].from_node
+        if source.type == "VALUE":
+            return float(source.outputs[0].default_value)
+        return None
 
     @classmethod
     def _read_alpha_mode(
@@ -232,19 +328,15 @@ class SceneState:
         several outputs and disconnected experiments, and a group cycle must
         not hang an export.
         """
-        tree = getattr(material, "node_tree", None)
+        from blendertk.mat_utils._mat_utils import MatUtils
+
+        tree = MatUtils.get_node_tree(material)
         if tree is None:
             return False
-        outputs = [n for n in tree.nodes if n.type == "OUTPUT_MATERIAL"]
-        start = next((n for n in outputs if n.is_active_output), None) or (
-            outputs[0] if outputs else None
-        )
-        if start is None:
+        first = SceneState._surface_shader(tree)
+        if first is None:
             return False
-        surface = start.inputs.get("Surface")
-        if surface is None or not surface.is_linked:
-            return False
-        seen, queue = set(), [surface.links[0].from_node]
+        seen, queue = set(), [first]
         while queue and len(seen) < limit:
             node = queue.pop()
             if node is None or node.name in seen:
@@ -256,6 +348,82 @@ class SceneState:
                 for link in socket.links:
                     queue.append(link.from_node)
         return False
+
+    @classmethod
+    def _read_unlit(
+        cls, materials: List[Any], textures: Dict[str, Dict[str, str]]
+    ) -> Dict[str, Dict[str, Any]]:
+        """``{material: {}}`` for the *materials* the scene shades unlit.
+
+        Mirror of the Maya reader. Two kinds: Blender's own unlit model
+        (:meth:`_is_unlit` -- an Emission shader, alone or mixed with a
+        Transparent BSDF, on the active output), and the material of every
+        projected shadow plane (``ShadowRig.plane_materials``), whatever it
+        wears -- a shadow is darkness laid over what is under it, never a
+        surface the environment lights. The FBX cannot say either: FBX2glTF
+        makes each one lit PBR, and a shadow plane in WebXR took the
+        environment's specular and read BRIGHTER than the floor it lay on
+        (measured on the Maya side 2026-10-15). Applied as
+        ``KHR_materials_unlit`` (``MeshConvert.set_glb_unlit``).
+        """
+        result: Dict[str, Dict[str, Any]] = {}
+        for material in materials:
+            if cls._is_unlit(material):
+                result[material.name] = {}
+        try:
+            from blendertk.rig_utils.shadow_rig._shadow_rig import ShadowRig
+
+            wanted = {m.name for m in materials}
+            for material in ShadowRig.plane_materials():
+                if material.name in wanted:
+                    result[material.name] = {}
+        except Exception as error:  # noqa: BLE001 -- a section never fails a push
+            import logging
+
+            logging.getLogger(__name__).debug("Shadow planes unread: %s", error)
+        return result
+
+    #: Shader nodes an unlit surface may route through between its Emission
+    #: and the output: the shader inputs of a mix / add, or a reroute.
+    _UNLIT_ROUTES = ("MIX_SHADER", "ADD_SHADER", "REROUTE")
+
+    @classmethod
+    def _is_unlit(cls, material: Any, limit: int = 64) -> bool:
+        """Is *material* Blender's unlit model: Emission, with no other BSDF?
+
+        Walked from the ACTIVE output's Surface back through mix / add shaders
+        (their SHADER inputs only -- a mix factor is data, a texture's alpha):
+        an Emission shader must be reached, and nothing but a Transparent BSDF
+        beside it -- what the shadow rigs and a detached shadow plane build.
+        Any other shader (a Principled BSDF, a group) is lit, or unknown, and
+        leaves the material out. Bounded, as :meth:`_surface_mixes_transparency`.
+        """
+        from blendertk.mat_utils._mat_utils import MatUtils
+
+        tree = MatUtils.get_node_tree(material)
+        if tree is None:
+            return False
+        first = cls._surface_shader(tree)
+        if first is None:
+            return False
+        emits = False
+        seen, queue = set(), [first]
+        while queue:
+            node = queue.pop()
+            if node is None or node.name in seen:
+                continue
+            seen.add(node.name)
+            if len(seen) > limit:
+                return False
+            if node.type == "EMISSION":
+                emits = True
+            elif node.type in cls._UNLIT_ROUTES:
+                for socket in node.inputs:
+                    if node.type == "REROUTE" or socket.type == "SHADER":
+                        queue.extend(link.from_node for link in socket.links)
+            elif node.type != "BSDF_TRANSPARENT":
+                return False
+        return emits
 
     @classmethod
     def _read_emissive(
@@ -284,15 +452,21 @@ class SceneState:
                 continue
 
             strength = cls._emission_strength(node)
-            # Strength 0 means the material emits nothing, so there is nothing
-            # to carry. Mirror of the Maya twin: with a map connected, claiming
-            # otherwise would show it at full brightness on a material that
-            # renders black, and the panel would report a successful transfer.
+            texture = (textures.get(material.name) or {}).get("emission")
+            # Strength 0: the material emits nothing. With a map connected that
+            # is still something to carry -- the FBX hands the map on and the
+            # converter glows it at 1.0 unless the factor says 0. Mirror of the
+            # Maya twin (measured there: a production room's ceiling panels lit
+            # WebXR at full, 2026-10-17). A colour-only one is left out.
             if strength == 0.0:
+                if texture:
+                    result[material.name] = {
+                        "texture": texture,
+                        "color": [0.0, 0.0, 0.0],
+                    }
                 continue
 
             entry: Dict[str, Any] = {}
-            texture = (textures.get(material.name) or {}).get("emission")
             if texture:
                 entry["texture"] = texture
                 # The map supplies the colour; only the scale is left to carry.
@@ -335,11 +509,9 @@ class SceneState:
     @staticmethod
     def _principled(material):
         """The material's Principled BSDF node, or ``None``."""
-        if not getattr(material, "use_nodes", False) or material.node_tree is None:
-            return None
-        return next(
-            (n for n in material.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None
-        )
+        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
+
+        return _MatUtilsInternal._principled_node(material)
 
     @staticmethod
     def _emission_strength(node) -> float:

@@ -451,6 +451,255 @@ try:
         ),
     )
 
+    # --- A keyed value moved off its curve reads keyframe_changed ----------
+    # Mirror of mayatk's TestOffCurveState. Repro (Channels, Blender 5.1): a keyed
+    # channel moved without a key -- lost on the next frame change, orange in
+    # Blender's own fields -- kept the plain keyed colour (measured before the fix:
+    # "keyframe_active" on its key, "keyframe" between keys).
+    reset()
+    A = cube("A")
+    A["myInt"] = 0
+    scn = bpy.context.scene
+    for frame, v in ((1, 0.0), (10, 10.0)):
+        scn.frame_set(frame)
+        A.location[0] = v
+        A.rotation_euler[2] = math.radians(v * 9)
+        A["myInt"] = int(v // 3)
+        A.keyframe_insert("location", index=0, frame=frame)
+        A.keyframe_insert("rotation_euler", index=2, frame=frame)
+        A.keyframe_insert('["myInt"]', frame=frame)
+    by = {d["name"]: d for d in ch.collect_channels([A], "all")}
+    lx, ly, rz, mi = (
+        by[n] for n in ("location_x", "location_y", "rotation_z", "myInt")
+    )
+
+    def states(*descriptors):
+        return [ch.classify_connection(A, d) for d in descriptors]
+
+    scn.frame_set(1)
+    A.location[0] = 4.0
+    check(
+        "a value moved off its key -> keyframe_changed",
+        states(lx) == ["keyframe_changed"] and ch.is_off_curve(A, lx),
+        states(lx),
+    )
+    scn.frame_set(5)
+    check(
+        "a time change puts it back on its curve -> keyframe",
+        states(lx) == ["keyframe"] and not ch.is_off_curve(A, lx),
+        states(lx),
+    )
+    A.location[0] = 99.0
+    check(
+        "a value moved between keys -> keyframe_changed",
+        states(lx) == ["keyframe_changed"],
+        states(lx),
+    )
+    on_curve = []
+    for frame in range(1, 11):
+        scn.frame_set(frame)
+        on_curve.append(tuple(states(lx, rz, mi)))
+    check(
+        "values on their curve never read changed (radians both sides; an int curve rounds)",
+        all("keyframe_changed" not in s for s in on_curve)
+        and on_curve[0] == ("keyframe_active",) * 3
+        and on_curve[4] == ("keyframe",) * 3,
+        on_curve,
+    )
+    A.location[1] = 4.0
+    check(
+        "an unkeyed channel never reads changed",
+        states(ly) == ["none"] and not ch.is_off_curve(A, ly),
+        states(ly),
+    )
+    scn.frame_set(5)
+    A.location[0] = 4.0
+    ch.set_key_at_current_time([A], lx, keyed=True)  # the panel's click on the cell
+    scn.frame_set(6)
+    scn.frame_set(5)
+    check(
+        "keying a changed value keeps it across a frame change",
+        states(lx) == ["keyframe_active"] and abs(A.location[0] - 4.0) < 1e-5,
+        f"{states(lx)} x={A.location[0]}",
+    )
+
+    # --- Every panel edit is ONE undo step, a drag-fill included ------------
+    # Mirror of mayatk's TestEditBatchUndo and its engine's undo chunks. Repro
+    # (Channels, Blender 5.1): the panel writes through RNA and pushed NO undo
+    # step, so one Ctrl+Z reverted the user's previous operation along with the
+    # edit, and Redo brought back only that operation (measured: a three-cell
+    # fill of scale 2.5 after a move -> one undo gave scale 1 AND the move undone;
+    # redo restored the move, scale stayed 1).
+    from types import SimpleNamespace
+
+    from blendertk.node_utils.attributes.channels.channels_slots import (
+        ChannelsSlots,
+    )
+
+    T = {d["name"]: d for d in Channels._transform_descriptors()}
+
+    def custom(key):
+        return Channels._describe(key, f'["{key}"]', None, "custom", "float")
+
+    def undo_round(names, setup, edit, read):
+        """(edited, undone, previous op kept, redone) for *edit* after a previous step.
+
+        Objects are re-read by name order each time: undo swaps ``bpy.data``.
+        """
+        reset()
+        for n in names:
+            cube(n)
+        bpy.ops.object.select_all(action="SELECT")
+
+        def objs():
+            return sorted(bpy.data.objects, key=lambda o: o.name)
+
+        setup(objs())
+        bpy.ops.ed.undo_push(message="baseline")
+        objs()[0]["prev"] = 1
+        bpy.ops.ed.undo_push(message="previous op")
+        edit(objs())
+        edited = read(objs())
+        bpy.ops.ed.undo()
+        undone = read(objs())
+        kept = "prev" in objs()[0].keys()
+        bpy.ops.ed.redo()
+        return edited, undone, kept, read(objs())
+
+    def stand_in(descriptors, state="unlocked"):
+        """A ChannelsSlots over the real engine, minus the Qt widgets it never needs here."""
+        s = ChannelsSlots.__new__(ChannelsSlots)
+        s.controller = ch
+        s._row_descriptors = list(descriptors)
+        s._scrub_state = None
+        s._edit_chunk = None
+        s.ui = SimpleNamespace(
+            tbl000=SimpleNamespace(actions=SimpleNamespace(get=lambda r, c: state))
+        )
+        s.sb = SimpleNamespace(
+            QtCore=SimpleNamespace(
+                Qt=SimpleNamespace(AltModifier=1, ControlModifier=2, ShiftModifier=4)
+            ),
+            QtWidgets=SimpleNamespace(
+                QApplication=SimpleNamespace(keyboardModifiers=lambda: 0),
+                QLineEdit=type("QLineEdit", (), {}),
+            ),
+        )
+        s._refresh_table = lambda *a: None
+        s._set_value_cell_text = lambda *a: None
+        return s
+
+    def fill(o):
+        s = SimpleNamespace(_edit_chunk=None)
+        ChannelsSlots._on_edit_batch_started(s)
+        for axis in "xyz":  # one cellChanged per cell, as the fill delivers them
+            ch.set_channel_value(o, T[f"scale_{axis}"], "2.5")
+        ChannelsSlots._on_edit_batch_finished(s)
+
+    def scrub(o):
+        s = stand_in([T["scale_x"]])
+        s._on_scrub_started(0, ChannelsSlots.COL_VALUE)
+        for dx in (40, 80, 100):
+            s._on_scrub_moved(0, ChannelsSlots.COL_VALUE, dx, 0)
+        s._on_scrub_finished(0, ChannelsSlots.COL_VALUE)
+
+    def key_x(o):
+        o[0].keyframe_insert("location", index=0, frame=1)
+
+    def scale_2(o):
+        o[0].scale[0] = 2.0
+
+    def copied_scale_2(o):
+        o[0].scale[0] = 2.0
+        ch.copy_values(o, [T["scale_x"]])
+        o[0].scale[0] = 1.0
+
+    def frozen_scale_2(o):
+        o[0].scale[0] = 2.0
+        ch.freeze_transforms(o, [T["scale_x"]])
+
+    def has_curve(o):
+        return ch._find_fcurve(o[0], T["location_x"]) is not None
+
+    def scale_x(o):
+        return round(o[0].scale[0], 4)
+
+    def none(o):
+        pass
+
+    lock_rows = [T["location_x"], T["location_y"], T["location_z"]]
+    # fmt: off
+    cases = [
+        # (name, objects, setup, edit, read, before, after)
+        ("set_channel_value", ["U"], none,
+         lambda o: ch.set_channel_value(o, T["scale_x"], "2.5"), scale_x, 1.0, 2.5),
+        ("set_lock", ["U"], none,
+         lambda o: ch.set_lock(o, [T["location_x"]], True),
+         lambda o: o[0].lock_location[0], False, True),
+        ("set_key_at_current_time", ["U"], none,
+         lambda o: ch.set_key_at_current_time(o, T["location_x"]), has_curve, False, True),
+        ("break_connections", ["U"], key_x,
+         lambda o: ch.break_connections(o, T["location_x"]), has_curve, True, False),
+        ("set_mute", ["U"], key_x,
+         lambda o: ch.set_mute(o, [T["location_x"]], True),
+         lambda o: ch.classify_connection(o[0], T["location_x"]) == "muted", False, True),
+        ("set_breakdown_key", ["U"], none,
+         lambda o: ch.set_breakdown_key(o, [T["location_x"]]), has_curve, False, True),
+        ("reset_to_default", ["U"], scale_2,
+         lambda o: ch.reset_to_default(o, [T["scale_x"]]), scale_x, 2.0, 1.0),
+        ("create_attribute", ["U"], none,
+         lambda o: ch.create_attribute(o, "made", "float"),
+         lambda o: "made" in o[0].keys(), False, True),
+        ("delete_attributes", ["U"], lambda o: o[0].__setitem__("gone", 1.0),
+         lambda o: ch.delete_attributes(o, [custom("gone")]),
+         lambda o: "gone" in o[0].keys(), True, False),
+        ("rename_attribute", ["U"], lambda o: o[0].__setitem__("old", 1.0),
+         lambda o: ch.rename_attribute(o, "old", "new"),
+         lambda o: [k for k in ("old", "new") if k in o[0].keys()], ["old"], ["new"]),
+        ("rename_node", ["U"], none,
+         lambda o: ch.rename_node(o[0], "Renamed"), lambda o: o[0].name, "U", "Renamed"),
+        ("paste_values", ["U"], copied_scale_2,
+         lambda o: ch.paste_values(o), scale_x, 1.0, 2.0),
+        ("freeze_transforms", ["U"], scale_2,
+         lambda o: ch.freeze_transforms(o, [T["scale_x"]]), scale_x, 2.0, 1.0),
+        ("unfreeze_transforms", ["U"], frozen_scale_2,
+         lambda o: ch.unfreeze_transforms(o), scale_x, 1.0, 2.0),
+        ("a drag-fill (editBatchStarted / editBatchFinished)", ["U"], none, fill,
+         lambda o: [round(v, 4) for v in o[0].scale], [1.0] * 3, [2.5] * 3),
+        ("an icon drag down the Lock column", ["U"], none,
+         lambda o: stand_in(lock_rows)._on_icon_cells_dragged(
+             [0, 1, 2], ChannelsSlots.COL_LOCK
+         ),
+         lambda o: list(o[0].lock_location), [False] * 3, [True] * 3),
+        ("an MMB scrub", ["U"], none, scrub, scale_x, 1.0, 2.0),
+        ("a wheel notch over two objects", ["U", "V"], none,
+         lambda o: stand_in([T["scale_x"]])._on_wheel_scrolled(
+             0, ChannelsSlots.COL_VALUE, 1, 0
+         ),
+         lambda o: [round(x.scale[0], 4) for x in o], [1.0, 1.0], [1.1, 1.1]),
+    ]
+    # fmt: on
+    for name, names, setup, edit, read, before, after in cases:
+        try:
+            got = undo_round(names, setup, edit, read)
+        except Exception as e:
+            got = f"raised {type(e).__name__}: {e}"
+        check(
+            f"undo: {name} is one step (one Ctrl+Z reverts it alone, redo restores it)",
+            got == (after, before, True, after),
+            f"(edited, undone, previous op kept, redone)={got}",
+        )
+    check(
+        "undo: no bracket left global undo off",
+        bpy.context.preferences.edit.use_global_undo is True,
+    )
+    try:
+        ChannelsSlots._on_edit_batch_finished(SimpleNamespace(_edit_chunk=None))
+        unmatched = ""
+    except Exception as e:
+        unmatched = f"{type(e).__name__}: {e}"
+    check("undo: an unmatched batch finish closes nothing", not unmatched, unmatched)
+
     # --- The panel's Slots module imports without Qt -----------------------
     # Headless Blender ships no Qt binding, so a Qt-only uitk import belongs in
     # the method that uses it (blendertk/CLAUDE.md). uitk is put on the path and

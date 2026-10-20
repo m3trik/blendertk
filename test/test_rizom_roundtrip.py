@@ -42,6 +42,7 @@ def check(name, cond, detail=""):
 try:
     import bpy
     from blendertk.env_utils.fbx_utils import FbxUtils
+    from blendertk.mat_utils._mat_utils import MatUtils
     from blendertk.uv_utils.rizom_bridge._rizom_bridge import RizomUVBridge
 
     def reset():
@@ -341,7 +342,7 @@ try:
     try:
         script = RizomUVBridge(rizom_path="not-used.exe").send([grp], load_textures=False)
     finally:
-        ptk.AppLauncher.launch = real_launch
+        ptk.AppLauncher.launch = staticmethod(real_launch)
     fbx = re.search(r'Path="([^"]+)"', open(script, encoding="utf-8").read()).group(1)
     before_import = set(bpy.data.objects)
     shipped = FbxUtils.import_fbx(fbx)
@@ -419,7 +420,7 @@ try:
             except RuntimeError:
                 pass
             finally:
-                ptk.AppLauncher.run = real_run
+                ptk.AppLauncher.run = staticmethod(real_run)
             arg = (seen.get("args") or [None, ""])[1]
             try:
                 arg.encode(ptk.AppLauncher._ansi_codec())
@@ -438,7 +439,7 @@ try:
             bpy.ops.mesh.primitive_cube_add()
             textured = bpy.context.active_object
             tex_mat = bpy.data.materials.new("RZ_Tex")
-            tex_mat.use_nodes = True
+            MatUtils.get_node_tree(tex_mat, create=True)
             node = tex_mat.node_tree.nodes.new("ShaderNodeTexImage")
             node.image = bpy.data.images.load(png)
             textured.data.materials.append(tex_mat)
@@ -471,6 +472,145 @@ try:
                               False, str(error).splitlines()[0])
     finally:
         shutil.rmtree(paths_root, ignore_errors=True)
+
+    # -----------------------------------------------------------------------------
+    # 5d) RizomUV has no headless mode: a run goes where no one sees it
+    #     (AppLauncher.run(hidden=True)), hidden=False shows it, and a timed-out
+    #     hidden run names the dialog it may have hidden (mirror of mayatk).
+    # -----------------------------------------------------------------------------
+    import subprocess
+
+    hidden_seen, hidden_errors = [], []
+
+    def timing_out(exe, args=None, timeout=None, **kwargs):
+        hidden_seen.append(kwargs.get("hidden"))
+        raise subprocess.TimeoutExpired(exe, timeout)
+
+    real_run, real_can_hide = ptk.AppLauncher.run, ptk.AppLauncher.can_hide
+    ptk.AppLauncher.run = staticmethod(timing_out)
+    try:
+        # Hidden, shown, and hidden where it cannot be (it showed: nothing waited unseen).
+        for kwargs, hides in (({}, True), ({"hidden": False}, True), ({}, False)):
+            ptk.AppLauncher.can_hide = staticmethod(lambda hides=hides: hides)
+            br = RizomUVBridge(rizom_path="not-used.exe", **kwargs)
+            br.script_path = "ZomPack({})"
+            try:
+                br._execute_uv_script()
+            except RuntimeError as error:
+                hidden_errors.append(str(error))
+            finally:
+                br._release_temp_payloads()
+    finally:
+        ptk.AppLauncher.run = staticmethod(real_run)
+        ptk.AppLauncher.can_hide = staticmethod(real_can_hide)
+    check("RizomUV runs hidden unless asked to show",
+          hidden_seen == [True, False, True], hidden_seen)
+    check("only a timed-out run that really hid names hidden=False",
+          len(hidden_errors) == 3 and "hidden=False" in hidden_errors[0]
+          and "hidden" not in hidden_errors[1] and "hidden" not in hidden_errors[2],
+          hidden_errors)
+
+    # -----------------------------------------------------------------------------
+    # 5d2) A hidden app waiting on a dialog can't be answered (mirror of mayatk,
+    #      2026-10-19): the panel's Show App Window (SHOW_APP_WINDOW, off by default)
+    #      shows RizomUV for the run it rides in -- its row on every round-trip preset,
+    #      never the send, whose RizomUV always shows -- and Esc held during a hidden
+    #      run (the CancelScope the panel's @Cancelable Process activates; a real run
+    #      polls it) ends it at once: the bridge says so, OperationCancelled reaches
+    #      the caller, and the scene keeps its UVs and no __RZTMP copy.
+    # -----------------------------------------------------------------------------
+    import logging
+
+    from blendertk.uv_utils.rizom_bridge import parameters as _rz_params
+    from blendertk.uv_utils.rizom_bridge._rizom_bridge import _SCRIPT_DIR as _rz_scripts
+
+    show_spec = _rz_params.PARAMS.get("SHOW_APP_WINDOW")
+    check("Show App Window is an off-by-default toggle whose tooltip says why",
+          show_spec is not None and (show_spec.kind, show_spec.default) == ("bool", False)
+          and "dialog" in show_spec.tooltip, repr(show_spec))
+    show_rows = {
+        p.stem: "SHOW_APP_WINDOW"
+        in _rz_params.Parameters.referenced_keys(p.read_text(encoding="utf-8"))
+        for p in sorted(_rz_scripts.glob("*.lua"))
+    }
+    check("...its row shows for every round-trip preset, never the send",
+          bool(show_rows) and all(row == (stem != "send") for stem, row in show_rows.items()),
+          show_rows)
+
+    shown_seen, shown_errors = [], []
+
+    def show_capture(exe, args=None, timeout=None, **kwargs):
+        shown_seen.append(kwargs.get("hidden"))
+        raise subprocess.TimeoutExpired(exe, timeout)
+
+    ptk.AppLauncher.run = staticmethod(show_capture)
+    ptk.AppLauncher.can_hide = staticmethod(lambda: True)
+    try:
+        for kwargs, params in (({}, {}), ({}, {"SHOW_APP_WINDOW": True}),
+                               ({"hidden": False}, {"SHOW_APP_WINDOW": False})):
+            br = RizomUVBridge(rizom_path="not-used.exe", **kwargs)
+            br._params = params
+            br.script_path = "ZomPack({})"
+            try:
+                br._execute_uv_script()
+            except RuntimeError as error:
+                shown_errors.append(str(error))
+            finally:
+                br._release_temp_payloads()
+    finally:
+        ptk.AppLauncher.run = staticmethod(real_run)
+        ptk.AppLauncher.can_hide = staticmethod(real_can_hide)
+    check("Show App Window shows RizomUV for the run, as hidden=False does",
+          shown_seen == [True, False, False], shown_seen)
+    check("...and a timed-out hidden run names it",
+          len(shown_errors) == 3 and "Show App Window" in shown_errors[0]
+          and "Show App Window" not in shown_errors[1], shown_errors)
+
+    class _Warnings(logging.Handler):
+        def __init__(self):
+            super().__init__(logging.WARNING)
+            self.messages = []
+
+        def emit(self, record):
+            self.messages.append(record.getMessage())
+
+    def cancelled(exe, args=None, timeout=None, **kwargs):
+        ptk.CancelScope.check()  # the checkpoint a hidden run polls
+        raise AssertionError("the run never reached its checkpoint")
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    cancel_cube = bpy.context.active_object
+    cancel_cube.name = "RZ_Cancel"
+    seed_unique_uvs(cancel_cube)
+    cancel_uvs = uv_snapshot(cancel_cube)
+    names_before = {o.name for o in bpy.data.objects}
+    br = RizomUVBridge(rizom_path="not-used.exe")
+    warned = _Warnings()
+    br.logger.addHandler(warned)
+    scope = ptk.CancelScope("RizomUV")
+    scope.cancel("escape")
+    raised = None
+    ptk.AppLauncher.run = staticmethod(cancelled)
+    try:
+        with scope.activate():
+            br.process_with_rizomuv([cancel_cube], uv_script="-- cancel test")
+    except ptk.OperationCancelled as error:
+        raised = error
+    except Exception as error:  # reported by the check below
+        raised = error
+    finally:
+        ptk.AppLauncher.run = staticmethod(real_run)
+        br.logger.removeHandler(warned)
+        br._release_temp_payloads()
+    check("Esc during a hidden run raises OperationCancelled",
+          isinstance(raised, ptk.OperationCancelled), repr(raised))
+    check("...the bridge says it was cancelled",
+          any("cancelled" in m for m in warned.messages), warned.messages)
+    check("...and the scene keeps its UVs and no __RZTMP copy",
+          not temp_leftovers() and {o.name for o in bpy.data.objects} == names_before
+          and max_uv_diff(cancel_uvs, uv_snapshot(cancel_cube)) < 1e-6,
+          str(temp_leftovers()))
 
     # -----------------------------------------------------------------------------
     # 5e) An Edit Mode face selection names UV SHELLS (mirror of mayatk's component

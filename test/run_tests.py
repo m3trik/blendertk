@@ -99,7 +99,11 @@ class BlenderTestRunner:
         "tempfile.tempdir = {0!r}; "
         # TempArtifacts.root() reads PYTHONTK_TEMP_ROOT before tempfile: an
         # inherited one names the OUTER run's root, not this pin.
-        "os.environ['PYTHONTK_TEMP_ROOT'] = {0!r}"
+        "os.environ['PYTHONTK_TEMP_ROOT'] = {0!r}; "
+        # And CoreUtils.ensure_packages installs into the run, never into the
+        # user's Blender profile (scripts/addons/modules): what the profile
+        # already holds stays importable, read-only.
+        "os.environ['BLENDERTK_PACKAGES_DIR'] = os.path.join({0!r}, 'blender_modules')"
     )
     #: Then uitk's settings sandbox (:attr:`sandbox_settings`): the presets root
     #: and every ``QSettings(org, app)`` store redirected into the temp root, so
