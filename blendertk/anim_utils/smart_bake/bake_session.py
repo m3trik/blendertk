@@ -7,9 +7,9 @@ itself does not port mayatk's internals — it is reimplemented on Blender-nativ
 the Maya-only problems that machinery solves don't exist here.
 
 A *bake session* is a JSON record of everything a ``SmartBake.bake()`` call changed, persisted as
-a string custom property on the ``data_internal`` Empty (``node_utils.data_nodes.DataNodes``) so
-it survives scene save/reopen without riding into an FBX export — that carrier is ``data_export``,
-which this module never touches.
+the private ``smart_bake_sessions`` record (``node_utils.data_nodes.DataNodes``: the scene's
+``data_internal`` property group) so it survives scene save/reopen without riding into an FBX
+export — that carrier is ``data_export``, which this module never touches.
 
 Divergence from mayatk (by design, not a gap to fill in later):
     * No curve stashing / driver-network reconnect machinery. ``bpy.ops.nla.bake`` never
@@ -331,7 +331,7 @@ class _BakeSessionStoreInternal(object):
 
 
 class BakeSessionStore(_BakeSessionStoreInternal):
-    """LIFO stack of bake-session manifests on the ``data_internal`` Empty."""
+    """LIFO stack of bake-session manifests in the scene's ``data_internal`` group."""
 
     ATTR = ptk.SceneRecords.SMART_BAKE_SESSIONS.key
     SCHEMA_VERSION = 1

@@ -444,10 +444,18 @@ try:
         and LightmapRecords.lightmap_info("B").get("map") == "kit_Lightmap.exr",
         result["lightmaps"],
     )
+    # A copy: in the session until the file is saved, its home beside the
+    # old one (LightmapRecords._stage).
+    _kit = {p for n, _m, p in LightmapRecords._reads() if n in ("A1", "B")}
     check(
         "the renamed atlas is a copy beside the old one, which stays",
-        os.path.isfile(os.path.join(tmp, "kit_Lightmap.exr"))
+        len(_kit) == 1
+        and all(os.path.isfile(p) for p in _kit)
+        and {
+            os.path.normcase(LightmapRecords._home(p)) for p in _kit
+        } == {os.path.normcase(os.path.join(tmp, "kit_Lightmap.exr"))}
         and os.path.isfile(shared),
+        _kit,
     )
 
     reset()
@@ -513,6 +521,27 @@ try:
         result["lightmaps"].get("map") == "kit_Lightmap_1.exr"
         and LightmapRecords.lightmap_info("A1").get("map") == "kit_Lightmap_1.exr"
         and LightmapRecords.lightmap_info("A2").get("map") == "kit_Lightmap.exr",
+        result["lightmaps"],
+    )
+
+    # Review 2026-10-24: a file another .blend wrote under the combine's name
+    # -- read by nothing here, so no claim -- was taken over at the save.
+    reset()
+    a1, a2, b = scene()
+    lightmap_maps(a1, b)
+    own = atlas("matA_Lightmap.exr")
+    atlas("kit_Lightmap.exr", value=0.25)  # theirs
+    # Another file's: no writer record here (the helper's write stamps one).
+    LightmapRecords._save_writers(
+        {k: v for k, v in LightmapRecords._writers().items() if k != "kit_lightmap.exr"}
+    )
+    LightmapRecords.commit({"A1": own, "B": own}, written=False)
+    result = combine([a1, b])
+    check(
+        "a renamed atlas steps aside from another file's map of its name",
+        result["lightmaps"].get("how") == "renamed"
+        and result["lightmaps"].get("map") == "kit_Lightmap_1.exr"
+        and LightmapRecords.lightmap_info("A1").get("map") == "kit_Lightmap_1.exr",
         result["lightmaps"],
     )
 

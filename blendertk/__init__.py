@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.19.2"
+__version__ = "0.20.0"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.
@@ -130,9 +130,8 @@ DEFAULT_INCLUDE = {
     "env_utils.webxr_preview": [
         "WebXrPreview",
     ],
-    # Scene-state reader column of the scene-data grid: sections of live-scene
-    # state FBX translation drops, shared by the WebXR preview and the Scene
-    # Exporter's GLB path. Mirror of mayatk's ``SceneState``.
+    # Retired 2026-10-20 (removed in 0.21.0): the sections of live-scene state
+    # a GLB took beside its FBX -- the materials record states every material.
     "env_utils.scene_state": [
         "SceneState",
     ],
@@ -241,16 +240,14 @@ DEFAULT_INCLUDE = {
     # discovered by the handler, not registered). Mirror of mayatk's
     # ``mat_utils.render_opacity`` subpackage.
     "mat_utils.render_opacity.render_effects": ["RenderEffects"],
-    # Deprecated import path of RenderEffects: resolves with a warning until its
-    # ``remove_in`` (``ptk.Deprecation.attributes`` in the module), then goes.
-    "mat_utils.render_opacity._render_opacity": [
-        "RenderOpacity",
-    ],
     # Material manifest (baked-map metadata carrier) — mirror of mayatk's
     # ``mat_utils.mat_manifest``; shared by the Marmoset/Substance bridges.
     "mat_utils.mat_manifest": [
         "MatManifest",
     ],
+    # The ``materials`` record's producer (``FbxUtils.PRODUCERS``): every
+    # exported material stated as glTF states it. Mirror of mayatk's.
+    "env_utils.material_records": ["MaterialRecords"],
     # Emissive Groups — engine + co-located panel (``EmissiveGroupsSlots`` is
     # discovered by BlenderUiHandler, not registered). Mirror of mayatk's
     # ``mat_utils.emissive_groups``.

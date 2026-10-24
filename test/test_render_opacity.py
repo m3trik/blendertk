@@ -32,7 +32,6 @@ def approx(a, b, tol=1e-3):
 
 try:
     import bpy
-    import warnings
     from blendertk.mat_utils._mat_utils import MatUtils
     from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
 
@@ -206,20 +205,6 @@ try:
     synced = RenderEffects.prepare_for_export()
     RenderEffects.finish_export()
     check("prepare_for_export syncs nothing", synced == [], f"{synced}")
-    # The ignored ``objects`` argument warns (ptk.Deprecation, until 0.11.0) --
-    # positionally too -- and changes nothing about the staging.
-    with warnings.catch_warnings(record=True) as _caught:
-        warnings.simplefilter("always")
-        synced = RenderEffects.prepare_for_export([c])
-    RenderEffects.finish_export()
-    _notes = [w for w in _caught if issubclass(w.category, DeprecationWarning)]
-    check(
-        "prepare_for_export(objects) warns, names 0.11.0 and still stages",
-        synced == []
-        and len(_notes) == 1
-        and "blendertk 0.11.0" in str(_notes[0].message),
-        f"{[str(w.message) for w in _notes]}",
-    )
     check(
         "prepare_for_export writes no visibility mirror",
         fcurve(c, "hide_render") is None,
@@ -362,7 +347,7 @@ try:
         detail=repr(RenderEffects._linear_ramp(curve)),
     )
 
-    # The take as a publish declares it: a shot_metadata clip carrying its range.
+    # The take as a publish declares it: a shot-record clip carrying its range.
     ptk.SceneRecords.SHOTS.save(
         DataNodes,
         {
@@ -413,7 +398,6 @@ try:
 
     _scene = bpy.context.scene
     _scene.frame_start, _scene.frame_end = 0, 100
-    ptk.SceneRecords.FBX_TAKES.clear(DataNodes)
     check(
         "with no takes the bake range is the scene range",
         _Fbx.bake_range() == (0.0, 100.0),
@@ -437,20 +421,25 @@ try:
         _Fbx.bake_range() == (0.0, 140.0),
         detail=repr(_Fbx.bake_range()),
     )
-    # An older file: clips without ranges, the take list on the legacy fbx_takes.
+    # Clips without their ranges declare no take, and a retired fbx_takes list
+    # beside them is never read (2026-10-20: no legacy branch).
+    import json as _takes_json
+
     ptk.SceneRecords.SHOTS.save(
         DataNodes,
         {"fps": 30.0, "shots": [{"clip": n, "objects": []} for n, _s, _e in _takes]},
     )
-    ptk.SceneRecords.FBX_TAKES.save(
-        DataNodes, [{"name": n, "start": s, "end": e} for n, s, e in _takes]
+    DataNodes.write(
+        ptk.Scope.DELIVERABLE,
+        "fbx_takes",
+        _takes_json.dumps([{"name": n, "start": s, "end": e} for n, s, e in _takes]),
     )
     check(
-        "a legacy fbx_takes still widens the bake range",
-        _Fbx.bake_range() == (0.0, 140.0),
+        "clips without ranges widen nothing; a retired fbx_takes is not read",
+        _Fbx.bake_range() == (0.0, 100.0),
         detail=repr(_Fbx.bake_range()),
     )
-    ptk.SceneRecords.FBX_TAKES.clear(DataNodes)
+    DataNodes.remove(ptk.Scope.DELIVERABLE, "fbx_takes")
     ptk.SceneRecords.SHOTS.save(DataNodes, {"fps": 30.0, "shots": []})
 
     # What the bake-range seed for clip_span["*"] actually describes, through
@@ -525,17 +514,24 @@ try:
         bpy.data.objects.remove(_o, do_unlink=True)
     _scene.frame_start, _scene.frame_end = 0, 100
 
-    # A legacy take list (the clips carry no ranges here), where a hand-edited
-    # or truncated entry can still turn up.
-    ptk.SceneRecords.FBX_TAKES.save(
-        DataNodes, [{"name": "x"}, {"name": "y", "start": 2, "end": 4}]
+    # A hand-edited or truncated clip -- one without its range -- declares
+    # no take, so it cannot decide the range.
+    ptk.SceneRecords.SHOTS.save(
+        DataNodes,
+        {
+            "fps": 30.0,
+            "shots": [
+                {"clip": "x", "objects": []},
+                {"clip": "y", "start": 2, "end": 4, "objects": []},
+            ],
+        },
     )
     check(
         "a malformed take entry cannot decide the range",
         _Fbx.bake_range() == (0.0, 100.0),
         detail=repr(_Fbx.bake_range()),
     )
-    ptk.SceneRecords.FBX_TAKES.clear(DataNodes)
+    ptk.SceneRecords.SHOTS.save(DataNodes, {"fps": 30.0, "shots": []})
 
     # REGRESSION (2026-09-18): the FIRST export after a shot is added cut the
     # clip origin against the PREVIOUS export's takes -- bake_range read the
@@ -563,7 +559,6 @@ try:
     BlenderShotStore._prefs_dir_override = None
     for _spec in (
         ptk.SceneRecords.SHOTS,
-        ptk.SceneRecords.FBX_TAKES,
         ptk.SceneRecords.SHOT_STORE,
     ):
         _spec.clear(DataNodes)
@@ -572,26 +567,6 @@ try:
     check(
         "a file with no keyed visibility leaves no channel",
         RenderEffects.refresh_export_metadata() is None,
-    )
-
-    # ---- the retired import path: RenderEffects still resolves to the class,
-    # but warns through ptk.Deprecation.attributes and names its release ----
-    import importlib
-
-    _legacy = importlib.import_module(
-        "blendertk.mat_utils.render_opacity._render_opacity"
-    )
-    with warnings.catch_warnings(record=True) as _caught:
-        warnings.simplefilter("always")
-        _alias = _legacy.RenderOpacity
-    _notes = [w for w in _caught if issubclass(w.category, DeprecationWarning)]
-    check(
-        "RenderOpacity forwards to RenderEffects and warns until blendertk 0.11.0",
-        _alias is RenderEffects
-        and len(_notes) == 1
-        and "blendertk 0.11.0" in str(_notes[0].message)
-        and "RenderEffects" in str(_notes[0].message),
-        f"{[str(w.message) for w in _notes]}",
     )
 
     # ---- highlight channel (mirror of mayatk's RenderEffects) ----------------
@@ -1093,12 +1068,12 @@ try:
         return_value={
             "version": 1,
             "url": "http://127.0.0.1:0/",
-            "data_export": [_ptk.MeshConvert.VISIBILITY_TRACKS_KEY],
+            "data_export": [_ptk.SceneRecords.VISIBILITY.key],
         },
     ) as push:
         pslot._preview_webxr("opacity")
     overlay = push.call_args.kwargs.get("data_export") if push.called else {}
-    tracks = (overlay.get(_ptk.MeshConvert.VISIBILITY_TRACKS_KEY) or {}).get(
+    tracks = (overlay.get(_ptk.SceneRecords.VISIBILITY.key) or {}).get(
         "tracks"
     ) or [{}]
     expected = _ptk.RampKeys.fade_loop(
@@ -1120,8 +1095,7 @@ try:
         "the preview writes nothing and leaves the object's own pulse out",
         RenderEffects.ATTR_NAME not in p
         and len(RenderEffects._fcurve(p, '["highlight"]').keyframe_points) == pulse_keys
-        and "highlight" not in tracks[0]
-        and overlay.get(_ptk.MeshConvert.FBX_TAKES_KEY, "set") is None,
+        and "highlight" not in tracks[0],
         detail=f"{list(p.keys())} {tracks[0]}",
     )
     # A bridge that predates the overlay knob publishes the scene as it stands

@@ -274,11 +274,11 @@ def _run_shots_adapter_checks():
         f"{verdict}",
     )
 
-    # ---- publish_export_view: shot_metadata on the carrier ------------------
+    # ---- publish_export_view: the shot record on the carrier ---------------
     # Mirror of the Maya store's projection (shot_export_unity.md contract):
     # ONE record whose clips carry their own ranges -- those ranges ARE the take
-    # list (ptk.SceneRecords.declared_takes), so no second ``fbx_takes`` list is
-    # written to disagree with it. Cleared by an empty store.
+    # list (ptk.SceneRecords.declared_takes), so no second take list is written
+    # to disagree with it. Cleared by an empty store.
     import json
 
     if DataNodes.get_export_node(create=False) is not None:
@@ -298,11 +298,11 @@ def _run_shots_adapter_checks():
         and DataNodes.get_export_node(create=False) is not None,
         f"{carrier_name}",
     )
-    meta_raw = DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.SHOT_METADATA)
+    meta_raw = DataNodes.read(ptk.Scope.DELIVERABLE, ptk.SceneRecords.SHOTS.key)
     meta = json.loads(meta_raw) if meta_raw else {}
     clips = meta.get("shots") or []
     check(
-        "shot_metadata carries one clip per shot, each with its own range",
+        "the shot record carries one clip per shot, each with its own range",
         [(s.get("clip"), s.get("start"), s.get("end")) for s in clips]
         == [("shotA", 1, 10), ("shotB", 20, 30)],
         f"{meta}",
@@ -315,19 +315,18 @@ def _run_shots_adapter_checks():
         f"{sorted(meta)}",
     )
     check(
-        "a clip omits an empty description/section and always lists its objects",
+        "a clip omits an empty description, and carries no objects or section "
+        "(its shape declares neither: no reader used them)",
         len(clips) == 2
         and all(
-            "description" not in s
-            and "section" not in s
-            and s.get("objects") == ["CubeA"]
+            "description" not in s and "section" not in s and "objects" not in s
             for s in clips
         ),
         f"{clips}",
     )
     check(
-        "no fbx_takes channel is written",
-        DataNodes.FBX_TAKES not in DataNodes.get_export_node(create=False).keys(),
+        "no take list of its own is written (fbx_takes is retired)",
+        "fbx_takes" not in DataNodes.get_export_node(create=False).keys(),
         f"{list(DataNodes.get_export_node(create=False).keys())}",
     )
     declared = ptk.SceneRecords.declared_takes(
@@ -342,27 +341,26 @@ def _run_shots_adapter_checks():
         ],
         f"{declared}",
     )
-    # A file published before the clips carried their ranges still holds the
-    # legacy take list; the next shots publish clears it rather than leave two
-    # lists that could disagree.
+    # A retired take list an old file still holds goes with the next commit
+    # (its store migration runs first), so no two lists can disagree.
     DataNodes.write(
         ptk.Scope.DELIVERABLE,
-        DataNodes.FBX_TAKES,
+        "fbx_takes",
         json.dumps([{"name": "stale", "start": 1, "end": 5}]),
     )
     pub_store.publish_export_view()
     check(
-        "the next shots publish clears a legacy fbx_takes",
-        DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.FBX_TAKES) is None
-        and DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.SHOT_METADATA) is not None,
+        "the next shots publish's commit removes a retired fbx_takes",
+        "fbx_takes" not in DataNodes.get_export_node(create=False).keys()
+        and DataNodes.read(ptk.Scope.DELIVERABLE, ptk.SceneRecords.SHOTS.key) is not None,
     )
     for sid in [s.shot_id for s in list(pub_store.shots)]:
         pub_store.remove_shot(sid)
     pub_store.publish_export_view()
     check(
         "empty store clears the shot record (carrier not recreated to hold it)",
-        DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.SHOT_METADATA) is None
-        and DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.FBX_TAKES) is None,
+        DataNodes.read(ptk.Scope.DELIVERABLE, ptk.SceneRecords.SHOTS.key) is None
+        and DataNodes.read(ptk.Scope.DELIVERABLE, "fbx_takes") is None,
     )
 
     # ---- stale shots: every member gone, nothing keyed in the window ------
@@ -380,10 +378,24 @@ def _run_shots_adapter_checks():
         [s.name for s in stale_store.stale_shots()] == ["GoneShot"],
         f"{[s.name for s in stale_store.stale_shots()]}",
     )
-    stale_store.publish_export_view()
-    meta_raw = DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.SHOT_METADATA)
-    clips = [s.get("clip") for s in (json.loads(meta_raw) if meta_raw else {})["shots"]]
-    check("an export leaves the stale shot out", clips == ["LiveShot"], f"{clips}")
+    def published_clips():
+        stale_store.publish_export_view()
+        raw = DataNodes.read(ptk.Scope.DELIVERABLE, ptk.SceneRecords.SHOTS.key)
+        return [s.get("clip") for s in (json.loads(raw) if raw else {"shots": []})["shots"]]
+
+    clips = published_clips()
+    check(
+        "an export ships the stale shot by default",
+        clips == ["GoneShot", "LiveShot"],
+        f"{clips}",
+    )
+    stale_store.drop_stale_shots = True
+    clips = published_clips()
+    check(
+        "drop_stale_shots leaves the stale shot out",
+        clips == ["LiveShot"],
+        f"{clips}",
+    )
 
     def live_key_times():
         return sorted(
@@ -407,7 +419,7 @@ def _run_shots_adapter_checks():
     stale_store.publish_export_view()
     check(
         "a wholly stale store clears the shot record",
-        DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.SHOT_METADATA) is None,
+        DataNodes.read(ptk.Scope.DELIVERABLE, ptk.SceneRecords.SHOTS.key) is None,
     )
     # Content is ANY key in the window, not only an object's own action: a
     # light's energy is keyed on its data (mayatk asks every animation curve).
@@ -1127,7 +1139,7 @@ def _run_shots_adapter_checks():
         bpy.ops.wm.open_mainfile(filepath=hold_blend)  # the next session
         reopened = BlenderShotStore.active()
         reopened.publish_export_view()
-        hold_meta = DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.SHOT_METADATA)
+        hold_meta = DataNodes.read(ptk.Scope.DELIVERABLE, ptk.SceneRecords.SHOTS.key)
         hold_shots = json.loads(hold_meta)["shots"] if hold_meta else []
         hold_clips = [s.get("clip") for s in hold_shots]
         check(

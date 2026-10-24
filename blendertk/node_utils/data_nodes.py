@@ -53,6 +53,11 @@ class DataNodes(ptk.SceneStoreBase):
     #: ``save_post_fail`` says whether the open file moved
     #: (:meth:`_rebase_before_save`).
     _PENDING: Optional[Dict[tuple, Optional[str]]] = None
+    #: The files a fork's commit took from the session's retiring list
+    #: (``ptk.PendingFiles.take_retiring``), until ``save_post`` says whether
+    #: it was a Save Copy -- the open file's, back for its next save -- or a
+    #: Save As (:meth:`_restore_after_copy`).
+    _HELD_RETIRING: List[str] = []
     #: ``{normcased file: the scene it stands in for}`` (:meth:`set_scene_source`).
     _scene_sources: ClassVar[Dict[str, str]] = {}
     #: The session's workspace pin -- Blender's analogue of Maya's
@@ -61,10 +66,22 @@ class DataNodes(ptk.SceneStoreBase):
     #: lowest part that owns the scene path.
     _session_root: ClassVar[Optional[str]] = None
 
-    #: Record keys readers used to spell here; the declarations are
-    #: ``ptk.SceneRecords`` and these are the same strings, not copies.
-    FBX_TAKES = ptk.SceneRecords.FBX_TAKES.key
-    SHOT_METADATA = ptk.SceneRecords.SHOTS.key
+    #: The shot record's key under its old name, retired here: read the
+    #: declaration's (``ptk.SceneRecords.SHOTS.key``).
+    SHOT_METADATA = ptk.Deprecation.class_attribute(
+        ptk.SceneRecords.SHOTS.key,
+        "ptk.SceneRecords.SHOTS.key",
+        remove_in="0.21.0",
+        since="2026-10-24",
+    )
+    #: The retired take list's key (``ptk.SceneRecords.RETIRED``): an
+    #: export's commit removes the channel (``migrate``), and nothing reads it.
+    FBX_TAKES = ptk.Deprecation.class_attribute(
+        "fbx_takes",
+        "ptk.SceneRecords.SHOTS -- each shot's range rides its clip",
+        remove_in="0.21.0",
+        since="2026-10-24",
+    )
 
     #: Top-level scene properties the shots and key-stash records lived under
     #: before the group; folded into it on the first write.
@@ -291,6 +308,35 @@ class DataNodes(ptk.SceneStoreBase):
         return cls._export_object(create=create)
 
     @classmethod
+    def discard_if_empty(cls, scope: ptk.Scope) -> bool:
+        """Remove the ``data_export`` Empty when every property it holds is
+        an empty string, nothing keys one, and nothing hangs under it (a
+        staged proxy) -- what an export leaves that made it only for a record
+        it then cleared (the transient materials) -- so the file is left as
+        the export found it. A linked carrier is its library's, and stays.
+        Mirror of mayatk's."""
+        if _Scope(scope) is not _Scope.DELIVERABLE:
+            return False
+        carrier = cls._carrier(scope)
+        if carrier is None or getattr(carrier, "library", None) is not None:
+            return False
+        if carrier.children:
+            return False
+        anim = getattr(carrier, "animation_data", None)
+        if anim is not None and anim.action is not None:
+            return False
+        for key in carrier.keys():
+            if key.startswith("_"):
+                continue
+            value = carrier.get(key)
+            if not (isinstance(value, str) and not value):
+                return False
+        import bpy
+
+        bpy.data.objects.remove(carrier, do_unlink=True)
+        return True
+
+    @classmethod
     def read(cls, scope: ptk.Scope, key: str) -> Optional[str]:
         """The string channel *key* in *scope*, or ``None`` when the carrier,
         the key or a value is absent.  A cleared key (stored as ``""``) reads
@@ -334,6 +380,26 @@ class DataNodes(ptk.SceneStoreBase):
         else:
             return None
         return cls.name(scope)
+
+    @classmethod
+    def remove(cls, scope: ptk.Scope, key: str) -> bool:
+        """Delete channel *key* from *scope*'s carrier outright -- the custom
+        property itself, where :meth:`write` clears to ``""`` -- and say
+        whether there was one (``ptk.SceneStoreBase.remove``, mirror of
+        mayatk's): what ``migrate`` runs on a renamed or retired key, so no
+        emptied old property is left behind. A private remove folds an
+        unfolded file first, as a clear does, so no legacy copy is left for
+        the next read to find."""
+        if _Scope(scope) is _Scope.PRIVATE and cls._scene() is not None:
+            cls._fold_legacy()
+        carrier = cls._carrier(scope)
+        if carrier is None or key not in carrier.keys():
+            return False
+        try:
+            del carrier[key]
+        except (KeyError, TypeError, AttributeError, RuntimeError):
+            return super().remove(scope, key)  # a property Blender keeps: cleared
+        return True
 
     @classmethod
     def values(cls, scope: ptk.Scope) -> Dict[str, Any]:
@@ -766,12 +832,20 @@ class DataNodes(ptk.SceneStoreBase):
         target while ``bpy.data.filepath`` is still the old one), and a
         file's FIRST save stamps every writer stamp still ``""`` with the
         file written (``ptk.SceneRecords.stamp_unsaved``) -- else whatever
-        was baked before it was nobody's once saved. A Save COPY, and a save
+        was baked before it was nobody's once saved -- and every save gives
+        each stamp naming a file that is gone (a rename) to the file saved
+        from, or the one written (``ptk.SceneRecords.adopt_gone_stamps``).
+        A Save COPY, and a save
         that fails, leave the open file where it was, so ``save_post`` /
         ``save_post_fail`` put its records back exactly. Blender cannot tell
         a Save Copy from a Save As before the write (``save_pre`` gets the
         same arguments; measured 5.1), so an UNSAVED file's copy is stamped
         as its own writer, unlike mayatk's exports. A plain save normalizes.
+        After it, the files written for the file since its last save go home
+        through the tools' hooks (``ptk.PendingFiles.saving``); a
+        loaded file -- opened, reverted, File > New -- drops them, and its
+        records move to their current keys (``load_post``,
+        :meth:`_after_load`).
 
         Persistent handlers (they survive a file load), idempotent and
         reload-proof: a reinstall first removes any copy of them by name.
@@ -787,6 +861,7 @@ class DataNodes(ptk.SceneStoreBase):
         handlers.save_pre.append(handlers.persistent(cls._rebase_before_save))
         for handler_list in cls._restore_handler_lists():
             handler_list.append(handlers.persistent(cls._restore_after_copy))
+        handlers.load_post.append(handlers.persistent(cls._after_load))
         return True
 
     @classmethod
@@ -825,8 +900,19 @@ class DataNodes(ptk.SceneStoreBase):
         """Remove the re-base handlers -- any module copy's, matched by name."""
         import bpy
 
-        names = {"_rebase_before_save", "_restore_after_copy"}
-        for handler_list in [bpy.app.handlers.save_pre, *cls._restore_handler_lists()]:
+        # ``_discard_pending`` was the load handler before ``_after_load``: an
+        # older module copy's is removed too.
+        names = {
+            "_rebase_before_save",
+            "_restore_after_copy",
+            "_after_load",
+            "_discard_pending",
+        }
+        for handler_list in [
+            bpy.app.handlers.save_pre,
+            bpy.app.handlers.load_post,
+            *cls._restore_handler_lists(),
+        ]:
             for fn in list(handler_list):
                 if getattr(fn, "__name__", "") in names and "DataNodes" in getattr(
                     fn, "__qualname__", ""
@@ -844,26 +930,90 @@ class DataNodes(ptk.SceneStoreBase):
         import bpy
 
         DataNodes._PENDING = None
+        DataNodes._HELD_RETIRING = []
         try:
             target = filepath or bpy.data.filepath
             if not target:
                 return  # the startup file
-            DataNodes._PENDING = DataNodes.respell_for_write(
-                target, DataNodes.project_root(), first_save=not bpy.data.filepath
+            old_base = DataNodes.project_root()
+            snapshot = DataNodes.respell_for_write(
+                target,
+                old_base,
+                first_save=not bpy.data.filepath,
+                saved_from=bpy.data.filepath,
             )
+            # Then the files written for the file since its last save go home
+            # (ptk.PendingFiles), their records spelled for the target's
+            # project. After the re-spelling, not before: a Save As stamps
+            # them with the target, which does not exist yet, and the
+            # re-spelling hands a stamp naming a missing file back to the file
+            # saved from (adopt_gone_stamps; mirror of mayatk's order). A
+            # target other than the open file is a Save As -- or a Save Copy,
+            # which save_pre cannot tell apart (measured 5.1): both commit as a
+            # fork, which writes over no file the open one reads.
+            before = DataNodes.path_records()
+            ptk.PendingFiles.session().saving(target, saved_from=bpy.data.filepath)
+            after = DataNodes.path_records()
+            if after != before:
+                # A Save Copy hands the open file back its records as they were
+                # (save_post) -- but its maps are home now and their session
+                # copies gone: the records the commit changed go back as it
+                # left them, spelled from the open file's project.
+                new_base = DataNodes.project_root_of(target)
+                spelled = after
+                if new_base and old_base and new_base != old_base:
+                    DataNodes.rebase_paths(new_base, old_base)
+                    spelled = DataNodes.path_records()
+                    DataNodes.rebase_paths(old_base, new_base)
+                snapshot = dict(snapshot)
+                snapshot.update(
+                    {k: spelled[k] for k in after if after.get(k) != before.get(k)}
+                )
+            DataNodes._PENDING = snapshot
         except Exception:  # noqa: BLE001 - a save never fails on this
             logger.warning(
                 "Scene-record paths were not re-spelled for the save.", exc_info=True
             )
 
     @staticmethod
+    def _after_load(*_args) -> None:
+        """A file was loaded -- opened, reverted, or File > New's startup file:
+        drop the files the file closed unsaved was reading from the session
+        (:meth:`_discard_pending`), then bring its records to the current keys
+        (``migrate``), so what reads them before any export -- a panel, a
+        preview push -- finds them where the declarations say (mirror of
+        mayatk's ``_after_open``). ``load_post`` allows data edits, and the
+        move leaves the file unmodified (``bpy.data.is_dirty``; measured 5.1,
+        background).
+        Never raises: a record left under an old key is moved by the next
+        export's commit, and must not cost the load."""
+        DataNodes._discard_pending()
+        try:
+            DataNodes.migrate()
+        except Exception:  # noqa: BLE001 -- see above
+            logger.debug("Scene records not migrated on load.", exc_info=True)
+
+    @staticmethod
+    def _discard_pending() -> None:
+        """Drop the files the file closed unsaved was reading from the session
+        (``ptk.PendingFiles.discard``; mirror of mayatk's). Never raises: a
+        load never fails on this."""
+        try:
+            ptk.PendingFiles.session().discard()
+        except Exception:  # noqa: BLE001 -- see above
+            logger.warning("Pending files were not discarded.", exc_info=True)
+
+    @staticmethod
     def _restore_after_copy(filepath=None, *_args) -> None:
         """After a Save Copy, or a save that failed, the open file is still the
         one it was -- unsaved, perhaps: its path records back exactly as
-        ``save_pre`` found them (:meth:`restore_path_records`)."""
+        ``save_pre`` found them (:meth:`restore_path_records`) -- and the
+        files it had waiting to be set aside at its next save, which the
+        fork's commit held (:attr:`_HELD_RETIRING`), back in the session."""
         import bpy
 
         pending, DataNodes._PENDING = DataNodes._PENDING, None
+        held, DataNodes._HELD_RETIRING = DataNodes._HELD_RETIRING, []
         try:
             current = bpy.data.filepath
             if not filepath or (
@@ -874,6 +1024,8 @@ class DataNodes(ptk.SceneStoreBase):
                 return  # the open file is the one written
             if pending is not None:
                 DataNodes.restore_path_records(pending)
+            if held:
+                ptk.PendingFiles.session().retire(held)
         except Exception:  # noqa: BLE001 - a save never fails on this
             logger.warning(
                 "Scene-record paths were not restored after a copy.", exc_info=True

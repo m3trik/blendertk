@@ -60,6 +60,9 @@ class _TaskDataMixin:
     #: The scene records ``export_data_node`` published this run (``None`` until
     #: a task publishes; ``apply_declared_takes`` publishes when none did).
     _scene_snapshot: Optional[Any] = None  # the ptk.ExportSnapshot this run published
+    #: The lightmap manifest this run's GLB build corrected to what the GLB
+    #: ships (``GlbPipeline.build``'s report), for the scene's record.
+    _glb_lightmap_manifest: Optional[Dict[str, Any]] = None
     #: The frame spans claimed through ``_require_range_coverage``, which
     #: ``set_bake_animation_range`` widens to cover.
     _required_range_coverage: Optional[Tuple[float, float]] = None
@@ -103,6 +106,7 @@ class _TaskDataMixin:
         self.run = run
         self._clip_mode = "both"
         self._scene_snapshot = None
+        self._glb_lightmap_manifest = None
         self._required_range_coverage = None
         self._delivery_only_clamp_said = False
         self._bake_session_id = None

@@ -148,7 +148,7 @@ class BlenderExportMixin:
     #: never hands geometry back. Mirror of mayatk's flag of the same name.
     usd_flattens_instances: bool = False
 
-    def _data_export_carrier(self) -> List[Any]:
+    def _data_export_carrier(self, objects=None) -> List[Any]:
         """``[data_export]`` when this bridge ships it and the scene has one, else ``[]``.
 
         Never *creates* the carrier: absent means the scene has no in-band metadata to
@@ -165,9 +165,20 @@ class BlenderExportMixin:
 
         # Make the DERIVED records current first -- and only those: a HANDOFF
         # context refreshes by kind (see :attr:`export_stagers`), so a bridge
-        # never clears a record it is not the authority on.
+        # never clears a record it is not the authority on. Scoped to
+        # *objects*, what this send ships, as the Scene Exporter's context
+        # is (mirror of mayatk's ``_handoff_context``): its export-scoped
+        # records state what it ships, and the bracket around the write puts
+        # the scene's own copy back after it.
+        scope = (
+            None
+            if objects is None
+            else tuple(o if isinstance(o, str) else o.name for o in objects)
+        )
         try:
-            FbxUtils.publish(FbxUtils.export_context(mode=ptk.ExportContext.HANDOFF))
+            FbxUtils.publish(
+                FbxUtils.export_context(mode=ptk.ExportContext.HANDOFF, scope=scope)
+            )
         except Exception:  # noqa: BLE001
             self.logger.debug("data_export refresh skipped.", exc_info=True)
 
@@ -404,7 +415,7 @@ class BlenderExportMixin:
         btk.FbxUtils.begin_export(stagers=self._export_stagers())
         try:
             fbx_opts = self._fbx_options(params)
-            carrier = self._data_export_carrier()
+            carrier = self._data_export_carrier(objects)
             # Forced HERE rather than declared in _fbx_options, which subclasses
             # override wholesale: the exporter drops custom properties by default and
             # excluded object types outright, so either omission ships an Empty named
@@ -640,7 +651,7 @@ class BlenderExportMixin:
         with btk.FbxUtils.export_prepared(stagers=self._export_stagers()):
             usd_opts = self._usd_options(params, objects)
             frame_range = usd_opts.pop("frame_range", None)
-            carrier = self._data_export_carrier()
+            carrier = self._data_export_carrier(objects)
             if carrier:
                 usd_opts["export_custom_properties"] = True
                 self.logger.warning(

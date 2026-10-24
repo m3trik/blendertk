@@ -72,8 +72,10 @@ Headless smoke / unit tests require the Blender runtime (`bpy`):
   --python o:\Cloud\Code\_scripts\blendertk\test\blender_smoke_test.py
 ```
 
-All suites: `python blendertk/test/run_tests.py` — fresh instance per suite, aggregates
-`===RESULT===` + `OK`/`FAIL` counts, badges full runs. `Run-Tests.ps1` wraps it.
+Pointed: `python blendertk/test/run_tests.py test_smart_bake` (a typo exits 2); no names = all
+suites, for review / release. Fresh instance per suite (Qt suites offscreen), aggregates
+`===RESULT===` + `OK`/`FAIL` counts, badges full runs. `Run-Tests.ps1` wraps it. What a change
+reaches: `python m3trik/scripts/affected_tests.py <files> --run`.
 (Pure-logic helpers with no `bpy` dep may also run under the workspace `.venv`.)
 
 See [CHANGELOG.md](CHANGELOG.md) for history.

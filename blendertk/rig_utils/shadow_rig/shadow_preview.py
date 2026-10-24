@@ -44,6 +44,7 @@ the only place the shader is proven.
 
 from __future__ import annotations
 
+import math
 from typing import List, Sequence, Tuple
 
 import pythontk as ptk
@@ -584,15 +585,18 @@ class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin):
         rect = horizon.get("rect") or [1.0, 1.0, 0.0, 0.0]
         bounds = horizon.get("bounds") or [-1.0, 1.0, -1.0, 1.0]
         fade = float(plane.get(ShadowRig.OPACITY_ATTR, 1.0))  # carries shadowIntensity
+        map_size = int(horizon.get("size", ptk.ShadowHorizon.DEFAULT_SIZE))
         params = [
             *origin,
             ground,
             *a,
-            float(horizon.get("size", ptk.ShadowHorizon.DEFAULT_SIZE)),
+            float(map_size),
             *b,
             float(horizon.get("spans", ptk.ShadowHorizon.DEFAULT_SPANS)),
             *up,
-            float(horizon.get("levels", 0)),
+            # The pyramid's levels follow from the size, log2
+            # (``ptk.HeightFieldMap.levels``): the record states the layout alone.
+            float(round(math.log2(map_size))) if map_size > 0 else 0.0,
             *src,
             diameter,
             angle,

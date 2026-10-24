@@ -20,8 +20,9 @@ subclass is one question the file answers:
   their own, while they stay in the render and light the rest.
 * :class:`LightmapIsolateSet` -- the objects (moving parts) that bake in a
   pass of their own and stay out of every other object's bake.
-* :class:`LightmapBakeSet` -- the objects the last lightmap bake acted on, so
-  the bake can be re-selected and re-run.
+* ``LightmapBakeSet`` -- retired (a deprecated alias of the private
+  ``_LightmapBakeSet``): the Lightmap Baker's Manage page re-runs past work
+  by map, so no bake saves a set any more.
 
 A set is found by its stamp, so its collection's NAME is free: plain
 (:attr:`BakeSet.SET_NAME`) or the naming convention's spelling of it (the
@@ -44,6 +45,8 @@ Link to Collection (Shift+M) keeps it.
 
 import os
 from typing import Any, List, Optional, Tuple
+
+import pythontk as ptk
 
 
 class BakeSet:
@@ -393,15 +396,30 @@ class LightmapIsolateSet(BakeSet):
         return [mesh for group in cls.groups() for mesh in group]
 
 
-class LightmapBakeSet(BakeSet):
-    """The objects the last lightmap bake acted on.
+class _LightmapBakeSet(BakeSet):
+    """The objects a lightmap bake acted on -- retired with the panel's
+    Bake Set row (``LightmapBakeSet`` is its deprecated alias).
 
-    Mirror of mayatk's ``LightmapBakeSet`` (the same set name). Written by
-    the Lightmap Baker panel after a bake while its *Save After Bake* switch
-    is on: every object the bake was asked to bake -- finished or not -- so
-    selecting the set and baking again re-runs that bake. Each bake replaces
-    it; the panel names it plain or by the naming convention.
+    Mirror of mayatk's (the same set name). Written by the Lightmap Baker
+    panel after a bake while its *Save After Bake* switch was on: every
+    object the bake was asked to bake -- finished or not -- so selecting the
+    set and baking again re-runs that bake. Each bake replaces it; the panel
+    names it plain or by the naming convention.
     """
 
     SET_NAME = "lightmapBaker_baked"
     STAMP = "btk_lightmap_baked"
+
+
+# Retired 2026-10-22: the Lightmap Baker's Manage page selects and re-bakes
+# each map's objects, so no bake saves a set. Kept, warning, for scripts.
+ptk.Deprecation.attributes(
+    globals(),
+    {"LightmapBakeSet": "blendertk.mat_utils.bake_sets._LightmapBakeSet"},
+    remove_in="0.22.0",
+    reason=(
+        "The Lightmap Baker no longer saves a Bake Set: its Manage page "
+        "selects and re-bakes each map's objects."
+    ),
+    since="2026-10-22",
+)

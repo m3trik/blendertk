@@ -12,7 +12,7 @@ the maps; :class:`LightmapRecords` records them and answers for them afterwards:
   aside),
   and :meth:`LightmapRecords.migrate_legacy` for markers older than the
   rect-binding contract.
-* **The manifest** -- the ``lightmap_metadata`` record that rides the FBX on the
+* **The manifest** -- the ``lightmaps`` record that rides the FBX on the
   ``data_export`` Empty, rebuilt from the markers:
   :meth:`LightmapRecords.export_record` (the ``FbxUtils.PRODUCERS`` entry) and
   :meth:`LightmapRecords.refresh_export_metadata`.
@@ -39,6 +39,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -49,6 +50,7 @@ from typing import (
     List,
     Optional,
     Sequence,
+    Set,
     Tuple,
 )
 
@@ -74,11 +76,23 @@ class LightmapRecords(ptk.LoggingMixin):
 
     # ``data_export`` channel: a scene-wide JSON manifest of every lighting-only
     # lightmap, regenerated from the per-object markers and ridden into the FBX
-    # (informational; consumed by unitytk's optional Unity-native binder). The
-    # key and schema of the ``ptk.SceneRecords.LIGHTMAPS`` record -- stamped by
-    # the declaration, never spelled here.
-    LIGHTMAP_METADATA: str = ptk.SceneRecords.LIGHTMAPS.key
-    LIGHTMAP_METADATA_VERSION: int = ptk.SceneRecords.LIGHTMAPS.version
+    # (informational; consumed by unitytk's optional Unity-native binder): the
+    # ``ptk.SceneRecords.LIGHTMAPS`` record. Its key under its old name, retired
+    # here: read the declaration's (``ptk.SceneRecords.LIGHTMAPS.key``).
+    LIGHTMAP_METADATA = ptk.Deprecation.class_attribute(
+        ptk.SceneRecords.LIGHTMAPS.key,
+        "ptk.SceneRecords.LIGHTMAPS.key",
+        remove_in="0.21.0",
+        since="2026-10-24",
+    )
+    #: The record's schema version -- the registry's
+    #: (``ptk.SceneRecords.LIGHTMAPS.version``), retired here.
+    LIGHTMAP_METADATA_VERSION = ptk.Deprecation.class_attribute(
+        ptk.SceneRecords.LIGHTMAPS.version,
+        "ptk.SceneRecords.LIGHTMAPS.version",
+        remove_in="0.21.0",
+        since="2026-10-24",
+    )
 
     # ------------------------------------------------------------------
     # Markers
@@ -233,7 +247,18 @@ class LightmapRecords(ptk.LoggingMixin):
 
     @classmethod
     def _prune_folder_hints(cls) -> None:
-        """Drop the folder and writer entries no marker names any more (a revert)."""
+        """Drop the folder entries no marker names any more (a revert), and the
+        writer entries nobody's.
+
+        A writer entry naming another file still on disk (:meth:`foreign_writer`)
+        stays: it is what keeps this file off a map it no longer reads
+        (:meth:`claims`) -- pruned, a Save As copy's next bake took its
+        source's map name back and wrote over it. Mirror of mayatk's.
+
+        A writer entry this file wrote stays too: a file it no longer reads is
+        still its own to bake over (:meth:`strangers`), where an
+        unrecorded one is another file's.
+        """
         hints, writers = cls._folder_hints(), cls._writers()
         if not (hints or writers):
             return
@@ -244,7 +269,13 @@ class LightmapRecords(ptk.LoggingMixin):
         kept = {k: v for k, v in hints.items() if k in named}
         if kept != hints:
             cls._save_folder_hints(kept)
-        kept = {k: v for k, v in writers.items() if k in named}
+        kept = {
+            k: v
+            for k, v in writers.items()
+            if k in named
+            or cls.foreign_writer(k, writers)
+            or cls._data_nodes().written_here(v)
+        }
         if kept != writers:
             cls._save_writers(kept)
 
@@ -268,6 +299,20 @@ class LightmapRecords(ptk.LoggingMixin):
         if not isinstance(data, dict):
             return {}
         return {str(k): str(v or "") for k, v in data.items()}
+
+    @classmethod
+    def foreign_writer(
+        cls, map_name: str, writers: Optional[Dict[str, str]] = None
+    ) -> Optional[str]:
+        """The other scene file that wrote *map_name* (its writer record's
+        entry), or ``None``: this file wrote it, the file that did is gone,
+        or nothing recorded who did. *writers*: the record, when the caller
+        has read it already. Mirror of mayatk's."""
+        writers = cls._writers() if writers is None else writers
+        writer = writers.get(cls._hint_key(map_name))
+        if not writer or cls._data_nodes().written_here(writer):
+            return None
+        return writer
 
     @classmethod
     def _save_writers(cls, writers: Dict[str, str]) -> None:
@@ -672,13 +717,14 @@ class LightmapRecords(ptk.LoggingMixin):
         cls,
         baked: Dict[str, Dict[str, Any]],
         lighting: Optional[Dict[str, Any]] = None,
-    ) -> None:
+    ) -> bool:
         """Roll the bake baseline forward over *baked* (``ptk.BakeBaseline.advance``).
 
         *baked*: ``{name: {"map", "cell", "extent", "size", "packing"}}`` --
         what :meth:`commit` just recorded. Logged, never raised: the markers
         are committed by now, and a baseline that cannot be written costs only
-        the next re-bake's precision. Mirror of mayatk's.
+        the next re-bake's precision. Returns whether it was written. Mirror
+        of mayatk's.
         """
         try:
             spec = ptk.SceneRecords.LIGHTMAP_BAKE_STATE
@@ -692,10 +738,86 @@ class LightmapRecords(ptk.LoggingMixin):
             spec.save(store, record)
         except Exception as error:
             cls.logger.warning(
-                "Lightmap bake baseline not recorded (%s): Re-bake Changed will "
-                "not see this bake's objects as baked.",
+                "Lightmap bake baseline not recorded (%s): the Manage page will "
+                "list this bake's objects as untracked, their changes unseen.",
                 error,
             )
+            return False
+        return True
+
+    @classmethod
+    def untracked(cls, objects=None) -> List[str]:
+        """The marked objects the bake baseline has never seen, sorted (names).
+
+        Baked before change tracking, or brought in from another file
+        (``ptk.BakeBaseline.rematch``): their changes are not detected, so no
+        dry run counts them. *objects* narrows it; default: every marked one.
+        Mirror of mayatk's.
+        """
+        untracked = ptk.BakeBaseline.rematch(cls.bake_state(), cls.scene_state())[2]
+        if objects is None:
+            return untracked
+        keep = set(cls.baked_objects(objects))
+        return [obj for obj in untracked if obj in keep]
+
+    @classmethod
+    def track(cls, objects=None, lighting: Optional[Dict[str, Any]] = None) -> List[str]:
+        """Start tracking the :meth:`untracked` among *objects* -- no render.
+
+        Each is recorded as baked now, against the file as it stands and
+        *lighting*: what vouches that its map matches both, so a change from
+        here on reads as changed. Its cell stays unrecorded, so a later
+        re-bake re-packs its atlas whole rather than write into a cell it
+        cannot place. Every other participant rolls forward as any commit
+        rolls it (:meth:`_advance_bake_state`), and the manifest is
+        republished. One undo step. Mirror of mayatk's.
+
+        Parameters:
+            objects: Default: every marked object.
+            lighting: As :meth:`commit`'s (``LightmapBaker._lighting_state``).
+
+        Returns:
+            The names now tracked.
+        """
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        untracked = cls.untracked(objects)
+        if not untracked:
+            return []
+        with CoreUtils.undo_chunk("Track Lightmaps"):
+            if not cls._advance_bake_state({obj: {} for obj in untracked}, lighting):
+                return []
+            cls._publish()
+        return untracked
+
+    @classmethod
+    def _keep_bake_state(cls, before: Dict[str, Any], objects: List[str]) -> None:
+        """Give *objects* back how they were baked, across a commit that only
+        re-packed them (``LightmapBaker.combine``): ``baked_at``,
+        ``lighting`` (and the lighting state it names), ``stale`` and
+        ``untracked`` from *before* (:meth:`bake_state`, read before that
+        commit). One *before* never saw stays untracked: a re-pack vouches
+        for no map. Logged, never raised. Mirror of mayatk's."""
+        kept = ("baked_at", "lighting", "stale", "untracked")
+        try:
+            spec = ptk.SceneRecords.LIGHTMAP_BAKE_STATE
+            store = cls._data_nodes()
+            record = ptk.BakeBaseline.decode(spec.load(store, None))
+            for obj in objects:
+                entry = record["objects"].get(obj)
+                if entry is None:
+                    continue
+                was = before["objects"].get(obj)
+                if was is None:
+                    entry.update(baked_at=None, lighting=None, untracked=True)
+                    continue
+                entry.update({key: was[key] for key in kept})
+                state = before["lightings"].get(was["lighting"] or "")
+                if state is not None:
+                    record["lightings"][was["lighting"]] = state
+            spec.save(store, ptk.BakeBaseline.encode(record))
+        except Exception as error:
+            cls.logger.warning("Lightmap bake baseline not kept (%s).", error)
 
     @classmethod
     def _inherit_bake_state(cls, pairs: Dict[str, Tuple[str, bool]]) -> None:
@@ -813,8 +935,9 @@ class LightmapRecords(ptk.LoggingMixin):
         folder and writer go in the private records like any map's
         (:meth:`search_dirs` then finds it for a GLB build); the file's
         previous probe file, when it is another file -- another name, or the
-        same name in another folder -- is set aside when this file wrote it
-        inside its project: the rule :meth:`superseding` applies to maps.
+        same name in another folder -- is held for the next save to set aside
+        when this file wrote it inside its project: the rule
+        :meth:`superseding` applies to maps.
 
         Parameters:
             path: The probe's EXR.
@@ -854,14 +977,16 @@ class LightmapRecords(ptk.LoggingMixin):
         cls._save_writers(writers)
         if superseded:
             # Kept when it IS the new file, however spelled (the new probe
-            # reads it); set aside when it is another.
-            retired = ptk.FileDependencies.remove_superseded(
-                [superseded], [("", name, path)]
+            # reads it, or will once the save puts it home); held for the save
+            # when it is another.
+            retired = ptk.FileDependencies.superseded(
+                [superseded], [("", name, cls._home(path))]
             )
             if retired:
+                cls._pending().retire(retired)
                 cls.logger.info(
-                    "Set aside the superseded reflection probe %s -- in the "
-                    "Recycle Bin, or a temp folder kept 30 days.",
+                    "The superseded reflection probe %s goes to the Recycle Bin "
+                    "when the file is saved.",
                     retired[0],
                 )
         cls._publish()
@@ -924,11 +1049,16 @@ class LightmapRecords(ptk.LoggingMixin):
         Mirror of mayatk's. A re-bake that changes where or how its maps are
         written -- another output folder, Beside Material Textures, another
         name affix, per-object maps folded into an atlas or back -- leaves the
-        old files behind, read by nobody; the maps *objects* read on entry are
-        set aside on a clean exit once no marker in the file reads them
-        (:meth:`ptk.FileDependencies.remove_superseded`): to the Recycle Bin
-        or trash, else the ``superseded`` temp store -- never deleted.
-        A block that raises moves nothing.
+        old files behind, read by nobody. The maps *objects* read on entry
+        that no marker in the file reads on a clean exit
+        (:meth:`ptk.FileDependencies.superseded`) are held for the file's next
+        save (:meth:`_pending`): until then the .blend on disk still reads
+        them. The save sets aside the ones still unread then
+        (:meth:`_commit_pending`) -- to the Recycle Bin or trash, else the
+        ``superseded`` temp store, never deleted -- so an undo before it, or
+        no save at all, loses none. A home file the file now reads from the
+        session is not superseded: the save puts that copy over it. A block
+        that raises holds nothing.
 
         Only this file's own maps are candidates: recorded in its folder record
         AND written by it (``DataNodes.written_here``) -- never a map another .blend
@@ -942,26 +1072,156 @@ class LightmapRecords(ptk.LoggingMixin):
             objects: The objects (names) the block commits new maps for.
 
         Yields:
-            A list, filled with the set-aside paths on exit.
+            A list, filled on exit with the paths the next save sets aside.
         """
         retired: List[str] = []
         root = cls.project_root()
+        # Each read as its home, the file a save sets aside: a map re-baked in
+        # place and not saved yet is read from its session copy, which no
+        # project holds -- and only a home that is on disk (mirror of mayatk's).
+        homes = dict.fromkeys(cls._home(p) for p in cls._written_reads(objects))
         before = [
             p
-            for p in cls._written_reads(objects)
-            if root and ptk.FileUtils.is_under(os.path.abspath(p), root)
+            for p in homes
+            if os.path.isfile(p)
+            and root
+            and ptk.FileUtils.is_under(os.path.abspath(p), root)
         ]
         yield retired
         if not before:
             return
-        retired.extend(ptk.FileDependencies.remove_superseded(before, cls._reads()))
+        reads = [(o, n, cls._home(p) if p else p) for o, n, p in cls._reads()]
+        retired.extend(ptk.FileDependencies.superseded(before, reads))
         if retired:
+            cls._pending().retire(retired)
             cls.logger.info(
-                "Set aside %d superseded lightmap(s) nothing reads any more -- "
-                "in the Recycle Bin, or a temp folder kept 30 days: %s",
+                "%d superseded lightmap(s) nothing reads any more go to the "
+                "Recycle Bin when the file is saved: %s",
                 len(retired),
                 ", ".join(os.path.basename(p) for p in retired),
             )
+
+    # ------------------------------------------------------------------
+    # Pending -- maps written since the last save wait in the session
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _pending(cls) -> "ptk.PendingFiles":
+        """The session's ledger of files written for the open file
+        (``ptk.PendingFiles``), with :meth:`_commit_pending` as this class's
+        save hook on it and the ``save_pre`` handler that runs it installed
+        (``DataNodes.ensure_path_rebase``). Mirror of mayatk's."""
+        pending = ptk.PendingFiles.session()
+        pending.on_save("lightmaps", cls._commit_pending)
+        cls._data_nodes().ensure_path_rebase()
+        return pending
+
+    @classmethod
+    def _stage(cls, path: str) -> str:
+        """Where a write of the map *path* goes until the file is saved: its
+        name, in the session folder for its folder (``ptk.PendingFiles.stage``).
+        Mirror of mayatk's.
+
+        A bake that wrote over a map the saved file reads and was then not
+        saved left that file reading texels laid out for markers it never
+        got: an unsaved Combine wrote one atlas over a production room's two,
+        and the next session opened with a map missing and three objects lit
+        from the wrong cells (mayatk, 2026-10-23). Written here instead, the
+        map is what :meth:`commit` records -- its folder record names the
+        session folder, so every reader (:meth:`_reads`,
+        :meth:`lightmap_dependencies`, an export) finds the new file -- and
+        the save moves it home under the name it was given
+        (:meth:`_commit_pending`). A path already in the session is its own.
+        """
+        return cls._pending().stage(path)
+
+    @staticmethod
+    def _home(path: str) -> str:
+        """Where a session file -- or folder -- goes at the save (its home);
+        any other path is its own. What a decision about folders reads: a
+        map's place is its home, wherever its bytes wait."""
+        return ptk.PendingFiles.session().home(path)
+
+    @classmethod
+    def _commit_pending(cls, target: str, fork: bool) -> None:
+        """The save's half of :meth:`_stage` (``ptk.PendingFiles.on_save``),
+        in ``save_pre``, just before the file is written to *target*. Mirror
+        of mayatk's.
+
+        Each map the file reads from the session -- a marker's, the probe's
+        -- goes home, and its folder record names its home folder again,
+        spelled from the target's project, as the save's re-spelling (run
+        first) left every other record; one it
+        no longer reads from there (an undone bake) is dropped. Then the maps
+        a write superseded (:meth:`superseding`) and nothing reads now are set
+        aside.
+
+        A *fork* -- a Save As, or a Save Copy, which ``save_pre`` cannot tell
+        apart -- leaves every home file as the file it came from reads it: a
+        map whose home name is taken on disk is moved under the next free
+        one, its readers here re-stamped (:meth:`fork_lightmap`), every map
+        moved is the target's, and nothing is set aside.
+        """
+        DataNodes = cls._data_nodes()
+        pending = ptk.PendingFiles.session()
+        reads = [p for _o, _n, p in cls._reads() if p]
+        probe = cls._probe_ref()
+        if probe and probe[2]:
+            reads.append(os.path.join(cls._resolved_dir(probe[2], probe[1]), probe[1]))
+        taken: set = set()
+
+        def rename(home: str) -> str:
+            if not fork or not os.path.exists(home):
+                return home
+            folder = os.path.dirname(home)
+            stem, ext = os.path.splitext(os.path.basename(home))
+            return ptk.FileUtils.unique_path(
+                folder, stem, ext, taken, claims=os.listdir(folder)
+            )
+
+        moved = pending.commit(reads, rename)
+        # Spelled from the target's project: the save's re-spelling ran first
+        # (DataNodes._rebase_before_save), and moves nothing without one.
+        base = DataNodes.project_root_of(target) or DataNodes.project_root()
+        stamp = DataNodes.writer_stamp_of(target) if fork else None
+        # The forks first: each re-keys the records the loop below then reads once.
+        for staged, home in moved.items():
+            if os.path.basename(staged) != os.path.basename(home):
+                cls.fork_lightmap(os.path.basename(staged), os.path.basename(home))
+        if moved:
+            hints, writers = cls._folder_hints(), cls._writers()
+            for home in moved.values():
+                key = cls._hint_key(os.path.basename(home))
+                folder = os.path.dirname(os.path.abspath(home))
+                spelled = ptk.FileUtils.portable_path(folder, base)
+                hints[key] = (
+                    ptk.FileUtils.format_path(folder) if spelled.startswith("//") else spelled
+                )
+                if stamp is not None:
+                    writers[key] = stamp
+            cls._save_folder_hints(hints)
+            if stamp is not None:
+                cls._save_writers(writers)
+            cls.logger.info(
+                "Saved with the file: %s",
+                ", ".join(sorted({os.path.basename(h) for h in moved.values()})),
+            )
+        retiring = pending.take_retiring()
+        if fork:
+            # A Save Copy is a fork here too (save_pre cannot tell them
+            # apart) and leaves the open file as it was: held for save_post,
+            # which hands them back for the open file's next save when it did
+            # not move, and drops them when it did (DataNodes._restore_after_copy).
+            DataNodes._HELD_RETIRING = list(retiring)
+        elif retiring:
+            retired = ptk.FileDependencies.remove_superseded(retiring, cls._reads())
+            if retired:
+                cls.logger.info(
+                    "Set aside %d superseded lightmap(s) nothing reads any more -- "
+                    "in the Recycle Bin, or a temp folder kept 30 days: %s",
+                    len(retired),
+                    ", ".join(os.path.basename(p) for p in retired),
+                )
 
     @classmethod
     def _written_reads(cls, objects) -> List[str]:
@@ -1172,29 +1432,13 @@ class LightmapRecords(ptk.LoggingMixin):
             return False
         return True
 
-    @classmethod
-    def _stamp_uv_rect(cls, obj, rect: Optional[List[float]]) -> None:
-        """Record (or, for the identity, drop) a legacy ``uvRect`` on *obj*'s marker.
-
-        Only :meth:`LightmapBaker.commit_lightmap`'s deprecated ``uv_rects``
-        writes one: a caller asserting that it already squeezed these UVs.
-        """
-        info = cls._marker_info(obj)
-        if not info:
-            return
-        if rect and [float(v) for v in rect] != list(cls.IDENTITY_SCALE_OFFSET):
-            info["uvRect"] = [float(v) for v in rect]
-        else:
-            info.pop("uvRect", None)
-        cls._write_marker(obj, info)
-
     # ------------------------------------------------------------------
     # The export manifest
     # ------------------------------------------------------------------
 
     @classmethod
     def export_record(cls, ctx: ptk.ExportContext) -> Optional[ptk.Record]:
-        """The ``lightmap_metadata`` record for this file, or ``None`` when no
+        """The ``lightmaps`` record for this file, or ``None`` when no
         lightmapped object remains -- the ``ptk.SceneRecords.LIGHTMAPS`` producer
         (``FbxUtils.PRODUCERS``, mirror of mayatk's). Pure: it reads the markers
         and never writes.
@@ -1209,7 +1453,7 @@ class LightmapRecords(ptk.LoggingMixin):
 
     @classmethod
     def refresh_export_metadata(cls) -> Optional[str]:
-        """Rebuild the ``lightmap_metadata`` export channel from the file's markers.
+        """Rebuild the ``lightmaps`` export channel from the file's markers.
 
         The authoring-time publish of :meth:`export_record`: the record is
         committed through ``FbxUtils.publish_authored`` (a file with no markers
@@ -1237,15 +1481,31 @@ class LightmapRecords(ptk.LoggingMixin):
         FbxUtils.publish_authored({ptk.SceneRecords.LIGHTMAPS: record})
         return record.text if record is not None else None
 
+    @staticmethod
+    def _hierarchy(obj) -> List[str]:
+        """*obj*'s path from the scene root by object name: each parent from
+        the root down, its own name last -- the parenting the FBX and GLB
+        writers keep, as mayatk's DAG path states it. Walked, never split from
+        a joined path: a Blender name may hold a ``|``."""
+        chain: List[str] = []
+        while obj is not None:
+            chain.append(obj.name)
+            obj = obj.parent
+        return chain[::-1]
+
     @classmethod
     def _record(cls, objects=None) -> Optional[ptk.Record]:
         """(Re)build the lightmap manifest record from the file's markers.
 
         One entry per marked object, or ``None`` when no lightmapped object
         remains; *objects* scopes it like :meth:`_marker_records` (``None`` =
-        the file). camelCase keys match unitytk's ``LightmapRecord``. No
-        ``hierarchy``: Blender object names are unique in the file, so the name
-        alone tells objects apart.
+        the file). camelCase keys match unitytk's ``LightmapRecord``. Each
+        entry carries its object's ``hierarchy`` (:meth:`_hierarchy`), as
+        mayatk's carries its DAG path: Blender names are unique in a file, but
+        the record has one shape for every host, and a reader whose import
+        renames tells same-named objects apart by it. Its shape -- one
+        ``unit_scale`` for every length, the version stamped -- is the
+        record's model's (``ptk.LightmapRecord.payload``).
         """
         entries: List[Dict[str, Any]] = []
         for obj, info in cls._marker_records(objects):
@@ -1282,10 +1542,10 @@ class LightmapRecords(ptk.LoggingMixin):
                     "name": obj.name,  # the Unity GameObject join key
                     "map": info.get("map"),
                     "uvIndex": uv_index,
-                    "intensity": info.get("intensity", 1.0),
                     "scaleOffset": info.get(
                         "scaleOffset", list(cls.IDENTITY_SCALE_OFFSET)
                     ),
+                    "hierarchy": cls._hierarchy(obj),
                 }
             )
 
@@ -1296,20 +1556,25 @@ class LightmapRecords(ptk.LoggingMixin):
         # where they live (:meth:`search_dirs`, from the markers' own portable
         # folders) -- a build-time hint that does not belong in a deliverable.
         # Before 0.8.0 this published the ABSOLUTE authoring folders (``dir`` /
-        # ``dirs``); a manifest carrying them still reads. The bake's
-        # reflection probe rides beside them, by file name like a map
-        # (``ptk.MeshConvert.apply_glb_lightmaps`` embeds it).
-        manifest: Dict[str, Any] = {"objects": entries}
-        probe = cls.probe()
-        if probe:
-            # Its Blender units, labelled with the metres per unit NOW -- what
-            # the FBX write scales the geometry by (the Scene Exporter sets the
-            # units before it produces this) -- never the bake's: a centimetre
-            # bake exported in metres labelled its probe 100x too near.
-            from blendertk.core_utils.units import Units
+        # ``dirs``). The bake's reflection probe rides beside them, by file name
+        # like a map (``ptk.MeshConvert.apply_glb_lightmaps`` embeds it). No
+        # lights: this bake ships no highlights (mayatk's draws its lights into
+        # the probe).
+        from blendertk.core_utils.units import Units
 
-            manifest["probe"] = dict(probe, unit_scale=Units.metres_per("internal"))
-        return ptk.SceneRecords.LIGHTMAPS.make(manifest)
+        probe = cls.probe()
+        # The probe in its Blender units, labelled with the metres per unit NOW
+        # -- what the FBX write scales the geometry by (``apply_unit_scale``:
+        # io_scene_fbx writes BU x 100 x that into a centimetre file, so
+        # lengths x unit_scale follow the geometry; the Scene Exporter sets the
+        # units before it produces this) -- never the bake's: a centimetre
+        # bake exported in metres labelled its probe 100x too near.
+        payload = ptk.LightmapRecord.payload(
+            entries,
+            probe=probe,
+            unit_scale=Units.metres_per("internal"),
+        )
+        return ptk.SceneRecords.LIGHTMAPS.make(payload) if payload else None
 
     # ------------------------------------------------------------------
     # Dependencies -- the maps the markers name, on disk NOW
@@ -1335,10 +1600,76 @@ class LightmapRecords(ptk.LoggingMixin):
         read is theirs to replace, so re-baking an object keeps its file name,
         and a map anything else reads -- an object outside the bake, or one the
         bake fails on -- is left alone.
+
+        A map another file wrote (:meth:`foreign_writer`) is claimed by
+        :attr:`FOREIGN` too, whoever reads it here -- or whether anything here
+        reads it at all: a Save As copy carries its source's markers, which
+        name the source's maps as the copy's objects', so a re-bake of the
+        copy would replace the file its source still reads.
         """
-        return ptk.FileDependencies.claims(
-            (obj.name, info.get("map")) for obj, info in cls._marker_records(objects)
+        claims = dict(
+            ptk.FileDependencies.claims(
+                (obj.name, info.get("map"))
+                for obj, info in cls._marker_records(objects)
+            )
         )
+        writers = cls._writers()  # read once: one record load, not one per map
+        for key in set(claims) | set(writers):
+            if cls.foreign_writer(key, writers):
+                claims[key] = claims.get(key, frozenset()) | {cls.FOREIGN}
+        return claims
+
+    #: The reader :meth:`claims` gives a map another file wrote: never one of
+    #: a bake's owners, so the map is never theirs to replace.
+    FOREIGN = "<another scene file>"
+
+    @classmethod
+    def wrote(cls, map_name: str, writers: Optional[Dict[str, str]] = None) -> bool:
+        """Whether this file wrote *map_name*: its writer record says so
+        (``DataNodes.written_here``). A map with no entry is not known to be
+        its own. *writers*: the record, when the caller has read it already.
+        Mirror of mayatk's."""
+        writers = cls._writers() if writers is None else writers
+        writer = writers.get(cls._hint_key(map_name))
+        return writer is not None and cls._data_nodes().written_here(writer)
+
+    @classmethod
+    def strangers(
+        cls,
+        folder: str,
+        stem: str,
+        ext: str = ".exr",
+        claims: Optional[Dict[str, FrozenSet[str]]] = None,
+    ) -> Set[str]:
+        """The files in *folder* a bake naming ``<stem>`` must not replace:
+        ``<stem><ext>`` / ``<stem>_<k><ext>`` on disk that nothing here reads
+        (*claims*, :meth:`claims` when ``None``) and this file did not write
+        (its writer record) -- another file's. Mirror of mayatk's.
+
+        :meth:`claims` knows only this file's readers: two files in one
+        project whose materials share a texture set name the same atlas, and
+        the second's bake replaced the first's. A map this file wrote and no
+        longer reads (a revert) stays its own to replace. Absolute paths;
+        empty when *folder* does not exist.
+        """
+        try:
+            names = os.listdir(folder)
+        except OSError:
+            return set()
+        claims = cls.claims() if claims is None else claims
+        writers = cls._writers()
+        pattern = re.compile(
+            rf"{re.escape(stem)}(_\d+)?{re.escape(ext)}", re.IGNORECASE
+        )
+        out: Set[str] = set()
+        for name in names:
+            key = name.lower()
+            if not pattern.fullmatch(name) or key in claims:
+                continue
+            if cls.wrote(key, writers):
+                continue
+            out.add(os.path.abspath(os.path.join(folder, name)))
+        return out
 
     @classmethod
     def _resolve(
@@ -1602,20 +1933,39 @@ class LightmapRecords(ptk.LoggingMixin):
 
         return EnvUtils.source_images_dir() or ""
 
-    @staticmethod
+    @classmethod
     def _copy_files(
-        sources: List[str], dest_dir: str, mode: str
+        cls, sources: List[str], dest_dir: str, mode: str
     ) -> List[Tuple[str, str]]:
         """Copy or move *sources* under the Texture Path Editor's own collision
-        policy (``_safe_relocate``: same size = reuse, different size = skip)."""
+        policy (``_safe_relocate``: same size = reuse, different size = skip).
+
+        A move copies a map another file reads (:attr:`FOREIGN` in
+        :meth:`claims`: a Save As source's) instead: only this file's records
+        follow a file, and that file opened unlit. Mirror of mayatk's.
+        """
         from blendertk.mat_utils._mat_utils import _MatUtilsInternal
 
+        shared = set()
+        if mode == "move":
+            claims = cls.claims()
+            shared = {
+                s
+                for s in sources
+                if cls.FOREIGN in claims.get(os.path.basename(s).lower(), ())
+            }
+            if shared:
+                cls.logger.info(
+                    "Copied, not moved -- another file reads them: %s",
+                    ", ".join(sorted(os.path.basename(s) for s in shared)),
+                )
         landed = []
         for src in sources:
             dst = ptk.FileUtils.format_path(
                 os.path.join(dest_dir, os.path.basename(src))
             )
-            if _MatUtilsInternal._safe_relocate(src, dst, mode) in (
+            how = "copy" if src in shared else mode
+            if _MatUtilsInternal._safe_relocate(src, dst, how) in (
                 "relocated",
                 "rebind",
             ):
@@ -1686,8 +2036,10 @@ class LightmapRecords(ptk.LoggingMixin):
         Mirror of mayatk's. A lightmap is bound by its file NAME: the markers
         (``info["map"]``), this file's folder and writer records (keyed by the
         lower-case name) and the manifest the deliverable ships all name it,
-        so a file renamed on disk read as a missing lightmap. The rename
-        follows the file -- which the caller renames
+        so a file renamed on disk read as a missing lightmap. The bake
+        baseline's entries are re-keyed too: left naming the old file, the
+        next re-bake refused in place ("recorded against another map"). The
+        rename follows the file -- which the caller renames
         (``MatUtils.rename_texture_file``); files are never touched here.
         Matched case-insensitively, file-wide (a map is one file whoever reads
         it). The reflection probe's record is re-stamped too when it names the
@@ -1742,8 +2094,40 @@ class LightmapRecords(ptk.LoggingMixin):
                 if old_key in record:
                     record[new_key] = record.pop(old_key)
                     save(record)
+            state = cls.bake_state()
+            entries = [e for e in state["objects"].values() if e["map"] == old_key]
+            for entry in entries:
+                entry["map"] = new_key
+            if entries:
+                ptk.SceneRecords.LIGHTMAP_BAKE_STATE.save(
+                    cls._data_nodes(), ptk.BakeBaseline.encode(state)
+                )
             if count:
                 cls._publish()
+        return count
+
+    @classmethod
+    def fork_lightmap(cls, old_name: str, new_name: str) -> int:
+        """Make *new_name* -- this file's copy of a map another file wrote
+        (:meth:`foreign_writer`) -- the map its readers here read.
+
+        :meth:`rename_lightmap`'s re-stamp, except that *old_name* keeps its
+        writer entry: its source still reads it, and :meth:`claims` keeps this
+        file off it. *new_name* is this file's (``DataNodes.writer_stamp``).
+        How a Save As copy's first re-bake writes into its source's atlas
+        without touching it (``LightmapBaker._bake_atlas``). Mirror of mayatk's.
+
+        Returns:
+            :meth:`rename_lightmap`'s count.
+        """
+        old_key, new_key = cls._hint_key(old_name), cls._hint_key(new_name)
+        writer = cls._writers().get(old_key)
+        count = cls.rename_lightmap(old_name, new_name)
+        writers = cls._writers()
+        if writer:
+            writers[old_key] = writer
+        writers[new_key] = cls._data_nodes().writer_stamp()
+        cls._save_writers(writers)
         return count
 
     # --------------------------------------------------------- transfer
@@ -1895,9 +2279,13 @@ class LightmapRecords(ptk.LoggingMixin):
             from blendertk.core_utils._core_utils import CoreUtils
 
             CoreUtils.ensure_image_deps()
+            # Written to the session until the file is saved (_stage); the
+            # names, which claims alone decide, are the folder's own.
             written = ptk.UvTransfer.resample_lightmaps(
                 resample,
-                output_dir=TextureTransfer.resolve_output_dir(output_dir),
+                output_dir=cls._pending().folder(
+                    TextureTransfer.resolve_output_dir(output_dir)
+                ),
                 read=cls._read_lightmap,
                 write=cls._write_lightmap,
                 output_name=output_name,

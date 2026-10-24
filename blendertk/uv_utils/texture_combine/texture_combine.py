@@ -1288,15 +1288,24 @@ class TextureCombine(ptk.LoggingMixin, _TextureCombineInternal):
                     )
                     result["how"] = None
                     return result
-                new_path = os.path.join(os.path.dirname(path), target)
+                # Named in the map's home folder; written to the session
+                # until the file is saved (LightmapRecords._stage).
+                folder = LightmapRecords._home(os.path.dirname(path))
+                new_path = os.path.join(folder, target)
                 taken = set(claims.get(self._map_key(target), ())) - mine
-                if os.path.exists(new_path) and taken:
+                # Nor another file's map of that name, which no claim here
+                # names (LightmapRecords.strangers; mirror of mayatk's).
+                strangers = LightmapRecords.strangers(
+                    folder, f"{stem}_Lightmap", ext, claims
+                )
+                if os.path.exists(new_path) and (taken or strangers):
                     new_path = ptk.FileUtils.unique_path(
-                        os.path.dirname(path),
+                        folder,
                         f"{stem}_Lightmap",
                         ext,
                         claims=claims,
                         owners=mine,
+                        avoid=strangers,
                     )
                     target = os.path.basename(new_path)
                     result["map"] = target
@@ -1305,6 +1314,7 @@ class TextureCombine(ptk.LoggingMixin, _TextureCombineInternal):
                 # which this file's markers cannot see. The re-bake guard sets
                 # it aside only when THIS file wrote it, inside its project,
                 # and nothing in the file reads it any more.
+                new_path = LightmapRecords._stage(new_path)
                 shutil.copy2(path, new_path)
                 with LightmapRecords.superseding(list(baked)):
                     LightmapRecords.commit(
@@ -1338,7 +1348,8 @@ class TextureCombine(ptk.LoggingMixin, _TextureCombineInternal):
         if not located:
             self.logger.warning("No lightmap is on disk; lightmaps left as they are.")
             return result
-        out_dir = os.path.dirname(located[0])
+        # Into the session, home at the save (LightmapRecords._stage).
+        out_dir = LightmapRecords._pending().folder(os.path.dirname(located[0]))
         with ptk.TempArtifacts.scoped("texture_combine_lm") as staging:
             crops, regions = {}, {}
             for transform, info in baked.items():

@@ -14,12 +14,12 @@ on its next poll.
 
 The mirror is literal rather than parallel: :class:`pythontk.PreviewBridge`
 owns the export defaults and the public ``push`` / ``url`` / ``stop`` surface
-for both packages, :class:`BlenderExportMixin` supplies the selection read,
-and :class:`~blendertk.env_utils.scene_state.SceneState` owns the sidecar
-readers -- shared with the Scene Exporter's GLB task, so the preview and the
-production deliverable describe the scene identically. ``bpy`` is never
-imported at module scope (call bodies defer it), so the package surface still
-resolves without a running Blender.
+for both packages, and :class:`BlenderExportMixin` supplies the selection read
+and the FBX export every Blender-originating bridge shares -- its carrier
+states every material and the handoff, as the Scene Exporter's FBX does, so
+the preview and the production deliverable describe the scene identically.
+``bpy`` is never imported at module scope (call bodies defer it), so the
+package surface still resolves without a running Blender.
 
 Example:
     >>> preview = btk.WebXrPreview()
@@ -35,7 +35,6 @@ import pythontk as ptk
 
 from blendertk.env_utils.fbx_utils import FbxUtils
 from blendertk.env_utils.handoff_export import BlenderExportMixin
-from blendertk.env_utils.scene_state import SceneState
 
 
 class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge):
@@ -51,7 +50,7 @@ class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge):
     #: The preview READS the in-band metadata, so it has to ship the carrier.
     #:
     #: This is what makes the button self-feeding after a lightmap bake: the bake
-    #: commits ``lightmap_metadata`` to ``data_export``, this export carries that
+    #: commits ``lightmaps`` to ``data_export``, this export carries that
     #: object, and ``MeshConvert.fbx_to_glb`` -> ``apply_glb_lightmaps`` binds the maps
     #: during the GLB conversion. Without it a *selection* push exports the meshes
     #: alone, the manifest never reaches the GLB, and the preview renders unlit with no
@@ -88,30 +87,3 @@ class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge):
         import bpy
 
         return bpy.context.scene.objects.get(name)
-
-    def _produce(self, objects, request) -> Optional[ptk.Payload]:
-        """Export the FBX, then attach the scene sidecar the FBX can't carry.
-
-        Mirror of the Maya producer: the skeleton's FBX payload plus a sidecar
-        riding on ``Payload.extras``. The sections come from
-        :class:`SceneState` (the shared reader column, the one the Scene
-        Exporter's GLB stage reads too) and the envelope is built by
-        :meth:`pythontk.GlbPipeline.envelope` through the bridge's
-        ``_attach_sidecar``, so neither can fork against mayatk's twin.
-        """
-        payload = super()._produce(objects, request)
-        if payload is None or not request.params.get("SCENE_SIDECAR", True):
-            return payload
-
-        # The closed export set, not the raw selection: a group Empty ships its
-        # descendants, and their materials must travel with them.
-        return self._attach_sidecar(
-            payload,
-            lambda: SceneState.read(
-                payload.extras.get("export_set") or objects,
-                include_textures=request.params.get("EMBED_TEXTURES", True),
-            ),
-            source=SceneState.source(),
-            # Carries the recipe overrides preflight resolved (none from a panel row).
-            request=request,
-        )

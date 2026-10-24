@@ -160,10 +160,12 @@ class TaskManager(
         content. A metadata-free export leaves no sidecar. Best-effort: the
         record must never break the export it records.
 
-        With a GLB written, its ``lightmap_metadata`` is recorded as the GLB
-        ships it (mirror of mayatk's): the GLB pass corrects that copy to the
-        encoded map and the scalar restoring the bake range, while the scene's
-        still names the pre-encode ``.exr`` at 1.0.
+        With a GLB written, its ``lightmaps`` is recorded as the GLB
+        ships it (mirror of mayatk's): the GLB build corrects the manifest to
+        the encoded map and the scalar restoring the bake range (its report's
+        ``lightmap_manifest``), while the scene's still names the pre-encode
+        ``.exr`` at 1.0. The GLB states its lightmaps once, in
+        ``extras.lightmaps``.
 
         Parameters:
             glb_path: The GLB this export wrote, if any.
@@ -206,18 +208,10 @@ class TaskManager(
             manifest_path = SceneDataSidecar.manifest_path_for(export_path, **sk)
 
             data = self._data_export_snapshot()
-            key = ptk.MeshConvert.LIGHTMAP_METADATA_KEY
-            if glb_path and key in data:
-                try:
-                    shipped = ptk.MeshConvert.read_glb_lightmap_manifest(glb_path)
-                except (OSError, ValueError) as error:
-                    self.logger.warning(
-                        "Scene-data sidecar: the GLB's lightmap manifest could not "
-                        f"be read ({error}); recording the scene's."
-                    )
-                    shipped = None
-                if shipped is not None:
-                    data = {**data, key: shipped}
+            key = ptk.SceneRecords.LIGHTMAPS.key
+            shipped = self._glb_lightmap_manifest if glb_path else None
+            if shipped is not None and key in data:
+                data = {**data, key: shipped}
             if not data and not os.path.exists(manifest_path):
                 return
 
@@ -252,15 +246,14 @@ class TaskManager(
         (mirror of mayatk's ``TaskManager.create_glb``).
 
         The build is :class:`pythontk.GlbPipeline` -- the SAME chain the WebXR
-        preview publishes through -- handed this run's dials: the scene sidecar
-        built from the export set (:class:`~blendertk.env_utils.scene_state.SceneState`,
-        the readers the preview shares), where the maps live NOW
-        (:meth:`_lightmap_search_dirs`), the GLB's half of the panel's texture
-        rows (:meth:`pythontk.ExportRun.glb_texture_params`, the method the preview
-        resolves the same rows with) and the Animation Clips
-        choice ``apply_declared_takes`` recorded. A sidecar read failure
-        degrades to a bare conversion rather than costing the deliverable; a
-        failed conversion or texture pass fails it.
+        preview publishes through -- handed this run's dials: where the maps
+        live NOW (:meth:`_lightmap_search_dirs`), the GLB's half of the panel's
+        texture rows (:meth:`pythontk.ExportRun.glb_texture_params`, the method
+        the preview resolves the same rows with) and the Animation Clips choice
+        ``apply_declared_takes`` recorded. Everything else the GLB states --
+        every material, the handoff, the lighting choices -- it reads off the
+        FBX's own records, so it says what its FBX says. A failed conversion or
+        texture pass fails it (the deliverable must not lie).
 
         Parameters:
             fbx_path: FBX to convert. Defaults to :attr:`export_path` (the
@@ -273,26 +266,13 @@ class TaskManager(
         Returns:
             The created ``.glb`` path, or ``None`` if the build failed.
         """
-        from blendertk.env_utils.scene_state import SceneState
         from blendertk.light_utils.lightmap_baker.web_export import LightmapWebExport
 
         src = fbx_path or self.export_path
-        objects = self._live_objects()
-        sidecar = None
-        if objects:
-            sidecar = ptk.GlbPipeline.envelope(
-                lambda: SceneState.read(objects),
-                source=SceneState.source(),
-                asset=os.path.basename(src),
-                # The run's overrides over the lighting recipe: none from a
-                # panel since Baked Reflections retired, so it ships as declared.
-                rendering=self.run.rendering,
-                logger=self.logger,
-            )
+        self._glb_lightmap_manifest = None
         try:
             built = ptk.GlbPipeline.build(
                 src,
-                sidecar=sidecar,
                 # Where the maps are NOW: the manifest's recorded authoring
                 # folder goes stale the moment the project is reorganised.
                 lightmap_dirs=self._lightmap_search_dirs(),
@@ -325,6 +305,7 @@ class TaskManager(
             return None
 
         glb_path = built["glb"]
+        self._glb_lightmap_manifest = built.get("lightmap_manifest")
         if announce:
             self.logger.success(f"GLB created: {glb_path}")
         return glb_path

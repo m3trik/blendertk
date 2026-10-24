@@ -68,7 +68,7 @@ from blendertk.env_utils.usd import UsdUtils
 # File > Export > FBX, not this tool's opinion. Select "game_asset" for these values.
 #
 # ``use_custom_props`` + ``object_types`` are what let the shared ``data_export`` Empty's
-# metadata channels (``lightmap_metadata``, ...) ride into the FBX as user properties --
+# metadata channels (``lightmaps``, ...) ride into the FBX as user properties --
 # Blender defaults custom-property export OFF, so it must be overridden here or the
 # ``export_data_node`` task ships an FBX with no metadata. ``object_types`` is pinned
 # EXPLICITLY (not inherited from ``fbx_utils._EXPORT_DEFAULTS``, which also carries
@@ -110,17 +110,6 @@ _DEFAULT_FBX_OPTIONS: Dict[str, Any] = {
     "use_custom_props": True,
     "object_types": ["EMPTY", "ARMATURE", "MESH"],
 }
-
-#: What a caller of a retired naming input does instead: fold it into the
-#: Output Filename pattern, as :meth:`SceneExporter.perform_export` does once.
-#: Those inputs go in 0.12.0 where mayatk's go in its next minor: blendertk
-#: 0.11.0 is the release they first ship in (measured 2026-09-23, it removes
-#: public API, so push.ps1's semver gate owes a minor), and a name outlives the
-#: release it first warns in -- the calendar window alone holds it 30 days.
-_FOLD_FIRST = (
-    "Fold it into the pattern first: ptk.ExportProfile.fold_legacy_naming("
-    "pattern, version_format, timestamp, name_regex)."
-)
 
 
 class SceneExporter(ptk.SceneExporterBase):
@@ -175,18 +164,6 @@ class SceneExporter(ptk.SceneExporterBase):
         return objs
 
     @ptk.Deprecation.parameter(
-        "timestamp",
-        remove_in="0.12.0",
-        since="2026-09-23",
-        reason="Write '*_{date}_{time}' into output_name instead.",
-    )
-    @ptk.Deprecation.parameter(
-        "name_regex",
-        remove_in="0.12.0",
-        since="2026-09-23",
-        reason="Write '{scene:PATTERN->REPLACEMENT}' into output_name instead.",
-    )
-    @ptk.Deprecation.parameter(
         "hide_log_file",
         drop=True,
         remove_in="0.21.0",
@@ -201,8 +178,7 @@ class SceneExporter(ptk.SceneExporterBase):
         output_name: Optional[str] = None,
         export_visible: bool = True,
         create_log_file: bool = False,
-        timestamp: bool = False,
-        name_regex: Optional[str] = None,
+        *,
         log_level: Optional[str] = None,
         log_handler: Optional[object] = None,
         tasks: Optional[Dict[str, Any]] = None,
@@ -230,9 +206,8 @@ class SceneExporter(ptk.SceneExporterBase):
         panel sends every row (``ptk.ExportProfile.read_values``), so a headless
         caller that wants the panel's behaviour passes every row it wants on.
 
-        *timestamp*, *name_regex* and ``tasks["version"]`` are the retired
-        naming inputs (each warns; removed in 0.12.0, ``tasks["version"]`` in
-        pythontk 0.12.0). They fold into *output_name* once, here
+        ``tasks["version"]`` is the retired Version input (warns; removed in
+        pythontk 0.19.0). It folds into *output_name* once, here
         (``ptk.ExportProfile.fold_legacy_naming``), and the log names the
         pattern that says the same thing (mirror of mayatk).
 
@@ -286,15 +261,15 @@ class SceneExporter(ptk.SceneExporterBase):
             getattr(self.logger, level)(message)
         if any(level == "error" for level, _ in notes):
             return False  # a config error (an unknown texture file type)
-        # The retired naming inputs fold into the name ONCE, here; everything
+        # The retired Version input folds into the name ONCE, here; everything
         # past this point -- the path, the sidecar, the log -- reads the pattern.
         self.output_name = ptk.ExportProfile.fold_legacy_naming(
-            output_name, run.version_format, timestamp, name_regex
+            output_name, run.version_format
         )
         if self.output_name != output_name:
             self.logger.warning(
-                "The Version, Timestamp and RegEx inputs are retired: write them "
-                "into the Output Filename instead -- this export resolves as "
+                "The Version input is retired: write it into the Output "
+                "Filename instead -- this export resolves as "
                 f"{self.output_name!r}."
             )
         # "usd": the deliverable is a USD layer (mirror of mayatk). Same pipeline
@@ -782,20 +757,13 @@ class SceneExporter(ptk.SceneExporterBase):
         **ptk.StrUtils.NAME_PATTERN_TOKENS,
     }
 
-    @ptk.Deprecation.parameter(
-        "name_regex", drop=True, remove_in="0.12.0", since="2026-09-23"
-    )
-    def name_context(self, name_regex: Optional[str] = None) -> Dict[str, str]:
+    def name_context(self) -> Dict[str, str]:
         """Live value for every token in :attr:`NAME_TOKENS` but the counter.
 
         The .blend's own tokens; pythontk adds the universal ones (date/time/user)
         and samples them once, so a pattern using several cannot straddle a tick.
         The counter resolves later, against the output folder
         (:meth:`resolve_export_path`).
-
-        *name_regex* is retired and ignored (warns; removed in 0.12.0): a
-        regex is an inline modifier on the name token now, so the context never
-        applied one.
         """
         import bpy
 
@@ -817,24 +785,13 @@ class SceneExporter(ptk.SceneExporterBase):
             folder=os.path.basename(os.path.dirname(scene_path)),
         )
 
-    @ptk.Deprecation.parameter(
-        "name_regex", remove_in="0.12.0", since="2026-09-23", reason=_FOLD_FIRST
-    )
-    @ptk.Deprecation.parameter(
-        "version_format", remove_in="0.12.0", since="2026-09-23", reason=_FOLD_FIRST
-    )
-    @ptk.Deprecation.parameter(
-        "timestamp", remove_in="0.12.0", since="2026-09-23", reason=_FOLD_FIRST
-    )
     def resolve_export_path(
         self,
         pattern: Optional[str] = None,
         export_dir: Optional[str] = None,
         output_format: str = "fbx",
-        name_regex: Optional[str] = None,
+        *,
         report: bool = True,
-        version_format: str = "",
-        timestamp: bool = False,
     ) -> Dict[str, Any]:
         """Resolve the Output Filename field into the file(s) an export writes.
 
@@ -848,15 +805,8 @@ class SceneExporter(ptk.SceneExporterBase):
             pattern: The Output Filename text.
             export_dir: The folder written to; the counter scans it.
             output_format: An :attr:`OUTPUT_EXTENSIONS` key.
-            name_regex: DEPRECATED (warns; removed in 0.12.0) -- the retired
-                RegEx field; write ``{scene:PATTERN->REPLACEMENT}`` into
-                *pattern* instead.
             report: Log what the pattern hit. The tooltip passes False: it
                 resolves on every hover and shows the diagnostics itself.
-            version_format: DEPRECATED (warns; removed in 0.12.0) -- the
-                retired Version pattern; write a ``{n}`` counter instead.
-            timestamp: DEPRECATED (warns; removed in 0.12.0) -- the retired
-                Timestamp checkbox; write ``*_{date}_{time}`` instead.
 
         Returns:
             ``ExportProfile.resolve_output_path``'s dict (``path``, ``paths``,
@@ -865,9 +815,7 @@ class SceneExporter(ptk.SceneExporterBase):
         """
         context = self.name_context()
         resolved = ptk.ExportProfile.resolve_output_path(
-            ptk.ExportProfile.fold_legacy_naming(
-                pattern, version_format, timestamp, name_regex
-            ),
+            pattern,
             context,
             export_dir or "",
             output_format=output_format,
@@ -879,12 +827,9 @@ class SceneExporter(ptk.SceneExporterBase):
                 getattr(self.logger, level)(message)
         return dict(resolved, context=context)
 
-    @ptk.Deprecation.parameter(
-        "version_format", remove_in="0.12.0", since="2026-09-23", reason=_FOLD_FIRST
-    )
     def generate_export_path(
         self,
-        version_format: str = "",
+        *,
         extension: str = ".fbx",
         output_format: Optional[str] = None,
     ) -> str:
@@ -894,9 +839,6 @@ class SceneExporter(ptk.SceneExporterBase):
         too.
 
         Parameters:
-            version_format: DEPRECATED (warns; removed in 0.12.0) -- the
-                retired Version pattern; write a ``{n}`` counter into the
-                Output Filename instead.
             extension: ``.usd`` selects the USD format when *output_format* is
                 not given; anything else FBX.
             output_format: An :attr:`OUTPUT_EXTENSIONS` key.
@@ -904,33 +846,10 @@ class SceneExporter(ptk.SceneExporterBase):
         if output_format is None:
             output_format = "usd" if extension.lower() == ".usd" else "fbx"
         return self.resolve_export_path(
-            ptk.ExportProfile.fold_legacy_naming(self.output_name, version_format),
+            self.output_name,
             self.export_dir,
             output_format=output_format,
         )["path"]
-
-    @ptk.Deprecation.symbol(
-        "an inline {scene:PATTERN->REPLACEMENT} modifier in the Output Filename",
-        remove_in="0.12.0",
-        since="2026-09-23",
-    )
-    def format_export_name(self, name: str, name_regex: Optional[str] = None) -> str:
-        """*name* reshaped by the retired free-standing RegEx field.
-
-        DEPRECATED (warns; removed in 0.12.0). Both the grammar and the
-        substitution live in pythontk's token system
-        (``ExportProfile.fold_legacy_regex`` -> ``StrUtils.apply_regex_modifier``),
-        the same code an inline ``{scene:PATTERN->REPLACEMENT}`` modifier runs
-        through -- write the modifier into the Output Filename instead and the
-        whole naming rule is ONE string.
-        """
-        spec = ptk.ExportProfile.fold_legacy_regex(name_regex)
-        if spec is None:
-            return name
-        result, error = ptk.StrUtils.apply_regex_modifier(name, spec)
-        if error:
-            self.logger.error(f"Output filename RegEx: {error}.")
-        return result
 
     # ------------------------------------------------------------------ FBX export presets
     # (pythontk.PresetStore-backed named dicts of export_scene.fbx kwargs -- see module

@@ -1337,9 +1337,9 @@ try:
             lb_ui.cmb_scope.itemText(i) for i in range(lb_ui.cmb_scope.count())
         ]
         check(
-            "lightmap_baker Scope combo lists Selected/Visible/Scene/Changed "
-            "(default selected)",
-            scope_items == ["Selected", "Visible", "Scene", "Changed"]
+            "lightmap_baker Scope combo lists Selected/Visible/Scene (default "
+            "selected; re-baking what changed is the Manage page's)",
+            scope_items == ["Selected", "Visible", "Scene"]
             and lb._scope() == "selected",
             f"{scope_items} _scope()={lb._scope()}",
         )

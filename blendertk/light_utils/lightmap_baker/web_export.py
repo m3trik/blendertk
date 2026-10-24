@@ -4,7 +4,7 @@
 
 **Export-time only.** The bake itself is
 :class:`~blendertk.light_utils.lightmap_baker.lightmap_baker.LightmapBaker`'s job, and it is
-platform-agnostic: it commits to the *scene* (markers + the ``lightmap_metadata`` manifest
+platform-agnostic: it commits to the *scene* (markers + the ``lightmaps`` manifest
 on the ``data_export`` carrier), which the Unity/FBX path and Maya round trip read without
 this module. This module is the **web consumer** of that committed state -- what runs when a
 GLB is exported from Blender natively:
@@ -13,9 +13,11 @@ GLB is exported from Blender natively:
   glTF carries only PNG/JPEG (KTX2 by extension), so the EXR cannot ship as-is.
 * **Carry** -- :meth:`~LightmapWebExport.wire_lightmaps`: glTF has no lightmap slot, so the
   map rides a real texture slot on ``TEXCOORD_1`` and the viewer rebinds it.
-* **Export** -- :meth:`~LightmapWebExport.export_glb` plus the ``lightmap_web`` extras
-  manifest the viewer reads; :meth:`~LightmapWebExport.wired_for_export` wraps all of it
-  around any native glTF export, feeding itself from the committed markers.
+* **Export** -- :meth:`~LightmapWebExport.export_glb` plus the ``lightmaps`` block the
+  viewer reads (``ptk.MeshConvert.lightmaps_block``, the one builder of its shape), the
+  written file then stated as every deliverable states itself
+  (``ptk.MeshConvert.finish_glb``); :meth:`~LightmapWebExport.wired_for_export` wraps all
+  of it around any native glTF export, feeding itself from the committed markers.
 * **Probe** -- :meth:`~LightmapWebExport.embed_probe`: the bake's reflection probe
   (``LightmapBaker.bake_probe``), embedded in the written GLB as the manifest's
   ``probe``, through Blender's own Radiance writer.
@@ -70,13 +72,28 @@ class LightmapWebExport(ptk.LoggingMixin):
             web.export_glb("C:/out/office.glb", manifest=manifest)
     """
 
-    #: glTF ``extras`` key holding the viewer manifest. Read by the bundled WebXR viewer to
-    #: rebind the carrier slot to a real three.js ``lightMap``.
-    EXTRAS_KEY: str = "lightmap_web"
-    MANIFEST_VERSION: int = 1
+    #: The key the ``lightmaps`` block rides under: the lightmaps record's own
+    #: (``ptk.SceneRecords.LIGHTMAPS.key``), as every GLB block takes its record's --
+    #: a scene custom property the native exporter writes into the first scene's
+    #: ``extras``, which ``ptk.MeshConvert.finish_glb`` moves into the file's root
+    #: ``extras``, where every reader looks. Retired here: it restated the key.
+    EXTRAS_KEY = ptk.Deprecation.class_attribute(
+        ptk.SceneRecords.LIGHTMAPS.key,
+        "ptk.SceneRecords.LIGHTMAPS.key",
+        remove_in="0.21.0",
+        since="2026-10-24",
+    )
+    #: The block's schema version: the registry's, which its builder stamps.
+    MANIFEST_VERSION = ptk.Deprecation.class_attribute(
+        ptk.SceneRecords.LIGHTMAPS.glb.version,
+        "ptk.SceneRecords.LIGHTMAPS.glb.version",
+        remove_in="0.21.0",
+        since="2026-10-24",
+    )
 
-    #: Which real glTF texture slot carries the lightmap (see :meth:`wire_lightmaps`).
-    CARRIERS: Tuple[str, ...] = ("occlusion", "emissive")
+    #: Which real glTF texture slot carries the lightmap (see :meth:`wire_lightmaps`):
+    #: the ones the block declares (``ptk.LightmapsBlock.CARRIERS``).
+    CARRIERS: Tuple[str, ...] = ptk.LightmapsBlock.CARRIERS
 
     #: Custom property stamped on a wired lightmap image datablock, so the web texture
     #: budget can tell it apart from a source map (see :meth:`_downsize_images`).
@@ -573,22 +590,34 @@ class LightmapWebExport(ptk.LoggingMixin):
 
     # ------------------------------------------------------------------ export
 
+    @ptk.Deprecation.parameter(
+        "lighting",
+        drop=True,
+        remove_in="0.21.0",
+        since="2026-10-24",
+        reason="The block states no lighting: the file's handoff states the lighting "
+        "it was approved under.",
+    )
     def build_manifest(
         self,
         encoded: Dict[str, Tuple[str, float]],
         carrier: str,
-        lighting: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """The ``lightmap_web`` manifest the viewer reads to rebind the carrier slot.
+        """The ``lightmaps`` block the viewer reads to rebind the carrier slot, built by
+        ``ptk.MeshConvert.lightmaps_block`` -- the one statement of its shape, whichever
+        exporter writes the file.
 
         Keyed by *material* rather than object, because glTF materials are what the viewer
         actually walks. After atlas consolidation the MAP is material-level but the per-
         instance RECT is not, so an atlased object appears here under the name of the clone
-        :meth:`wire_lightmaps` gave it -- which is also the name the GLB carries.
+        :meth:`wire_lightmaps` gave it -- which is also the name the GLB carries. Each
+        material states its intensity alone: its map is the texture bound in its *carrier*
+        slot, read on the UV set that texture's ``texCoord`` names -- which the file states.
         """
         import bpy
 
-        materials: Dict[str, Dict[str, Any]] = {}
+        maps: Dict[str, str] = {}
+        intensities: Dict[str, float] = {}
         for name, (png, scalar) in encoded.items():
             obj = bpy.data.objects.get(name)
             if obj is None:
@@ -596,32 +625,27 @@ class LightmapWebExport(ptk.LoggingMixin):
             for slot in getattr(obj, "material_slots", []) or []:
                 if slot.material is None:
                     continue
-                entry = {"map": os.path.basename(png), "intensity": round(scalar, 6)}
-                claimed = materials.setdefault(slot.material.name, entry)
-                if claimed["map"] != entry["map"]:
-                    # A glTF material carries exactly one lightmap, so the second one has
-                    # nowhere to go. wire_lightmaps gives every map past a material's first
-                    # a per-object clone, so reaching here means that clone could not be
-                    # wired (logged there) or the manifest was built without the wiring.
-                    # Say so — the symptom is one object wearing another's lighting, which
-                    # looks like a bad bake rather than a dropped map.
-                    self.logger.warning(
-                        "Material %r already carries %s, so %s (from %s) cannot be "
-                        "published — that object will sample the first map. Re-run with "
-                        "atlas packing, or split the material.",
-                        slot.material.name,
-                        claimed["map"],
-                        entry["map"],
-                        name,
-                    )
-        return {
-            "version": self.MANIFEST_VERSION,
-            "carrier": carrier,
-            "uv": 1,
-            "encoding": "srgb",
-            "materials": materials,
-            "lighting": lighting or {},
-        }
+                material, map_name = slot.material.name, os.path.basename(png)
+                claimed = maps.setdefault(material, map_name)
+                if claimed == map_name:
+                    intensities.setdefault(material, scalar)
+                    continue
+                # A glTF material carries exactly one lightmap, so the second one has
+                # nowhere to go. wire_lightmaps gives every map past a material's first
+                # a per-object clone, so reaching here means that clone could not be
+                # wired (logged there) or the manifest was built without the wiring.
+                # Say so — the symptom is one object wearing another's lighting, which
+                # looks like a bad bake rather than a dropped map.
+                self.logger.warning(
+                    "Material %r already carries %s, so %s (from %s) cannot be "
+                    "published — that object will sample the first map. Re-run with "
+                    "atlas packing, or split the material.",
+                    material,
+                    claimed,
+                    map_name,
+                    name,
+                )
+        return ptk.MeshConvert.lightmaps_block(intensities, carrier)
 
     def export_glb(
         self,
@@ -638,9 +662,14 @@ class LightmapWebExport(ptk.LoggingMixin):
         already Blender, so Principled BSDF maps straight onto ``pbrMetallicRoughness`` with
         no second translation, and the exporter is what emits ``TEXCOORD_1`` for the wired
         lightmap. *manifest* rides the scene's custom properties into the first scene's
-        ``extras``, so the deliverable is self-describing. The exporter writes each
-        object's lightmap marker as the scene holds it, so the written file is then
-        corrected to what it ships (``ptk.MeshConvert.fix_glb_lightmap_metadata``).
+        ``extras``, so the deliverable is self-describing. The written file is then
+        stated as every deliverable states itself (``ptk.MeshConvert.finish_glb``): the
+        block moves to its root ``extras`` as an object, the handoff its carrier's record
+        implies is embedded (when the carrier ships: the whole scene, or *objects* naming
+        it), and no record is left on a node -- the lightmap markers and manifest the
+        exporter wrote as the scene holds them included, so the file states its lightmaps
+        once. Last, the scene's reflection probe joins the block (:meth:`embed_probe`),
+        which every reader finds in the root ``extras``.
 
         Passing *objects* exports **only those objects**: Blender's exporter has no
         "include ancestors" option, so a mesh list drops the group Empties above it. World
@@ -672,9 +701,9 @@ class LightmapWebExport(ptk.LoggingMixin):
         os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
 
         scene = bpy.context.scene
-        prior = scene.get(self.EXTRAS_KEY)
+        prior = scene.get(ptk.SceneRecords.LIGHTMAPS.key)
         if manifest is not None:
-            scene[self.EXTRAS_KEY] = json.dumps(manifest)
+            scene[ptk.SceneRecords.LIGHTMAPS.key] = json.dumps(manifest)
 
         # The window's view layer + context: windowless, select_all / select_set address
         # the scene's default layer, and the glTF exporter raised outright (measured,
@@ -709,13 +738,14 @@ class LightmapWebExport(ptk.LoggingMixin):
                         pass
                 if manifest is not None:
                     if prior is None:
-                        del scene[self.EXTRAS_KEY]
+                        del scene[ptk.SceneRecords.LIGHTMAPS.key]
                     else:
-                        scene[self.EXTRAS_KEY] = prior
-        # The markers (and any manifest) ride out as the scene holds them -- the
-        # EXR at 1.0 beside its authoring folder -- so the file is told what it
-        # ships. A no-op on an unbaked scene.
-        ptk.MeshConvert.fix_glb_lightmap_metadata(path)
+                        scene[ptk.SceneRecords.LIGHTMAPS.key] = prior
+        # Finished as the FBX route's build finishes its GLB -- the block lifted
+        # into the root extras, the records and markers (written as the scene
+        # holds them: the EXR at 1.0 beside its authoring folder) off the nodes
+        # -- and only then the probe, into the block where readers look.
+        ptk.MeshConvert.finish_glb(path)
         self.embed_probe(path)
         return path
 
@@ -728,7 +758,7 @@ class LightmapWebExport(ptk.LoggingMixin):
         (``LightmapBaker.bake_probe``): what the lightmaps cannot hold -- the
         reflections on every baked surface, which are a metal's whole look,
         and the light on everything unbaked. The viewer reads it from the
-        ``lightmap_web`` manifest's ``probe`` (pythontk's ``kernel/probe.js``),
+        ``lightmaps`` manifest's ``probe`` (pythontk's ``kernel/probe.js``),
         as Radiance bytes in a view of the file's own buffer -- which exists
         only once the export has written the file, so this runs after it
         (``ptk.MeshConvert.embed_glb_lightmap_probe``; the FBX route's
@@ -737,7 +767,7 @@ class LightmapWebExport(ptk.LoggingMixin):
         (:meth:`LightmapRecords.search_dirs`) and encoded by Blender's own
         Radiance writer (:meth:`encode_hdr_radiance`): Blender ships no cv2.
 
-        A file with no ``lightmap_web`` (nothing wired), or a scene with no
+        A file with no ``lightmaps`` (nothing wired), or a scene with no
         probe, is left as found; one that carries the probe already keeps it.
         The point and box are read at the native exporter's unit -- one Blender
         unit, one metre -- not the record's ``unit_scale``, which is the FBX
@@ -747,7 +777,7 @@ class LightmapWebExport(ptk.LoggingMixin):
             glb_path: The GLB the native export wrote (modified in place).
 
         Returns:
-            The ``lightmap_web`` probe entry, or ``None``.
+            The ``lightmaps`` probe entry, or ``None``.
         """
         probe = LightmapRecords.probe()
         if not probe or not glb_path or not os.path.isfile(glb_path):
@@ -859,23 +889,27 @@ class LightmapWebExport(ptk.LoggingMixin):
         The Blender-native counterpart of ``ptk.MeshConvert.apply_glb_lightmaps``: feeds
         itself from the markers :meth:`LightmapRecords.commit` stamped (the map's
         basename; its folder from the scene's lightmap record), encodes, wires the carrier
-        slot on the lightmap UV, and yields the ``lightmap_web`` manifest -- pass it to
+        slot on the lightmap UV, and yields the ``lightmaps`` manifest -- pass it to
         :meth:`export_glb`, or export with ``bpy.ops.export_scene.gltf(export_extras=True)``
         directly (the manifest is also stamped on the scene for the duration, so either
         route carries it). Materials are restored on every exit -- a manifest that cannot
         be built included -- wired only for the export's lifetime.
 
-        A scene with no committed bake yields ``None`` and touches nothing, which is what
-        makes it safe to wrap around *every* GLB export unconditionally: the exporter needs
-        no knowledge of whether, or how, the scene was baked.
+        A scene with no committed bake yields ``None`` and touches nothing in the SCENE,
+        which is what makes it safe to wrap around *every* GLB export unconditionally: the
+        exporter needs no knowledge of whether, or how, the scene was baked.
 
-        *glb_path* is the GLB the block writes. Blender's exporter ships each object's
-        marker (and the data_export manifest) as the scene holds them -- the EXR at
-        1.0 beside its authoring folder -- so on a clean exit that file is corrected
-        to what it ships (``ptk.MeshConvert.fix_glb_lightmap_metadata``) and
-        given the scene's reflection probe (:meth:`embed_probe`).
-        :meth:`export_glb` does this for its own file; a caller exporting directly
-        passes *glb_path*.
+        *glb_path* is the GLB the block writes, and on a clean exit that file is always
+        stated as every deliverable states itself (``ptk.MeshConvert.finish_glb``: its
+        blocks in its root ``extras``, the handoff its carrier's record implies, no record
+        on a node) -- baked or not: an unbaked scene's records ride its carrier too.
+        Baked, the records it strips include each object's marker and the data_export
+        manifest, which Blender's exporter ships as the scene holds them (the EXR at
+        1.0 beside its authoring folder), so the file states its lightmaps once, in its
+        ``lightmaps`` block -- which is then given the scene's reflection probe
+        (:meth:`embed_probe`). :meth:`export_glb` does this for its own file; a caller
+        exporting directly passes *glb_path*. An export that raises inside the block
+        finishes nothing.
         """
         import bpy
 
@@ -933,6 +967,11 @@ class LightmapWebExport(ptk.LoggingMixin):
 
         if not mapping:
             yield None
+            # Reached only on a clean exit (a raising export ends the generator at
+            # the yield), as in the baked branch: the scene is untouched, and the
+            # file is finished all the same -- its carrier ships records too.
+            if glb_path and os.path.isfile(glb_path):
+                ptk.MeshConvert.finish_glb(glb_path)
             return
 
         # The PNGs are throwaway export intermediates -- never litter the maps'
@@ -943,23 +982,23 @@ class LightmapWebExport(ptk.LoggingMixin):
             mapping, output_dir=png_dir, percentile=percentile
         )
         scene = bpy.context.scene
-        prior = scene.get(self.EXTRAS_KEY)
+        prior = scene.get(ptk.SceneRecords.LIGHTMAPS.key)
         token = self.wire_lightmaps(encoded, carrier=carrier, rects=rects)
         # Everything after the wiring is inside the bracket that takes it back.
         try:
             manifest = self.build_manifest(encoded, carrier=carrier)
-            scene[self.EXTRAS_KEY] = json.dumps(manifest)
+            scene[ptk.SceneRecords.LIGHTMAPS.key] = json.dumps(manifest)
             yield manifest
             if glb_path and os.path.isfile(glb_path):
-                ptk.MeshConvert.fix_glb_lightmap_metadata(glb_path)
+                ptk.MeshConvert.finish_glb(glb_path)
                 self.embed_probe(glb_path)
         finally:
             self.unwire_lightmaps(token)
             if prior is None:
                 try:
-                    del scene[self.EXTRAS_KEY]
+                    del scene[ptk.SceneRecords.LIGHTMAPS.key]
                 except KeyError:
                     pass
             else:
-                scene[self.EXTRAS_KEY] = prior
+                scene[ptk.SceneRecords.LIGHTMAPS.key] = prior
             png_store.cleanup()

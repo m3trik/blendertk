@@ -46,9 +46,9 @@ Material: unlit **black Emission** mixed against a **Transparent BSDF** by ``tex
 opacity`` — a node graph, so it renders the silhouette and the fade per pixel. The PNG is
 persisted via ``bpy.data.images`` (no cv2/PIL dependency); the rasterizer's rows run from the
 light-side edge, which Blender's bottom-up pixel rows put on the plane's ``V = 0`` (near) edge.
-The GLB sidecar's ``unlit`` section (``SceneState._read_unlit``) marks the material
-``KHR_materials_unlit``: FBX2glTF makes it lit PBR, and the environment's specular made a
-shadow brighter than its floor.
+The materials record states the material unlit (``MaterialRecords._unlit_materials``), which
+the GLB writes ``KHR_materials_unlit``: FBX2glTF makes it lit PBR, and the environment's
+specular made a shadow brighter than its floor.
 
 **Re-attaching.** The plane links its targets (a JSON name list), source and contact (ID
 pointers), and stamps its measurements and canvas, so :meth:`ShadowRig.for_node` /
@@ -59,7 +59,7 @@ A shadow that no longer moves (its links broken on purpose) becomes a plain text
 with :meth:`ShadowRig.detach_planes` -- one unlit material and one PNG, nothing of the rig
 left to export.
 
-**Engine hand-off.** ``refresh_export_metadata`` publishes a ``shadow_metadata`` JSON channel
+**Engine hand-off.** ``refresh_export_metadata`` publishes a ``shadows`` JSON channel
 onto the shared ``data_export`` carrier (``btk.DataNodes``) at authoring time
 (create/bake/delete), and is registered in ``FbxUtils.PRODUCERS`` so the Scene Exporter
 re-refreshes it at export time. unitytk's ``ShadowPlaneController.cs`` joins records to the
@@ -90,9 +90,14 @@ class ShadowRig(ptk.LoggingMixin):
     GROUND_OFFSET = 0.01
     # The plane's fade channel — Maya's RenderOpacity attr of the same name.
     OPACITY_ATTR = "opacity"
-    # data_export carrier channel (see refresh_export_metadata): the key of
-    # the ``ptk.SceneRecords.SHADOWS`` record.
-    SHADOW_METADATA = ptk.SceneRecords.SHADOWS.key
+    #: The shadows record's key under its old name, retired here: read the
+    #: declaration's (``ptk.SceneRecords.SHADOWS.key``).
+    SHADOW_METADATA = ptk.Deprecation.class_attribute(
+        ptk.SceneRecords.SHADOWS.key,
+        "ptk.SceneRecords.SHADOWS.key",
+        remove_in="0.21.0",
+        since="2026-10-24",
+    )
     # Rename-proof handles the re-attach paths need once the instance is gone.
     _TARGETS_PROP = "shadowRigTargets"  # JSON list of target object names
     _SOURCE_PROP = "shadowRigSource"  # ID pointer to the source object
@@ -132,12 +137,13 @@ class ShadowRig(ptk.LoggingMixin):
     _auto_pending = False
     _auto_watched: dict = {}
     _MATERIAL_OPACITY_PATH = 'nodes["opacity"].outputs[0].default_value'
-    #: Rig types, in the order the panel lists them. ``projected`` draws one
+    #: Rig types, in the order the panel lists them -- the record's
+    #: (``ptk.ShadowRecord.RIG_TYPES``). ``projected`` draws one
     #: silhouette the drivers re-place; ``horizon`` adds a coverage-aware
     #: horizon map (``pythontk.ShadowHorizon``) the engine samples per frame
     #: so the outline follows a runtime light — see
     #: ``mayatk/docs/shadow_rig_morphing.md``.
-    RIG_TYPES = ("projected", "horizon")
+    RIG_TYPES = ptk.ShadowRecord.RIG_TYPES
     _TYPE_PROP = "shadowRigType"
     #: The engine places the quad from the source object at runtime while this
     #: is on; off leaves the imported keys alone.
@@ -185,7 +191,7 @@ class ShadowRig(ptk.LoggingMixin):
     #: while Blender's exporter maps local +Y to FBX -Z, so the same rotation
     #: is ``(0, 0, -1)`` here (``mayatk/docs/shadow_rig_morphing.md``).
     HORIZON_FRAME = ((1.0, 0.0, 0.0), (0.0, 0.0, -1.0))
-    #: The ``shadow_metadata`` schema this producer writes -- stamped by the
+    #: The ``shadows`` schema this producer writes -- stamped by the
     #: ``ptk.SceneRecords.SHADOWS`` declaration, never spelled here.
     METADATA_VERSION = ptk.SceneRecords.SHADOWS.version
     #: Atlas PNG per rig type, beside the silhouettes in the output dir.
@@ -754,16 +760,12 @@ class ShadowRig(ptk.LoggingMixin):
         # depsgraph does not watch ID-property writes on its own).
         p.update_tag()
 
-    @ptk.Deprecation.parameter(
-        "axis", drop=True, remove_in="0.12.0", since="2026-09-23"
-    )
     def create_silhouette_texture(
         self,
         size=512,
-        axis="auto",
+        *,
         recursive=True,
         path=None,
-        *,
         refit=True,
         source_size=None,
         uniform_alpha=True,
@@ -773,10 +775,8 @@ class ShadowRig(ptk.LoggingMixin):
     ):
         """Rasterize the targets' shadow — their evaluated geometry projected onto the ground
         through the source — via ``pythontk.ImgUtils.rasterize_shadow``, and load it as a
-        reusable image datablock.
+        reusable image datablock. The silhouette is always the projection (mirror of mayatk's).
 
-        ``axis`` is DEPRECATED (warns; removed in 0.12.0) and ignored: the silhouette is always the
-        projection; a positional value other than ``"auto"`` is logged (mirror of mayatk's).
         ``path`` overwrites a rig's existing PNG in place (:meth:`refresh_silhouette`) so the
         image datablock and the engine join key stay valid. ``refit`` fits the canvas to the new
         projection and restamps the plane (a live rig); False draws into the canvas the stamped
@@ -784,11 +784,6 @@ class ShadowRig(ptk.LoggingMixin):
         place it there). ``source_size`` overrides the size read off the source (a sun's angular
         diameter in radians, otherwise world units).
         """
-        if str(axis).lower() not in ("auto", "light"):
-            self.logger.warning(
-                f"ShadowRig axis={axis!r} is retired and ignored: the silhouette is "
-                "the target's projection through the source."
-            )
         meshes = self._gather_world_meshes(recursive)
         if not meshes:
             raise ValueError("No mesh geometry found on the target(s).")
@@ -1064,8 +1059,8 @@ class ShadowRig(ptk.LoggingMixin):
         and the GLB a 0.8-grey quad at the fade's alpha, no silhouette
         (measured 2026-10-16). It reads the render's own image node, never a
         copy, so a re-render or an atlas rebind reaches the export as well. The
-        fade is not wired here: the scene sidecar reads it off the active mix
-        (``SceneState._opacity_factor``). Shared by the live rig
+        fade is not wired here: the materials record reads it off the active mix
+        (``MaterialRecords._opacity_factor``). Shared by the live rig
         (:meth:`create_material`) and a detached plane
         (:meth:`_assign_unlit_texture`).
 
@@ -1566,7 +1561,7 @@ class ShadowRig(ptk.LoggingMixin):
         name-based fallback for rigs built before it), and the material +
         silhouette image datablocks once nothing else uses them — drivers
         die with their datablocks. The targets and the shared shadow-source
-        empty are left untouched; the ``shadow_metadata`` channel is
+        empty are left untouched; the ``shadows`` channel is
         republished afterwards.
 
         Args:
@@ -1661,9 +1656,10 @@ class ShadowRig(ptk.LoggingMixin):
     def plane_materials(cls, planes=None):
         """The materials shadow *planes* wear (every plane when None), once each.
 
-        What an exporter asks to shade unlit (``SceneState._read_unlit``). The
-        Live Horizon Preview draws over a plane without touching its slots, so
-        they ARE the real material (mayatk looks through its stand-in).
+        What an exporter asks to shade unlit
+        (``MaterialRecords._unlit_materials``). The Live Horizon Preview draws
+        over a plane without touching its slots, so they ARE the real material
+        (mayatk looks through its stand-in).
         """
         found = {}
         for plane in cls.find_shadow_planes(planes):
@@ -1861,8 +1857,8 @@ class ShadowRig(ptk.LoggingMixin):
         * the material becomes Blender's unlit model (:meth:`_assign_unlit_texture`:
           an Emission shader mixed with a Transparent BSDF by that PNG's
           alpha), which the GLB writes ``KHR_materials_unlit``
-          (``SceneState._read_unlit``) and the FBX carries as a plain
-          textured material;
+          (``MaterialRecords._unlit_materials``) and the FBX carries as a
+          plain textured material;
         * the drivers, the contact empty and the old material go, and so does
           every custom property the rig stamped (on the plane, and the driven
           intermediates on its group) -- the plane is no longer a shadow
@@ -1872,7 +1868,7 @@ class ShadowRig(ptk.LoggingMixin):
         group (the parent its keys are in); any keys on its transform channels
         stay, and the opacity keys go with the fade. An atlased plane is
         unpacked first, so its UVs span its own PNG. One undo step; the
-        ``shadow_metadata`` channel is republished after.
+        ``shadows`` channel is republished after.
 
         Parameters:
             planes: Shadow plane object(s)/name(s), or anything that resolves
@@ -1975,10 +1971,10 @@ class ShadowRig(ptk.LoggingMixin):
 
         Blender's unlit model on the ACTIVE output -- an Emission shader
         (strength 1, the texture's colour) mixed with a Transparent BSDF by the
-        texture's alpha: what Blender renders and ``SceneState._read_unlit``
-        reads unlit. Beside it, the exporters' inactive output
-        (:meth:`_add_export_output`): without it the FBX carried a bare
-        material and the PNG never reached the GLB.
+        texture's alpha: what Blender renders and
+        ``MaterialRecords._unlit_materials`` reads unlit. Beside it, the
+        exporters' inactive output (:meth:`_add_export_output`): without it
+        the FBX carried a bare material and the PNG never reached the GLB.
         """
         import bpy
 
@@ -2473,7 +2469,7 @@ class ShadowRig(ptk.LoggingMixin):
 
     @classmethod
     def export_record(cls, ctx):
-        """The ``shadow_metadata`` record for this file, or ``None`` when it
+        """The ``shadows`` record for this file, or ``None`` when it
         has no shadow planes -- the ``ptk.SceneRecords.SHADOWS`` producer
         (``FbxUtils.PRODUCERS``, mirror of mayatk's).  Pure: it reads the
         planes' stamps and never writes.  The payload joins Unity-side by
@@ -2521,7 +2517,7 @@ class ShadowRig(ptk.LoggingMixin):
 
     @classmethod
     def refresh_export_metadata(cls):
-        """Republish the ``shadow_metadata`` channel on the ``data_export``
+        """Republish the ``shadows`` channel on the ``data_export``
         carrier from the file's shadow planes.
 
         The authoring-time publish of :meth:`export_record` (create / bake /
@@ -2562,7 +2558,7 @@ class ShadowRig(ptk.LoggingMixin):
 
     @classmethod
     def plane_record(cls, plane):
-        """One plane's ``shadow_metadata`` v2 record (the engine contract in
+        """One plane's ``shadows`` v2 record (the engine contract in
         ``mayatk/docs/shadow_rig_morphing.md``): the join key, the type, the
         textures, the source and contact objects the engine reads at runtime,
         the projection model's inputs, and the atlas / horizon blocks when the
@@ -2809,7 +2805,6 @@ class ShadowRig(ptk.LoggingMixin):
             texture=atlas or cls._plane_prop(plane, cls._HORIZON_TEX_PROP, ""),
             size=ints[0],
             spans=ints[1],
-            levels=ints[2],
             bounds=floats[:4],
             height_scale=floats[4],
             frame_a=cls.HORIZON_FRAME[0],
@@ -3095,15 +3090,12 @@ class ShadowRig(ptk.LoggingMixin):
 
     # ------------------------------------------------------------------ orchestration
     @classmethod
-    @ptk.Deprecation.parameter(
-        "axis", drop=True, remove_in="0.12.0", since="2026-09-23"
-    )
     def create(
         cls,
         targets,
         light_pos=(5.0, 5.0, 10.0),
         texture_res=512,
-        axis="auto",
+        *,
         source_name=DEFAULT_SOURCE_NAME,
         recursive=True,
         mode="orbit",
@@ -3116,9 +3108,8 @@ class ShadowRig(ptk.LoggingMixin):
 
         ``source_name`` is any existing object's name (a light included; a ``SUN`` projects
         along its direction) or the name of an Empty to create at ``light_pos``; one plane is
-        built per source, so call :meth:`create_for_sources` for several. ``axis`` is DEPRECATED
-        (warns; removed in 0.12.0) and ignored -- the silhouette is always the projection
-        through the source. ``mode`` has one value,
+        built per source, so call :meth:`create_for_sources` for several. The silhouette is
+        always the projection through the source. ``mode`` has one value,
         ``"orbit"``; any other builds as orbit.
 
         ``rig_type`` is ``"projected"`` (default) or ``"horizon"`` — the latter also bakes the
@@ -3150,9 +3141,7 @@ class ShadowRig(ptk.LoggingMixin):
             rig.get_or_create_shadow_source(position=light_pos, source_name=source_name)
             rig.create_contact_locator()
             rig.create_shadow_plane()
-            # Positional, so only a caller's own (positional) retired axis
-            # reaches the texture's notice -- the keyword form warned above.
-            rig.create_silhouette_texture(texture_res, axis, recursive)
+            rig.create_silhouette_texture(texture_res, recursive=recursive)
             rig.create_material()
             # The group BEFORE the drivers: it carries the model's level-1
             # intermediates the plane's channels read.

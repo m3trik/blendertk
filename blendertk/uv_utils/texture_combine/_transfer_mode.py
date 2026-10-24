@@ -822,7 +822,13 @@ class _TransferMode:
             parts.append(f"<b>{rebound}</b> bound to the source's own map")
         if resampled:
             parts.append(f"<b>{len(resampled)}</b> resampled into the target's layout")
-        folder = os.path.dirname(resampled[0]) if resampled else ""
+        # The maps' home: a resampled map waits in the session until the file
+        # is saved (LightmapRecords._stage).
+        folder = (
+            ptk.FileUtils.format_path(os.path.dirname(LightmapRecords._home(resampled[0])))
+            if resampled
+            else ""
+        )
         return (
             f"Transferred lightmaps to <b>{len(results)}</b> object(s): "
             + ", ".join(parts)

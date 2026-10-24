@@ -858,7 +858,7 @@ class _FbxUtilsInternal(object):
     #
     # Blender's exporter bakes transforms, shape keys and camera lenses and
     # writes NO visibility animation, so a keyed ``hide_render`` never left
-    # the file: the GLB rebuilds it from the ``visibility_tracks`` record, but
+    # the file: the GLB rebuilds it from the ``render_effects`` record, but
     # Unity -- which imports a node's animated FBX ``Visibility`` as its
     # Renderer's ``m_Enabled``, the curve Maya's exporter writes -- got
     # nothing for an object with no opacity channel to carry it.
@@ -877,7 +877,7 @@ class _FbxUtilsInternal(object):
         """``{FBX model name: [(frame, visible), ...]}`` for each of *objects*
         whose render visibility is keyed.
 
-        ``hide_render`` is the channel -- the one the ``visibility_tracks``
+        ``hide_render`` is the channel -- the one the ``render_effects``
         record publishes and :class:`RenderEffects` mirrors an opacity onto --
         read off the object's own action, sampled on every frame of
         ``[start, end]`` (the frames the write baked) and reduced to the first
@@ -2038,6 +2038,11 @@ class FbxUtils(_FbxUtilsInternal):
             "ArticulatedRig",
             "export_record",
         ),
+        ptk.SceneRecords.MATERIALS: (
+            "blendertk.env_utils.material_records",
+            "MaterialRecords",
+            "export_record",
+        ),
     }
 
     #: Export stagers: name -> (module, class, prepare, finish); a ``None``
@@ -2092,6 +2097,10 @@ class FbxUtils(_FbxUtilsInternal):
     _bracket_stagers: Optional[
         Dict[str, Tuple[Optional[Callable], Optional[Callable]]]
     ] = None
+    #: What each publish inside the open bracket wrote for the write alone (a
+    #: transient record, a narrowed one), put back when it closes -- the hand-off
+    #: bridges publish from inside it (``_data_export_carrier``).
+    _bracket_snapshots: List[ptk.ExportSnapshot] = []
     #: Stager name -> the transport nodes its ``prepare`` returned, until its
     #: ``finish`` runs.  While they stand, preparing that stager again is a
     #: no-op: a Blender object is a reference, so re-staging (which pre-cleans
@@ -2099,26 +2108,58 @@ class FbxUtils(_FbxUtilsInternal):
     #: where mayatk's re-stage by name is harmless.
     _staged: Dict[str, List[Any]] = {}
 
+    @staticmethod
+    def _resolve_row(
+        label: str, module_path: str, cls_name: str, *methods: Optional[str]
+    ) -> Optional[Tuple[Optional[Callable], ...]]:
+        """The callables a :attr:`PRODUCERS` / :attr:`STAGERS` row names
+        (mirror of ``mtk.FbxUtils._resolve_row``).
+
+        ``None`` when the row's module or class cannot be imported -- an
+        uninstalled subsystem is fine, and only debug-logged.  A method the
+        class does not have resolves to ``None`` with a WARNING: that is a
+        misspelt row, and skipping it quietly would stop a record shipping (or
+        a stager finishing) with no sign of why.  A column the row leaves
+        ``None`` resolves to ``None`` quietly: a declared one-way stage.
+        """
+        import importlib
+
+        try:
+            owner = getattr(importlib.import_module(module_path), cls_name)
+        except Exception:  # an uninstalled subsystem is fine
+            logger.debug("%s unavailable; skipped.", label, exc_info=True)
+            return None
+        resolved = []
+        for method in methods:
+            if not method:  # a column the row leaves empty: a one-way stage
+                resolved.append(None)
+                continue
+            fn = getattr(owner, method, None)
+            if fn is None:
+                logger.warning(
+                    "%s names %s.%s.%s, which does not exist; skipped.",
+                    label,
+                    module_path,
+                    cls_name,
+                    method,
+                )
+            resolved.append(fn)
+        return tuple(resolved)
+
     @classmethod
     def producers(cls, only: Optional[Iterable[Any]] = None) -> Dict[Any, Callable]:
         """:attr:`PRODUCERS` resolved to callables, unimportable ones skipped;
         *only* (specs or keys) narrows the table."""
-        import importlib
-
         wanted = (
             None if only is None else {ptk.SceneRecords.resolve(k).key for k in only}
         )
         table: Dict[Any, Callable] = {}
-        for spec, (module_path, cls_name, method) in cls.PRODUCERS.items():
+        for spec, row in cls.PRODUCERS.items():
             if wanted is not None and spec.key not in wanted:
                 continue
-            try:
-                owner = getattr(importlib.import_module(module_path), cls_name)
-                table[spec] = getattr(owner, method)
-            except Exception:  # an uninstalled subsystem is fine
-                logger.debug(
-                    "Producer for %r unavailable; skipped.", spec.key, exc_info=True
-                )
+            resolved = cls._resolve_row(f"Producer for {spec.key!r}", *row)
+            if resolved and resolved[0] is not None:
+                table[spec] = resolved[0]
         return table
 
     @classmethod
@@ -2165,6 +2206,10 @@ class FbxUtils(_FbxUtilsInternal):
             cls._run_stagers("prepare", dict(cls._session_stagers))
         snapshot = ptk.ExportSnapshot.assemble(cls.producers(only), ctx)
         snapshot.commit(DataNodes)
+        if cls._export_depth and snapshot.scene_wide:
+            # Written for the bracket's write alone (a transient record, a
+            # narrowed one): the bracket puts the file's own copy back.
+            cls._bracket_snapshots.append(snapshot)
         return snapshot
 
     @classmethod
@@ -2199,21 +2244,13 @@ class FbxUtils(_FbxUtilsInternal):
         """The stager table for a bracket: the known stagers (*names* narrows
         them; ``None`` = all) resolved to callables, then every session
         stager -- those always run."""
-        import importlib
-
         table: Dict[str, Tuple[Optional[Callable], Optional[Callable]]] = {}
-        for name, (module_path, cls_name, prepare, finish) in cls.STAGERS.items():
+        for name, row in cls.STAGERS.items():
             if names is not None and name not in names:
                 continue
-            try:
-                owner = getattr(importlib.import_module(module_path), cls_name)
-            except Exception:
-                logger.debug("Stager %r unavailable; skipped.", name, exc_info=True)
-                continue
-            table[name] = tuple(
-                getattr(owner, method, None) if method else None
-                for method in (prepare, finish)
-            )
+            resolved = cls._resolve_row(f"Stager {name!r}", *row)
+            if resolved is not None:
+                table[name] = resolved
         table.update(cls._session_stagers)
         return table
 
@@ -2319,11 +2356,27 @@ class FbxUtils(_FbxUtilsInternal):
 
     @classmethod
     def end_export(cls) -> None:
-        """Close an export bracket: run the stagers' finish (outermost only)."""
+        """Close an export bracket (outermost only): put back the file's own
+        copy of what every publish inside it wrote for the write alone -- a
+        transient record cleared, a narrowed one whole
+        (``ptk.ExportSnapshot.restore_scene_wide``), newest first -- then run
+        the stagers' finish. Mirror of mayatk's."""
         if cls._export_depth <= 0:
             return
         cls._export_depth -= 1
         if cls._export_depth == 0:
+            snapshots, cls._bracket_snapshots = cls._bracket_snapshots, []
+            if snapshots:
+                from blendertk.node_utils.data_nodes import DataNodes
+
+                for snapshot in reversed(snapshots):
+                    try:
+                        snapshot.restore_scene_wide(DataNodes)
+                    except Exception:  # noqa: BLE001 - a restore never costs the finish
+                        logger.warning(
+                            "Scene records not restored after the write.",
+                            exc_info=True,
+                        )
             table, cls._bracket_stagers = cls._bracket_stagers, None
             cls._run_stagers("finish", table if table is not None else cls.stagers())
 
@@ -2627,11 +2680,12 @@ class FbxUtils(_FbxUtilsInternal):
     def apply_takes_from_node(node=None, attr=None) -> int:
         """Arm the takes the scene declares for the next write.
 
-        Defaults to the shot record on the shared carrier -- each
-        ``shot_metadata`` clip's range, or the legacy ``fbx_takes`` channel of
-        a file published before 0.8.0 -- so this is shot-agnostic (mirror of
+        Defaults to the shot record on the shared carrier -- each clip's
+        range -- so this is shot-agnostic (mirror of
         ``mtk.FbxUtils.apply_takes_from_node``; *node* is an object name here).
-        An explicit *node* / *attr* reads a JSON take list off any object.
+        An explicit *attr* reads a JSON take list off *node* (the carrier when
+        ``None``) instead; a *node* alone names no list: it arms nothing, and
+        warns why.
 
         Returns:
             int: Number of takes armed (0 if nothing is declared).
@@ -2643,7 +2697,15 @@ class FbxUtils(_FbxUtilsInternal):
         if node is None and attr is None:
             defs = FbxUtils._stored_takes()
         else:
-            attr = attr or ptk.SceneRecords.FBX_TAKES.key
+            if not attr:
+                # Until 0.20.0 a node alone read the retired ``fbx_takes``
+                # channel; say why nothing is armed rather than return 0.
+                logger.warning(
+                    f"apply_takes_from_node(node={node!r}) armed no takes: a take "
+                    "list is read only from an explicit attr=, and the retired "
+                    "'fbx_takes' channel is no default."
+                )
+                return 0
             if node is None:
                 obj = DataNodes.get_export_node(create=False)
             else:
@@ -3133,8 +3195,8 @@ class FbxUtils(_FbxUtilsInternal):
     ) -> Optional[Dict[str, Any]]:
         """Embed every file a written FBX's scene records name, in place.
 
-        The records name their files by file name -- ``lightmap_metadata`` its
-        maps and reflection probe, ``shadow_metadata`` its silhouette, atlas
+        The records name their files by file name -- ``lightmaps`` its
+        maps and reflection probe, ``shadows`` its silhouette, atlas
         and horizon maps -- and a lighting-only bake binds its maps to no
         material, so the FBX carried none of them and every consumer had them
         copied in beside it. ``ptk.FbxMedia.embed_dependencies`` puts each
@@ -3143,7 +3205,7 @@ class FbxUtils(_FbxUtilsInternal):
         :meth:`LightmapRecords.search_dirs` -- the folders the GLB build joins
         the same names against; what those miss is looked for anywhere
         under *walk_root*, the folder the exporter's path check walks. The
-        audio the file's ``audio_manifest`` events play rides in too, each
+        audio the file's ``audio`` events play rides in too, each
         strip's file under its event's name (:meth:`AudioUtils.track_files`).
         The last of the passes :meth:`finish_deliverable` runs. Mirror of
         mayatk's.
@@ -3281,7 +3343,7 @@ class FbxUtils(_FbxUtilsInternal):
     def _shipped_audio(file_path: str, log) -> List[Tuple[str, str]]:
         """``(file name, path)`` of the audio the FBX's events play.
 
-        Read off the ``audio_manifest`` the file itself carries (each event
+        Read off the ``audio`` the file itself carries (each event
         names its strip: ``ptk.FbxMedia.audio_events``), resolved through the
         scene's strips; a strip whose file is missing is said once and left
         out. Mirror of mayatk's.

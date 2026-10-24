@@ -32,7 +32,7 @@ Divergence from mayatk (by design):
       not split out — coarser than Maya but correct for boundary detection.
     * **Export-view projection targets the carrier Empty.**
       :meth:`publish_export_view` mirrors the Maya original — the same
-      ``shot_metadata`` JSON channel from the same
+      ``animation`` JSON channel from the same
       :meth:`~pythontk.ShotStore.to_export_view` pass — written as custom
       properties on the ``data_export`` Empty (:class:`blendertk.node_utils.
       data_nodes.DataNodes`) instead of string attrs on a Maya transform.
@@ -1500,25 +1500,6 @@ class BlenderShotStore(ptk.ShotStore, _BlenderShotStoreInternal):
             )
         return out
 
-    def _export_set_members(self, names, scope) -> set:
-        """Which member *names* an export of *scope* carries
-        (``ptk.ShotStore.export_records``, mirror of mayatk's): the object is
-        an export root or one of its descendants -- an export set names
-        roots, as the lightmap records read it."""
-        names = [str(n) for n in names]
-        try:
-            import bpy
-        except ImportError:
-            return super()._export_set_members(names, scope)
-        carried = set()
-        for root_name in scope:
-            root = bpy.data.objects.get(str(root_name))
-            if root is not None:
-                carried.add(root.name)
-                carried.update(o.name for o in root.children_recursive)
-        renamed = self._current_names(names)  # a member renamed behind the store
-        return {n for n in names if n in carried or renamed.get(n) in carried}
-
     def _keyed_windows(self, windows) -> List[bool]:
         """Per ``(start, end)`` window, whether anything in the file is keyed
         inside it (``ptk.ShotStore.stale_shots``) -- every action in use, every
@@ -1611,9 +1592,9 @@ class BlenderShotStore(ptk.ShotStore, _BlenderShotStoreInternal):
         """Publish this store's shot records onto the shared ``data_export`` Empty.
 
         The authoring-time publish (mirror of the Maya store's): the records
-        :meth:`export_records` builds -- ``shot_metadata``, each clip with its
+        :meth:`export_records` builds -- ``animation``, each clip with its
         range -- committed through ``FbxUtils.publish_authored``, handoff block
-        included (the commit also clears a legacy ``fbx_takes``).  Idempotent;
+        included.  Idempotent;
         regenerated from the live store so it can't go stale.  An empty store
         **clears** the record (never creating the carrier just to hold it)
         — deleting the last shot must not leave the previous takes riding into
@@ -1629,9 +1610,7 @@ class BlenderShotStore(ptk.ShotStore, _BlenderShotStoreInternal):
         from blendertk.node_utils.data_nodes import DataNodes
 
         records = self.export_records(strategy=strategy) or []
-        # The shot record, cleared unless built.  The commit also clears the
-        # legacy take list (``fbx_takes``) an older file still holds: its
-        # successor is published without it.
+        # The shot record, cleared unless built.
         FbxUtils.publish_authored(
             {ptk.SceneRecords.SHOTS: None, **{r.spec: r for r in records}}
         )

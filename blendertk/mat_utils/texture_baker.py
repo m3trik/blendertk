@@ -217,7 +217,7 @@ class TextureBaker(ptk.LoggingMixin):
         prev_state = self._configure_bake_scene(use_pass_color)
         # ``_bake_one`` makes each target the sole selected+active object, so
         # without this a batch leaves ONLY the last one selected -- and the
-        # panel's Revert to Source reverts "the selection", i.e. one object of
+        # panel's Revert Selected reverts "the selection", i.e. one object of
         # the N just baked (or, when it lands empty, every baked object in the
         # scene).
         from blendertk.core_utils._core_utils import CoreUtils

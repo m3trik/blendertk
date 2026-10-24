@@ -80,9 +80,7 @@ class _TaskDefinitionsMixin:
                         "<b>All Scene Objects</b> — every mesh object in the "
                         "scene, visible or not.",
                         "<b>All Visible Objects</b> — visible geometry only.",
-                        "<b>Selected Objects Only</b> — the current selection, "
-                        "minus the data_internal Empty (a plain Select All would "
-                        "otherwise sweep the bake-session manifest in).",
+                        "<b>Selected Objects Only</b> — exactly the current selection.",
                     ],
                     notes=[
                         "The data_export metadata carrier is an Empty, not a mesh, "
@@ -691,7 +689,7 @@ class _TaskDefinitionsMixin:
                         "were cut from. For a player that switches clips.",
                         "<b>Full Sequence Only</b> — one continuous clip. For a "
                         "player that seeks a window inside it; each shot's frame "
-                        "range still rides in <b>extras.animation_web</b>.",
+                        "range still rides in <b>extras.animation</b>.",
                     ],
                     notes=[
                         "The two halves hold the SAME performance — the shots are "
@@ -751,7 +749,7 @@ class _TaskDefinitionsMixin:
                     title="Export Scene Data Node",
                     body="Ship the shared <b>data_export</b> carrier in the export "
                     "so the metadata stamped on it (the Lightmap Baker's "
-                    "lightmap_metadata, and any other producer's channel) rides "
+                    "lightmaps record, and any other producer's channel) rides "
                     "into the FBX as user properties.",
                     notes=[
                         "Every export scope is geometry-driven, so the carrier "

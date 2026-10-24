@@ -17,7 +17,7 @@ signatures are Blender-idiomatic where the scene models diverge:
 - Vertex-color bake: the ``emissiveGroups`` color attribute
   (``BYTE_COLOR`` / ``CORNER`` domain — per-corner keeps group boundaries
   hard, matching Maya's per-face-vertex write).
-- Registry / manifest: the same ``emissive_groups`` records -- the private
+- Registry / manifest: the same records as mayatk's -- the private
   ``ptk.SceneRecords.EMISSIVE_REGISTRY`` and the deliverable
   ``EMISSIVE_GROUPS`` -- through the ``node_utils.data_nodes`` store
   (mirror). Blender's FBX exporter ships the export carrier's custom
@@ -55,8 +55,9 @@ class _EmissiveGroupsInternal:
 
     SET_PREFIX = "emissiveGroup_"
     COLOR_SET = "emissiveGroups"
-    #: The channel key both records share (``ptk.SceneRecords.EMISSIVE_REGISTRY``
-    #: on the private store, ``EMISSIVE_GROUPS`` on the deliverable carrier).
+    #: The deliverable manifest's channel (``ptk.SceneRecords.EMISSIVE_GROUPS``,
+    #: on ``data_export``); the private registry keeps its own
+    #: (``ptk.SceneRecords.EMISSIVE_REGISTRY``).
     DATA_CHANNEL = ptk.SceneRecords.EMISSIVE_GROUPS.key
     #: Custom-prop marker on export curve proxies — the precise handle the
     #: post-export cleanup (and validate's leftover sweep) matches on.
@@ -811,10 +812,7 @@ class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin):
         manifest = packer.write(output_path, write_manifest=False)
 
         registry.set_encoding(
-            "channels",
-            mask=os.path.basename(output_path),
-            resolution=int(resolution),
-            uv_channel=0,
+            "channels", mask=os.path.basename(output_path), uv_channel=0
         )
         published = cls.refresh_export_metadata()
         cls.logger.info(f"Baked mask: {output_path}")
@@ -826,7 +824,7 @@ class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin):
 
     @classmethod
     def transfer_out(cls, ctx: "ptk.TransferContext") -> Optional[dict]:
-        """The ``emissive_groups`` hand-off payload: the registry, each group's
+        """The emissive registry's hand-off payload: the registry, each group's
         membership as ``{group: {object: [face index, ...]}}`` and each member
         object's face count -- the far side has no face attribute to read, and
         a face index names the same face only on a mesh whose face count
@@ -856,7 +854,7 @@ class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin):
 
     @classmethod
     def transfer_in(cls, payload: dict, ctx: "ptk.TransferContext") -> None:
-        """Land a received ``emissive_groups`` payload (:meth:`transfer_out`'s
+        """Land a received emissive-registry payload (:meth:`transfer_out`'s
         shape, from either DCC): the registry merges by its rule -- a group
         whose slot is taken here is re-slotted, noted -- and each group's faces
         join its membership on the object ``ctx.rename`` resolves.  An object

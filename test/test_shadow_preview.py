@@ -186,7 +186,9 @@ class TestLifecycleHeadless(unittest.TestCase):
         hz = record["horizon"]
         self.assertEqual(params[7], float(hz["size"]))
         self.assertEqual(params[11], float(hz["spans"]))
-        self.assertEqual(params[15], float(hz["levels"]))
+        # The pyramid's levels follow from the size (log2), as every reader
+        # derives them: the record states the layout alone (2026-10-20).
+        self.assertEqual(params[15], float(round(math.log2(hz["size"]))))
         self.assertEqual(params[19], 1.0, "a positional source: w = 1")
         self.assertEqual(params[22], float(hz["height_scale"]))
         self.assertEqual(params[24:28], [float(v) for v in hz["bounds"]])
@@ -238,7 +240,7 @@ class TestLifecycleHeadless(unittest.TestCase):
                 self.assertIn(ptk.SceneRecords.SHADOWS.key, snapshot.records)
                 node = DataNodes.get_export_node(create=False)
                 self.assertIsNotNone(node)
-                payload = json.loads(node[ShadowRig.SHADOW_METADATA])
+                payload = json.loads(node[ptk.SceneRecords.SHADOWS.key])
                 attach.assert_not_called()
         attach.assert_called_once_with(self.plane)
         self.assertEqual(ShadowPreview._detached_for_export, [])

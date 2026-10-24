@@ -262,7 +262,7 @@ try:
     )
     AudioUtils.remove_all_clips()
 
-    # ---- export: the audio_manifest record (the SceneRecords.AUDIO producer,
+    # ---- export: the audio record (the SceneRecords.AUDIO producer,
     # mirror of mayatk's AudioClips.export_record) and the files it names
     import pythontk as ptk
 
@@ -337,6 +337,21 @@ try:
         "export_record: a full-timeline export ships its events unscoped (it has no takes)",
         record is not None and {e["clip"] for e in record.payload["events"]} == {""},
         str(record and record.payload),
+    )
+    # An unscoped event before the first frame the file's animation holds can
+    # never fire: dropped, and said where it fell -- before the clip's first
+    # frame, not "outside every shot take" when no take ships. Added: 2026-10-20
+    ctx = ptk.ExportContext(clip_span=(10, 60))
+    record = AudioUtils.export_record(ctx)
+    check(
+        "export_record: an unscoped event before the first frame is dropped, and said where",
+        record is not None
+        and [e["name"] for e in record.payload["events"]] == ["punch"]
+        and any(
+            "steps@5" in note and "before" in note and "shot take" not in note
+            for note in ctx.notes
+        ),
+        f"{record and record.payload} {ctx.notes}",
     )
     AudioUtils.trim_clip("punch", offset_start=3, offset_end=0)
     ctx = ptk.ExportContext(clip_span=(1, 60))
