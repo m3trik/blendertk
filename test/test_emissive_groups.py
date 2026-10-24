@@ -246,7 +246,12 @@ try:
     check("manifest published to data_export", payload is not None)
     if payload:
         data = json.loads(payload)
-        check("manifest schema 1", data.get("schema") == 1)
+        check(
+            "manifest version is the record's, no schema",
+            data.get("version") == ptk.SceneRecords.EMISSIVE_GROUPS.version
+            and "schema" not in data,
+            data,
+        )
         check(
             "manifest groups sorted by slot",
             [g["slot"] for g in data["groups"]]

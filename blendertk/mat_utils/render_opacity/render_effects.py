@@ -2,8 +2,7 @@
 # coding=utf-8
 """Render Effects — Blender per-object render-effect channels for engine-ready control (mirror of
 mayatk's ``mat_utils.render_opacity.RenderEffects``: ``btk.RenderEffects`` ↔ ``mtk.RenderEffects``;
-``RenderOpacity`` is the previous name, importable from ``_render_opacity`` with a deprecation
-warning until blendertk 0.11.0).
+``RenderOpacity`` is the previous name; its import alias was removed in blendertk 0.20.0).
 
 Adds a keyable custom property per channel to objects — ``opacity`` (0-1) and ``highlight`` with its
 colour ramp — the channels the deliverables carry. ``key_fade`` animates a fade and, for opacity,
@@ -1123,31 +1122,19 @@ class RenderEffects(ptk.LoggingMixin):
         return None
 
     @classmethod
-    def prepare_for_export(cls, objects=None) -> list:
+    def prepare_for_export(cls) -> list:
         """Stage the curve-proxy transport for an FBX write; write nothing else.
 
         Mirror of mayatk's: one transient child per keyed channel carries the
         per-object curve (:meth:`stage_export_proxies`), and :meth:`finish_export`
         removes them after the write. No ``hide_render`` mirror is written for an
         opacity keyed by hand -- the GLB derives presence from the authored
-        channels itself (``ptk.MeshConvert.apply_glb_visibility``).
+        channels itself (``ptk.MeshConvert.apply_glb_visibility``). The staging
+        covers every keyed channel in the file.
 
-        *objects* is deprecated and ignored -- passing it warns until blendertk
-        0.11.0 -- and the return is always empty (it named the objects whose
-        visibility was re-synced); from 0.11.0, with *objects* gone, it is None.
+        The return is always empty (it named the objects whose visibility was
+        re-synced).
         """
-        if objects is not None:
-            # A body notice rather than ``Deprecation.parameter``: callers pass
-            # it positionally as often as by name, and only this sees both.
-            ptk.Deprecation.warn(
-                "RenderEffects.prepare_for_export(objects)",
-                "RenderEffects.prepare_for_export()",
-                remove_in="0.11.0",
-                since="2026-09-23",
-                kind="parameter",
-                reason="The staging always covers every keyed channel.",
-                stacklevel=2,
-            )
         cls.stage_export_proxies()
         return []
 
@@ -1254,7 +1241,7 @@ class RenderEffects(ptk.LoggingMixin):
 
     @classmethod
     def export_record(cls, ctx: ptk.ExportContext) -> Optional[ptk.Record]:
-        """The ``visibility_tracks`` record for this file, or ``None`` when it
+        """The ``render_effects`` record for this file, or ``None`` when it
         has no keyed visibility -- the ``ptk.SceneRecords.VISIBILITY`` producer
         (``FbxUtils.PRODUCERS``, mirror of mayatk's).  Pure: it reads the
         curves and the shot record and never writes.
@@ -1294,7 +1281,7 @@ class RenderEffects(ptk.LoggingMixin):
             return None
 
         # The shot record the shots producer has just built (it runs first:
-        # the record declares ``after=("shot_metadata",)``), else the stored
+        # the record declares ``after=("animation",)``), else the stored
         # one -- it keeps the frame rate defined in ONE place for the export.
         metadata = ctx.record(ptk.SceneRecords.SHOTS, DataNodes)
         if not isinstance(metadata, dict):
@@ -1336,7 +1323,7 @@ class RenderEffects(ptk.LoggingMixin):
 
     @classmethod
     def refresh_export_metadata(cls) -> Optional[str]:
-        """Republish the ``visibility_tracks`` channel on the ``data_export`` carrier.
+        """Republish the ``render_effects`` channel on the ``data_export`` carrier.
 
         The authoring-time publish of :meth:`export_record`, committed through
         ``FbxUtils.publish_authored`` (an export pipeline runs the producer

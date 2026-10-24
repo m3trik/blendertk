@@ -54,7 +54,7 @@ class UnityBridge(BlenderExportMixin, ptk.HandoffBridge):
     #:
     #: Unlike a DCC hand-off, this FBX is not an intermediate -- it lands in ``Assets/``
     #: as the deliverable, and unitytk's ``LightmapMetadataController`` binds Unity's
-    #: native lightmap slots by reading ``lightmap_metadata`` off ``data_export``. The
+    #: native lightmap slots by reading ``lightmaps`` off ``data_export``. The
     #: flag also turns on ``use_custom_props``, without which the carrier would arrive
     #: as an Empty holding nothing. Mirror of mayatk's ``UnityBridge``.
     include_data_export = True

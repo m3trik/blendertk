@@ -29,7 +29,7 @@ solve case through the real rig (the end control placed, the joints read); the b
 blendertk moving on its end control and one reopened in a fresh Blender WITHOUT it
 playing its baked IK and its FK); and the export contract: the Scene Exporter's FBX ->
 FBX2glTF GLB ships the joints and the parts under them, no control bone and no leaf
-bone, ``articulation_web`` binds them (mayatk's ``articulated_rig_live_check.py`` check
+bone, ``articulation`` binds them (mayatk's ``articulated_rig_live_check.py`` check
 E), and its animation is the model of every frame's pose -- the end control's solve
 included.
 
@@ -2554,7 +2554,7 @@ try:
             nodes = edit.gltf.get("nodes") or []
             names = [n.get("name", "") for n in nodes]
             manifest = (edit.gltf.get("extras") or {}).get(
-                ptk.MeshConvert.ARTICULATION_WEB_KEY
+                ptk.SceneRecords.ARTICULATION.key
             )
     record = rig.record()
     joint_names = [j["name"] for j in record["joints"]]
@@ -2596,7 +2596,7 @@ try:
     )
     bound = manifest["rigs"][0] if manifest and manifest.get("rigs") else {}
     check(
-        "export: extras.articulation_web binds them",
+        "export: extras.articulation binds them",
         len(bound.get("joints", [])) == len(joint_names)
         and len(bound.get("grab", [])) == len(grabbed),
         (len(bound.get("joints", [])), len(bound.get("grab", []))),

@@ -184,7 +184,7 @@ try:
 
     # ---- the data_export carrier: opt-in, and both halves of the opt-in ------
     # A bridge whose consumer READS in-band metadata (the WebXR preview, whose GLB
-    # conversion binds ``lightmap_metadata``) has to ship the carrier Empty AND the
+    # conversion binds ``lightmaps``) has to ship the carrier Empty AND the
     # custom properties on it -- Blender's exporter drops custom props by default, so
     # half the switch would ship a named Empty carrying nothing.
     reset()
@@ -198,9 +198,9 @@ try:
     check("WebXrPreview opts in", WebXrPreview().include_data_export is True)
 
     # The options that make the carrier readable are forced where it is APPENDED, not
-    # declared in _fbx_options -- a subclass overriding that method wholesale (the
-    # Substance/Marmoset bridges do) must not be able to ship a carrier holding
-    # nothing. Driven through a stubbed exporter so it pins the real call.
+    # declared in _fbx_options -- a subclass overriding that method wholesale
+    # must not be able to ship a carrier holding nothing. Driven through a
+    # stubbed exporter so it pins the real call.
     _seen_opts = {}
 
     class _CarrierProbe(WebXrPreview):
@@ -231,7 +231,7 @@ try:
         and DataNodes.get_export_node(create=False) is None,
     )
 
-    DataNodes.write(ptk.Scope.DELIVERABLE, "lightmap_metadata", '{"version": 1}')
+    DataNodes.write(ptk.Scope.DELIVERABLE, "lightmaps", '{"version": 1}')
     bpy.ops.mesh.primitive_cube_add()
     lit = bpy.context.active_object
     lit.name = "LitMesh"
@@ -259,8 +259,53 @@ try:
     shipped = bpy.data.objects.get(DataNodes.EXPORT)
     check(
         "the WebXR preview export round-trips the manifest on the carrier",
-        shipped is not None and shipped.get("lightmap_metadata") == '{"version": 1}',
+        shipped is not None and shipped.get("lightmaps") == '{"version": 1}',
         f"{shipped and dict(shipped.items())}",
+    )
+
+    # ---- a hand-off states what it ships (mirror of mayatk's) ----------------
+    # Its context is scoped to the objects it sends, as the Scene Exporter's
+    # is: a send of one of two shaded meshes states that mesh's material alone,
+    # and the scene keeps its own records -- the materials record, the
+    # write's alone, cleared after it. Added: 2026-10-20
+    reset()
+    from blendertk.mat_utils._mat_utils import MatUtils as _HoMatUtils
+
+    def _ho_shaded(name):
+        bpy.ops.mesh.primitive_cube_add()
+        obj = bpy.context.active_object
+        obj.name = name
+        mat = bpy.data.materials.new(f"{name}_mat")
+        _HoMatUtils.get_node_tree(mat, create=True)
+        obj.data.materials.append(mat)
+        return obj, mat
+
+    _ho_sent, _ho_sent_mat = _ho_shaded("HoSent")
+    _ho_kept, _ho_kept_mat = _ho_shaded("HoKept")
+    _ho_stated = {}
+
+    def _ho_capture(filepath=None, objects=None, **_opts):
+        _ho_stated["record"] = ptk.SceneRecords.MATERIALS.load(DataNodes)
+        return filepath
+
+    _real_export = btk.FbxUtils.export_selection_fbx
+    try:
+        btk.FbxUtils.export_selection_fbx = _ho_capture
+        WebXrPreview()._export_fbx([_ho_sent], os.path.join(tmp, "subset.fbx"), {})
+    finally:
+        btk.FbxUtils.export_selection_fbx = _real_export
+    _ho_names = {
+        m.get("name")
+        for m in (_ho_stated.get("record") or {}).get("materials", [])
+    }
+    check(
+        "a hand-off of a subset states only that subset's materials",
+        _ho_sent_mat.name in _ho_names and _ho_kept_mat.name not in _ho_names,
+        f"{sorted(_ho_names)}",
+    )
+    check(
+        "...and the scene keeps its own records: the write's materials cleared",
+        ptk.SceneRecords.MATERIALS.load(DataNodes) is None,
     )
 
     # ---- the start camera: the page's views start through it ----------------
@@ -338,12 +383,20 @@ try:
     # back with one whole-timeline take -- two writers of the same deliverable
     # disagreeing about whether shots survive. Armed takes are sticky, so the
     # reset matters as much as the arm: left armed they would split the next
-    # export nobody asked to split. The take is declared the way a publish
-    # writes it: a shot_metadata clip carrying its own range.
-    ptk.SceneRecords.SHOTS.save(
-        DataNodes,
-        {"shots": [{"clip": "Shot_1", "start": 1, "end": 10, "objects": []}]},
-    )
+    # export nobody asked to split. The take is declared the way a scene
+    # declares it: a shot in the store, which the send's own refresh
+    # publishes (the shots record is DERIVED: the store is its authority).
+    # A live object to send: every reset above removed ``lit``, and a send now
+    # reads what it ships (its records are scoped to it).
+    bpy.ops.mesh.primitive_cube_add()
+    takes_mesh = bpy.context.active_object
+    takes_mesh.name = "TakesMesh"
+    from blendertk.anim_utils.shots._shots import BlenderShotStore as _TakesStore
+
+    _TakesStore.clear_active()
+    _takes_store = _TakesStore.active()
+    _takes_store.shots = []
+    _takes_store.define_shot("Shot_1", 1, 10, objects=[takes_mesh.name])
     for include_animation, expect_armed in ((True, 1), (False, 0)):
         _armed = {}
         _real_export = btk.FbxUtils.export_selection_fbx
@@ -354,7 +407,7 @@ try:
                 )
             )
             WebXrPreview()._export_fbx(
-                [lit],
+                [takes_mesh],
                 os.path.join(tmp, "takes.fbx"),
                 {"INCLUDE_ANIMATION": include_animation},
             )
@@ -373,6 +426,8 @@ try:
             f"{btk.FbxUtils._pending_takes}",
         )
     ptk.SceneRecords.SHOTS.clear(DataNodes)
+    ptk.SceneRecords.SHOT_STORE.clear(DataNodes)
+    _TakesStore.clear_active()
 
     # ---- the producer table: every row a declared record, every row importable ----
     _specs = ptk.SceneRecords.check_producers(FbxUtils.PRODUCERS)
@@ -381,6 +436,57 @@ try:
         len(_specs) == len(FbxUtils.PRODUCERS)
         and set(FbxUtils.producers()) == set(FbxUtils.PRODUCERS),
         str(sorted(s.key for s in FbxUtils.PRODUCERS)),
+    )
+    # A misspelt row warns (mirror of mayatk's ``_resolve_row``): producers()
+    # swallowed it at debug level and stagers() resolved it to None, so a typo
+    # in a row dropped that record from every export, or left a stager
+    # staged, with no word. A None column is declared: quiet. Added: 2026-10-24
+    import logging as _rr_logging
+    from unittest import mock as _rr_mock
+
+    class _RowLog(_rr_logging.Handler):
+        def __init__(self):
+            super().__init__(_rr_logging.WARNING)
+            self.messages = []
+
+        def emit(self, record):
+            self.messages.append(record.getMessage())
+
+    _rr_log = _rr_logging.getLogger("blendertk.env_utils.fbx_utils")
+    _rr_handler = _RowLog()
+    _rr_log.addHandler(_rr_handler)
+    try:
+        _row = FbxUtils.PRODUCERS[ptk.SceneRecords.MATERIALS]
+        with _rr_mock.patch.dict(
+            FbxUtils.PRODUCERS,
+            {ptk.SceneRecords.MATERIALS: (_row[0], _row[1], "export_recrd")},
+        ):
+            _typo_producers = FbxUtils.producers([ptk.SceneRecords.MATERIALS])
+        _stage_row = FbxUtils.STAGERS["render_effects"]
+        with _rr_mock.patch.dict(
+            FbxUtils.STAGERS,
+            {
+                "probe_typo": (*_stage_row[:3], "finsh_export"),
+                "probe_one_way": (*_stage_row[:3], None),
+            },
+        ):
+            _typo_stagers = FbxUtils.stagers(["probe_typo", "probe_one_way"])
+    finally:
+        _rr_log.removeHandler(_rr_handler)
+    check(
+        "a misspelt producer or stager method warns rather than vanishing",
+        not _typo_producers
+        and _typo_stagers["probe_typo"][1] is None
+        and any("export_recrd" in m for m in _rr_handler.messages)
+        and any("finsh_export" in m for m in _rr_handler.messages),
+        _rr_handler.messages,
+    )
+    check(
+        "...and a declared empty column resolves quietly",
+        callable(_typo_stagers["probe_one_way"][0])
+        and _typo_stagers["probe_one_way"][1] is None
+        and len(_rr_handler.messages) == 2,
+        _rr_handler.messages,
     )
     # ---- data_internal must never ride a hand-off -----------------------------
     # Structural for a current file: Maya's is a network node, and Blender's
@@ -394,7 +500,7 @@ try:
     _mesh.name = "HandoffMesh"
     _legacy = bpy.data.objects.new(DataNodes.INTERNAL, None)  # an unfolded file's
     bpy.context.scene.collection.objects.link(_legacy)
-    _legacy["emissive_groups"] = "{}"
+    _legacy[ptk.SceneRecords.EMISSIVE_REGISTRY.key] = "{}"
     _closure = BlenderExportMixin()._hierarchy_closure(list(bpy.context.scene.objects))
     _names = {o.name for o in _closure}
     check(
@@ -631,8 +737,8 @@ try:
     reset_anim()
 
     # ---- apply_takes_from_node reads the takes the carrier declares ----------
-    # The shot record's clip ranges (what a publish writes), else the legacy
-    # fbx_takes channel an older file carries (ptk.SceneRecords.declared_takes).
+    # The shot record's clip ranges (what a publish writes;
+    # ptk.SceneRecords.declared_takes) -- the current standard only.
     reset()
     check(
         "apply_takes_from_node -> 0 with no carrier in the scene",
@@ -647,30 +753,47 @@ try:
         f"{FbxUtils._pending_takes}",
     )
     FbxUtils.reset_takes()
-    # An older file: clips without ranges, the take list on fbx_takes.
+    # A clip without its range declares no take, and a retired fbx_takes list
+    # beside it is never read (2026-10-20: no legacy branch).
+    import json as _takes_json
+
     ptk.SceneRecords.SHOTS.save(
         DataNodes, {"shots": [{"clip": "intro", "objects": []}]}
     )
-    ptk.SceneRecords.FBX_TAKES.save(
-        DataNodes, [{"name": "intro", "start": 2, "end": 14}]
-    )
-    n_legacy = FbxUtils.apply_takes_from_node()
+    _list = _takes_json.dumps([{"name": "intro", "start": 2, "end": 14}])
+    DataNodes.write(ptk.Scope.DELIVERABLE, "fbx_takes", _list)
     check(
-        "a legacy fbx_takes still arms when the clips carry no ranges",
-        n_legacy == 1 and FbxUtils._pending_takes == [("intro", 2, 14)],
+        "a clip without its range arms nothing; a retired fbx_takes is not read",
+        FbxUtils.apply_takes_from_node() == 0 and not FbxUtils._pending_takes,
+        f"{FbxUtils._pending_takes}",
+    )
+    # An explicit attr reads the JSON take list it names; a node alone names none.
+    DataNodes.write(ptk.Scope.DELIVERABLE, "btk_takes", _list)
+    check(
+        "an explicit attr arms the take list it names",
+        FbxUtils.apply_takes_from_node(attr="btk_takes") == 1
+        and FbxUtils._pending_takes == [("intro", 2, 14)],
         f"{FbxUtils._pending_takes}",
     )
     FbxUtils.reset_takes()
-    ptk.SceneRecords.SHOTS.save(DataNodes, _ranged)
-    n_both = FbxUtils.apply_takes_from_node()
+    # ...and says so: a node alone read the retired fbx_takes list before
+    # 2026-10-20, so a silent 0 on that public signature hid the change
+    # (CODE_STANDARD §8). Added: 2026-10-24
+    from unittest import mock as _takes_mock
+
+    with _takes_mock.patch.object(_fbx_module.logger, "warning") as _takes_warned:
+        _alone = FbxUtils.apply_takes_from_node(node=DataNodes.EXPORT)
     check(
-        "the clips' ranges win over a legacy fbx_takes beside them",
-        n_both == 1 and FbxUtils._pending_takes == [("intro", 1, 12)],
-        f"{FbxUtils._pending_takes}",
+        "...and a node alone names no list, arms nothing, and warns why",
+        _alone == 0
+        and _takes_warned.called
+        and "attr=" in str(_takes_warned.call_args),
+        str(_takes_warned.call_args),
     )
     FbxUtils.reset_takes()
-    for _spec in (ptk.SceneRecords.SHOTS, ptk.SceneRecords.FBX_TAKES):
-        _spec.clear(DataNodes)
+    ptk.SceneRecords.SHOTS.clear(DataNodes)
+    for _key in ("fbx_takes", "btk_takes"):
+        DataNodes.remove(ptk.Scope.DELIVERABLE, _key)
 
     # ---- armed takes + a write with no baked animation: file left as written -
     reset_anim()
@@ -746,7 +869,7 @@ try:
     def carrier_round_trip(label, prepare=None, **opts):
         """Export a cube + the carrier; return (shipped channel, state after)."""
         reset()
-        DataNodes.write(ptk.Scope.DELIVERABLE, "lightmap_metadata", '{"version": 1}')
+        DataNodes.write(ptk.Scope.DELIVERABLE, "lightmaps", '{"version": 1}')
         node = DataNodes.get_export_node(create=False)
         bpy.ops.mesh.primitive_cube_add()
         mesh = bpy.context.active_object
@@ -765,7 +888,7 @@ try:
         reset()
         FbxUtils.import_fbx(out, use_custom_props=True)
         arrived = bpy.data.objects.get(DataNodes.EXPORT)
-        return (arrived.get("lightmap_metadata") if arrived else None), after
+        return (arrived.get("lightmaps") if arrived else None), after
 
     shipped, _after = carrier_round_trip("plain")
     check(
@@ -823,7 +946,7 @@ try:
     from pxr import Usd
 
     reset()
-    DataNodes.write(ptk.Scope.DELIVERABLE, "lightmap_metadata", '{"version": 1}')
+    DataNodes.write(ptk.Scope.DELIVERABLE, "lightmaps", '{"version": 1}')
     usd_carrier = DataNodes.get_export_node(create=False)
     bpy.ops.mesh.primitive_cube_add()
     usd_mesh = bpy.context.active_object
@@ -2204,6 +2327,7 @@ try:
         ptk.SceneRecords.VISIBILITY.key: "frames with their fps, and colours",
         ptk.SceneRecords.AUDIO.key: "frames, with their fps",
         ptk.SceneRecords.EMISSIVE_GROUPS.key: "weights",
+        ptk.SceneRecords.MATERIALS.key: "factors and file names",
     }
     #: The scale each fixture is authored under.
     RU_AUTHORED = (1.0, 0.01)
@@ -2238,13 +2362,14 @@ try:
         )
 
     def ru_lightmap_metres(payload, factor=None):
-        """*payload* in metres: its lengths times *factor* (its own unit_scale
-        when None), labelled 1."""
+        """*payload* in metres: its lengths times *factor* (its one unit_scale
+        when None -- version 2 states it once, for the probe and the lights),
+        labelled 1."""
         probe = payload["probe"]
-        s = probe["unit_scale"] if factor is None else factor
+        s = payload["unit_scale"] if factor is None else factor
         probe["position"] = [c * s for c in probe["position"]]
-        probe["box"] = [[c * s for c in corner] for corner in probe["box"]]
-        probe["unit_scale"] = 1.0
+        probe["box"] = {k: [c * s for c in v] for k, v in probe["box"].items()}
+        payload["unit_scale"] = 1.0
         return payload
 
     def ru_shadows():
@@ -2431,17 +2556,18 @@ try:
         not ru_differences(
             {
                 "position": [0.0, 1.2, 0.5],
-                "box": [[-2.0, 0.0, -1.0], [2.0, 2.5, 1.5]],
+                "box": {"min": [-2.0, 0.0, -1.0], "max": [2.0, 2.5, 1.5]},
                 "unit_scale": 1.0,
             },
             {
-                k: (ru_probe.get("probe") or {}).get(k)
-                for k in ("position", "box", "unit_scale")
+                "position": (ru_probe.get("probe") or {}).get("position"),
+                "box": (ru_probe.get("probe") or {}).get("box"),
+                "unit_scale": ru_probe.get("unit_scale"),
             },
             "probe",
             [],
         ),
-        ru_probe.get("probe"),
+        ru_probe,
     )
     ru_rig = (ru_payloads.get(ptk.SceneRecords.ARTICULATION.key) or {}).get(
         (1.0, ("METRIC", 1.0))
@@ -2456,6 +2582,110 @@ try:
         not ru_differences({"rz": [-30.0, 20.0], "tx": [-1.0, 1.5]}, ru_limits, "limits", []),
         ru_limits,
     )
+
+    # ---- every record a producer makes is one its declaration reads --------
+    # The shared reader gate (``MeshConvert._current_record``) refuses what a
+    # record's declared shape refuses, so a producer drifting from its shape
+    # ships a record nothing applies -- which a test pinning a copy of the
+    # producer's own dict never sees. Every producer runs, through the
+    # pipeline's own publish, on one small scene that gives each something to
+    # say, and each record -- the handoff the commit stamps too -- is checked
+    # against its declaration (``ptk.SceneRecords.problems``). Mirror of
+    # mayatk's. Added: 2026-10-20
+    import wave as _ev_wave
+
+    from blendertk.anim_utils.shots._shots import BlenderShotStore
+    from blendertk.audio_utils._audio_utils import AudioUtils as _EvAudio
+    from blendertk.mat_utils._mat_utils import MatUtils as _EvMatUtils
+    from blendertk.mat_utils.emissive_groups import EmissiveGroups
+    from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.context.scene.frame_start, bpy.context.scene.frame_end = 1, 40
+    ru_lightmaps()
+    ru_shadows()
+    ru_articulation()
+    ev_cube = ru_cube("EvCube", (0.0, 6.0, 1.0))
+    ev_mat = bpy.data.materials.new("EvMat")
+    _EvMatUtils.get_node_tree(ev_mat, create=True)
+    ev_cube.data.materials.append(ev_mat)
+    BlenderShotStore.clear_active()
+    BlenderShotStore.active().define_shot("Intro", 1, 20, objects=[ev_cube.name])
+    RenderEffects.create([ev_cube])
+    RenderEffects.key_fade([ev_cube], start=1, end=11, direction="out")
+    EmissiveGroups.add_group("glow", {ev_cube.name: [0]})
+    ev_wav = os.path.join(ru_dir, "ev_tone.wav")
+    with _ev_wave.open(ev_wav, "wb") as ev_file:
+        ev_file.setnchannels(1)
+        ev_file.setsampwidth(2)
+        ev_file.setframerate(8000)
+        ev_file.writeframes(b"\x00\x00" * 800)
+    _EvAudio.add_clip(ev_wav, frame_start=5, name="tone")
+
+    # A field a record's shape no longer declares is pruned as the record
+    # is made, with a warning (``RecordSpec.make``): what a producer still
+    # writes ships nothing, but says so on every export. Added: 2026-10-20
+    import logging as _ev_logging
+    import warnings as _ev_warnings
+
+    class _EvPruned(_ev_logging.Handler):
+        """The shape-pruning warnings a publish logs."""
+
+        def __init__(self):
+            super().__init__(_ev_logging.WARNING)
+            self.messages = []
+
+        def emit(self, record):
+            message = record.getMessage()
+            if "left out what its shape does not declare" in message:
+                self.messages.append(message)
+
+    ev_pruned = _EvPruned()
+    ev_log = _ev_logging.getLogger(ptk.SceneRecords.__module__)
+    ev_log.addHandler(ev_pruned)
+    try:
+        with _ev_warnings.catch_warnings(record=True) as ev_warned:
+            _ev_warnings.simplefilter("always")
+            ev_snapshot = FbxUtils.publish()
+        ev_log.removeHandler(ev_pruned)
+        ev_retired = sorted(
+            {
+                str(w.message)
+                for w in ev_warned
+                if issubclass(w.category, DeprecationWarning)
+            }
+        )
+        check(
+            "...and no producer writes a field its record's shape does not "
+            "declare (nothing pruned) or calls a retired API",
+            not ev_pruned.messages and not ev_retired,
+            {"pruned": ev_pruned.messages, "retired": ev_retired},
+        )
+        ev_made = {k for k, r in ev_snapshot.produced.items() if r is not None}
+        check(
+            "every record: each producer made one, on a scene giving each something to say",
+            ev_made >= {spec.key for spec in FbxUtils.PRODUCERS}
+            and not ev_snapshot.failed,
+            f"made {sorted(ev_made)}; failed {sorted(ev_snapshot.failed)}",
+        )
+        ev_problems = {
+            key: ptk.SceneRecords.problems(record.spec, record.payload)
+            for key, record in ev_snapshot.produced.items()
+            if record is not None
+        }
+        ev_problems[ptk.SceneRecords.HANDOFF.key] = ptk.SceneRecords.problems(
+            ptk.SceneRecords.HANDOFF, ptk.SceneRecords.HANDOFF.load(_RuDataNodes)
+        )
+        check(
+            "...and each, the handoff the commit stamps too, is one its declaration reads",
+            not any(ev_problems.values()),
+            {k: v for k, v in ev_problems.items() if v},
+        )
+    finally:
+        ev_log.removeHandler(ev_pruned)
+        _EvAudio.remove_all_clips()
+        BlenderShotStore.clear_active()
+
     EnvUtils.set_current_workspace(ru_pin)
     ru_store.cleanup()
 

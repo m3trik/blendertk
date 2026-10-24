@@ -1135,12 +1135,14 @@ class AnimUtils(_AnimUtilsInternal):
     #: Retired level names -> the canonical key, warning until they go.
     #: ``"unbake"`` (until 2026-09-02) read as reversing a bake -- which is
     #: ``SmartBake.restore`` -- when the level only thins a bake to its
-    #: extremes; a saved template or preset may still say it.
+    #: extremes; a saved template or preset may still say it. Re-dated from
+    #: 0.11.0 on 2026-10-24: saved data gets the longest window
+    #: (CODE_STANDARD section 0).
     _resolve_retired_level = staticmethod(
         ptk.Deprecation.values(
             {"unbake": "extremes"},
             what="AnimUtils optimize level",
-            remove_in="0.11.0",
+            remove_in="0.22.0",
             since="2026-09-23",
         )
     )

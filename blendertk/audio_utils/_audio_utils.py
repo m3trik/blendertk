@@ -30,7 +30,7 @@ already shows exactly what is live). What is left, genuinely needed, and built h
 CRUD (add/remove/rename/replace/trim/move) plus fitting the scene frame range to the loaded
 clips (:func:`AudioUtils.sync_scene_range` — the one thing actually named "sync" in the
 mayatk feature set that has a real Blender counterpart), and what an FBX deliverable needs
-to play the clips: the ``audio_manifest`` record (:func:`AudioUtils.export_record`, read off
+to play the clips: the ``audio`` record (:func:`AudioUtils.export_record`, read off
 the strips) and the files its events name (:func:`AudioUtils.track_files`).
 
 Carrier
@@ -468,7 +468,7 @@ class AudioUtils(ptk.LoggingMixin):
         return scene.frame_start, scene.frame_end
 
     # ------------------------------------------------------------------
-    # Export: the ``audio_manifest`` record and the files it names
+    # Export: the ``audio`` record and the files it names
     # ------------------------------------------------------------------
 
     @classmethod
@@ -507,7 +507,7 @@ class AudioUtils(ptk.LoggingMixin):
         """``(file name, path)`` of each track in *track_ids* whose file exists.
 
         Mirror of mayatk's: the file name is the TRACK ID -- here the strip's
-        name -- with the file's extension. An ``audio_manifest`` event names
+        name -- with the file's extension. An ``audio`` event names
         its track and a consumer matches the clip by that name (unitytk's
         importer, by stem), so an FBX deliverable embeds each strip's audio
         under it (``FbxUtils.embed_dependencies``). A strip whose sound has no
@@ -533,7 +533,7 @@ class AudioUtils(ptk.LoggingMixin):
 
     @classmethod
     def export_record(cls, ctx: "ptk.ExportContext") -> Optional["ptk.Record"]:
-        """The ``audio_manifest`` record for this scene, or ``None`` when there
+        """The ``audio`` record for this scene, or ``None`` when there
         is nothing to publish -- the ``ptk.SceneRecords.AUDIO`` producer
         (``FbxUtils.PRODUCERS``, mirror of mayatk's
         ``AudioClips.export_record``). Pure: it reads the strips and the takes
@@ -543,13 +543,15 @@ class AudioUtils(ptk.LoggingMixin):
         ``ptk.AudioUtils.scope_events`` to the takes the shot record declares
         (``ptk.SceneRecords.declared_takes`` over ``ctx.record``: produced
         earlier in the same assembly -- the record declares
-        ``after=("shot_metadata",)`` -- else as stored). A ``full`` Animation
-        Clips mode realizes no take, so its events ship unscoped, counted
-        from the whole-timeline take's first frame: ``ctx.clip_span`` when
-        the pipeline measured it, else the range the write bakes
-        (``FbxUtils.bake_range``). Noted on *ctx*: an event outside every
-        take, and a strip trimmed at its head -- the record carries no source
-        offset, so the consumer plays the file from its start.
+        ``after=("animation",)`` -- else as stored). With no take (none
+        declared, or a ``full`` Animation Clips mode, which realizes none)
+        events ship unscoped, counted from the first frame the file's
+        animation holds: ``ctx.clip_span`` when the pipeline measured it, else
+        the range the write bakes (``FbxUtils.bake_range``), else the scene's
+        ``frame_start`` -- mayatk's chain too. Noted on *ctx*: an event that
+        can never fire -- outside every take, or before that first frame --
+        and a strip trimmed at its head: the record carries no source offset,
+        so the consumer plays the file from its start.
 
         Parameters:
             ctx: The export's decisions and the records produced before this
@@ -577,9 +579,14 @@ class AudioUtils(ptk.LoggingMixin):
         origin = stack[0] if stack else scene.frame_start
         scoped, dropped = ptk.AudioUtils.scope_events(events, takes, origin)
         if dropped:
+            where = (
+                "outside every shot take"
+                if takes
+                else f"before the clip's first frame ({origin:g})"
+            )
             ctx.note(
-                f"Audio: {len(dropped)} event(s) outside every shot take were "
-                f"left out (they can never fire in a clip): {', '.join(dropped)}."
+                f"Audio: {len(dropped)} event(s) {where} were left out (they "
+                f"can never fire in a clip): {', '.join(dropped)}."
             )
         playing = {name for _, name in events}
         trimmed = [

@@ -74,6 +74,34 @@ class TestChildStdin(unittest.TestCase):
         self.assertTrue(kwargs.get("capture_output"))
         self.assertEqual(kwargs.get("timeout"), 600)
 
+    def test_every_child_is_headless_by_default(self):
+        """A Qt suite (the .venv leg, a panel in a background Blender) must not
+        put a window on the desktop."""
+        with mock.patch.dict(os.environ):
+            os.environ.pop("QT_QPA_PLATFORM", None)
+            for python in (None, sys.executable):
+                with self.subTest(python=python):
+                    _, kwargs = self._launch(python=python)
+                    self.assertEqual(kwargs["env"].get("QT_QPA_PLATFORM"), "offscreen")
+
+    def test_an_explicit_platform_is_honored(self):
+        with mock.patch.dict(os.environ, {"QT_QPA_PLATFORM": "windows"}):
+            _, kwargs = self._launch()
+        self.assertEqual(kwargs["env"]["QT_QPA_PLATFORM"], "windows")
+
+
+class TestUnknownSuiteName(unittest.TestCase):
+    """A name no suite answers to is a usage error, not "No suites matched." + 0."""
+
+    def test_a_typo_exits_two_before_any_blender_starts(self):
+        argv = ["run_tests.py", "definitely_not_a_suite"]
+        with mock.patch.object(sys, "argv", argv), \
+                mock.patch.object(run_tests, "find_blender", return_value="blender.exe"), \
+                mock.patch.object(run_tests.BlenderTestRunner, "run") as ran, \
+                mock.patch("builtins.print"):
+            self.assertEqual(run_tests.main(), 2)
+        ran.assert_not_called()
+
 
 class TestChildTempRoot(unittest.TestCase):
     """Every child is handed the run's temp root outright, never left to derive it.

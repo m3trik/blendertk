@@ -614,9 +614,12 @@ class UiUtils(_UiUtilsInternal):
         # in non-Blender contexts.
         import bpy
 
-        node = params.get("node", [""])[0]
-        if not node:
+        # One ``node=`` per item (``ptk.ReportDoc.action(..., node=[...])``): a link may
+        # name every reader of a map. ``graph`` takes the first.
+        named = [n for n in params.get("node", []) if n]
+        if not named:
             return False
+        node = named[0]
 
         # ``graph`` names a MATERIAL, not an object — resolve it against bpy.data.materials
         # before the object lookup below (which would fail and swallow the link).
@@ -636,12 +639,18 @@ class UiUtils(_UiUtilsInternal):
         # "select"/"reveal" link always means the CURRENT scene's object, so prefer a local match
         # (e.g. Hierarchy Sync's diff log links, where a linked reference object commonly shares
         # a name with the local object it's being diffed against).
-        obj = next(
-            (o for o in bpy.data.objects if o.name == node and o.library is None), None
-        ) or bpy.data.objects.get(node)
-        if obj is None:
-            if logger:
-                logger.warning(f"Object not found: {node}")
+        def local(name):
+            return next(
+                (o for o in bpy.data.objects if o.name == name and o.library is None),
+                None,
+            ) or bpy.data.objects.get(name)
+
+        objs = [o for o in map(local, named) if o is not None]
+        if len(objs) != len(named) and logger:
+            found = {o.name for o in objs}
+            gone = [n for n in named if n not in found]
+            logger.warning(f"Object not found: {', '.join(gone)}")
+        if not objs:
             return False
 
         if action in ("select", "reveal"):
@@ -649,8 +658,9 @@ class UiUtils(_UiUtilsInternal):
             # write address the scene's default layer, not the one the window shows
             with CoreUtils.window_context_override():
                 bpy.ops.object.select_all(action="DESELECT")
-                obj.select_set(True)
-                bpy.context.view_layer.objects.active = obj
+                for obj in objs:
+                    obj.select_set(True)
+                bpy.context.view_layer.objects.active = objs[0]
             if action == "reveal":
                 import blendertk as btk
 

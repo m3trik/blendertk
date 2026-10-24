@@ -1643,7 +1643,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
 
         Browse is a file pick for one row and a folder pick for several (its label says
         which); Rename File renames one row's file and is disabled otherwise; Remove on
-        lightmap rows only is the baker's Revert to Source. Mirror of mayatk's.
+        lightmap rows only is the baker's Revert Selected. Mirror of mayatk's.
         """
         selection = (
             widget.get_selection(
@@ -2088,7 +2088,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         Texture" understates the second one and overstates the first.
 
         A lightmap row has no datablock -- its bake markers bind the map -- so the action used
-        to return silently on one. Its remove is the Lightmap Baker's Revert to Source on the
+        to return silently on one. Its remove is the Lightmap Baker's Revert Selected on the
         objects it binds (:meth:`_remove_lightmaps`). Mirror of mayatk's.
         """
         import bpy
@@ -2135,7 +2135,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
     def _remove_lightmaps(self, deps):
         """Revert the objects each lightmap in *deps* binds to source.
 
-        The Lightmap Baker's Revert to Source, scoped to those objects and confirmed first:
+        The Lightmap Baker's Revert Selected, scoped to those objects and confirmed first:
         ``LightmapRecords.revert`` clears their markers and republishes the manifest, so
         nothing is left bound to the map (a legacy atlas UV layout is restored too). Their
         materials and texture UVs were never changed, and the map file stays on disk. A

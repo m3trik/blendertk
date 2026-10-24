@@ -344,6 +344,12 @@ try:
             layer.uv.foreach_set("vector", uv.astype(np.float32).ravel())
             return s, t
 
+        def _read_now(name):
+            """The file *name*'s marker reads now -- the session's until saved."""
+            return next(
+                (p for n, _m, p in LightmapRecords._reads() if n == name and p), ""
+            )
+
         reset()
         s, t = lit_source_and_target()
         select([s, t], s)
@@ -356,7 +362,11 @@ try:
             "Auto carries a lit, untextured source's lightmap (resampled)",
             "resampled into the target's layout" in message
             and LightmapRecords.lightmap_info(t).get("map") == "hero_Lightmap.exr"
-            and os.path.isfile(os.path.join(out_dir, "hero_Lightmap.exr")),
+            and os.path.isfile(_read_now(t.name))
+            # Home in the output folder once the file is saved (_stage).
+            and os.path.normcase(LightmapRecords._home(_read_now(t.name)))
+            == os.path.normcase(os.path.join(out_dir, "hero_Lightmap.exr"))
+            and out_dir in message,
             message[-300:],
         )
 

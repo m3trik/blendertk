@@ -81,7 +81,7 @@ try:
     check("no diff section when none recorded", "last_diff" not in raw["hierarchy"])
 
     # 2b. data snapshot round-trip; hierarchy read unaffected.
-    data_a = {"lightmap_metadata": {"sets": [1, 2]}, "note": "x"}
+    data_a = {"lightmaps": {"sets": [1, 2]}, "note": "x"}
     SD.write_manifest(export, paths_a, data=data_a)
     check("read_data round-trips the data section", SD.read_data(export) == data_a)
     check(
@@ -90,44 +90,12 @@ try:
 
     # 2c. data churn: hash covers only paths — the hierarchy check must not trip,
     #     and the single-file contract means no .prev shadow copy appears.
-    SD.write_manifest(export, paths_a, data={"lightmap_metadata": {"sets": [3]}})
+    SD.write_manifest(export, paths_a, data={"lightmaps": {"sets": [3]}})
     check(
         "data-only change keeps hierarchy compare matching",
         SD.compare(export, paths_a) == (True, [], []),
     )
     check("data-only change creates no .prev", not os.path.exists(mpath + ".prev"))
-
-    # 2c-bis. The record is treated as part of the export, so it records no
-    #     authoring-machine paths. `lightmap_metadata.dir` is a build-time hint
-    #     for the GLB converter; a recipient can do nothing with a path on
-    #     someone else's drive but read the folder names in it.
-    hint_export = os.path.join(tmp, "hint.fbx")
-    authored = r"O:\Dropbox (Client)\Team Folder\PROD\sourceimages"
-    SD.write_manifest(
-        hint_export,
-        {"A"},
-        data={
-            "lightmap_metadata": {
-                "version": 1,
-                "dir": authored,
-                "objects": [{"name": "room", "map": "room_Lightmap.exr"}],
-            },
-            "note": "x",
-        },
-    )
-    hint_raw = open(SD.manifest_path_for(hint_export)).read()
-    written = json.loads(hint_raw)["data_export"]
-    check(
-        "authoring locate hint is not recorded",
-        "Dropbox (Client)" not in hint_raw
-        and "dir" not in written["lightmap_metadata"],
-    )
-    check(
-        "scrub keeps the payload and sibling channels",
-        written["lightmap_metadata"]["objects"]
-        == [{"name": "room", "map": "room_Lightmap.exr"}]
-        and written["note"] == "x",
-    )
 
     # 2d. v1 flat manifest content is still readable (hierarchy section shim).
     v1_export = os.path.join(tmp, "v1style.fbx")

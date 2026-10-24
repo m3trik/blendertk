@@ -57,7 +57,7 @@ class SceneInfoSection:
     PIPELINE = "pipeline"
     ASSUMPTIONS = "assumptions"
     #: RETIRED (until 2026-09-24) -- a multi-material-meshes table; :attr:`MATERIALS`
-    #: replaced it. :meth:`normalize` still resolves it, warning until 0.13.0.
+    #: replaced it. :meth:`normalize` still resolves it, warning until 0.22.0.
     CATEGORIES = "categories"
 
     ALL: Tuple[str, ...] = (
@@ -108,11 +108,13 @@ class SceneInfoSection:
         PIPELINE,
     }
 
+    #: Re-dated from 0.13.0 on 2026-10-24: a saved section list is saved data,
+    #: which gets the longest window (CODE_STANDARD section 0).
     _resolve_retired = staticmethod(
         ptk.Deprecation.values(
             {CATEGORIES: MATERIALS},
             what="SceneInfoSection key",
-            remove_in="0.13.0",
+            remove_in="0.22.0",
             since="2026-09-24",
             reason="The Materials section lists every material with its cost.",
         )

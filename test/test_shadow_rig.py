@@ -56,9 +56,23 @@ try:
     import bpy
     from blendertk.mat_utils._mat_utils import MatUtils
     from blendertk.rig_utils.shadow_rig import ShadowRig, ShadowRigSlots
-    from pythontk import HeightFieldMap, ShadowAtlas, ShadowHorizon, ShadowProjection
+    from pythontk import HeightFieldMap, ShadowAtlas, ShadowProjection
     import pythontk as ptk
     from blendertk.env_utils._env_utils import EnvUtils
+
+    # The old name of the shadows record's key: an alias, retired (removed
+    # in 0.21.0). Added: 2026-10-20
+    import warnings as _sm_warnings
+
+    with _sm_warnings.catch_warnings(record=True) as _sm_caught:
+        _sm_warnings.simplefilter("always")
+        _sm_key = ShadowRig.SHADOW_METADATA
+    check(
+        "SHADOW_METADATA: a deprecated alias of the shadows record's key",
+        _sm_key == ptk.SceneRecords.SHADOWS.key
+        and any("SHADOW_METADATA" in str(w.message) for w in _sm_caught),
+        [str(w.message) for w in _sm_caught],
+    )
 
     # Every map this suite writes lands in a throwaway project: an unsaved
     # file has no project of its own, and the rig never falls back to temp.
@@ -962,7 +976,7 @@ try:
     payload = _json.loads(raw) if raw else {}
     recs = {r["name"]: r for r in payload.get("planes", [])}
     check(
-        "shadow_metadata published on the data_export carrier",
+        "the shadows record published on the data_export carrier",
         payload.get("version") == 2 and p.name in recs,
         f"{raw}",
     )
@@ -1117,25 +1131,6 @@ try:
     check(
         "the retired 'stretch' mode builds as orbit, with no alias table left",
         rig.mode == "orbit" and not hasattr(ShadowRig, "_DEPRECATED_MODES"),
-    )
-    import warnings as _axis_warnings
-
-    with _axis_warnings.catch_warnings(record=True) as _axis_caught:
-        _axis_warnings.simplefilter("always")
-        rig = ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=32, axis="y")
-    _axis_notices = [
-        str(w.message)
-        for w in _axis_caught
-        if issubclass(w.category, DeprecationWarning) and "'axis'" in str(w.message)
-    ]
-    check(
-        "the retired axis keyword warns once through ptk.Deprecation (mirror of mayatk's)",
-        len(_axis_notices) == 1 and "blendertk 0.12.0" in _axis_notices[0],
-        str(_axis_notices),
-    )
-    check(
-        "a retired explicit axis still builds the projected silhouette",
-        rig.image is not None and tuple(rig.image.size) == (32, 32),
     )
 
     # ---- create rollback ----
@@ -1335,14 +1330,15 @@ try:
     )
     hz = rec["horizon"]
     check(
-        "horizon block: texture / mapping / encoding",
+        "horizon block: its texture, and nothing a reader derives (mapping and "
+        "encoding are the record version's, levels log2(size))",
         hz["texture"] == "Box_horizon.png"
-        and (hz["mapping"], hz["encoding"]) == ("heightfield", ShadowHorizon.ENCODING),
+        and not {"mapping", "encoding", "levels"} & set(hz),
         f"{hz}",
     )
     check(
-        "horizon block: size / spans / levels",
-        (hz["size"], hz["spans"], hz["levels"]) == (32, 2, 5),
+        "horizon block: size / spans",
+        (hz["size"], hz["spans"]) == (32, 2),
         f"{hz}",
     )
     a0, a1, b0, b1 = hz["bounds"]
@@ -2135,7 +2131,7 @@ try:
     # view is an INACTIVE second output sharing the render's image node, so the
     # viewport is untouched and a re-render or an atlas rebind reaches it too.
     from blendertk.env_utils.fbx_utils import FbxUtils
-    from blendertk.env_utils.scene_state import SceneState
+    from blendertk.env_utils.material_records import MaterialRecords
     from blendertk.mat_utils.mat_manifest import MatManifest
 
     def fed_by(socket):
@@ -2156,13 +2152,13 @@ try:
     plane, live_mat = rig.shadow_plane, rig.material
     tex = live_mat.node_tree.nodes.get("shadow_tex")
     active, bsdf = export_view(live_mat)
-    surface = SceneState._surface_shader(live_mat.node_tree)
+    surface = MaterialRecords._surface_shader(live_mat.node_tree)
     check(
         "a live plane still renders its Emission / Transparent mix",
         len(active) == 1
         and surface is not None
         and surface.type == "MIX_SHADER"
-        and SceneState._is_unlit(live_mat),
+        and MaterialRecords._is_unlit(live_mat),
         f"{[(n.name, n.is_active_output) for n in active]}",
     )
     check(
@@ -2184,23 +2180,24 @@ try:
         == os.path.normcase(silhouette),
         f"{MatManifest.build([plane])}",
     )
-    fade = SceneState._opacity_factor(live_mat)
+    fade = MaterialRecords._opacity_factor(live_mat)
     with ptk.TempArtifacts("btk_live_plane_glb", policy="scoped") as glb_tmp:
         fbx_path = os.path.join(glb_tmp.dir_path(), "live.fbx")
         glb_path = os.path.join(glb_tmp.dir_path(), "live.glb")
-        FbxUtils.export(
-            filepath=fbx_path,
-            objects=[c, plane],
-            path_mode="COPY",
-            embed_textures=True,
-        )
-        ptk.GlbPipeline.build(
-            fbx_path,
-            dst=glb_path,
-            sidecar=ptk.GlbPipeline.envelope(
-                lambda: SceneState.read([c, plane]), source=SceneState.source()
-            ),
-        )
+        # The GLB states what its FBX states: the write's own materials record
+        # (unlit, blended, the fade), published for the write by the bracket
+        # and shipped on its carrier -- the build is handed nothing beside it.
+        with FbxUtils.export_prepared(
+            FbxUtils.export_context(mode=ptk.ExportContext.HANDOFF),
+            only=[ptk.SceneRecords.MATERIALS],
+        ):
+            FbxUtils.export(
+                filepath=fbx_path,
+                objects=[c, plane, DataNodes.get_export_node(create=False)],
+                path_mode="COPY",
+                embed_textures=True,
+            )
+        ptk.GlbPipeline.build(fbx_path, dst=glb_path)
         with ptk.MeshConvert.open_glb(glb_path) as edit:
             gltf = edit.gltf
             glb_node = next(
@@ -2253,10 +2250,10 @@ try:
     ShadowRig.delete_rigs(None, delete_textures=True)
 
     # ============================ DETACH TO PLANE ============================
-    # Mirror of mayatk's ``TestDetachPlanes`` / ``TestUnlitSection``: a rig whose
+    # Mirror of mayatk's ``TestDetachPlanes`` / ``TestUnlitMaterials``: a rig whose
     # links were broken on purpose becomes one quad, one unlit material and one
     # PNG with the fade multiplied in -- no drivers, no stamps for an exporter.
-    from blendertk.env_utils.scene_state import SceneState
+    from blendertk.env_utils.material_records import MaterialRecords
     from blendertk.mat_utils.mat_manifest import MatManifest
     from blendertk.rig_utils._rig_utils import RigUtils
 
@@ -2285,10 +2282,12 @@ try:
     lit = bpy.data.materials.new("litOnPlane")
     MatUtils.get_node_tree(lit, create=True)
     plane.data.materials.append(lit)  # a Principled a shadow plane wears is unlit too
-    unlit = SceneState.read([c, plane, decal]).get("unlit") or {}
+    unlit = {
+        e["name"] for e in MaterialRecords.entries([c, plane, decal]) if e.get("unlit")
+    }
     check(
         "a shadow plane's materials and an Emission material read unlit",
-        set(unlit) == {rig.material.name, "litOnPlane", "flatMat"},
+        unlit == {rig.material.name, "litOnPlane", "flatMat"},
         f"{sorted(unlit)}",
     )
     plane.data.materials.pop()
@@ -2354,7 +2353,7 @@ try:
     check(
         "one unlit material showing the new PNG",
         new is not None
-        and SceneState._is_unlit(new)
+        and MaterialRecords._is_unlit(new)
         and tex_node is not None
         and os.path.normcase(bpy.path.abspath(tex_node.image.filepath_raw))
         == os.path.normcase(path),
@@ -2363,7 +2362,9 @@ try:
     check(
         "...its alpha blends and its texture is the base colour exporters read",
         new is not None
-        and (SceneState._read_alpha_mode([new], {}).get(new.name) or {}).get("mode")
+        and {e["name"]: e.get("alphaMode") for e in MaterialRecords.entries([plane])}.get(
+            new.name
+        )
         == "BLEND"
         and os.path.normcase(
             (MatManifest.build([plane])["materials"].get(new.name) or {}).get(

@@ -102,7 +102,7 @@ try:
     )
 
     # A sound strip on the timeline: Unity matches an AudioClip to an
-    # ``audio_manifest`` event by name, and an event names its TRACK (the
+    # ``audio`` event by name, and an event names its TRACK (the
     # strip), not the strip's file -- so the file goes in under the event's
     # name, its extension kept (mirror of mayatk's
     # test_the_shipped_audio_rides_inside_under_its_event_names).
@@ -157,7 +157,7 @@ try:
         )
     ]
     check(
-        "the FBX's audio_manifest names the strip's event",
+        "the FBX's audio record names the strip's event",
         [e.get("name") for m in manifests for e in m.get("events", [])] == [track],
         f"{manifests}",
     )

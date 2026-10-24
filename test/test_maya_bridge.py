@@ -1363,7 +1363,7 @@ try:
         )
     finally:
         _tmp.cleanup()
-        for _spec in (ptk.SceneRecords.SHOTS, ptk.SceneRecords.FBX_TAKES):
+        for _spec in (ptk.SceneRecords.SHOTS,):
             _spec.clear(DataNodes)
         _scene.frame_start, _scene.frame_end = _range
     check(

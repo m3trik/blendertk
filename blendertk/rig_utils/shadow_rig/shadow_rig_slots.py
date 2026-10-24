@@ -137,7 +137,7 @@ class ShadowRigSlots(ptk.LoggingMixin):
                     "once, so its outline morphs as the light moves; the "
                     "<b>Live Horizon Preview</b> box mirrors what stands.",
                     "Export through the <b>Scene Exporter</b> — the rig's "
-                    "<i>shadow_metadata</i> rides the data_export carrier. "
+                    "<i>shadows</i> record rides the data_export carrier. "
                     "Press <b>Bake to Keyframes</b> first for a plain FBX export.",
                 ],
                 sections=[
@@ -655,7 +655,7 @@ class ShadowRigSlots(ptk.LoggingMixin):
     def _restore_after_preview(self):
         """Repair what Preview's rollback can't after a canceled preview: a
         pre-existing ``data_export`` carrier keeps the mutated
-        ``shadow_metadata`` prop (republish scans the restored file state),
+        ``shadows`` prop (republish scans the restored file state),
         and the previewed silhouette PNGs are orphaned on disk (removed unless
         a surviving plane — e.g. a committed rig — still references them)."""
         ShadowRig.refresh_export_metadata()

@@ -370,7 +370,7 @@ try:
         )
 
         # ---- the audio the scene plays NOW rides inside the bridge's FBX ----
-        # A hand-off refreshed only derived records and audio_manifest was
+        # A hand-off refreshed only derived records and the audio record was
         # authored, so the bridge shipped the last Scene Exporter run's events
         # (or none); and the deliverer embeds only the files a record names by
         # FILE name, while an audio event names its strip. Mirror of mayatk's.

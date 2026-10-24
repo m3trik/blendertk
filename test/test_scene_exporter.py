@@ -563,7 +563,7 @@ try:
         {"map": "CarrierExportCube_Lightmap.exr", "intensity": 1.0}
     )
     LightmapRecords.refresh_export_metadata()
-    payload = DataNodes.read(ptk.Scope.DELIVERABLE, "lightmap_metadata")
+    payload = DataNodes.read(ptk.Scope.DELIVERABLE, "lightmaps")
     check(
         "authoring-time publish stamps the carrier from the marker",
         isinstance(payload, str) and "CarrierExportCube" in payload,
@@ -574,8 +574,8 @@ try:
         DataNodes.ensure_export() is DataNodes.get_export_node(create=False),
     )
 
-    # Hide the carrier first — export_data_node must clear hide state, or the
-    # use_selection funnel silently drops the metadata.
+    # Hide the carrier first — the write must show it for its use_selection
+    # funnel (and hide it again after), or the metadata is silently dropped.
     carrier = DataNodes.get_export_node(create=False)
     carrier.hide_set(True)
     carrier.hide_select = True
@@ -607,10 +607,11 @@ try:
     from blendertk.env_utils.hierarchy_sync.scene_data_sidecar import SceneDataSidecar
 
     sc_data = SceneDataSidecar.read_data(carrier_file) or {}
-    sc_md = sc_data.get("lightmap_metadata")
+    sc_md = sc_data.get("lightmaps")
     check(
         "scene-data sidecar written beside the FBX with the decoded channel",
-        isinstance(sc_md, dict) and sc_md.get("version") == 1,
+        isinstance(sc_md, dict)
+        and sc_md.get("version") == ptk.SceneRecords.LIGHTMAPS.version,
         f"{sc_data!r}",
     )
     sc_paths = SceneDataSidecar.read_manifest(carrier_file) or set()
@@ -631,10 +632,10 @@ try:
         f"imported={[o.name for o in imported]}",
     )
     check(
-        "lightmap_metadata survives the FBX round-trip as a user property",
+        "the lightmaps record survives the FBX round-trip as a user property",
         imported_carrier is not None
-        and imported_carrier.get("lightmap_metadata") == payload,
-        f"{imported_carrier.get('lightmap_metadata') if imported_carrier else None!r}",
+        and imported_carrier.get("lightmaps") == payload,
+        f"{imported_carrier.get('lightmaps') if imported_carrier else None!r}",
     )
 
     # No carrier in scene → the task is a clean no-op (still exports the mesh).
@@ -722,11 +723,13 @@ try:
     check("an unreadable baseline is flagged", HierarchyBaseline.is_unreadable())
     DataNodes.write(ptk.Scope.PRIVATE, HierarchyBaseline.ATTR_NAME, "")
 
-    # After a GLB the sidecar records the lightmap manifest the GLB ships (mirror of
-    # mayatk's): the GLB pass corrects that copy to the encoded map and the scalar
-    # restoring the bake range, while the scene's still names the pre-encode .exr
-    # at 1.0. An FBX-only run records the scene's. Added: 2026-09-15
-    import struct as _struct
+    # After a GLB build the sidecar records the lightmap manifest the build
+    # reported (mirror of mayatk's): the build corrects the manifest to the
+    # encoded map and the scalar restoring the bake range, while the scene's
+    # still names the pre-encode .exr at 1.0. An FBX-only run records the
+    # scene's, and a failed build forgets the last build's report.
+    # Added: 2026-09-15; the build's report replaced the GLB read 2026-10-20
+    from unittest import mock as _sg_mock
 
     reset_scene()
     bpy.ops.mesh.primitive_cube_add()
@@ -738,39 +741,43 @@ try:
         "version": 1,
         "objects": [dict(_sg_entry, map="room_Lightmap.png", intensity=0.5)],
     }
-    DataNodes.write(ptk.Scope.DELIVERABLE, "lightmap_metadata", json.dumps(_sg_scene))
-    _sg_gltf = {
-        "asset": {"version": "2.0"},
-        "nodes": [
-            {
-                "name": "data_export",
-                "extras": {"lightmap_metadata": json.dumps(_sg_shipped)},
-            }
-        ],
-    }
-    _sg_chunk = json.dumps(_sg_gltf).encode("utf-8")
-    _sg_chunk += b" " * (-len(_sg_chunk) % 4)
+    DataNodes.write(ptk.Scope.DELIVERABLE, "lightmaps", json.dumps(_sg_scene))
     _sg_glb = os.path.join(out_dir, "sidecar_glb.glb")
-    with open(_sg_glb, "wb") as _sg_file:
-        _sg_file.write(_struct.pack("<4sII", b"glTF", 2, 20 + len(_sg_chunk)))
-        _sg_file.write(_struct.pack("<I4s", len(_sg_chunk), b"JSON") + _sg_chunk)
     _sg_fbx = os.path.join(out_dir, "sidecar_glb.fbx")
     _sg_tm = SceneExporter().task_manager
     _sg_tm.run = _sg_tm.run.replace(export_path=_sg_fbx)
     _sg_tm.objects = [_sg_cube, DataNodes.get_export_node(create=False)]
-    _sg_tm.write_scene_data_sidecar(glb_path=_sg_glb)
+    with _sg_mock.patch.object(
+        ptk.GlbPipeline,
+        "build",
+        return_value={"glb": _sg_glb, "lightmap_manifest": _sg_shipped},
+    ):
+        _sg_built = _sg_tm.create_glb(_sg_fbx, announce=False)
+    _sg_tm.write_scene_data_sidecar(glb_path=_sg_built)
     _sg_data = SceneDataSidecar.read_data(_sg_fbx) or {}
     check(
-        "after a GLB the sidecar records the lightmap manifest the GLB ships",
-        _sg_data.get("lightmap_metadata") == _sg_shipped,
-        f"{_sg_data!r}",
+        "after a GLB build the sidecar records the manifest the build reported",
+        _sg_built == _sg_glb and _sg_data.get("lightmaps") == _sg_shipped,
+        f"{_sg_built!r} {_sg_data!r}",
     )
     _sg_tm.write_scene_data_sidecar()
     _sg_data = SceneDataSidecar.read_data(_sg_fbx) or {}
     check(
         "...and without a GLB it records the scene's",
-        _sg_data.get("lightmap_metadata") == _sg_scene,
+        _sg_data.get("lightmaps") == _sg_scene,
         f"{_sg_data!r}",
+    )
+    with _sg_mock.patch.object(
+        ptk.GlbPipeline, "build", side_effect=RuntimeError("no converter")
+    ):
+        _sg_tm.create_glb(_sg_fbx, announce=False)
+    _sg_tm.write_scene_data_sidecar(glb_path=_sg_glb)
+    _sg_data = SceneDataSidecar.read_data(_sg_fbx) or {}
+    check(
+        "...and a failed build forgets the last build's report",
+        getattr(_sg_tm, "_glb_lightmap_manifest", "never set") is None
+        and _sg_data.get("lightmaps") == _sg_scene,
+        f"{getattr(_sg_tm, '_glb_lightmap_manifest', 'never set')!r} {_sg_data!r}",
     )
 
     # ---- Animation Output: the key tasks edit a COPY for the write -----------------------
@@ -1607,21 +1614,25 @@ try:
     # convert_textures (task phase) and check_material_compatibility (check
     # phase). The check runs post-conversion, judged against the CHOSEN
     # template: a residual MSAO fails a glTF template but is native to (and
-    # passes) an HDRP one. Patched at the scene read / MatUpdater so this pins
-    # the keying, the pass-through default, and the delegation.
-    from blendertk.env_utils import scene_state as _scene_state
+    # passes) an HDRP one. The verdict is asked of the maps the materials record
+    # names (MaterialRecords.entries, the one reader of the file's materials);
+    # patched at that read / MatUpdater so this pins the keying, the
+    # pass-through default, and the delegation.
+    from blendertk.env_utils import material_records as _material_records
     from blendertk.mat_utils import _mat_utils as _mu
 
-    _real_read = _scene_state.SceneState.read
+    _real_entries = _material_records.MaterialRecords.__dict__["entries"]
     _real_update = _mu.MatUpdater.update_materials
     try:
         tm_mc = SceneExporter().task_manager
 
-        def _stub(sections):
-            """Patch SceneState.read to return *sections* (bound on access)."""
-            _scene_state.SceneState.read = classmethod(lambda cls, *a, **k: sections)
+        def _stub(*entries):
+            """Patch MaterialRecords.entries to return *entries* (bound on access)."""
+            _material_records.MaterialRecords.entries = classmethod(
+                lambda cls, *a, **k: list(entries)
+            )
 
-        _stub({"metallic_roughness": {"M": {"metallic": "C:/tex/probe_MSAO.png"}}})
+        _stub({"name": "M", "metallicTexture": "probe_MSAO.png"})
         passed, msgs = tm_mc.check_material_compatibility("glTF 2.0")
         check(
             "check_material_compatibility fails a residual MSAO on a glTF template",
@@ -1638,7 +1649,7 @@ try:
             f"msgs={msgs}",
         )
 
-        _stub({"metallic_roughness": {"M": {"metallic": "C:/tex/probe_ORM.png"}}})
+        _stub({"name": "M", "metallicTexture": "probe_ORM.png"})
         passed, msgs = tm_mc.check_material_compatibility("glTF 2.0")
         check(
             "check_material_compatibility passes an ORM mask on a glTF template",
@@ -1650,14 +1661,11 @@ try:
         # no packing workflow and is not a foreign PACKING.
         _stub(
             {
-                "metallic_roughness": {
-                    "M": {
-                        "metallic": "C:/tex/probe_Metallic.png",
-                        "roughness": "C:/tex/probe_Roughness.png",
-                        "occlusion": "C:/tex/probe_AO.png",
-                    }
-                },
-                "emissive": {"M": {"texture": "C:/tex/probe_Emissive.png"}},
+                "name": "M",
+                "metallicTexture": "probe_Metallic.png",
+                "roughnessTexture": "probe_Roughness.png",
+                "occlusionTexture": "probe_AO.png",
+                "emissiveTexture": "probe_Emissive.png",
             }
         )
         passed, msgs = tm_mc.check_material_compatibility("glTF 2.0")
@@ -1678,7 +1686,7 @@ try:
         def _boom(cls, *a, **k):
             raise RuntimeError("boom")
 
-        _scene_state.SceneState.read = classmethod(_boom)
+        _material_records.MaterialRecords.entries = classmethod(_boom)
         passed, msgs = tm_mc.check_material_compatibility("glTF 2.0")
         check(
             "check_material_compatibility survives a scene-read failure",
@@ -1785,7 +1793,7 @@ try:
             f"raised={raised} cached={tm_ct._cached_materials}",
         )
     finally:
-        _scene_state.SceneState.read = _real_read
+        _material_records.MaterialRecords.entries = _real_entries
         _mu.MatUpdater.update_materials = _real_update
 
     tm_paths = SceneExporter().task_manager
@@ -2719,7 +2727,7 @@ try:
     )
 
     # Export Scene Data Node OFF: the takes task publishes instead, and it must
-    # say what it left out as well -- the stale-shot note and its Open Shots
+    # name the stale shots as well -- the stale-shot note and its Open Shots
     # link reached the log only through the carrier task (mirror of mayatk's).
     import logging as _note_logging
     from blendertk.anim_utils.shots._shots import BlenderShotStore as _NoteStore
@@ -2750,8 +2758,12 @@ try:
     finally:
         _note_tm.logger.removeHandler(_note_log)
         _note_tm.run_deferred_restores()
+        # The store persisted into the file's private record: clear it with
+        # the active store, or the next check's store loads NoteGoneShot back
+        # (and, now that stale shots ship, every later shot record names it).
+        ptk.SceneRecords.SHOT_STORE.clear(DataNodes)
         _NoteStore.clear_active()
-    _note_warned = [m for m in _note_log.messages if "left out" in m]
+    _note_warned = [m for m in _note_log.messages if "1 stale shot(s)" in m]
     check(
         "with the carrier task off the takes publish still names the stale shots",
         bool(_note_warned) and "action://show?ui=shots" in _note_warned[0],
@@ -3331,12 +3343,9 @@ try:
         (_p.get("secondary_max_size"), _p.get("uastc_rdo")) == (2048, 1.0),
         f"{_p}",
     )
-    with (
-        _mock.patch.object(
-            ptk.GlbPipeline, "build", return_value={"glb": "x.glb"}
-        ) as _build,
-        _mock.patch.object(ptk.GlbPipeline, "envelope", return_value={}),
-    ):
+    with _mock.patch.object(
+        ptk.GlbPipeline, "build", return_value={"glb": "x.glb"}
+    ) as _build:
         try:
             _built = _tm.create_glb("x.fbx", announce=False)
         except Exception as _e:  # noqa: BLE001 -- reported by the check
@@ -3348,20 +3357,24 @@ try:
         and _build.call_args.kwargs.get("key_tolerance") == 1e-4,
         f"built={_built!r} kwargs={_build.call_args.kwargs if _build.called else None}",
     )
-    # The lighting recipe: no panel row overrides it since Baked Reflections
-    # retired (2026-10-19), so neither carrier -- the GLB's envelope, the
-    # FBX's handoff record -- is handed an override. Mirrors mayatk's tests.
-    # Added: 2026-09-21
+    # The GLB states what its FBX states: the exporter hands the build no
+    # envelope and no lighting of its own, an export set to read or not -- the
+    # build reads both off the FBX's ``handoff`` record, which the run's export
+    # context stamped (the check below). Mirrors mayatk's tests. Added:
+    # 2026-09-21; the envelope retired 2026-10-20.
     with (
-        _mock.patch.object(ptk.GlbPipeline, "build", return_value={"glb": "x.glb"}),
-        _mock.patch.object(ptk.GlbPipeline, "envelope", return_value={}) as _envelope,
+        _mock.patch.object(
+            ptk.GlbPipeline, "build", return_value={"glb": "x.glb"}
+        ) as _build,
         _mock.patch.object(_tm, "_live_objects", return_value=["obj"]),
     ):
         _tm.create_glb("x.fbx", announce=False)
     check(
-        "create_glb hands the envelope no lighting override",
-        _envelope.called and _envelope.call_args.kwargs.get("rendering") == {},
-        f"{_envelope.call_args.kwargs if _envelope.called else None}",
+        "create_glb hands the build no envelope and no lighting of its own",
+        _build.called
+        and _build.call_args.kwargs.get("sidecar") is None
+        and _build.call_args.kwargs.get("rendering") is None,
+        f"{_build.call_args.kwargs if _build.called else None}",
     )
     from blendertk.env_utils.fbx_utils import FbxUtils as _FbxUtils
 
@@ -4485,7 +4498,7 @@ try:
     )
 
     # The default is part of the parity: off, a scene with shots exports
-    # shot_metadata naming clips the file does not contain (mayatk pins the
+    # the shot record naming clips the file does not contain (mayatk pins the
     # same, test_scene_exporter.test_takes_are_default_on_beside_the_carrier).
     _takes_row = SceneExporter().task_manager.task_definitions["apply_declared_takes"]
     check(
@@ -4496,7 +4509,7 @@ try:
 
     # ---- apply_declared_takes: shots -> named engine clips, end to end -------
     # The Maya-parity pipeline (shot_export_unity.md): the Shots store publishes
-    # shot_metadata (each clip carrying its range) onto the carrier; the takes
+    # the shot record (each clip carrying its range) onto the carrier; the takes
     # task refreshes, folds the carrier in, arms FbxUtils, and the write ships
     # one AnimStack per shot with the metadata as user properties — with every staged
     # mutation (armed takes, widened frame range) undone after the write.
@@ -4566,23 +4579,23 @@ try:
         f"{shipped} {take_actions}",
     )
     icarrier2 = next((o for o in imported if o.name.startswith(DataNodes.EXPORT)), None)
-    meta_raw = icarrier2.get("shot_metadata") if icarrier2 else None
+    meta_raw = icarrier2.get("animation") if icarrier2 else None
     check(
-        "the takes task alone ships the carrier with the joinable shot_metadata",
+        "the takes task alone ships the carrier with the joinable shot record",
         bool(meta_raw)
         and [s["clip"] for s in json.loads(meta_raw)["shots"]] == ["open", "close"],
         f"{meta_raw!r}",
     )
     check(
-        "each shipped clip carries its own range, and no legacy fbx_takes ships",
+        "each shipped clip carries its own range, and no retired fbx_takes ships",
         bool(meta_raw)
         and [(s["clip"], s["start"], s["end"]) for s in json.loads(meta_raw)["shots"]]
         == [("open", 1, 10), ("close", 20, 30)]
-        and DataNodes.FBX_TAKES not in icarrier2.keys(),
+        and "fbx_takes" not in icarrier2.keys(),
         f"{meta_raw!r} {sorted(icarrier2.keys()) if icarrier2 else None}",
     )
 
-    # A Full Sequence Only export DECLARES its mode on the shot_metadata envelope
+    # A Full Sequence Only export DECLARES its mode on the shot record's envelope
     # (mirror of mayatk's): its clips still carry every shot's range, so the
     # deliverable gate reads the declared mode instead of calling the shots missing.
     # Added: 2026-09-15
@@ -4604,9 +4617,9 @@ try:
         tasks={"export_data_node": True, "apply_declared_takes": "full"},
     )
     full_data = SceneDataSidecar.read_data(os.path.join(out_dir, "takes_full_test.fbx"))
-    full_meta = (full_data or {}).get("shot_metadata") or {}
+    full_meta = (full_data or {}).get("animation") or {}
     check(
-        "a Full Sequence Only export declares its mode on the shot_metadata envelope",
+        "a Full Sequence Only export declares its mode on the shot record's envelope",
         full_result is True
         and full_meta.get(ptk.MeshConvert.SHOT_CLIP_MODE_KEY) == "full",
         f"result={full_result} meta={full_meta!r}",
@@ -5211,7 +5224,6 @@ try:
     os.makedirs(_ndir, exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_ndir, "test_scene.blend"))
 
-    import re
     import warnings as _naming_warnings
 
     def _retired_warned(caught, *names):
@@ -5219,21 +5231,16 @@ try:
         said = [str(w.message) for w in caught if w.category is DeprecationWarning]
         return all(any(name in m for m in said) for name in names)
 
-    _retired_seen = []
-
-    def _stem_for(output_name, **retired):
-        """The stem for *output_name*; *retired* takes the retired naming inputs
-        (2026-09-23), each of which must warn and still fold in until 0.12.0."""
+    def _stem_for(output_name):
+        """The stem the panel would write for *output_name*."""
         _e = SceneExporter()
         _e.export_dir = _ndir
         _e.output_name = output_name
-        if not retired:
-            return os.path.splitext(os.path.basename(_e.generate_export_path()))[0]
-        with _naming_warnings.catch_warnings(record=True) as _caught:
-            _naming_warnings.simplefilter("always")
-            _path = _e.resolve_export_path(output_name, _ndir, **retired)["path"]
-        _retired_seen.append(_retired_warned(_caught, *(f"'{k}'" for k in retired)))
-        return os.path.splitext(os.path.basename(_path))[0]
+        return os.path.splitext(os.path.basename(_e.generate_export_path()))[0]
+
+    def _regex_folded(pattern):
+        """*pattern* with a saved RegEx field folded in, as the panel migrates it."""
+        return ptk.ExportProfile.fold_legacy_naming(pattern, name_regex="test_->prod_")
 
     for _pattern, _expected in (
         (None, "test_scene"),
@@ -5263,28 +5270,23 @@ try:
         _got == "{nope}_x",
         f"got={_got!r}",
     )
-    _got = _stem_for("WIP_*", name_regex="test_->prod_")
+    _got = _stem_for(_regex_folded("WIP_*"))
     check(
         "the wildcard resolves AFTER the regex, which shapes the default name",
         _got == "WIP_prod_scene",
         f"got={_got!r}",
     )
-    _got = _stem_for("test_asset", name_regex="test_->prod_")
+    _got = _stem_for(_regex_folded("test_asset"))
     check(
         "a literal name is the user's explicit choice — the regex leaves it be",
         _got == "test_asset",
         f"got={_got!r}",
     )
-    _got = _stem_for("{scene}_my text", name_regex="test_->prod_")
+    _got = _stem_for(_regex_folded("{scene}_my text"))
     check(
         "the regex shapes {scene} too — every token spelling the file name carries it",
         _got == "prod_scene_my text",
         f"got={_got!r}",
-    )
-    check(
-        "a retired name_regex warns wherever it is still passed",
-        len(_retired_seen) == 3 and all(_retired_seen),
-        f"{_retired_seen}",
     )
     _got = _stem_for("*_v{n:03d}")
     check(
@@ -5308,54 +5310,26 @@ try:
         == ["test_scene_v007.fbx", "test_scene_v007.glb"],
         f"glb={_glb['paths']} pair={_pair['paths']}",
     )
+    # perform_export folds a caller's retired tasks["version"] ONCE, at its
+    # entry point (resolved before the empty-objects abort): it warns, and
+    # output_name -- what everything after reads -- states the whole rule.
     _e = SceneExporter()
-    _e.export_dir, _e.output_name = _ndir, "WIP_*"
     with _naming_warnings.catch_warnings(record=True) as _caught:
         _naming_warnings.simplefilter("always")
-        _legacy = os.path.basename(
-            _e.generate_export_path(version_format="{stem}_v{n:03d}")
+        _e.perform_export(
+            export_dir=_ndir,
+            objects=[],
+            output_name="WIP_*",
+            tasks={"version": "{stem}_v{n:03d}"},
         )
-    # 0.12.0: a name outlives the release it first warns in (_scene_exporter).
+    _got = os.path.splitext(os.path.basename(_e.export_path or ""))[0]
     check(
-        "the retired Version pattern warns and still resolves until 0.12.0",
-        _legacy == "WIP_test_scene_v001.fbx"
-        and _retired_warned(_caught, "'version_format'", "0.12.0"),
-        f"got={_legacy!r}",
+        "perform_export's retired tasks['version'] warns and folds into the name once",
+        _retired_warned(_caught, "tasks['version']")
+        and _got == "WIP_test_scene_v001"
+        and "*" not in (_e.output_name or ""),
+        f"got={_got!r} output_name={_e.output_name!r}",
     )
-    # perform_export folds a caller's retired inputs ONCE, at its entry point
-    # (resolved before the empty-objects abort): each warns, and output_name --
-    # what everything after reads -- states the whole rule.
-    for _kwargs, _named, _stem in (
-        ({"name_regex": "test_->prod_"}, "'name_regex'", "WIP_prod_scene"),
-        (
-            {"tasks": {"version": "{stem}_v{n:03d}"}},
-            "tasks['version']",
-            "WIP_test_scene_v001",
-        ),
-        ({"timestamp": True}, "'timestamp'", None),
-    ):
-        _e = SceneExporter()
-        with _naming_warnings.catch_warnings(record=True) as _caught:
-            _naming_warnings.simplefilter("always")
-            _e.perform_export(
-                export_dir=_ndir, objects=[], output_name="WIP_*", **_kwargs
-            )
-        _got = os.path.splitext(os.path.basename(_e.export_path or ""))[0]
-        check(
-            f"perform_export's retired {_named} warns and folds into the name once",
-            _retired_warned(_caught, _named)
-            and (
-                _got == _stem
-                if _stem
-                else bool(
-                    re.match(
-                        r"^WIP_test_scene_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$", _got
-                    )
-                )
-            )
-            and "*" not in (_e.output_name or ""),
-            f"got={_got!r} output_name={_e.output_name!r}",
-        )
     check(
         "the naming state perform_export used to stamp is gone",
         not hasattr(SceneExporter, "timestamp")

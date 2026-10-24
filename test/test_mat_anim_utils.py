@@ -255,6 +255,20 @@ try:
     orphan = btk.create_mat("standard", name="Orphan")
     check("is_mat_assigned true for assigned", btk.is_mat_assigned(m1))
     check("is_mat_assigned false for orphan", not btk.is_mat_assigned(orphan))
+    # Used only by a Geometry Nodes Set Material: no object slot carries it, yet it
+    # is in use -- Delete All Unused Materials deleted it and broke the node tree.
+    gn_mat = btk.create_mat("standard", name="GeoNodesOnly")
+    gn_tree = bpy.data.node_groups.new("SetMatTree", "GeometryNodeTree")
+    gn_tree.nodes.new("GeometryNodeSetMaterial").inputs["Material"].default_value = gn_mat
+    bpy.ops.mesh.primitive_cube_add(location=(30, 0, 0))
+    bpy.context.active_object.modifiers.new("GN", "NODES").node_group = gn_tree
+    check("is_mat_assigned true for a Geometry-Nodes-only user", btk.is_mat_assigned(gn_mat))
+    kept_alone = btk.create_mat("standard", name="FakeUserAlone")
+    kept_alone.use_fake_user = True
+    check(
+        "is_mat_assigned false for a fake user alone (kept, not used)",
+        not btk.is_mat_assigned(kept_alone),
+    )
 
     # add a TEX_IMAGE node with a generated image to M1 -> texture path/info/get_mat_info
     img = bpy.data.images.new("Tex", 64, 32)
@@ -334,6 +348,14 @@ try:
     check(
         "delete_unused_materials removes orphan",
         "Orphan" in removed and "Orphan" not in {m.name for m in bpy.data.materials},
+        f"removed={removed}",
+    )
+    gn_set = [n for n in gn_tree.nodes if n.bl_idname == "GeometryNodeSetMaterial"][0]
+    check(
+        "delete_unused_materials keeps a Geometry-Nodes-only material in its tree",
+        "GeoNodesOnly" not in removed
+        and gn_set.inputs["Material"].default_value is not None
+        and gn_set.inputs["Material"].default_value.name == "GeoNodesOnly",
         f"removed={removed}",
     )
 

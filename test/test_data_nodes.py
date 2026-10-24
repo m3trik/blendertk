@@ -238,7 +238,7 @@ try:
     _lib_internal = bpy.data.objects.new(DataNodes.INTERNAL, None)
     _lib_internal["smart_bake_sessions"] = '["lib"]'
     _lib_export = bpy.data.objects.new(DataNodes.EXPORT, None)
-    _lib_export["lightmap_metadata"] = '{"lib": 1}'
+    _lib_export["lightmaps"] = '{"lib": 1}'
     _coll.objects.link(_lib_internal)
     _coll.objects.link(_lib_export)
     bpy.data.libraries.write(_lib_file, {_coll})
@@ -280,7 +280,7 @@ try:
         check(
             "dump_export_nodes: every carrier, keyed by its full name",
             _dumped.get(DataNodes.EXPORT) == {"own": {"own": 1}}
-            and _dumped.get(_nodes[1].name_full) == {"lightmap_metadata": {"lib": 1}},
+            and _dumped.get(_nodes[1].name_full) == {"lightmaps": {"lib": 1}},
             f"{_dumped}",
         )
     finally:
@@ -312,11 +312,57 @@ try:
         and DataNodes.read(DELIVERABLE, "wire2") == "def",
     )
     check("ensure_export is idempotent", DataNodes.ensure_export() is carrier)
+    import warnings as _warnings
+
+    # The old name of the shot record's key: an alias, retired (removed in
+    # 0.21.0). Added: 2026-10-20
+    with _warnings.catch_warnings(record=True) as _caught:
+        _warnings.simplefilter("always")
+        _shot_key = DataNodes.SHOT_METADATA
     check(
-        "channel name constants (mtk parity)",
-        DataNodes.FBX_TAKES == "fbx_takes"
-        and DataNodes.SHOT_METADATA == "shot_metadata",
+        "SHOT_METADATA: a deprecated alias of the shot record's key (mtk parity)",
+        _shot_key == ptk.SceneRecords.SHOTS.key == "animation"
+        and any("SHOT_METADATA" in str(w.message) for w in _caught),
+        [str(w.message) for w in _caught],
     )
+    with _warnings.catch_warnings(record=True) as _caught:
+        _warnings.simplefilter("always")
+        _retired = DataNodes.FBX_TAKES
+    check(
+        "...and FBX_TAKES a deprecated alias of the retired key",
+        _retired == "fbx_takes"
+        and any(issubclass(w.category, DeprecationWarning) for w in _caught),
+        [str(w.message) for w in _caught],
+    )
+    # remove() deletes the property outright -- write(None) only clears it --
+    # so a migration leaves no emptied old key behind. Added: 2026-10-20
+    DataNodes.write(DELIVERABLE, "gone", "x")
+    check(
+        "remove deletes a channel's property outright",
+        DataNodes.remove(DELIVERABLE, "gone") is True
+        and "gone" not in DataNodes.get_export_node(create=False).keys(),
+    )
+    check(
+        "...and says when there was none",
+        DataNodes.remove(DELIVERABLE, "gone") is False,
+    )
+    # migrate(): a record stored under a renamed key moves to its key, and a
+    # retired one goes -- what a commit runs first.
+    DataNodes.write(DELIVERABLE, "lightmap_metadata", '{"version": 2, "objects": []}')
+    DataNodes.write(DELIVERABLE, "fbx_takes", "[]")
+    _moved = DataNodes.migrate()
+    _held = DataNodes.get_export_node(create=False).keys()
+    check(
+        "migrate moves a renamed record to its key and removes a retired one",
+        DataNodes.read(DELIVERABLE, ptk.SceneRecords.LIGHTMAPS.key)
+        == '{"version": 2, "objects": []}'
+        and "lightmap_metadata" not in _held
+        and "fbx_takes" not in _held
+        and {"lightmap_metadata", "fbx_takes"} <= set(_moved),
+        (_moved, list(_held)),
+    )
+    check("...and a migrated file has nothing left to move", DataNodes.migrate() == [])
+    DataNodes.remove(DELIVERABLE, ptk.SceneRecords.LIGHTMAPS.key)
 
     # --- the record layer over the store --------------------------------------------
     reset()
@@ -326,7 +372,7 @@ try:
         "record save/load round-trips with the declared version",
         payload["objects"] == [{"name": "a"}]
         and payload["version"] == ptk.SceneRecords.LIGHTMAPS.version
-        and _json.loads(DataNodes.get_export_node(create=False)["lightmap_metadata"])[
+        and _json.loads(DataNodes.get_export_node(create=False)[ptk.SceneRecords.LIGHTMAPS.key])[
             "version"
         ]
         == ptk.SceneRecords.LIGHTMAPS.version,
@@ -339,25 +385,46 @@ try:
     )
     ptk.SceneRecords.EMISSIVE_REGISTRY.save(DataNodes, {"slots": {"a": 0}})
     check(
-        "private and deliverable records with one key stay apart",
+        "the emissive registry (private) and manifest (deliverable) stay apart",
         ptk.SceneRecords.EMISSIVE_GROUPS.load(DataNodes) is None
         and ptk.SceneRecords.EMISSIVE_REGISTRY.load(DataNodes)["slots"] == {"a": 0},
     )
-    ptk.SceneRecords.LIGHTMAPS.save(DataNodes, {"dir": _pathlib.PurePosixPath("a/b")})
+    ptk.SceneRecords.LIGHTMAPS.save(
+        DataNodes,
+        {"objects": [{"name": "a", "map": _pathlib.PurePosixPath("a/b.exr")}]},
+    )
     check(
         "a non-JSON-native value is recorded as its string (default=str)",
-        ptk.SceneRecords.LIGHTMAPS.load(DataNodes)["dir"] == "a/b",
+        ptk.SceneRecords.LIGHTMAPS.load(DataNodes)["objects"][0]["map"] == "a/b.exr",
     )
     reset()
     ptk.ExportSnapshot.publish(
         DataNodes,
         {ptk.SceneRecords.LIGHTMAPS: {"objects": []}, ptk.SceneRecords.SHADOWS: None},
     )
-    handoff = ptk.SceneRecords.HANDOFF.load(DataNodes)
+    handoff = ptk.SceneRecords.HANDOFF.load(DataNodes) or {}
+    # Handoff v3: the approved scene part by part, each with the data it is
+    # built from -- the lightmaps record's own row, and the lighting rows that
+    # read it -- and only a source under ``extras`` (none given here).
+    parts = [(row.get("part"), row.get("data")) for row in handoff.get("assembly") or []]
+    lightmaps = "data_export.lightmaps"
     check(
-        "publish commits and stamps the handoff",
-        handoff is not None
-        and list(handoff["reads"]) == ["data_export.lightmap_metadata"],
+        "publish commits and stamps the handoff: each part at its data's address",
+        parts
+        == [
+            ("geometry", []),
+            ("lightmaps", [lightmaps]),
+            ("environment", ["rendering.environment", lightmaps]),
+            ("key_light", ["rendering.keyLight"]),
+            ("lightmapped_materials", ["rendering.lightmappedMaterials", lightmaps]),
+            ("renderer", ["rendering.renderer"]),
+        ],
+        parts,
+    )
+    check(
+        "...and no extras: no source was given, and a source is all it holds",
+        "extras" not in handoff,
+        handoff.get("extras"),
     )
     ptk.ExportSnapshot.publish(DataNodes, {ptk.SceneRecords.LIGHTMAPS: None})
     check(
@@ -370,14 +437,16 @@ try:
     _other_scene = bpy.data.scenes.new("Other")
     _legacy = bpy.data.objects.new(DataNodes.INTERNAL, None)
     bpy.context.scene.collection.objects.link(_legacy)
-    _legacy["emissive_groups"] = _json.dumps(
+    _legacy[ptk.SceneRecords.EMISSIVE_REGISTRY.key] = _json.dumps(
         {"schema": 1, "groups": {"g": {"slot": 0}}}
     )
     DataNodes.write(PRIVATE, "probe", "1")  # the first private write folds
     check(
         "fold: the Empty's records reach every local scene, not the current one only",
         all(
-            (s.get(DataNodes.INTERNAL) or {}).get("emissive_groups")
+            (s.get(DataNodes.INTERNAL) or {}).get(
+                ptk.SceneRecords.EMISSIVE_REGISTRY.key
+            )
             for s in bpy.data.scenes
         ),
         str(
@@ -426,7 +495,7 @@ try:
         if legacy_groups:
             empty = bpy.data.objects.new(DataNodes.INTERNAL, None)
             bpy.context.scene.collection.objects.link(empty)
-            empty["emissive_groups"] = _json.dumps(
+            empty[_SR.EMISSIVE_REGISTRY.key] = _json.dumps(
                 {"schema": 1, "groups": legacy_groups}
             )
         bpy.ops.wm.save_as_mainfile(filepath=path)
@@ -763,12 +832,38 @@ try:
         _abs(_proj_b, _bg["in.exr"]) == os.path.normcase(_maps),
         str(_bg),
     )
+    # A loaded file's records move to their current keys at the load
+    # (load_post), as mayatk's kAfterOpen moves a scene's. Only an export's
+    # commit migrated, so until one every panel and preview read an empty
+    # record -- and a tool's first write under the new key made that
+    # commit's migrate drop the old record whole. Added: 2026-10-24
+    _old_text = '{"version": 1, "shots": []}'
+    _old_file = os.path.join(_proj_a, "scenes", "old_keys.blend")
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    DataNodes.remove_path_rebase()  # the file must reach disk unmigrated
+    DataNodes.write(DELIVERABLE, "shot_metadata", _old_text)
+    bpy.ops.wm.save_as_mainfile(filepath=_old_file)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    DataNodes.install_path_rebase()
+    bpy.ops.wm.open_mainfile(filepath=_old_file)
+    _held = list((DataNodes.get_export_node(create=False) or {}).keys())
+    check(
+        "opening a file moves its records to their current keys, no export first",
+        DataNodes.read(DELIVERABLE, ptk.SceneRecords.SHOTS.key) == _old_text
+        and "shot_metadata" not in _held,
+        _held,
+    )
+    check("...and leaves the file unmodified", not bpy.data.is_dirty)
     DataNodes.remove_path_rebase()
     check(
         "remove takes the pair out",
         not any(
             getattr(f, "__name__", "") == "_rebase_before_save"
             for f in bpy.app.handlers.save_pre
+        )
+        and not any(
+            "DataNodes" in getattr(f, "__qualname__", "")
+            for f in bpy.app.handlers.load_post
         ),
     )
     bpy.ops.wm.read_factory_settings(use_empty=True)

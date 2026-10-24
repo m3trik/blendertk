@@ -6,6 +6,7 @@ Exercises the engine end-to-end (create_lightmap_uvs → Cycles bake → commit 
 Unity bridge (DataNodes manifest). Tiny resolution / samples so the real bake stays fast.
 """
 
+import dataclasses
 import json
 import math
 import os
@@ -46,6 +47,22 @@ try:
     from blendertk.light_utils.lightmap_baker.lightmap_records import LightmapRecords
     from blendertk.mat_utils.texture_baker import TextureBaker
     from unittest import mock as _mock
+
+    # The old names of the lightmaps record's key: aliases, retired (removed
+    # in 0.21.0). Added: 2026-10-20
+    import warnings as _lm_warnings
+
+    for _lm_owner in (LightmapRecords, LightmapBaker):
+        with _lm_warnings.catch_warnings(record=True) as _lm_caught:
+            _lm_warnings.simplefilter("always")
+            _lm_key = _lm_owner.LIGHTMAP_METADATA
+        check(
+            f"{_lm_owner.__name__}.LIGHTMAP_METADATA: a deprecated alias of "
+            "the lightmaps record's key",
+            _lm_key == ptk.SceneRecords.LIGHTMAPS.key
+            and any("LIGHTMAP_METADATA" in str(w.message) for w in _lm_caught),
+            [str(w.message) for w in _lm_caught],
+        )
 
     # A re-bake sets the maps it superseded aside -- into this machine's
     # Recycle Bin wherever the volume has one. Pinned for the whole script to a
@@ -318,7 +335,7 @@ try:
         for loop, uv in zip(lm_layer.data, original_uvs):
             loop.uv = uv
 
-    baker.commit_lightmap(result, intensity=1.0)
+    baker.commit_lightmap(result)
     check("commit stamps the marker", LightmapBaker.LIGHTMAP_INFO_PROP in cube)
     raw = ptk.SceneRecords.LIGHTMAPS.read_text(btk.DataNodes)
     check("manifest published to data_export", bool(raw), repr(raw)[:80])
@@ -359,15 +376,10 @@ try:
 
     bpy.ops.mesh.primitive_cube_add(location=(5, 0, 0))
     cube_b = bpy.context.active_object
-    import warnings
-
-    with warnings.catch_warnings(record=True) as caught_intensity:
-        warnings.simplefilter("always")
-        baker.commit_lightmap({cube.name: ipath, cube_b.name: ipath}, intensity=2.0)
-    check(
-        "commit_lightmap(intensity=) is deprecated (bake(intensity=) replaces it)",
-        any(issubclass(w.category, DeprecationWarning) for w in caught_intensity),
-    )
+    # What bake(intensity=) runs on the maps it wrote: one file named twice
+    # (two objects on one atlas) scales once.
+    baker._apply_intensity([ipath, ipath], 2.0)
+    LightmapRecords.commit({cube.name: ipath, cube_b.name: ipath}, intensity=2.0)
     reload = bpy.data.images.load(ipath)
     ibuf = np.empty(len(reload.pixels), dtype=np.float32)
     reload.pixels.foreach_get(ibuf)
@@ -380,8 +392,14 @@ try:
     raw_i = ptk.SceneRecords.LIGHTMAPS.read_text(btk.DataNodes)
     recs = (json.loads(raw_i).get("objects") if raw_i else []) or []
     check(
-        "manifest records intensity 2.0 for both objects",
-        len(recs) == 2 and all(r.get("intensity") == 2.0 for r in recs),
+        "the markers keep intensity 2.0 for both objects; the record ships none "
+        "(its texels carry it: the map is applied as stored)",
+        len(recs) == 2
+        and all("intensity" not in r for r in recs)
+        and all(
+            LightmapRecords.lightmap_info(o).get("intensity") == 2.0
+            for o in (cube, cube_b)
+        ),
         f"{[(r.get('name'), r.get('intensity')) for r in recs]}",
     )
     baker.revert([cube, cube_b])
@@ -390,27 +408,27 @@ try:
         (ptk.SceneRecords.LIGHTMAPS.read_text(btk.DataNodes) or "") == "",
     )
 
-    # --- uv_rects marker mirror (mayatk pack_atlas bookkeeping) ------------
-    # (mirror of mayatk commit_lightmap: a non-identity uv_rect is recorded on
-    # the marker as ``uvRect`` -- revert bookkeeping only -- while the manifest
-    # keeps publishing an identity scaleOffset; identity rects record nothing.)
+    # --- a legacy uvRect marker (mirror of mayatk's pre-0.17 pack bookkeeping) --
+    # (an old pack's squeeze recorded on the marker as ``uvRect`` -- revert
+    # bookkeeping only -- while the manifest keeps publishing an identity
+    # scaleOffset.)
     rect = [0.5, 0.5, 0.25, 0.25]
-    baker.commit_lightmap(
-        {cube.name: ipath, cube_b.name: ipath},
-        uv_rects={cube.name: rect, cube_b.name: [1.0, 1.0, 0.0, 0.0]},
-    )
+    LightmapRecords.commit({cube.name: ipath, cube_b.name: ipath})
+    legacy = LightmapRecords._marker_info(cube)
+    legacy["uvRect"] = list(rect)
+    LightmapRecords._write_marker(cube, legacy)
     info_a = json.loads(cube[LightmapBaker.LIGHTMAP_INFO_PROP])
     info_b = json.loads(cube_b[LightmapBaker.LIGHTMAP_INFO_PROP])
     check(
-        "uv_rects recorded on the marker (uvRect)",
+        "a legacy uvRect is recorded on the marker",
         info_a.get("uvRect") == rect,
         f"{info_a}",
     )
-    check("identity uv_rect records no uvRect key", "uvRect" not in info_b, f"{info_b}")
+    check("an unsqueezed object records no uvRect key", "uvRect" not in info_b, f"{info_b}")
     raw_r = ptk.SceneRecords.LIGHTMAPS.read_text(btk.DataNodes)
     recs_r = (json.loads(raw_r).get("objects") if raw_r else []) or []
     check(
-        "manifest scaleOffset stays identity with uv_rects",
+        "manifest scaleOffset stays identity with a legacy uvRect",
         recs_r
         and all(
             r.get("scaleOffset") == [1.0, 1.0, 0.0, 0.0] and "uvRect" not in r
@@ -420,7 +438,7 @@ try:
     )
     baker.revert([cube, cube_b])
     check(
-        "uv_rects commit reverts clean",
+        "a legacy uvRect commit reverts clean",
         (ptk.SceneRecords.LIGHTMAPS.read_text(btk.DataNodes) or "") == "",
     )
 
@@ -1409,7 +1427,7 @@ try:
     )
 
     # --- the Bake Set: plain, or spelled by the naming convention -------------
-    from blendertk.mat_utils.bake_sets import LightmapBakeSet
+    from blendertk.mat_utils.bake_sets import _LightmapBakeSet as LightmapBakeSet
 
     saved_cache = ptk.NamingConvention._cache
     ptk.NamingConvention._cache = {
@@ -1439,6 +1457,41 @@ try:
         )
     finally:
         ptk.NamingConvention._cache = saved_cache
+
+    # --- duplicate materials: one atlas group, materials untouched ------------------
+    # A duplicate material (the same textures by content) groups with the one it
+    # duplicates (_atlas_keys), so they bake one atlas -- no merge, nothing reassigned.
+    dup_img = bpy.data.images.new("Crate_BaseColor", 4, 4)
+    dup_img.filepath_raw = os.path.join(tmp_dir, "Crate_BaseColor.png")
+    dup_img.file_format = "PNG"
+    dup_img.save()
+    dup_objs, dup_maps = {}, {}
+    for i, name in enumerate(("DupA", "DupB")):
+        dup_mat = btk.create_mat("standard", name=f"{name}_mat")
+        dup_mat.node_tree.nodes.new("ShaderNodeTexImage").image = dup_img
+        bpy.ops.mesh.primitive_cube_add(location=(20 + 3 * i, 0, 0))
+        dup_obj = bpy.context.active_object
+        dup_obj.name = name
+        btk.assign_mat(dup_obj, dup_mat)
+        btk.create_lightmap_uvs([dup_obj])
+        dup_maps[dup_obj.name] = os.path.join(tmp_dir, f"{name}_Lightmap.exr")
+        open(dup_maps[dup_obj.name], "wb").close()
+        dup_objs[name] = dup_obj
+    LightmapBaker(resolution=64).commit_lightmap(dup_maps)
+    dup_keys = LightmapBaker._atlas_keys(["DupA", "DupB"])
+    check(
+        "duplicate materials: one atlas group, keyed by a material of the pair, "
+        "with no merge offered and each object keeping its own material",
+        len(set(dup_keys.values())) == 1
+        and set(dup_keys.values()) <= {"DupA_mat", "DupB_mat"}
+        and not hasattr(LightmapBaker, "merge_duplicate_materials")
+        and [o.material_slots[0].material.name for o in dup_objs.values()]
+        == ["DupA_mat", "DupB_mat"],
+        f"{dup_keys}",
+    )
+    LightmapBaker().revert([o.name for o in dup_objs.values()])
+    for dup_obj in dup_objs.values():
+        bpy.data.objects.remove(dup_obj, do_unlink=True)
 
     # --- the lightmap is named after the TEXTURE SET, not the material -------------
     # A lightmap is one more map of the set the object already wears, so it has to sort
@@ -1910,13 +1963,9 @@ try:
         _same_dir((LightmapRecords.search_dirs() or [""])[0], dep_dir),
         f"{LightmapRecords.search_dirs()}",
     )
-    with warnings.catch_warnings(record=True) as caught_alias:
-        warnings.simplefilter("always")
-        alias_deps = LightmapBaker().lightmap_dependencies()
     check(
-        "the baker's old lightmap_dependencies spelling warns and still answers",
-        [d["map"] for d in alias_deps] == ["dep_cube_LightMap.exr"]
-        and any(issubclass(w.category, DeprecationWarning) for w in caught_alias),
+        "the baker's old lightmap_dependencies spelling is gone (removed in 0.20.0)",
+        not hasattr(LightmapBaker, "lightmap_dependencies"),
     )
 
     moved_dir = os.path.join(tmp_dir, "moved")
@@ -1990,6 +2039,27 @@ try:
         [d["map"] for d in result["missing"]] == ["lost.exr"]
         and result["updated"] == 0,
         f"{result}",
+    )
+    # 2026-10-21 audit: a Find & Move moved a map another file still reads.
+    bpy.ops.mesh.primitive_cube_add()
+    shared_cube = bpy.context.active_object
+    shared_cube.name = "shared_cube"
+    shared_src = os.path.join(tmp_dir, "shared", "shared_LightMap.exr")
+    os.makedirs(os.path.dirname(shared_src), exist_ok=True)
+    with open(shared_src, "wb") as fh:
+        fh.write(b"exr")
+    other_blend = os.path.join(tmp_dir, "shared", "other.blend")
+    with open(other_blend, "wb") as fh:
+        fh.write(b"BLENDER")
+    dep_baker.commit({shared_cube.name: shared_src})
+    LightmapRecords._save_writers(
+        dict(LightmapRecords._writers(), **{"shared_lightmap.exr": other_blend})
+    )
+    dep_baker.relocate_lightmaps(dest, mode="move", objects=["shared_cube"])
+    check(
+        "relocate copies, never moves, a map another file wrote",
+        os.path.isfile(shared_src)
+        and os.path.isfile(os.path.join(dest, "shared_LightMap.exr")),
     )
     check(
         "scope limits to the given objects",
@@ -3155,6 +3225,42 @@ try:
         replaced and placed["bs_crate"][0] == theirs,
         f"{placed}",
     )
+    # The pack fallback -- a group whose assembly fails keeps its per-object maps --
+    # named by claims alone, and replaced another file's same-named map that nothing
+    # here claims and this file never wrote. Named by the atlas rule now
+    # (LightmapRecords.strangers), as the atlas itself is. Mirror of mayatk's.
+    fb_dir = os.path.join(par_dir, "fallback")
+    os.makedirs(fb_dir, exist_ok=True)
+    fb_theirs = os.path.join(fb_dir, "Fb_Set_Lightmap.exr")
+    with open(fb_theirs, "wb") as fh:
+        fh.write(b"theirs")
+    fb_source = os.path.join(work, "Fb_Set_Lightmap.exr")
+    with open(fb_source, "wb") as fh:
+        fh.write(b"mine")
+    real_pack_group = LightmapBaker.__dict__["_pack_group"]
+
+    def _assembly_fails(self, *args, **kwargs):
+        raise RuntimeError("assembly failed")
+
+    LightmapBaker._pack_group = _assembly_fails
+    try:
+        fb_packed = beside.pack_atlas(
+            {"fb_crate": fb_source},
+            fb_dir,
+            plan={"Fb_Set": [("fb_crate", [1.0, 1.0, 0.0, 0.0])]},
+            claims={},
+        )
+    finally:
+        LightmapBaker._pack_group = real_pack_group
+    with open(fb_theirs, "rb") as fh:
+        fb_untouched = fh.read() == b"theirs"
+    check(
+        "a failed group's map never lands on another file's map of its name",
+        fb_untouched
+        and os.path.basename(fb_packed.get("fb_crate", ("",))[0])
+        == "Fb_Set_Lightmap_1.exr",
+        f"{fb_packed}",
+    )
 
     # _place never deletes the old map before the new one is in: a swap that
     # fails leaves the destination as it was and takes an adjacent name.
@@ -3476,8 +3582,8 @@ try:
             def __init__(self):
                 self._text = ""
 
-            def setText(self, text):
-                self._text = text
+            def setText(self, text, level=None):
+                self._text, self.level = text, level
 
             def text(self):
                 return self._text
@@ -3487,6 +3593,21 @@ try:
 
         class _Label(_Footer):
             pass
+
+        class _RunButton:
+            """The shared run button: what it says, and whether it may run."""
+
+            def __init__(self):
+                self._text, self.enabled = "Bake Lightmaps", True
+
+            def text(self):
+                return self._text
+
+            def setText(self, text):
+                self._text = text
+
+            def setEnabled(self, enabled):
+                self.enabled = bool(enabled)
 
         def _panel(
             res=1024,
@@ -3502,10 +3623,13 @@ try:
             scene_lights=True,
             hidden_lights=False,
             probe=True,
+            page="Bake",
         ):
             """A panel over stub widgets, each wired by its own ``_init``."""
             p = LightmapBakerSlots.__new__(LightmapBakerSlots)
             ui = SimpleNamespace(
+                # The panel's destroyed signal, which a window's listeners follow.
+                destroyed=SimpleNamespace(connect=lambda *_a: None),
                 cmb_scope=_Combo(),
                 cmb002=_Combo(),
                 cmb_device=_Combo(),
@@ -3517,10 +3641,18 @@ try:
                 lbl_exclude=_Label(),
                 lbl_isolate=_Label(),
                 footer=_Footer(),
+                cmb_page=_Combo(),
+                stk_pages=SimpleNamespace(setCurrentIndex=lambda index: None),
+                b000=_RunButton(),
             )
             p.ui = ui
             p._baker = None
             p._last_output_dir = None
+            p._map_rows = {}
+            p._fill_maps = lambda rows, report: None  # no Qt table here
+            p._highlight_maps = lambda names: None
+            p.cmb_page_init(ui.cmb_page)
+            ui.cmb_page.setCurrentIndex(LightmapBakerSlots._PAGES.index(page))
             p.cmb_scope_init(ui.cmb_scope)
             p.cmb002_init(ui.cmb002)
             p.cmb_device_init(ui.cmb_device)
@@ -3630,6 +3762,12 @@ try:
             )
             and _panel(probe=False)._reflection_probe() is False,
             fresh_panel.ui.cmb002.option_box.wired,
+        )
+        check(
+            "the help card links mayatk's reference, which covers both twins",
+            LightmapBakerSlots.HELP_URL.endswith(
+                "/mayatk/blob/main/docs/lightmap_baker.md"
+            ),
         )
         check(
             "the switches are keyed as the preset store keys them",
@@ -3795,15 +3933,8 @@ try:
             _layout_items("main_layout")
             == [
                 "header",
-                "cmb_scope",
-                "exclude_layout",
-                "isolate_layout",
-                "bake_set_layout",
-                "cmb002",
-                "cmb_device",
-                "quality_group",
-                "output_group",
-                "grp_process",
+                "cmb_page",
+                "stk_pages",
                 "verticalSpacer",
                 "footer",
             ],
@@ -3815,10 +3946,25 @@ try:
             f"{_layout_items('isolate_layout')}",
         )
         check(
-            "the Bake Set row mirrors the Exclude row: a label and one button "
-            "(its switches ride the button's option box)",
-            _layout_items("bake_set_layout") == ["lbl_bake_set", "select_bake_set"],
-            f"{_layout_items('bake_set_layout')}",
+            "the Bake page reads top to bottom as mayatk's does",
+            _layout_items("bake_layout")
+            == [
+                "cmb_scope",
+                "exclude_layout",
+                "isolate_layout",
+                "cmb002",
+                "cmb_device",
+                "quality_group",
+                "output_group",
+                "grp_process",
+            ],
+            f"{_layout_items('bake_layout')}",
+        )
+        check(
+            "the Manage page is its table: its verbs are the table menu's and the "
+            "header menu's",
+            _layout_items("manage_layout") == ["tbl_maps"],
+            f"{_layout_items('manage_layout')}",
         )
         check(
             "the Quality group holds Resolution, Samples and Bounces",
@@ -4107,9 +4253,9 @@ try:
             ex_a.select_set(True)
             rv = _panel()
             rv.sb = _Sb("Cancel")
-            rv.revert_to_source()
+            rv.revert_selected()
             check(
-                "Revert to Source asks first, and Cancel reverts nothing",
+                "Revert Selected asks first, and Cancel reverts nothing",
                 len(rv.sb.asked) == 1
                 and "1 selected object" in rv.sb.asked[0][0]
                 and rv.sb.asked[0][1] == ("Ok", "Cancel")
@@ -4119,7 +4265,7 @@ try:
             )
             rv.sb = _Sb("Ok")
             rv._baker = None
-            rv.revert_to_source()
+            rv.revert_selected()
             check(
                 "...and once confirmed it reverts the selection",
                 rv._baker.calls
@@ -4129,11 +4275,14 @@ try:
             bpy.ops.object.select_all(action="DESELECT")
             rv._baker = None
             rv.sb = _Sb("Ok")
-            rv.revert_to_source()
+            rv.revert_selected()
             check(
-                "...with nothing selected it offers every baked object, and says so",
-                "all of them" in rv.sb.asked[0][0]
-                and rv._baker.calls[-1] == ("revert", None),
+                "...with nothing selected it asks nothing and says to select "
+                "(an empty selection is not every baked object)",
+                rv.sb.asked == []
+                and "revert" not in [c[0] for c in rv._baker.calls]
+                and "select their objects" in rv.ui.footer.text(),
+                (rv.sb.asked, rv.ui.footer.text()),
             )
         finally:
             slots_mod.LightmapBaker = real_workflow
@@ -4331,6 +4480,40 @@ try:
         f"{LightmapRecords._folder_hints()}",
     )
 
+    # --- every entry names its node's path from the root (2026-10-20) ---------
+    # The record's shape (ptk.LightmapRecord) requires each object's
+    # ``hierarchy``, its parent chain root first -- what tells apart objects
+    # that share a name once an import renames -- and the GLB build's reader
+    # refuses a record without it (MeshConvert._current_record). One shape for
+    # every host, mayatk's DAG path included.
+    hy_room = bpy.data.objects.new("hyRoom", None)
+    bpy.context.scene.collection.objects.link(hy_room)
+    bpy.ops.mesh.primitive_cube_add()
+    hy_crate = bpy.context.active_object
+    hy_crate.name = "hyCrate"
+    hy_crate.parent = hy_room
+    hy_map = os.path.join(tmp_dir, "hyCrate_LightMap.exr")
+    open(hy_map, "wb").close()
+    LightmapRecords.commit({hy_crate.name: hy_map})
+    hy_payload = LightmapRecords._record().payload
+    hy_entry = next(
+        (e for e in hy_payload["objects"] if e.get("name") == "hyCrate"), {}
+    )
+    check(
+        "a record entry names its object's path from the root, its own name last",
+        hy_entry.get("hierarchy") == ["hyRoom", "hyCrate"],
+        f"{hy_entry}",
+    )
+    hy_problems = ptk.SceneRecords.problems(ptk.SceneRecords.LIGHTMAPS, hy_payload)
+    check(
+        "...and the record is one its declaration reads (SceneRecords.problems)",
+        hy_problems == [],
+        f"{hy_problems}",
+    )
+    LightmapRecords.revert()
+    bpy.data.objects.remove(hy_crate)
+    bpy.data.objects.remove(hy_room)
+
     # --- the folder is spelled from the FILE's own project (2026-09-23) ----------
     # BACKLOG 2026-09-22, decided 2026-09-23 (mirror of mayatk): relative to the
     # project the .blend lives in -- a ../ chain to a shared library beside it --
@@ -4390,9 +4573,28 @@ try:
     sup_baker = LightmapBaker.from_preset(
         "preview", resolution=64, samples=4, denoise=False, device="CPU"
     )
-    first = sup_baker.bake([sup_cube], packing="per_object", output_dir=sup_dir)
+
+    def _saved():
+        """What a save does first (``save_pre``): the maps written since the
+        last save go home and the superseded ones are set aside
+        (``ptk.PendingFiles.saving``) -- the .blend itself not written."""
+        ptk.PendingFiles.session().saving(
+            bpy.data.filepath, saved_from=bpy.data.filepath
+        )
+
+    def _sup_bake(*args, **kwargs):
+        """A bake, then :func:`_saved`: these checks are about where the maps
+        end up once the file keeps them -- its maps named by their homes."""
+        result = sup_baker.bake(*args, **kwargs)
+        _saved()
+        result.maps = {n: LightmapRecords._home(p) for n, p in result.maps.items()}
+        if result.probe:
+            result.probe = LightmapRecords._home(result.probe)
+        return result
+
+    first = _sup_bake([sup_cube], packing="per_object", output_dir=sup_dir)
     old = first.maps.get(sup_cube.name, "")
-    second = sup_baker.bake(
+    second = _sup_bake(
         [sup_cube], packing="per_object", output_dir=sup_dir, suffix="_LM"
     )
     check(
@@ -4437,7 +4639,7 @@ try:
         return target
 
     with _mock.patch.object(ptk.FileUtils, "move_to_trash", side_effect=_to_bin):
-        third = sup_baker.bake(
+        third = _sup_bake(
             [sup_cube], packing="per_object", output_dir=sup_dir, suffix="_L3"
         )
     _was = second.maps.get(sup_cube.name, "")
@@ -4454,10 +4656,10 @@ try:
     # re-bake sent another project's room lightmap to the Recycle Bin (mayatk,
     # 2026-10-03). Only a map inside the file's project is set aside.
     outside_dir = os.path.join(tmp_dir, "sup_outside")
-    _far = sup_baker.bake(
+    _far = _sup_bake(
         [sup_cube], packing="per_object", output_dir=outside_dir, suffix="_Far"
     ).maps.get(sup_cube.name, "")
-    _back = sup_baker.bake([sup_cube], packing="per_object", output_dir=sup_dir)
+    _back = _sup_bake([sup_cube], packing="per_object", output_dir=sup_dir)
     check(
         "a map outside the project is never set aside",
         os.path.isfile(_far) and _back.retired == [],
@@ -4478,6 +4680,7 @@ try:
         LightmapRecords.commit(
             {sup_other.name: _exr(os.path.join(sup_dir, "Moved2_Lightmap.exr"))}
         )
+    _saved()
     check("...and deleted once nothing does", not os.path.isfile(shared))
 
     source = os.path.join(sup_dir, "source.blend")
@@ -4500,6 +4703,7 @@ try:
         LightmapRecords.commit(
             {sup_cube.name: _exr(os.path.join(sup_dir, "FirstSave_Lightmap.exr"))}
         )
+    _saved()
     check(
         "...so a re-bake after it retires a map baked before it",
         not os.path.isfile(os.path.join(sup_dir, _pre_save))
@@ -4518,6 +4722,28 @@ try:
         os.path.isfile(written) and gone == [],
         f"{gone}",
     )
+    # BACKLOG 2026-10-21 (S2, ported from mayatk): once the copy's markers name
+    # only its own maps, the writer record alone keeps a later bake off the
+    # source's name -- pruned, a bake back under it wrote over the file.
+    _src_key = os.path.basename(written).lower()
+    LightmapRecords._prune_folder_hints()
+    check(
+        "a copy never takes back a name its source wrote",
+        _src_key in LightmapRecords._writers()
+        and LightmapRecords.FOREIGN
+        in LightmapRecords.claims().get(_src_key, frozenset())
+        and os.path.normcase(
+            ptk.FileUtils.unique_path(
+                sup_dir,
+                "Source_Lightmap",
+                ".exr",
+                claims=LightmapRecords.claims(),
+                owners=[sup_cube.name],
+            )
+        )
+        != os.path.normcase(written),
+        f"{LightmapRecords._writers()}",
+    )
 
     copy_map = LightmapRecords._marker_info(sup_cube)["map"]
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(sup_dir, "renamed.blend"))
@@ -4526,10 +4752,26 @@ try:
         LightmapRecords.commit(
             {sup_cube.name: _exr(os.path.join(sup_dir, "Renamed_Lightmap.exr"))}
         )
+    _saved()
     check(
         "a renamed file's own maps are still its own",
         not os.path.isfile(os.path.join(sup_dir, copy_map)),
     )
+    # 2026-10-21: a stamp naming a file that is gone read as this file's own
+    # only while nothing was there; a file back at the old name then owned the
+    # map. A save writes the ownership down.
+    _orphans = dict(LightmapRecords._writers(), **{"orphan.exr": "copy.blend"})
+    LightmapRecords._save_writers(_orphans)
+    bpy.ops.wm.save_mainfile()
+    with open(os.path.join(sup_dir, "copy.blend"), "wb") as _fh:
+        _fh.write(b"BLENDER")  # the old name is back
+    check(
+        "a save gives a gone file's maps to the file saved, for good",
+        LightmapRecords._writers().get("orphan.exr") == "renamed.blend"
+        and LightmapRecords.foreign_writer("orphan.exr") is None,
+        f"{LightmapRecords._writers()}",
+    )
+    os.remove(os.path.join(sup_dir, "copy.blend"))
 
     kept = LightmapRecords._marker_info(sup_cube)["map"]
     LightmapRecords._save_writers({})
@@ -5330,7 +5572,8 @@ try:
     check(
         "a bake captures the room it lit as a probe beside its maps",
         bool(result.probe)
-        and os.path.normcase(os.path.dirname(result.probe)) == os.path.normcase(rp_dir)
+        and os.path.normcase(os.path.dirname(LightmapRecords._home(result.probe)))
+        == os.path.normcase(rp_dir)
         and result.probe.endswith("untitled_Probe.exr"),
         result.probe,
     )
@@ -5356,9 +5599,16 @@ try:
     )
     rp_manifest = json.loads(LightmapRecords._record().text)
     check(
-        "the manifest carries the probe to the GLB",
-        rp_manifest.get("probe") == rp_record,
-        rp_manifest.get("probe"),
+        "the manifest carries the probe to the GLB, in the record's shape: its box "
+        "{min, max}, its unit the record's one unit_scale",
+        rp_manifest.get("probe")
+        == {
+            "map": rp_record.get("map"),
+            "position": rp_record.get("position"),
+            "box": ptk.LightmapRecord.box(rp_record.get("box")),
+        }
+        and rp_manifest.get("unit_scale") == rp_record.get("unit_scale"),
+        rp_manifest,
     )
     rp_name = os.path.basename(result.probe or "")
     deps = rp_deps(walk=True)
@@ -5369,9 +5619,11 @@ try:
         and bool(deps[rp_name]["path"]),
         deps.get(rp_name),
     )
+    # The folder it is in now: the session's until the file is saved
+    # (LightmapRecords._stage).
     check(
         "...and a GLB build is handed its folder",
-        os.path.normcase(rp_dir)
+        os.path.normcase(os.path.dirname(result.probe or ""))
         in [os.path.normcase(d) for d in LightmapRecords.search_dirs()],
         LightmapRecords.search_dirs(),
     )
@@ -5626,7 +5878,6 @@ try:
     # per object, so a cell written in place is told from one left as it was.
     import inspect
 
-    from blendertk.core_utils._core_utils import CoreUtils as _RcCore
     from blendertk.light_utils.lightmap_baker.lightmap_baker import (
         LightmapBakeResult as _RcResult,
     )
@@ -5707,14 +5958,28 @@ try:
     def rc_baker(**kw):
         return LightmapBaker(resolution=RC_RES, reflection_probe=False, **kw)
 
+    def rc_saved():
+        """What a save does first (``save_pre``): the maps written since the
+        last save go home and the superseded ones are set aside
+        (``ptk.PendingFiles.saving``) -- the .blend itself not written."""
+        ptk.PendingFiles.session().saving(
+            bpy.data.filepath, saved_from=bpy.data.filepath
+        )
+
+    def rc_as_saved(result):
+        """*result* once saved (:func:`rc_saved`): its maps named by their homes."""
+        rc_saved()
+        result.maps = {n: LightmapRecords._home(p) for n, p in result.maps.items()}
+        return result
+
     def rc_bake(objects, **kw):
         result = rc_baker().bake(objects, packing="atlas", output_dir=rc_out, **kw)
         if not result.maps:
             raise RuntimeError(f"fixture bake of {objects} refused: {result.refused}")
-        return result
+        return rc_as_saved(result)
 
     def rc_rebake(**kw):
-        return rc_baker().rebake_changed(output_dir=rc_out, **kw)
+        return rc_as_saved(rc_baker().rebake_changed(output_dir=rc_out, **kw))
 
     def rc_report(**kw):
         return rc_baker().stale_report(**kw)
@@ -5746,6 +6011,433 @@ try:
         return {e["map"] for e in LightmapRecords._record().payload["objects"]}
 
     try:
+        # -- duplicate materials ----------------------------------------------
+        # Mirror of mayatk's split tests: a material and its duplicate are one
+        # atlas group (_atlas_keys), so a bake packs one atlas and touches no
+        # material; a file baked before that (one map per material, Crate_
+        # Lightmap and Crate_Lightmap_1) reads both maps as split -- no
+        # re-bake target -- and Combine packs the group into one from the
+        # lighting they hold, no render, the duplicate merged.
+        def rc_split_scene(legacy, values=None):
+            rc_reset()
+            rc_values.update(values or {})
+            mat = rc_material()
+            img = next(n.image for n in mat.node_tree.nodes if n.type == "TEX_IMAGE")
+            img.filepath_raw = os.path.join(rc_root, "Crate_BaseColor.png")
+            img.file_format = "PNG"
+            img.save()  # the duplicate finder compares files
+            dup = btk.create_mat("standard", name="rcDupMat")
+            dup.node_tree.nodes.new("ShaderNodeTexImage").image = img
+            a, b = rc_crates(("rcA", "rcB"), mat=mat)
+            (c,) = rc_crates(("rcC",), mat=dup)
+            bpy.data.objects[c].location.x = 20.0
+            bpy.context.view_layer.update()
+            raw = {n: bpy.data.objects[n].material_slots[0].material.name for n in (a, b, c)}
+            with _ctx.ExitStack() as stack:
+                if legacy:
+                    stack.enter_context(
+                        _mock.patch.object(
+                            LightmapBaker,
+                            "_atlas_keys",
+                            classmethod(lambda cls, names: {n: raw[n] for n in names}),
+                        )
+                    )
+                rc_bake([a, b, c])
+            return (a, b, c), raw
+
+        def rc_maps_read(objs):
+            return {
+                os.path.basename(p) for n, _m, p in LightmapRecords._reads() if n in objs and p
+            }
+
+        def rc_mats(objs):
+            return {n: bpy.data.objects[n].material_slots[0].material.name for n in objs}
+
+        objs, raw = rc_split_scene(legacy=False)
+        check(
+            "duplicate materials: one bake packs a material and its duplicate into "
+            "one atlas, every material left as it was",
+            rc_maps_read(objs) == {RC_ATLAS}
+            and rc_mats(objs) == raw
+            and rc_report().targets == (),
+            (rc_maps_read(objs), rc_mats(objs)),
+        )
+        # Fixing the duplicates elsewhere afterwards (the Scene Exporter task,
+        # MatUtils' merge) moves rcC within its one atlas group: it re-bakes
+        # alone into the cell it owns -- nothing splits or re-packs.
+        from blendertk.mat_utils._mat_utils import MatUtils as rc_MatUtils
+
+        rc_MatUtils.reassign_duplicate_materials(
+            [[bpy.data.materials[raw[objs[0]]], bpy.data.materials[raw[objs[2]]]]],
+            delete=True,
+        )
+        rc_merged = rc_report()
+        rc_rebake()
+        check(
+            "duplicate materials: merging them after a bake keeps the one atlas -- "
+            "the moved object re-bakes in place, nothing re-packs",
+            rc_merged.repack == {}
+            and rc_merged.targets == (objs[2],)
+            and rc_merged.in_place == (objs[2],)
+            and rc_maps_read(objs) == {RC_ATLAS}
+            and rc_report().targets == (),
+            rc_merged.lines(),
+        )
+        def rc_cell_means(objs):
+            """{name: mean of its cell in the map it reads}, through its binding."""
+            marks = {o.name: i for o, i in LightmapRecords._marker_records()}
+            paths = {n: p for n, _m, p in LightmapRecords._reads() if p}
+            out = {}
+            for n in objs:
+                img = LightmapBaker._read_exr_top_down(paths[n])
+                h, w = img.shape[:2]
+                sx, sy, ox, oy = marks[n]["scaleOffset"]
+                u0, v0, u1, v1 = LightmapBaker._lightmap_uv_bbox(n) or (0, 0, 1, 1)
+                c0, c1 = int((u0 * sx + ox) * w) + 1, int((u1 * sx + ox) * w) - 1
+                r0, r1 = int((1 - (v1 * sy + oy)) * h) + 1, int((1 - (v0 * sy + oy)) * h) - 1
+                out[n] = float(img[r0 : max(r1, r0 + 1), c0 : max(c1, c0 + 1), :3].mean())
+            return out
+
+        (a, b, c), raw = rc_split_scene(legacy=True)
+        rc_split = rc_maps_read((a, b, c))
+        rc_split_report = rc_report()
+        rc_split_rows = rc_baker().bake_maps(rc_split_report)
+        # Untracked (baked before change tracking): no record says rcC's map
+        # was an atlas of one, but beside its group's atlas it is the split.
+        rc_state = LightmapRecords.bake_state.__func__
+
+        def rc_without_c(cls, *args, **kw):
+            out = rc_state(cls, *args, **kw)
+            out["objects"] = {k: e for k, e in out["objects"].items() if k != c}
+            return out
+
+        with _mock.patch.object(LightmapRecords, "bake_state", classmethod(rc_without_c)):
+            rc_untracked = rc_report()
+        check(
+            "an untracked split-off map beside its group's atlas is the split, "
+            "and no re-bake target",
+            set(rc_untracked.split) == {RC_ATLAS, "Crate_Lightmap_1.exr"}
+            and rc_untracked.targets == (),
+            rc_untracked.lines(),
+        )
+        rc_sizes = rc_baker().combine_sizes()
+        check(
+            "Combine's sizes start at the largest map the split reads and end "
+            "at the first that keeps every cell's detail",
+            rc_sizes
+            and rc_sizes[0][0] == RC_RES
+            and [x for x, _k in rc_sizes] == sorted(x for x, _k in rc_sizes)
+            and rc_sizes[-1][1] >= LightmapBaker.COMBINE_KEEP,
+            rc_sizes,
+        )
+        rc_old = rc_cell_means((a, b, c))
+        rc_dated = {n: LightmapRecords.bake_state()["objects"][n]["baked_at"] for n in (a, b, c)}
+        with _mock.patch.object(
+            LightmapBaker, "bake", side_effect=AssertionError("rendered")
+        ), _mock.patch.object(
+            LightmapBaker, "_bake_atlas", side_effect=AssertionError("rendered")
+        ):
+            rc_combined = rc_baker().combine()
+        rc_new = rc_cell_means((a, b, c))
+        rc_after = rc_report()
+        rc_worst = max(abs(rc_new[n] - rc_old[n]) / max(rc_old[n], 1e-3) for n in (a, b, c))
+        check(
+            "a duplicate material baked to its own map reads as split (no re-bake "
+            "target), and Combine packs it into one atlas with no render -- each "
+            "cell keeps its light and its bake date, the duplicate merged",
+            rc_split == {RC_ATLAS, "Crate_Lightmap_1.exr"}
+            and rc_split_report.targets == ()
+            and set(rc_split_report.split) == {RC_ATLAS, "Crate_Lightmap_1.exr"}
+            and len(rc_split_report.split_materials[RC_ATLAS]) == 2
+            and {r["state"] for r in rc_split_rows} == {"split"}
+            and all("Combine" in r["hint"] for r in rc_split_rows)
+            and not rc_combined.refused
+            and rc_maps_read((a, b, c)) == {RC_ATLAS}
+            and rc_worst < 0.02
+            and {n: LightmapRecords.bake_state()["objects"][n]["baked_at"] for n in (a, b, c)}
+            == rc_dated
+            and len(set(rc_mats((a, b, c)).values())) == 1
+            and (rc_after.targets, dict(rc_after.split)) == ((), {}),
+            (rc_split_report.lines(), rc_combined.refused, rc_worst, rc_after.lines()),
+        )
+        # Combine runs under the footer's progress: each cut is reported, and a
+        # cancel stops before any file or record is written.
+        (a, b, c), raw = rc_split_scene(legacy=True)
+        rc_listed = sorted(os.listdir(rc_out))
+        rc_reads = rc_maps_read((a, b, c))
+        rc_seen = []
+        rc_cancel = rc_baker().combine(
+            on_progress=lambda done, total, name: rc_seen.append((done, total)) or False
+        )
+        check(
+            "Combine reports each cut, and a cancel writes nothing",
+            rc_seen == [(0, 3)]
+            and "cancelled" in (rc_cancel.refused or "")
+            and sorted(os.listdir(rc_out)) == rc_listed
+            and rc_maps_read((a, b, c)) == rc_reads,
+            (rc_seen, rc_cancel.refused),
+        )
+        # A map this file did not write (no writer record, or another file's)
+        # may be read elsewhere: Combine packs into a file of its own.
+        (a, b, c), raw = rc_split_scene(legacy=True)
+        rc_atlas_path = os.path.join(rc_out, RC_ATLAS)
+        with open(rc_atlas_path, "rb") as fh:
+            rc_bytes = fh.read()
+        with _mock.patch.object(LightmapRecords, "wrote", return_value=False):
+            rc_own = rc_baker().combine()
+        with open(rc_atlas_path, "rb") as fh:
+            rc_kept = fh.read() == rc_bytes
+        check(
+            "Combine never writes over a map this file did not write",
+            rc_kept
+            and RC_ATLAS not in rc_maps_read((a, b, c))
+            and len(set(rc_own.maps.values())) == 1,
+            (rc_maps_read((a, b, c)), rc_own.refused),
+        )
+        # Review 2026-10-24 (S2, mirror of mayatk's): Combine merged the
+        # duplicate materials -- deleting them -- and only then read the maps;
+        # one that would not load raised out of the cut, the duplicates gone
+        # and no atlas written. Every map is read first: one that cannot be
+        # leaves its objects their map, named, and no material is merged.
+        (a, b, c), raw = rc_split_scene(legacy=True)
+        rc_bad = {n: p for n, _m, p in LightmapRecords._reads()}[c]
+        with open(rc_bad, "wb") as fh:
+            fh.write(b"cut short")
+        rc_cut, rc_cut_error = None, None
+        with _mock.patch.object(LightmapBaker.logger, "warning") as rc_warn:
+            try:
+                rc_cut = rc_baker().combine()
+            except Exception as error:  # the defect: a traceback, not a result
+                rc_cut_error = error
+        check(
+            "Combine reads every map before it merges a material: one that cannot "
+            "be read keeps its objects' map, and every material stays",
+            rc_cut_error is None
+            and sorted(rc_cut.maps) == sorted([a, b])
+            and rc_maps_read((c,)) == {os.path.basename(rc_bad)}
+            and len(set(raw.values())) == 2
+            and all(bpy.data.materials.get(m) is not None for m in raw.values())
+            and rc_mats((a, b, c)) == raw
+            and any("rcC" in m and "keep their map" in m for m in rc_said(rc_warn)),
+            (repr(rc_cut_error), rc_cut and rc_cut.maps, rc_mats((a, b, c))),
+        )
+        # Review 2026-10-24: the merge ran before the first cut, so a cancel --
+        # "nothing written" -- had already deleted the duplicates. It runs last.
+        (a, b, c), raw = rc_split_scene(legacy=True)
+        rc_cancel = rc_baker().combine(on_progress=lambda *_args: False)
+        check(
+            "a cancelled Combine merges no material",
+            "cancelled" in (rc_cancel.refused or "")
+            and len(set(raw.values())) == 2
+            and all(bpy.data.materials.get(m) is not None for m in raw.values())
+            and rc_mats((a, b, c)) == raw,
+            (rc_cancel.refused, rc_mats((a, b, c))),
+        )
+        # Review 2026-10-24: a group no longer split by the time Combine reached
+        # it offered no size, and ``combine_sizes(...)[-1]`` raised IndexError.
+        rc_split_scene(legacy=True)
+        rc_real_groups = LightmapBaker._combine_groups
+
+        def rc_mended(baker, maps=None):
+            return rc_real_groups(baker, maps) if maps is None else []
+
+        rc_mend, rc_mend_error = None, None
+        with _mock.patch.object(LightmapBaker, "_combine_groups", rc_mended):
+            try:
+                rc_mend = rc_baker().combine()
+            except Exception as error:  # the defect: IndexError
+                rc_mend_error = error
+        check(
+            "Combine skips a group an earlier group's merge mended",
+            rc_mend_error is None
+            and rc_mend.maps == {}
+            and "Nothing to combine" in (rc_mend.refused or ""),
+            (repr(rc_mend_error), rc_mend and rc_mend.refused),
+        )
+        # Review 2026-10-24: each cell is rescaled by ``intensity / its own``, and
+        # a marker at 0 raised ZeroDivisionError; such a map holds no light.
+        (a, b, c), raw = rc_split_scene(legacy=True)
+        LightmapRecords._write_marker(
+            c, dict(LightmapRecords._marker_info(c), intensity=0.0)
+        )
+        rc_zero, rc_zero_error = None, None
+        try:
+            rc_zero = rc_baker().combine()
+        except Exception as error:  # the defect: ZeroDivisionError
+            rc_zero_error = error
+        check(
+            "Combine takes a map baked at intensity 0",
+            rc_zero_error is None and sorted(rc_zero.maps) == sorted([a, b, c]),
+            (repr(rc_zero_error), rc_zero and rc_zero.maps),
+        )
+
+        # -- saved with the file ----------------------------------------------
+        # Mirror of mayatk's: an unsaved Combine wrote its atlas over the
+        # production room's LX2000_Lightmap.exr and recycled
+        # LX2000_Lightmap_1.exr; the saved scene reopened with a map missing
+        # and three objects lit from the wrong cells (2026-10-23). Every map
+        # waits in the session until the file is saved (LightmapRecords._stage).
+        def rc_disk():
+            """``{file name: bytes}`` of the output folder -- what the saved
+            .blend reads."""
+            out = {}
+            for name in rc_files():
+                with open(os.path.join(rc_out, name), "rb") as fh:
+                    out[name] = fh.read()
+            return out
+
+        def rc_saved_split(name="room.blend"):
+            """The legacy split, saved as *name* in the re-bake root."""
+            # Each its own light: a flat 1.0 everywhere packs into an atlas
+            # byte for byte the old one, and no overwrite would show.
+            objs, _raw = rc_split_scene(
+                legacy=True, values={"rcA": 0.25, "rcB": 0.5, "rcC": 0.75}
+            )
+            path = os.path.join(rc_root, name)
+            bpy.ops.wm.save_as_mainfile(filepath=path)
+            return objs, path
+
+        rc_pair = {RC_ATLAS, "Crate_Lightmap_1.exr"}
+        (a, b, c), rc_room = rc_saved_split()
+        rc_before = rc_disk()
+        rc_unsaved = rc_baker().combine()
+        rc_reads_now = rc_maps_read((a, b, c))
+        rc_untouched = rc_disk() == rc_before
+        bpy.ops.wm.open_mainfile(filepath=rc_room)
+        check(
+            "an unsaved Combine leaves the saved file's maps and folder as they "
+            "were, the file reading the new atlas meanwhile; reopened, the split "
+            "is back and nothing is left behind",
+            not rc_unsaved.refused
+            and rc_reads_now == {RC_ATLAS}
+            and rc_untouched
+            and rc_maps_read((a, b, c)) == rc_pair
+            and not any(os.path.exists(p) for p in rc_unsaved.files),
+            (rc_reads_now, rc_untouched, rc_maps_read((a, b, c)), rc_unsaved.files),
+        )
+
+        (a, b, c), rc_room = rc_saved_split()
+        rc_baker().combine()
+        bpy.ops.wm.save_mainfile()
+        rc_home = {
+            n: os.path.normcase(os.path.dirname(p))
+            for n, _m, p in LightmapRecords._reads()
+            if n in (a, b, c) and p
+        }
+        bpy.ops.wm.open_mainfile(filepath=rc_room)
+        check(
+            "saving a Combine moves its atlas home under its own name -- no "
+            "suffix -- and sets the split-off map aside",
+            rc_files() == [RC_ATLAS]
+            and set(rc_home.values()) == {os.path.normcase(rc_out)}
+            and rc_maps_read((a, b, c)) == {RC_ATLAS}
+            and dict(rc_report().split) == {},
+            (rc_files(), rc_home),
+        )
+
+        (a, b, c), rc_room = rc_saved_split()
+        rc_before = rc_disk()
+        rc_baker().combine()
+        rc_copy = os.path.join(rc_root, "room_v2.blend")
+        bpy.ops.wm.save_as_mainfile(filepath=rc_copy)
+        rc_fork_reads = rc_maps_read((a, b, c))
+        rc_fork_own = all(LightmapRecords.wrote(n) for n in rc_fork_reads)
+        rc_fork_writers = (LightmapRecords._writers(), bpy.data.filepath)
+        rc_first_kept = all(rc_disk().get(n) == data for n, data in rc_before.items())
+        bpy.ops.wm.open_mainfile(filepath=rc_room)
+        rc_first_reads = rc_maps_read((a, b, c))
+        check(
+            "a Save As after an unsaved Combine leaves the first file its maps: "
+            "the taken name goes to the new file under the next free one, and "
+            "nothing is set aside",
+            rc_first_kept
+            and rc_fork_reads == {"Crate_Lightmap_2.exr"}
+            and rc_first_reads == rc_pair,
+            (rc_fork_reads, rc_first_kept, rc_first_reads),
+        )
+        check(
+            "...and the new file owns the map it forked",
+            rc_fork_own,
+            rc_fork_writers,
+        )
+
+        # Undo: the file reads its old maps again, so the save drops the
+        # session's atlas and leaves the folder as it was.
+        (a, b, c), rc_room = rc_saved_split()
+        rc_before = rc_disk()
+        bpy.ops.ed.undo_push(message="before combine")
+        rc_baker().combine()  # one undo step (its undo chunk)
+        bpy.ops.ed.undo()
+        rc_undone_reads = rc_maps_read((a, b, c))
+        bpy.ops.wm.save_mainfile()
+        check(
+            "an undone Combine is not saved: the folder is as it was",
+            rc_undone_reads == rc_pair and rc_disk() == rc_before,
+            (rc_undone_reads, sorted(rc_disk()), sorted(rc_before)),
+        )
+        # Production: Start Tracking two rows turned every row "up to date" --
+        # the commit took every other untracked object in as tracked, and the
+        # split-off map, recorded now, no longer read as split.
+        (a, b, c), raw = rc_split_scene(legacy=True)
+        rc_record = LightmapRecords.bake_state()
+        for n in (a, c):
+            rc_record["objects"].pop(n)
+        ptk.SceneRecords.LIGHTMAP_BAKE_STATE.save(
+            LightmapRecords._data_nodes(), ptk.BakeBaseline.encode(rc_record)
+        )
+        rc_before_track = rc_report().untracked
+        rc_tracked_one = rc_baker().track([c])
+        rc_tracked_report = rc_report()
+        check(
+            "tracking one map leaves the split split and the other untracked",
+            rc_before_track == tuple(sorted((a, c)))
+            and rc_tracked_one == [c]
+            and rc_tracked_report.untracked == (a,)
+            and set(rc_tracked_report.split) == {RC_ATLAS, "Crate_Lightmap_1.exr"},
+            (rc_before_track, rc_tracked_one, rc_tracked_report.lines()),
+        )
+        # The split row's tooltip says "right-click it: Re-Bake": a Re-Bake of
+        # the main atlas's objects mends it too, not only the split-off one's.
+        (a, b, c), raw = rc_split_scene(legacy=True)
+        rc_baker().rebake([a, b], output_dir=rc_out)
+        check(
+            "Re-Bake of the main atlas's objects packs a split group into one atlas",
+            rc_maps_read((a, b, c)) == {RC_ATLAS} and rc_report().targets == (),
+            rc_maps_read((a, b, c)),
+        )
+
+        # -- Start Tracking (mirror of mayatk's) --------------------------------
+        rc_reset()
+        names = rc_crates()
+        rc_bake(names)
+        rc_record = LightmapRecords.bake_state()
+        rc_record["objects"].pop(names[2])  # baked before change tracking
+        ptk.SceneRecords.LIGHTMAP_BAKE_STATE.save(
+            LightmapRecords._data_nodes(), ptk.BakeBaseline.encode(rc_record)
+        )
+        rc_untracked_before = rc_report().untracked
+        rc_map = os.path.join(rc_out, RC_ATLAS)
+        rc_mtime = os.path.getmtime(rc_map)
+        rc_tracked = rc_baker().track([names[0], names[2]])
+        rc_entry = LightmapRecords.bake_state()["objects"][names[2]]
+        rc_after = rc_report()
+        bpy.data.objects[names[2]].location.z += 5.0
+        bpy.context.view_layer.update()
+        check(
+            "Start Tracking records an untracked map as it stands, rendering "
+            "nothing, so its next change reads as changed",
+            rc_untracked_before == (names[2],)
+            and rc_tracked == [names[2]]
+            and os.path.getmtime(rc_map) == rc_mtime
+            and rc_entry["baked_at"] is not None
+            and rc_entry["lighting"] is not None
+            and rc_entry["cell"] is None
+            and (rc_after.untracked, rc_after.targets) == ((), ())
+            and names[2] in rc_report().targets
+            and rc_baker().track([names[2]]) == [],
+            (rc_untracked_before, rc_tracked, rc_entry, rc_after.lines()),
+        )
+
         # -- what is stale ----------------------------------------------------
         rc_reset()
         names = rc_crates()
@@ -6032,6 +6724,345 @@ try:
             (result.in_place, sorted(result.maps), result.repacked, rc_files()),
         )
 
+        # An update writes each map back where it is; *relocate* moves them,
+        # and its dry run says what that re-packs (mayatk's production
+        # PLAYGROUND_wStands: "29 written in place", then 97 maps re-packed).
+        rc_reset()
+        a, b, c = rc_crates()
+        rc_bake([a, b, c])
+        rc_move(a)
+        rc_elsewhere = os.path.join(rc_root, "elsewhere")
+        shutil.rmtree(rc_elsewhere, ignore_errors=True)
+        os.makedirs(rc_elsewhere)
+        kept = rc_report(output_dir=rc_elsewhere)
+        moved = rc_report(output_dir=rc_elsewhere, relocate=True)
+        result = rc_as_saved(rc_baker().rebake_changed(output_dir=rc_elsewhere))
+        check(
+            "Re-bake Changed keeps each atlas in its folder unless told to relocate",
+            kept.in_place == (a,)
+            and moved.in_place == ()
+            and "another folder" in moved.repack.get(RC_ATLAS, "")
+            and result.in_place == [a]
+            and os.listdir(rc_elsewhere) == [],
+            (kept.in_place, moved.repack, result.in_place, os.listdir(rc_elsewhere)),
+        )
+        rc_move(b)
+        result = rc_as_saved(
+            rc_baker().rebake_changed(output_dir=rc_elsewhere, relocate=True)
+        )
+        check(
+            "Re-bake Changed relocates when told to, re-packing into the new folder",
+            list(result.repacked) == [RC_ATLAS]
+            and [f for f in os.listdir(rc_elsewhere) if f.endswith(".exr")] == [RC_ATLAS]
+            and rc_report().targets == (),
+            (result.repacked, os.listdir(rc_elsewhere)),
+        )
+
+        # The dry run counts what a re-pack drags in.
+        rc_reset()
+        a, b, c = rc_crates()
+        rc_bake([a, b, c])
+        bpy.data.objects[a].scale = (2.0, 2.0, 2.0)
+        bpy.context.view_layer.update()
+        report = rc_report(output_dir=rc_out)
+        check(
+            "Re-bake Changed: the dry run counts what a re-pack drags in",
+            report.targets == (a,)
+            and report.joining == tuple(sorted([b, c]))
+            and "(+2 more objects)" in report.summary(),
+            (report.targets, report.joining, report.summary()),
+        )
+
+        # Re-bake Selected: given objects redone as baked, changed or not.
+        rc_reset()
+        a, b, c = rc_crates()
+        rc_values.update(rcA=1.0, rcB=2.0, rcC=3.0)
+        rc_bake([a, b, c])
+        before = rc_atlas()
+        rc_values["rcB"] = 7.0
+        unseen = rc_report().targets
+        result = rc_as_saved(rc_baker().rebake([b], output_dir=rc_out))
+        after = rc_atlas()
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 30.0, 0.0))
+        loose = bpy.context.active_object.name
+        refused = rc_baker().rebake([loose], output_dir=rc_out)
+        check(
+            "rebake redoes the given objects as baked, changed or not, in place",
+            unseen == ()
+            and result.in_place == [b]
+            and list(result.maps) == [b]
+            and bool(np.allclose(rc_cell(after, b), 7.0, atol=1e-3))
+            and all(
+                np.array_equal(rc_cell(after, o), rc_cell(before, o)) for o in (a, c)
+            )
+            and refused.maps == {}
+            and "None of these objects is baked yet" in (refused.refused or ""),
+            (result.in_place, list(result.maps), refused.refused),
+        )
+
+        # A renamed atlas keeps its baseline: the next partial re-bake goes
+        # in place instead of refusing ("recorded against another map").
+        rc_reset()
+        a, b, c = rc_crates()
+        rc_bake([a, b, c])
+        os.rename(os.path.join(rc_out, RC_ATLAS), os.path.join(rc_out, "Room_LM.exr"))
+        LightmapRecords.rename_lightmap(RC_ATLAS, "Room_LM.exr")
+        rc_move(a)
+        result = rc_rebake()
+        check(
+            "a renamed atlas keeps its baseline: the next re-bake goes in place",
+            result.repacked == {} and result.in_place == [a],
+            (result.repacked, result.in_place),
+        )
+
+        # BACKLOG 2026-10-21 (S2, ported from mayatk): a Save As copy's
+        # re-bake wrote its cells into the atlas its source still reads. It now
+        # writes them into its own copy of it, the source's file untouched.
+        rc_reset()
+        a, b, c = rc_crates()
+        rc_values.update(rcA=1.0, rcB=2.0, rcC=3.0)
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(rc_root, "rcSource.blend"))
+        rc_bake([a, b, c])
+        with open(os.path.join(rc_out, RC_ATLAS), "rb") as fh:
+            src_bytes = fh.read()
+        src_atlas = rc_atlas()
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(rc_root, "rcCopy.blend"))
+        rc_values["rcA"] = 5.0
+        rc_move(a)
+        report = rc_report(output_dir=rc_out)
+        result = rc_rebake()
+        fork = RC_ATLAS.replace(".exr", "_1.exr")
+        with open(os.path.join(rc_out, RC_ATLAS), "rb") as fh:
+            kept = fh.read() == src_bytes
+        after = rc_atlas(fork) if os.path.isfile(os.path.join(rc_out, fork)) else None
+        check(
+            "a copy's first re-bake copies its source's atlas, then writes in place",
+            report.in_place == (a,)
+            and list(report.forked) == [RC_ATLAS]
+            and result.in_place == [a]
+            and result.repacked == {}
+            and kept
+            and rc_files() == [RC_ATLAS, fork]
+            and all(
+                LightmapRecords._marker_info(bpy.data.objects[o])["map"] == fork
+                for o in (a, b, c)
+            )
+            and after is not None
+            and bool(np.array_equal(rc_cell(after, b), rc_cell(src_atlas, b)))
+            and bool(np.allclose(rc_cell(after, a), 5.0, atol=1e-3))
+            and rc_report().targets == (),
+            (report.in_place, report.forked, result.in_place, rc_files(), kept),
+        )
+        rc_move(b)
+        check(
+            "...and the next change goes in place into the copy: no third file",
+            rc_rebake().in_place == [b] and rc_files() == [RC_ATLAS, fork],
+            rc_files(),
+        )
+
+        # Review 2026-10-24 (S2, mirror of mayatk's): the copy's fork chose its
+        # name against claims read before it existed, and a group packing anew
+        # in the same bake under the same texture set chose it too -- the new
+        # atlas replaced the fork, whose readers sampled its layout, nothing said.
+        rc_reset()
+        rc_mat = rc_material()
+        a, b, c = rc_crates(mat=rc_mat)
+        rc_values.update(rcA=1.0, rcB=2.0, rcC=3.0, rcD=7.0, rcE=7.0)
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(rc_root, "rcForkSource.blend"))
+        rc_bake([a, b, c])
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(rc_root, "rcForkCopy.blend"))
+        # The same texture set on a material of its own (not a duplicate: its
+        # own roughness), so a group of its own that packs anew under that name.
+        rc_other = rc_material(name="rcOther", texture=None)
+        rc_other.node_tree.nodes.new("ShaderNodeTexImage").image = next(
+            n.image for n in rc_mat.node_tree.nodes if n.type == "TEX_IMAGE"
+        )
+        for n in rc_other.node_tree.nodes:
+            if n.type == "BSDF_PRINCIPLED":
+                n.inputs["Roughness"].default_value = 0.1
+        d, e = rc_crates(("rcD", "rcE"), mat=rc_other)
+        for n in (d, e):
+            bpy.data.objects[n].location.y += 40.0
+        bpy.context.view_layer.update()
+        rc_keys = LightmapBaker._atlas_keys([a, d])
+        rc_values["rcA"] = 5.0
+        rc_move(a)
+        res = rc_bake([a, d, e])
+        fork, rc_new = "Crate_Lightmap_1.exr", "Crate_Lightmap_2.exr"
+        rc_forked = rc_atlas(fork) if os.path.isfile(os.path.join(rc_out, fork)) else None
+        rc_fresh = rc_atlas(rc_new) if os.path.isfile(os.path.join(rc_out, rc_new)) else None
+        check(
+            "a copy's fork and a new atlas of its texture set, in one bake, never "
+            "share a file",
+            len(set(rc_keys.values())) == 2
+            and res.in_place == [a]
+            and rc_maps_read((a, b, c)) == {fork}
+            and rc_maps_read((d, e)) == {rc_new}
+            and rc_files() == [RC_ATLAS, fork, rc_new]
+            and rc_forked is not None
+            and bool(np.allclose(rc_cell(rc_forked, b), 2.0, atol=1e-3))
+            and bool(np.allclose(rc_cell(rc_forked, a), 5.0, atol=1e-3))
+            and rc_fresh is not None
+            and bool(np.allclose(rc_cell(rc_fresh, d), 7.0, atol=1e-3)),
+            (rc_keys, res.in_place, rc_maps_read((a, b, c)), rc_maps_read((d, e)), rc_files()),
+        )
+
+        # 2026-10-21 audit: two files in one project whose materials share a
+        # texture set name one atlas; the second's bake replaced the first's.
+        rc_reset()
+        a, b, c = rc_crates()
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(rc_root, "rcDay.blend"))
+        rc_bake([a, b, c])
+        with open(os.path.join(rc_out, RC_ATLAS), "rb") as fh:
+            day = fh.read()
+        bpy.ops.wm.read_factory_settings(use_empty=True)  # rc_reset wipes the maps
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(rc_root, "rcNight.blend"))
+        rc_values.update(rcN1=9.0, rcN2=9.0)
+        night = rc_crates(names=("rcN1", "rcN2"))
+        res = rc_bake(night)
+        rc_move(night[0])
+        again = rc_bake(night)
+        with open(os.path.join(rc_out, RC_ATLAS), "rb") as fh:
+            day_kept = fh.read() == day
+        own = RC_ATLAS.replace(".exr", "_1.exr")
+        check(
+            "another file's atlas of the same name is never written over",
+            day_kept
+            and {os.path.basename(p) for p in res.maps.values()} == {own}
+            and {os.path.basename(p) for p in again.maps.values()} == {own}
+            and rc_files() == [RC_ATLAS, own],
+            (day_kept, rc_files()),
+        )
+        rc_reset()
+        names = rc_crates()
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(rc_root, "rcReverted.blend"))
+        rc_bake(names)
+        LightmapRecords.revert()
+        res = rc_bake(names)
+        check(
+            "...while a reverted file's own atlas is still its own to bake over",
+            {os.path.basename(p) for p in res.maps.values()} == {RC_ATLAS}
+            and rc_files() == [RC_ATLAS],
+            rc_files(),
+        )
+        # Review 2026-10-24 (S2): a group of ONE takes the texture set's name
+        # too, and its map moved in (``_place``) without asking the disk -- the
+        # other file's atlas replaced at the save all the same.
+        rc_reset()
+        names = rc_crates()
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(rc_root, "rcSoloDay.blend"))
+        rc_bake(names)
+        with open(os.path.join(rc_out, RC_ATLAS), "rb") as fh:
+            day = fh.read()
+        bpy.ops.wm.read_factory_settings(use_empty=True)  # rc_reset wipes the maps
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(rc_root, "rcSoloNight.blend"))
+        rc_values.update(rcS1=9.0)
+        res = rc_bake(rc_crates(names=("rcS1",)))
+        with open(os.path.join(rc_out, RC_ATLAS), "rb") as fh:
+            day_kept = fh.read() == day
+        rc_solo = RC_ATLAS.replace(".exr", "_1.exr")
+        check(
+            "...nor by a one-object group of that texture set",
+            day_kept
+            and {os.path.basename(p) for p in res.maps.values()} == {rc_solo}
+            and rc_files() == [RC_ATLAS, rc_solo],
+            (day_kept, rc_files()),
+        )
+
+        # Review 2026-10-24 (S2, mirror of mayatk's): what a bake supersedes
+        # was read off the files its objects read -- for a map re-baked in
+        # place and not saved yet, its session copy -- and the project filter
+        # dropped that path: the home file was never set aside.
+        rc_reset()
+        btk.EnvUtils.set_current_workspace(rc_root)
+        try:
+            names = rc_crates()
+            bpy.ops.wm.save_as_mainfile(
+                filepath=os.path.join(rc_root, "rcSuperseded.blend")
+            )
+            rc_bake(names)
+            rc_move(names[0])
+            rc_waiting = rc_baker().rebake_changed(output_dir=rc_out)  # not saved
+            # To maps of their own: an atlas bake writes the group back in place.
+            res = rc_as_saved(
+                rc_baker().bake(names, packing="per_object", output_dir=rc_out)
+            )
+            check(
+                "a map waiting in the session for the save is set aside once "
+                "superseded",
+                rc_waiting.in_place == [names[0]]
+                and RC_ATLAS not in rc_maps_read(names)
+                and [os.path.basename(p) for p in res.retired] == [RC_ATLAS]
+                and RC_ATLAS not in rc_files(),
+                (rc_waiting.in_place, rc_maps_read(names), res.retired, rc_files()),
+            )
+        finally:
+            btk.EnvUtils.set_current_workspace(None)
+
+        # Review 2026-10-24: save_pre cannot tell a Save Copy from a Save As,
+        # and a fork dropped the open file's superseded maps -- a Save Copy left
+        # them on disk for good. Held, they go back unless the open file moved.
+        from blendertk.node_utils.data_nodes import DataNodes as _RcDataNodes
+
+        rc_reset()
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(rc_root, "rcKeep.blend"))
+        rc_old = os.path.join(rc_out, "rcOld_Lightmap.exr")
+        with open(rc_old, "wb") as fh:
+            fh.write(b"map")
+        rc_copy = os.path.join(rc_root, "rcKeepCopy.blend")
+        LightmapRecords._pending().retire([rc_old])
+        _RcDataNodes._rebase_before_save(rc_copy)  # save_pre: a fork
+        _RcDataNodes._restore_after_copy(rc_copy)  # save_post: the open file stayed
+        rc_kept = ptk.PendingFiles.session().take_retiring()
+        LightmapRecords._pending().retire([rc_old])
+        _RcDataNodes._rebase_before_save(rc_copy)
+        _RcDataNodes._restore_after_copy(bpy.data.filepath)  # a Save As: it moved
+        rc_dropped = ptk.PendingFiles.session().take_retiring()
+        check(
+            "a Save Copy keeps the open file's superseded maps for its next save; "
+            "a Save As drops them",
+            [os.path.normcase(p) for p in rc_kept]
+            == [os.path.normcase(os.path.abspath(rc_old))]
+            and rc_dropped == [],
+            (rc_kept, rc_dropped),
+        )
+
+        # A rendered mesh no bake renders is named, and stales nothing.
+        rc_reset()
+        a, b, c = rc_crates()
+        rc_bake([a, b, c])
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(1.2, 0.0, 0.0))
+        stand = bpy.context.active_object.name
+        report = rc_report()
+        _RcExclude.define([stand])
+        excluded = rc_report()
+        check(
+            "a rendered mesh no bake renders is named out of the bake, staling nothing",
+            report.targets == ()
+            and report.out_of_bake == (stand,)
+            and "1 visible mesh out of the bake" in report.summary()
+            and excluded.out_of_bake == (),
+            (report.targets, report.out_of_bake, excluded.out_of_bake),
+        )
+        _RcExclude.clear()
+
+        # The Bake State breakdown names each map and its state.
+        rc_reset()
+        a, b, c = rc_crates()
+        rc_bake([a, b, c])
+        rc_move(a)
+        doc = rc_baker().bake_breakdown(output_dir=rc_out)
+        text = doc.to_text()
+        check(
+            "the bake breakdown names each map, its size, state and writer",
+            all(
+                s in text
+                for s in (RC_ATLAS, f"{RC_RES} x {RC_RES}", "1 changed", "this scene")
+            )
+            and "action://select?node=" in doc.to_html(),
+            text,
+        )
+
         rc_reset()
         a, b, c = rc_crates()
         rc_bake([a, b, c])
@@ -6243,7 +7274,7 @@ try:
             rc_done.cells,
         )
 
-        # -- the panel's half: the Changed scope (mirror of TestChangedScope) --
+        # -- the panel's half: the Manage page (mirror of TestChangedScope) --
         if panel_qt is None:
 
             class _RcWorkflow:
@@ -6256,12 +7287,54 @@ try:
                     self.resolution = kwargs.get("resolution")
                     _RcWorkflow.instances.append(self)
 
-                def stale_report(self, objects=None, reach=None):
+                folders = {}
+
+                def stale_report(
+                    self, objects=None, reach=None, output_dir=None, relocate=False
+                ):
                     self.calls.append(("stale_report",))
+                    self.stale_output_dir = output_dir
                     return _RcWorkflow.report
 
-                def rebake_changed(self, **kwargs):
-                    self.calls.append(("rebake_changed",))
+                def bake_maps(self, report=None, output_dir=None, relocate=False):
+                    report = report or _RcWorkflow.report
+                    # One map, read by what the report re-bakes.
+                    return report.map_rows(
+                        [{"map": RC_ATLAS, "path": os.path.join(rc_out, RC_ATLAS),
+                          "folder": "lm", "objects": list(report.targets) or ["csCube"]}]
+                    )
+
+                def rebake_report(self, objects=None, output_dir=None, relocate=False):
+                    self.calls.append(("rebake_report",))
+                    return _RcWorkflow.report
+
+                def combine(self, maps=None, size=None, merge_materials=True, on_progress=None):
+                    self.calls.append(("combine", tuple(maps or ())))
+                    return _RcResult(maps={"rcS": os.path.join(rc_out, "S_Lightmap.exr")})
+
+                def map_folders(self, objects=None):
+                    return dict(_RcWorkflow.folders)
+
+                def bake_breakdown(self, output_dir=None, relocate=False):
+                    self.calls.append(("bake_breakdown",))
+                    return ptk.ReportDoc().heading("Lightmap Bake State", 1)
+
+                def rebake(self, objects=None, **kwargs):
+                    self.calls.append(("rebake",))
+                    self.rebake_objects = list(objects or [])
+                    return self.rebake_changed(_recorded=False, **kwargs)
+
+                def revert(self, objects=None):
+                    self.calls.append(("revert", tuple(objects or ())))
+                    return list(objects or ())
+
+                def track(self, objects=None):
+                    self.calls.append(("track", tuple(objects or ())))
+                    return list(objects or ())
+
+                def rebake_changed(self, _recorded=True, **kwargs):
+                    if _recorded:
+                        self.calls.append(("rebake_changed",))
                     self.rebake_kwargs = kwargs
                     result = _RcResult(report=_RcWorkflow.report)
                     if not _RcWorkflow.report.targets:
@@ -6286,58 +7359,79 @@ try:
             slots_mod.LightmapBaker = _RcWorkflow
             try:
                 _RcWorkflow.report = moved
-                scope_panel = _panel()
-                scope_panel.ui.cmb_scope.setCurrentIndex(3)
                 check(
-                    "Changed is the FOURTH scope (the combo persists by index) and "
-                    "reads back",
-                    LightmapBakerSlots._SCOPE_LABELS
-                    == ("Selected", "Visible", "Scene", "Changed")
-                    and scope_panel._scope() == "changed",
-                    scope_panel._scope(),
+                    "Scope bakes fresh (Selected, Visible, Scene); Changed is the "
+                    "Manage page's, beside it",
+                    LightmapBakerSlots._SCOPE_LABELS == ("Selected", "Visible", "Scene")
+                    and LightmapBakerSlots._PAGES == ("Bake", "Manage"),
+                    LightmapBakerSlots._SCOPE_LABELS,
                 )
 
                 _RcWorkflow.instances = []
-                dry = _panel(scope="Changed", res=2048)
-                dry.cmb_scope(3)
+                dry = _panel(page="Manage", res=2048)
+                dry._output_dir = lambda: rc_out
+                dry.cmb_page(1)
                 dry_baker = _RcWorkflow.instances[-1] if _RcWorkflow.instances else None
                 _RcWorkflow.instances = []
-                _panel(scope="Scene").cmb_scope(2)
+                bake_page = _panel(page="Bake")
+                bake_page.cmb_page(0)
                 check(
-                    "choosing Changed writes the dry run to the footer, with the "
-                    "panel's dials; no other scope reads the scene",
-                    dry.ui.footer.text() == moved.summary()
+                    "the Manage page writes the dry run to the footer, with the "
+                    "panel's dials and the folder Bake writes to; the Bake page "
+                    "reads nothing",
+                    dry.ui.footer.text() == "1 changed"
                     and dry_baker is not None
                     and dry_baker.resolution == 2048
                     and dry_baker.calls == [("stale_report",)]
+                    and dry_baker.stale_output_dir == rc_out
                     and _RcWorkflow.instances == [],
                     (dry.ui.footer.text(), getattr(dry_baker, "calls", None)),
                 )
 
-                bpy.ops.object.select_all(action="DESELECT")  # Changed needs none
+                def rc_redo_changed(panel):
+                    """Select: Changed, then Re-Bake: how the Manage page redoes
+                    what changed."""
+                    panel.select_by_state("changed")
+                    panel.rebake_selected()
+
+                bpy.ops.object.select_all(action="DESELECT")
                 _RcWorkflow.instances = []
-                run = _panel(scope="Changed", res=512)
+                run = _panel(page="Manage", res=512)
                 run._output_dir = lambda: rc_out
-                run.b000()
-                run_baker = _RcWorkflow.instances[-1] if _RcWorkflow.instances else None
+                run.select_by_state("changed")
+                rc_picked = sorted(o.name for o in bpy.context.selected_objects)
+                run.rebake_selected()
+                run_baker = next(  # not the Manage table's refresh after it
+                    (b for b in _RcWorkflow.instances if ("rebake",) in b.calls),
+                    None,
+                )
                 check(
-                    "Bake under Changed re-bakes the changed with the panel's dials",
-                    run_baker is not None
+                    "Select: Changed, then Re-Bake, re-bakes exactly the changed with the "
+                    "panel's dials",
+                    rc_picked == ["csCube"]
+                    and run_baker is not None
                     and run_baker.resolution == 512
-                    and [c[0] for c in run_baker.calls] == ["rebake_changed"]
+                    and run_baker.rebake_objects == ["csCube"]
                     and run_baker.rebake_kwargs.get("suffix") == "_Lightmap"
-                    and "1 written back into its atlas cell" in run.ui.footer.text(),
-                    (getattr(run_baker, "calls", None), run.ui.footer.text()),
+                    and run_baker.rebake_kwargs.get("relocate") is False
+                    and "1 in place" in run.ui.footer.text(),
+                    (rc_picked, getattr(run_baker, "calls", None), run.ui.footer.text()),
                 )
 
                 _RcWorkflow.report = ptk.StaleReport()
-                idle = _panel(scope="Changed")
+                idle = _panel(page="Manage")
                 idle._output_dir = lambda: rc_out
-                idle.b000()
+                # A pick that finds nothing clears the last pick (a user
+                # request, 2026-10-23): csCube selected going in.
+                _idle_layer = CoreUtils._active_view_layer()
+                bpy.data.objects["csCube"].select_set(True, view_layer=_idle_layer)
+                idle.select_by_state("changed")
+                _idle_left = [o.name for o in _idle_layer.objects if o.select_get(view_layer=_idle_layer)]
                 check(
-                    "...with nothing changed it says so",
-                    idle.ui.footer.text() == "Nothing changed since the last bake.",
-                    idle.ui.footer.text(),
+                    "...with nothing changed Select: Changed says so, and clears "
+                    "the last pick",
+                    idle.ui.footer.text() == "No changed maps." and _idle_left == [],
+                    (idle.ui.footer.text(), _idle_left),
                 )
 
                 text = _panel(packing="atlas")._bake_report(
@@ -6348,29 +7442,305 @@ try:
                     )
                 )
                 check(
-                    "the report names the atlases re-packed whole, and why",
-                    RC_ATLAS in text and "its cell no longer fits" in text,
+                    "the report counts the atlases re-packed, short (the reasons "
+                    "were the confirmation's)",
+                    "1 atlas" in text and "1 re-packed" in text,
                     text,
                 )
 
-                _RcWorkflow.report = moved
-                bpy.ops.object.select_all(action="DESELECT")
-                lister = _panel()
-                with _mock.patch.object(
-                    LightmapBakerSlots.logger, "log_group"
-                ) as rc_group:
-                    lister.list_changed_objects()
-                check(
-                    "List Changed Objects logs each object with why, and selects them",
-                    [o.name for o in _RcCore.selected_objects()] == ["csCube"]
-                    and rc_group.call_args is not None
-                    and rc_group.call_args.args[1] == moved.lines()
-                    and lister.ui.footer.text() == moved.summary(),
-                    (
-                        [o.name for o in _RcCore.selected_objects()],
-                        lister.ui.footer.text(),
-                    ),
+                def rc_rebaker(call="rebake"):
+                    found = [b for b in _RcWorkflow.instances if (call,) in b.calls]
+                    return found[-1] if found else None
+
+                # A re-pack bringing in more than it re-bakes for asks first.
+                _RcWorkflow.report = ptk.StaleReport(
+                    targets=("csCube",),
+                    stale={"csCube": (_R.MOVED,)},
+                    repack={RC_ATLAS: "csCube: its cell no longer fits"},
+                    joining=("rcJ1", "rcJ2"),
                 )
+                _RcWorkflow.instances = []
+                asked = []
+                ask = _panel(page="Manage")
+                ask._output_dir = lambda: rc_out
+                ask.sb = SimpleNamespace(
+                    message_box=lambda q, *b, **k: asked.append((q, b)) or "Cancel"
+                )
+                rc_redo_changed(ask)
+                cancelled = rc_rebaker() is None
+                ask.sb = SimpleNamespace(message_box=lambda *a, **k: "Bake All")
+                rc_redo_changed(ask)
+                check(
+                    "Re-Bake asks before a re-pack more than doubles the bake",
+                    cancelled
+                    and asked
+                    and "3 objects" in asked[0][0]
+                    and "its cell no longer fits" in asked[0][0]
+                    and rc_rebaker() is not None,
+                    asked,
+                )
+
+                # The panel's dials are not the bake's (a fresh panel, not the
+                # preset): every map re-bakes -- asked first.
+                _RcWorkflow.report = ptk.StaleReport(
+                    targets=("csCube",),
+                    stale={"csCube": (_R.LIGHTING,)},
+                    lighting=(ptk.BakeBaseline.SETTINGS,),
+                    in_place=("csCube",),
+                )
+                _RcWorkflow.instances = []
+                asked = []
+                dials = _panel(page="Manage")
+                dials._output_dir = lambda: rc_out
+                dials.sb = SimpleNamespace(
+                    message_box=lambda q, *b, **k: asked.append(q) or "Cancel"
+                )
+                rc_redo_changed(dials)
+                check(
+                    "Re-Bake asks when the panel's dials are not the bake's",
+                    asked
+                    and "Bounces" in asked[0]
+                    and "preset" in asked[0]
+                    and rc_rebaker() is None,
+                    asked,
+                )
+
+                # An Output Directory typed in, where the maps do not live: Keep or Move.
+                _RcWorkflow.report = moved
+                _RcWorkflow.folders = {"C:/proj/sourceimages": [RC_ATLAS]}
+                where = _panel(page="Manage")
+                where.ui.txt_output_dir.setText("C:/bakes/lm")
+                where._output_dir = lambda: "C:/bakes/lm"
+                answers = {}
+                for answer in ("Keep", "Move"):
+                    _RcWorkflow.instances = []
+                    rc_box = _mock.Mock(return_value=answer)
+                    where.sb = SimpleNamespace(message_box=rc_box)
+                    rc_redo_changed(where)
+                    answers[answer] = (
+                        rc_box.call_args.args[1:],
+                        rc_rebaker().rebake_kwargs.get("relocate"),
+                    )
+                _RcWorkflow.folders = {}
+                check(
+                    "Re-Bake asks Keep or Move when its maps live elsewhere",
+                    answers["Keep"] == (("Keep", "Move", "Cancel"), False)
+                    and answers["Move"][1] is True,
+                    answers,
+                )
+
+                state = _panel()
+                rc_view = _mock.Mock()
+                state.sb = SimpleNamespace(text_view_dialog=rc_view)
+                state.show_bake_state()
+                check(
+                    "Bake State shows the breakdown in a viewer whose links act",
+                    rc_view.call_args is not None
+                    and rc_view.call_args.kwargs.get("title") == "Lightmap Bake State"
+                    and callable(rc_view.call_args.kwargs.get("link_handler")),
+                    getattr(rc_view, "call_args", None),
+                )
+                rc_window = rc_view.return_value
+                rc_view.call_args.kwargs["on_refresh"]()  # the header's button
+                check(
+                    "Bake State reads itself again on its header's refresh button, "
+                    "no footer Refresh",
+                    "Refresh" not in rc_view.call_args.args
+                    and rc_window.setText.called,
+                    rc_view.call_args.args,
+                )
+
+                # Fix All (ptk.StaleReport.fix_plan): a missing map no re-bake
+                # renders reverted, each split no re-bake mends combined, the
+                # untracked tracked as they stand, then what changed re-bakes --
+                # the render last; the footer one short line.
+                _RcWorkflow.report = dataclasses.replace(
+                    moved,
+                    untracked=("rcU",),
+                    unbakeable=("rcH",),
+                    split_materials={"S_LM.exr": ("sMat", "sMatDup")},
+                )
+                rc_fix_rows = (
+                    moved.map_rows(
+                        [{"map": RC_ATLAS, "path": os.path.join(rc_out, RC_ATLAS),
+                          "folder": "lm", "objects": ["csCube"]}]
+                    )
+                    + ptk.StaleReport(split={"S_LM.exr": ("S_LM.exr", "S_LM_1.exr")})
+                    .map_rows([{"map": "S_LM.exr", "path": "C:/p/S_LM.exr",
+                                "folder": "lm", "objects": ["rcS"]}])
+                    + ptk.StaleReport(untracked=("rcU",))
+                    .map_rows([{"map": "U_LM.exr", "path": "C:/p/U_LM.exr",
+                                "folder": "lm", "objects": ["rcU"]}])
+                    + ptk.StaleReport(unbakeable=("rcH",))
+                    .map_rows([{"map": "H_LM.exr", "path": None,
+                                "folder": "lm", "objects": ["rcH"]}])
+                )
+
+                class _FixSb:
+                    def __init__(self):
+                        self.asked = []
+
+                    def confirm(self, question, yes="Yes", no="No"):
+                        self.asked.append(question)
+                        return yes == "Fix All"
+
+                    def message_box(self, question, *buttons, **kwargs):
+                        self.asked.append(question)
+                        return "Cancel"
+
+                _RcWorkflow.instances = []
+                fixer = _panel(page="Manage")
+                fixer._output_dir = lambda: rc_out
+                fixer._fill_maps = lambda rows, report: setattr(
+                    fixer, "_map_rows", {row["map"]: row for row in rows}
+                )
+                fixer.sb = _FixSb()
+
+                def rc_steps():
+                    return [
+                        c
+                        for b in _RcWorkflow.instances
+                        for c in b.calls
+                        if c[0] in ("revert", "combine", "track", "rebake_changed")
+                    ]
+
+                # Review 2026-10-24 (mirror of mayatk's): the steps that render
+                # nothing are one undo step.
+                rc_chunks = []
+
+                @_ctx.contextmanager
+                def rc_chunk(name=""):
+                    rc_chunks.append((name, len(rc_steps())))
+                    yield
+                    rc_chunks.append((f"/{name}", len(rc_steps())))
+
+                with _mock.patch.object(
+                    _RcWorkflow, "bake_maps", lambda self, r=None, **k: rc_fix_rows
+                ), _mock.patch.object(slots_mod.CoreUtils, "undo_chunk", rc_chunk):
+                    fixer.fix_all()
+                rc_fix_steps = rc_steps()
+                check(
+                    "Fix All reverts, combines, tracks, then re-bakes -- no row left; "
+                    "the footer one short line",
+                    fixer.sb.asked
+                    and all(
+                        w in fixer.sb.asked[0]
+                        for w in ("Take the lightmap off 1 object", "Combine 1 split map",
+                                  "Start tracking 1 untracked object",
+                                  "Re-bake 1 changed object")
+                    )
+                    and rc_fix_steps
+                    == [("revert", ("rcH",)), ("combine", ("S_LM.exr",)),
+                        ("track", ("rcU",)), ("rebake_changed",)]
+                    and fixer.ui.footer.text()
+                    == "Fix All: 1 reverted, 1 combined, 1 tracked, 1 re-baked.",
+                    (fixer.sb.asked, rc_fix_steps, fixer.ui.footer.text()),
+                )
+                check(
+                    "Fix All names the merge its Combine makes, and the steps that "
+                    "render nothing are one undo step",
+                    fixer.sb.asked
+                    and "merges the duplicate materials (sMat, sMatDup)" in fixer.sb.asked[0]
+                    and rc_chunks == [("Fix All", 0), ("/Fix All", 3)],
+                    (fixer.sb.asked[:1], rc_chunks),
+                )
+                # A refused step is counted as not done and the rest run; the
+                # footer points at Blender's console, not Maya's Script Editor.
+                rc_refused = _RcResult(refused="Nothing to combine: no map is split.")
+                with _mock.patch.object(
+                    _RcWorkflow, "bake_maps", lambda self, r=None, **k: rc_fix_rows
+                ), _mock.patch.object(
+                    _RcWorkflow, "combine", lambda self, *a, **k: rc_refused
+                ):
+                    fixer.fix_all()
+                check(
+                    "a refused Combine is counted as not done, the console named",
+                    fixer.ui.footer.text()
+                    == "Fix All: 1 reverted, 1 not combined, 1 tracked, 1 re-baked "
+                    "(see the console).",
+                    fixer.ui.footer.text(),
+                )
+                # Review 2026-10-24: a cancel stops Fix All -- it tracked and
+                # re-baked on after the artist said stop.
+                _RcWorkflow.instances = []
+                rc_stop = _RcResult(refused="Combine cancelled: nothing written.", cancelled=True)
+                with _mock.patch.object(
+                    _RcWorkflow, "bake_maps", lambda self, r=None, **k: rc_fix_rows
+                ), _mock.patch.object(_RcWorkflow, "combine", lambda self, *a, **k: rc_stop):
+                    fixer.fix_all()
+                check(
+                    "a cancelled Combine stops Fix All",
+                    rc_steps() == [("revert", ("rcH",))]
+                    and fixer.ui.footer.text()
+                    == "Fix All cancelled: 1 reverted, 1 not combined.",
+                    (rc_steps(), fixer.ui.footer.text()),
+                )
+                _RcWorkflow.report = moved
+
+                # Review 2026-10-24 (mirror of mayatk's): every Undo/Redo ran the
+                # Manage page's whole dry run, once per step of a held Ctrl+Z.
+                class _RcTimer:
+                    made = []
+
+                    def __init__(self, _parent=None):
+                        self.starts, self.slot = [], None
+                        self.timeout = SimpleNamespace(connect=self._connect)
+                        _RcTimer.made.append(self)
+
+                    def _connect(self, slot):
+                        self.slot = slot
+
+                    def setSingleShot(self, _on):
+                        pass
+
+                    def start(self, ms):
+                        self.starts.append(ms)
+
+                undo = _panel(page="Manage")
+                undo.ui.isVisible = lambda: True
+                undo.sb = SimpleNamespace(QtCore=SimpleNamespace(QTimer=_RcTimer))
+                rc_rows, rc_reads = [], []
+                undo._refresh_set_row = rc_rows.append
+                undo._refresh_manage = lambda footer=True: rc_reads.append(footer)
+                rc_undo_error = None
+                try:
+                    undo._scene_undone()
+                    undo._scene_undone()
+                except Exception as error:  # the defect: no such step
+                    rc_undo_error = error
+                rc_read_before = list(rc_reads)
+                if _RcTimer.made and _RcTimer.made[0].slot:
+                    _RcTimer.made[0].slot()
+                check(
+                    "an Undo reads the set rows now and the Manage table once it settles",
+                    rc_undo_error is None
+                    and rc_rows[: 2 * len(slots_mod.LightmapBakerSlots._SET_ROWS)]
+                    == list(slots_mod.LightmapBakerSlots._SET_ROWS) * 2
+                    and rc_read_before == []
+                    and len(_RcTimer.made) == 1
+                    and len(_RcTimer.made[0].starts) == 2
+                    and rc_reads == [True],
+                    (repr(rc_undo_error), rc_read_before, rc_reads, len(_RcTimer.made)),
+                )
+                try:  # the shared panel's own visibility back for what follows
+                    del undo.ui.isVisible
+                except AttributeError:
+                    pass
+
+                _RcWorkflow.instances = []
+                bpy.ops.object.select_all(action="DESELECT")
+                rc_cube.select_set(True)
+                again = _panel()
+                again._output_dir = lambda: rc_out
+                again.rebake_selected()
+                check(
+                    "Re-Bake re-bakes the selection as baked",
+                    rc_rebaker("rebake") is not None
+                    and rc_rebaker("rebake").rebake_objects == ["csCube"]
+                    and "1 in place" in again.ui.footer.text(),
+                    again.ui.footer.text(),
+                )
+
             finally:
                 slots_mod.LightmapBaker = rc_real_workflow
     finally:

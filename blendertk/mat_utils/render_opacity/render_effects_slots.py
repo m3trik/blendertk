@@ -691,7 +691,7 @@ class RenderEffectsSlots(ptk.LoggingMixin):
         if not result:
             self.ui.footer.setText("WebXR preview failed -- see the log for details.")
             return
-        if ptk.MeshConvert.VISIBILITY_TRACKS_KEY not in (
+        if ptk.SceneRecords.VISIBILITY.key not in (
             result.get("data_export") or ()
         ):
             # Mirror of mayatk's: published, but what it published is the

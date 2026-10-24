@@ -284,7 +284,16 @@ class BlenderTestRunner:
         # from the locale when stdout is a pipe (cp1252 here), so a suite that
         # prints one glyph outside it died with UnicodeEncodeError and read as
         # a failure -- the naming tool's progress bar did exactly that.
-        env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+        # Unbuffered: a suite's ===RESULT=== is its last line, and a crash in
+        # teardown at exit (Qt's, offscreen) dropped a block-buffered one -- a
+        # passing suite then read as "died before reporting" (2026-10-23).
+        env = dict(
+            os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1", PYTHONUNBUFFERED="1"
+        )
+        # Headless unless a GUI is the point (CODE_STANDARD section 9): a Qt
+        # suite -- the .venv leg, or a uitk panel inside a background Blender --
+        # must not put a window on the desktop. An explicit value is honored.
+        env.setdefault("QT_QPA_PLATFORM", "offscreen")
         try:
             proc = subprocess.run(
                 cmd,
@@ -490,6 +499,13 @@ def main() -> int:
         for suite in runner.discover():
             print(f"  {suite.stem}")
         return 0
+
+    # A name no suite answers to means the run would not cover what was asked
+    # for -- it used to print "No suites matched." and exit 0, a typo read as a pass.
+    unknown = [name for name in args.suites if not runner.discover([name])]
+    if unknown:
+        print(f"[ERROR] No such suite(s): {', '.join(unknown)} (see --list)")
+        return 2
 
     print(f"Blender: {blender}\n")
     result = runner.run(args.suites or None)

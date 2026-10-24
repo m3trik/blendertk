@@ -1831,10 +1831,14 @@ class MatUtils(_MatUtilsInternal):
 
     @staticmethod
     def is_mat_assigned(mat):
-        """True iff ``mat`` is assigned to at least one object (mirror of ``mtk.is_mat_assigned`` —
-        the same condition Delete-Unused targets). Blender has no shading engines, so this is a
-        direct object-user check."""
-        return bool(MatUtils.find_by_mat_id(mat))
+        """True iff something uses ``mat`` — mirror of ``mtk.is_mat_assigned`` (in use: what
+        Delete Unused keeps). Blender has no shading engines; the datablock's own user count
+        answers, its fake user set aside — an object's slot, a mesh's, a Geometry Nodes Set
+        Material, anything holding it. An object-slot check called a Geometry-Nodes-only material
+        unused, and deleting it broke the node tree. A holder that is itself orphaned (a mesh
+        whose object was deleted) counts until the file purges it, as Blender's own count does;
+        ``bpy.data.user_map`` would discount it, at ~3 ms a call."""
+        return mat.users - int(mat.use_fake_user) > 0
 
     @staticmethod
     def get_mat_swatch_icon(mat, size=(20, 20), fallback_to_blank=True):
@@ -2089,16 +2093,17 @@ class MatUtils(_MatUtilsInternal):
 
     @staticmethod
     def delete_unused_materials():
-        """Delete materials assigned to no object — mirror of Maya's *Delete Unused Materials*.
-        Respects Blender's fake-user convention (a material the user explicitly marked to keep is
-        left alone) and skips grease-pencil materials. Returns the removed material names."""
+        """Delete the materials nothing uses (:meth:`is_mat_assigned`) — mirror of Maya's
+        *Delete Unused Materials*. Respects Blender's fake-user convention (a material the user
+        explicitly marked to keep is left alone) and skips grease-pencil materials. Returns the
+        removed material names."""
         import bpy
 
         removed = []
         for mat in list(bpy.data.materials):
             if _MatUtilsInternal._is_gp_material(mat) or mat.use_fake_user:
                 continue
-            if not MatUtils.find_by_mat_id(mat):
+            if not MatUtils.is_mat_assigned(mat):
                 removed.append(mat.name)
                 try:
                     bpy.data.materials.remove(mat)

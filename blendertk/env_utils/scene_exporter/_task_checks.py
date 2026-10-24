@@ -320,26 +320,29 @@ class _TaskChecksMixin(_TaskDataMixin):
         fails only for a mask map the conversion could not bring to the
         template, naming the residuals rather than blocking the fix.
 
-        The judgement is pythontk's (``MeshConvert.sidecar_foreign_packings``
-        -> ``MapFactory.foreign_packings``), keyed by the registry workflow the
-        combobox named, so no engine name or channel layout is spelled out here
-        and this cannot drift from the Maya twin.
+        The judgement is pythontk's (``MapFactory.foreign_packings``), asked
+        of the maps the export's materials record names
+        (:meth:`MaterialRecords.entries`, the one reader of the file's
+        materials) and keyed by the registry workflow the combobox named --
+        so no engine name or channel layout is spelled out here and this
+        cannot drift from the Maya twin.
 
         Returns:
             tuple: (status: bool, messages: list)
         """
         if not template:
             return True, []
-        from blendertk.env_utils.scene_state import SceneState
+        from blendertk.env_utils.material_records import MaterialRecords
 
         try:
-            sections = SceneState.read(self.objects or [])
+            entries = MaterialRecords.entries(self.objects or [])
         except Exception:  # noqa: BLE001 — a read failure must not block an export
             self.logger.warning("Material compatibility check skipped.", exc_info=True)
             return True, []
 
-        foreign = ptk.MeshConvert.sidecar_foreign_packings(
-            {"sections": sections}, workflow=template
+        foreign = ptk.MapFactory.foreign_packings(
+            ptk.MaterialFamilies.texture_files(ptk.MaterialFamilies.payload(entries)),
+            workflow=template,
         )
         if not foreign:
             return True, []

@@ -404,8 +404,8 @@ class _AnimationTasksMixin(_TaskDataMixin):
 
     def ensure_scene_records_published(self):
         """Publish once if no task did (mirror of mayatk's): the write's
-        fallback for a run with the carrier tasks off.  What it left out is
-        logged as the carrier task's publish logs it
+        fallback for a run with the carrier tasks off.  What its producers
+        noted is logged as the carrier task's publish logs it
         (:meth:`_log_snapshot_notes`): with that task off, this is the run's
         only publish, and the only place a stale shot is named."""
         if self._scene_snapshot is None:
@@ -432,7 +432,9 @@ class _AnimationTasksMixin(_TaskDataMixin):
         mayatk's): an export-scoped record (the lightmaps, the shadow planes)
         names only the objects the write ships, so the post-write embed never
         ships the maps of one left out. The file's own copy of each narrowed
-        record is put back after the run (``ExportSnapshot.restore_scene_wide``).
+        record is put back after the run (``ExportSnapshot.restore_scene_wide``)
+        -- and a transient record (the materials, which name this run's staged
+        maps) is cleared there, the file never holding one.
         """
         from blendertk.env_utils.fbx_utils import FbxUtils
         from blendertk.node_utils.data_nodes import DataNodes
@@ -458,11 +460,16 @@ class _AnimationTasksMixin(_TaskDataMixin):
                     "scene_wide_records",
                     lambda: snapshot.restore_scene_wide(DataNodes),
                 )
-                self.logger.info(
-                    "Narrowed to the export set: "
-                    f"{', '.join(snapshot.scene_wide)} (the file keeps its "
-                    "whole copy)."
-                )
+                narrowed = [
+                    key
+                    for key in snapshot.scene_wide
+                    if not ptk.SceneRecords.resolve(key).transient
+                ]
+                if narrowed:
+                    self.logger.info(
+                        "Narrowed to the export set: "
+                        f"{', '.join(narrowed)} (the file keeps its whole copy)."
+                    )
             return snapshot
         except Exception:  # noqa: BLE001 - the write goes on; say what ships
             self.logger.warning(
@@ -576,8 +583,8 @@ class _AnimationTasksMixin(_TaskDataMixin):
         if mode == "full":
             # No split: the FBX ships its scene-range take, and the converter
             # is told to keep only that. The declared shots still ride on the
-            # carrier as METADATA (extras.animation_web publishes each one's
-            # frame range so a player can seek the window inside the clip).
+            # carrier as METADATA (extras.animation inherits every one, so a
+            # player plays each as its window of the clip).
             self.logger.info(
                 "Animation clips: shipping the full sequence only; the "
                 "declared shots are published as metadata, not as clips."
@@ -687,7 +694,7 @@ class _AnimationTasksMixin(_TaskDataMixin):
         self._log_snapshot_notes()
 
     def _log_snapshot_notes(self):
-        """Log, as warnings, what a producer left out of this run's publish
+        """Log, as warnings, what a producer noted of this run's publish
         (``ExportSnapshot.noted``), each with a link to the panel that acts on
         it (:attr:`NOTE_PANELS`).  Every publish path calls it -- the carrier
         task's summary and the fallback publish of a run with that task off
