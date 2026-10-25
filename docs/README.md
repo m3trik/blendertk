@@ -1,4 +1,4 @@
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 [![PyPI](https://img.shields.io/pypi/v/blendertk.svg)](https://pypi.org/project/blendertk/)
 [![Blender](https://img.shields.io/badge/Blender-4.x+-orange.svg)](https://www.blender.org/)
 [![Tests](https://img.shields.io/badge/Tests-7861%20passed-brightgreen.svg)](../test/)
@@ -90,4 +90,4 @@ Nothing in blendertk attaches to a running Blender. Tests and headless tooling a
 
 ## License
 
-MIT — see [LICENSE](../LICENSE).
+GPL-3.0-or-later — see [COPYING](https://github.com/m3trik/blendertk/blob/main/COPYING), plus an additional permission to combine it with mayatk and Autodesk Maya ([COPYING.EXCEPTION](https://github.com/m3trik/blendertk/blob/main/COPYING.EXCEPTION)).

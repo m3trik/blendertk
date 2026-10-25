@@ -8,11 +8,11 @@ dynamic = ["version", "readme"]
 description = "Python toolkit for Blender mirroring mayatk's API: modeling, UV, materials, animation, rigging and export utilities."
 keywords = ["m3trik", "blender", "blender-python", "bpy", "rigging", "technical-art", "dcc"]
 authors = [{name = "Ryan Simpson", email = "m3trik@outlook.com"}]
-license = {text = "MIT"}
+license = {text = "GPL-3.0-or-later"}
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
     "Intended Audience :: Developers",
