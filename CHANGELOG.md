@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-24 -- Relicensed from MIT to GPL-3.0-or-later (`COPYING` replaces `LICENSE`; new `COPYING.EXCEPTION`; `pyproject.toml`, `MANIFEST.in`, README).** Blender holds add-on code that uses `bpy` to be GPL-covered, so the GPL is the license the host allows. `COPYING.EXCEPTION` is a GPLv3 section 7 permission to combine blendertk with mayatk (MIT with the Commons Clause) and Autodesk Maya, which the Maya bridge templates import. Applies from the next release on; versions already published keep their license.
+  - Test(s): none -- license files and packaging metadata only.
 - **2026-10-24 -- A material only Geometry Nodes uses is in use: Delete All Unused Materials no longer breaks the node tree (`mat_utils/_mat_utils.py` `is_mat_assigned`, `delete_unused_materials`).** In use is the datablock's user count, fake user aside (was: object slots only).
   - Test(s): `test_mat_anim_utils.py` +3 checks (red: 2 FAIL).
 - **2026-10-24 -- Lightmap Baker: a failed pack group's map never lands on another file's map of its name (`light_utils/lightmap_baker/lightmap_baker.py` `pack_atlas`).** Mirror of mayatk's.

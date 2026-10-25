@@ -1,4 +1,5 @@
-include LICENSE
+include COPYING
+include COPYING.EXCEPTION
 include docs/README.md
 include pyproject.toml
 recursive-include blendertk *.ui *.xml *.json *.bat *.lua
