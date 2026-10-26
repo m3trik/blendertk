@@ -3175,10 +3175,9 @@ Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
 - [`TARGET_AUTO`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L58) — constant
 - [`TARGET_NEW`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L59) — constant
 - [`TARGET_CURRENT`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L60) — constant
-- **[`class SubstanceBridge(SubstanceEngine)`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L104)** — Export Blender selection to Substance Painter via a chosen template.
+- **[`class SubstanceBridge(SubstanceEngine)`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L91)** — Export Blender selection to Substance Painter via a chosen template.
   - `SubstanceBridge.send(self, objects: Optional[List[str]] = None, output_dir: Optional[str] = None, output_name: Optional[str] = None, painter_exe: Optional[str] = None, fbx_options: Optional[Dict[str, Any]] = None, template: str = 'import', mode: str = SEND_TO, target: Union[str, int] = TARGET_AUTO, params: Optional[Dict[str, Any]] = None, **legacy_kwargs: Any) -> Optional[Dict[str, Any]]` — Export *objects*, render *template* in *mode*, hand off to Painter.
   - `SubstanceBridge.source_model_path_for(cls, fbx_path: str) -> str` *(class)* — ``.../asset.fbx`` -> ``.../asset_source.fbx``.
-  - `SubstanceBridge.high_poly_path_for(cls, fbx_path: str) -> str` *(class)* **DEPRECATED (remove in 0.15.0)** — Renamed :meth:`source_model_path_for` (mayatk's name).
 
 <a id="mat_utils--substance_bridge--_substance_engine"></a>
 ### `mat_utils/substance_bridge/_substance_engine.py`

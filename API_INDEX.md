@@ -785,7 +785,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `mat_utils/substance_bridge/_substance_bridge.py` — Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
 - constants: SEND_TO, ROUND_TRIP, TARGET_AUTO, TARGET_NEW, TARGET_CURRENT
 - `class SubstanceBridge(SubstanceEngine)`
-  - methods: send, source_model_path_for, high_poly_path_for
+  - methods: send, source_model_path_for
 
 ### `mat_utils/substance_bridge/_substance_engine.py` — Drive Substance 3D Painter from the outside -- the DCC-free half of the bridge.
 - constants: SEND_TO, ROUND_TRIP, TARGET_AUTO, TARGET_NEW, TARGET_CURRENT

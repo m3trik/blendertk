@@ -18944,7 +18944,7 @@
         {
           "name": "SubstanceBridge",
           "summary": "Export Blender selection to Substance Painter via a chosen template.",
-          "line": 104,
+          "line": 91,
           "bases": [
             "SubstanceEngine"
           ],
@@ -18955,7 +18955,7 @@
               "kind": "method",
               "signature": "(self, objects: Optional[List[str]] = None, output_dir: Optional[str] = None, output_name: Optional[str] = None, painter_exe: Optional[str] = None, fbx_options: Optional[Dict[str, Any]] = None, template: str = 'import', mode: str = SEND_TO, target: Union[str, int] = TARGET_AUTO, params: Optional[Dict[str, Any]] = None, **legacy_kwargs: Any) -> Optional[Dict[str, Any]]",
               "summary": "Export *objects*, render *template* in *mode*, hand off to Painter.",
-              "line": 144,
+              "line": 131,
               "deprecated": false
             },
             {
@@ -18964,18 +18964,8 @@
               "kind": "classmethod",
               "signature": "(cls, fbx_path: str) -> str",
               "summary": "``.../asset.fbx`` -> ``.../asset_source.fbx``.",
-              "line": 283,
+              "line": 270,
               "deprecated": false
-            },
-            {
-              "name": "high_poly_path_for",
-              "qualname": "SubstanceBridge.high_poly_path_for",
-              "kind": "classmethod",
-              "signature": "(cls, fbx_path: str) -> str",
-              "summary": "Renamed :meth:`source_model_path_for` (mayatk's name).",
-              "line": 298,
-              "deprecated": true,
-              "remove_in": "0.15.0"
             }
           ]
         }
