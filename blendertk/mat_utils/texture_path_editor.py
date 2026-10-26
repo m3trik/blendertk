@@ -2195,7 +2195,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         Same folder, another name, the old file on disk and the new one not: there is
         nothing to point at, so the edit means "call it this". A typed path naming a file
         that exists stays a repoint, and so does an edit of a file outside the scene's
-        project (``EnvUtils.scene_project_root``, the boundary Keep Names In Sync keeps) --
+        project (``DataNodes.scene_project_root``, the boundary Keep Names In Sync keeps) --
         another project may read it, so a path edit must not rename a shared library
         texture; the message says so. Rename File, which asks for the rename, still renames
         it. Mirror of mayatk's; *library* resolves a linked image's ``//`` path.
@@ -2211,7 +2211,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             and not ptk.TiledPath.tiles(new)
         ):
             return False
-        project = btk.EnvUtils.scene_project_root()
+        project = btk.DataNodes.scene_project_root()
         if project and ptk.FileUtils.is_under(os.path.abspath(old), project):
             return True
         self.sb.message_box(

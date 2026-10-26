@@ -17,7 +17,10 @@ for p in (REPO, os.path.join(MONO, "pythontk")):
 lines = []
 def check(name, fn):
     try:
-        lines.append(f"OK   {name}: {fn()}")
+        result = fn()
+        if result is False:  # a boolean check reports its failure by value
+            raise AssertionError("returned False")
+        lines.append(f"OK   {name}: {result}")
     except Exception as e:
         lines.append(f"FAIL {name}: {e!r}")
         lines.append(traceback.format_exc())
@@ -32,6 +35,26 @@ try:
     check("btk.get_env_info resolves", lambda: callable(btk.get_env_info))
     check("CoreUtils.undoable is btk.undoable",
           lambda: btk.CoreUtils.undoable is btk.undoable)
+
+    # Importing the package loads declarations only (CODE_STANDARD section 4).
+    # Until 2026-10-25 the Diagnostics alias was fused at import and pythontk's
+    # root loaded PIL and numpy into every ``import blendertk``.
+    def _declarations_only():
+        from pythontk.core_utils.module_resolver import import_footprint
+
+        footprint = import_footprint("blendertk")
+        if footprint != {"modules": [], "third_party": []}:
+            raise AssertionError(footprint)
+        return footprint
+    check("import blendertk loads only declarations", _declarations_only)
+
+    # Each flat name has one owner: six had two, reached by module order alone
+    # (btk.set_scene_source was the record-only DataNodes one). Consolidated: 2026-10-25.
+    def _one_owner_each():
+        if btk._RESOLVER.flat_collisions:
+            raise AssertionError(btk._RESOLVER.flat_collisions)
+        return "no flat name defined twice"
+    check("each flat name has one owner", _one_owner_each)
 
     # bpy-backed behavior
     check("get_env_info() dict", lambda: sorted(btk.get_env_info().keys()))

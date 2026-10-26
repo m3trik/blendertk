@@ -253,7 +253,7 @@ try:
     check("empty selection -> {}", baker.bake([]) == {})
 
     # ---- default_output_dir: the file project's texture folder + a kind -----
-    # One rule in both DCCs (EnvUtils.scene_source_images_dir); never temp: an
+    # One rule in both DCCs (DataNodes.scene_source_images_dir); never temp: an
     # unsaved file with no workspace has nowhere permanent and says so.
     from blendertk.env_utils._env_utils import EnvUtils as _Env
 

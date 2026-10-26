@@ -346,8 +346,6 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
   - methods: from_selection, sample_curve
 - `class CurtainMesh(CurtainDrape)`
   - methods: create, build
-- `class CurtainUtils`
-  - methods: curtain_rail_from_selection, create_curtain
 - `class CurtainRig`
   - methods: attach
 
@@ -787,7 +785,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `mat_utils/substance_bridge/_substance_bridge.py` — Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
 - constants: SEND_TO, ROUND_TRIP, TARGET_AUTO, TARGET_NEW, TARGET_CURRENT
 - `class SubstanceBridge(SubstanceEngine)`
-  - methods: send, source_model_path_for, high_poly_path_for
+  - methods: send, source_model_path_for
 
 ### `mat_utils/substance_bridge/_substance_engine.py` — Drive Substance 3D Painter from the outside -- the DCC-free half of the bridge.
 - constants: SEND_TO, ROUND_TRIP, TARGET_AUTO, TARGET_NEW, TARGET_CURRENT
@@ -886,7 +884,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `node_utils/data_nodes.py` — The Blender scene store -- mirror of mayatk's ``node_utils.data_nodes``.
 - `class DataNodes(pythontk.SceneStoreBase)`
-  - methods: get_internal_node, ensure_internal, get_export_node, get_export_nodes, ensure_export, discard_if_empty, read, write, remove, values, dump_export_nodes, carriers_in, library_renames, scene_path, set_scene_source, scene_source, scene_project_root, scene_workspace, scene_source_images_dir, writer_stamp_of, install_path_rebase, ensure_path_rebase, remove_path_rebase
+  - methods: get_internal_node, ensure_internal, get_export_node, get_export_nodes, ensure_export, discard_if_empty, read, write, remove, values, dump_export_nodes, carriers_in, library_renames, scene_path, set_scene_source, scene_source, twin_save_target, scene_project_root, scene_workspace, scene_source_images_dir, writer_stamp_of, install_path_rebase, ensure_path_rebase, remove_path_rebase
 
 ### `nurbs_utils/_nurbs_utils.py` — Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` namespace.
 - `class NurbsUtils(pythontk.LoggingMixin)`

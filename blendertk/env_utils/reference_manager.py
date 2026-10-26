@@ -1434,12 +1434,12 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
 
     def _bake_project_root(self):
         """The project a foreign row's bake goes in: the open file's
-        (``EnvUtils.scene_project_root``), else the workspace being browsed;
+        (``DataNodes.scene_project_root``), else the workspace being browsed;
         None when neither resolves -- the engine then refuses the bake (a bake a
         saved file links is a project file, never a temp one) and the panel
         shows its reason like any other bake error."""
         try:
-            root = btk.EnvUtils.scene_project_root() or self._workspace_dir()
+            root = btk.DataNodes.scene_project_root() or self._workspace_dir()
         except Exception:  # noqa: BLE001 - a panel without its workspace widgets
             root = None
         return root if root and os.path.isdir(root) else None
@@ -1460,11 +1460,11 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         engine = None
         for lib in list(bpy.data.libraries):
             path = bpy.path.abspath(lib.filepath) if lib.filepath else ""
-            if not (path and btk.EnvUtils._in_temp(path)):
+            if not (path and ptk.TempArtifacts.contains(path)):
                 continue
             if not MayaSceneImport.bake_source(path):
                 continue
-            project = btk.EnvUtils.scene_project_root() or self._workspace_dir()
+            project = btk.DataNodes.scene_project_root() or self._workspace_dir()
             if not project:
                 continue
             engine = engine or MayaSceneImport()
@@ -1476,7 +1476,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             if not target:
                 continue
             # //-relative where a relative path reaches it (never across drives).
-            lib.filepath = btk.EnvUtils._blend_relpath(target)
+            lib.filepath = btk.DataNodes._blend_relpath(target)
             lib.reload()
             moved.append(lib)
         if moved:
@@ -1489,7 +1489,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         as bytes, none is opened). Returns the paths removed. Mirror of mayatk's."""
         from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
 
-        project = btk.EnvUtils.scene_project_root() or self._workspace_dir()
+        project = btk.DataNodes.scene_project_root() or self._workspace_dir()
         return MayaSceneImport().purge_unused_bakes(project=project, dry_run=dry_run)
 
     def _refresh_table_content(self, widget):
@@ -2234,8 +2234,8 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             self._discard_stale_scratches()
             # The scratch stands in for its source: the pin the source lies under holds
             # it, so a lightmap bake's project is the source's, not the temp folder
-            # (EnvUtils.scene_project_root).
-            btk.EnvUtils.set_scene_source(scratch, path)
+            # (DataNodes.scene_project_root).
+            btk.DataNodes.set_scene_source(scratch, path)
             self._pin_workspace_for(path)
             # Held past UiState's re-apply of the saved overlays, which the load queued.
             MayaSceneImport.hide_relationship_lines()

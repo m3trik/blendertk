@@ -931,8 +931,6 @@ try:
     # next define, and go on a clear -- a file never keeps two competing sets.
     # Added: 2026-09-27
     try:
-        import warnings as _bs_warnings
-
         reset()
         bpy.ops.mesh.primitive_cube_add()
         bs_a = bpy.context.active_object
@@ -983,18 +981,6 @@ try:
             and bs_a.name in bpy.context.scene.objects
             and bs_b.name in bpy.context.scene.objects,
             str([c.name for c in _stamped()]),
-        )
-        # The class name is public API: kept one release as a warned alias.
-        with _bs_warnings.catch_warnings(record=True) as _caught:
-            _bs_warnings.simplefilter("always")
-            from blendertk.mat_utils.substance_bridge._substance_bridge import (
-                HighPolySet as _HighPolySet,
-            )
-        check(
-            "HighPolySet is a deprecated alias of BakeSourceSet",
-            _HighPolySet is BakeSourceSet
-            and any(issubclass(w.category, DeprecationWarning) for w in _caught),
-            str([str(w.message) for w in _caught]),
         )
     except Exception as e:  # noqa: BLE001
         check("BakeSourceSet storage + legacy adoption", False, repr(e))

@@ -3812,10 +3812,14 @@ class MatUtils(_MatUtilsInternal):
         }
 
     @staticmethod
+    @ptk.Deprecation.symbol(
+        "MatUpdater.update_materials", remove_in="0.22.0", since="2026-10-25"
+    )
     def update_materials(
         materials=None, config=None, verbose=False, progress_callback=None
     ):
-        """Module-level alias for :meth:`MatUpdater.update_materials` (``btk.update_materials``)."""
+        """Moved to :meth:`MatUpdater.update_materials`, its one owner (also the
+        flat ``btk.update_materials``)."""
         return MatUpdater.update_materials(
             materials=materials,
             config=config,

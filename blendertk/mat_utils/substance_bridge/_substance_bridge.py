@@ -85,19 +85,6 @@ _DEFAULT_USD_OPTIONS: Dict[str, Any] = dict(
 )
 
 
-# The bake source was this module's ``HighPolySet`` until it became the
-# cross-bridge ``bake_sets.BakeSourceSet`` (mayatk's name). A .blend saved
-# under the old class still resolves -- ``BakeSourceSet.LEGACY_STAMPS`` adopts
-# its collection -- and the Python name is served as a warned alias until
-# ``remove_in`` -- a release after the one this notice first ships in.
-ptk.Deprecation.attributes(
-    globals(),
-    {"HighPolySet": "blendertk.mat_utils.bake_sets.BakeSourceSet"},
-    remove_in="0.15.0",
-    since="2026-09-27",
-)
-
-
 # -- Bridge ----------------------------------------------------------------
 
 
@@ -290,14 +277,6 @@ class SubstanceBridge(SubstanceEngine):
         mayatk's).
         """
         return BakeSourceSet.companion_path(fbx_path)
-
-    @classmethod
-    @ptk.Deprecation.symbol(
-        "SubstanceBridge.source_model_path_for", remove_in="0.15.0", since="2026-09-27"
-    )
-    def high_poly_path_for(cls, fbx_path: str) -> str:
-        """Renamed :meth:`source_model_path_for` (mayatk's name)."""
-        return cls.source_model_path_for(fbx_path)
 
     def _export_bake_source(
         self,

@@ -27,7 +27,6 @@ try:
     from mathutils import Vector
     import pythontk as ptk
     import blendertk as btk
-    import warnings
 
     from blendertk.edit_utils.curtain import CurtainMesh, Rail
     from blendertk.edit_utils.curtain._curtain_drape import CurtainDrape
@@ -147,24 +146,6 @@ try:
     check(
         "empty selection -> None",
         Rail.from_selection([]) is None,
-    )
-
-    # ---- the retired entry point still builds, and says where it went
-    reset()
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        legacy = btk.CurtainUtils.create_curtain(rail, height=1.0, irregularity=0.0)
-        legacy_rail = btk.CurtainUtils.curtain_rail_from_selection([])
-    named = " ".join(str(w.message) for w in caught)
-    check(
-        "btk.CurtainUtils forwards to CurtainMesh / Rail with a DeprecationWarning",
-        legacy is not None
-        and legacy.type == "MESH"
-        and legacy_rail is None
-        and sum(issubclass(w.category, DeprecationWarning) for w in caught) >= 2
-        and "CurtainMesh.create" in named
-        and "Rail.from_selection" in named,
-        named,
     )
 
     # ============================ RIG (control handles + hooks) ============================

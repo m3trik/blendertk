@@ -40,9 +40,8 @@ import pythontk as ptk
 from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.nurbs_utils._nurbs_utils import NurbsUtils
 
-# Before cv2 loads: OpenCV reads OPENCV_IO_ENABLE_OPENEXR once, at import, so a
-# cv2 imported without it leaves OpenEXR off for the whole process.
-os.environ.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
+# OpenCV reads OPENCV_IO_ENABLE_OPENEXR once, at import; pythontk's root sets
+# it, and this package imports pythontk before any module of its own.
 try:
     import cv2
 except ImportError:  # Blender ships no cv2; the .venv does — see the dual-mode test.

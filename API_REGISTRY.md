@@ -1489,10 +1489,7 @@ Procedural draped-cloth (curtain) generator for Blender -- mirror of mayatk's
 - **[`class CurtainMesh(CurtainDrape)`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L114)** — Generate a pleated, gravity-draped curtain mesh from a rail polyline.
   - `CurtainMesh.create(cls, rail: Sequence[Vec], **opts)` *(class)*
   - `CurtainMesh.build(self)` — Create the curtain mesh object and return it.
-- **[`class CurtainUtils`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L185)** — Retired entry point: :class:`Rail` and :class:`CurtainMesh`, mayatk's names.
-  - `CurtainUtils.curtain_rail_from_selection(objects)` *(static)* **DEPRECATED (remove in 0.14.0)** — Moved to :meth:`Rail.from_selection`.
-  - `CurtainUtils.create_curtain(rail, name='curtain', **options)` *(static)* **DEPRECATED (remove in 0.14.0)** — Moved to :meth:`CurtainMesh.create`.
-- **[`class CurtainRig`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L210)** — Make grabbable control handles drive a finished curtain — Blender mirror of mayatk's
+- **[`class CurtainRig`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L190)** — Make grabbable control handles drive a finished curtain — Blender mirror of mayatk's
   - `CurtainRig.attach(curtain, controls=5, dropoff=2.0, name=None)` *(static)* — Rig *curtain* with control-empty handles that pull the cloth via hooks.
 
 <a id="edit_utils--curtain--_curtain_drape"></a>
@@ -1782,12 +1779,12 @@ blendertk environment / scene-library utilities — the engine behind the Refere
   - `EnvUtils.set_current_workspace(root=None)` *(static)* — Pin (or clear, with None) the session's current workspace — the Blender analogue of
   - `EnvUtils.current_workspace(path=None)` *(static)* — The active ``pythontk.Workspace``, or None.
   - `EnvUtils.workspace_root(path=None)` *(static)* — Absolute root of the current workspace, or '' — what ``get_env_info("workspace")``
-  - `EnvUtils.set_scene_source(cls, scene: str, source: Optional[str] = None) -> Optional[str]` *(class)* — Record that the file *scene* stands in for the scene *source*
-  - `EnvUtils.twin_save_target(cls, scene: Optional[str] = None) -> Optional[str]` *(class)* — Where a save of the stand-in *scene* (default: the open .blend) lands
-  - `EnvUtils.scene_source(cls, scene: Optional[str] = None) -> Optional[str]` *(class)* — The scene the file *scene* (default: the open .blend) stands in for
-  - `EnvUtils.scene_project_root()` *(static)* — The project the open file's files belong to;
-  - `EnvUtils.scene_workspace()` *(static)* — The open file's project as a ``ptk.Workspace``, or ``None``
-  - `EnvUtils.scene_source_images_dir(subfolder: str = '', create: bool = False) -> str` *(static)* — Where a tool's generated maps for the open file go by default
+  - `EnvUtils.set_scene_source(scene: str, source: Optional[str] = None) -> Optional[str]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.set_scene_source`, which records the stand-in
+  - `EnvUtils.twin_save_target(scene: Optional[str] = None) -> Optional[str]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.twin_save_target`.
+  - `EnvUtils.scene_source(scene: Optional[str] = None) -> Optional[str]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.scene_source`.
+  - `EnvUtils.scene_project_root() -> Optional[str]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.scene_project_root`.
+  - `EnvUtils.scene_workspace() -> Optional[ptk.Workspace]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.scene_workspace`.
+  - `EnvUtils.scene_source_images_dir(subfolder: str = '', create: bool = False) -> str` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.scene_source_images_dir`.
   - `EnvUtils.scene_artifact_path(suffix: str) -> str` *(static)* — A file named for the open .blend, beside it: ``<blend dir>/<stem><suffix>``.
   - `EnvUtils.source_images_dir(path=None)` *(static)* — The current workspace's texture folder — its ``sourceImages`` rule → an existing
   - `EnvUtils.texture_search_dirs(path=None)` *(static)* — Where this scene's map files can be found NOW, most specific first.
@@ -2695,7 +2692,7 @@ Material utilities — mirror of mayatk's ``MatUtils`` public names where the co
   - `MatUtils.resolve_pbr_plan(textures, config=None)` *(static)* — Classify ``textures`` and reduce them to ONE source per Principled input.
   - `MatUtils.create_pbr_material(textures, name=None, normal_direction='OpenGL', config=None, plan=None, ambient_occlusion=True)` *(static)* — Build a Principled-BSDF material from a set of PBR texture files — Blender mirror of mayatk's
   - `MatUtils.create_pbr_materials(textures, name=None, normal_direction='OpenGL', prefix='', suffix='', config=None)` *(static)* — Batch builder — Blender mirror of mayatk's ``GameShader.create_network`` batch path.
-  - `MatUtils.update_materials(materials=None, config=None, verbose=False, progress_callback=None)` *(static)* — Module-level alias for :meth:`MatUpdater.update_materials` (``btk.update_materials``).
+  - `MatUtils.update_materials(materials=None, config=None, verbose=False, progress_callback=None)` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`MatUpdater.update_materials`, its one owner (also the
 
 <a id="mat_utils--arnold_bridge"></a>
 ### `mat_utils/arnold_bridge.py`
@@ -3178,10 +3175,9 @@ Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
 - [`TARGET_AUTO`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L58) — constant
 - [`TARGET_NEW`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L59) — constant
 - [`TARGET_CURRENT`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L60) — constant
-- **[`class SubstanceBridge(SubstanceEngine)`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L104)** — Export Blender selection to Substance Painter via a chosen template.
+- **[`class SubstanceBridge(SubstanceEngine)`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L91)** — Export Blender selection to Substance Painter via a chosen template.
   - `SubstanceBridge.send(self, objects: Optional[List[str]] = None, output_dir: Optional[str] = None, output_name: Optional[str] = None, painter_exe: Optional[str] = None, fbx_options: Optional[Dict[str, Any]] = None, template: str = 'import', mode: str = SEND_TO, target: Union[str, int] = TARGET_AUTO, params: Optional[Dict[str, Any]] = None, **legacy_kwargs: Any) -> Optional[Dict[str, Any]]` — Export *objects*, render *template* in *mode*, hand off to Painter.
   - `SubstanceBridge.source_model_path_for(cls, fbx_path: str) -> str` *(class)* — ``.../asset.fbx`` -> ``.../asset_source.fbx``.
-  - `SubstanceBridge.high_poly_path_for(cls, fbx_path: str) -> str` *(class)* **DEPRECATED (remove in 0.15.0)** — Renamed :meth:`source_model_path_for` (mayatk's name).
 
 <a id="mat_utils--substance_bridge--_substance_engine"></a>
 ### `mat_utils/substance_bridge/_substance_engine.py`
@@ -3529,6 +3525,7 @@ The Blender scene store -- mirror of mayatk's ``node_utils.data_nodes``.
   - `DataNodes.scene_path(cls) -> str` *(class)* — The open .blend, ``""`` while unsaved -- what the store's project
   - `DataNodes.set_scene_source(cls, scene: str, source: Optional[str] = None) -> Optional[str]` *(class)* — Record that the file *scene* stands in for the scene *source*;
   - `DataNodes.scene_source(cls, scene: Optional[str] = None) -> Optional[str]` *(class)* — The scene the file *scene* (default: the open .blend) stands in for
+  - `DataNodes.twin_save_target(cls, scene: Optional[str] = None) -> Optional[str]` *(class)* — Where a save of the stand-in *scene* (default: the open .blend) lands
   - `DataNodes.scene_project_root(cls) -> Optional[str]` *(class)* — The project the open file's files belong to;
   - `DataNodes.scene_workspace(cls) -> Optional['ptk.Workspace']` *(class)* — The open file's project (:meth:`scene_project_root`) as a
   - `DataNodes.scene_source_images_dir(cls, subfolder: str = '', create: bool = False) -> str` *(class)* — Where a tool's generated maps for the open file go by default.
@@ -3572,12 +3569,12 @@ Curve to Tube tool — Blender port of mayatk's ``nurbs_utils.curve_to_tube``.
 
 Image Tracer tool — Blender port of mayatk's ``nurbs_utils.image_tracer``.
 
-- **[`class ImageTracer(pythontk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/image_tracer.py#L52)** — Trace a raster image into curves / filled meshes — Blender mirror of mayatk's ``ImageTracer``.
+- **[`class ImageTracer(pythontk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/image_tracer.py#L51)** — Trace a raster image into curves / filled meshes — Blender mirror of mayatk's ``ImageTracer``.
   - `ImageTracer.trace_curves(self, name='traced_curve')` — Trace the image into ONE curve object — one cyclic POLY spline per contour (so nested
   - `ImageTracer.create_mesh(self, curve=None, name='traced_mesh')` — Fill the traced contours into a mesh (positive space;
   - `ImageTracer.create_negative_space_mesh(self, curve=None, margin_scale=0.1, name='negative_space_mesh')` — Fill the **inverse**: a boundary rectangle (margin-padded bbox) around the contours, with
   - `ImageTracer.project_on_plane(self, curve=None, name='projected_curves')` — Project the traced curves onto a construction plane — Blender analogue of Maya's
-- **[`class ImageTracerSlots(pythontk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/image_tracer.py#L195)** — Switchboard slot wiring for the co-located ``image_tracer.ui`` (structural mirror of
+- **[`class ImageTracerSlots(pythontk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/image_tracer.py#L194)** — Switchboard slot wiring for the co-located ``image_tracer.ui`` (structural mirror of
   - `ImageTracerSlots.header_init(self, widget)` — Initialize the header widget.
   - `ImageTracerSlots.txt000_init(self, widget)` — Configure the path field's option box (▸) as an image file browser.
   - `ImageTracerSlots.browse_image(self)` — Kept for structural parity with mayatk (unused in practice — txt000's option-box
