@@ -485,215 +485,65 @@ class EnvUtils(_EnvUtilsInternal):
         ws = EnvUtils.current_workspace(path)
         return ws.root if ws else ""
 
-    @classmethod
-    def set_scene_source(
-        cls, scene: str, source: Optional[str] = None
-    ) -> Optional[str]:
-        """Record that the file *scene* stands in for the scene *source*
-        (``DataNodes.set_scene_source``); ``None`` forgets it. A recorded
-        stand-in also gets its save redirected out of temp
-        (:meth:`twin_save_target`). Mirror of mayatk's.
-
-        Parameters:
-            scene: The file opened in place of *source*.
-            source: The scene it stands in for; ``None`` forgets *scene*.
-
-        Returns:
-            The recorded source (absolute), or ``None``.
-        """
+    # The scene-source family's one owner is DataNodes (2026-10-25); these
+    # retired doors forward there for one release.
+    @staticmethod
+    @ptk.Deprecation.symbol(
+        "DataNodes.set_scene_source", remove_in="0.22.0", since="2026-10-25"
+    )
+    def set_scene_source(scene: str, source: Optional[str] = None) -> Optional[str]:
+        """Moved to :meth:`DataNodes.set_scene_source`, which records the stand-in
+        and arms its save."""
         from blendertk.node_utils.data_nodes import DataNodes
 
-        recorded = DataNodes.set_scene_source(scene, source)
-        if recorded:
-            cls._arm_twin_save()
-        return recorded
+        return DataNodes.set_scene_source(scene, source)
 
-    @classmethod
-    def twin_save_target(cls, scene: Optional[str] = None) -> Optional[str]:
-        """Where a save of the stand-in *scene* (default: the open .blend) lands
-        instead of temp, or ``None`` when it saves where it is.
-
-        A file opened in place of a source (:meth:`set_scene_source`) that lives
-        in the temp root is a scratch twin: saved as it is, real work would sit
-        in a folder the age sweep reclaims. Its first save is re-saved into the
-        source's project scenes folder under the twin's own name
-        (``<stem>_<ext>.blend``: what it was converted from), never over a file
-        already there. Mirror of mayatk's.
-
-        Parameters:
-            scene: The stand-in file.
-
-        Returns:
-            The path to save to, or ``None``.
-        """
-        if scene is None:
-            try:
-                import bpy
-
-                scene = bpy.data.filepath
-            except ImportError:  # headless .venv -- no bpy, no open file
-                scene = ""
+    @staticmethod
+    @ptk.Deprecation.symbol(
+        "DataNodes.twin_save_target", remove_in="0.22.0", since="2026-10-25"
+    )
+    def twin_save_target(scene: Optional[str] = None) -> Optional[str]:
+        """Moved to :meth:`DataNodes.twin_save_target`."""
         from blendertk.node_utils.data_nodes import DataNodes
 
-        source = cls.scene_source(scene) if scene else None
-        if not source or not cls._in_temp(scene):
-            return None
-        ws = ptk.Workspace.for_scene(source, session_root=DataNodes._session_pin())
-        if ws is None:
-            return None
-        folder = ws.scene_dir
-        stem, ext = os.path.splitext(os.path.basename(scene))
-        try:
-            taken = os.listdir(folder)
-        except OSError:
-            taken = []
-        return ptk.FileUtils.unique_path(folder, stem, ext, claims=taken)
+        return DataNodes.twin_save_target(scene)
 
     @staticmethod
-    def _in_temp(path: str) -> bool:
-        """True when *path* is scratch ``ptk.TempArtifacts`` holds (its root, or
-        the system temp dir a pre-root flat twin lives in)."""
-        return ptk.TempArtifacts.contains(path)
-
-    @classmethod
-    def _redirect_twin_save(cls, filepath=None, *_args) -> Optional[str]:
-        """The ``save_post`` hook: a save of a scratch twin is saved again as its
-        :meth:`twin_save_target` (Blender cannot retarget a save before it
-        happens), and the copy in temp is removed -- the work is in the project
-        now. A Save Copy (*filepath*, the file written, is not the open one:
-        SmartBake's backup) is left alone. Returns the new path."""
-        import bpy
-
-        twin = bpy.data.filepath
-        if filepath and (
-            not twin
-            or os.path.normcase(os.path.abspath(filepath))
-            != os.path.normcase(os.path.abspath(twin))
-        ):
-            return None  # a copy: the open file is still the twin
-        target = cls.twin_save_target(twin)
-        if not target:
-            return None
-        from blendertk.node_utils.data_nodes import DataNodes
-
-        key = os.path.normcase(os.path.abspath(twin))
-        # Forgotten first: the re-save below fires this hook again.
-        source = DataNodes._scene_sources.pop(key, None)
-        try:
-            os.makedirs(os.path.dirname(target), exist_ok=True)
-            result = bpy.ops.wm.save_as_mainfile(filepath=target, check_existing=False)
-            if "FINISHED" not in result or not os.path.isfile(target):
-                raise RuntimeError(f"the save returned {sorted(result)}")
-        except Exception as e:  # noqa: BLE001 - the save itself already landed
-            if source is not None:
-                # Restored directly (set_scene_source would re-arm the hook
-                # list this handler is being called from): the next save
-                # tries again.
-                DataNodes._scene_sources[key] = source
-            print(f"Could not save into the project ({e}); the work is in {twin}")
-            return None
-        # Linked while the twin sat in temp, a project file on another drive
-        # than temp stayed absolute (no relative path crosses drives): in the
-        # project now, its project files go relative.
-        try:
-            if cls._relativize_project_paths(target):
-                bpy.ops.wm.save_mainfile()
-        except Exception as e:  # noqa: BLE001 - the work is saved already
-            print(f"Saved {target}, but its project paths stay absolute: {e}")
-        try:
-            os.remove(twin)
-        except OSError:
-            pass
-        print(f"Saved into the project instead of the temp copy: {target}")
-        return target
-
-    @staticmethod
-    def _blend_relpath(path: str) -> str:
-        """*path* as the open file stores it: ``//``-relative, or *path*
-        unchanged while the file is unsaved or when no relative path reaches it
-        (another drive)."""
-        import bpy
-
-        if not bpy.data.filepath:
-            return path
-        try:
-            return bpy.path.relpath(path)
-        except ValueError:  # another drive (Windows)
-            return path
-
-    @classmethod
-    def _relativize_project_paths(cls, scene: str) -> int:
-        """Re-spell the open file's library and cache-file paths that are
-        absolute and lie in *scene*'s project ``//``-relative; return how many
-        changed."""
-        import bpy
-
-        ws = ptk.Workspace.for_scene(scene)
-        if ws is None:
-            return 0
-        changed = 0
-        for block in (*bpy.data.libraries, *bpy.data.cache_files):
-            stored = block.filepath
-            if not stored or stored.startswith("//"):
-                continue
-            if not ptk.FileUtils.is_under(os.path.abspath(stored), ws.root):
-                continue
-            rel = cls._blend_relpath(stored)
-            if rel != stored:
-                block.filepath = rel
-                changed += 1
-        return changed
-
-    @staticmethod
-    def _arm_twin_save() -> None:
-        """Install the ``save_post`` hook (:meth:`_redirect_twin_save`) once a
-        session; found by name, so a module reload replaces rather than adds."""
-        try:
-            import bpy
-        except ImportError:  # headless .venv -- no bpy
-            return
-        handlers = bpy.app.handlers.save_post
-        for handler in list(handlers):
-            if getattr(handler, "__name__", "") == "_btk_twin_save_post":
-                handlers.remove(handler)
-
-        @bpy.app.handlers.persistent
-        def _btk_twin_save_post(*args):
-            EnvUtils._redirect_twin_save(*args)
-
-        handlers.append(_btk_twin_save_post)
-
-    @classmethod
-    def scene_source(cls, scene: Optional[str] = None) -> Optional[str]:
-        """The scene the file *scene* (default: the open .blend) stands in for
-        (``DataNodes.scene_source``), or ``None``. Mirror of mayatk's."""
+    @ptk.Deprecation.symbol(
+        "DataNodes.scene_source", remove_in="0.22.0", since="2026-10-25"
+    )
+    def scene_source(scene: Optional[str] = None) -> Optional[str]:
+        """Moved to :meth:`DataNodes.scene_source`."""
         from blendertk.node_utils.data_nodes import DataNodes
 
         return DataNodes.scene_source(scene)
 
     @staticmethod
-    def scene_project_root():
-        """The project the open file's files belong to; ``None`` without one
-        (``DataNodes.scene_project_root``: the file's own ``workspace.mel``,
-        else the session pin holding it, else its folder; a stand-in resolves
-        as its source). Mirror of mayatk's."""
+    @ptk.Deprecation.symbol(
+        "DataNodes.scene_project_root", remove_in="0.22.0", since="2026-10-25"
+    )
+    def scene_project_root() -> Optional[str]:
+        """Moved to :meth:`DataNodes.scene_project_root`."""
         from blendertk.node_utils.data_nodes import DataNodes
 
         return DataNodes.scene_project_root()
 
     @staticmethod
-    def scene_workspace():
-        """The open file's project as a ``ptk.Workspace``, or ``None``
-        (``DataNodes.scene_workspace``). Mirror of mayatk's."""
+    @ptk.Deprecation.symbol(
+        "DataNodes.scene_workspace", remove_in="0.22.0", since="2026-10-25"
+    )
+    def scene_workspace() -> Optional[ptk.Workspace]:
+        """Moved to :meth:`DataNodes.scene_workspace`."""
         from blendertk.node_utils.data_nodes import DataNodes
 
         return DataNodes.scene_workspace()
 
     @staticmethod
+    @ptk.Deprecation.symbol(
+        "DataNodes.scene_source_images_dir", remove_in="0.22.0", since="2026-10-25"
+    )
     def scene_source_images_dir(subfolder: str = "", create: bool = False) -> str:
-        """Where a tool's generated maps for the open file go by default
-        (``DataNodes.scene_source_images_dir``): the file project's texture
-        folder plus *subfolder*; ``""`` without a project. Mirror of mayatk's."""
+        """Moved to :meth:`DataNodes.scene_source_images_dir`."""
         from blendertk.node_utils.data_nodes import DataNodes
 
         return DataNodes.scene_source_images_dir(subfolder, create=create)

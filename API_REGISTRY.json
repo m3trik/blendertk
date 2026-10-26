@@ -9672,56 +9672,62 @@
             {
               "name": "set_scene_source",
               "qualname": "EnvUtils.set_scene_source",
-              "kind": "classmethod",
-              "signature": "(cls, scene: str, source: Optional[str] = None) -> Optional[str]",
-              "summary": "Record that the file *scene* stands in for the scene *source*",
-              "line": 489,
-              "deprecated": false
+              "kind": "staticmethod",
+              "signature": "(scene: str, source: Optional[str] = None) -> Optional[str]",
+              "summary": "Moved to :meth:`DataNodes.set_scene_source`, which records the stand-in",
+              "line": 494,
+              "deprecated": true,
+              "remove_in": "0.22.0"
             },
             {
               "name": "twin_save_target",
               "qualname": "EnvUtils.twin_save_target",
-              "kind": "classmethod",
-              "signature": "(cls, scene: Optional[str] = None) -> Optional[str]",
-              "summary": "Where a save of the stand-in *scene* (default: the open .blend) lands",
-              "line": 512,
-              "deprecated": false
+              "kind": "staticmethod",
+              "signature": "(scene: Optional[str] = None) -> Optional[str]",
+              "summary": "Moved to :meth:`DataNodes.twin_save_target`.",
+              "line": 505,
+              "deprecated": true,
+              "remove_in": "0.22.0"
             },
             {
               "name": "scene_source",
               "qualname": "EnvUtils.scene_source",
-              "kind": "classmethod",
-              "signature": "(cls, scene: Optional[str] = None) -> Optional[str]",
-              "summary": "The scene the file *scene* (default: the open .blend) stands in for",
-              "line": 667,
-              "deprecated": false
+              "kind": "staticmethod",
+              "signature": "(scene: Optional[str] = None) -> Optional[str]",
+              "summary": "Moved to :meth:`DataNodes.scene_source`.",
+              "line": 515,
+              "deprecated": true,
+              "remove_in": "0.22.0"
             },
             {
               "name": "scene_project_root",
               "qualname": "EnvUtils.scene_project_root",
               "kind": "staticmethod",
-              "signature": "()",
-              "summary": "The project the open file's files belong to;",
-              "line": 675,
-              "deprecated": false
+              "signature": "() -> Optional[str]",
+              "summary": "Moved to :meth:`DataNodes.scene_project_root`.",
+              "line": 525,
+              "deprecated": true,
+              "remove_in": "0.22.0"
             },
             {
               "name": "scene_workspace",
               "qualname": "EnvUtils.scene_workspace",
               "kind": "staticmethod",
-              "signature": "()",
-              "summary": "The open file's project as a ``ptk.Workspace``, or ``None``",
-              "line": 685,
-              "deprecated": false
+              "signature": "() -> Optional[ptk.Workspace]",
+              "summary": "Moved to :meth:`DataNodes.scene_workspace`.",
+              "line": 535,
+              "deprecated": true,
+              "remove_in": "0.22.0"
             },
             {
               "name": "scene_source_images_dir",
               "qualname": "EnvUtils.scene_source_images_dir",
               "kind": "staticmethod",
               "signature": "(subfolder: str = '', create: bool = False) -> str",
-              "summary": "Where a tool's generated maps for the open file go by default",
-              "line": 693,
-              "deprecated": false
+              "summary": "Moved to :meth:`DataNodes.scene_source_images_dir`.",
+              "line": 545,
+              "deprecated": true,
+              "remove_in": "0.22.0"
             },
             {
               "name": "scene_artifact_path",
@@ -9729,7 +9735,7 @@
               "kind": "staticmethod",
               "signature": "(suffix: str) -> str",
               "summary": "A file named for the open .blend, beside it: ``<blend dir>/<stem><suffix>``.",
-              "line": 702,
+              "line": 552,
               "deprecated": false
             },
             {
@@ -9738,7 +9744,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "The current workspace's texture folder — its ``sourceImages`` rule → an existing",
-              "line": 720,
+              "line": 570,
               "deprecated": false
             },
             {
@@ -9747,7 +9753,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "Where this scene's map files can be found NOW, most specific first.",
-              "line": 731,
+              "line": 581,
               "deprecated": false
             },
             {
@@ -9756,7 +9762,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "The current workspace's scene folder (``scene`` rule → existing ``scenes`` → the root),",
-              "line": 765,
+              "line": 615,
               "deprecated": false
             },
             {
@@ -9765,7 +9771,7 @@
               "kind": "staticmethod",
               "signature": "(root)",
               "summary": "The scene-rule folder of a *marked* workspace at ``root`` (absolute), or '' when",
-              "line": 772,
+              "line": 622,
               "deprecated": false
             },
             {
@@ -9774,7 +9780,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Saved workspace-template names (the Workspace Editor's Save Template entries) —",
-              "line": 785,
+              "line": 635,
               "deprecated": false
             },
             {
@@ -9783,7 +9789,7 @@
               "kind": "staticmethod",
               "signature": "(name=None)",
               "summary": "File rules for building a NEW workspace: the *name*d (default: active / last-saved)",
-              "line": 791,
+              "line": 641,
               "deprecated": false
             },
             {
@@ -9792,7 +9798,7 @@
               "kind": "staticmethod",
               "signature": "(name, rules=None)",
               "summary": "Save *rules* as workspace template *name* and make it the active default for new",
-              "line": 798,
+              "line": 648,
               "deprecated": false
             },
             {
@@ -9801,7 +9807,7 @@
               "kind": "staticmethod",
               "signature": "(name)",
               "summary": "Delete the user template *name* (the store keeps the active pointer consistent).",
-              "line": 812,
+              "line": 662,
               "deprecated": false
             },
             {
@@ -9810,7 +9816,7 @@
               "kind": "staticmethod",
               "signature": "(root, rules=None, create_dirs=True)",
               "summary": "Create a marked workspace at ``root`` — the Blender counterpart of Maya's File ▸",
-              "line": 818,
+              "line": 668,
               "deprecated": false
             },
             {
@@ -9819,7 +9825,7 @@
               "kind": "staticmethod",
               "signature": "(root=None)",
               "summary": "Mark ``root`` (default: the current workspace folder) as a shared Maya/Blender project",
-              "line": 830,
+              "line": 680,
               "deprecated": false
             },
             {
@@ -9828,7 +9834,7 @@
               "kind": "staticmethod",
               "signature": "(root_dir, recursive=False)",
               "summary": "Project folders under ``root_dir`` — marked workspaces (a ``workspace.mel`` at their",
-              "line": 844,
+              "line": 694,
               "deprecated": false
             },
             {
@@ -9837,7 +9843,7 @@
               "kind": "staticmethod",
               "signature": "(path)",
               "summary": "Open a .blend file (replaces the current file — Maya's ``file -open``).",
-              "line": 864,
+              "line": 714,
               "deprecated": false
             },
             {
@@ -9846,7 +9852,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Discard the current file and start an empty, unsaved scene (Maya's ``file -new``).",
-              "line": 877,
+              "line": 727,
               "deprecated": false
             },
             {
@@ -9855,7 +9861,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "True if the open file holds authored data — anything beyond Blender's *default",
-              "line": 893,
+              "line": 743,
               "deprecated": false
             },
             {
@@ -9864,7 +9870,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "True if replacing the open file (open / close / new) would lose work.",
-              "line": 910,
+              "line": 760,
               "deprecated": false
             },
             {
@@ -9873,7 +9879,7 @@
               "kind": "staticmethod",
               "signature": "(scene=None)",
               "summary": "The live scene's time setup as the bridges' ``scene`` record (see",
-              "line": 951,
+              "line": 801,
               "deprecated": false
             },
             {
@@ -9882,7 +9888,7 @@
               "kind": "staticmethod",
               "signature": "(settings, scene=None)",
               "summary": "Apply a ``scene`` record (any subset of :attr:`SCENE_SETTINGS_KEYS`) to the live",
-              "line": 976,
+              "line": 826,
               "deprecated": false
             },
             {
@@ -9891,7 +9897,7 @@
               "kind": "staticmethod",
               "signature": "(name, case=None, suffix='')",
               "summary": "Apply a naming convention to a base scene name — ``case`` via :meth:`pythontk.StrUtils.set_case`",
-              "line": 1023,
+              "line": 873,
               "deprecated": false
             },
             {
@@ -9900,7 +9906,7 @@
               "kind": "staticmethod",
               "signature": "(directory, name, case=None, suffix='', subfolder='')",
               "summary": "The absolute ``.blend`` path :meth:`save_scene_as` would write — the pure",
-              "line": 1041,
+              "line": 891,
               "deprecated": false
             },
             {
@@ -9909,7 +9915,7 @@
               "kind": "staticmethod",
               "signature": "(directory, name, case=None, suffix='', subfolder='', overwrite=True)",
               "summary": "Save the current scene as a .blend under ``directory`` with naming conventions applied —",
-              "line": 1077,
+              "line": 927,
               "deprecated": false
             },
             {
@@ -9918,7 +9924,7 @@
               "kind": "staticmethod",
               "signature": "(file_path=None, *, selection_only=False, materials=True, smoothing=True, normals=True, groups=True)",
               "summary": "Export the scene as a Wavefront OBJ — mirror of mayatk's ``export_scene_as_obj``.",
-              "line": 1108,
+              "line": 958,
               "deprecated": false
             },
             {
@@ -9927,7 +9933,7 @@
               "kind": "staticmethod",
               "signature": "(path, new_base)",
               "summary": "Rename a .blend on disk (and its ``.blend1`` backup) — mirror of mayatk's ``rename_scene``.",
-              "line": 1172,
+              "line": 1022,
               "deprecated": false
             },
             {
@@ -9936,7 +9942,7 @@
               "kind": "staticmethod",
               "signature": "(path, permanent: bool = False)",
               "summary": "Move a .blend (and its ``.blend1`` backup) to the trash — mirror of mayatk's",
-              "line": 1213,
+              "line": 1063,
               "deprecated": false
             },
             {
@@ -9945,7 +9951,7 @@
               "kind": "staticmethod",
               "signature": "(library, mode)",
               "summary": "Set the display override for a linked library's objects — mirror of mayatk's",
-              "line": 1254,
+              "line": 1104,
               "deprecated": false
             },
             {
@@ -9954,7 +9960,7 @@
               "kind": "staticmethod",
               "signature": "(library)",
               "summary": "Return the active display mode (``\"off\"`` / ``\"reference\"`` / ``\"template\"``) for a linked",
-              "line": 1279,
+              "line": 1129,
               "deprecated": false
             }
           ]
@@ -11340,7 +11346,7 @@
               "kind": "method",
               "signature": "(self, payload_path: str, *, fbx_options: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None, scene_settings: bool = False, reduce_keys: Union[bool, str, None] = False, scene_data: bool = True, progress: Optional[Callable[[int, int, str], Optional[bool]]] = None, stream_home: Optional[str] = None) -> List[Any]",
               "summary": "Import a Maya hand-off payload into the open scene and apply its manifest.",
-              "line": 706,
+              "line": 707,
               "deprecated": false
             },
             {
@@ -11349,7 +11355,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> bool",
               "summary": "Turn off the viewports' Relationship Lines overlay for the loaded file;",
-              "line": 1052,
+              "line": 1053,
               "deprecated": false
             },
             {
@@ -11358,7 +11364,7 @@
               "kind": "staticmethod",
               "signature": "(manifest_path: str, hdri: str = '', strength: float = 1.0) -> Dict[str, str]",
               "summary": "Light the world: an explicit *hdri*, else the scene's sky dome, else ambient.",
-              "line": 1866,
+              "line": 1863,
               "deprecated": false
             },
             {
@@ -11367,7 +11373,7 @@
               "kind": "property",
               "signature": "(self) -> Optional[str]",
               "summary": "The Blender executable used for the bake — this host's own binary.",
-              "line": 2800,
+              "line": 2797,
               "deprecated": false
             },
             {
@@ -11376,7 +11382,7 @@
               "kind": "method",
               "signature": "(self) -> str",
               "summary": "Return :attr:`blender_path` or raise an error naming what's missing.",
-              "line": 2822,
+              "line": 2819,
               "deprecated": false
             },
             {
@@ -11385,7 +11391,7 @@
               "kind": "method",
               "signature": "(self, src_path: str, out_path: str, reduce_keys: Union[bool, str, None] = None, info: Optional[Mapping[str, str]] = None, stream_home: Optional[str] = None) -> str",
               "summary": "Render the Blender-side intermediate->.blend bake script (exposed for",
-              "line": 2832,
+              "line": 2829,
               "deprecated": false
             },
             {
@@ -11394,7 +11400,7 @@
               "kind": "method",
               "signature": "(self, src_path: str, out_path: str, *, timeout: Optional[float] = None, reduce_keys: Union[bool, str, None] = None, on_output: Optional[Callable[[Optional[str]], Optional[bool]]] = None, info: Optional[Mapping[str, str]] = None, stream_home: Optional[str] = None) -> Any",
               "summary": "Bake the USD/FBX intermediate *src_path* into the .blend at *out_path*",
-              "line": 2880,
+              "line": 2877,
               "deprecated": false
             },
             {
@@ -11403,7 +11409,7 @@
               "kind": "method",
               "signature": "(self, src_path: str, *, via: str = 'fbx', use_cache: bool = True, timeout: Optional[float] = None, rig_mode: str = 'auto', reduce_keys: Union[bool, str, None] = REDUCE_KEYS_DEFAULT, progress: Optional[Callable[..., Optional[bool]]] = None, project: Optional[str] = None, **script_opts: Any) -> str",
               "summary": "Bake *src_path* to a ``.blend`` in the project's bake cache and return its",
-              "line": 2935,
+              "line": 2932,
               "deprecated": false
             },
             {
@@ -11412,7 +11418,7 @@
               "kind": "classmethod",
               "signature": "(cls, project: Optional[str] = None, create: bool = False) -> Optional[str]",
               "summary": "Where the bakes of *project* (default: the open file's) live: its",
-              "line": 3110,
+              "line": 3107,
               "deprecated": false
             },
             {
@@ -11421,7 +11427,7 @@
               "kind": "classmethod",
               "signature": "(cls, src_path: str, project: Optional[str] = None) -> Optional[str]",
               "summary": "Where *project*'s (default: the open file's) bake of *src_path* lives",
-              "line": 3184,
+              "line": 3181,
               "deprecated": false
             },
             {
@@ -11430,7 +11436,7 @@
               "kind": "classmethod",
               "signature": "(cls, baked_path: str) -> Dict[str, str]",
               "summary": "The bake record of the ``.blend`` at *baked_path* --",
-              "line": 3200,
+              "line": 3197,
               "deprecated": false
             },
             {
@@ -11439,7 +11445,7 @@
               "kind": "classmethod",
               "signature": "(cls, baked_path: str) -> Optional[str]",
               "summary": "The foreign scene *baked_path* was baked from, or None if it is not a bake.",
-              "line": 3242,
+              "line": 3239,
               "deprecated": false
             },
             {
@@ -11448,7 +11454,7 @@
               "kind": "method",
               "signature": "(self, baked_path: str, project: Optional[str] = None) -> Optional[str]",
               "summary": "The project bake standing in for the bake *baked_path* that lives in",
-              "line": 3254,
+              "line": 3251,
               "deprecated": false
             },
             {
@@ -11457,7 +11463,7 @@
               "kind": "method",
               "signature": "(self, project: Optional[str] = None, dry_run: bool = False) -> List[str]",
               "summary": "Remove the bakes in *project*'s bake cache that no file references.",
-              "line": 3298,
+              "line": 3295,
               "deprecated": false
             },
             {
@@ -11466,7 +11472,7 @@
               "kind": "staticmethod",
               "signature": "(maya_exe: str) -> Optional[str]",
               "summary": "Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.",
-              "line": 3334,
+              "line": 3331,
               "deprecated": false
             },
             {
@@ -11475,7 +11481,7 @@
               "kind": "staticmethod",
               "signature": "(src_path: str) -> bool",
               "summary": "Cheap pre-conversion probe: does the scene declare *driven* animation the",
-              "line": 3345,
+              "line": 3342,
               "deprecated": false
             },
             {
@@ -11484,7 +11490,7 @@
               "kind": "staticmethod",
               "signature": "(root_dir: str, recursive: bool = False, extensions: Optional[Sequence[str]] = None) -> List[str]",
               "summary": "Every importable Maya scene (``.ma`` / ``.mb``) under *root_dir* — sorted abs paths.",
-              "line": 3406,
+              "line": 3403,
               "deprecated": false
             }
           ]
@@ -15951,9 +15957,10 @@
               "qualname": "MatUtils.update_materials",
               "kind": "staticmethod",
               "signature": "(materials=None, config=None, verbose=False, progress_callback=None)",
-              "summary": "Module-level alias for :meth:`MatUpdater.update_materials` (``btk.update_materials``).",
-              "line": 3815,
-              "deprecated": false
+              "summary": "Moved to :meth:`MatUpdater.update_materials`, its one owner (also the",
+              "line": 3818,
+              "deprecated": true,
+              "remove_in": "0.22.0"
             }
           ]
         }
@@ -21215,7 +21222,16 @@
               "kind": "classmethod",
               "signature": "(cls, scene: Optional[str] = None) -> Optional[str]",
               "summary": "The scene the file *scene* (default: the open .blend) stands in for",
-              "line": 743,
+              "line": 753,
+              "deprecated": false
+            },
+            {
+              "name": "twin_save_target",
+              "qualname": "DataNodes.twin_save_target",
+              "kind": "classmethod",
+              "signature": "(cls, scene: Optional[str] = None) -> Optional[str]",
+              "summary": "Where a save of the stand-in *scene* (default: the open .blend) lands",
+              "line": 766,
               "deprecated": false
             },
             {
@@ -21224,7 +21240,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> Optional[str]",
               "summary": "The project the open file's files belong to;",
-              "line": 756,
+              "line": 909,
               "deprecated": false
             },
             {
@@ -21233,7 +21249,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> Optional['ptk.Workspace']",
               "summary": "The open file's project (:meth:`scene_project_root`) as a",
-              "line": 779,
+              "line": 932,
               "deprecated": false
             },
             {
@@ -21242,7 +21258,7 @@
               "kind": "classmethod",
               "signature": "(cls, subfolder: str = '', create: bool = False) -> str",
               "summary": "Where a tool's generated maps for the open file go by default.",
-              "line": 791,
+              "line": 944,
               "deprecated": false
             },
             {
@@ -21251,7 +21267,7 @@
               "kind": "classmethod",
               "signature": "(cls, scene_path: Optional[str]) -> str",
               "summary": "The base's stamp (``ptk.SceneStoreBase.writer_stamp_of``), except a",
-              "line": 817,
+              "line": 970,
               "deprecated": false
             },
             {
@@ -21260,7 +21276,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> bool",
               "summary": "Keep the path records spelled from the project of whichever file",
-              "line": 827,
+              "line": 980,
               "deprecated": false
             },
             {
@@ -21269,7 +21285,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> bool",
               "summary": ":meth:`install_path_rebase` unless a copy of it already is: what",
-              "line": 868,
+              "line": 1021,
               "deprecated": false
             },
             {
@@ -21278,7 +21294,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> None",
               "summary": "Remove the re-base handlers -- any module copy's, matched by name.",
-              "line": 899,
+              "line": 1052,
               "deprecated": false
             }
           ]

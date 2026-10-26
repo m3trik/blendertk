@@ -179,13 +179,13 @@ try:
     btk.EnvUtils.set_current_workspace(None)
     check(
         "an unsaved file with no workspace has no project folders",
-        btk.EnvUtils.scene_workspace() is None
-        and btk.EnvUtils.scene_source_images_dir() == "",
+        btk.DataNodes.scene_workspace() is None
+        and btk.DataNodes.scene_source_images_dir() == "",
     )
     _ws_dir = tempfile.mkdtemp(prefix="btk_scene_ws_")
     try:
         bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_ws_dir, "shot.blend"))
-        _folder = btk.EnvUtils.scene_source_images_dir("baked", create=True)
+        _folder = btk.DataNodes.scene_source_images_dir("baked", create=True)
         check(
             "scene_source_images_dir: <file project>/sourceimages/<kind>, created",
             os.path.normcase(_folder)

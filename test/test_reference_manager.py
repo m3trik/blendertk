@@ -1747,18 +1747,18 @@ try:
     )
     check(
         "open as new: the bake's project is the pinned source project, not the scratch's folder",
-        os.path.normcase(btk.EnvUtils.scene_project_root() or "")
+        os.path.normcase(btk.DataNodes.scene_project_root() or "")
         == os.path.normcase(_src_proj),
-        str(btk.EnvUtils.scene_project_root()),
+        str(btk.DataNodes.scene_project_root()),
     )
     _pin_elsewhere = os.path.join(tmp, "proj_elsewhere")
     os.makedirs(_pin_elsewhere, exist_ok=True)
     btk.set_current_workspace(_pin_elsewhere)
     check(
         "...and with the pin moved off it, the source's own project",
-        os.path.normcase(btk.EnvUtils.scene_project_root() or "")
+        os.path.normcase(btk.DataNodes.scene_project_root() or "")
         == os.path.normcase(_src_proj),
-        str(btk.EnvUtils.scene_project_root()),
+        str(btk.DataNodes.scene_project_root()),
     )
     btk.set_current_workspace(_prev_pin.root if _prev_pin else None)
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -1797,8 +1797,8 @@ try:
         "\\proj\\cache\\bake.blend"
     )
     check(
-        "EnvUtils._blend_relpath: another drive keeps the path absolute (no raise)",
-        os.name != "nt" or btk.EnvUtils._blend_relpath(_xd_other) == _xd_other,
+        "DataNodes._blend_relpath: another drive keeps the path absolute (no raise)",
+        os.name != "nt" or btk.DataNodes._blend_relpath(_xd_other) == _xd_other,
     )
     # The re-home relinks across drives (the open file in temp, the project's
     # bake on another drive) without raising: the path stays absolute.

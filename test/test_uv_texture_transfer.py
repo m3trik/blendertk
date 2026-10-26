@@ -1451,7 +1451,7 @@ try:
         "output_base_dir is the file project's texture folder (mayatk's rule)",
         base
         == os.path.normpath(os.path.join(os.path.dirname(blend), "sourceimages"))
-        == os.path.normpath(btk.EnvUtils.scene_source_images_dir()),
+        == os.path.normpath(btk.DataNodes.scene_source_images_dir()),
         base,
     )
     check(

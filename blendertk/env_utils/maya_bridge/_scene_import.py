@@ -598,6 +598,7 @@ class MayaSceneImport(ptk.LoggingMixin):
                 ``include_animation``; ``embed_textures`` is FBX-route only).
         """
         from blendertk.env_utils._env_utils import EnvUtils
+        from blendertk.node_utils.data_nodes import DataNodes
 
         # Decided BEFORE the import: "no content" must describe the scene the
         # user had, not the one the import just filled.
@@ -672,7 +673,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         # stream moves onto a project copy, named for the source like its bake.
         # Per payload version: the bake of the source (and a later import)
         # writes its own, never over the file this scene goes on reading.
-        project = EnvUtils.scene_project_root()
+        project = DataNodes.scene_project_root()
         stream_home = (
             self._stream_home(
                 src,
@@ -1313,9 +1314,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         not in temp: a user's own layer stays where it is)."""
         import bpy
 
-        from blendertk.env_utils._env_utils import EnvUtils
-
-        if not EnvUtils._in_temp(usd_path):
+        if not ptk.TempArtifacts.contains(usd_path):
             return 0
         key = os.path.normcase(os.path.realpath(usd_path))
         caches = [
@@ -1358,8 +1357,6 @@ class MayaSceneImport(ptk.LoggingMixin):
         """
         import bpy
 
-        from blendertk.env_utils._env_utils import EnvUtils
-
         home = os.path.normcase(os.path.realpath(stream_home)) if stream_home else None
         sealed, stranded = 0, []
         for cache in bpy.data.cache_files:
@@ -1369,7 +1366,7 @@ class MayaSceneImport(ptk.LoggingMixin):
             if home and os.path.normcase(os.path.realpath(path)) == home:
                 cache.filepath = "//" + os.path.basename(stream_home)
                 sealed += 1
-            elif EnvUtils._in_temp(path):
+            elif ptk.TempArtifacts.contains(path):
                 stranded.append(path)
         if stranded:
             raise RuntimeError(
@@ -2991,7 +2988,7 @@ class MayaSceneImport(ptk.LoggingMixin):
                 (see :meth:`import_scene`); ``False`` kills the running child and
                 raises :class:`pythontk.OperationCancelled`.
             project: The project root whose bake cache holds it; default the
-                open file's (``EnvUtils.scene_project_root``).
+                open file's (``DataNodes.scene_project_root``).
             **script_opts: Maya-side conversion knobs (``embed_textures`` /
                 ``include_animation``); inert for an ``.fbx`` or USD source.
 
@@ -3096,9 +3093,9 @@ class MayaSceneImport(ptk.LoggingMixin):
                 not be written to temp.
         """
         if not project:
-            from blendertk.env_utils._env_utils import EnvUtils
+            from blendertk.node_utils.data_nodes import DataNodes
 
-            project = EnvUtils.scene_project_root()
+            project = DataNodes.scene_project_root()
         if not project or not os.path.isdir(project):
             raise RuntimeError(
                 "No project to keep the bake in: save the file or pick a "
@@ -3122,9 +3119,9 @@ class MayaSceneImport(ptk.LoggingMixin):
             The folder (absolute), or ``None``.
         """
         if not project:
-            from blendertk.env_utils._env_utils import EnvUtils
+            from blendertk.node_utils.data_nodes import DataNodes
 
-            project = EnvUtils.scene_project_root()
+            project = DataNodes.scene_project_root()
         if not project:
             return None
         return cls._bakes().cache_dir(project, create=create)

@@ -127,14 +127,14 @@ try:
     # 3b. scene_source -- a file opened in place of a source scene (the Reference
     #     Manager's open-as-new scratch) stands in for it; None forgets it.
     stand_in = os.path.join(tmp, "scratch", "shot_ma.blend")
-    btk.EnvUtils.set_scene_source(stand_in, shot)
+    btk.DataNodes.set_scene_source(stand_in, shot)
     check(
         "scene_source names the scene a file stands in for",
-        _nc(btk.EnvUtils.scene_source(stand_in) or "") == _nc(shot),
+        _nc(btk.DataNodes.scene_source(stand_in) or "") == _nc(shot),
     )
     check(
         "...and nothing for any other file",
-        btk.EnvUtils.scene_source(loose) is None,
+        btk.DataNodes.scene_source(loose) is None,
     )
     from blendertk.node_utils.data_nodes import DataNodes as _DN
 
@@ -142,9 +142,9 @@ try:
         "the mapping lives on DataNodes (the part that owns the scene path)",
         _nc(_DN.scene_source(stand_in) or "") == _nc(shot),
     )
-    btk.EnvUtils.set_scene_source(stand_in, None)
+    btk.DataNodes.set_scene_source(stand_in, None)
     check(
-        "set_scene_source(None) forgets it", btk.EnvUtils.scene_source(stand_in) is None
+        "set_scene_source(None) forgets it", btk.DataNodes.scene_source(stand_in) is None
     )
 
     # 4. rule-fed accessors — marked project answers from its rules...
@@ -353,6 +353,31 @@ try:
     )
     check("re-promotion keeps the layout rules", re_promoted.rules.get("scene") == ".")
 
+    # --- the scene-source family has one owner -----------------------------------------------
+    # EnvUtils' copies forwarded to DataNodes, except set_scene_source, which also armed the
+    # twin's save -- and the flat btk.set_scene_source reached the record-only DataNodes one
+    # by module order. DataNodes owns all six; EnvUtils' names forward, with a warning, until
+    # 0.22.0. Consolidated: 2026-10-25.
+    import warnings
+
+    for name in (
+        "set_scene_source",
+        "scene_source",
+        "scene_workspace",
+        "scene_project_root",
+        "scene_source_images_dir",
+        "twin_save_target",
+    ):
+        check(f"btk.{name} is DataNodes'", getattr(btk, name) == getattr(btk.DataNodes, name))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        forwarded = btk.EnvUtils.scene_source(os.path.join(os.sep, "nowhere", "twin.blend"))
+    check(
+        "the retired EnvUtils.scene_source warns and forwards",
+        forwarded is None and any(issubclass(w.category, DeprecationWarning) for w in caught),
+        [str(w.message) for w in caught],
+    )
+
     # --- bpy-dependent integration (skipped under the .venv) ---------------------------------
     if HAS_BPY:
         # 8. get_env_info routes through the resolver: a .blend saved inside the marked
@@ -392,16 +417,16 @@ try:
         btk.set_current_workspace(broad)
         check(
             "scene_project_root: a broad pin yields to the file's own marked project",
-            _nc(btk.EnvUtils.scene_project_root() or "") == _nc(mine),
-            str(btk.EnvUtils.scene_project_root()),
+            _nc(btk.DataNodes.scene_project_root() or "") == _nc(mine),
+            str(btk.DataNodes.scene_project_root()),
         )
         # ptk.Workspace.for_scene, the one rule both DCCs share (2026-10-13): a
         # project's own marker names it more exactly than a pin below it.
         btk.set_current_workspace(os.path.join(mine, "scenes"))
         check(
             "scene_project_root: a pin inside the file's project yields to its marker",
-            _nc(btk.EnvUtils.scene_project_root() or "") == _nc(mine),
-            str(btk.EnvUtils.scene_project_root()),
+            _nc(btk.DataNodes.scene_project_root() or "") == _nc(mine),
+            str(btk.DataNodes.scene_project_root()),
         )
         # An unmarked file inside the pin belongs to the pinned project, not to
         # its own folder (mayatk's rule for the active project).
@@ -414,19 +439,19 @@ try:
         btk.set_current_workspace(loose_proj)
         check(
             "scene_project_root: an unmarked file inside the pin is the pin's",
-            _nc(btk.EnvUtils.scene_project_root() or "") == _nc(loose_proj),
-            str(btk.EnvUtils.scene_project_root()),
+            _nc(btk.DataNodes.scene_project_root() or "") == _nc(loose_proj),
+            str(btk.DataNodes.scene_project_root()),
         )
         bpy.ops.wm.read_factory_settings(use_empty=True)
         check(
             "scene_project_root: an unsaved file is the pin's",
-            _nc(btk.EnvUtils.scene_project_root() or "") == _nc(loose_proj),
-            str(btk.EnvUtils.scene_project_root()),
+            _nc(btk.DataNodes.scene_project_root() or "") == _nc(loose_proj),
+            str(btk.DataNodes.scene_project_root()),
         )
         btk.set_current_workspace(None)
         check(
             "scene_project_root: unsaved with no pin is None (never temp)",
-            btk.EnvUtils.scene_project_root() is None,
+            btk.DataNodes.scene_project_root() is None,
         )
 
         # 11. The FIRST save of an opened-as-new scratch twin (temp) lands in its
@@ -441,7 +466,7 @@ try:
             twin = os.path.join(twin_store.dir_path(), "room_ma.blend")
             bpy.ops.wm.read_factory_settings(use_empty=True)
             bpy.ops.wm.save_as_mainfile(filepath=twin)
-            btk.EnvUtils.set_scene_source(twin, twin_src)
+            btk.DataNodes.set_scene_source(twin, twin_src)
             bpy.data.objects.new("work", None)
             bpy.ops.wm.save_mainfile()
             target = os.path.join(twin_proj, "scenes", "room_ma.blend")
@@ -452,12 +477,12 @@ try:
             )
             check(
                 "...the temp copy is gone, and the saved file is no stand-in",
-                not os.path.exists(twin) and btk.EnvUtils.scene_source(target) is None,
+                not os.path.exists(twin) and btk.DataNodes.scene_source(target) is None,
             )
             # A second twin of the same source never overwrites the first save.
             bpy.ops.wm.read_factory_settings(use_empty=True)
             bpy.ops.wm.save_as_mainfile(filepath=twin)
-            btk.EnvUtils.set_scene_source(twin, twin_src)
+            btk.DataNodes.set_scene_source(twin, twin_src)
             bpy.ops.wm.save_mainfile()
             check(
                 "an existing scene of that name is never overwritten",
@@ -470,7 +495,7 @@ try:
             # leaves the open file the twin: it is never redirected.
             bpy.ops.wm.read_factory_settings(use_empty=True)
             bpy.ops.wm.save_as_mainfile(filepath=twin)
-            btk.EnvUtils.set_scene_source(twin, twin_src)
+            btk.DataNodes.set_scene_source(twin, twin_src)
             _before = sorted(os.listdir(os.path.join(twin_proj, "scenes")))
             _copy = os.path.join(twin_store.dir_path(), "room_backup.blend")
             bpy.ops.wm.save_as_mainfile(filepath=_copy, copy=True)
@@ -478,14 +503,14 @@ try:
                 "a Save Copy of a twin is not redirected (the twin stays open)",
                 _nc(bpy.data.filepath) == _nc(twin)
                 and os.path.isfile(twin)
-                and btk.EnvUtils.scene_source(twin) is not None
+                and btk.DataNodes.scene_source(twin) is not None
                 and sorted(os.listdir(os.path.join(twin_proj, "scenes"))) == _before,
                 f"open={bpy.data.filepath} scenes={os.listdir(os.path.join(twin_proj, 'scenes'))}",
             )
             # A redirect that cannot save keeps the twin a stand-in (the next
             # save tries again) and leaves ONE hook armed.
-            _stock_target = btk.EnvUtils.twin_save_target
-            btk.EnvUtils.twin_save_target = classmethod(
+            _stock_target = btk.DataNodes.twin_save_target
+            btk.DataNodes.twin_save_target = classmethod(
                 lambda cls, scene=None: (
                     os.path.join(twin, "not_a_dir", "x.blend")
                     if _nc(scene or "") == _nc(twin)
@@ -495,11 +520,11 @@ try:
             try:
                 bpy.ops.wm.save_mainfile()
             finally:
-                btk.EnvUtils.twin_save_target = _stock_target
+                btk.DataNodes.twin_save_target = _stock_target
             check(
                 "a failed redirect keeps the twin a stand-in, hook armed once",
                 _nc(bpy.data.filepath) == _nc(twin)
-                and btk.EnvUtils.scene_source(twin) is not None
+                and btk.DataNodes.scene_source(twin) is not None
                 and [
                     h.__name__ for h in bpy.app.handlers.save_post
                 ].count("_btk_twin_save_post")
@@ -523,7 +548,7 @@ try:
                 bpy.ops.wm.read_factory_settings(use_empty=True)
                 _xd_twin = os.path.join(twin_store.dir_path(), "hall_ma.blend")
                 bpy.ops.wm.save_as_mainfile(filepath=_xd_twin)
-                btk.EnvUtils.set_scene_source(_xd_twin, _xd_src)
+                btk.DataNodes.set_scene_source(_xd_twin, _xd_src)
                 btk.link_blend_file(_xd_lib, link=True, relative=True)
                 _cross = (
                     os.path.splitdrive(_xd_twin)[0].lower()

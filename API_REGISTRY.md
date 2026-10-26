@@ -1782,12 +1782,12 @@ blendertk environment / scene-library utilities — the engine behind the Refere
   - `EnvUtils.set_current_workspace(root=None)` *(static)* — Pin (or clear, with None) the session's current workspace — the Blender analogue of
   - `EnvUtils.current_workspace(path=None)` *(static)* — The active ``pythontk.Workspace``, or None.
   - `EnvUtils.workspace_root(path=None)` *(static)* — Absolute root of the current workspace, or '' — what ``get_env_info("workspace")``
-  - `EnvUtils.set_scene_source(cls, scene: str, source: Optional[str] = None) -> Optional[str]` *(class)* — Record that the file *scene* stands in for the scene *source*
-  - `EnvUtils.twin_save_target(cls, scene: Optional[str] = None) -> Optional[str]` *(class)* — Where a save of the stand-in *scene* (default: the open .blend) lands
-  - `EnvUtils.scene_source(cls, scene: Optional[str] = None) -> Optional[str]` *(class)* — The scene the file *scene* (default: the open .blend) stands in for
-  - `EnvUtils.scene_project_root()` *(static)* — The project the open file's files belong to;
-  - `EnvUtils.scene_workspace()` *(static)* — The open file's project as a ``ptk.Workspace``, or ``None``
-  - `EnvUtils.scene_source_images_dir(subfolder: str = '', create: bool = False) -> str` *(static)* — Where a tool's generated maps for the open file go by default
+  - `EnvUtils.set_scene_source(scene: str, source: Optional[str] = None) -> Optional[str]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.set_scene_source`, which records the stand-in
+  - `EnvUtils.twin_save_target(scene: Optional[str] = None) -> Optional[str]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.twin_save_target`.
+  - `EnvUtils.scene_source(scene: Optional[str] = None) -> Optional[str]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.scene_source`.
+  - `EnvUtils.scene_project_root() -> Optional[str]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.scene_project_root`.
+  - `EnvUtils.scene_workspace() -> Optional[ptk.Workspace]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.scene_workspace`.
+  - `EnvUtils.scene_source_images_dir(subfolder: str = '', create: bool = False) -> str` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.scene_source_images_dir`.
   - `EnvUtils.scene_artifact_path(suffix: str) -> str` *(static)* — A file named for the open .blend, beside it: ``<blend dir>/<stem><suffix>``.
   - `EnvUtils.source_images_dir(path=None)` *(static)* — The current workspace's texture folder — its ``sourceImages`` rule → an existing
   - `EnvUtils.texture_search_dirs(path=None)` *(static)* — Where this scene's map files can be found NOW, most specific first.
@@ -2695,7 +2695,7 @@ Material utilities — mirror of mayatk's ``MatUtils`` public names where the co
   - `MatUtils.resolve_pbr_plan(textures, config=None)` *(static)* — Classify ``textures`` and reduce them to ONE source per Principled input.
   - `MatUtils.create_pbr_material(textures, name=None, normal_direction='OpenGL', config=None, plan=None, ambient_occlusion=True)` *(static)* — Build a Principled-BSDF material from a set of PBR texture files — Blender mirror of mayatk's
   - `MatUtils.create_pbr_materials(textures, name=None, normal_direction='OpenGL', prefix='', suffix='', config=None)` *(static)* — Batch builder — Blender mirror of mayatk's ``GameShader.create_network`` batch path.
-  - `MatUtils.update_materials(materials=None, config=None, verbose=False, progress_callback=None)` *(static)* — Module-level alias for :meth:`MatUpdater.update_materials` (``btk.update_materials``).
+  - `MatUtils.update_materials(materials=None, config=None, verbose=False, progress_callback=None)` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`MatUpdater.update_materials`, its one owner (also the
 
 <a id="mat_utils--arnold_bridge"></a>
 ### `mat_utils/arnold_bridge.py`
@@ -3529,6 +3529,7 @@ The Blender scene store -- mirror of mayatk's ``node_utils.data_nodes``.
   - `DataNodes.scene_path(cls) -> str` *(class)* — The open .blend, ``""`` while unsaved -- what the store's project
   - `DataNodes.set_scene_source(cls, scene: str, source: Optional[str] = None) -> Optional[str]` *(class)* — Record that the file *scene* stands in for the scene *source*;
   - `DataNodes.scene_source(cls, scene: Optional[str] = None) -> Optional[str]` *(class)* — The scene the file *scene* (default: the open .blend) stands in for
+  - `DataNodes.twin_save_target(cls, scene: Optional[str] = None) -> Optional[str]` *(class)* — Where a save of the stand-in *scene* (default: the open .blend) lands
   - `DataNodes.scene_project_root(cls) -> Optional[str]` *(class)* — The project the open file's files belong to;
   - `DataNodes.scene_workspace(cls) -> Optional['ptk.Workspace']` *(class)* — The open file's project (:meth:`scene_project_root`) as a
   - `DataNodes.scene_source_images_dir(cls, subfolder: str = '', create: bool = False) -> str` *(class)* — Where a tool's generated maps for the open file go by default.
