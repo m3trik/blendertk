@@ -37,9 +37,11 @@ process every time). No exceptions for speed.
   (HTML formatters, file/recent-files logic, key-timing math) — extract there, don't duplicate.
 - Don't pre-create empty `*_utils` groups — implement lazily as slots demand (YAGNI).
 
-## Tool panels — co-locate in blendertk, never in tentacle
+## Tool panels — moving to tentacle
 
-Same contract as mayatk ([mayatk/CLAUDE.md](../mayatk/CLAUDE.md) owns it): `<tool>.ui` + `<Tool>Slots`
+As in mayatk ([mayatk/CLAUDE.md](../mayatk/CLAUDE.md) owns the rule): every panel moves to tentacle
+with its tool, and blendertk keeps the host operations, no UI. Until a panel moves, it keeps mayatk's
+contract: `<tool>.ui` + `<Tool>Slots`
 next to the engine, in the module dir of the domain they act on (curtain / mirror / cut_on_axis /
 duplicate_* → `edit_utils/`; hdr_manager → `light_utils/`; reference_manager → `env_utils/`);
 `<Tool>Slots` is tentacle-independent (base `ptk.LoggingMixin`, `__init__(self, switchboard,
