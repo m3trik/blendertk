@@ -21453,7 +21453,7 @@
         {
           "name": "ImageTracer",
           "summary": "Trace a raster image into curves / filled meshes — Blender mirror of mayatk's ``ImageTracer``.",
-          "line": 52,
+          "line": 51,
           "bases": [
             "pythontk.LoggingMixin"
           ],
@@ -21464,7 +21464,7 @@
               "kind": "method",
               "signature": "(self, name='traced_curve')",
               "summary": "Trace the image into ONE curve object — one cyclic POLY spline per contour (so nested",
-              "line": 96,
+              "line": 95,
               "deprecated": false
             },
             {
@@ -21473,7 +21473,7 @@
               "kind": "method",
               "signature": "(self, curve=None, name='traced_mesh')",
               "summary": "Fill the traced contours into a mesh (positive space;",
-              "line": 117,
+              "line": 116,
               "deprecated": false
             },
             {
@@ -21482,7 +21482,7 @@
               "kind": "method",
               "signature": "(self, curve=None, margin_scale=0.1, name='negative_space_mesh')",
               "summary": "Fill the **inverse**: a boundary rectangle (margin-padded bbox) around the contours, with",
-              "line": 125,
+              "line": 124,
               "deprecated": false
             },
             {
@@ -21491,7 +21491,7 @@
               "kind": "method",
               "signature": "(self, curve=None, name='projected_curves')",
               "summary": "Project the traced curves onto a construction plane — Blender analogue of Maya's",
-              "line": 163,
+              "line": 162,
               "deprecated": false
             }
           ]
@@ -21499,7 +21499,7 @@
         {
           "name": "ImageTracerSlots",
           "summary": "Switchboard slot wiring for the co-located ``image_tracer.ui`` (structural mirror of",
-          "line": 195,
+          "line": 194,
           "bases": [
             "pythontk.LoggingMixin"
           ],
@@ -21510,7 +21510,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize the header widget.",
-              "line": 228,
+              "line": 227,
               "deprecated": false
             },
             {
@@ -21519,7 +21519,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Configure the path field's option box (▸) as an image file browser.",
-              "line": 270,
+              "line": 269,
               "deprecated": false
             },
             {
@@ -21528,7 +21528,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Kept for structural parity with mayatk (unused in practice — txt000's option-box",
-              "line": 276,
+              "line": 275,
               "deprecated": false
             },
             {
@@ -21537,7 +21537,7 @@
               "kind": "method",
               "signature": "(self, state)",
               "summary": "Use Blue Pencil (disabled — kept wired for structural parity, see header_init).",
-              "line": 319,
+              "line": 318,
               "deprecated": false
             },
             {
@@ -21546,7 +21546,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Trace the source image into curves.",
-              "line": 323,
+              "line": 322,
               "deprecated": false
             },
             {
@@ -21555,7 +21555,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Build a mesh from the traced curves.",
-              "line": 335,
+              "line": 334,
               "deprecated": false
             },
             {
@@ -21564,7 +21564,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Build a mesh from the traced negative space.",
-              "line": 345,
+              "line": 344,
               "deprecated": false
             },
             {
@@ -21573,7 +21573,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Project the traced result onto a plane.",
-              "line": 355,
+              "line": 354,
               "deprecated": false
             }
           ]

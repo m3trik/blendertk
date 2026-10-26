@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-26 -- Drop the redundant OpenEXR flags (`nurbs_utils/image_tracer.py`).** pythontk's root sets `OPENCV_IO_ENABLE_OPENEXR` before any module of this package loads, so the module copies did nothing.
+  - Test(s): none -- no behavior change.
 - **2026-10-26 -- Remove the Substance bridge's expired aliases (`mat_utils/substance_bridge/_substance_bridge.py`).** `HighPolySet` -> `blendertk.mat_utils.bake_sets.BakeSourceSet`; `SubstanceBridge.high_poly_path_for` -> `SubstanceBridge.source_model_path_for`. Both warned since 2026-09-27 (`remove_in="0.15.0"`); a .blend saved under the old class still reads, through `BakeSourceSet.LEGACY_STAMPS`.
   - Test(s): `test_bridges.py` -1 check, "HighPolySet is a deprecated alias of BakeSourceSet" (it exercised only the alias).
 - **2026-10-26 -- Remove the aliases whose deprecation window has ended (`anim_utils/shots/shot_manifest/behaviors/`, `edit_utils/curtain/`, `__init__.py`).** `shot_manifest.behaviors.load_behavior` / `list_behaviors` / `resolve_keys` / `templates` -> `Behaviors.<name>`; `btk.CurtainUtils` (`curtain_rail_from_selection`, `create_curtain`) -> `Rail.from_selection` / `CurtainMesh.create`. Both warned since 2026-09-26 (`remove_in="0.14.0"`); `docs/STRUCTURE.md` drops the `CurtainUtils` mentions.
