@@ -1489,10 +1489,7 @@ Procedural draped-cloth (curtain) generator for Blender -- mirror of mayatk's
 - **[`class CurtainMesh(CurtainDrape)`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L114)** — Generate a pleated, gravity-draped curtain mesh from a rail polyline.
   - `CurtainMesh.create(cls, rail: Sequence[Vec], **opts)` *(class)*
   - `CurtainMesh.build(self)` — Create the curtain mesh object and return it.
-- **[`class CurtainUtils`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L185)** — Retired entry point: :class:`Rail` and :class:`CurtainMesh`, mayatk's names.
-  - `CurtainUtils.curtain_rail_from_selection(objects)` *(static)* **DEPRECATED (remove in 0.14.0)** — Moved to :meth:`Rail.from_selection`.
-  - `CurtainUtils.create_curtain(rail, name='curtain', **options)` *(static)* **DEPRECATED (remove in 0.14.0)** — Moved to :meth:`CurtainMesh.create`.
-- **[`class CurtainRig`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L210)** — Make grabbable control handles drive a finished curtain — Blender mirror of mayatk's
+- **[`class CurtainRig`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L190)** — Make grabbable control handles drive a finished curtain — Blender mirror of mayatk's
   - `CurtainRig.attach(curtain, controls=5, dropoff=2.0, name=None)` *(static)* — Rig *curtain* with control-empty handles that pull the cloth via hooks.
 
 <a id="edit_utils--curtain--_curtain_drape"></a>

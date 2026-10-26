@@ -342,12 +342,8 @@ DEFAULT_INCLUDE = {
     "edit_utils.duplicate_radial": "DuplicateRadial",
     "edit_utils.duplicate_grid": "DuplicateGrid",
     # The curtain's rig (``mtk.CurtainRig`` twin). The drape engine is ``Rail`` +
-    # ``CurtainMesh`` in ``edit_utils.curtain``, unregistered as in mayatk; ``CurtainUtils``
-    # is their retired entry point, served here until 0.14.0.
-    "edit_utils.curtain._curtain": [
-        "CurtainUtils",
-        "CurtainRig",
-    ],
+    # ``CurtainMesh`` in ``edit_utils.curtain``, unregistered as in mayatk.
+    "edit_utils.curtain._curtain": "CurtainRig",
     # Bevel engine — mirror of mayatk's ``edit_utils.bevel.Bevel`` (``btk.Bevel`` ↔ ``mtk.Bevel``).
     # The co-located ``BevelSlots`` panel is discovered by ``BlenderUiHandler`` (not registered
     # here), matching how mayatk's tool Slots stay out of its DEFAULT_INCLUDE.

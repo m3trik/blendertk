@@ -2,16 +2,20 @@
 
 _Diff vs the last release (origin/main @ 61c5772)._
 
+## Removed (3)
+
+- `edit_utils/curtain/_curtain.py::CurtainUtils` — was `(class)`
+- `edit_utils/curtain/_curtain.py::CurtainUtils.create_curtain` — was `(rail, name='curtain', **options)`
+- `edit_utils/curtain/_curtain.py::CurtainUtils.curtain_rail_from_selection` — was `(objects)`
+
 ## Added (1)
 
 - `node_utils/data_nodes.py::DataNodes.twin_save_target(cls, scene: Optional[str] = None) -> Optional[str]`
 
-## Deprecations (16)
+## Deprecations (14)
 
 _Live retirement debt, earliest deadline first. An **EXPIRED** row has outlived its window: delete the alias and its tests rather than moving the date. A **HELD** row is due by version, but its notice has not yet had its calendar window._
 
-- **HELD** `edit_utils/curtain/_curtain.py::CurtainUtils.create_curtain` — remove in 0.14.0, not before 2026-10-26
-- **HELD** `edit_utils/curtain/_curtain.py::CurtainUtils.curtain_rail_from_selection` — remove in 0.14.0, not before 2026-10-26
 - **HELD** `mat_utils/substance_bridge/_substance_bridge.py::SubstanceBridge.high_poly_path_for` — remove in 0.15.0, not before 2026-10-27
 - **HELD** `anim_utils/shots/shot_sequencer/shot_lane.py::ShotLaneMixin.delete_stale_shots` — remove in 0.16.0, not before 2026-11-06
 - **HELD** `anim_utils/shots/shots_slots.py::ShotsController.confirm_stale_removal` — remove in 0.16.0, not before 2026-11-06

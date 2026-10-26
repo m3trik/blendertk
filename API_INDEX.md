@@ -346,8 +346,6 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
   - methods: from_selection, sample_curve
 - `class CurtainMesh(CurtainDrape)`
   - methods: create, build
-- `class CurtainUtils`
-  - methods: curtain_rail_from_selection, create_curtain
 - `class CurtainRig`
   - methods: attach
 

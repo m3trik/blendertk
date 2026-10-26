@@ -182,26 +182,6 @@ class CurtainMesh(CurtainDrape):
         return obj
 
 
-class CurtainUtils:
-    """Retired entry point: :class:`Rail` and :class:`CurtainMesh`, mayatk's names."""
-
-    @staticmethod
-    @ptk.Deprecation.symbol(
-        "Rail.from_selection", remove_in="0.14.0", since="2026-09-26"
-    )
-    def curtain_rail_from_selection(objects):
-        """Moved to :meth:`Rail.from_selection`."""
-        return Rail.from_selection(objects)
-
-    @staticmethod
-    @ptk.Deprecation.symbol(
-        "CurtainMesh.create", remove_in="0.14.0", since="2026-09-26"
-    )
-    def create_curtain(rail, name="curtain", **options):
-        """Moved to :meth:`CurtainMesh.create`."""
-        return CurtainMesh.create(rail, name=name, **options)
-
-
 # ----------------------------------------------------------------------------
 # Rig (control handles drive a finished curtain) — Blender mirror of CurtainRig
 # ----------------------------------------------------------------------------

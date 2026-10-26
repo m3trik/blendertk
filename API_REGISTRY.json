@@ -7707,37 +7707,9 @@
           ]
         },
         {
-          "name": "CurtainUtils",
-          "summary": "Retired entry point: :class:`Rail` and :class:`CurtainMesh`, mayatk's names.",
-          "line": 185,
-          "bases": [],
-          "members": [
-            {
-              "name": "curtain_rail_from_selection",
-              "qualname": "CurtainUtils.curtain_rail_from_selection",
-              "kind": "staticmethod",
-              "signature": "(objects)",
-              "summary": "Moved to :meth:`Rail.from_selection`.",
-              "line": 192,
-              "deprecated": true,
-              "remove_in": "0.14.0"
-            },
-            {
-              "name": "create_curtain",
-              "qualname": "CurtainUtils.create_curtain",
-              "kind": "staticmethod",
-              "signature": "(rail, name='curtain', **options)",
-              "summary": "Moved to :meth:`CurtainMesh.create`.",
-              "line": 200,
-              "deprecated": true,
-              "remove_in": "0.14.0"
-            }
-          ]
-        },
-        {
           "name": "CurtainRig",
           "summary": "Make grabbable control handles drive a finished curtain — Blender mirror of mayatk's",
-          "line": 210,
+          "line": 190,
           "bases": [],
           "members": [
             {
@@ -7746,7 +7718,7 @@
               "kind": "staticmethod",
               "signature": "(curtain, controls=5, dropoff=2.0, name=None)",
               "summary": "Rig *curtain* with control-empty handles that pull the cloth via hooks.",
-              "line": 238,
+              "line": 218,
               "deprecated": false
             }
           ]
