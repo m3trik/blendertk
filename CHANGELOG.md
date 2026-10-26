@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-26 -- `COPYING.EXCEPTION` also permits combining with tentacle (README).** tentacle is now GPL-3.0-or-later with the Commons Clause, which is not GPL-compatible, and its Blender slots import blendertk; this is the same section 7 permission blendertk already grants for mayatk. Ships as its own release.
+  - Test(s): none -- license text only.
 - **2026-10-26 -- Drop the redundant OpenEXR flags (`nurbs_utils/image_tracer.py`).** pythontk's root sets `OPENCV_IO_ENABLE_OPENEXR` before any module of this package loads, so the module copies did nothing.
   - Test(s): none -- no behavior change.
 - **2026-10-26 -- Remove the Substance bridge's expired aliases (`mat_utils/substance_bridge/_substance_bridge.py`).** `HighPolySet` -> `blendertk.mat_utils.bake_sets.BakeSourceSet`; `SubstanceBridge.high_poly_path_for` -> `SubstanceBridge.source_model_path_for`. Both warned since 2026-09-27 (`remove_in="0.15.0"`); a .blend saved under the old class still reads, through `BakeSourceSet.LEGACY_STAMPS`.

@@ -90,4 +90,4 @@ Nothing in blendertk attaches to a running Blender. Tests and headless tooling a
 
 ## License
 
-GPL-3.0-or-later — see [COPYING](https://github.com/m3trik/blendertk/blob/main/COPYING), plus an additional permission to combine it with mayatk and Autodesk Maya ([COPYING.EXCEPTION](https://github.com/m3trik/blendertk/blob/main/COPYING.EXCEPTION)).
+GPL-3.0-or-later — see [COPYING](https://github.com/m3trik/blendertk/blob/main/COPYING), plus an additional permission to combine it with mayatk, tentacle and Autodesk Maya ([COPYING.EXCEPTION](https://github.com/m3trik/blendertk/blob/main/COPYING.EXCEPTION)).
