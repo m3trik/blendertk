@@ -596,7 +596,7 @@ class _AnimUtilsInternal(object):
         moved points that land together the LEAST MOVED is kept -- the one whose
         frame is nearest its *ideal* (a snapped scale: its exact scaled time;
         default: its own frame), an exact tie going to the LATER source -- and
-        the others are removed (mayatk's ``_move_curve_keys`` decides the same).
+        the others are removed (mayatk's ``move_curve_keys`` decides the same).
         *replaced* is the frames of the points removed -- a moved one's at its
         SOURCE, where what is held on it still is -- and *pairs* the ``(old,
         new)`` frames of the moved points kept.  Removed last-first, so no
