@@ -2001,13 +2001,6 @@ class FbxUtils(_FbxUtilsInternal):
     # time (what a non-exporter write ships), and ``enable_export_producer``
     # records the opt-in for parity.
 
-    #: The records this DCC produces: ``ptk.SceneRecords`` spec -> (module,
-    #: class, classmethod taking the ExportContext).  Add a producer HERE and
-    #: declare its record THERE; an unregistered key fails
-    #: ``SceneRecords.check_producers`` (pinned by test_fbx_utils).  Resolved
-    #: lazily, so an uninstalled subsystem is skipped rather than blocking an
-    #: export.  Order is irrelevant: the snapshot orders by the records'
-    #: ``after``.
     #: The host a tool outside this library registers its producers, stagers
     #: and record owners under (``ptk.SceneRecords.registered_hooks``): an
     #: installed one joins :attr:`PRODUCERS` and :attr:`STAGERS` unimported.
@@ -2020,7 +2013,6 @@ class FbxUtils(_FbxUtilsInternal):
     HOOKS: Dict[str, Tuple[str, str, str]] = {
         "take_stash": ("blendertk.anim_utils.key_stash._key_stash", "KeyStash", "active"),
         "dependency_dirs": ("blendertk.light_utils.lightmap_baker.lightmap_records", "LightmapRecords", "search_dirs"),
-        "dependency_root": ("blendertk.light_utils.lightmap_baker.lightmap_records", "LightmapRecords", "walk_root"),
     }
 
     @classmethod
@@ -2032,6 +2024,13 @@ class FbxUtils(_FbxUtilsInternal):
         resolved = cls._resolve_row(f"Hook {role!r}", *row) if row else None
         return resolved[0] if resolved else None
 
+    #: The records this DCC produces: ``ptk.SceneRecords`` spec -> (module,
+    #: class, classmethod taking the ExportContext).  Add a producer HERE and
+    #: declare its record THERE; an unregistered key fails
+    #: ``SceneRecords.check_producers`` (pinned by test_fbx_utils).  Resolved
+    #: lazily, so an uninstalled subsystem is skipped rather than blocking an
+    #: export.  Order is irrelevant: the snapshot orders by the records'
+    #: ``after``.
     PRODUCERS: Dict[Any, Tuple[str, str, str]] = {
         ptk.SceneRecords.SHOTS: (
             "blendertk.anim_utils.shots._shots",
@@ -3358,12 +3357,18 @@ class FbxUtils(_FbxUtilsInternal):
         log: logging.Logger,
     ) -> Tuple[List[str], str, Iterable[Any]]:
         """:meth:`embed_dependencies`'s inputs, each ``None`` asked of the scene."""
+        from blendertk.env_utils._env_utils import EnvUtils
+
         if search_dirs is None:
             dirs = FbxUtils.hook("dependency_dirs")
-            search_dirs = dirs() if dirs else []
+            if dirs is None:
+                log.warning(
+                    "No dependency-folder hook resolved (the lightmap records'): "
+                    "files are searched for in the project's texture folders only."
+                )
+            search_dirs = dirs() if dirs else EnvUtils.texture_search_dirs()
         if walk_root is None:
-            root = FbxUtils.hook("dependency_root")
-            walk_root = root() if root else ""  # "": no walk
+            walk_root = EnvUtils.source_images_dir() or ""
         if files is None:
             files = FbxUtils._shipped_audio(file_path, log)
         return list(search_dirs), walk_root, files

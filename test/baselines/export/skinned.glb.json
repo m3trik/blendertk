@@ -14,9 +14,19 @@
   }
  },
  "extensions_used": [],
- "extras": [
-  "animation"
- ],
+ "extras": {
+  "animation": {
+   "clips": [
+    {
+     "animation": 0,
+     "name": "text"
+    }
+   ],
+   "default_clip": "text",
+   "shots": [],
+   "version": 2
+  }
+ },
  "format": "glb",
  "images": [],
  "materials": {

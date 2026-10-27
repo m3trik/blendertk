@@ -422,7 +422,7 @@ Mesh + shape-key setup validation — mirror of mayatk's
 
 Key Stash — park keyframes outside the working animation, retrieve later (Blender).
 
-- **[`class KeyStash(pythontk.core_utils.engines.key_stash.key_stash_model.KeyStash, _KeyStashInternal)`](blendertk/blendertk/anim_utils/key_stash/_key_stash.py#L214)** — :class:`pythontk.KeyStash` with the scene side bound to Blender.
+- **[`class KeyStash(pythontk.core_utils.engines.key_stash.key_stash_model.KeyStash, _KeyStashInternal)`](blendertk/blendertk/anim_utils/key_stash/_key_stash.py#L213)** — :class:`pythontk.KeyStash` with the scene side bound to Blender.
   - `KeyStash.active(cls) -> 'KeyStash'` *(class)* — The active store, auto-installing the Blender backend once.
   - `KeyStash.rescale_to_fps(self, new_fps: float) -> None` — Record the new rate only.
   - `KeyStash.reconcile(self) -> List[int]` — Bring the record in line with the file.
@@ -471,7 +471,7 @@ Animation-segment collection over Blender fcurves (mirror of ``mtk.SegmentKeys``
 
 Shot-region detection — Blender scene acquisition over the pure engine math.
 
-- **[`class Detection(_DetectionInternal)`](blendertk/blendertk/anim_utils/shots/_detection.py#L123)** — Detection — module namespace.
+- **[`class Detection(_DetectionInternal)`](blendertk/blendertk/anim_utils/shots/_detection.py#L122)** — Detection — module namespace.
   - `Detection.resolve_to_transform(node, cache=None)` *(static)* — Resolve an fcurve owner (ID datablock or object name) to its object name.
   - `Detection.detect_shot_regions(objects: Optional[List[str]] = None, gap_threshold: float = 5.0, ignore=None, motion_rate: float = 0.001, min_duration: float = 2.0) -> List[Dict[str, Any]]` *(static)* — Detect animation regions by clustering per-object motion segments.
   - `Detection.regions_from_selected_keys(gap_threshold: float = 5.0, key_filter: str = 'all') -> List[Dict[str, Any]]` *(static)* — Build shot regions from currently selected keyframes.
@@ -525,7 +525,7 @@ Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
 
 Behaviors — Blender appliers over the engine's pure keying-recipe core.
 
-- **[`class Behaviors(pythontk.core_utils.engines.shots.manifest.behaviors.Behaviors, _BehaviorsInternal)`](blendertk/blendertk/anim_utils/shots/shot_manifest/behaviors/_behaviors.py#L242)** — Behaviors — module namespace.
+- **[`class Behaviors(pythontk.core_utils.engines.shots.manifest.behaviors.Behaviors, _BehaviorsInternal)`](blendertk/blendertk/anim_utils/shots/shot_manifest/behaviors/_behaviors.py#L241)** — Behaviors — module namespace.
   - `Behaviors.apply_behavior(obj: str, behavior_name: str, start: float, end: float, attrs: Optional[List[str]] = None, search_path: Optional[Path] = None, source_path: str = '', anchor_override: Optional[str] = None, recipe: Optional[Any] = None, fps: Optional[float] = None) -> List[Tuple[str, float]]` *(static)* — Apply a named behavior template to an object over a time range.
   - `Behaviors.verify_behavior(obj: str, behavior_name: str, start: float, end: float, search_path: Optional[Path] = None, keyframe_fn: Optional[Any] = None, anchor_override: Optional[Any] = None, recipe: Optional[Any] = None, fps: Optional[float] = None) -> bool` *(static)* — Check whether expected behavior keyframes exist on an object.
   - `Behaviors.apply_audio_clip(obj: str, start: float, end: float, source_path: str = '') -> None` *(static)* — Place (or re-place) the sound strip *obj* at *start*.
@@ -2619,7 +2619,6 @@ The scene record a lightmap bake leaves in Blender: markers, manifest, and the f
   - `LightmapRecords.heal_lightmap_paths(cls, objects=None) -> Dict[str, Any]` *(class)* — Rewrite stale marker hints to where the maps actually are;
   - `LightmapRecords.normalize_lightmap_paths(cls, objects=None, relative: bool = True) -> int` *(class)* — Rewrite every in-scope marker's folder to its portable (or absolute) spelling.
   - `LightmapRecords.relocate_lightmaps(cls, dest_dir: str, source_dir: str = '', mode: str = 'copy', objects=None, dry_run: bool = False, maps: Optional[Iterable[str]] = None) -> Dict[str, Any]` *(class)* — Gather the scene's lightmaps into *dest_dir* and repoint the markers.
-  - `LightmapRecords.walk_root(cls) -> str` *(class)* — The workspace's texture folder: where a map found nowhere else is walked for.
   - `LightmapRecords.repath_lightmaps(cls, dirs_by_map: Dict[str, str], objects=None, relative: bool = True) -> int` *(class)* — Point every in-scope marker naming a map in *dirs_by_map* at its new folder.
   - `LightmapRecords.rename_lightmap(cls, old_name: str, new_name: str) -> int` *(class)* — Re-stamp every record naming map *old_name* with *new_name*.
   - `LightmapRecords.fork_lightmap(cls, old_name: str, new_name: str) -> int` *(class)* — Make *new_name* -- this file's copy of a map another file wrote

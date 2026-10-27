@@ -148,7 +148,93 @@
   }
  },
  "user_properties": {
-  "data_export.animation": "text",
-  "data_export.handoff": "text"
+  "data_export.animation": {
+   "clip_mode": "text",
+   "fps": 24.0,
+   "shots": [
+    {
+     "clip": "text",
+     "end": 20,
+     "start": 1
+    },
+    {
+     "clip": "text",
+     "end": 40,
+     "start": 21
+    }
+   ],
+   "version": 1
+  },
+  "data_export.handoff": {
+   "assembly": [
+    {
+     "data": [],
+     "part": "text",
+     "spec": "text"
+    },
+    {
+     "data": [
+      "text"
+     ],
+     "part": "text",
+     "spec": "text"
+    },
+    {
+     "data": [
+      "text"
+     ],
+     "part": "text",
+     "spec": "text"
+    },
+    {
+     "data": [
+      "text"
+     ],
+     "part": "text",
+     "spec": "text"
+    },
+    {
+     "data": [
+      "text"
+     ],
+     "part": "text",
+     "spec": "text"
+    }
+   ],
+   "extras": {
+    "source": {
+     "application": "text",
+     "version": "text"
+    }
+   },
+   "instructions": "text",
+   "rendering": {
+    "environment": {
+     "fallback": "text",
+     "intensity": 1.0,
+     "prefilter": "text",
+     "prefilterBlur": 0.04
+    },
+    "keyLight": {
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "intensity": 0.9,
+     "position": [
+      3,
+      6,
+      4
+     ],
+     "type": "text"
+    },
+    "renderer": {
+     "toneMapping": "text",
+     "toneMappingExposure": 1.0
+    }
+   },
+   "version": 3
+  }
  }
 }

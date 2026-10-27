@@ -58,7 +58,6 @@ class _DetectionInternal(object):
         honoured.
         """
         from blendertk.anim_utils.shots._shots import (
-            BlenderShotStore,
             _BlenderShotStoreInternal,
         )
 

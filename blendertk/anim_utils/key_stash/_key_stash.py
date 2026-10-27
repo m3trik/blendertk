@@ -41,7 +41,6 @@ from pythontk.core_utils.engines.key_stash.key_stash_model import (
 from blendertk.anim_utils._anim_utils import AnimUtils, _AnimUtilsInternal
 from blendertk.anim_utils.shots._shots import (
     BlenderScenePersistence,
-    BlenderShotStore,
     _BlenderShotStoreInternal,
 )
 from blendertk.core_utils._core_utils import CoreUtils

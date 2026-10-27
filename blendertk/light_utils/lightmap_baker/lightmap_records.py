@@ -1711,7 +1711,7 @@ class LightmapRecords(ptk.LoggingMixin):
             search_dirs=cls._texture_search_dirs()
             if search_dirs is None
             else search_dirs,
-            walk_root=cls.walk_root() if walk else "",
+            walk_root=cls._walk_root() if walk else "",
             resolve_hint=cls._resolved_dir,
         )
         for dep in deps:
@@ -1927,7 +1927,7 @@ class LightmapRecords(ptk.LoggingMixin):
         return list(EnvUtils.texture_search_dirs())
 
     @classmethod
-    def walk_root(cls) -> str:
+    def _walk_root(cls) -> str:
         """The workspace's texture folder: where a map found nowhere else is walked for."""
         from blendertk.env_utils._env_utils import EnvUtils
 

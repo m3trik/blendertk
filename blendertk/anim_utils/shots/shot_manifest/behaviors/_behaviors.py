@@ -134,7 +134,6 @@ class _BehaviorsInternal(object):
     @staticmethod
     def _fcurve_points(obj, data_path: str) -> list:
         """All ``(time, value)`` pairs on *obj*'s fcurve(s) for *data_path*."""
-        from blendertk.anim_utils.shots._shots import BlenderShotStore
 
         pts = []
         for fc in AnimUtils.get_fcurves(obj):
@@ -642,7 +641,6 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
             node = bpy.data.objects.get(obj_name)
             if node is None:
                 return False
-            from blendertk.anim_utils.shots._shots import BlenderShotStore
 
             for fc in AnimUtils.get_fcurves(node):
                 if any(
