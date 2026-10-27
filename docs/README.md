@@ -1,7 +1,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 [![PyPI](https://img.shields.io/pypi/v/blendertk.svg)](https://pypi.org/project/blendertk/)
 [![Blender](https://img.shields.io/badge/Blender-4.x+-orange.svg)](https://www.blender.org/)
-[![Tests](https://img.shields.io/badge/Tests-7868%20passed-brightgreen.svg)](../test/)
+[![Tests](https://img.shields.io/badge/Tests-7878%20passed-brightgreen.svg)](../test/)
 ![Platform](https://img.shields.io/badge/Platform-Windows%2C%20Linux-lightgrey.svg)
 
 # blendertk
