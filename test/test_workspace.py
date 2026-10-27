@@ -357,7 +357,7 @@ try:
     # EnvUtils' copies forwarded to DataNodes, except set_scene_source, which also armed the
     # twin's save -- and the flat btk.set_scene_source reached the record-only DataNodes one
     # by module order. DataNodes owns all six; EnvUtils' names forward, with a warning, until
-    # 0.22.0. Consolidated: 2026-10-25.
+    # 0.23.0. Consolidated: 2026-10-25.
     import warnings
 
     for name in (

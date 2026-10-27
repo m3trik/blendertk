@@ -96,7 +96,7 @@ try:
         "retired 'unbake' level: resolves to 'extremes' and warns",
         level == "extremes"
         and len(notices) == 1
-        and "blendertk 0.22.0" in str(notices[0].message),
+        and "blendertk 0.23.0" in str(notices[0].message),
         f"level={level!r} notices={[str(w.message) for w in notices]}",
     )
     check(
