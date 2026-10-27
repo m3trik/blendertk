@@ -1,8 +1,8 @@
 # blendertk — API Changes
 
-_Diff vs the last release (origin/main @ 68a5a4b)._
+_Diff vs the last release (origin/main @ 314e019)._
 
-No public API changes since the last release (origin/main @ 68a5a4b).
+No public API changes since the last release (origin/main @ 314e019).
 
 ## Deprecations (13)
 
