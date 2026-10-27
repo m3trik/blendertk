@@ -10,10 +10,12 @@ the package surface) never requires a running Blender — matching the ecosystem
 no-import-side-effects rule.
 """
 
+import inspect
 import os
 import re
 from contextlib import contextmanager
 from functools import wraps
+from typing import Any, Callable
 
 import pythontk as ptk
 
@@ -1048,24 +1050,29 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         return removed
 
     @staticmethod
-    def selected(func):
-        """Pass the selection (:meth:`selected_objects`) to *func*'s target parameter when
-        ``None`` is given; with nothing selected, return ``[]`` without calling it. Mirror of
-        mayatk's ``CoreUtils.selected``: the target is the first parameter after any
-        ``self`` / ``cls``.
-        """
-        import inspect
+    def selected(func: Callable) -> Callable:
+        """Pass the selection (:meth:`selected_objects`) to *func*'s target parameter
+        when it is ``None``; with nothing selected, return ``[]`` without calling it.
 
+        The target is the first *non-receiver* parameter: index 0 for static
+        methods, index 1 for instance / class methods. The receiver is detected by
+        introspecting the wrapped callable's signature (``functools.wraps`` exposes
+        ``__wrapped__``, so the real parameter names are visible even through an
+        inner wrapper) rather than guessing from the runtime type of the first
+        argument, which misidentifies a data-bearing first positional argument as
+        ``self``. A target given by keyword is found by name.
+        """
+        # Resolved once, at decoration: the wrapped callable's signature never changes.
         try:
             params = list(inspect.signature(func).parameters.values())
             has_receiver = bool(params) and params[0].name in ("self", "cls")
         except (TypeError, ValueError):
             params, has_receiver = [], False
         target = 1 if has_receiver else 0
-        name = params[target].name if len(params) > target else None  # by keyword
+        name = params[target].name if len(params) > target else None
 
         @wraps(func)
-        def wrapped(*args, **kwargs):
+        def wrapped(*args, **kwargs) -> Any:
             if name in kwargs:
                 if kwargs[name] is None:
                     selection = CoreUtils.selected_objects()

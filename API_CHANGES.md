@@ -53,7 +53,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
 - `core_utils/_core_utils.py::CoreUtils.active_view_layer()`
-- `core_utils/_core_utils.py::CoreUtils.selected(func)`
+- `core_utils/_core_utils.py::CoreUtils.selected(func: Callable) -> Callable`
 - `edit_utils/components.py::Components(class)`
 - `edit_utils/components.py::Components.average_normals(objects, by_uv_shell=False)`
 - `edit_utils/components.py::Components.reverse_normals(objects, mode=0)`

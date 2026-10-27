@@ -1162,7 +1162,7 @@ Per-camera visibility sets — rolled infrastructure for Maya's camera-sets isol
 
 Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 
-- **[`class CoreUtils(pythontk.CoreUtils, _CoreUtilsInternal)`](blendertk/blendertk/core_utils/_core_utils.py#L462)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
+- **[`class CoreUtils(pythontk.CoreUtils, _CoreUtilsInternal)`](blendertk/blendertk/core_utils/_core_utils.py#L464)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
   - `CoreUtils.strip_dup_suffix(name: str) -> str` *(static)* — Strip Blender's ``.NNN`` name-collision suffix (``Cube.001`` -> ``Cube``).
   - `CoreUtils.all_ids(library=None) -> list` *(static)* — Every datablock in the file, across every ID collection -- or only
   - `CoreUtils.undo_chunk(name: str = '')` *(static)* — Collapse every change made inside the block into ONE Blender undo step.
@@ -1180,7 +1180,7 @@ Core blendertk utilities — DCC-environment info + cross-cutting decorators.
   - `CoreUtils.format_scene_info_html(info)` *(static)* — Render a :func:`get_scene_info` record as an HTML report for the text-view dialog.
   - `CoreUtils.analyze_scene(objects=None, adaptive=True, sections=None)` *(static)* — Game-readiness scene report -- the sectioned audit behind Get Scene Info.
   - `CoreUtils.cleanup_scene(quiet=False)` *(static)* — Purge orphan datablocks (0 users, no fake user) across the main collections — the
-  - `CoreUtils.selected(func)` *(static)* — Pass the selection (:meth:`selected_objects`) to *func*'s target parameter when
+  - `CoreUtils.selected(func: Callable) -> Callable` *(static)* — Pass the selection (:meth:`selected_objects`) to *func*'s target parameter
   - `CoreUtils.active_view_layer()` *(static)* — The active view layer, resolved without depending on a context window
   - `CoreUtils.selected_objects()` *(static)* — The current object selection, filtered of ``None`` (mirror of Maya's
   - `CoreUtils.active_object()` *(static)* — The active object, resolved window-independently (``view_layer.objects.active``).
