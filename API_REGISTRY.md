@@ -242,7 +242,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L437) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L436) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -2771,25 +2771,6 @@ Emissive groups — mirror of mayatk's ``mat_utils.emissive_groups``.
   - `EmissiveGroups.transfer_in(cls, payload: dict, ctx: 'ptk.TransferContext') -> None` *(class)* — Land a received emissive-registry payload (:meth:`transfer_out`'s
   - `EmissiveGroups.export_record(cls, ctx: 'ptk.ExportContext') -> Optional['ptk.Record']` *(class)* — The ``emissive_groups`` manifest record, or ``None`` when no group
   - `EmissiveGroups.refresh_export_metadata(cls) -> Optional[str]` *(class)* — Republish the ``emissive_groups`` channel on the ``data_export``
-- **[`class EmissiveGroupsSlots(pythontk.LoggingMixin, pythontk.HelpMixin)`](blendertk/blendertk/mat_utils/emissive_groups.py#L938)** — Switchboard slots for the ``emissive_groups.ui`` panel.
-  - `EmissiveGroupsSlots.header_init(self, widget) -> None`
-  - `EmissiveGroupsSlots.txt000_init(self, widget) -> None` — Group-name field — clearable back to the auto-derived name.
-  - `EmissiveGroupsSlots.tbl000_init(self, widget) -> None` — Table setup: one-time construction, then (re)wire signals and populate.
-  - `EmissiveGroupsSlots.b000(self) -> None` — Add (or extend) a group from the selection.
-  - `EmissiveGroupsSlots.b001(self) -> None` — Remove the selected group (retires its slot).
-  - `EmissiveGroupsSlots.b002(self) -> None` — Select the group's member faces.
-  - `EmissiveGroupsSlots.b003(self) -> None` — Validate authoring state.
-  - `EmissiveGroupsSlots.tb000_init(self, widget) -> None` — Initialize Bake.
-  - `EmissiveGroupsSlots.tb000(self, widget) -> None` — Bake membership and publish the export manifest.
-  - `EmissiveGroupsSlots.select_members(self) -> None`
-  - `EmissiveGroupsSlots.remove_group(self) -> None`
-  - `EmissiveGroupsSlots.weights_all_on(self) -> None`
-  - `EmissiveGroupsSlots.weights_all_off(self) -> None`
-  - `EmissiveGroupsSlots.make_weights_keyable(self) -> None`
-  - `EmissiveGroupsSlots.key_weights(self) -> None`
-  - `EmissiveGroupsSlots.remove_keyable_weights(self) -> None`
-  - `EmissiveGroupsSlots.compact_slots(self) -> None`
-  - `EmissiveGroupsSlots.republish_export(self) -> None`
 
 <a id="mat_utils--game_shader"></a>
 ### `mat_utils/game_shader.py`

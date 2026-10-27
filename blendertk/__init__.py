@@ -248,8 +248,7 @@ DEFAULT_INCLUDE = {
     # The ``materials`` record's producer (``FbxUtils.PRODUCERS``): every
     # exported material stated as glTF states it. Mirror of mayatk's.
     "env_utils.material_records": ["MaterialRecords"],
-    # Emissive Groups — engine + co-located panel (``EmissiveGroupsSlots`` is
-    # discovered by BlenderUiHandler, not registered). Mirror of mayatk's
+    # Emissive Groups (the engine; its panel is tentacle's). Mirror of mayatk's
     # ``mat_utils.emissive_groups``.
     "mat_utils.emissive_groups": ["EmissiveGroups"],
     # Game Shader — the workflow-profile / map-pipeline / reporting layer around
@@ -437,6 +436,10 @@ DEFAULT_INCLUDE = {
 MOVED_NAMES = {
     "DuplicateRadialSlots": (
         "tentacle.ui.panels.duplicate_radial.duplicate_radial.DuplicateRadialSlots",
+        "0.23.0",
+    ),
+    "EmissiveGroupsSlots": (
+        "tentacle.ui.panels.emissive_groups.emissive_groups.EmissiveGroupsSlots",
         "0.23.0",
     ),
 }

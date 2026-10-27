@@ -96,7 +96,6 @@ PANELS = [
     "shots",
     "shot_manifest",
     "shot_sequencer",
-    "emissive_groups",
 ]
 
 lines = []
