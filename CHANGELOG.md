@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-27 -- The Shot Manifest panel sheds its retired surface before it moves to tentacle (`anim_utils/shots/shot_manifest/`).** `export_menu.py` (the `ExportMenuMixin` alias of `ExportPreviewMixin`, deprecated 2026-10-11) is removed, and the mapping picker no longer migrates a saved `speedrun` pointer (`_migrate_retired_mapping`; pythontk drops `Mapping.retired`).
+  - Test(s): `test_shot_manifest_panel.py` drops the migration test.
 - **2026-10-27 -- `CoreUtils.selected` is mayatk's, word for word (`core_utils/_core_utils.py`).** Both read the selection through their own `CoreUtils.selected_objects()`; tentacle's composed Slots read the selection for a `None` target through it, and the two hosts' copies are now one text, guarded by `check_dcc_twins.py`. Behavior is unchanged.
   - Test(s): none new -- `test_core_utils.py` and `test_components.py` cover the decorator.
 - **2026-10-27 -- `Components.transfer_normals` given fewer than two meshes says what is missing (`edit_utils/components.py`).** It read "At least one source and one target mesh must be polygonal meshes.", which tentacle's Normals panel now shows as it is: one mesh selected read as a mesh that was not polygonal. It is now "Transfer needs a source mesh and one or more target meshes." in both hosts; the condition is unchanged.

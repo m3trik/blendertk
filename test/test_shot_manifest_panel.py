@@ -777,32 +777,6 @@ class TestShotManifestPanelLoads(unittest.TestCase):
             self.assertEqual(apply(), "Re-applied ghost's behaviors in A01.")
             assess.assert_called_once_with(skip_key_check=True)
 
-    def test_a_retired_templates_options_join_the_saved_ones(self):
-        """Bug: the retired template's options were carried only when its
-        replacement had none saved, so saved ``default`` options silently
-        lost ``audio: derive`` -- while the log said it was carried.
-        Fixed: 2026-10-04
-        """
-        import json
-        import types
-        from unittest import mock
-        from pythontk.core_utils.engines.shots.manifest.mapping import Mapping
-
-        ctrl = self.ui.slots.controller
-        key = "mapping_options/default"
-        self.addCleanup(ctrl._settings.setValue, key, ctrl._settings.value(key, ""))
-        ctrl._settings.setValue(key, json.dumps({"fill_missing_assets": True}))
-        retired = Mapping.retired("speedrun")
-        templates = types.SimpleNamespace(active="speedrun")
-        with mock.patch.object(Mapping, "templates", return_value=templates):
-            self.assertEqual(
-                ctrl._migrate_retired_mapping("speedrun", *retired), "default"
-            )
-        self.assertEqual(
-            json.loads(ctrl._settings.value(key)),
-            {"fill_missing_assets": True, "audio": "derive"},
-        )
-
     def test_set_range_to_current_frame_keeps_the_subframe(self):
         """Bug: read ``scene.frame_current`` -- an int -- though the playhead
         keeps sub-frames (mayatk's ``currentTime`` keeps the fraction).
