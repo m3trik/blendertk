@@ -49,7 +49,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.weights_all_off` → `tentacle.ui.panels.emissive_groups.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.weights_all_on` → `tentacle.ui.panels.emissive_groups.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
 
-## Added (17)
+## Added (18)
 
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
 - `anim_utils/shots/_shots.py::BlenderShotStore.fcurve_for_key(key: str)`
@@ -68,6 +68,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/render_opacity/render_effects.py::RenderEffects.ensure_highlight_props(cls, obj, color=None, dim_color=None)`
 - `mat_utils/render_opacity/render_effects.py::RenderEffects.ensure_opacity_prop(cls, obj, value=1.0)`
 - `mat_utils/render_opacity/render_effects.py::RenderEffects.set_key(obj, data_path, frame, value, interp, index=-1)`
+- `ui_utils/node_icons.py::NodeIcons.audio_icon(size: int = 16)`
 
 ## Deprecations (14)
 

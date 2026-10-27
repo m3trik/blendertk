@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-27 -- `NodeIcons.audio_icon(size=16)`: an audio item's icon, Blender's speaker, from the type alone (`ui_utils/node_icons.py`, `anim_utils/shots/shot_manifest/manifest_host.py`).** Twin of mayatk's; the Shot Manifest host built it inline with `IconManager`.
+  - Test(s): `test_blender_ui_handler.py` +1 check (the icon resolves, non-null).
 - **2026-10-27 -- Five helpers the Shot Manifest's Blender half calls are public (`anim_utils/shots/_shots.py`, `mat_utils/render_opacity/render_effects.py`).** `BlenderShotStore.is_transform_path` and `fcurve_for_key` (moved up from the private store base), and `RenderEffects.ensure_opacity_prop`, `ensure_highlight_props` and `set_key` lose their underscore: once that half lives in tentacle it may call only public names. Every caller in the package is renamed with them, and the manifest host reads the public `CoreUtils.active_view_layer`. Behavior is unchanged.
   - Test(s): `test_render_opacity.py` and `test_shots_adapter.py` call the public names.
 - **2026-10-27 -- The Shot Manifest panel sheds its retired surface before it moves to tentacle (`anim_utils/shots/shot_manifest/`).** `export_menu.py` (the `ExportMenuMixin` alias of `ExportPreviewMixin`, deprecated 2026-10-11) is removed, and the mapping picker no longer migrates a saved `speedrun` pointer (`_migrate_retired_mapping`; pythontk drops `Mapping.retired`).

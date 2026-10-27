@@ -110,14 +110,5 @@ class ManifestHost:
         except ImportError:
             return None
         if getattr(obj, "kind", None) == "audio":
-            from uitk.managers.icon_manager import IconManager
-            from blendertk.ui_utils.node_icons import ICON_COLOR
-
-            icon_name = NodeIcons.icon_name_for_type("SPEAKER")
-            icon = (
-                IconManager.get(icon_name, size=(16, 16), color=ICON_COLOR)
-                if icon_name
-                else None
-            )
-            return icon if (icon is not None and not icon.isNull()) else None
+            return NodeIcons.audio_icon()
         return NodeIcons.get_icon(name)

@@ -158,6 +158,18 @@ try:
     named.tk = _marker = object()
     BlenderUiHandler(switchboard=named)
     check("a toolkit the caller named stays", named.tk is _marker)
+
+    # NodeIcons.audio_icon: an audio row's icon (Blender's speaker) read from the
+    # type alone -- a VSE strip has no object to read it off. The shared Shot
+    # Manifest panel asks either host for it by this one name.
+    from blendertk.ui_utils.node_icons import NodeIcons
+
+    _audio = NodeIcons.audio_icon()
+    check(
+        "NodeIcons.audio_icon is the speaker icon",
+        _audio is not None and not _audio.isNull(),
+        repr(_audio),
+    )
     from uitk import PresetEditor
 
     check(

@@ -4086,6 +4086,7 @@ Resolve per-object-type icons for Blender objects (mirror of ``mtk.NodeIcons``).
   - `NodeIcons.icon_name_for_type(obj_type: str) -> Optional[str]` *(static)* — Return the uitk icon name for a Blender ``Object.type`` (or ``None``).
   - `NodeIcons.icon_name_for_node(obj_name: str) -> Optional[str]` *(static)* — Return the icon name for the named scene object.
   - `NodeIcons.get_icon(obj_name: str, size: int = 16)` *(static)* — Return a ``QIcon`` for a Blender object, or ``None`` if unavailable.
+  - `NodeIcons.audio_icon(size: int = 16)` *(static)* — The ``QIcon`` of an audio item, or ``None``: Blender's speaker icon,
   - `NodeIcons.get_pixmap(obj_name: str, size: int = 16)` *(static)* — Return a ``QPixmap`` for a Blender object scaled to *size*, or ``None``.
 
 <a id="ui_utils--qt_dock"></a>

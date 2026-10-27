@@ -1019,7 +1019,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `ui_utils/node_icons.py` — Resolve per-object-type icons for Blender objects (mirror of ``mtk.NodeIcons``).
 - constants: ICON_COLOR
 - `class NodeIcons`
-  - methods: icon_name_for_type, icon_name_for_node, get_icon, get_pixmap
+  - methods: icon_name_for_type, icon_name_for_node, get_icon, audio_icon, get_pixmap
 
 ### `ui_utils/qt_dock.py` — Dock any Qt widget into a native Blender area — a true child window, not an overlay.
 - `class QtDock`

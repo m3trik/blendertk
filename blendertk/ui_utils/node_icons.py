@@ -102,6 +102,23 @@ class NodeIcons:
         return icon
 
     @staticmethod
+    def audio_icon(size: int = 16):
+        """The ``QIcon`` of an audio item, or ``None``: Blender's speaker icon,
+        read from the type alone since a VSE sound strip is no
+        ``bpy.data.objects`` entry. Twin of mayatk's ``NodeIcons.audio_icon``.
+
+        Parameters:
+            size: Icon size in pixels (square).
+        """
+        name = NodeIcons.icon_name_for_type("SPEAKER")
+        if not name:
+            return None
+        from uitk.managers.icon_manager import IconManager
+
+        icon = IconManager.get(name, size=(size, size), color=ICON_COLOR)
+        return icon if (icon is not None and not icon.isNull()) else None
+
+    @staticmethod
     def get_pixmap(obj_name: str, size: int = 16):
         """Return a ``QPixmap`` for a Blender object scaled to *size*, or ``None``."""
         icon = NodeIcons.get_icon(obj_name, size)
