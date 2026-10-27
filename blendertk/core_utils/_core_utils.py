@@ -1048,6 +1048,33 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         return removed
 
     @staticmethod
+    def selected(func):
+        """Pass the selection (:meth:`selected_objects`) to *func*'s target parameter when
+        ``None`` is given; with nothing selected, return ``[]`` without calling it. Mirror of
+        mayatk's ``CoreUtils.selected``: the target is the first parameter after any
+        ``self`` / ``cls``.
+        """
+        import inspect
+
+        try:
+            params = list(inspect.signature(func).parameters.values())
+            has_receiver = bool(params) and params[0].name in ("self", "cls")
+        except (TypeError, ValueError):
+            has_receiver = False
+        target = 1 if has_receiver else 0
+
+        @wraps(func)
+        def wrapped(*args, **kwargs):
+            if len(args) <= target or args[target] is None:
+                selection = CoreUtils.selected_objects()
+                if not selection:
+                    return []
+                args = args[:target] + (selection,) + args[target + 1 :]
+            return func(*args, **kwargs)
+
+        return wrapped
+
+    @staticmethod
     def selected_objects():
         """The current object selection, filtered of ``None`` (mirror of Maya's
         ``cmds.ls(selection=True)`` idiom that the slots use).

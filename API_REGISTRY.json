@@ -23,7 +23,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 434,
+          "line": 437,
           "deprecated": false
         }
       ]
@@ -5781,12 +5781,21 @@
               "deprecated": false
             },
             {
+              "name": "selected",
+              "qualname": "CoreUtils.selected",
+              "kind": "staticmethod",
+              "signature": "(func)",
+              "summary": "Pass the selection (:meth:`selected_objects`) to *func*'s target parameter when",
+              "line": 1051,
+              "deprecated": false
+            },
+            {
               "name": "selected_objects",
               "qualname": "CoreUtils.selected_objects",
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The current object selection, filtered of ``None`` (mirror of Maya's",
-              "line": 1051,
+              "line": 1078,
               "deprecated": false
             },
             {
@@ -5795,7 +5804,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The active object, resolved window-independently (``view_layer.objects.active``).",
-              "line": 1070,
+              "line": 1097,
               "deprecated": false
             },
             {
@@ -5804,7 +5813,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Restore the viewport selection after a scene-mutating block — mirror of",
-              "line": 1083,
+              "line": 1110,
               "deprecated": false
             },
             {
@@ -5813,7 +5822,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, method='name', reverse=False)",
               "summary": "Reorder a set of objects by a sorting method — mirror of ``mtk.reorder_objects``",
-              "line": 1142,
+              "line": 1169,
               "deprecated": false
             },
             {
@@ -5822,7 +5831,7 @@
               "kind": "staticmethod",
               "signature": "(area_type=None)",
               "summary": "All areas of ``area_type`` (``\"VIEW_3D\"``, ``\"IMAGE_EDITOR\"``, …) across every open",
-              "line": 1217,
+              "line": 1244,
               "deprecated": false
             },
             {
@@ -5831,7 +5840,7 @@
               "kind": "classmethod",
               "signature": "(cls, area_type=None) -> int",
               "summary": "Queue a redraw of every area of ``area_type`` (all areas when None);",
-              "line": 1240,
+              "line": 1267,
               "deprecated": false
             },
             {
@@ -5840,7 +5849,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Context-override dict targeting the first VIEW_3D area/region, or ``None`` if there is no",
-              "line": 1259,
+              "line": 1286,
               "deprecated": false
             },
             {
@@ -5849,7 +5858,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Yield with a valid ``window`` in context when ``bpy.context.window`` is ``None``.",
-              "line": 1289,
+              "line": 1316,
               "deprecated": false
             },
             {
@@ -5858,7 +5867,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Yield with *objects* -- and only them -- in Edit Mode;",
-              "line": 1326,
+              "line": 1353,
               "deprecated": false
             }
           ]
@@ -7648,6 +7657,87 @@
               "signature": "(self, objects)",
               "summary": "",
               "line": 239,
+              "deprecated": false
+            }
+          ]
+        }
+      ],
+      "constants": []
+    },
+    {
+      "relpath": "edit_utils/components.py",
+      "summary": "Component-level mesh operations — mirror of mayatk's ``core_utils.components``.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Components",
+          "summary": "Component-level mesh operations — mirror of mayatk's ``Components``.",
+          "line": 34,
+          "bases": [
+            "_ComponentsInternal"
+          ],
+          "members": [
+            {
+              "name": "set_edge_hardness",
+              "qualname": "Components.set_edge_hardness",
+              "kind": "staticmethod",
+              "signature": "(objects, angle_threshold, upper_hardness=None, lower_hardness=None, unlock_normals=False)",
+              "summary": "Mark edges hard or soft by their angle against ``angle_threshold``.",
+              "line": 40,
+              "deprecated": false
+            },
+            {
+              "name": "average_normals",
+              "qualname": "Components.average_normals",
+              "kind": "staticmethod",
+              "signature": "(objects, by_uv_shell=False)",
+              "summary": "Average the normals of *objects* (soften every edge);",
+              "line": 79,
+              "deprecated": false
+            },
+            {
+              "name": "set_edge_softness",
+              "qualname": "Components.set_edge_softness",
+              "kind": "staticmethod",
+              "signature": "(objects, soft=True)",
+              "summary": "Soften (``soft=True``, smooth shading) or harden the edge normals of",
+              "line": 87,
+              "deprecated": false
+            },
+            {
+              "name": "set_to_face_normals",
+              "qualname": "Components.set_to_face_normals",
+              "kind": "staticmethod",
+              "signature": "(objects)",
+              "summary": "Set the vertex normals of *objects* to their faces' (flat shading);",
+              "line": 99,
+              "deprecated": false
+            },
+            {
+              "name": "reverse_normals",
+              "qualname": "Components.reverse_normals",
+              "kind": "staticmethod",
+              "signature": "(objects, mode=0)",
+              "summary": "Reverse the normals of *objects* by Maya's ``polyNormal`` modes:",
+              "line": 111,
+              "deprecated": false
+            },
+            {
+              "name": "toggle_normal_lock",
+              "qualname": "Components.toggle_normal_lock",
+              "kind": "staticmethod",
+              "signature": "(objects)",
+              "summary": "Lock the normals of *objects* (bake them as custom split normals), or",
+              "line": 132,
+              "deprecated": false
+            },
+            {
+              "name": "transfer_normals",
+              "qualname": "Components.transfer_normals",
+              "kind": "staticmethod",
+              "signature": "(objects, space='world')",
+              "summary": "Transfer normals from the first mesh of *objects* to the rest, as",
+              "line": 151,
               "deprecated": false
             }
           ]

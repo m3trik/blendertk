@@ -255,7 +255,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `core_utils/_core_utils.py` — Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 - `class CoreUtils(pythontk.CoreUtils, _CoreUtilsInternal)`
-  - methods: strip_dup_suffix, all_ids, undo_chunk, undo_push, visible_override, undoable, undo_checkpoint, get_env_info, ensure_packages, ensure_image_deps, user_config_path, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected_objects, active_object, preserved_selection, reorder_objects, get_areas, tag_redraw, get_view3d_context, window_context_override, edit_mode
+  - methods: strip_dup_suffix, all_ids, undo_chunk, undo_push, visible_override, undoable, undo_checkpoint, get_env_info, ensure_packages, ensure_image_deps, user_config_path, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected, selected_objects, active_object, preserved_selection, reorder_objects, get_areas, tag_redraw, get_view3d_context, window_context_override, edit_mode
 
 ### `core_utils/auto_instancer/_auto_instancer.py` — Scene auto-instancer: convert geometrically identical meshes to instances.
 - `class InstanceCandidate`
@@ -340,6 +340,10 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
   - methods: bridge
 - `class BridgeSlots(pythontk.LoggingMixin)`
   - methods: header_init, perform_operation
+
+### `edit_utils/components.py` — Component-level mesh operations — mirror of mayatk's ``core_utils.components``.
+- `class Components(_ComponentsInternal)`
+  - methods: set_edge_hardness, average_normals, set_edge_softness, set_to_face_normals, reverse_normals, toggle_normal_lock, transfer_normals
 
 ### `edit_utils/curtain/_curtain.py` — Procedural draped-cloth (curtain) generator for Blender -- mirror of mayatk's
 - `class Rail(pythontk.Polyline)`

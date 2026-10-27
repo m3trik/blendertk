@@ -11,8 +11,17 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `edit_utils/duplicate_radial.py::DuplicateRadialSlots.s015_init` → `tentacle.ui.panels.duplicate_radial` (from 0.23.0)
 - `edit_utils/duplicate_radial.py::DuplicateRadialSlots.s016_init` → `tentacle.ui.panels.duplicate_radial` (from 0.23.0)
 
-## Added (1)
+## Added (10)
 
+- `core_utils/_core_utils.py::CoreUtils.selected(func)`
+- `edit_utils/components.py::Components(class)`
+- `edit_utils/components.py::Components.average_normals(objects, by_uv_shell=False)`
+- `edit_utils/components.py::Components.reverse_normals(objects, mode=0)`
+- `edit_utils/components.py::Components.set_edge_hardness(objects, angle_threshold, upper_hardness=None, lower_hardness=None, unlock_normals=False)`
+- `edit_utils/components.py::Components.set_edge_softness(objects, soft=True)`
+- `edit_utils/components.py::Components.set_to_face_normals(objects)`
+- `edit_utils/components.py::Components.toggle_normal_lock(objects)`
+- `edit_utils/components.py::Components.transfer_normals(objects, space='world')`
 - `edit_utils/duplicate_radial.py::DuplicateRadial.regroup_copies(copies)`
 
 ## Deprecations (14)

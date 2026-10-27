@@ -324,6 +324,9 @@ DEFAULT_INCLUDE = {
     # ``audio_utils.segments.AudioSegment``) — the sequencer's audio tracks.
     "audio_utils.segments": ["AudioSegment"],
     "edit_utils._edit_utils": "*",
+    # Component-level mesh operations - mirror of mayatk's ``core_utils.components.Components``
+    # (the normals operations tentacle's shared ``slots/normals.py`` calls).
+    "edit_utils.components": "Components",
     # Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``
     # (``btk.Selection`` <-> ``mtk.Selection``), backing the shared ``list000`` "Select by Type"
     # list in ``tentacle/slots/*/selection.py``.

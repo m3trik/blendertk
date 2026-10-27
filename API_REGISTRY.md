@@ -82,6 +82,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`edit_utils/_edit_utils.py`](#edit_utils--_edit_utils) — Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
 - [`edit_utils/bevel.py`](#edit_utils--bevel) — Bevel tool — engine + Switchboard slot wiring for the co-located ``bevel.ui``.
 - [`edit_utils/bridge.py`](#edit_utils--bridge) — Bridge tool — engine + Switchboard slot wiring for the co-located ``bridge.ui``.
+- [`edit_utils/components.py`](#edit_utils--components) — Component-level mesh operations — mirror of mayatk's ``core_utils.components``.
 - [`edit_utils/curtain/_curtain.py`](#edit_utils--curtain--_curtain) — Procedural draped-cloth (curtain) generator for Blender -- mirror of mayatk's
 - [`edit_utils/curtain/_curtain_drape.py`](#edit_utils--curtain--_curtain_drape) — Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.
 - [`edit_utils/curtain/curtain_slots.py`](#edit_utils--curtain--curtain_slots) — Curtain panel — the Switchboard slots for ``curtain.ui`` (Blender).
@@ -241,7 +242,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L434) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L437) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -1179,6 +1180,7 @@ Core blendertk utilities — DCC-environment info + cross-cutting decorators.
   - `CoreUtils.format_scene_info_html(info)` *(static)* — Render a :func:`get_scene_info` record as an HTML report for the text-view dialog.
   - `CoreUtils.analyze_scene(objects=None, adaptive=True, sections=None)` *(static)* — Game-readiness scene report -- the sectioned audit behind Get Scene Info.
   - `CoreUtils.cleanup_scene(quiet=False)` *(static)* — Purge orphan datablocks (0 users, no fake user) across the main collections — the
+  - `CoreUtils.selected(func)` *(static)* — Pass the selection (:meth:`selected_objects`) to *func*'s target parameter when
   - `CoreUtils.selected_objects()` *(static)* — The current object selection, filtered of ``None`` (mirror of Maya's
   - `CoreUtils.active_object()` *(static)* — The active object, resolved window-independently (``view_layer.objects.active``).
   - `CoreUtils.preserved_selection()` *(static)* — Restore the viewport selection after a scene-mutating block — mirror of
@@ -1478,6 +1480,20 @@ Bridge tool — engine + Switchboard slot wiring for the co-located ``bridge.ui`
 - **[`class BridgeSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/bridge.py#L120)** — Switchboard slot wiring for the bridge UI — 1:1 mirror of mayatk's ``BridgeSlots`` (same
   - `BridgeSlots.header_init(self, widget)` — Configure header help text.
   - `BridgeSlots.perform_operation(self, objects)`
+
+<a id="edit_utils--components"></a>
+### `edit_utils/components.py`
+
+Component-level mesh operations — mirror of mayatk's ``core_utils.components``.
+
+- **[`class Components(_ComponentsInternal)`](blendertk/blendertk/edit_utils/components.py#L34)** — Component-level mesh operations — mirror of mayatk's ``Components``.
+  - `Components.set_edge_hardness(objects, angle_threshold, upper_hardness=None, lower_hardness=None, unlock_normals=False)` *(static)* — Mark edges hard or soft by their angle against ``angle_threshold``.
+  - `Components.average_normals(objects, by_uv_shell=False)` *(static)* — Average the normals of *objects* (soften every edge);
+  - `Components.set_edge_softness(objects, soft=True)` *(static)* — Soften (``soft=True``, smooth shading) or harden the edge normals of
+  - `Components.set_to_face_normals(objects)` *(static)* — Set the vertex normals of *objects* to their faces' (flat shading);
+  - `Components.reverse_normals(objects, mode=0)` *(static)* — Reverse the normals of *objects* by Maya's ``polyNormal`` modes:
+  - `Components.toggle_normal_lock(objects)` *(static)* — Lock the normals of *objects* (bake them as custom split normals), or
+  - `Components.transfer_normals(objects, space='world')` *(static)* — Transfer normals from the first mesh of *objects* to the rest, as
 
 <a id="edit_utils--curtain--_curtain"></a>
 ### `edit_utils/curtain/_curtain.py`
