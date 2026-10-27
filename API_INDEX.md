@@ -667,10 +667,6 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class LightmapIsolateSet(BakeSet)`
   - methods: groups, meshes
 
-### `mat_utils/emissive_groups.py` — Emissive groups — mirror of mayatk's ``mat_utils.emissive_groups``.
-- `class EmissiveGroups(_EmissiveGroupsInternal, pythontk.LoggingMixin, pythontk.HelpMixin)`
-  - methods: add_group, remove_group, list_groups, select_group, set_default, make_weights_keyable, remove_keyable_weights, key_weight, create_export_curve_proxies, remove_export_curve_proxies, compact_slots, validate, bake_vertex_colors, bake_mask, transfer_out, transfer_in, export_record, refresh_export_metadata
-
 ### `mat_utils/game_shader.py` — Game Shader — auto-build a Principled-BSDF material from a set of PBR textures.
 - `class GameShader(pythontk.LoggingMixin, _GameShaderInternal)`
   - methods: create_network

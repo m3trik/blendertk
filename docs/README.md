@@ -75,7 +75,7 @@ Nothing in blendertk attaches to a running Blender. Tests and headless tooling a
 
 - **[Scene data nodes](data_nodes.md)** — the `data_internal` / `data_export` carriers and how their metadata rides into the FBX (Blender delta of [mayatk's owner doc](https://github.com/m3trik/mayatk/blob/main/docs/data_nodes.md))
 - **[Shot Sequencer](https://github.com/m3trik/mayatk/blob/main/docs/shot_sequencer.md)** (mayatk, one guide for both hosts) — the per-shot animation timeline and its graph view; the panel's `?` help links here
-- **[Emissive groups → Unity](https://github.com/m3trik/mayatk/blob/main/docs/emissive_groups.md)** (mayatk, cross-package SSoT) — runtime-toggleable emissive regions; blendertk's `EmissiveGroups` stores membership as per-group boolean face attributes
+- **[Emissive groups → Unity](https://github.com/m3trik/tentacle/blob/main/docs/emissive_groups.md)** (tentacle's tool, cross-package SSoT) — runtime-toggleable emissive regions; in Blender its membership is per-group boolean face attributes, and its records and curve-proxy stager reach blendertk's FBX export through tentacle's entry points
 - **[Live WebXR preview](https://github.com/m3trik/pythontk/blob/main/docs/webxr_preview.md)** (pythontk) — the shared DCC → glTF → headset pipeline behind `btk.WebXrPreview`
 
 ## Links

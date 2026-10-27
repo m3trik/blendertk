@@ -38,7 +38,12 @@ MONO = os.path.dirname(REPO)
 # imported, Qt-free by design), and the block at "task/check definitions" below
 # renders every one of them. Same convention as the other uitk-touching suites
 # (test_smart_bake, test_hierarchy_sync, test_shots_slots, ...).
-for p in (REPO, os.path.join(MONO, "pythontk"), os.path.join(MONO, "uitk")):
+for p in (
+    REPO,
+    os.path.join(MONO, "pythontk"),
+    os.path.join(MONO, "uitk"),
+    os.path.join(MONO, "tentacle"),
+):
     if p not in sys.path:
         sys.path.insert(0, p)
 
@@ -1200,7 +1205,8 @@ try:
     # curve — Blender's FBX exporter can't ship custom-property animation), the
     # proxy rides the write, and perform_export's finally removes it. Prove the
     # full pipeline: FBX carries the animated proxy AND the scene is left clean.
-    from blendertk.mat_utils.emissive_groups import EmissiveGroups
+    from tentacle.tools.emissive_groups.blender import EmissiveGroups  # tentacle's tool
+    from tentacle.tools.emissive_groups.blender import BlenderEmissiveGroups
     from blendertk.anim_utils._anim_utils import AnimUtils
 
     reset_scene()
@@ -1228,8 +1234,8 @@ try:
     )
     check(
         "no curve proxy survives in the scene after the export",
-        not any(o.get(EmissiveGroups.PROXY_MARKER) for o in bpy.data.objects),
-        f"{[o.name for o in bpy.data.objects if o.get(EmissiveGroups.PROXY_MARKER)]}",
+        not any(o.get(BlenderEmissiveGroups.PROXY_MARKER) for o in bpy.data.objects),
+        f"{[o.name for o in bpy.data.objects if o.get(BlenderEmissiveGroups.PROXY_MARKER)]}",
     )
 
     reset_scene()

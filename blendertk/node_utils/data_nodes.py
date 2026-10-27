@@ -467,10 +467,6 @@ class DataNodes(ptk.SceneStoreBase):
             "blendertk.anim_utils.key_stash._key_stash",
             "KeyStash",
         ),
-        ptk.SceneRecords.EMISSIVE_REGISTRY.key: (
-            "blendertk.mat_utils.emissive_groups",
-            "EmissiveGroups",
-        ),
     }
 
     @classmethod
