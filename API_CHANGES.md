@@ -17,11 +17,11 @@ _Live retirement debt, earliest deadline first. An **EXPIRED** row has outlived 
 - **HELD** `anim_utils/shots/shots_slots.py::ShotsController.on_delete_stale_shots` — remove in 0.16.0, not before 2026-11-06
 - **HELD** `env_utils/scene_state.py::SceneState.read` — remove in 0.21.0, not before 2026-11-23
 - **HELD** `env_utils/scene_state.py::SceneState.source` — remove in 0.21.0, not before 2026-11-23
-- `env_utils/_env_utils.py::EnvUtils.scene_project_root` — remove in 0.22.0, not before 2026-11-24
-- `env_utils/_env_utils.py::EnvUtils.scene_source` — remove in 0.22.0, not before 2026-11-24
-- `env_utils/_env_utils.py::EnvUtils.scene_source_images_dir` — remove in 0.22.0, not before 2026-11-24
-- `env_utils/_env_utils.py::EnvUtils.scene_workspace` — remove in 0.22.0, not before 2026-11-24
-- `env_utils/_env_utils.py::EnvUtils.set_scene_source` — remove in 0.22.0, not before 2026-11-24
-- `env_utils/_env_utils.py::EnvUtils.twin_save_target` — remove in 0.22.0, not before 2026-11-24
-- `mat_utils/_mat_utils.py::MatUtils.update_materials` — remove in 0.22.0, not before 2026-11-24
+- **HELD** `env_utils/_env_utils.py::EnvUtils.scene_project_root` — remove in 0.22.0, not before 2026-11-24
+- **HELD** `env_utils/_env_utils.py::EnvUtils.scene_source` — remove in 0.22.0, not before 2026-11-24
+- **HELD** `env_utils/_env_utils.py::EnvUtils.scene_source_images_dir` — remove in 0.22.0, not before 2026-11-24
+- **HELD** `env_utils/_env_utils.py::EnvUtils.scene_workspace` — remove in 0.22.0, not before 2026-11-24
+- **HELD** `env_utils/_env_utils.py::EnvUtils.set_scene_source` — remove in 0.22.0, not before 2026-11-24
+- **HELD** `env_utils/_env_utils.py::EnvUtils.twin_save_target` — remove in 0.22.0, not before 2026-11-24
+- **HELD** `mat_utils/_mat_utils.py::MatUtils.update_materials` — remove in 0.22.0, not before 2026-11-24
 - `anim_utils/shots/_shots.py::BlenderShotStore.iter_action_fcurves` — remove in 0.23.0, not before 2026-11-26
