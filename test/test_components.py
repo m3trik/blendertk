@@ -140,8 +140,12 @@ try:
     try:
         Components.transfer_normals([src])
         check("transfer_normals of one mesh raises", False)
-    except ValueError:
-        check("transfer_normals of one mesh raises", True)
+    except ValueError as error:
+        # The panel shows it as it is: a missing target, not a non-polygonal mesh.
+        check(
+            "transfer_normals of one mesh asks for a source and a target",
+            str(error) == "Transfer needs a source mesh and one or more target meshes.",
+        )
     try:
         Components.transfer_normals([src, tgt], space="uv")
         check("transfer_normals of an unknown space raises", False)

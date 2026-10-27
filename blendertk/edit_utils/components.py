@@ -184,9 +184,7 @@ class Components(_ComponentsInternal):
             objects = [active] + [o for o in selection if o != active]
         meshes = Components._meshes(objects)
         if len(meshes) < 2:
-            raise ValueError(
-                "At least one source and one target mesh must be polygonal meshes."
-            )
+            raise ValueError("Transfer needs a source mesh and one or more target meshes.")
         source = meshes[0]
         with CoreUtils.window_context_override():
             with bpy.context.temp_override(
