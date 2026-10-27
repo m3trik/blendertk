@@ -14,7 +14,7 @@ from typing import Optional
 
 import pythontk as ptk
 
-from blendertk.anim_utils.shots._shots import BlenderShotStore
+from blendertk.anim_utils._anim_utils import AnimUtils
 from blendertk.anim_utils.shots.shot_sequencer.segment_collector import SegmentCollector
 
 
@@ -750,7 +750,7 @@ class WidgetSyncMixin:
 
         # Every keyed channel on the object, as mayatk lists every animCurve
         # on the node -- custom properties and visibility get rows too.
-        all_curves = list(BlenderShotStore.iter_action_fcurves(obj))
+        all_curves = list(AnimUtils.get_fcurves(obj))
         if not all_curves:
             return []
 

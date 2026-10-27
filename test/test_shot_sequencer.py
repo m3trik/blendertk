@@ -46,6 +46,7 @@ def _run_sequencer_checks():
     import bpy
 
     from blendertk import BlenderShotStore
+    from blendertk.anim_utils._anim_utils import AnimUtils
     from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import ShotSequencer
 
     BlenderShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_seq_prefs_")
@@ -58,7 +59,7 @@ def _run_sequencer_checks():
         return sorted(
             {
                 round(float(kp.co[0]), 3)
-                for fc in BlenderShotStore.iter_action_fcurves(obj)
+                for fc in AnimUtils.get_fcurves(obj)
                 for kp in fc.keyframe_points
             }
         )
@@ -826,6 +827,7 @@ def _run_sequencer_checks():
     )
     from blendertk.anim_utils.shots.shot_sequencer.clip_motion import ClipMotionMixin
     from blendertk.anim_utils.shots._shots import BlenderShotStore
+    from blendertk.anim_utils._anim_utils import AnimUtils
 
     build_scene()
     store = fresh_store()
@@ -877,7 +879,7 @@ def _run_sequencer_checks():
     )
 
     qfcs = ClipMotionMixin.curves_for_attr(
-        "Q", SegmentCollector.attr_label(next(BlenderShotStore.iter_action_fcurves(q)))
+        "Q", SegmentCollector.attr_label(next(iter(AnimUtils.get_fcurves(q))))
     )
     check(
         "curves_for_attr: resolves a rotation_quaternion channel (not just euler)",
@@ -890,7 +892,7 @@ def _run_sequencer_checks():
     loc_fc = next(
         (
             fc
-            for fc in BlenderShotStore.iter_action_fcurves(a_obj)
+            for fc in AnimUtils.get_fcurves(a_obj)
             if fc.data_path == "location" and fc.array_index == 0
         ),
         None,
@@ -911,7 +913,7 @@ def _run_sequencer_checks():
     q_labels = sorted(
         {
             SegmentCollector.attr_label(fc)
-            for fc in BlenderShotStore.iter_action_fcurves(q)
+            for fc in AnimUtils.get_fcurves(q)
         }
     )
     check(
@@ -988,7 +990,7 @@ def _run_sequencer_checks():
     host.on_keys_moved(1, [(10.0, 12.0), (12.0, 14.0)])
     fc_x = next(
         fc
-        for fc in BlenderShotStore.iter_action_fcurves(cm_obj)
+        for fc in AnimUtils.get_fcurves(cm_obj)
         if fc.data_path == "location" and fc.array_index == 0
     )
     moved = sorted(
@@ -1038,7 +1040,7 @@ def _run_sequencer_checks():
     def _times(obj):
         fc = next(
             fc
-            for fc in BlenderShotStore.iter_action_fcurves(obj)
+            for fc in AnimUtils.get_fcurves(obj)
             if fc.data_path == "location" and fc.array_index == 0
         )
         return sorted(round(kp.co[0], 3) for kp in fc.keyframe_points)
@@ -1083,7 +1085,7 @@ def _run_sequencer_checks():
     def _loc_x(o):
         return next(
             fc
-            for fc in BlenderShotStore.iter_action_fcurves(o)
+            for fc in AnimUtils.get_fcurves(o)
             if fc.data_path == "location" and fc.array_index == 0
         )
 
@@ -2564,7 +2566,7 @@ def _run_sequencer_checks():
             _o.keyframe_insert(data_path=_path, index=_i, frame=_f)
     _fcs = {
         (fc.data_path, fc.array_index): fc
-        for fc in BlenderShotStore.iter_action_fcurves(_o)
+        for fc in AnimUtils.get_fcurves(_o)
     }
     for _kp in _fcs[("location", 2)].keyframe_points:
         if round(_kp.co[0]) == 80:
@@ -2583,7 +2585,7 @@ def _run_sequencer_checks():
         _fc = next(
             (
                 fc
-                for fc in BlenderShotStore.iter_action_fcurves(_o)
+                for fc in AnimUtils.get_fcurves(_o)
                 if fc.data_path == _path and fc.array_index == _i
             ),
             None,
@@ -3089,7 +3091,7 @@ def _run_sequencer_checks():
     ShotSequencerController._delete_clip_keys(del_host, [1])
     remaining = {
         fc.data_path
-        for fc in BlenderShotStore.iter_action_fcurves(del_obj)
+        for fc in AnimUtils.get_fcurves(del_obj)
         if len(fc.keyframe_points)
     }
     check(
@@ -3111,7 +3113,7 @@ def _run_sequencer_checks():
     dc_seq = ShotSequencer(dc_store)
     dc_fc = next(
         fc
-        for fc in BlenderShotStore.iter_action_fcurves(dc_obj)
+        for fc in AnimUtils.get_fcurves(dc_obj)
         if fc.data_path == "location" and fc.array_index == 0
     )
     dc_key = _ShotSequencerInternal._fc_key("DelClaims", dc_fc)
@@ -3146,7 +3148,7 @@ def _run_sequencer_checks():
     db_seq = ShotSequencer(db_store)
     db_fc = next(
         fc
-        for fc in BlenderShotStore.iter_action_fcurves(db_obj)
+        for fc in AnimUtils.get_fcurves(db_obj)
         if fc.data_path == "location" and fc.array_index == 0
     )
     db_key = _ShotSequencerInternal._fc_key("DelOnBound", db_fc)
@@ -3385,12 +3387,12 @@ def _run_sequencer_checks():
     def _picked_channels():
         return sorted(
             (fc.data_path, fc.array_index)
-            for fc in BlenderShotStore.iter_action_fcurves(chan_obj)
+            for fc in AnimUtils.get_fcurves(chan_obj)
             if fc.select
         )
 
     def _pick_every_channel():
-        for fc in BlenderShotStore.iter_action_fcurves(chan_obj):
+        for fc in AnimUtils.get_fcurves(chan_obj):
             fc.select = True
 
     chan_ctl = ShotSequencerController.__new__(ShotSequencerController)
@@ -3440,7 +3442,7 @@ def _run_sequencer_checks():
         obj = bpy.data.objects.get(obj_name)
         return {
             round(float(kp.co[0]), 3): kp.interpolation
-            for fc in BlenderShotStore.iter_action_fcurves(obj)
+            for fc in AnimUtils.get_fcurves(obj)
             for kp in fc.keyframe_points
             if fc.array_index == 0
         }
@@ -3600,7 +3602,7 @@ def _run_sequencer_checks():
             """*name*'s keys less the system's bound samples: C's start keeps
             the pose B's run held over it, claimed (the one rule)."""
             out: set = set()
-            for fc in BlenderShotStore.iter_action_fcurves(bpy.data.objects[name]):
+            for fc in AnimUtils.get_fcurves(bpy.data.objects[name]):
                 claimed = seq.ledger.key_times(_ShotSequencerInternal._fc_key(name, fc))
                 out |= {
                     round(float(kp.co[0]), 3)
@@ -3723,7 +3725,7 @@ def _run_sequencer_checks():
 
     def channel_times(obj_name, data_path, index):
         obj = bpy.data.objects[obj_name]
-        for fc in BlenderShotStore.iter_action_fcurves(obj):
+        for fc in AnimUtils.get_fcurves(obj):
             if fc.data_path == data_path and fc.array_index == index:
                 return sorted(round(float(kp.co[0]), 3) for kp in fc.keyframe_points)
         return []
@@ -3742,7 +3744,7 @@ def _run_sequencer_checks():
         and abs(
             next(
                 fc
-                for fc in BlenderShotStore.iter_action_fcurves(bpy.data.objects["A"])
+                for fc in AnimUtils.get_fcurves(bpy.data.objects["A"])
                 if fc.data_path == "location" and fc.array_index == 0
             ).evaluate(45)
             - 1.0
@@ -3842,7 +3844,7 @@ def _run_sequencer_checks():
     build_scene()
     a_obj = bpy.data.objects["A"]
     fc0 = next(
-        fc for fc in BlenderShotStore.iter_action_fcurves(a_obj) if fc.array_index == 0
+        fc for fc in AnimUtils.get_fcurves(a_obj) if fc.array_index == 0
     )
     ShotSequencer.move_curve_keys(fc0, [0.0, 1.0], 100.0)
     t = sorted(round(kp.co[0], 3) for kp in fc0.keyframe_points)
@@ -3877,7 +3879,7 @@ def _run_sequencer_checks():
             obj.keyframe_insert("location", index=0, frame=t)
         return next(
             fc
-            for fc in BlenderShotStore.iter_action_fcurves(obj)
+            for fc in AnimUtils.get_fcurves(obj)
             if fc.data_path == "location" and fc.array_index == 0
         )
 
@@ -4034,7 +4036,7 @@ def _run_sequencer_checks():
     def fc_of(ob):
         return next(
             fc
-            for fc in BlenderShotStore.iter_action_fcurves(ob)
+            for fc in AnimUtils.get_fcurves(ob)
             if fc.data_path == "location" and fc.array_index == 0
         )
 
@@ -4158,7 +4160,7 @@ def _run_sequencer_checks():
         lead.keyframe_insert(data_path="location", index=2, frame=f)
     fc_z = next(
         fc
-        for fc in BlenderShotStore.iter_action_fcurves(lead)
+        for fc in AnimUtils.get_fcurves(lead)
         if fc.data_path == "location" and fc.array_index == 2
     )
     sq.define_shot("A", 33, 65, objects=["leadA"])
@@ -6042,7 +6044,7 @@ def _run_sequencer_checks():
         mine.keyframe_insert("location", index=1, frame=f)
     mine_y = next(
         fc
-        for fc in BlenderShotStore.iter_action_fcurves(mine)
+        for fc in AnimUtils.get_fcurves(mine)
         if fc.data_path == "location" and fc.array_index == 1
     )
     # New fcurves start SELECTED in Blender: clear the flags so the check
@@ -6409,7 +6411,7 @@ def _run_sequencer_checks():
     def pt_times(path, index=0):
         fc = next(
             c
-            for c in BlenderShotStore.iter_action_fcurves(pt)
+            for c in AnimUtils.get_fcurves(pt)
             if c.data_path == path and c.array_index == index
         )
         return sorted(round(kp.co[0], 3) for kp in fc.keyframe_points)
@@ -6570,7 +6572,7 @@ def _run_sequencer_checks():
     ShotSequencer(store=st).respace(gap=0.0, start_frame=0.0)
     bone_fc = next(
         fc
-        for fc in BlenderShotStore.iter_action_fcurves(rf_rig)
+        for fc in AnimUtils.get_fcurves(rf_rig)
         if fc.data_path == 'pose.bones["rfBone_L"].location' and fc.array_index == 0
     )
     bone_at_10 = next(
@@ -7163,7 +7165,7 @@ def _run_sequencer_checks():
         sm_ob.keyframe_insert(data_path="location", index=1, frame=_f)
     sm_fcs = {
         fc.array_index: fc
-        for fc in BlenderShotStore.iter_action_fcurves(sm_ob)
+        for fc in AnimUtils.get_fcurves(sm_ob)
         if fc.data_path == "location"
     }
     sm_seg = {"curves": [sm_fcs[0], sm_fcs[1]], "keyframes": [1.0, 20.0, 50.0]}

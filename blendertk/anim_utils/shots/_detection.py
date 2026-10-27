@@ -69,7 +69,7 @@ class _DetectionInternal(object):
         for obj in scene.objects:
             curves = [
                 fc
-                for fc in BlenderShotStore.iter_action_fcurves(obj)
+                for fc in AnimUtils.get_fcurves(obj)
                 if _BlenderShotStoreInternal._is_transform_path(fc.data_path)
                 and not _BlenderShotStoreInternal._is_ignored_path(fc.data_path, ignore)
             ]

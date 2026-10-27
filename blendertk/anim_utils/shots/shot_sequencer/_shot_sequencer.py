@@ -122,7 +122,7 @@ class _ShotSequencerInternal(object):
     def _transform_fcurves(obj):
         return [
             fc
-            for fc in BlenderShotStore.iter_action_fcurves(obj)
+            for fc in AnimUtils.get_fcurves(obj)
             if BlenderShotStore._is_transform_path(fc.data_path)
         ]
 
@@ -605,7 +605,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
             if obj is None:
                 continue
             # Any key in range, as mayatk's ``keyframe -query`` over the node.
-            curves = list(BlenderShotStore.iter_action_fcurves(obj))
+            curves = list(AnimUtils.get_fcurves(obj))
             times_set: set = set()
             for fc in curves:
                 kt = AnimUtils.key_times(fc)
@@ -717,7 +717,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
             # on the node -- the movers carry them all (:meth:`_move_keys`), so
             # trim/fit must see the same keys or a custom property's motion
             # would ride a ripple past a bound that ignored it.
-            for fc in BlenderShotStore.iter_action_fcurves(obj):
+            for fc in AnimUtils.get_fcurves(obj):
                 if not _ShotSequencerInternal._fcurve_moves_in(fc, lo, hi):
                     continue
                 for t in self._animator_key_times(name, fc):
@@ -950,7 +950,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
             obj = _ShotSequencerInternal._object(name)
             if obj is None:
                 continue
-            for fc in BlenderShotStore.iter_action_fcurves(obj):
+            for fc in AnimUtils.get_fcurves(obj):
                 ptr = fc.as_pointer()
                 if ptr not in seen:
                     seen.add(ptr)
@@ -2414,7 +2414,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
             )
 
             return list(ClipMotionMixin.curves_for_attr(obj, attr))
-        return list(BlenderShotStore.iter_action_fcurves(o))
+        return list(AnimUtils.get_fcurves(o))
 
     def _animator_key_times(self, obj_name: str, fc, window=None) -> List[float]:
         """*fc*'s key times that are the animator's own: the samples the
@@ -3258,7 +3258,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
             obj = _ShotSequencerInternal._object(name)
             if obj is None:
                 continue
-            for fc in BlenderShotStore.iter_action_fcurves(obj):
+            for fc in AnimUtils.get_fcurves(obj):
                 for t in AnimUtils.key_times(fc):
                     if t > extent and not _owned_elsewhere(t):
                         extent = t

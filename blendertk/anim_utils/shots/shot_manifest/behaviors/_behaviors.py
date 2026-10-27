@@ -36,6 +36,8 @@ from pythontk.core_utils.engines.shots.manifest.behaviors import (  # noqa: F401
     BehaviorSpec,  # published by this package's __init__
 )
 
+from blendertk.anim_utils._anim_utils import AnimUtils
+
 # Log under the package name, not this private impl module, so the logger name
 # stays stable across the __init__ -> _behaviors split (mirror of mayatk).
 log = logging.getLogger(__name__.rpartition(".")[0])
@@ -135,7 +137,7 @@ class _BehaviorsInternal(object):
         from blendertk.anim_utils.shots._shots import BlenderShotStore
 
         pts = []
-        for fc in BlenderShotStore.iter_action_fcurves(obj):
+        for fc in AnimUtils.get_fcurves(obj):
             if fc.data_path == data_path:
                 pts.extend(
                     (float(kp.co[0]), float(kp.co[1])) for kp in fc.keyframe_points
@@ -642,7 +644,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
                 return False
             from blendertk.anim_utils.shots._shots import BlenderShotStore
 
-            for fc in BlenderShotStore.iter_action_fcurves(node):
+            for fc in AnimUtils.get_fcurves(node):
                 if any(
                     start - 1e-6 <= kp.co[0] <= end + 1e-6 for kp in fc.keyframe_points
                 ):

@@ -52,6 +52,7 @@ try:
     import bpy
     from blendertk.anim_utils.shots._shots import BlenderShotStore
     from blendertk.env_utils.scene_exporter._scene_exporter import SceneExporter
+    from blendertk.mat_utils._mat_utils import MatUtils
 
     tmp = tempfile.mkdtemp(prefix="btk_export_baselines_")
     BlenderShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_baselines_prefs_")
@@ -90,8 +91,7 @@ try:
 
     def material(name, color, metallic=0.0):
         mat = bpy.data.materials.new(name)
-        mat.use_nodes = True
-        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        bsdf = MatUtils.get_node_tree(mat, create=True).nodes.get("Principled BSDF")
         bsdf.inputs["Base Color"].default_value = (*color, 1.0)
         bsdf.inputs["Metallic"].default_value = metallic
         return mat

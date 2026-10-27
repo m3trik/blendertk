@@ -3604,8 +3604,6 @@ class AnimUtils(_AnimUtilsInternal):
         """
         import bpy
 
-        from blendertk.anim_utils.shots._shots import BlenderShotStore
-
         if objects is None:
             objects = [
                 o
@@ -3614,7 +3612,7 @@ class AnimUtils(_AnimUtilsInternal):
             ]
         out = {}
         for o in ptk.make_iterable(objects):
-            for fc in BlenderShotStore.iter_action_fcurves(o):
+            for fc in AnimUtils.get_fcurves(o):
                 times = sorted(
                     {k.co.x for k in fc.keyframe_points if k.select_control_point}
                 )

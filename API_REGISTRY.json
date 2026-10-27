@@ -506,7 +506,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The timeline's preview range, or ``None`` when it is off.",
-              "line": 3626,
+              "line": 3624,
               "deprecated": false
             },
             {
@@ -515,7 +515,7 @@
               "kind": "staticmethod",
               "signature": "(sources, gate=None, name='previewLayer')",
               "summary": "Play foreign actions on objects through throwaway NLA tracks.",
-              "line": 3643,
+              "line": 3641,
               "deprecated": false
             },
             {
@@ -524,7 +524,7 @@
               "kind": "staticmethod",
               "signature": "(handle) -> bool",
               "summary": "Tear down :meth:`create_preview_layer`'s tracks and restore the active action.",
-              "line": 3721,
+              "line": 3719,
               "deprecated": false
             },
             {
@@ -1779,8 +1779,9 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Yield every fcurve driving *obj*, across Blender 5.1's slotted actions.",
-              "line": 1915,
-              "deprecated": false
+              "line": 1918,
+              "deprecated": true,
+              "remove_in": "0.23.0"
             },
             {
               "name": "collect_transform_segments",
@@ -1788,7 +1789,7 @@
               "kind": "staticmethod",
               "signature": "(scene=None, gap_threshold: float = 5.0, objects: Optional[List[str]] = None, ignore=None, motion_rate: float = 0.001) -> List[Dict[str, Any]]",
               "summary": "Gather per-object **motion** segments for auto shot detection.",
-              "line": 1946,
+              "line": 1927,
               "deprecated": false
             },
             {
@@ -1797,7 +1798,7 @@
               "kind": "staticmethod",
               "signature": "(scene=None) -> List[Tuple[float, float, str]]",
               "summary": "Gather ``(time, value, object)`` triples from currently selected keyframes.",
-              "line": 1990,
+              "line": 1971,
               "deprecated": false
             }
           ]
@@ -1813,7 +1814,7 @@
         {
           "name": "BlenderShotManifest",
           "summary": ":class:`pythontk.ShotManifest` with the scene hooks bound to Blender.",
-          "line": 101,
+          "line": 102,
           "bases": [
             "ShotManifest",
             "_ShotManifestInternal"
@@ -1825,7 +1826,7 @@
               "kind": "method",
               "signature": "(self) -> Dict[str, list]",
               "summary": "Apply detected behaviors to Blender objects (fades, highlights,",
-              "line": 149,
+              "line": 150,
               "deprecated": false
             },
             {
@@ -1834,7 +1835,7 @@
               "kind": "staticmethod",
               "signature": "(tracks: Optional[List[str]] = None) -> Dict[str, List[str]]",
               "summary": "Reconcile audio playback nodes with keyed track state — no-op in Blender.",
-              "line": 178,
+              "line": 179,
               "deprecated": false
             },
             {
@@ -1843,7 +1844,7 @@
               "kind": "classmethod",
               "signature": "(cls, filepath, store=None, columns=None, post_process=None)",
               "summary": "Parse a CSV and return a ready-to-build engine.",
-              "line": 431,
+              "line": 432,
               "deprecated": false
             }
           ]
@@ -1859,7 +1860,7 @@
         {
           "name": "Behaviors",
           "summary": "Behaviors — module namespace.",
-          "line": 240,
+          "line": 242,
           "bases": [
             "pythontk.core_utils.engines.shots.manifest.behaviors.Behaviors",
             "_BehaviorsInternal"
@@ -1871,7 +1872,7 @@
               "kind": "staticmethod",
               "signature": "(obj: str, behavior_name: str, start: float, end: float, attrs: Optional[List[str]] = None, search_path: Optional[Path] = None, source_path: str = '', anchor_override: Optional[str] = None, recipe: Optional[Any] = None, fps: Optional[float] = None) -> List[Tuple[str, float]]",
               "summary": "Apply a named behavior template to an object over a time range.",
-              "line": 250,
+              "line": 252,
               "deprecated": false
             },
             {
@@ -1880,7 +1881,7 @@
               "kind": "staticmethod",
               "signature": "(obj: str, behavior_name: str, start: float, end: float, search_path: Optional[Path] = None, keyframe_fn: Optional[Any] = None, anchor_override: Optional[Any] = None, recipe: Optional[Any] = None, fps: Optional[float] = None) -> bool",
               "summary": "Check whether expected behavior keyframes exist on an object.",
-              "line": 391,
+              "line": 393,
               "deprecated": false
             },
             {
@@ -1889,7 +1890,7 @@
               "kind": "staticmethod",
               "signature": "(obj: str, start: float, end: float, source_path: str = '') -> None",
               "summary": "Place (or re-place) the sound strip *obj* at *start*.",
-              "line": 488,
+              "line": 490,
               "deprecated": false
             },
             {
@@ -1898,7 +1899,7 @@
               "kind": "staticmethod",
               "signature": "(behavior_entries: List[Dict[str, str]], fallback: float = 30, fps: Optional[float] = None) -> float",
               "summary": "Derive duration from the behavior templates in *behavior_entries*.",
-              "line": 534,
+              "line": 536,
               "deprecated": false
             },
             {
@@ -1907,7 +1908,7 @@
               "kind": "staticmethod",
               "signature": "(shots: list, apply_fn, exists_fn=None, has_keys_fn=None, store=None, resolve_fn=None, conflict_fn=None, release_fn=None, skip_behaviors=()) -> Dict[str, list]",
               "summary": "Apply declared behaviors from shot metadata to Blender objects.",
-              "line": 591,
+              "line": 593,
               "deprecated": false
             }
           ]
@@ -2945,7 +2946,7 @@
         {
           "name": "ClipMotionMixin",
           "summary": "Mixin supplying clip move, resize, and batch-move handlers.",
-          "line": 62,
+          "line": 61,
           "bases": [
             "_ClipMotionMixinInternal"
           ],
@@ -2956,7 +2957,7 @@
               "kind": "method",
               "signature": "(self, clip_id: int, new_start: float, new_duration: float) -> None",
               "summary": "Resize one clip — see :meth:`_commit_clip_resizes`.",
-              "line": 82,
+              "line": 81,
               "deprecated": false
             },
             {
@@ -2965,7 +2966,7 @@
               "kind": "method",
               "signature": "(self, resizes) -> None",
               "summary": "An edge drag that scaled a SELECTION of clips as one unit.",
-              "line": 88,
+              "line": 87,
               "deprecated": false
             },
             {
@@ -2974,7 +2975,7 @@
               "kind": "method",
               "signature": "(self, clip_id: int, new_start: float) -> None",
               "summary": "Handle clip move — routes to audio (deferred) or shot-level logic.",
-              "line": 460,
+              "line": 459,
               "deprecated": false
             },
             {
@@ -2983,7 +2984,7 @@
               "kind": "method",
               "signature": "(self, moves) -> None",
               "summary": "Handle a batch of clip moves (group drag), syncing once at the end.",
-              "line": 510,
+              "line": 509,
               "deprecated": false
             },
             {
@@ -2992,7 +2993,7 @@
               "kind": "method",
               "signature": "(self, clip_id: int, changes: list) -> None",
               "summary": "Move individual keyframes on the fcurves, then refresh.",
-              "line": 699,
+              "line": 698,
               "deprecated": false
             },
             {
@@ -3001,7 +3002,7 @@
               "kind": "method",
               "signature": "(self, groups) -> None",
               "summary": "Commit one key drag that spanned any number of clips.",
-              "line": 710,
+              "line": 709,
               "deprecated": false
             },
             {
@@ -3010,7 +3011,7 @@
               "kind": "method",
               "signature": "(self, clip_id: int, times: list) -> None",
               "summary": "Delete individual keyframes from the fcurves, then refresh.",
-              "line": 759,
+              "line": 758,
               "deprecated": false
             },
             {
@@ -3019,7 +3020,7 @@
               "kind": "staticmethod",
               "signature": "(obj_name: str, attr_name: str) -> list",
               "summary": "Return the fcurves driving *attr_name* (a ``translateX``-style label) on *obj_name*.",
-              "line": 824,
+              "line": 823,
               "deprecated": false
             },
             {
@@ -3028,7 +3029,7 @@
               "kind": "staticmethod",
               "signature": "(obj_name: str, attr_names) -> list",
               "summary": ":meth:`curves_for_attr` over several labels: every fcurve behind",
-              "line": 839,
+              "line": 838,
               "deprecated": false
             },
             {
@@ -3037,7 +3038,7 @@
               "kind": "staticmethod",
               "signature": "(obj_name: str, attr_name: str, old_start: float, old_end: float, new_start: float, new_end: float, ledger=None) -> bool",
               "summary": "Scale only the fcurves driving *attr_name* on *obj_name* (sub-row clip resize).",
-              "line": 867,
+              "line": 866,
               "deprecated": false
             }
           ]
@@ -3050,7 +3051,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 30,
+          "line": 29,
           "deprecated": false
         }
       ]

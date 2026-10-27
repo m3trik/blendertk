@@ -426,7 +426,7 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
                 cands = (
                     list(curves)
                     if curves is not None
-                    else list(BlenderShotStore.iter_action_fcurves(o))
+                    else list(AnimUtils.get_fcurves(o))
                 )
                 for fc in cands:
                     times = {
@@ -456,7 +456,7 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
             for o in objs:
                 if o is None:
                     continue
-                for fc in BlenderShotStore.iter_action_fcurves(o):
+                for fc in AnimUtils.get_fcurves(o):
                     times = sorted(
                         {k.co.x for k in fc.keyframe_points if k.select_control_point}
                     )
@@ -478,7 +478,7 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
                 cands = (
                     list(fcurves)
                     if fcurves is not None
-                    else list(BlenderShotStore.iter_action_fcurves(o))
+                    else list(AnimUtils.get_fcurves(o))
                 )
                 if attributes:
                     cands = [

@@ -188,7 +188,7 @@ class SegmentCollector:
                     continue
                 from blendertk.anim_utils.shots._shots import BlenderShotStore
 
-                curves = list(BlenderShotStore.iter_action_fcurves(obj))
+                curves = list(AnimUtils.get_fcurves(obj))
             for fc in curves:
                 try:
                     i0, i1 = AnimUtils.window_indices(

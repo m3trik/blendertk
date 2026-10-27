@@ -61,6 +61,7 @@ def _run_shots_adapter_checks():
     import bpy
 
     from blendertk import BlenderShotStore, BlenderScenePersistence
+    from blendertk.anim_utils._anim_utils import AnimUtils
 
     ATTR_NAME = BlenderScenePersistence.ATTR_NAME
     from blendertk.node_utils.data_nodes import DataNodes
@@ -121,7 +122,7 @@ def _run_shots_adapter_checks():
     scene.render.fps = 24  # restore
 
     # ---- fcurve walk (5.1 slotted action) --------------------------------
-    fcs_a = list(BlenderShotStore.iter_action_fcurves(cube_a))
+    fcs_a = list(AnimUtils.get_fcurves(cube_a))
     check(
         "iter_action_fcurves yields CubeA fcurves", len(fcs_a) >= 1, f"n={len(fcs_a)}"
     )
@@ -139,7 +140,7 @@ def _run_shots_adapter_checks():
     class _LegacyObj:
         animation_data = _LegacyAnimData()
 
-    legacy_fcs = list(BlenderShotStore.iter_action_fcurves(_LegacyObj()))
+    legacy_fcs = list(AnimUtils.get_fcurves(_LegacyObj()))
     check(
         "iter_action_fcurves falls back to flat fcurves on a layer-less action",
         legacy_fcs == ["fc_x", "fc_y"],
@@ -184,10 +185,10 @@ def _run_shots_adapter_checks():
 
     # ---- detect_regions selected-keys mode -------------------------------
     for obj in scene.objects:
-        for fc in BlenderShotStore.iter_action_fcurves(obj):
+        for fc in AnimUtils.get_fcurves(obj):
             for kp in fc.keyframe_points:
                 kp.select_control_point = False
-    for fc in BlenderShotStore.iter_action_fcurves(cube_a):
+    for fc in AnimUtils.get_fcurves(cube_a):
         for kp in fc.keyframe_points:
             kp.select_control_point = True
     entries = BlenderShotStore.collect_selected_key_entries()
@@ -401,7 +402,7 @@ def _run_shots_adapter_checks():
         return sorted(
             {
                 kp.co[0]
-                for fc in BlenderShotStore.iter_action_fcurves(live)
+                for fc in AnimUtils.get_fcurves(live)
                 for kp in fc.keyframe_points
             }
         )
@@ -459,7 +460,7 @@ def _run_shots_adapter_checks():
     # with a gap, a New Shot -- naming nothing -- got a gap hold's start pin on
     # every curve through it, read as keyed, and Delete Empty left it behind.
     pinned = add_keyed_cube("EmptyPinned", [9400, 9440], 0.0)
-    pin_fc = next(iter(BlenderShotStore.iter_action_fcurves(pinned)))
+    pin_fc = next(iter(AnimUtils.get_fcurves(pinned)))
     pin_fc.keyframe_points.insert(9410.0, pin_fc.evaluate(9410.0))
     pin_fc.update()
     pin_key = BlenderShotStore.curve_key(
@@ -995,7 +996,7 @@ def _run_shots_adapter_checks():
         return obj
 
     def select_keys(obj, frames):
-        for fc in BlenderShotStore.iter_action_fcurves(obj):
+        for fc in AnimUtils.get_fcurves(obj):
             for k in fc.keyframe_points:
                 k.select_control_point = any(abs(k.co.x - f) < 1e-3 for f in frames)
 
@@ -1062,10 +1063,21 @@ def _run_shots_adapter_checks():
     # that arrived from 25, which the next Build deleted before keying the fade
     # again beside its own key.
     def value_at(obj, frame):
-        fc = next(iter(BlenderShotStore.iter_action_fcurves(obj)))
+        fc = next(iter(AnimUtils.get_fcurves(obj)))
         return next(k.co.y for k in fc.keyframe_points if abs(k.co.x - frame) < 1e-3)
 
     moving = keyed_x("ClaimMoved", (10, 15, 25, 30))
+    import warnings as _warnings
+
+    with _warnings.catch_warnings(record=True) as _alias_warnings:
+        _warnings.simplefilter("always")
+        _via_alias = list(BlenderShotStore.iter_action_fcurves(moving))
+    check(
+        "the retired iter_action_fcurves still yields AnimUtils.get_fcurves' curves",
+        _via_alias == AnimUtils.get_fcurves(moving)
+        and any(issubclass(w.category, DeprecationWarning) for w in _alias_warnings),
+        f"{len(_via_alias)} curve(s), {[str(w.message) for w in _alias_warnings]}",
+    )
     moving_key = BlenderShotStore.curve_key(moving.name, "location", 0)
     led.record_authored(moving_key, 15.0, 0, "fade_in", moving.name)
     btk.invert_keys(
@@ -1108,7 +1120,7 @@ def _run_shots_adapter_checks():
     lazy_store.follow_renames = lambda: scans.append(1) or real_follow()
     lazy_rep, lazy_mov = lazy_store.claim_hooks([lazy])
     built = len(scans)
-    lazy_fc = next(iter(BlenderShotStore.iter_action_fcurves(lazy)))
+    lazy_fc = next(iter(AnimUtils.get_fcurves(lazy)))
     lazy_mov(lazy_fc, [(10.0, 15.0)])
     lazy_rep(lazy_fc, [20.0])
     check(

@@ -39,6 +39,7 @@ def _run_manifest_checks():
     import bpy
 
     from blendertk import BlenderShotStore
+    from blendertk.anim_utils._anim_utils import AnimUtils
     from blendertk.anim_utils.shots.shot_manifest._shot_manifest import (
         BlenderShotManifest,
     )
@@ -124,7 +125,7 @@ A03.),Fuselage fades out,fuselage_geo,
             return set()
         return {
             fc.data_path
-            for fc in BlenderShotStore.iter_action_fcurves(obj)
+            for fc in AnimUtils.get_fcurves(obj)
             if "opacity" in fc.data_path or fc.data_path == "hide_render"
         }
 
@@ -141,7 +142,7 @@ A03.),Fuselage fades out,fuselage_geo,
     op_fc = next(
         (
             fc
-            for fc in BlenderShotStore.iter_action_fcurves(ail)
+            for fc in AnimUtils.get_fcurves(ail)
             if "opacity" in fc.data_path
         ),
         None,
@@ -262,7 +263,7 @@ A03.),Fuselage fades out,fuselage_geo,
     def _ail_keys():
         return sorted(
             (fc.data_path, kp.co[0])
-            for fc in BlenderShotStore.iter_action_fcurves(
+            for fc in AnimUtils.get_fcurves(
                 bpy.data.objects["aileron_geo"]
             )
             for kp in fc.keyframe_points
@@ -336,6 +337,7 @@ A03.),Fuselage fades out,fuselage_geo,
     bpy.context.view_layer.update()
 
     from blendertk import BlenderShotStore
+    from blendertk.anim_utils._anim_utils import AnimUtils
 
     footer_msgs = []
     stub = SimpleNamespace(
@@ -529,7 +531,7 @@ A03.),Fuselage fades out,fuselage_geo,
     wing = bpy.data.objects["wing_geo"]
     op_times = sorted(
         round(kp.co[0])
-        for fc in BlenderShotStore.iter_action_fcurves(wing)
+        for fc in AnimUtils.get_fcurves(wing)
         if "opacity" in fc.data_path
         for kp in fc.keyframe_points
     )
@@ -549,7 +551,7 @@ A03.),Fuselage fades out,fuselage_geo,
         mani.reapply_object(re_shot, _BO("wing_geo"))
         and not any(
             fc.keyframe_points
-            for fc in BlenderShotStore.iter_action_fcurves(wing)
+            for fc in AnimUtils.get_fcurves(wing)
             if "opacity" in fc.data_path
         )
         and not store.edit_ledger.authored(owner=re_shot.shot_id, obj="wing_geo"),
@@ -577,7 +579,7 @@ A03.),Fuselage fades out,fuselage_geo,
     def door_keys(path):
         return sorted(
             (kp.co[0], kp.co[1])
-            for fc in BlenderShotStore.iter_action_fcurves(door)
+            for fc in AnimUtils.get_fcurves(door)
             if fc.data_path == path
             for kp in fc.keyframe_points
         )
@@ -652,6 +654,7 @@ def _insert_in_sheet_order_checks(check, _BS, _BO):
 
     import pythontk as ptk
     from blendertk import BlenderShotStore
+    from blendertk.anim_utils._anim_utils import AnimUtils
     from blendertk.anim_utils.shots.shot_manifest._shot_manifest import (
         BlenderShotManifest,
     )
@@ -669,7 +672,7 @@ def _insert_in_sheet_order_checks(check, _BS, _BO):
         obj = bpy.data.objects[name]  # memfile undo replaces objects: by name
         return sorted(
             kp.co[0]
-            for fc in BlenderShotStore.iter_action_fcurves(obj)
+            for fc in AnimUtils.get_fcurves(obj)
             for kp in fc.keyframe_points
         )
 

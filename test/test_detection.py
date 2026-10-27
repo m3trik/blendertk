@@ -49,6 +49,7 @@ def _run_detection_checks():
 
     from blendertk.anim_utils.shots._detection import Detection
     from blendertk.anim_utils.shots._shots import BlenderShotStore
+    from blendertk.anim_utils._anim_utils import AnimUtils
 
     scene = bpy.context.scene
     bpy.ops.object.select_all(action="SELECT")
@@ -160,7 +161,7 @@ def _run_detection_checks():
 
     # ---- regions_from_selected_keys + flat-object pruning ----------------
     for obj in scene.objects:
-        for fc in BlenderShotStore.iter_action_fcurves(obj):
+        for fc in AnimUtils.get_fcurves(obj):
             for kp in fc.keyframe_points:
                 kp.select_control_point = False
     check(
@@ -169,7 +170,7 @@ def _run_detection_checks():
     )
     flat = bpy.data.objects["CubeFlat"]
     for o in (cube_a, flat):
-        for fc in BlenderShotStore.iter_action_fcurves(o):
+        for fc in AnimUtils.get_fcurves(o):
             for kp in fc.keyframe_points:
                 kp.select_control_point = True
     sel = Detection.regions_from_selected_keys(gap_threshold=2.0, key_filter="all")

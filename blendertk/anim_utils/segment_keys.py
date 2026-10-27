@@ -13,7 +13,7 @@ clip → optional hold absorption / hold-only synthesis → segment dicts); only
 curve reads differ:
 
 * a curve is a ``bpy.types.FCurve`` (slotted-action walk via
-  :meth:`BlenderShotStore.iter_action_fcurves`), not an animCurve node name;
+  :meth:`AnimUtils.get_fcurves`), not an animCurve node name;
 * Maya's ``step``/``stepnext`` out-tangent is a keyframe with
   ``interpolation == "CONSTANT"``;
 * ``channel_box_attrs`` / ``ignore`` match channel **labels** (``translateX``,
@@ -282,7 +282,7 @@ class SegmentKeys(_SegmentKeysInternal):
                 continue
             all_curves = [
                 fc
-                for fc in BlenderShotStore.iter_action_fcurves(obj)
+                for fc in AnimUtils.get_fcurves(obj)
                 if not transform_only
                 or BlenderShotStore._is_transform_path(fc.data_path)
             ]

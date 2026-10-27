@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-27 -- Library code reads an object's fcurves through `AnimUtils.get_fcurves`, not the shots store (`anim_utils/shots/_shots.py` and 12 callers).** `BlenderShotStore.iter_action_fcurves` was a second slot-aware walk beside `AnimUtils.get_fcurves`, and library code (`AnimUtils.selected_key_times`, Key Stash, segment keys, render effects) reached into the shots store, a tool bound for tentacle, to call it. Both walks read the slot assigned to an object (a legacy action's flat curves, nothing for an action with no slot assigned), so every caller now uses `get_fcurves`, and `iter_action_fcurves` is a deprecated alias for it (`remove_in="0.23.0"`).
+  - Test(s): `test_shots_adapter.py` +1 (the alias still yields the same curves, with its notice); the affected suites pass (36).
 - **2026-10-27 -- The package declares its moved-names table (`__init__.py`).** `MOVED_NAMES`, empty for now, goes to `bootstrap_package(moved=...)`: a name that leaves blendertk for tentacle is listed there, and a read of it raises pythontk's `MovedNameError` naming the new home and version.
   - Test(s): none new -- pythontk's `MovedNamesTests` cover the resolver.
 - **2026-10-27 -- Export baselines pin the Scene Exporter's FBX and GLB (`test/test_export_baselines.py`, `test/baselines/export/`).** mayatk's three fixed scenes, built the Blender way (a prop hierarchy under an empty with two Principled materials, keyed transforms split into two shots, an armature-skinned cylinder), export through `perform_export` as FBX + GLB and compare with their saved `ExportFingerprint`, so a code move that changes any output fails with the change named. `UPDATE_EXPORT_BASELINES=1` rewrites them when a change is meant to.

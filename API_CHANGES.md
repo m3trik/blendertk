@@ -6,7 +6,7 @@ _Diff vs the last release (origin/main @ 6e42300)._
 
 - `__init__.py::MOVED_NAMES(constant)`
 
-## Deprecations (13)
+## Deprecations (14)
 
 _Live retirement debt, earliest deadline first. An **EXPIRED** row has outlived its window: delete the alias and its tests rather than moving the date. A **HELD** row is due by version, but its notice has not yet had its calendar window._
 
@@ -23,3 +23,4 @@ _Live retirement debt, earliest deadline first. An **EXPIRED** row has outlived 
 - `env_utils/_env_utils.py::EnvUtils.set_scene_source` — remove in 0.22.0, not before 2026-11-24
 - `env_utils/_env_utils.py::EnvUtils.twin_save_target` — remove in 0.22.0, not before 2026-11-24
 - `mat_utils/_mat_utils.py::MatUtils.update_materials` — remove in 0.22.0, not before 2026-11-24
+- `anim_utils/shots/_shots.py::BlenderShotStore.iter_action_fcurves` — remove in 0.23.0, not before 2026-11-26
