@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-27 -- Producers, stagers and record owners include the ones installed packages register (`env_utils/fbx_utils.py`, `node_utils/data_nodes.py`).** `FbxUtils.HOST` and `DataNodes.HOST` are `"blender"`, and `producers()`, `stagers()` and the record owners merge the hooks registered for that host (pythontk's `SceneRecords.registered_hooks`) under this library's own tables, so a tool that moves to tentacle keeps writing its record, unimported. Nothing registers yet, so no export changes.
+  - Test(s): none new -- pythontk's `TestRegisteredHooks` cover the merge; the export baselines pin the output.
 - **2026-10-27 -- Library code reads an object's fcurves through `AnimUtils.get_fcurves`, not the shots store (`anim_utils/shots/_shots.py` and 12 callers).** `BlenderShotStore.iter_action_fcurves` was a second slot-aware walk beside `AnimUtils.get_fcurves`, and library code (`AnimUtils.selected_key_times`, Key Stash, segment keys, render effects) reached into the shots store, a tool bound for tentacle, to call it. Both walks read the slot assigned to an object (a legacy action's flat curves, nothing for an action with no slot assigned), so every caller now uses `get_fcurves`, and `iter_action_fcurves` is a deprecated alias for it (`remove_in="0.23.0"`).
   - Test(s): `test_shots_adapter.py` +1 (the alias still yields the same curves, with its notice); the affected suites pass (36).
 - **2026-10-27 -- The package declares its moved-names table (`__init__.py`).** `MOVED_NAMES`, empty for now, goes to `bootstrap_package(moved=...)`: a name that leaves blendertk for tentacle is listed there, and a read of it raises pythontk's `MovedNameError` naming the new home and version.

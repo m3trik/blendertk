@@ -2000,6 +2000,11 @@ class FbxUtils(_FbxUtilsInternal):
     #: lazily, so an uninstalled subsystem is skipped rather than blocking an
     #: export.  Order is irrelevant: the snapshot orders by the records'
     #: ``after``.
+    #: The host a tool outside this library registers its producers, stagers
+    #: and record owners under (``ptk.SceneRecords.registered_hooks``): an
+    #: installed one joins :attr:`PRODUCERS` and :attr:`STAGERS` unimported.
+    HOST = "blender"
+
     PRODUCERS: Dict[Any, Tuple[str, str, str]] = {
         ptk.SceneRecords.SHOTS: (
             "blendertk.anim_utils.shots._shots",
@@ -2154,7 +2159,7 @@ class FbxUtils(_FbxUtilsInternal):
             None if only is None else {ptk.SceneRecords.resolve(k).key for k in only}
         )
         table: Dict[Any, Callable] = {}
-        for spec, row in cls.PRODUCERS.items():
+        for spec, row in ptk.SceneRecords.producer_rows(cls.PRODUCERS, cls.HOST).items():
             if wanted is not None and spec.key not in wanted:
                 continue
             resolved = cls._resolve_row(f"Producer for {spec.key!r}", *row)
@@ -2245,7 +2250,7 @@ class FbxUtils(_FbxUtilsInternal):
         them; ``None`` = all) resolved to callables, then every session
         stager -- those always run."""
         table: Dict[str, Tuple[Optional[Callable], Optional[Callable]]] = {}
-        for name, row in cls.STAGERS.items():
+        for name, row in ptk.SceneRecords.stager_rows(cls.STAGERS, cls.HOST).items():
             if names is not None and name not in names:
                 continue
             resolved = cls._resolve_row(f"Stager {name!r}", *row)

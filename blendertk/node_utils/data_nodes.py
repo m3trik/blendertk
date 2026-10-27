@@ -455,6 +455,9 @@ class DataNodes(ptk.SceneStoreBase):
     #: and when it runs), mirror of mayatk's table.  No bake-session owner: a
     #: Blender bake parks nothing beside its record (its references are names,
     #: which a crossing respells).
+    #: The host whose registered record owners join :attr:`OWNERS`
+    #: (``ptk.SceneStoreBase.owner_rows``).
+    HOST = "blender"
     OWNERS: Dict[str, Tuple[str, str]] = {
         ptk.SceneRecords.SHOT_STORE.key: (
             "blendertk.anim_utils.shots._shots",
