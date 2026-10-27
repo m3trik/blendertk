@@ -2,9 +2,11 @@
 
 _Diff vs the last release (origin/main @ 6e42300)._
 
-## Added (1)
+## Added (3)
 
 - `__init__.py::MOVED_NAMES(constant)`
+- `env_utils/fbx_utils.py::FbxUtils.hook(cls, role: str) -> Optional[Callable]`
+- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.walk_root(cls) -> str`
 
 ## Deprecations (14)
 
