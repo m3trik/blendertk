@@ -44,6 +44,10 @@ try:
     # 1. normal reads (window present)
     check("selected_objects() -> [cube]", btk.selected_objects() == [cube])
     check("active_object() -> cube", btk.active_object() is cube)
+    check(
+        "CoreUtils.active_view_layer() is the context's layer",
+        btk.CoreUtils.active_view_layer() == bpy.context.view_layer,
+    )
     check("selected_objects() matches view_layer.objects.selected",
           btk.selected_objects() == [o for o in bpy.context.view_layer.objects.selected])
 

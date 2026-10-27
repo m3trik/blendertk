@@ -158,6 +158,19 @@ try:
         f"owner={AnimUtils.key_times(AnimUtils.get_fcurves([owner])[0])}",
     )
 
+    # ---- remove_fcurve (public, slot-aware): True when it removed the curve,
+    # False when it was not there.
+    gone = empty("remove_fcurve_case")
+    gone.keyframe_insert("location", index=0, frame=1)
+    fc = AnimUtils.get_fcurves([gone])[0]
+    data = gone.animation_data
+    first = AnimUtils.remove_fcurve(data.action, getattr(data, "action_slot", None), fc)
+    check(
+        "remove_fcurve removes a keyed curve, and reports it",
+        first is True and AnimUtils.get_fcurves([gone]) == [],
+        f"first={first} left={len(AnimUtils.get_fcurves([gone]))}",
+    )
+
     # ---- two objects on ONE slot are one set of curves: a per-object pass
     # visited them twice (optimize's stats doubled; a lossy level would thin
     # the same curve twice). Added: 2026-09-27

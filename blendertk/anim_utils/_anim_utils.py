@@ -1475,6 +1475,17 @@ class AnimUtils(_AnimUtilsInternal):
                     continue
 
     @staticmethod
+    def remove_fcurve(action, slot, fc) -> bool:
+        """Remove *fc* from *action*, slot-aware (the legacy flat list, or the
+        slot's channelbag on a layered action; *slot* ``None`` searches every
+        channelbag).
+
+        Returns:
+            True when the curve was there and is gone, False when it was not.
+        """
+        return _AnimUtilsInternal._remove_fcurve(action, slot, fc)
+
+    @staticmethod
     def get_fcurves(objects):
         """All fcurves across the given objects' actions (slot-aware; public for slot code/tests).
 

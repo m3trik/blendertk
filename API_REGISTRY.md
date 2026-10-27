@@ -262,6 +262,7 @@ Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror 
   - `AnimUtils.remap_keys_in_window(fc, lo, hi, old_start, old_end, new_start, new_end) -> int` *(static)* — Linearly remap *fc*'s keys (and handles) in ``[lo, hi]`` from one span to another.
   - `AnimUtils.step_last_key_in_window(fc, lo, hi) -> bool` *(static)* — Set the LAST key of *fc* inside ``[lo, hi]`` to ``CONSTANT`` interpolation.
   - `AnimUtils.evaluable_override(objects)` *(static)* — Yield with *objects* evaluated by the depsgraph at ANY frame: revealed
+  - `AnimUtils.remove_fcurve(action, slot, fc) -> bool` *(static)* — Remove *fc* from *action*, slot-aware (the legacy flat list, or the
   - `AnimUtils.get_fcurves(objects)` *(static)* — All fcurves across the given objects' actions (slot-aware;
   - `AnimUtils.get_animated_extent(objects)` *(static)* — ``(start, end)`` of EVERYTHING that animates *objects* over time, or ``None``.
   - `AnimUtils.has_nla_or_data_animation(objects)` *(static)* — True when *objects* carry animation :meth:`get_fcurves` cannot see:
@@ -1181,6 +1182,7 @@ Core blendertk utilities — DCC-environment info + cross-cutting decorators.
   - `CoreUtils.analyze_scene(objects=None, adaptive=True, sections=None)` *(static)* — Game-readiness scene report -- the sectioned audit behind Get Scene Info.
   - `CoreUtils.cleanup_scene(quiet=False)` *(static)* — Purge orphan datablocks (0 users, no fake user) across the main collections — the
   - `CoreUtils.selected(func)` *(static)* — Pass the selection (:meth:`selected_objects`) to *func*'s target parameter when
+  - `CoreUtils.active_view_layer()` *(static)* — The active view layer, resolved without depending on a context window
   - `CoreUtils.selected_objects()` *(static)* — The current object selection, filtered of ``None`` (mirror of Maya's
   - `CoreUtils.active_object()` *(static)* — The active object, resolved window-independently (``view_layer.objects.active``).
   - `CoreUtils.preserved_selection()` *(static)* — Restore the viewport selection after a scene-mutating block — mirror of

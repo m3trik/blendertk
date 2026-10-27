@@ -30,8 +30,10 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.weights_all_off` → `tentacle.ui.panels.emissive_groups.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.weights_all_on` → `tentacle.ui.panels.emissive_groups.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
 
-## Added (10)
+## Added (12)
 
+- `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
+- `core_utils/_core_utils.py::CoreUtils.active_view_layer()`
 - `core_utils/_core_utils.py::CoreUtils.selected(func)`
 - `edit_utils/components.py::Components(class)`
 - `edit_utils/components.py::Components.average_normals(objects, by_uv_shell=False)`

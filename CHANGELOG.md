@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-27 -- Two helpers get public names: `CoreUtils.active_view_layer()` and `AnimUtils.remove_fcurve(action, slot, fc)` (`core_utils/_core_utils.py`, `anim_utils/_anim_utils.py`).** The window-independent view layer (what tentacle's Qt pump runs under, where `bpy.context.window` is `None`) and the slot-aware fcurve removal were private, though tools outside the package need them: tentacle's Emissive Groups tool is the first. Each delegates to the existing helper.
+  - Test(s): `test_core_utils.py` +1 check, `test_anim_utils.py` +1 check.
 - **2026-10-27 -- The Emissive Groups panel moved to tentacle (`mat_utils/emissive_groups.py`, `emissive_groups.ui` removed, `__init__.py`).** Mirror of mayatk's: one `EmissiveGroupsSlots` in tentacle's `ui/panels/emissive_groups` over this package's `EmissiveGroups` engine, which stays. Listed in `MOVED_NAMES` (from 0.23.0).
   - Test(s): `test_blender_ui_handler.py` no longer expects the panel here; tentacle's `test/blender/menus_load_check.py` loads it in a fresh GUI Blender.
 - **2026-10-27 -- `BlenderUiHandler` names its toolkit on the switchboard (`ui_utils/blender_ui_handler.py`).** Mirror of mayatk's: `switchboard.tk` is blendertk when nobody set it, so a tentacle panel stood up by the handler alone reaches Blender through `Slots.tk`.

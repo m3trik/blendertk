@@ -1082,6 +1082,15 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         return wrapped
 
     @staticmethod
+    def active_view_layer():
+        """The active view layer, resolved without depending on a context window
+        (``bpy.context.window`` is ``None`` where tentacle's Qt pump runs the
+        slots); ``None`` when there is none. Selection read and written through
+        it agrees with the operators run under :func:`window_context_override`.
+        """
+        return _CoreUtilsInternal._active_view_layer()
+
+    @staticmethod
     def selected_objects():
         """The current object selection, filtered of ``None`` (mirror of Maya's
         ``cmds.ls(selection=True)`` idiom that the slots use).
