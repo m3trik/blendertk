@@ -88,7 +88,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`edit_utils/cut_on_axis.py`](#edit_utils--cut_on_axis) — Cut-On-Axis tool panel — Switchboard slot wiring for the co-located ``cut_on_axis.ui``.
 - [`edit_utils/duplicate_grid.py`](#edit_utils--duplicate_grid) — Grid array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_grid``.
 - [`edit_utils/duplicate_linear.py`](#edit_utils--duplicate_linear) — Linear array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_linear``.
-- [`edit_utils/duplicate_radial.py`](#edit_utils--duplicate_radial) — Radial array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_radial``.
+- [`edit_utils/duplicate_radial.py`](#edit_utils--duplicate_radial) — Radial array duplication — mirror of mayatk's ``edit_utils.duplicate_radial``.
 - [`edit_utils/dynamic_pipe.py`](#edit_utils--dynamic_pipe) — Dynamic Pipe tool — Blender port of mayatk's ``edit_utils.dynamic_pipe``.
 - [`edit_utils/macros/_macros.py`](#edit_utils--macros--_macros) — Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
 - [`edit_utils/mirror.py`](#edit_utils--mirror) — Mirror tool panel — Switchboard slot wiring for the co-located ``mirror.ui``.
@@ -1554,16 +1554,11 @@ Linear array duplication + its tool panel — mirror of mayatk's ``edit_utils.du
 <a id="edit_utils--duplicate_radial"></a>
 ### `edit_utils/duplicate_radial.py`
 
-Radial array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_radial``.
+Radial array duplication — mirror of mayatk's ``edit_utils.duplicate_radial``.
 
-- **[`class DuplicateRadial(_DuplicateRadialInternal)`](blendertk/blendertk/edit_utils/duplicate_radial.py#L39)** — Radial-array duplication engine — mirror of mayatk's ``DuplicateRadial``.
+- **[`class DuplicateRadial(_DuplicateRadialInternal)`](blendertk/blendertk/edit_utils/duplicate_radial.py#L36)** — Radial-array duplication engine — mirror of mayatk's ``DuplicateRadial``.
   - `DuplicateRadial.duplicate_radial(objects, num_copies, start_angle=0.0, end_angle=360.0, weight_bias=0.5, weight_curve=0.5, rotate_axis='y', offset=(0, 0, 0), translate=(0, 0, 0), rotate=(0, 0, 0), scale=(1, 1, 1), pivot='object', keep_original=False, instance=False, combine=False, suffix=True)` *(static)* — Duplicate object(s) in a radial pattern — mirror of mayatk's
-- **[`class DuplicateRadialSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/duplicate_radial.py#L158)** — Switchboard slot wiring for the Duplicate-Radial panel.
-  - `DuplicateRadialSlots.header_init(self, widget)` — Configure header help text.
-  - `DuplicateRadialSlots.s015_init(self, widget)` — Initialize Weight Bias.
-  - `DuplicateRadialSlots.s016_init(self, widget)` — Initialize Weight Curve.
-  - `DuplicateRadialSlots.b001_init(self, widget)` — Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the
-  - `DuplicateRadialSlots.perform_operation(self, objects)`
+  - `DuplicateRadial.regroup_copies(copies)` *(static)* — Mirror of mayatk's ``DuplicateRadial.regroup_copies``, the finalize step after a
 
 <a id="edit_utils--dynamic_pipe"></a>
 ### `edit_utils/dynamic_pipe.py`

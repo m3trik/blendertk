@@ -1,11 +1,19 @@
 # blendertk — API Changes
 
-_Diff vs the last release (origin/main @ 6e42300)._
+_Diff vs the last release (origin/main @ 8cca703)._
 
-## Added (2)
+## Moved out (6)
 
-- `__init__.py::MOVED_NAMES(constant)`
-- `env_utils/fbx_utils.py::FbxUtils.hook(cls, role: str) -> Optional[Callable]`
+- `edit_utils/duplicate_radial.py::DuplicateRadialSlots` → `tentacle.ui.panels.duplicate_radial` (from 0.23.0)
+- `edit_utils/duplicate_radial.py::DuplicateRadialSlots.b001_init` → `tentacle.ui.panels.duplicate_radial` (from 0.23.0)
+- `edit_utils/duplicate_radial.py::DuplicateRadialSlots.header_init` → `tentacle.ui.panels.duplicate_radial` (from 0.23.0)
+- `edit_utils/duplicate_radial.py::DuplicateRadialSlots.perform_operation` → `tentacle.ui.panels.duplicate_radial` (from 0.23.0)
+- `edit_utils/duplicate_radial.py::DuplicateRadialSlots.s015_init` → `tentacle.ui.panels.duplicate_radial` (from 0.23.0)
+- `edit_utils/duplicate_radial.py::DuplicateRadialSlots.s016_init` → `tentacle.ui.panels.duplicate_radial` (from 0.23.0)
+
+## Added (1)
+
+- `edit_utils/duplicate_radial.py::DuplicateRadial.regroup_copies(copies)`
 
 ## Deprecations (14)
 

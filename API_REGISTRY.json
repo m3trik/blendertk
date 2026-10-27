@@ -8034,13 +8034,13 @@
     },
     {
       "relpath": "edit_utils/duplicate_radial.py",
-      "summary": "Radial array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_radial``.",
+      "summary": "Radial array duplication — mirror of mayatk's ``edit_utils.duplicate_radial``.",
       "functions": [],
       "classes": [
         {
           "name": "DuplicateRadial",
           "summary": "Radial-array duplication engine — mirror of mayatk's ``DuplicateRadial``.",
-          "line": 39,
+          "line": 36,
           "bases": [
             "_DuplicateRadialInternal"
           ],
@@ -8051,62 +8051,16 @@
               "kind": "staticmethod",
               "signature": "(objects, num_copies, start_angle=0.0, end_angle=360.0, weight_bias=0.5, weight_curve=0.5, rotate_axis='y', offset=(0, 0, 0), translate=(0, 0, 0), rotate=(0, 0, 0), scale=(1, 1, 1), pivot='object', keep_original=False, instance=False, combine=False, suffix=True)",
               "summary": "Duplicate object(s) in a radial pattern — mirror of mayatk's",
-              "line": 48,
-              "deprecated": false
-            }
-          ]
-        },
-        {
-          "name": "DuplicateRadialSlots",
-          "summary": "Switchboard slot wiring for the Duplicate-Radial panel.",
-          "line": 158,
-          "bases": [
-            "pythontk.LoggingMixin"
-          ],
-          "members": [
-            {
-              "name": "header_init",
-              "qualname": "DuplicateRadialSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Configure header help text.",
-              "line": 195,
+              "line": 44,
               "deprecated": false
             },
             {
-              "name": "s015_init",
-              "qualname": "DuplicateRadialSlots.s015_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize Weight Bias.",
-              "line": 232,
-              "deprecated": false
-            },
-            {
-              "name": "s016_init",
-              "qualname": "DuplicateRadialSlots.s016_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize Weight Curve.",
-              "line": 252,
-              "deprecated": false
-            },
-            {
-              "name": "b001_init",
-              "qualname": "DuplicateRadialSlots.b001_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the",
-              "line": 271,
-              "deprecated": false
-            },
-            {
-              "name": "perform_operation",
-              "qualname": "DuplicateRadialSlots.perform_operation",
-              "kind": "method",
-              "signature": "(self, objects)",
-              "summary": "",
-              "line": 278,
+              "name": "regroup_copies",
+              "qualname": "DuplicateRadial.regroup_copies",
+              "kind": "staticmethod",
+              "signature": "(copies)",
+              "summary": "Mirror of mayatk's ``DuplicateRadial.regroup_copies``, the finalize step after a",
+              "line": 149,
               "deprecated": false
             }
           ]

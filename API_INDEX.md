@@ -374,11 +374,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class DuplicateLinearSlots(pythontk.LoggingMixin)`
   - methods: header_init, toggle_weight_ui, b001_init, perform_operation
 
-### `edit_utils/duplicate_radial.py` — Radial array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_radial``.
+### `edit_utils/duplicate_radial.py` — Radial array duplication — mirror of mayatk's ``edit_utils.duplicate_radial``.
 - `class DuplicateRadial(_DuplicateRadialInternal)`
-  - methods: duplicate_radial
-- `class DuplicateRadialSlots(pythontk.LoggingMixin)`
-  - methods: header_init, s015_init, s016_init, b001_init, perform_operation
+  - methods: duplicate_radial, regroup_copies
 
 ### `edit_utils/dynamic_pipe.py` — Dynamic Pipe tool — Blender port of mayatk's ``edit_utils.dynamic_pipe``.
 - `class DynamicPipe(pythontk.LoggingMixin)`

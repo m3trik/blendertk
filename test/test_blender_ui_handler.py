@@ -61,7 +61,6 @@ PANELS = [
     "naming",
     "cut_on_axis",
     "duplicate_linear",
-    "duplicate_radial",
     "duplicate_grid",
     "hdr_manager",
     "lightmap_baker",
