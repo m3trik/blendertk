@@ -489,7 +489,7 @@ class EnvUtils(_EnvUtilsInternal):
     # retired doors forward there for one release.
     @staticmethod
     @ptk.Deprecation.symbol(
-        "DataNodes.set_scene_source", remove_in="0.22.0", since="2026-10-25"
+        "DataNodes.set_scene_source", remove_in="0.23.0", since="2026-10-25"
     )
     def set_scene_source(scene: str, source: Optional[str] = None) -> Optional[str]:
         """Moved to :meth:`DataNodes.set_scene_source`, which records the stand-in
@@ -500,7 +500,7 @@ class EnvUtils(_EnvUtilsInternal):
 
     @staticmethod
     @ptk.Deprecation.symbol(
-        "DataNodes.twin_save_target", remove_in="0.22.0", since="2026-10-25"
+        "DataNodes.twin_save_target", remove_in="0.23.0", since="2026-10-25"
     )
     def twin_save_target(scene: Optional[str] = None) -> Optional[str]:
         """Moved to :meth:`DataNodes.twin_save_target`."""
@@ -510,7 +510,7 @@ class EnvUtils(_EnvUtilsInternal):
 
     @staticmethod
     @ptk.Deprecation.symbol(
-        "DataNodes.scene_source", remove_in="0.22.0", since="2026-10-25"
+        "DataNodes.scene_source", remove_in="0.23.0", since="2026-10-25"
     )
     def scene_source(scene: Optional[str] = None) -> Optional[str]:
         """Moved to :meth:`DataNodes.scene_source`."""
@@ -520,7 +520,7 @@ class EnvUtils(_EnvUtilsInternal):
 
     @staticmethod
     @ptk.Deprecation.symbol(
-        "DataNodes.scene_project_root", remove_in="0.22.0", since="2026-10-25"
+        "DataNodes.scene_project_root", remove_in="0.23.0", since="2026-10-25"
     )
     def scene_project_root() -> Optional[str]:
         """Moved to :meth:`DataNodes.scene_project_root`."""
@@ -530,7 +530,7 @@ class EnvUtils(_EnvUtilsInternal):
 
     @staticmethod
     @ptk.Deprecation.symbol(
-        "DataNodes.scene_workspace", remove_in="0.22.0", since="2026-10-25"
+        "DataNodes.scene_workspace", remove_in="0.23.0", since="2026-10-25"
     )
     def scene_workspace() -> Optional[ptk.Workspace]:
         """Moved to :meth:`DataNodes.scene_workspace`."""
@@ -540,7 +540,7 @@ class EnvUtils(_EnvUtilsInternal):
 
     @staticmethod
     @ptk.Deprecation.symbol(
-        "DataNodes.scene_source_images_dir", remove_in="0.22.0", since="2026-10-25"
+        "DataNodes.scene_source_images_dir", remove_in="0.23.0", since="2026-10-25"
     )
     def scene_source_images_dir(subfolder: str = "", create: bool = False) -> str:
         """Moved to :meth:`DataNodes.scene_source_images_dir`."""

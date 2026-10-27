@@ -1142,7 +1142,7 @@ class AnimUtils(_AnimUtilsInternal):
         ptk.Deprecation.values(
             {"unbake": "extremes"},
             what="AnimUtils optimize level",
-            remove_in="0.22.0",
+            remove_in="0.23.0",
             since="2026-09-23",
         )
     )

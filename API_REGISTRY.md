@@ -1780,12 +1780,12 @@ blendertk environment / scene-library utilities — the engine behind the Refere
   - `EnvUtils.set_current_workspace(root=None)` *(static)* — Pin (or clear, with None) the session's current workspace — the Blender analogue of
   - `EnvUtils.current_workspace(path=None)` *(static)* — The active ``pythontk.Workspace``, or None.
   - `EnvUtils.workspace_root(path=None)` *(static)* — Absolute root of the current workspace, or '' — what ``get_env_info("workspace")``
-  - `EnvUtils.set_scene_source(scene: str, source: Optional[str] = None) -> Optional[str]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.set_scene_source`, which records the stand-in
-  - `EnvUtils.twin_save_target(scene: Optional[str] = None) -> Optional[str]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.twin_save_target`.
-  - `EnvUtils.scene_source(scene: Optional[str] = None) -> Optional[str]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.scene_source`.
-  - `EnvUtils.scene_project_root() -> Optional[str]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.scene_project_root`.
-  - `EnvUtils.scene_workspace() -> Optional[ptk.Workspace]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.scene_workspace`.
-  - `EnvUtils.scene_source_images_dir(subfolder: str = '', create: bool = False) -> str` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.scene_source_images_dir`.
+  - `EnvUtils.set_scene_source(scene: str, source: Optional[str] = None) -> Optional[str]` *(static)* **DEPRECATED (remove in 0.23.0)** — Moved to :meth:`DataNodes.set_scene_source`, which records the stand-in
+  - `EnvUtils.twin_save_target(scene: Optional[str] = None) -> Optional[str]` *(static)* **DEPRECATED (remove in 0.23.0)** — Moved to :meth:`DataNodes.twin_save_target`.
+  - `EnvUtils.scene_source(scene: Optional[str] = None) -> Optional[str]` *(static)* **DEPRECATED (remove in 0.23.0)** — Moved to :meth:`DataNodes.scene_source`.
+  - `EnvUtils.scene_project_root() -> Optional[str]` *(static)* **DEPRECATED (remove in 0.23.0)** — Moved to :meth:`DataNodes.scene_project_root`.
+  - `EnvUtils.scene_workspace() -> Optional[ptk.Workspace]` *(static)* **DEPRECATED (remove in 0.23.0)** — Moved to :meth:`DataNodes.scene_workspace`.
+  - `EnvUtils.scene_source_images_dir(subfolder: str = '', create: bool = False) -> str` *(static)* **DEPRECATED (remove in 0.23.0)** — Moved to :meth:`DataNodes.scene_source_images_dir`.
   - `EnvUtils.scene_artifact_path(suffix: str) -> str` *(static)* — A file named for the open .blend, beside it: ``<blend dir>/<stem><suffix>``.
   - `EnvUtils.source_images_dir(path=None)` *(static)* — The current workspace's texture folder — its ``sourceImages`` rule → an existing
   - `EnvUtils.texture_search_dirs(path=None)` *(static)* — Where this scene's map files can be found NOW, most specific first.
@@ -2694,7 +2694,7 @@ Material utilities — mirror of mayatk's ``MatUtils`` public names where the co
   - `MatUtils.resolve_pbr_plan(textures, config=None)` *(static)* — Classify ``textures`` and reduce them to ONE source per Principled input.
   - `MatUtils.create_pbr_material(textures, name=None, normal_direction='OpenGL', config=None, plan=None, ambient_occlusion=True)` *(static)* — Build a Principled-BSDF material from a set of PBR texture files — Blender mirror of mayatk's
   - `MatUtils.create_pbr_materials(textures, name=None, normal_direction='OpenGL', prefix='', suffix='', config=None)` *(static)* — Batch builder — Blender mirror of mayatk's ``GameShader.create_network`` batch path.
-  - `MatUtils.update_materials(materials=None, config=None, verbose=False, progress_callback=None)` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`MatUpdater.update_materials`, its one owner (also the
+  - `MatUtils.update_materials(materials=None, config=None, verbose=False, progress_callback=None)` *(static)* **DEPRECATED (remove in 0.23.0)** — Moved to :meth:`MatUpdater.update_materials`, its one owner (also the
 
 <a id="mat_utils--arnold_bridge"></a>
 ### `mat_utils/arnold_bridge.py`

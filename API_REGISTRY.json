@@ -9659,7 +9659,7 @@
               "summary": "Moved to :meth:`DataNodes.set_scene_source`, which records the stand-in",
               "line": 494,
               "deprecated": true,
-              "remove_in": "0.22.0"
+              "remove_in": "0.23.0"
             },
             {
               "name": "twin_save_target",
@@ -9669,7 +9669,7 @@
               "summary": "Moved to :meth:`DataNodes.twin_save_target`.",
               "line": 505,
               "deprecated": true,
-              "remove_in": "0.22.0"
+              "remove_in": "0.23.0"
             },
             {
               "name": "scene_source",
@@ -9679,7 +9679,7 @@
               "summary": "Moved to :meth:`DataNodes.scene_source`.",
               "line": 515,
               "deprecated": true,
-              "remove_in": "0.22.0"
+              "remove_in": "0.23.0"
             },
             {
               "name": "scene_project_root",
@@ -9689,7 +9689,7 @@
               "summary": "Moved to :meth:`DataNodes.scene_project_root`.",
               "line": 525,
               "deprecated": true,
-              "remove_in": "0.22.0"
+              "remove_in": "0.23.0"
             },
             {
               "name": "scene_workspace",
@@ -9699,7 +9699,7 @@
               "summary": "Moved to :meth:`DataNodes.scene_workspace`.",
               "line": 535,
               "deprecated": true,
-              "remove_in": "0.22.0"
+              "remove_in": "0.23.0"
             },
             {
               "name": "scene_source_images_dir",
@@ -9709,7 +9709,7 @@
               "summary": "Moved to :meth:`DataNodes.scene_source_images_dir`.",
               "line": 545,
               "deprecated": true,
-              "remove_in": "0.22.0"
+              "remove_in": "0.23.0"
             },
             {
               "name": "scene_artifact_path",
@@ -15951,7 +15951,7 @@
               "summary": "Moved to :meth:`MatUpdater.update_materials`, its one owner (also the",
               "line": 3818,
               "deprecated": true,
-              "remove_in": "0.22.0"
+              "remove_in": "0.23.0"
             }
           ]
         }
