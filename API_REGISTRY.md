@@ -241,6 +241,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L434) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
