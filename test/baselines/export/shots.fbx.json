@@ -1,0 +1,154 @@
+{
+ "census": {
+  "AnimationCurve": 18,
+  "AnimationCurveNode": 9,
+  "AnimationLayer": 3,
+  "AnimationStack": 3,
+  "Geometry": 1,
+  "Model": 2,
+  "NodeAttribute": 1
+ },
+ "format": "fbx",
+ "geometry": {
+  "Cube.002": {
+   "polygon_vertices": 24,
+   "vertices": 8
+  }
+ },
+ "materials": {},
+ "models": {
+  "data_export": {
+   "Lcl Rotation": [
+    -90.0,
+    0.0,
+    0.0
+   ],
+   "Lcl Scaling": [
+    100.0,
+    100.0,
+    100.0
+   ],
+   "type": "Null"
+  },
+  "mover": {
+   "Lcl Rotation": [
+    -90.0,
+    0.0,
+    0.0
+   ],
+   "Lcl Scaling": [
+    100.0,
+    100.0,
+    100.0
+   ],
+   "Lcl Translation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "Mesh"
+  }
+ },
+ "takes": {
+  "Scene": {
+   "mover|Lcl Rotation|d|X": [
+    0.0417,
+    1.6667,
+    19
+   ],
+   "mover|Lcl Rotation|d|Y": [
+    0.0417,
+    1.6667,
+    21
+   ],
+   "mover|Lcl Rotation|d|Z": [
+    0.0417,
+    1.6667,
+    20
+   ],
+   "mover|Lcl Scaling|d|X": [
+    0.0417,
+    1.6667,
+    13
+   ],
+   "mover|Lcl Scaling|d|Y": [
+    0.0417,
+    1.6667,
+    13
+   ],
+   "mover|Lcl Translation|d|X": [
+    0.0417,
+    1.6667,
+    40
+   ]
+  },
+  "ShotA": {
+   "mover|Lcl Rotation|d|X": [
+    0.0417,
+    0.8333,
+    2
+   ],
+   "mover|Lcl Rotation|d|Y": [
+    0.0417,
+    0.8333,
+    2
+   ],
+   "mover|Lcl Rotation|d|Z": [
+    0.0417,
+    0.8333,
+    2
+   ],
+   "mover|Lcl Scaling|d|X": [
+    0.0417,
+    0.8333,
+    2
+   ],
+   "mover|Lcl Scaling|d|Y": [
+    0.0417,
+    0.8333,
+    2
+   ],
+   "mover|Lcl Translation|d|X": [
+    0.0417,
+    0.8333,
+    20
+   ]
+  },
+  "ShotB": {
+   "mover|Lcl Rotation|d|X": [
+    0.875,
+    1.6667,
+    18
+   ],
+   "mover|Lcl Rotation|d|Y": [
+    0.875,
+    1.6667,
+    20
+   ],
+   "mover|Lcl Rotation|d|Z": [
+    0.875,
+    1.6667,
+    19
+   ],
+   "mover|Lcl Scaling|d|X": [
+    0.875,
+    1.6667,
+    13
+   ],
+   "mover|Lcl Scaling|d|Y": [
+    0.875,
+    1.6667,
+    13
+   ],
+   "mover|Lcl Translation|d|X": [
+    0.875,
+    1.6667,
+    20
+   ]
+  }
+ },
+ "user_properties": {
+  "data_export.animation": "text",
+  "data_export.handoff": "text"
+ }
+}

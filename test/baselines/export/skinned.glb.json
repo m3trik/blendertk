@@ -1,0 +1,200 @@
+{
+ "animations": {
+  "Scene": {
+   "channels": {
+    "RootNode/rig_grp/bone_0/bone_1|rotation": {
+     "interpolation": "LINEAR",
+     "keys": 50
+    }
+   },
+   "span": [
+    0.0,
+    1.6333
+   ]
+  }
+ },
+ "extensions_used": [],
+ "extras": [
+  "animation"
+ ],
+ "format": "glb",
+ "images": [],
+ "materials": {
+  "DefaultMaterial": {
+   "alpha_mode": "OPAQUE",
+   "base_color": [
+    0.5,
+    0.5,
+    0.5,
+    1.0
+   ],
+   "double_sided": false,
+   "emissive": [
+    0,
+    0,
+    0
+   ],
+   "extensions": [],
+   "metallic": 0.2,
+   "roughness": 0.8,
+   "textures": []
+  }
+ },
+ "meshes": {
+  "limb": [
+   {
+    "attributes": {
+     "JOINTS_0": 48,
+     "NORMAL": 48,
+     "POSITION": 48,
+     "TEXCOORD_0": 48,
+     "WEIGHTS_0": 48
+    },
+    "indices": 84,
+    "material": "DefaultMaterial",
+    "mode": 4,
+    "targets": 0
+   }
+  ]
+ },
+ "nodes": {
+  "RootNode": {
+   "rotation": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "translation": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "RootNode/limb": {
+   "mesh": "limb",
+   "rotation": [
+    -0.7071,
+    0.0,
+    0.0,
+    0.7071
+   ],
+   "scale": [
+    100.0,
+    100.0,
+    100.0
+   ],
+   "skin": "skin#0",
+   "translation": [
+    0.0,
+    2.0,
+    0.0
+   ]
+  },
+  "RootNode/rig_grp": {
+   "rotation": [
+    -0.7071,
+    0.0,
+    0.0,
+    0.7071
+   ],
+   "scale": [
+    100.0,
+    100.0,
+    100.0
+   ],
+   "translation": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "RootNode/rig_grp/bone_0": {
+   "rotation": [
+    0.7071,
+    0.0,
+    0.0,
+    0.7071
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "translation": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "RootNode/rig_grp/bone_0/bone_1": {
+   "rotation": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "translation": [
+    0.0,
+    0.02,
+    0.0
+   ]
+  },
+  "RootNode/rig_grp/bone_0/bone_1/bone_2": {
+   "rotation": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "translation": [
+    0.0,
+    0.02,
+    0.0
+   ]
+  },
+  "RootNode/rig_grp/bone_0/bone_1/bone_2/bone_2_end": {
+   "rotation": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "translation": [
+    0.0,
+    0.02,
+    0.0
+   ]
+  }
+ },
+ "skins": {
+  "skin#0": {
+   "inverse_bind_matrices": true,
+   "joints": [
+    "RootNode/rig_grp/bone_0",
+    "RootNode/rig_grp/bone_0/bone_1",
+    "RootNode/rig_grp/bone_0/bone_1/bone_2"
+   ]
+  }
+ }
+}

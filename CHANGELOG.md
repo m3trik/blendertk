@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-27 -- Export baselines pin the Scene Exporter's FBX and GLB (`test/test_export_baselines.py`, `test/baselines/export/`).** mayatk's three fixed scenes, built the Blender way (a prop hierarchy under an empty with two Principled materials, keyed transforms split into two shots, an armature-skinned cylinder), export through `perform_export` as FBX + GLB and compare with their saved `ExportFingerprint`, so a code move that changes any output fails with the change named. `UPDATE_EXPORT_BASELINES=1` rewrites them when a change is meant to.
+  - Test(s): `test_export_baselines.py` (9 checks).
 - **2026-10-26 -- `COPYING.EXCEPTION` also permits combining with tentacle (README).** tentacle is now GPL-3.0-or-later with the Commons Clause, which is not GPL-compatible, and its Blender slots import blendertk; this is the same section 7 permission blendertk already grants for mayatk. Ships as its own release.
   - Test(s): none -- license text only.
 - **2026-10-26 -- Drop the redundant OpenEXR flags (`nurbs_utils/image_tracer.py`).** pythontk's root sets `OPENCV_IO_ENABLE_OPENEXR` before any module of this package loads, so the module copies did nothing.
