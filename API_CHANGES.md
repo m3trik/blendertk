@@ -4,12 +4,12 @@ _Diff vs the last release (origin/main @ 8cca703)._
 
 ## Moved out (6)
 
-- `edit_utils/duplicate_radial.py::DuplicateRadialSlots` → `tentacle.ui.panels.duplicate_radial` (from 0.23.0)
-- `edit_utils/duplicate_radial.py::DuplicateRadialSlots.b001_init` → `tentacle.ui.panels.duplicate_radial` (from 0.23.0)
-- `edit_utils/duplicate_radial.py::DuplicateRadialSlots.header_init` → `tentacle.ui.panels.duplicate_radial` (from 0.23.0)
-- `edit_utils/duplicate_radial.py::DuplicateRadialSlots.perform_operation` → `tentacle.ui.panels.duplicate_radial` (from 0.23.0)
-- `edit_utils/duplicate_radial.py::DuplicateRadialSlots.s015_init` → `tentacle.ui.panels.duplicate_radial` (from 0.23.0)
-- `edit_utils/duplicate_radial.py::DuplicateRadialSlots.s016_init` → `tentacle.ui.panels.duplicate_radial` (from 0.23.0)
+- `edit_utils/duplicate_radial.py::DuplicateRadialSlots` → `tentacle.ui.panels.duplicate_radial.duplicate_radial.DuplicateRadialSlots` (from 0.23.0)
+- `edit_utils/duplicate_radial.py::DuplicateRadialSlots.b001_init` → `tentacle.ui.panels.duplicate_radial.duplicate_radial.DuplicateRadialSlots` (from 0.23.0)
+- `edit_utils/duplicate_radial.py::DuplicateRadialSlots.header_init` → `tentacle.ui.panels.duplicate_radial.duplicate_radial.DuplicateRadialSlots` (from 0.23.0)
+- `edit_utils/duplicate_radial.py::DuplicateRadialSlots.perform_operation` → `tentacle.ui.panels.duplicate_radial.duplicate_radial.DuplicateRadialSlots` (from 0.23.0)
+- `edit_utils/duplicate_radial.py::DuplicateRadialSlots.s015_init` → `tentacle.ui.panels.duplicate_radial.duplicate_radial.DuplicateRadialSlots` (from 0.23.0)
+- `edit_utils/duplicate_radial.py::DuplicateRadialSlots.s016_init` → `tentacle.ui.panels.duplicate_radial.duplicate_radial.DuplicateRadialSlots` (from 0.23.0)
 
 ## Added (10)
 

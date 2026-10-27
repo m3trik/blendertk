@@ -1060,12 +1060,19 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
             params = list(inspect.signature(func).parameters.values())
             has_receiver = bool(params) and params[0].name in ("self", "cls")
         except (TypeError, ValueError):
-            has_receiver = False
+            params, has_receiver = [], False
         target = 1 if has_receiver else 0
+        name = params[target].name if len(params) > target else None  # by keyword
 
         @wraps(func)
         def wrapped(*args, **kwargs):
-            if len(args) <= target or args[target] is None:
+            if name in kwargs:
+                if kwargs[name] is None:
+                    selection = CoreUtils.selected_objects()
+                    if not selection:
+                        return []
+                    kwargs = {**kwargs, name: selection}
+            elif len(args) <= target or args[target] is None:
                 selection = CoreUtils.selected_objects()
                 if not selection:
                     return []

@@ -58,6 +58,18 @@ try:
     o.select_set(False)
     check("nothing selected returns []", Components.set_edge_softness(None) == [])
 
+    # ---- a keyword target is honored: the given objects, never the selection
+    reset()
+    o, other = cube(), cube(x=4.0)
+    other.select_set(True)
+    Components.set_edge_softness(objects=[o], soft=True)
+    check(
+        "objects= by keyword acts on the given objects",
+        smooth(o) and not any(p.use_smooth for p in other.data.polygons),
+    )
+    Components.set_edge_softness(objects=None, soft=True)
+    check("objects=None by keyword takes the selection", smooth(other))
+
     # ---- set_to_face_normals: flat
     reset()
     o = cube()
@@ -115,6 +127,16 @@ try:
     btk.EditUtils.add_custom_split_normals([src])
     Components.transfer_normals([src, tgt], space="world")
     check("transfer_normals gives the target custom normals", tgt.data.has_custom_normals)
+    # None: the selected active mesh is the source; nothing selected is []
+    bpy.ops.object.select_all(action="DESELECT")
+    check("transfer_normals(None) with nothing selected is []", Components.transfer_normals(None) == [])
+    tgt.select_set(True)
+    bpy.context.view_layer.objects.active = src  # active, NOT selected
+    try:
+        Components.transfer_normals(None)
+        check("an unselected active mesh is never the source", False)
+    except ValueError:
+        check("an unselected active mesh is never the source", True)
     try:
         Components.transfer_normals([src])
         check("transfer_normals of one mesh raises", False)

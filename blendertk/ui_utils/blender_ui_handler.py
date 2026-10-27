@@ -63,6 +63,10 @@ class BlenderUiHandler(UiHandler):
             source_tags={"blendertk"},
             **kwargs,
         )
+        # The switchboard's ``tk``: the host a Slots class written for either host
+        # calls (mirror of MayaUiHandler).
+        if getattr(self.sb, "tk", None) is None:
+            self.sb.tk = sys.modules["blendertk"]
 
         # uitk names no host: the Preset Editor learns this package's app label
         # from the host (mirror of MayaUiHandler).

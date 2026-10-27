@@ -152,13 +152,15 @@ class Components(_ComponentsInternal):
         """Transfer normals from the first mesh of *objects* to the rest, as
         custom split normals (native Data Transfer).
 
-        ``None`` takes the selection with the active object as the source.
-        ``space`` is mayatk's: ``"world"`` and ``"local"`` match the nearest
-        face (in world or object space), ``"component"`` and ``"topology"`` by
-        index, for meshes of one topology.
+        ``None`` takes the selection, the active mesh as the source (it must be
+        selected); with nothing selected, ``[]`` (mayatk's ``CoreUtils.selected``
+        contract). ``space`` is mayatk's: ``"world"`` and ``"local"`` match the
+        nearest face (in world or object space), ``"component"`` and
+        ``"topology"`` by index, for meshes of one topology.
 
         Raises:
-            ValueError: An unknown ``space``, or fewer than two meshes.
+            ValueError: An unknown ``space``, fewer than two meshes, no selected
+                active mesh for ``None``, or the transfer failing.
         """
         import bpy
 
@@ -173,9 +175,13 @@ class Components(_ComponentsInternal):
                 f"space parameter must be one of: {', '.join(mappings)}"
             )
         if objects is None:
+            selection = CoreUtils.selected_objects()
+            if not selection:
+                return []
             active = CoreUtils.active_object()
-            rest = [o for o in CoreUtils.selected_objects() if o != active]
-            objects = ([active] if active else []) + rest
+            if active is None or active not in selection or active.type != "MESH":
+                raise ValueError("Select target mesh(es) with the source mesh active.")
+            objects = [active] + [o for o in selection if o != active]
         meshes = Components._meshes(objects)
         if len(meshes) < 2:
             raise ValueError(
@@ -189,8 +195,11 @@ class Components(_ComponentsInternal):
                 selected_objects=meshes,
                 selected_editable_objects=meshes,
             ):
-                bpy.ops.object.data_transfer(
-                    data_type="CUSTOM_NORMAL",
-                    loop_mapping=mappings[space],
-                    use_object_transform=space != "local",
-                )
+                try:
+                    bpy.ops.object.data_transfer(
+                        data_type="CUSTOM_NORMAL",
+                        loop_mapping=mappings[space],
+                        use_object_transform=space != "local",
+                    )
+                except RuntimeError as error:  # the operator's own report
+                    raise ValueError(str(error)) from error

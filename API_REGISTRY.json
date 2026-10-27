@@ -5795,7 +5795,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The current object selection, filtered of ``None`` (mirror of Maya's",
-              "line": 1078,
+              "line": 1085,
               "deprecated": false
             },
             {
@@ -5804,7 +5804,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The active object, resolved window-independently (``view_layer.objects.active``).",
-              "line": 1097,
+              "line": 1104,
               "deprecated": false
             },
             {
@@ -5813,7 +5813,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Restore the viewport selection after a scene-mutating block — mirror of",
-              "line": 1110,
+              "line": 1117,
               "deprecated": false
             },
             {
@@ -5822,7 +5822,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, method='name', reverse=False)",
               "summary": "Reorder a set of objects by a sorting method — mirror of ``mtk.reorder_objects``",
-              "line": 1169,
+              "line": 1176,
               "deprecated": false
             },
             {
@@ -5831,7 +5831,7 @@
               "kind": "staticmethod",
               "signature": "(area_type=None)",
               "summary": "All areas of ``area_type`` (``\"VIEW_3D\"``, ``\"IMAGE_EDITOR\"``, …) across every open",
-              "line": 1244,
+              "line": 1251,
               "deprecated": false
             },
             {
@@ -5840,7 +5840,7 @@
               "kind": "classmethod",
               "signature": "(cls, area_type=None) -> int",
               "summary": "Queue a redraw of every area of ``area_type`` (all areas when None);",
-              "line": 1267,
+              "line": 1274,
               "deprecated": false
             },
             {
@@ -5849,7 +5849,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Context-override dict targeting the first VIEW_3D area/region, or ``None`` if there is no",
-              "line": 1286,
+              "line": 1293,
               "deprecated": false
             },
             {
@@ -5858,7 +5858,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Yield with a valid ``window`` in context when ``bpy.context.window`` is ``None``.",
-              "line": 1316,
+              "line": 1323,
               "deprecated": false
             },
             {
@@ -5867,7 +5867,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Yield with *objects* -- and only them -- in Edit Mode;",
-              "line": 1353,
+              "line": 1360,
               "deprecated": false
             }
           ]
@@ -24770,7 +24770,7 @@
               "kind": "classmethod",
               "signature": "(cls, switchboard: Switchboard = None, **kwargs) -> 'BlenderUiHandler'",
               "summary": "Return the BlenderUiHandler singleton, bootstrapping if needed.",
-              "line": 155,
+              "line": 159,
               "deprecated": false
             },
             {
@@ -24779,7 +24779,7 @@
               "kind": "method",
               "signature": "(self, name: str) -> bool",
               "summary": "Recognise the native Blender menus this handler wraps on demand.",
-              "line": 177,
+              "line": 181,
               "deprecated": false
             },
             {
@@ -24788,7 +24788,7 @@
               "kind": "method",
               "signature": "(self, ui, pos=None, force: bool = False, **kwargs)",
               "summary": "Swap a native-menu proxy for its wrapped, freshly-harvested menu window;",
-              "line": 222,
+              "line": 226,
               "deprecated": false
             },
             {
@@ -24797,7 +24797,7 @@
               "kind": "method",
               "signature": "(self, ui) -> str",
               "summary": "blendertk-sourced tool panels stay open by default (hide, not pin).",
-              "line": 317,
+              "line": 321,
               "deprecated": false
             }
           ]

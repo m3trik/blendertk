@@ -148,6 +148,17 @@ try:
 
     sb = Switchboard()
     handler = BlenderUiHandler(switchboard=sb)
+
+    # sb.tk: the host a Slots class written for either host calls (mirror of
+    # MayaUiHandler), so a panel this handler stands up alone finds Blender;
+    # one a caller named already stays.
+    import blendertk
+
+    check("handler names its toolkit on the switchboard", sb.tk is blendertk)
+    named = Switchboard()
+    named.tk = _marker = object()
+    BlenderUiHandler(switchboard=named)
+    check("a toolkit the caller named stays", named.tk is _marker)
     from uitk import PresetEditor
 
     check(
