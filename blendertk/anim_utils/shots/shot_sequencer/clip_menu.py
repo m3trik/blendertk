@@ -313,7 +313,7 @@ class ClipMenuMixin:
         """Delete the given clips' keys within their span.
 
         A whole-object clip is scoped to the object's TRANSFORM fcurves — the
-        same ``_is_transform_path`` filter its span was collected from
+        same ``is_transform_path`` filter its span was collected from
         (``_span_segments``) — never every fcurve on the action: custom-property,
         constraint-influence, and modifier curves aren't part of the clip and
         must survive a "Delete Key".

@@ -391,31 +391,6 @@ class _BlenderShotStoreInternal(object):
         return float(scene.render.fps) / float(base)
 
     @staticmethod
-    def _is_transform_path(data_path: str) -> bool:
-        """True if *data_path* is shot content: an object/bone transform
-        channel, an object's visibility (``hide_viewport`` / ``hide_render``,
-        Maya's ``visibility``), or a render-effect property
-        (``RenderEffects.PROP_PATHS`` -- deliverable animation, so a pulse
-        keyed inside a shot is that shot's content and travels with it; any
-        other custom property, a marker such as ``["audio_trigger"]``, never
-        makes an object look animated).
-
-        The one predicate membership, detection and the movers' content walk
-        share (mayatk: ``Detection.first_standard_destination`` over
-        ``CONTENT_ATTRS``, which is ``TRANSFORM_CHANNELS`` -- visibility
-        included -- plus the render-effect attributes).  What the sequencer
-        DRAWS is wider: every keyed channel, as Maya lists every animCurve on
-        the node.
-        """
-        if (
-            data_path in _TRANSFORM_CHANNELS
-            or data_path in _VISIBILITY_PATHS
-            or data_path in RenderEffects.PROP_PATHS
-        ):
-            return True
-        return any(data_path.endswith("." + c) for c in _TRANSFORM_CHANNELS)
-
-    @staticmethod
     def _is_ignored_path(data_path: str, ignore) -> bool:
         """True if *data_path*'s channel leaf matches any *ignore* pattern.
 
@@ -443,7 +418,7 @@ class _BlenderShotStoreInternal(object):
         """
         times: set = set()
         for fc in AnimUtils.get_fcurves(obj):
-            if not _BlenderShotStoreInternal._is_transform_path(fc.data_path):
+            if not BlenderShotStore.is_transform_path(fc.data_path):
                 continue
             if _BlenderShotStoreInternal._is_ignored_path(fc.data_path, ignore):
                 continue
@@ -470,7 +445,7 @@ class _BlenderShotStoreInternal(object):
         """
         raw: List[Tuple[float, float]] = []
         for fc in AnimUtils.get_fcurves(obj):
-            if not _BlenderShotStoreInternal._is_transform_path(fc.data_path):
+            if not BlenderShotStore.is_transform_path(fc.data_path):
                 continue
             if _BlenderShotStoreInternal._is_ignored_path(fc.data_path, ignore):
                 continue
@@ -740,18 +715,6 @@ class _BlenderShotStoreInternal(object):
         return None
 
     @staticmethod
-    def _fcurve_for_key(key: str):
-        """The live fcurve ledger *key* (:meth:`curve_key`) names, or ``None``
-        -- a format-1 key names none until :meth:`follow_renames` re-keys it."""
-        parts = _BlenderShotStoreInternal._key_parts(key)
-        if parts is None:
-            return None
-        try:
-            return _BlenderShotStoreInternal._identity_fcurve(*parts)
-        except ImportError:
-            return None
-
-    @staticmethod
     def _key_stale(key: str, owners=None) -> bool:
         """Whether ledger *key* names what a rename left behind: a format-1
         key, an action not in the file, or a pose bone no object its slot
@@ -869,6 +832,43 @@ class BlenderShotStore(ptk.ShotStore, _BlenderShotStoreInternal):
     installs its own backend), so ``BlenderShotStore.active()`` transparently
     loads any store saved in the current ``.blend``.
     """
+
+    @staticmethod
+    def is_transform_path(data_path: str) -> bool:
+        """True if *data_path* is shot content: an object/bone transform
+        channel, an object's visibility (``hide_viewport`` / ``hide_render``,
+        Maya's ``visibility``), or a render-effect property
+        (``RenderEffects.PROP_PATHS`` -- deliverable animation, so a pulse
+        keyed inside a shot is that shot's content and travels with it; any
+        other custom property, a marker such as ``["audio_trigger"]``, never
+        makes an object look animated).
+
+        The one predicate membership, detection and the movers' content walk
+        share (mayatk: ``Detection.first_standard_destination`` over
+        ``CONTENT_ATTRS``, which is ``TRANSFORM_CHANNELS`` -- visibility
+        included -- plus the render-effect attributes).  What the sequencer
+        DRAWS is wider: every keyed channel, as Maya lists every animCurve on
+        the node.
+        """
+        if (
+            data_path in _TRANSFORM_CHANNELS
+            or data_path in _VISIBILITY_PATHS
+            or data_path in RenderEffects.PROP_PATHS
+        ):
+            return True
+        return any(data_path.endswith("." + c) for c in _TRANSFORM_CHANNELS)
+
+    @staticmethod
+    def fcurve_for_key(key: str):
+        """The live fcurve ledger *key* (:meth:`curve_key`) names, or ``None``
+        -- a format-1 key names none until :meth:`follow_renames` re-keys it."""
+        parts = _BlenderShotStoreInternal._key_parts(key)
+        if parts is None:
+            return None
+        try:
+            return _BlenderShotStoreInternal._identity_fcurve(*parts)
+        except ImportError:
+            return None
 
     #: A deferred flush is already queued on ``bpy.app.timers`` (coalescing flag).
     _flush_pending: bool = False
@@ -1413,7 +1413,7 @@ class BlenderShotStore(ptk.ShotStore, _BlenderShotStoreInternal):
         for obj in scene.objects:
             for fc in AnimUtils.get_fcurves(obj):
                 if (
-                    _BlenderShotStoreInternal._is_transform_path(fc.data_path)
+                    BlenderShotStore.is_transform_path(fc.data_path)
                     and len(fc.keyframe_points) > 0
                 ):
                     return True

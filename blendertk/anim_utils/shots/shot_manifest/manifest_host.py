@@ -82,7 +82,7 @@ class ManifestHost:
         from blendertk.core_utils._core_utils import CoreUtils
         from blendertk.ui_utils._ui_utils import UiUtils
 
-        layer = CoreUtils._active_view_layer()
+        layer = CoreUtils.active_view_layer()
         shown = [n for n in nodes if layer is not None and n in layer.objects]
         outside = [f"'{n}'" for n in nodes if n not in shown]
         if shown:

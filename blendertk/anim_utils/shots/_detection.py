@@ -58,6 +58,7 @@ class _DetectionInternal(object):
         honoured.
         """
         from blendertk.anim_utils.shots._shots import (
+            BlenderShotStore,
             _BlenderShotStoreInternal,
         )
 
@@ -69,7 +70,7 @@ class _DetectionInternal(object):
             curves = [
                 fc
                 for fc in AnimUtils.get_fcurves(obj)
-                if _BlenderShotStoreInternal._is_transform_path(fc.data_path)
+                if BlenderShotStore.is_transform_path(fc.data_path)
                 and not _BlenderShotStoreInternal._is_ignored_path(fc.data_path, ignore)
             ]
             if curves:

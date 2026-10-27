@@ -472,7 +472,7 @@ Animation-segment collection over Blender fcurves (mirror of ``mtk.SegmentKeys``
 
 Shot-region detection — Blender scene acquisition over the pure engine math.
 
-- **[`class Detection(_DetectionInternal)`](blendertk/blendertk/anim_utils/shots/_detection.py#L122)** — Detection — module namespace.
+- **[`class Detection(_DetectionInternal)`](blendertk/blendertk/anim_utils/shots/_detection.py#L123)** — Detection — module namespace.
   - `Detection.resolve_to_transform(node, cache=None)` *(static)* — Resolve an fcurve owner (ID datablock or object name) to its object name.
   - `Detection.detect_shot_regions(objects: Optional[List[str]] = None, gap_threshold: float = 5.0, ignore=None, motion_rate: float = 0.001, min_duration: float = 2.0) -> List[Dict[str, Any]]` *(static)* — Detect animation regions by clustering per-object motion segments.
   - `Detection.regions_from_selected_keys(gap_threshold: float = 5.0, key_filter: str = 'all') -> List[Dict[str, Any]]` *(static)* — Build shot regions from currently selected keyframes.
@@ -488,7 +488,9 @@ Blender shot-store adapter — the DCC layer over ``pythontk``'s shots engine.
   - `BlenderScenePersistence.save(self, data: Dict[str, Any]) -> None`
   - `BlenderScenePersistence.load(self) -> Optional[Dict[str, Any]]` — The stored document, or ``None`` when the scene holds none.
   - `BlenderScenePersistence.record_changed(self) -> bool` — Whether the channel differs from what this backend last wrote or read.
-- **[`class BlenderShotStore(pythontk.ShotStore, _BlenderShotStoreInternal)`](blendertk/blendertk/anim_utils/shots/_shots.py#L863)** — :class:`pythontk.ShotStore` with the scene hooks bound to Blender.
+- **[`class BlenderShotStore(pythontk.ShotStore, _BlenderShotStoreInternal)`](blendertk/blendertk/anim_utils/shots/_shots.py#L826)** — :class:`pythontk.ShotStore` with the scene hooks bound to Blender.
+  - `BlenderShotStore.is_transform_path(data_path: str) -> bool` *(static)* — True if *data_path* is shot content: an object/bone transform
+  - `BlenderShotStore.fcurve_for_key(key: str)` *(static)* — The live fcurve ledger *key* (:meth:`curve_key`) names, or ``None``
   - `BlenderShotStore.from_dict(cls, data: Dict[str, Any]) -> 'BlenderShotStore'` *(class)* — :meth:`pythontk.ShotStore.from_dict`, a format-1 ledger's claims
   - `BlenderShotStore.member_nodes(self, name: str) -> List[str]` — Names of every object answering to a doc object *name*.
   - `BlenderShotStore.curve_key(obj_name: str, data_path: str, index: int = 0) -> str` *(static)* — Ledger key of the fcurve driving *obj_name*'s ``data_path[index]``.
@@ -3069,10 +3071,12 @@ Material Updater tool panel — Switchboard slot wiring for the co-located ``mat
 Render Effects — Blender per-object render-effect channels for engine-ready control (mirror of
 
 - **[`class RenderEffects(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/render_opacity/render_effects.py#L34)** — Per-object render-effect channels: the keyable ``opacity`` prop (mirrored
+  - `RenderEffects.ensure_opacity_prop(cls, obj, value=1.0)` *(class)* — Seed the keyable ``opacity`` custom property (0-1) with UI limits if absent.
   - `RenderEffects.channel_records(cls, objects=None) -> dict` *(class)* — ``{object name: {label: {"value", "keys"}}}`` -- every render-effect
   - `RenderEffects.apply_channel_records(cls, obj_name, records: dict) -> int` *(class)* — Land :meth:`channel_records` records on the object;
   - `RenderEffects.objects_with_visibility_keys(cls, objects) -> list` *(class)* — The subset of *objects* that already have keyframes on render visibility.
   - `RenderEffects.create(cls, objects=None, mode: str = 'attribute', delete_visibility_keys: bool = False, channel: str = 'opacity')` *(class)* — Add the channel's prop to *objects* (or remove it).
+  - `RenderEffects.ensure_highlight_props(cls, obj, color=None, dim_color=None)` *(class)* — Seed ``highlight`` (0-1, keyable) and both ends of its colour ramp.
   - `RenderEffects.key_pulse(cls, objects=None, start=0, end=100, period=None, bright_fraction=None, ramp_fraction=None, lead_in=None, lead_out=None, color=None, dim_color=None, auto_create=True, channel='highlight', delete_visibility_keys=False, whole_frames=True, recipe=None)` *(class)* — Key a repeating bright/dim pulse on *channel*'s prop over ``start..end``.
   - `RenderEffects.preview_channels(cls, objects, channel='highlight', keys=(), colors=None, fps=None) -> dict` *(class)* — The WebXR-push overlay that previews one effect on *objects* at *keys*.
   - `RenderEffects.objects_with_channel(cls, channel='highlight') -> list` *(class)* — Every object carrying the channel's property.
@@ -3083,6 +3087,7 @@ Render Effects — Blender per-object render-effect channels for engine-ready co
   - `RenderEffects.remove_export_proxies(cls)` *(class)* — Delete every staged render-effect curve proxy and its action.
   - `RenderEffects.finish_export(cls)` *(class)* — Undo :meth:`prepare_for_export`'s staging (mirror of mayatk's).
   - `RenderEffects.remove(cls, objects=None, mode=None, channel=None)` *(class)* — Remove a channel's prop and anim curves from *objects*, and heal the
+  - `RenderEffects.set_key(obj, data_path, frame, value, interp, index=-1)` *(static)* — Set *value* then insert a keyframe at *frame* with the given interpolation.
   - `RenderEffects.key_fade(cls, objects=None, start=0, end=None, direction='in', auto_create=True, tangent='LINEAR', delete_visibility_keys=False, channel='opacity', whole_frames=True, recipe=None)` *(class)* — Key an opacity fade (linear) and mirror it to render visibility (stepped).
   - `RenderEffects.write_keys(cls, obj, keys, channel='opacity', interp='LINEAR', mirror=None)` *(class)* — Key a planned ``[(frame, value), ...]`` on *obj*'s channel prop -- the
   - `RenderEffects.scene_store()` *(static)* — The class holding the scene's effect recipe -- the shot store.

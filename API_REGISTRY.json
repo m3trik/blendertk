@@ -1516,7 +1516,7 @@
         {
           "name": "Detection",
           "summary": "Detection — module namespace.",
-          "line": 122,
+          "line": 123,
           "bases": [
             "_DetectionInternal"
           ],
@@ -1527,7 +1527,7 @@
               "kind": "staticmethod",
               "signature": "(node, cache=None)",
               "summary": "Resolve an fcurve owner (ID datablock or object name) to its object name.",
-              "line": 126,
+              "line": 127,
               "deprecated": false
             },
             {
@@ -1536,7 +1536,7 @@
               "kind": "staticmethod",
               "signature": "(objects: Optional[List[str]] = None, gap_threshold: float = 5.0, ignore=None, motion_rate: float = 0.001, min_duration: float = 2.0) -> List[Dict[str, Any]]",
               "summary": "Detect animation regions by clustering per-object motion segments.",
-              "line": 164,
+              "line": 165,
               "deprecated": false
             },
             {
@@ -1545,7 +1545,7 @@
               "kind": "staticmethod",
               "signature": "(gap_threshold: float = 5.0, key_filter: str = 'all') -> List[Dict[str, Any]]",
               "summary": "Build shot regions from currently selected keyframes.",
-              "line": 219,
+              "line": 220,
               "deprecated": false
             }
           ]
@@ -1614,12 +1614,30 @@
         {
           "name": "BlenderShotStore",
           "summary": ":class:`pythontk.ShotStore` with the scene hooks bound to Blender.",
-          "line": 863,
+          "line": 826,
           "bases": [
             "pythontk.ShotStore",
             "_BlenderShotStoreInternal"
           ],
           "members": [
+            {
+              "name": "is_transform_path",
+              "qualname": "BlenderShotStore.is_transform_path",
+              "kind": "staticmethod",
+              "signature": "(data_path: str) -> bool",
+              "summary": "True if *data_path* is shot content: an object/bone transform",
+              "line": 837,
+              "deprecated": false
+            },
+            {
+              "name": "fcurve_for_key",
+              "qualname": "BlenderShotStore.fcurve_for_key",
+              "kind": "staticmethod",
+              "signature": "(key: str)",
+              "summary": "The live fcurve ledger *key* (:meth:`curve_key`) names, or ``None``",
+              "line": 862,
+              "deprecated": false
+            },
             {
               "name": "from_dict",
               "qualname": "BlenderShotStore.from_dict",
@@ -18163,6 +18181,15 @@
           ],
           "members": [
             {
+              "name": "ensure_opacity_prop",
+              "qualname": "RenderEffects.ensure_opacity_prop",
+              "kind": "classmethod",
+              "signature": "(cls, obj, value=1.0)",
+              "summary": "Seed the keyable ``opacity`` custom property (0-1) with UI limits if absent.",
+              "line": 82,
+              "deprecated": false
+            },
+            {
               "name": "channel_records",
               "qualname": "RenderEffects.channel_records",
               "kind": "classmethod",
@@ -18196,6 +18223,15 @@
               "signature": "(cls, objects=None, mode: str = 'attribute', delete_visibility_keys: bool = False, channel: str = 'opacity')",
               "summary": "Add the channel's prop to *objects* (or remove it).",
               "line": 317,
+              "deprecated": false
+            },
+            {
+              "name": "ensure_highlight_props",
+              "qualname": "RenderEffects.ensure_highlight_props",
+              "kind": "classmethod",
+              "signature": "(cls, obj, color=None, dim_color=None)",
+              "summary": "Seed ``highlight`` (0-1, keyable) and both ends of its colour ramp.",
+              "line": 383,
               "deprecated": false
             },
             {
@@ -18286,6 +18322,15 @@
               "signature": "(cls, objects=None, mode=None, channel=None)",
               "summary": "Remove a channel's prop and anim curves from *objects*, and heal the",
               "line": 853,
+              "deprecated": false
+            },
+            {
+              "name": "set_key",
+              "qualname": "RenderEffects.set_key",
+              "kind": "staticmethod",
+              "signature": "(obj, data_path, frame, value, interp, index=-1)",
+              "summary": "Set *value* then insert a keyframe at *frame* with the given interpolation.",
+              "line": 889,
               "deprecated": false
             },
             {

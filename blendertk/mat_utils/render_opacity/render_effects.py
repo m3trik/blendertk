@@ -79,7 +79,7 @@ class RenderEffects(ptk.LoggingMixin):
         return out
 
     @classmethod
-    def _ensure_opacity_prop(cls, obj, value=1.0):
+    def ensure_opacity_prop(cls, obj, value=1.0):
         """Seed the keyable ``opacity`` custom property (0-1) with UI limits if absent."""
         if cls.ATTR_NAME not in obj:
             obj[cls.ATTR_NAME] = float(value)
@@ -278,10 +278,10 @@ class RenderEffects(ptk.LoggingMixin):
     def _land_keys(cls, obj, prop: str, index: int, keys: list) -> None:
         """Key ``(frame, value, interpolation)`` *keys* on *obj*'s custom
         property *prop* (component *index*, ``-1`` for a scalar) as
-        :meth:`_set_key` per key would, in one bulk write
+        :meth:`set_key` per key would, in one bulk write
         (``AnimUtils._insert_keys``): a key on a keyed frame replaces it, and
         the property ends at the last key's value. Each interpolation lands on
-        its own point only (``_set_key`` also restyles a subframe key's
+        its own point only (``set_key`` also restyles a subframe key's
         whole-frame neighbour), and an artist's FREE / ALIGNED handles are not
         cut by the insert's subdivision.
 
@@ -300,7 +300,7 @@ class RenderEffects(ptk.LoggingMixin):
             fc = cls._fcurve(obj, data_path, index)
         if fc is None:  # keyed where no slot shows it: key one by one, as ever
             for frame, value, interp in keys:
-                cls._set_key(obj, data_path, frame, value, interp, index=index)
+                cls.set_key(obj, data_path, frame, value, interp, index=index)
             return
         AnimUtils._insert_keys(fc, keys)
         cls._set_prop(obj, prop, index, keys[-1][1])
@@ -373,14 +373,14 @@ class RenderEffects(ptk.LoggingMixin):
         results = {}
         for obj in objects:
             if channel == cls.HIGHLIGHT_ATTR:
-                cls._ensure_highlight_props(obj)
+                cls.ensure_highlight_props(obj)
             else:
-                cls._ensure_opacity_prop(obj, 1.0)
+                cls.ensure_opacity_prop(obj, 1.0)
             results[obj.name] = {channel: True}
         return results
 
     @classmethod
-    def _ensure_highlight_props(cls, obj, color=None, dim_color=None):
+    def ensure_highlight_props(cls, obj, color=None, dim_color=None):
         """Seed ``highlight`` (0-1, keyable) and both ends of its colour ramp.
 
         An end the object already carries is kept: colours are written only
@@ -886,7 +886,7 @@ class RenderEffects(ptk.LoggingMixin):
     WHOLE_FRAME_GAP_MIN = ptk.RampKeys.WHOLE_FRAME_GAP_MIN
 
     @staticmethod
-    def _set_key(obj, data_path, frame, value, interp, index=-1):
+    def set_key(obj, data_path, frame, value, interp, index=-1):
         """Set *value* then insert a keyframe at *frame* with the given interpolation."""
         if data_path.startswith("["):  # custom prop, or one component of a vector one
             RenderEffects._set_prop(obj, data_path[2:-2], index, value)
@@ -934,9 +934,9 @@ class RenderEffects(ptk.LoggingMixin):
                     cls._remove_fc(o, cls._fcurve(o, cls.VIS_PATH))
                     o.hide_render = False
                 if channel == cls.HIGHLIGHT_ATTR:
-                    cls._ensure_highlight_props(o, *(colors or (None, None)))
+                    cls.ensure_highlight_props(o, *(colors or (None, None)))
                 else:
-                    cls._ensure_opacity_prop(o)
+                    cls.ensure_opacity_prop(o)
 
     @classmethod
     def key_fade(
@@ -1009,10 +1009,10 @@ class RenderEffects(ptk.LoggingMixin):
         path = f'["{channel}"]'
         written = []
         for frame, value in keys:
-            cls._set_key(obj, path, frame, value, interp)
+            cls.set_key(obj, path, frame, value, interp)
             written.append((store.curve_key(obj.name, path), float(frame)))
             if mirror:
-                cls._set_key(
+                cls.set_key(
                     obj, cls.VIS_PATH, frame, 0.0 if value > 0 else 1.0, "CONSTANT"
                 )
                 written.append((store.curve_key(obj.name, cls.VIS_PATH), float(frame)))
@@ -1087,9 +1087,9 @@ class RenderEffects(ptk.LoggingMixin):
             effect, *recipe.window(effect, start, end, place, anchor), fps
         )
         if channel == cls.HIGHLIGHT_ATTR:
-            cls._ensure_highlight_props(node, *recipe.colors)
+            cls.ensure_highlight_props(node, *recipe.colors)
         else:
-            cls._ensure_opacity_prop(node)
+            cls.ensure_opacity_prop(node)
         return cls.write_keys(node, plan, channel)
 
     @classmethod
@@ -1104,7 +1104,7 @@ class RenderEffects(ptk.LoggingMixin):
                 continue
             cls._remove_fc(obj, cls._fcurve(obj, cls.VIS_PATH))
             for kp in fc.keyframe_points:
-                cls._set_key(
+                cls.set_key(
                     obj,
                     cls.VIS_PATH,
                     kp.co[0],

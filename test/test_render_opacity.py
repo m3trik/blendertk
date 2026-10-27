@@ -178,7 +178,7 @@ try:
     reset()
     vis = cube("Vis")
     vis.data.materials.append(mat("Vm"))
-    RenderEffects._set_key(
+    RenderEffects.set_key(
         vis, "hide_render", 1, 0.0, "CONSTANT"
     )  # manual vis key, no opacity
     try:
@@ -197,8 +197,8 @@ try:
     # Hand-key ONLY opacity (no visibility). Presence is derived from the ramp
     # downstream (ptk.MeshConvert._presence_keys), so the export writes no
     # mirror -- mirror of mayatk (2026-09-14).
-    RenderEffects._set_key(c, '["opacity"]', 1, 1.0, "LINEAR")
-    RenderEffects._set_key(c, '["opacity"]', 10, 0.0, "LINEAR")
+    RenderEffects.set_key(c, '["opacity"]', 1, 1.0, "LINEAR")
+    RenderEffects.set_key(c, '["opacity"]', 10, 0.0, "LINEAR")
     check(
         "no visibility keys after hand-keying opacity", fcurve(c, "hide_render") is None
     )
@@ -215,9 +215,9 @@ try:
     c.data.materials.append(mat("Sm"))
     RenderEffects.create([c])
     for frame, value in ((1, 1.0), (5, 0.5), (10, 0.0), (15, 0.0)):
-        RenderEffects._set_key(c, '["opacity"]', frame, value, "LINEAR")
-    RenderEffects._set_key(c, "hide_render", 1, 0.0, "CONSTANT")
-    RenderEffects._set_key(c, "hide_render", 10, 1.0, "CONSTANT")
+        RenderEffects.set_key(c, '["opacity"]', frame, value, "LINEAR")
+    RenderEffects.set_key(c, "hide_render", 1, 0.0, "CONSTANT")
+    RenderEffects.set_key(c, "hide_render", 10, 1.0, "CONSTANT")
     authored = [tuple(kp.co) for kp in fcurve(c, "hide_render").keyframe_points]
     synced = RenderEffects.prepare_for_export()
     kept = [tuple(kp.co) for kp in fcurve(c, "hide_render").keyframe_points]
@@ -231,7 +231,7 @@ try:
     reset()
     c = cube("Guard")
     c.data.materials.append(mat("Gm"))
-    RenderEffects._set_key(c, "hide_render", 1, 0.0, "CONSTANT")  # pre-existing vis key
+    RenderEffects.set_key(c, "hide_render", 1, 0.0, "CONSTANT")  # pre-existing vis key
     raised = False
     try:
         RenderEffects.create([c], delete_visibility_keys=False)
@@ -286,7 +286,7 @@ try:
     # un-hid it from render and dropped its own visibility keys (mayatk's remove
     # touches only objects that have the channel). Added: 2026-10-10
     plain = cube("RemPlain")
-    RenderEffects._set_key(plain, "hide_render", 1, 1.0, "CONSTANT")  # its own key
+    RenderEffects.set_key(plain, "hide_render", 1, 1.0, "CONSTANT")  # its own key
     plain.hide_render = True
     RenderEffects.remove([plain])
     check(
@@ -1479,7 +1479,7 @@ try:
     # ============================ CHANNEL RECORDS LAND IN BULK ============================
     # ``apply_channel_records`` (an imported FBX's user-property curves, the
     # Maya bridge's shot-section replay) writes each label's keys in one bulk
-    # pass, leaving exactly what ``_set_key`` per key leaves -- every point
+    # pass, leaving exactly what ``set_key`` per key leaves -- every point
     # property, replaced keys included -- without scanning the curves per key
     # (2026-10-19: 20 curves x 2000 keys took 59 s).
     import math
@@ -1546,8 +1546,8 @@ try:
     _landed_interps = {}
 
     def _land_per_key(o, records):
-        """The oracle: Blender's own insert, ``_set_key`` per key, each key's
-        interpolation then on ITS point (``_set_key`` restyles every point on
+        """The oracle: Blender's own insert, ``set_key`` per key, each key's
+        interpolation then on ITS point (``set_key`` restyles every point on
         the same rounded frame -- a subframe key's whole-frame neighbour too)."""
         for label, rec in records.items():
             prop, index = RenderEffects._channel_slot(o, label)
@@ -1568,7 +1568,7 @@ try:
             if rec.get("value") is not None:
                 RenderEffects._set_prop(o, prop, index, float(rec["value"]))
             for f, v, interp in rec["keys"]:
-                RenderEffects._set_key(
+                RenderEffects.set_key(
                     o,
                     f'["{prop}"]',
                     f,
@@ -1635,7 +1635,7 @@ try:
             _land_per_key(_ref, _batch)
         _a, _b = _key_print(_bulk), _key_print(_ref)
         check(
-            f"apply_channel_records lands as _set_key per key: {_label}",
+            f"apply_channel_records lands as set_key per key: {_label}",
             _a == _b,
             _first_diff(_a, _b),
         )
@@ -1668,7 +1668,7 @@ try:
     )
 
     # Two deliberate departures from a per-key insert: each key's interpolation
-    # lands on its own point only (``_set_key`` restyled every point on the same
+    # lands on its own point only (``set_key`` restyled every point on the same
     # rounded frame), and an artist's FREE handles keep their authored shape
     # (an insert between two keys subdivides the segment, cutting them).
     _sub = bpy.data.objects.new("Subframe", None)
@@ -1713,7 +1713,7 @@ try:
 
     # The complexity guard: one curve lookup per label (two when it makes the
     # curve), never a per-key insert with its curve scan.
-    _calls = {"_fcurve": 0, "_set_key": 0}
+    _calls = {"_fcurve": 0, "set_key": 0}
     _orig = {name: RenderEffects.__dict__[name] for name in _calls}
 
     def _counting(name):
@@ -1737,7 +1737,7 @@ try:
             setattr(RenderEffects, _name, _fn)
     check(
         "apply_channel_records: no per-key insert, a curve lookup or two per label",
-        _calls["_set_key"] == 0 and _calls["_fcurve"] <= 2 * len(_recs),
+        _calls["set_key"] == 0 and _calls["_fcurve"] <= 2 * len(_recs),
         _calls,
     )
 

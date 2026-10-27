@@ -123,7 +123,7 @@ class _ShotSequencerInternal(object):
         return [
             fc
             for fc in AnimUtils.get_fcurves(obj)
-            if BlenderShotStore._is_transform_path(fc.data_path)
+            if BlenderShotStore.is_transform_path(fc.data_path)
         ]
 
     @staticmethod
@@ -174,7 +174,7 @@ class _ShotSequencerInternal(object):
     @staticmethod
     def _fcurve_for_key(key: str):
         """Resolve a :meth:`_fc_key` back to a live fcurve, or ``None``."""
-        return BlenderShotStore._fcurve_for_key(key)
+        return BlenderShotStore.fcurve_for_key(key)
 
     @staticmethod
     def _key_index_at(fc, t: float, eps: float = _SLOP):
@@ -387,7 +387,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
     ) -> List[str]:
         """Names of transforms that MOVE in ``[start, end]``.
 
-        Only content channels count (``_is_transform_path``: the transform
+        Only content channels count (``is_transform_path``: the transform
         channels and the render-effect properties) — any other custom
         property is ignored so marker objects don't register as scene content.
 
@@ -918,7 +918,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
     def _keyed_transform_times() -> dict:
         """Map every object's name to the key times on its transform channels.
 
-        Content channels only (``_is_transform_path``: transform channels
+        Content channels only (``is_transform_path``: transform channels
         and the render-effect properties), so a marker's custom property
         never makes it look like scene content.
         """

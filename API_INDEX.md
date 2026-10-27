@@ -66,7 +66,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class BlenderScenePersistence`
   - methods: store_cls, remove_callbacks, save, load, record_changed
 - `class BlenderShotStore(pythontk.ShotStore, _BlenderShotStoreInternal)`
-  - methods: from_dict, member_nodes, curve_key, follow_renames, edit_serial, scene_edit, active, rescale_to_fps, has_animation, detect_regions, assess, publish_export_view, export_transfer, apply_transfer, transfer_out, transfer_in, merge_carrier, discard_carrier, iter_action_fcurves, collect_transform_segments, collect_selected_key_entries
+  - methods: is_transform_path, fcurve_for_key, from_dict, member_nodes, curve_key, follow_renames, edit_serial, scene_edit, active, rescale_to_fps, has_animation, detect_regions, assess, publish_export_view, export_transfer, apply_transfer, transfer_out, transfer_in, merge_carrier, discard_carrier, iter_action_fcurves, collect_transform_segments, collect_selected_key_entries
 
 ### `anim_utils/shots/shot_manifest/_shot_manifest.py` — Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
 - `class BlenderShotManifest(ShotManifest, _ShotManifestInternal)`
@@ -768,7 +768,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `mat_utils/render_opacity/render_effects.py` — Render Effects — Blender per-object render-effect channels for engine-ready control (mirror of
 - `class RenderEffects(pythontk.LoggingMixin)`
-  - methods: channel_records, apply_channel_records, objects_with_visibility_keys, create, key_pulse, preview_channels, objects_with_channel, channel_colors, channel_color_stops, set_channel_color, stage_export_proxies, remove_export_proxies, finish_export, remove, key_fade, write_keys, scene_store, scene_recipe, apply_effect, sync_visibility_from_opacity, ensure_connections, prepare_for_export, visibility_tracks, export_record, refresh_export_metadata
+  - methods: ensure_opacity_prop, channel_records, apply_channel_records, objects_with_visibility_keys, create, ensure_highlight_props, key_pulse, preview_channels, objects_with_channel, channel_colors, channel_color_stops, set_channel_color, stage_export_proxies, remove_export_proxies, finish_export, remove, set_key, key_fade, write_keys, scene_store, scene_recipe, apply_effect, sync_visibility_from_opacity, ensure_connections, prepare_for_export, visibility_tracks, export_record, refresh_export_metadata
 
 ### `mat_utils/render_opacity/render_effects_slots.py` — Switchboard slots for the Render Effects panel (``render_effects.ui``).
 - `class RenderEffectsSlots(pythontk.LoggingMixin)`

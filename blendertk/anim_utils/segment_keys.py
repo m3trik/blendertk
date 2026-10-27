@@ -284,7 +284,7 @@ class SegmentKeys(_SegmentKeysInternal):
                 fc
                 for fc in AnimUtils.get_fcurves(obj)
                 if not transform_only
-                or BlenderShotStore._is_transform_path(fc.data_path)
+                or BlenderShotStore.is_transform_path(fc.data_path)
             ]
             curves_to_use = cls._filter_curves_by_ignore(all_curves, ignore)
             curves_to_use = cls._filter_curves_by_channel_box(

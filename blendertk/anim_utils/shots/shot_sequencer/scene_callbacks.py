@@ -367,7 +367,7 @@ class SceneCallbacksMixin:
         banked-curve path).
 
         A candidate qualifies on "has a key in the shot's range on a content
-        channel" (``_is_transform_path``: transforms, visibility, render
+        channel" (``is_transform_path``: transforms, visibility, render
         effects) and deliberately NOT on its values varying, as mayatk's
         does: an object keyed on a hold inside the shot -- or keyed for the
         first time -- is still the shot's content, and leaving it out of

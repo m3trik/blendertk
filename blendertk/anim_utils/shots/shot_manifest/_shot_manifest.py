@@ -95,7 +95,7 @@ class _ShotManifestInternal(object):
         return [
             fc
             for fc in AnimUtils.get_fcurves(obj)
-            if BlenderShotStore._is_transform_path(fc.data_path)
+            if BlenderShotStore.is_transform_path(fc.data_path)
         ]
 
 
@@ -266,7 +266,7 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
         from blendertk.anim_utils.shots._shots import BlenderShotStore
 
         # The curve by its identity (``BlenderShotStore.curve_key``).
-        fc = BlenderShotStore._fcurve_for_key(curve)
+        fc = BlenderShotStore.fcurve_for_key(curve)
         if fc is None:
             return
         doomed = [
