@@ -248,6 +248,9 @@ DEFAULT_INCLUDE = {
     # The ``materials`` record's producer (``FbxUtils.PRODUCERS``): every
     # exported material stated as glTF states it. Mirror of mayatk's.
     "env_utils.material_records": ["MaterialRecords"],
+    # Emissive Groups: the API, pythontk's model over the Blender half (its panel
+    # is tentacle's). Mirror of mayatk's ``mat_utils.emissive_groups``.
+    "mat_utils.emissive_groups": ["EmissiveGroups", "BlenderEmissiveGroups"],
     # Game Shader — the workflow-profile / map-pipeline / reporting layer around
     # ``MatUtils.create_pbr_material`` (``GameShaderSlots`` panel discovered by the handler, not
     # registered). Mirror of mayatk's ``mat_utils.game_shader`` (``btk.GameShader`` ↔
@@ -432,15 +435,11 @@ DEFAULT_INCLUDE = {
 #: a move adds its names here in the same change set.
 MOVED_NAMES = {
     "DuplicateRadialSlots": (
-        "tentacle.ui.panels.duplicate_radial.duplicate_radial.DuplicateRadialSlots",
-        "0.23.0",
-    ),
-    "EmissiveGroups": (
-        "tentacle.tools.emissive_groups.blender.EmissiveGroups",
+        "tentacle.slots.tools.duplicate_radial.DuplicateRadialSlots",
         "0.23.0",
     ),
     "EmissiveGroupsSlots": (
-        "tentacle.ui.panels.emissive_groups.emissive_groups.EmissiveGroupsSlots",
+        "tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots",
         "0.23.0",
     ),
 }

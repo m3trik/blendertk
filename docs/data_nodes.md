@@ -44,7 +44,7 @@ state.
 | Writer stamp | the scene file spelled from its own project | the same, except a UNC path keeps its leading `\\`: a forward-slash `//` reads as Blender's file-relative prefix |
 | Files written since the last save (`ptk.PendingFiles`: a bake's lightmaps wait in a session folder until the save) | committed at `kBeforeSave` of the open scene; an autosave or a `.ma` export is a copy and commits nothing; dropped at `kAfterOpen` / `kAfterNew` | committed in `save_pre`, after the records are re-spelled (the target does not exist yet, so a stamp naming it would read as a gone file's). `save_pre` cannot tell a Save As from a Save Copy (both hand it the new path while `bpy.data.filepath` is still the old one), so both commit as a fork: nothing over a file the open one reads, a taken name moved to the next free one. After a copy, the open file keeps the records the commit wrote (its maps are home, no longer in the session): a copy can cost the open file a name, never a map. Dropped at `load_post`: an open, a revert, or File ▸ New |
 | Before-export hook | `kBeforeExport` republishes opted-in records for any FBX export | **none** -- `bpy.app.handlers` has no FBX-export event, so a plain File ▸ Export ships whatever the carrier holds; producers also publish at authoring time (`FbxUtils.publish_authored`), and `enable_export_producer` records the opt-in for parity |
-| Stagers (`FbxUtils.STAGERS`) | `render_effects`, `lightmap_folder_hints` | those two, plus `emissive_groups` (below), registered by tentacle's Emissive Groups tool (`FbxUtils.stagers()` merges registered stagers). The Scene Exporter stages them all; a hand-off bridge runs only the rows it names (`export_stagers`; `UnityBridge`: `render_effects`, `emissive_groups`). Session stagers (the shadow preview) `prepare` in every bracket and before a publish outside one, but `finish` only when a bracket closes |
+| Stagers (`FbxUtils.STAGERS`) | `render_effects`, `lightmap_folder_hints` | those two plus `emissive_groups` (below). The Scene Exporter stages them all; a hand-off bridge runs only the rows it names (`export_stagers`; `UnityBridge`: `render_effects`, `emissive_groups`). Session stagers (the shadow preview) `prepare` in every bracket and before a publish outside one, but `finish` only when a bracket closes |
 | Crossing a carrier's non-record properties | value and curve move | the value moves; the curve does not |
 
 ## What the export carries
@@ -98,7 +98,7 @@ same payload schemas -- one Unity reader and one GLB build serve both DCCs:
 | `render_effects` | `RenderEffects.export_record` | -- |
 | `shadows` | `ShadowRig.export_record` | -- |
 | `articulation` | `ArticulatedRig.export_record` | -- |
-| `emissive_groups` | `EmissiveGroups.export_record` (tentacle's, registered) | weights ship on the proxy Empties above |
+| `emissive_groups` | `EmissiveGroups.export_record` | weights ship on the proxy Empties above |
 | `lightmaps` | `LightmapRecords.export_record` | map file names, no folder; a GLB build is handed `LightmapRecords.search_dirs()` |
 | `materials` | `MaterialRecords.export_record` | a Principled BSDF read into glTF's metallic-roughness terms |
 
@@ -128,8 +128,8 @@ through Blender's own routes:
   the portable records ride the sidecar's `shots` / `records` sections both
   ways.
 
-`DataNodes.OWNERS` names the Blender owners (`BlenderShotStore`, `KeyStash`;
-`EmissiveGroups` is tentacle's, registered through its entry points); there is no bake-session owner -- a Blender bake parks
+`DataNodes.OWNERS` names the Blender owners (`BlenderShotStore`, `KeyStash`,
+`EmissiveGroups`); there is no bake-session owner -- a Blender bake parks
 nothing beside its record. An emissive group's membership rides the mesh data
 through a make-local (boolean face attributes), and the hand-off payload
 (registry, face indices, each member's face count) through a bridge.

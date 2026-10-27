@@ -667,6 +667,12 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class LightmapIsolateSet(BakeSet)`
   - methods: groups, meshes
 
+### `mat_utils/emissive_groups.py` — Emissive Groups' Blender half: one boolean FACE attribute per group on its
+- `class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal)`
+  - methods: faces, add_members, remove_members, members, select, membership_stores, carrier_weights, weight_exists, ensure_weight, delete_weight, sync_weight, key_weight, foreign_color_sets, write_colors, uv_triangles, mask_path, object_names, face_count, mesh, merge_stores, discard_stores, publish, extra_warnings
+- `class EmissiveGroups(pythontk.EmissiveGroupsModel)`
+  - methods: create_export_curve_proxies, remove_export_curve_proxies
+
 ### `mat_utils/game_shader.py` — Game Shader — auto-build a Principled-BSDF material from a set of PBR textures.
 - `class GameShader(pythontk.LoggingMixin, _GameShaderInternal)`
   - methods: create_network

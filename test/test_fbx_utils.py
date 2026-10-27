@@ -13,7 +13,7 @@ import traceback
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 MONO = os.path.dirname(REPO)
-for p in (REPO, os.path.join(MONO, "pythontk"), os.path.join(MONO, "tentacle")):
+for p in (REPO, os.path.join(MONO, "pythontk")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
@@ -430,14 +430,12 @@ try:
     _TakesStore.clear_active()
 
     # ---- the producer table: every row a declared record, every row importable ----
-    # The library's rows and those installed tools register (tentacle's
-    # Emissive Groups): every one a declared record that imports.
-    _rows = ptk.SceneRecords.producer_rows(FbxUtils.PRODUCERS, FbxUtils.HOST)
-    _specs = ptk.SceneRecords.check_producers(_rows)
+    _specs = ptk.SceneRecords.check_producers(FbxUtils.PRODUCERS)
     check(
-        "every producer row is a declared deliverable record and imports",
-        len(_specs) == len(_rows) and set(FbxUtils.producers()) == set(_rows),
-        str(sorted(s.key for s in _rows)),
+        "every PRODUCERS row is a declared deliverable record and imports",
+        len(_specs) == len(FbxUtils.PRODUCERS)
+        and set(FbxUtils.producers()) == set(FbxUtils.PRODUCERS),
+        str(sorted(s.key for s in FbxUtils.PRODUCERS)),
     )
     # A misspelt row warns (mirror of mayatk's ``_resolve_row``): producers()
     # swallowed it at debug level and stagers() resolved it to None, so a typo
@@ -990,9 +988,8 @@ try:
     proxy_out = os.path.join(tmp, "proxies.fbx")
     alone_out = os.path.join(tmp, "proxies_alone.fbx")
     check(
-        "render_effects and emissive_groups are export stagers (the second "
-        "registered by tentacle's Emissive Groups tool)",
-        {"render_effects", "emissive_groups"} <= set(FbxUtils.stagers()),
+        "render_effects and emissive_groups are export stagers",
+        {"render_effects", "emissive_groups"} <= set(FbxUtils.STAGERS),
         f"{sorted(FbxUtils.STAGERS)}",
     )
     with FbxUtils.export_prepared(stagers=("render_effects",)):
@@ -1039,7 +1036,7 @@ try:
     # The keyed emissive weights' proxies hang under the carrier, linked into
     # its collections: a carrier in an excluded collection was shown for the
     # write and its proxies were not, so the weights stayed out of the file.
-    from tentacle.tools.emissive_groups.blender import EmissiveGroups  # tentacle's tool
+    from blendertk.mat_utils.emissive_groups import EmissiveGroups
 
     reset_anim()
     glow_cube = keyed_fader("GlowCube")
@@ -2496,11 +2493,11 @@ try:
     def ru_copy(payload):
         return _ru_json.loads(_ru_json.dumps(payload))
 
-    _ru_rows = ptk.SceneRecords.producer_rows(FbxUtils.PRODUCERS, FbxUtils.HOST)
     check(
         "record units: every producer is measured or declared unitless",
-        {spec.key for spec in _ru_rows} == set(RU_UNITLESS) | set(ru_fixtures),
-        sorted({spec.key for spec in _ru_rows}),
+        {spec.key for spec in FbxUtils.PRODUCERS}
+        == set(RU_UNITLESS) | set(ru_fixtures),
+        sorted({spec.key for spec in FbxUtils.PRODUCERS}),
     )
     ru_payloads = {}
     for ru_key, (_fixture, ru_metres) in ru_fixtures.items():
@@ -2600,7 +2597,7 @@ try:
     from blendertk.anim_utils.shots._shots import BlenderShotStore
     from blendertk.audio_utils._audio_utils import AudioUtils as _EvAudio
     from blendertk.mat_utils._mat_utils import MatUtils as _EvMatUtils
-    from tentacle.tools.emissive_groups.blender import EmissiveGroups  # tentacle's tool
+    from blendertk.mat_utils.emissive_groups import EmissiveGroups
     from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
 
     bpy.ops.wm.read_factory_settings(use_empty=True)

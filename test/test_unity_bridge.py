@@ -35,12 +35,7 @@ from pathlib import Path
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 MONO = os.path.dirname(REPO)
-for p in (
-    REPO,
-    os.path.join(MONO, "pythontk"),
-    os.path.join(MONO, "unitytk"),
-    os.path.join(MONO, "tentacle"),
-):
+for p in (REPO, os.path.join(MONO, "pythontk"), os.path.join(MONO, "unitytk")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
@@ -230,7 +225,7 @@ try:
         # fades and keyed weights imported static. Mirror of mayatk's bridge,
         # which names the render_effects stager.
         import pythontk as ptk
-        from tentacle.tools.emissive_groups.blender import EmissiveGroups  # tentacle's tool
+        from blendertk.mat_utils.emissive_groups import EmissiveGroups
         from blendertk.node_utils.data_nodes import DataNodes
 
         check(

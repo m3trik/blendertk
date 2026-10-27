@@ -62,9 +62,7 @@ class UnityBridge(BlenderExportMixin, ptk.HandoffBridge):
     #: rebind the curve proxies -- ``<object>__<channel>`` and one per keyed
     #: emissive weight -- so this hand-off stages them exactly like the Scene
     #: Exporter's FBX (mirror of mayatk's, which names ``render_effects``:
-    #: Maya's FBX carries the keyed weights on the carrier itself). The second is
-    #: tentacle's Emissive Groups tool's, registered by its entry points; without
-    #: tentacle it is simply absent.
+    #: Maya's FBX carries the keyed weights on the carrier itself).
     export_stagers = ("render_effects", "emissive_groups")
     #: Unity builds a model's AnimationClips from the FBX's takes, and Blender's
     #: exporter writes none unless it bakes; this panel offers no animation

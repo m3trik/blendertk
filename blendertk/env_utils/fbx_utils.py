@@ -2054,6 +2054,11 @@ class FbxUtils(_FbxUtilsInternal):
             "ShadowRig",
             "export_record",
         ),
+        ptk.SceneRecords.EMISSIVE_GROUPS: (
+            "blendertk.mat_utils.emissive_groups",
+            "EmissiveGroups",
+            "export_record",
+        ),
         ptk.SceneRecords.LIGHTMAPS: (
             "blendertk.light_utils.lightmap_baker.lightmap_records",
             "LightmapRecords",
@@ -2088,6 +2093,15 @@ class FbxUtils(_FbxUtilsInternal):
             "RenderEffects",
             "stage_export_proxies",
             "finish_export",
+        ),
+        # The same transport for keyed emissive weights (Blender only: Maya's
+        # FBX carries the carrier's custom-attribute curves itself), one Empty
+        # per keyed group under the data_export carrier.
+        "emissive_groups": (
+            "blendertk.mat_utils.emissive_groups",
+            "EmissiveGroups",
+            "create_export_curve_proxies",
+            "remove_export_curve_proxies",
         ),
         # One-way: a marker baked before 2026-09-23 still carries its map's
         # folder, and markers ride every FBX -- lifted into the private record

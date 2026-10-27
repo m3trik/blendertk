@@ -144,6 +144,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`mat_utils/_mat_utils.py`](#mat_utils--_mat_utils) — Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
 - [`mat_utils/arnold_bridge.py`](#mat_utils--arnold_bridge) — Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_bridge``.
 - [`mat_utils/bake_sets.py`](#mat_utils--bake_sets) — Scene-stored bake sets: named object sets the bake tools read (Blender).
+- [`mat_utils/emissive_groups.py`](#mat_utils--emissive_groups) — Emissive Groups' Blender half: one boolean FACE attribute per group on its
 - [`mat_utils/game_shader.py`](#mat_utils--game_shader) — Game Shader — auto-build a Principled-BSDF material from a set of PBR textures.
 - [`mat_utils/image_to_plane/_image_to_plane.py`](#mat_utils--image_to_plane--_image_to_plane) — Map image files to textured planes in Blender — port of mayatk's ``mat_utils.image_to_plane``.
 - [`mat_utils/image_to_plane/image_to_plane_slots.py`](#mat_utils--image_to_plane--image_to_plane_slots) — Switchboard slots for the Image to Plane UI — port of mayatk's ``ImageToPlaneSlots``.
@@ -241,7 +242,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L433) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L436) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -2749,6 +2750,39 @@ Scene-stored bake sets: named object sets the bake tools read (Blender).
 - **[`class LightmapIsolateSet(BakeSet)`](blendertk/blendertk/mat_utils/bake_sets.py#L340)** — Objects that bake in a pass of their own, out of every other bake's render.
   - `LightmapIsolateSet.groups(cls) -> List[List[Any]]` *(class)* — The set's meshes by member: what lies under each one moves together.
   - `LightmapIsolateSet.meshes(cls) -> List[Any]` *(class)* — Every mesh :meth:`groups` holds: each member with all it carries.
+
+<a id="mat_utils--emissive_groups"></a>
+### `mat_utils/emissive_groups.py`
+
+Emissive Groups' Blender half: one boolean FACE attribute per group on its
+
+- **[`class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal)`](blendertk/blendertk/mat_utils/emissive_groups.py#L78)** — The Blender scene operations of the Emissive Groups model
+  - `BlenderEmissiveGroups.faces(self, faces=None) -> FaceMap`
+  - `BlenderEmissiveGroups.add_members(self, store: str, face_map: FaceMap) -> None`
+  - `BlenderEmissiveGroups.remove_members(self, store: str) -> None`
+  - `BlenderEmissiveGroups.members(self, store: str) -> Optional[FaceMap]`
+  - `BlenderEmissiveGroups.select(self, face_map: FaceMap) -> None`
+  - `BlenderEmissiveGroups.membership_stores(self, prefix: str)`
+  - `BlenderEmissiveGroups.carrier_weights(self, prefix: str) -> List[str]`
+  - `BlenderEmissiveGroups.weight_exists(self, attr: str) -> bool`
+  - `BlenderEmissiveGroups.ensure_weight(self, attr: str, default: float) -> str`
+  - `BlenderEmissiveGroups.delete_weight(self, attr: str) -> bool`
+  - `BlenderEmissiveGroups.sync_weight(self, attr: str, value: float) -> None`
+  - `BlenderEmissiveGroups.key_weight(self, attr: str, value: Optional[float], frame: Optional[float]) -> str`
+  - `BlenderEmissiveGroups.foreign_color_sets(self, objects: List[str], color_set: str) -> Dict[str, List[str]]`
+  - `BlenderEmissiveGroups.write_colors(self, obj: str, channels, color_set: str) -> None`
+  - `BlenderEmissiveGroups.uv_triangles(self, obj: str, indices: List[int], uv_set: Optional[str]) -> list`
+  - `BlenderEmissiveGroups.mask_path(self, suffix: str) -> str`
+  - `BlenderEmissiveGroups.object_names(self, objects) -> List[str]`
+  - `BlenderEmissiveGroups.face_count(self, obj: str) -> int`
+  - `BlenderEmissiveGroups.mesh(self, name: str) -> Optional[str]`
+  - `BlenderEmissiveGroups.merge_stores(self, stores: List[str], ctx) -> None` — Nothing to do: the attributes arrive on their meshes.
+  - `BlenderEmissiveGroups.discard_stores(self, stores: List[str], ctx) -> None` — Nothing to do: the attributes leave with their meshes.
+  - `BlenderEmissiveGroups.publish(self, records) -> None`
+  - `BlenderEmissiveGroups.extra_warnings(self) -> List[str]` — Leftover curve proxies: export-transient, so one outside an export
+- **[`class EmissiveGroups(pythontk.EmissiveGroupsModel)`](blendertk/blendertk/mat_utils/emissive_groups.py#L311)** — The Emissive Groups API in Blender: pythontk's model over the Blender half,
+  - `EmissiveGroups.create_export_curve_proxies(cls) -> List` *(class)* — Stage the keyed-weight FBX transport (the ``emissive_groups`` export
+  - `EmissiveGroups.remove_export_curve_proxies(cls) -> List[str]` *(class)* — Delete every staged curve proxy (marker-matched) and its action.
 
 <a id="mat_utils--game_shader"></a>
 ### `mat_utils/game_shader.py`

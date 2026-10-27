@@ -16,7 +16,7 @@ import traceback
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)  # blendertk/
 MONO = os.path.dirname(REPO)  # _scripts/
-for p in (REPO, os.path.join(MONO, "pythontk"), os.path.join(MONO, "tentacle")):
+for p in (REPO, os.path.join(MONO, "pythontk")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
@@ -605,7 +605,7 @@ try:
 
     # --- crossings: the portable records as a hand-off's sections ---------------------
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    from tentacle.tools.emissive_groups.blender import EmissiveGroups  # tentacle's tool
+    from blendertk.mat_utils.emissive_groups import EmissiveGroups
 
     bpy.ops.mesh.primitive_cube_add()
     _cube = bpy.context.active_object
