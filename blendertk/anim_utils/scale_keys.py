@@ -153,7 +153,7 @@ class ScaleKeys(_ScaleKeysInternal):
           on a key that did not scale replaces it; of scaled keys landing on one frame the
           least moved (nearest its exact scaled time; an exact tie to the later source) is
           kept and the others are replaced, reported at their source frames
-          (:meth:`AnimUtils._merge_landed`, mayatk's ``_move_curve_keys`` rule).
+          (:meth:`AnimUtils._merge_landed`, mayatk's ``move_curve_keys`` rule).
 
         Returns the number of keys scaled (0 if nothing matched or ``factor``/computed motion was
         invalid)."""

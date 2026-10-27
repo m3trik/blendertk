@@ -22,7 +22,6 @@ from typing import Optional
 
 from pythontk import ShotBoundaryConflict
 
-from blendertk.anim_utils.shots._shots import BlenderShotStore
 from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.anim_utils._anim_utils import AnimUtils
 
@@ -291,7 +290,7 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
                 orig_start,
                 delta,
                 self._first_key(
-                    list(BlenderShotStore.iter_action_fcurves(obj)) if obj else []
+                    list(AnimUtils.get_fcurves(obj)) if obj else []
                 ),
                 lambda lo, _hi, d: self.sequencer.move_stepped_keys(
                     obj_name, lo, lo + d
@@ -852,7 +851,7 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         obj = bpy.data.objects.get(obj_name)
         if obj is None:
             return []
-        curves = list(BlenderShotStore.iter_action_fcurves(obj))
+        curves = list(AnimUtils.get_fcurves(obj))
         labels = [SegmentCollector.attr_label(fc) for fc in curves]
         out, seen = [], set()
         for attr in dict.fromkeys(attr_names):

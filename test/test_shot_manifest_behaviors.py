@@ -55,6 +55,7 @@ def _run_checks():
     from types import SimpleNamespace
 
     from blendertk import BlenderShotStore
+    from blendertk.anim_utils._anim_utils import AnimUtils
     from blendertk.anim_utils.shots.shot_manifest.behaviors import Behaviors
     from blendertk.audio_utils._audio_utils import AudioUtils
     from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
@@ -73,7 +74,7 @@ def _run_checks():
     def keys(obj_name, data_path):
         obj = bpy.data.objects[obj_name]
         out = []
-        for fc in BlenderShotStore.iter_action_fcurves(obj):
+        for fc in AnimUtils.get_fcurves(obj):
             if fc.data_path == data_path:
                 out.extend(
                     (round(kp.co[0], 3), round(kp.co[1], 3), kp.interpolation)

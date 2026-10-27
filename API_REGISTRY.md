@@ -241,6 +241,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L434) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -421,7 +422,7 @@ Mesh + shape-key setup validation — mirror of mayatk's
 
 Key Stash — park keyframes outside the working animation, retrieve later (Blender).
 
-- **[`class KeyStash(pythontk.core_utils.engines.key_stash.key_stash_model.KeyStash, _KeyStashInternal)`](blendertk/blendertk/anim_utils/key_stash/_key_stash.py#L214)** — :class:`pythontk.KeyStash` with the scene side bound to Blender.
+- **[`class KeyStash(pythontk.core_utils.engines.key_stash.key_stash_model.KeyStash, _KeyStashInternal)`](blendertk/blendertk/anim_utils/key_stash/_key_stash.py#L213)** — :class:`pythontk.KeyStash` with the scene side bound to Blender.
   - `KeyStash.active(cls) -> 'KeyStash'` *(class)* — The active store, auto-installing the Blender backend once.
   - `KeyStash.rescale_to_fps(self, new_fps: float) -> None` — Record the new rate only.
   - `KeyStash.reconcile(self) -> List[int]` — Bring the record in line with the file.
@@ -470,7 +471,7 @@ Animation-segment collection over Blender fcurves (mirror of ``mtk.SegmentKeys``
 
 Shot-region detection — Blender scene acquisition over the pure engine math.
 
-- **[`class Detection(_DetectionInternal)`](blendertk/blendertk/anim_utils/shots/_detection.py#L123)** — Detection — module namespace.
+- **[`class Detection(_DetectionInternal)`](blendertk/blendertk/anim_utils/shots/_detection.py#L122)** — Detection — module namespace.
   - `Detection.resolve_to_transform(node, cache=None)` *(static)* — Resolve an fcurve owner (ID datablock or object name) to its object name.
   - `Detection.detect_shot_regions(objects: Optional[List[str]] = None, gap_threshold: float = 5.0, ignore=None, motion_rate: float = 0.001, min_duration: float = 2.0) -> List[Dict[str, Any]]` *(static)* — Detect animation regions by clustering per-object motion segments.
   - `Detection.regions_from_selected_keys(gap_threshold: float = 5.0, key_filter: str = 'all') -> List[Dict[str, Any]]` *(static)* — Build shot regions from currently selected keyframes.
@@ -505,7 +506,7 @@ Blender shot-store adapter — the DCC layer over ``pythontk``'s shots engine.
   - `BlenderShotStore.transfer_in(cls, payload: Dict[str, Any], ctx: 'ptk.TransferContext') -> None` *(class)* — Land a received ``shots`` section: :meth:`apply_transfer`, names
   - `BlenderShotStore.merge_carrier(cls, carriers, other, ctx) -> None` *(class)* — Another scene's shots merged into the record: reload the active
   - `BlenderShotStore.discard_carrier(cls, carriers, other, ctx) -> None` *(class)* — Another scene's shots were dropped with their carrier: the same
-  - `BlenderShotStore.iter_action_fcurves(obj)` *(static)* — Yield every fcurve driving *obj*, across Blender 5.1's slotted actions.
+  - `BlenderShotStore.iter_action_fcurves(obj)` *(static)* **DEPRECATED (remove in 0.23.0)** — Yield every fcurve driving *obj*, across Blender 5.1's slotted actions.
   - `BlenderShotStore.collect_transform_segments(scene=None, gap_threshold: float = 5.0, objects: Optional[List[str]] = None, ignore=None, motion_rate: float = 0.001) -> List[Dict[str, Any]]` *(static)* — Gather per-object **motion** segments for auto shot detection.
   - `BlenderShotStore.collect_selected_key_entries(scene=None) -> List[Tuple[float, float, str]]` *(static)* — Gather ``(time, value, object)`` triples from currently selected keyframes.
 
@@ -514,7 +515,7 @@ Blender shot-store adapter — the DCC layer over ``pythontk``'s shots engine.
 
 Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
 
-- **[`class BlenderShotManifest(ShotManifest, _ShotManifestInternal)`](blendertk/blendertk/anim_utils/shots/shot_manifest/_shot_manifest.py#L101)** — :class:`pythontk.ShotManifest` with the scene hooks bound to Blender.
+- **[`class BlenderShotManifest(ShotManifest, _ShotManifestInternal)`](blendertk/blendertk/anim_utils/shots/shot_manifest/_shot_manifest.py#L102)** — :class:`pythontk.ShotManifest` with the scene hooks bound to Blender.
   - `BlenderShotManifest.apply_behaviors(self) -> Dict[str, list]` — Apply detected behaviors to Blender objects (fades, highlights,
   - `BlenderShotManifest.rewire_audio(tracks: Optional[List[str]] = None) -> Dict[str, List[str]]` *(static)* — Reconcile audio playback nodes with keyed track state — no-op in Blender.
   - `BlenderShotManifest.from_csv(cls, filepath, store=None, columns=None, post_process=None)` *(class)* — Parse a CSV and return a ready-to-build engine.
@@ -524,7 +525,7 @@ Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
 
 Behaviors — Blender appliers over the engine's pure keying-recipe core.
 
-- **[`class Behaviors(pythontk.core_utils.engines.shots.manifest.behaviors.Behaviors, _BehaviorsInternal)`](blendertk/blendertk/anim_utils/shots/shot_manifest/behaviors/_behaviors.py#L240)** — Behaviors — module namespace.
+- **[`class Behaviors(pythontk.core_utils.engines.shots.manifest.behaviors.Behaviors, _BehaviorsInternal)`](blendertk/blendertk/anim_utils/shots/shot_manifest/behaviors/_behaviors.py#L241)** — Behaviors — module namespace.
   - `Behaviors.apply_behavior(obj: str, behavior_name: str, start: float, end: float, attrs: Optional[List[str]] = None, search_path: Optional[Path] = None, source_path: str = '', anchor_override: Optional[str] = None, recipe: Optional[Any] = None, fps: Optional[float] = None) -> List[Tuple[str, float]]` *(static)* — Apply a named behavior template to an object over a time range.
   - `Behaviors.verify_behavior(obj: str, behavior_name: str, start: float, end: float, search_path: Optional[Path] = None, keyframe_fn: Optional[Any] = None, anchor_override: Optional[Any] = None, recipe: Optional[Any] = None, fps: Optional[float] = None) -> bool` *(static)* — Check whether expected behavior keyframes exist on an object.
   - `Behaviors.apply_audio_clip(obj: str, start: float, end: float, source_path: str = '') -> None` *(static)* — Place (or re-place) the sound strip *obj* at *start*.
@@ -737,8 +738,8 @@ Clip context menus and clip-level key operations.
 
 Clip motion, resize, and key-scaling logic for the shot sequencer (Blender).
 
-- [`FLOAT_ZERO_EPS`](blendertk/blendertk/anim_utils/shots/shot_sequencer/clip_motion.py#L30) — constant
-- **[`class ClipMotionMixin(_ClipMotionMixinInternal)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/clip_motion.py#L62)** — Mixin supplying clip move, resize, and batch-move handlers.
+- [`FLOAT_ZERO_EPS`](blendertk/blendertk/anim_utils/shots/shot_sequencer/clip_motion.py#L29) — constant
+- **[`class ClipMotionMixin(_ClipMotionMixinInternal)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/clip_motion.py#L61)** — Mixin supplying clip move, resize, and batch-move handlers.
   - `ClipMotionMixin.on_clip_resized(self, clip_id: int, new_start: float, new_duration: float) -> None` — Resize one clip — see :meth:`_commit_clip_resizes`.
   - `ClipMotionMixin.on_clips_batch_resized(self, resizes) -> None` — An edge drag that scaled a SELECTION of clips as one unit.
   - `ClipMotionMixin.on_clip_moved(self, clip_id: int, new_start: float) -> None` — Handle clip move — routes to audio (deferred) or shot-level logic.
@@ -1779,12 +1780,12 @@ blendertk environment / scene-library utilities — the engine behind the Refere
   - `EnvUtils.set_current_workspace(root=None)` *(static)* — Pin (or clear, with None) the session's current workspace — the Blender analogue of
   - `EnvUtils.current_workspace(path=None)` *(static)* — The active ``pythontk.Workspace``, or None.
   - `EnvUtils.workspace_root(path=None)` *(static)* — Absolute root of the current workspace, or '' — what ``get_env_info("workspace")``
-  - `EnvUtils.set_scene_source(scene: str, source: Optional[str] = None) -> Optional[str]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.set_scene_source`, which records the stand-in
-  - `EnvUtils.twin_save_target(scene: Optional[str] = None) -> Optional[str]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.twin_save_target`.
-  - `EnvUtils.scene_source(scene: Optional[str] = None) -> Optional[str]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.scene_source`.
-  - `EnvUtils.scene_project_root() -> Optional[str]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.scene_project_root`.
-  - `EnvUtils.scene_workspace() -> Optional[ptk.Workspace]` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.scene_workspace`.
-  - `EnvUtils.scene_source_images_dir(subfolder: str = '', create: bool = False) -> str` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`DataNodes.scene_source_images_dir`.
+  - `EnvUtils.set_scene_source(scene: str, source: Optional[str] = None) -> Optional[str]` *(static)* **DEPRECATED (remove in 0.23.0)** — Moved to :meth:`DataNodes.set_scene_source`, which records the stand-in
+  - `EnvUtils.twin_save_target(scene: Optional[str] = None) -> Optional[str]` *(static)* **DEPRECATED (remove in 0.23.0)** — Moved to :meth:`DataNodes.twin_save_target`.
+  - `EnvUtils.scene_source(scene: Optional[str] = None) -> Optional[str]` *(static)* **DEPRECATED (remove in 0.23.0)** — Moved to :meth:`DataNodes.scene_source`.
+  - `EnvUtils.scene_project_root() -> Optional[str]` *(static)* **DEPRECATED (remove in 0.23.0)** — Moved to :meth:`DataNodes.scene_project_root`.
+  - `EnvUtils.scene_workspace() -> Optional[ptk.Workspace]` *(static)* **DEPRECATED (remove in 0.23.0)** — Moved to :meth:`DataNodes.scene_workspace`.
+  - `EnvUtils.scene_source_images_dir(subfolder: str = '', create: bool = False) -> str` *(static)* **DEPRECATED (remove in 0.23.0)** — Moved to :meth:`DataNodes.scene_source_images_dir`.
   - `EnvUtils.scene_artifact_path(suffix: str) -> str` *(static)* — A file named for the open .blend, beside it: ``<blend dir>/<stem><suffix>``.
   - `EnvUtils.source_images_dir(path=None)` *(static)* — The current workspace's texture folder — its ``sourceImages`` rule → an existing
   - `EnvUtils.texture_search_dirs(path=None)` *(static)* — Where this scene's map files can be found NOW, most specific first.
@@ -1829,7 +1830,8 @@ Launch a FRESH headless Blender to run a script / code string and capture its ou
 
 FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.fbx_utils``
 
-- **[`class FbxUtils(_FbxUtilsInternal)`](blendertk/blendertk/env_utils/fbx_utils.py#L1977)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
+- **[`class FbxUtils(_FbxUtilsInternal)`](blendertk/blendertk/env_utils/fbx_utils.py#L1985)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
+  - `FbxUtils.hook(cls, role: str) -> Optional[Callable]` *(class)* — The callable :attr:`HOOKS` names for *role*, else the one an installed
   - `FbxUtils.producers(cls, only: Optional[Iterable[Any]] = None) -> Dict[Any, Callable]` *(class)* — :attr:`PRODUCERS` resolved to callables, unimportable ones skipped;
   - `FbxUtils.export_context(cls, mode: str = ptk.ExportContext.PIPELINE, **decisions) -> ptk.ExportContext` *(class)* — A context for this file: provenance filled in, *decisions*
   - `FbxUtils.publish(cls, ctx: Optional[ptk.ExportContext] = None, only: Optional[Iterable[Any]] = None) -> ptk.ExportSnapshot` *(class)* — Assemble every producer's record and commit the carrier ONCE
@@ -2692,7 +2694,7 @@ Material utilities — mirror of mayatk's ``MatUtils`` public names where the co
   - `MatUtils.resolve_pbr_plan(textures, config=None)` *(static)* — Classify ``textures`` and reduce them to ONE source per Principled input.
   - `MatUtils.create_pbr_material(textures, name=None, normal_direction='OpenGL', config=None, plan=None, ambient_occlusion=True)` *(static)* — Build a Principled-BSDF material from a set of PBR texture files — Blender mirror of mayatk's
   - `MatUtils.create_pbr_materials(textures, name=None, normal_direction='OpenGL', prefix='', suffix='', config=None)` *(static)* — Batch builder — Blender mirror of mayatk's ``GameShader.create_network`` batch path.
-  - `MatUtils.update_materials(materials=None, config=None, verbose=False, progress_callback=None)` *(static)* **DEPRECATED (remove in 0.22.0)** — Moved to :meth:`MatUpdater.update_materials`, its one owner (also the
+  - `MatUtils.update_materials(materials=None, config=None, verbose=False, progress_callback=None)` *(static)* **DEPRECATED (remove in 0.23.0)** — Moved to :meth:`MatUpdater.update_materials`, its one owner (also the
 
 <a id="mat_utils--arnold_bridge"></a>
 ### `mat_utils/arnold_bridge.py`

@@ -161,7 +161,7 @@ class RenderEffects(ptk.LoggingMixin):
             objects: The objects to read (``None`` = every object).
         """
         import bpy
-        from blendertk.anim_utils.shots._shots import BlenderShotStore
+        from blendertk.anim_utils._anim_utils import AnimUtils
 
         declared = tuple(cls.CHANNELS) + tuple(cls.HIGHLIGHT_COLOR_STOPS.keys)
         objs = cls._resolve(objects) if objects is not None else list(bpy.data.objects)
@@ -171,7 +171,7 @@ class RenderEffects(ptk.LoggingMixin):
                 continue
             fcurves: dict = {}
             if getattr(obj, "animation_data", None):
-                for fc in BlenderShotStore.iter_action_fcurves(obj):
+                for fc in AnimUtils.get_fcurves(obj):
                     path = fc.data_path
                     if path.startswith('["') and path.endswith('"]'):
                         fcurves.setdefault(path[2:-2], {})[fc.array_index] = fc

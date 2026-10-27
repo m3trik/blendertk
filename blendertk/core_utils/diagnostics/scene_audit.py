@@ -114,7 +114,7 @@ class SceneInfoSection:
         ptk.Deprecation.values(
             {CATEGORIES: MATERIALS},
             what="SceneInfoSection key",
-            remove_in="0.22.0",
+            remove_in="0.23.0",
             since="2026-09-24",
             reason="The Materials section lists every material with its cost.",
         )

@@ -1,0 +1,256 @@
+{
+ "census": {
+  "AnimationCurve": 27,
+  "AnimationCurveNode": 9,
+  "AnimationLayer": 1,
+  "AnimationStack": 1,
+  "Deformer": 4,
+  "Geometry": 1,
+  "Model": 6,
+  "NodeAttribute": 5,
+  "Pose": 1
+ },
+ "format": "fbx",
+ "geometry": {
+  "Cylinder": {
+   "polygon_vertices": 48,
+   "vertices": 16
+  }
+ },
+ "materials": {},
+ "models": {
+  "bone_0": {
+   "Lcl Rotation": [
+    90.0,
+    0.0,
+    0.0
+   ],
+   "Lcl Scaling": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "Lcl Translation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "LimbNode"
+  },
+  "bone_1": {
+   "Lcl Rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "Lcl Scaling": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "Lcl Translation": [
+    0.0,
+    2.0,
+    0.0
+   ],
+   "type": "LimbNode"
+  },
+  "bone_2": {
+   "Lcl Rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "Lcl Scaling": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "Lcl Translation": [
+    0.0,
+    2.0,
+    0.0
+   ],
+   "type": "LimbNode"
+  },
+  "bone_2_end": {
+   "Lcl Translation": [
+    0.0,
+    2.0,
+    0.0
+   ],
+   "type": "LimbNode"
+  },
+  "limb": {
+   "Lcl Rotation": [
+    -90.0,
+    0.0,
+    0.0
+   ],
+   "Lcl Scaling": [
+    100.0,
+    100.0,
+    100.0
+   ],
+   "Lcl Translation": [
+    0.0,
+    200.0,
+    0.0
+   ],
+   "type": "Mesh"
+  },
+  "rig_grp": {
+   "Lcl Rotation": [
+    -90.0,
+    0.0,
+    0.0
+   ],
+   "Lcl Scaling": [
+    100.0,
+    100.0,
+    100.0
+   ],
+   "type": "Null"
+  }
+ },
+ "takes": {
+  "Scene": {
+   "bone_0|Lcl Rotation|d|X": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_0|Lcl Rotation|d|Y": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_0|Lcl Rotation|d|Z": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_0|Lcl Scaling|d|X": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_0|Lcl Scaling|d|Y": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_0|Lcl Scaling|d|Z": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_0|Lcl Translation|d|X": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_0|Lcl Translation|d|Y": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_0|Lcl Translation|d|Z": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_1|Lcl Rotation|d|X": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_1|Lcl Rotation|d|Y": [
+    0.0417,
+    1.6667,
+    21
+   ],
+   "bone_1|Lcl Rotation|d|Z": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_1|Lcl Scaling|d|X": [
+    0.0417,
+    1.6667,
+    11
+   ],
+   "bone_1|Lcl Scaling|d|Y": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_1|Lcl Scaling|d|Z": [
+    0.0417,
+    1.6667,
+    11
+   ],
+   "bone_1|Lcl Translation|d|X": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_1|Lcl Translation|d|Y": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_1|Lcl Translation|d|Z": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_2|Lcl Rotation|d|X": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_2|Lcl Rotation|d|Y": [
+    0.0417,
+    1.6667,
+    5
+   ],
+   "bone_2|Lcl Rotation|d|Z": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_2|Lcl Scaling|d|X": [
+    0.0417,
+    1.6667,
+    5
+   ],
+   "bone_2|Lcl Scaling|d|Y": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_2|Lcl Scaling|d|Z": [
+    0.0417,
+    1.6667,
+    5
+   ],
+   "bone_2|Lcl Translation|d|X": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_2|Lcl Translation|d|Y": [
+    0.0417,
+    1.6667,
+    2
+   ],
+   "bone_2|Lcl Translation|d|Z": [
+    0.0417,
+    1.6667,
+    2
+   ]
+  }
+ },
+ "user_properties": {}
+}

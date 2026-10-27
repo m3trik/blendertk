@@ -416,7 +416,7 @@ class _LightmapBakeSet(BakeSet):
 ptk.Deprecation.attributes(
     globals(),
     {"LightmapBakeSet": "blendertk.mat_utils.bake_sets._LightmapBakeSet"},
-    remove_in="0.22.0",
+    remove_in="0.23.0",
     reason=(
         "The Lightmap Baker no longer saves a Bake Set: its Manage page "
         "selects and re-bakes each map's objects."

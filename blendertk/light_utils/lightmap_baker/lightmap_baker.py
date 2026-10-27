@@ -497,7 +497,7 @@ class LightmapBaker(ptk.LoggingMixin):
         ptk.Deprecation.values(
             {"quest": "mobile"},
             what="LightmapBaker preset",
-            remove_in="0.22.0",
+            remove_in="0.23.0",
             since="2026-09-23",
             reason="The tier was renamed; its settings are unchanged.",
         )

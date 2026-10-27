@@ -41,6 +41,7 @@ try:
         BlenderScenePersistence,
         BlenderShotStore,
     )
+    from blendertk.anim_utils._anim_utils import AnimUtils
 
     TEMP = os.path.join(HERE, "temp_tests")
     os.makedirs(TEMP, exist_ok=True)
@@ -69,7 +70,7 @@ try:
         return next(
             (
                 fc
-                for fc in BlenderShotStore.iter_action_fcurves(o)
+                for fc in AnimUtils.get_fcurves(o)
                 if fc.data_path == "location" and fc.array_index == 0
             ),
             None,
@@ -155,10 +156,10 @@ try:
     fx = fc_x(cube)
     frz = next(
         fc
-        for fc in BlenderShotStore.iter_action_fcurves(cube)
+        for fc in AnimUtils.get_fcurves(cube)
         if fc.data_path == "rotation_euler"
     )
-    for fc in BlenderShotStore.iter_action_fcurves(cube):
+    for fc in AnimUtils.get_fcurves(cube):
         for k in fc.keyframe_points:
             k.select_control_point = False
     for k in fx.keyframe_points:
@@ -346,7 +347,7 @@ try:
         return next(
             (
                 fc
-                for fc in BlenderShotStore.iter_action_fcurves(o)
+                for fc in AnimUtils.get_fcurves(o)
                 if fc.data_path == "location" and fc.array_index == index
             ),
             None,

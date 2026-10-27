@@ -49,6 +49,7 @@ from typing import Dict, List, Optional, Tuple
 
 from pythontk import ShotManifest, BuilderObject
 
+from blendertk.anim_utils._anim_utils import AnimUtils
 from blendertk.anim_utils.shots._shots import BlenderShotStore
 
 log = logging.getLogger(__name__)
@@ -93,7 +94,7 @@ class _ShotManifestInternal(object):
         """*obj*'s fcurves on standard transform channels."""
         return [
             fc
-            for fc in BlenderShotStore.iter_action_fcurves(obj)
+            for fc in AnimUtils.get_fcurves(obj)
             if BlenderShotStore._is_transform_path(fc.data_path)
         ]
 
@@ -248,7 +249,7 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
             return []
         paths = set(Behaviors._behavior_paths(node, behavior))
         out: List[Tuple[str, float]] = []
-        for fc in BlenderShotStore.iter_action_fcurves(node):
+        for fc in AnimUtils.get_fcurves(node):
             if fc.data_path not in paths:
                 continue
             key = BlenderShotStore.curve_key(node.name, fc.data_path, fc.array_index)
@@ -356,7 +357,7 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
         if self._curve_data is None:
             self._curve_data = {}
         # Keyed on the FCurve itself, NOT (action, data_path, array_index): for
-        # an action fcurve ``crv.id_data`` is the ACTION, and iter_action_fcurves
+        # an action fcurve ``crv.id_data`` is the ACTION, and AnimUtils.get_fcurves
         # is slot-aware, so two objects sharing one action through different
         # slots produce distinct curves that collide on that tuple -- the second
         # would then read the first's samples and be mis-classified.
@@ -420,7 +421,7 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
             return None
         times = [
             kp.co[0]
-            for fc in BlenderShotStore.iter_action_fcurves(obj)
+            for fc in AnimUtils.get_fcurves(obj)
             for kp in fc.keyframe_points
         ]
         return (min(times), max(times)) if times else None

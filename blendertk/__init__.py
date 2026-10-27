@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.21.2"
+__version__ = "0.22.0"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.
@@ -428,7 +428,13 @@ DEFAULT_INCLUDE = {
     ],
 }
 
+#: Public names that left this package (CODE_STANDARD section 5): no alias, so a
+#: read raises MovedNameError naming the new home. ``{name: (new home, version)}``;
+#: a move adds its names here in the same change set.
+MOVED_NAMES = {}
+
 bootstrap_package(
     globals(),
     include=DEFAULT_INCLUDE,
+    moved=MOVED_NAMES,
 )

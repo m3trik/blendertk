@@ -50,6 +50,7 @@ try:
     from qtpy import QtWidgets, QtCore
 
     from blendertk import BlenderShotStore
+    from blendertk.anim_utils._anim_utils import AnimUtils
     from blendertk.audio_utils._audio_utils import AudioUtils
     from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
     from uitk import Switchboard
@@ -72,7 +73,7 @@ try:
         return sorted(
             {
                 round(float(kp.co[0]), 3)
-                for fc in BlenderShotStore.iter_action_fcurves(obj)
+                for fc in AnimUtils.get_fcurves(obj)
                 for kp in fc.keyframe_points
             }
         )
@@ -246,7 +247,7 @@ try:
     a_obj = bpy.data.objects["A"]
     sel = sorted(
         round(kp.co[0], 3)
-        for fc in BlenderShotStore.iter_action_fcurves(a_obj)
+        for fc in AnimUtils.get_fcurves(a_obj)
         for kp in fc.keyframe_points
         if kp.select_control_point
     )

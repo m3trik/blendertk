@@ -22,7 +22,7 @@ Divergence from mayatk (by design):
     * **Slotted-action fcurve access.** Blender 4.4+ removed the flat
       ``Action.fcurves`` accessor (fully gone in 5.1); fcurves live under
       ``action.layers[*].strips[*].channelbag(slot).fcurves`` where the slot is
-      ``obj.animation_data.action_slot``.  :func:`iter_action_fcurves` is the
+      ``obj.animation_data.action_slot``.  :meth:`AnimUtils.get_fcurves` is the
       single walk that yields an object's fcurves across that structure.
     * **Motion filtering is per-fcurve value-variance**, not Maya's
       ``SegmentKeys`` static-interval splitting (Blender has no equivalent).  A
@@ -442,7 +442,7 @@ class _BlenderShotStoreInternal(object):
         for Maya's motion-only segment collection.
         """
         times: set = set()
-        for fc in BlenderShotStore.iter_action_fcurves(obj):
+        for fc in AnimUtils.get_fcurves(obj):
             if not _BlenderShotStoreInternal._is_transform_path(fc.data_path):
                 continue
             if _BlenderShotStoreInternal._is_ignored_path(fc.data_path, ignore):
@@ -469,7 +469,7 @@ class _BlenderShotStoreInternal(object):
         Overlapping / touching intervals across channels are merged.
         """
         raw: List[Tuple[float, float]] = []
-        for fc in BlenderShotStore.iter_action_fcurves(obj):
+        for fc in AnimUtils.get_fcurves(obj):
             if not _BlenderShotStoreInternal._is_transform_path(fc.data_path):
                 continue
             if _BlenderShotStoreInternal._is_ignored_path(fc.data_path, ignore):
@@ -648,7 +648,7 @@ class _BlenderShotStoreInternal(object):
         obj = bpy.data.objects.get(obj_name)
         return obj is not None and any(
             fc.data_path == data_path and fc.array_index == index
-            for fc in BlenderShotStore.iter_action_fcurves(obj)
+            for fc in AnimUtils.get_fcurves(obj)
         )
 
     @staticmethod
@@ -1411,7 +1411,7 @@ class BlenderShotStore(ptk.ShotStore, _BlenderShotStoreInternal):
         if scene is None:
             return False
         for obj in scene.objects:
-            for fc in BlenderShotStore.iter_action_fcurves(obj):
+            for fc in AnimUtils.get_fcurves(obj):
                 if (
                     _BlenderShotStoreInternal._is_transform_path(fc.data_path)
                     and len(fc.keyframe_points) > 0
@@ -1573,7 +1573,7 @@ class BlenderShotStore(ptk.ShotStore, _BlenderShotStoreInternal):
                 continue
             keyed = False
             for obj in objs:
-                for fc in self.iter_action_fcurves(obj):
+                for fc in AnimUtils.get_fcurves(obj):
                     key = self.curve_key(obj.name, fc.data_path, fc.array_index)
                     if any(
                         start <= t <= end and not ledger.owns_key(key, t)
@@ -1690,7 +1690,7 @@ class BlenderShotStore(ptk.ShotStore, _BlenderShotStoreInternal):
             for path, alias in cls._TRANSFER_LABEL_ALIASES.items()
             if alias == label
         }
-        for fc in cls.iter_action_fcurves(obj):
+        for fc in AnimUtils.get_fcurves(obj):
             if SegmentCollector.attr_label(fc) in wanted:
                 return _ShotSequencerInternal._fc_key(obj_name, fc)
         return None
@@ -1912,35 +1912,16 @@ class BlenderShotStore(ptk.ShotStore, _BlenderShotStoreInternal):
     # ---- scene acquisition (5.1 slotted-action API) -----------------------
 
     @staticmethod
+    @ptk.Deprecation.symbol(
+        "btk.AnimUtils.get_fcurves", remove_in="0.23.0", since="2026-10-27"
+    )
     def iter_action_fcurves(obj):
         """Yield every fcurve driving *obj*, across Blender 5.1's slotted actions.
 
-        Blender 4.4+ moved fcurves off the flat ``Action.fcurves`` list (removed in
-        5.1) into per-slot channelbags: ``action.layers[*].strips[*].channelbag(slot)``
-        where the slot is ``obj.animation_data.action_slot``.  This is the single
-        place that walks that structure; every acquisition helper below goes through
-        it so the traversal has one definition.  Legacy (pre-4.4) actions carry no
-        ``layers`` — their flat ``action.fcurves`` is yielded directly.
+        Moved to :meth:`AnimUtils.get_fcurves`, the one slot-aware walk, so
+        library code reads curves without reaching into the shots store.
         """
-        ad = getattr(obj, "animation_data", None)
-        if ad is None or ad.action is None:
-            return
-        act = ad.action
-        slot = getattr(ad, "action_slot", None)
-        layers = getattr(act, "layers", None)
-        if not layers:
-            yield from getattr(act, "fcurves", None) or ()
-            return
-        for layer in layers:
-            for strip in layer.strips:
-                try:
-                    cb = strip.channelbag(slot) if slot is not None else None
-                except Exception:
-                    cb = None
-                if cb is None:
-                    continue
-                for fc in cb.fcurves:
-                    yield fc
+        yield from AnimUtils.get_fcurves(obj)
 
     @staticmethod
     def collect_transform_segments(
@@ -2001,7 +1982,7 @@ class BlenderShotStore(ptk.ShotStore, _BlenderShotStoreInternal):
             return []
         entries: List[Tuple[float, float, str]] = []
         for obj in scene.objects:
-            for fc in BlenderShotStore.iter_action_fcurves(obj):
+            for fc in AnimUtils.get_fcurves(obj):
                 n = len(fc.keyframe_points)
                 if not n:
                     continue

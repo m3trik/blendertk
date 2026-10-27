@@ -39,6 +39,7 @@ def run():
     from qtpy import QtWidgets
 
     from blendertk import BlenderShotStore
+    from blendertk.anim_utils._anim_utils import AnimUtils
     from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import ShotSequencer
     from blendertk.anim_utils.shots.shot_sequencer.graph_sync import GraphSync
     from blendertk.anim_utils.shots.shot_sequencer.shot_sequencer_controller import (
@@ -68,7 +69,7 @@ def run():
     def loc_x(obj):
         return next(
             fc
-            for fc in BlenderShotStore.iter_action_fcurves(obj)
+            for fc in AnimUtils.get_fcurves(obj)
             if fc.data_path == "location" and fc.array_index == 0
         )
 

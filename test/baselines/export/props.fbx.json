@@ -1,0 +1,140 @@
+{
+ "census": {
+  "Geometry": 2,
+  "Material": 2,
+  "Model": 3,
+  "NodeAttribute": 1
+ },
+ "format": "fbx",
+ "geometry": {
+  "Cube.001": {
+   "polygon_vertices": 24,
+   "vertices": 8
+  },
+  "Sphere": {
+   "polygon_vertices": 176,
+   "vertices": 42
+  }
+ },
+ "materials": {
+  "ball_mat": {
+   "properties": {
+    "AmbientColor": [
+     0.0509,
+     0.0509,
+     0.0509
+    ],
+    "AmbientFactor": 0.0,
+    "BumpFactor": 0.0,
+    "DiffuseColor": [
+     0.1,
+     0.3,
+     0.9
+    ],
+    "EmissiveColor": [
+     1.0,
+     1.0,
+     1.0
+    ],
+    "EmissiveFactor": 0.0,
+    "ReflectionColor": [
+     0.1,
+     0.3,
+     0.9
+    ],
+    "ReflectionFactor": 0.5,
+    "Shininess": 25.0,
+    "ShininessExponent": 25.0,
+    "SpecularColor": [
+     0.1,
+     0.3,
+     0.9
+    ],
+    "SpecularFactor": 0.25
+   },
+   "shading_model": "phong",
+   "textures": {}
+  },
+  "crate_mat": {
+   "properties": {
+    "AmbientColor": [
+     0.0509,
+     0.0509,
+     0.0509
+    ],
+    "AmbientFactor": 0.0,
+    "BumpFactor": 0.0,
+    "DiffuseColor": [
+     0.8,
+     0.2,
+     0.1
+    ],
+    "EmissiveColor": [
+     1.0,
+     1.0,
+     1.0
+    ],
+    "EmissiveFactor": 0.0,
+    "ReflectionColor": [
+     0.8,
+     0.2,
+     0.1
+    ],
+    "ReflectionFactor": 0.0,
+    "Shininess": 25.0,
+    "ShininessExponent": 25.0,
+    "SpecularColor": [
+     0.8,
+     0.2,
+     0.1
+    ],
+    "SpecularFactor": 0.25
+   },
+   "shading_model": "phong",
+   "textures": {}
+  }
+ },
+ "models": {
+  "ball": {
+   "Lcl Translation": [
+    -1.0,
+    0.0,
+    1.0
+   ],
+   "type": "Mesh"
+  },
+  "crate": {
+   "Lcl Rotation": [
+    0.0,
+    0.0,
+    45.0
+   ],
+   "Lcl Scaling": [
+    2.0,
+    1.0,
+    1.0
+   ],
+   "Lcl Translation": [
+    1.0,
+    2.0,
+    0.5
+   ],
+   "type": "Mesh"
+  },
+  "props_grp": {
+   "Lcl Rotation": [
+    -90.0,
+    0.0,
+    0.0
+   ],
+   "Lcl Scaling": [
+    100.0,
+    100.0,
+    100.0
+   ],
+   "type": "Null"
+  }
+ },
+ "takes": {},
+ "user_properties": {}
+}

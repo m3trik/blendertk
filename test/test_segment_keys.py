@@ -36,8 +36,8 @@ def _run_checks():
 
     import bpy
 
+    from blendertk.anim_utils._anim_utils import AnimUtils
     from blendertk.anim_utils.segment_keys import SegmentKeys
-    from blendertk.anim_utils.shots._shots import BlenderShotStore
 
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete()
@@ -125,7 +125,7 @@ def _run_checks():
 
     # stepped keys are point events (interpolation CONSTANT), value change emits the span
     st = keyed("Step", [(0, 0.0), (10, 0.0), (20, 5.0)])
-    for fc in BlenderShotStore.iter_action_fcurves(st):
+    for fc in AnimUtils.get_fcurves(st):
         for kp in fc.keyframe_points:
             kp.interpolation = "CONSTANT"
     segs = SegmentKeys.collect_segments(
@@ -193,7 +193,7 @@ def _run_checks():
 
     # shift_curves
     sh = keyed("Shift", [(0, 0.0), (10, 1.0), (20, 1.0), (30, 2.0)])
-    fcs = list(BlenderShotStore.iter_action_fcurves(sh))
+    fcs = list(AnimUtils.get_fcurves(sh))
     SegmentKeys.shift_curves(fcs, 5, time_range=(0, 10))
     t = sorted(
         round(kp.co[0], 3)
@@ -225,7 +225,7 @@ def _run_checks():
     # of mayatk's shift_curves.
     lnd = keyed("ShiftLand", [(0, 0.0), (10, 1.0), (20, 5.0)])
     lnd_fc = next(
-        fc for fc in BlenderShotStore.iter_action_fcurves(lnd) if fc.array_index == 0
+        fc for fc in AnimUtils.get_fcurves(lnd) if fc.array_index == 0
     )
     log = []
     try:

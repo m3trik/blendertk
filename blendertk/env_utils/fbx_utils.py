@@ -1556,8 +1556,6 @@ class _FbxUtilsInternal(object):
         -- a parked take where it precedes the live one. Returns the parked
         takes Key Stash took (one clip each).
         """
-        from blendertk.anim_utils.key_stash._key_stash import KeyStash
-
         by_take, unmatched = cls._take_actions(new_actions, [play] + parked)
         # IDs hash by their pointer; a wrapper is fresh on every access, so
         # never compare them by identity.
@@ -1575,8 +1573,18 @@ class _FbxUtilsInternal(object):
         import bpy
 
         stashed: List[str] = []
-        store = KeyStash.active() if parked else None
+        active = FbxUtils.hook("take_stash") if parked else None
+        if parked and active is None:
+            log.warning(
+                f"Key Stash is unavailable: {', '.join(map(repr, parked))} left out "
+                "of the import."
+            )
+        store = active() if active else None
         for take in parked:
+            if store is None:
+                for _owner, action in by_take[take]:
+                    bpy.data.actions.remove(action)
+                continue
             pairs = [
                 (o, a) for o, a in by_take[take] if isinstance(o, bpy.types.Object)
             ]
@@ -1993,6 +2001,29 @@ class FbxUtils(_FbxUtilsInternal):
     # time (what a non-exporter write ships), and ``enable_export_producer``
     # records the opt-in for parity.
 
+    #: The host a tool outside this library registers its producers, stagers
+    #: and record owners under (``ptk.SceneRecords.registered_hooks``): an
+    #: installed one joins :attr:`PRODUCERS` and :attr:`STAGERS` unimported.
+    HOST = "blender"
+
+    #: The tool code this module reaches, one ``(module, class, method)`` row
+    #: per role, resolved lazily (:meth:`hook`): a tool that moves out of this
+    #: library takes its row with it and registers it as an entry point
+    #: (``ptk.SceneRecords.hook_row``), so these calls never import upward.
+    HOOKS: Dict[str, Tuple[str, str, str]] = {
+        "take_stash": ("blendertk.anim_utils.key_stash._key_stash", "KeyStash", "active"),
+        "dependency_dirs": ("blendertk.light_utils.lightmap_baker.lightmap_records", "LightmapRecords", "search_dirs"),
+    }
+
+    @classmethod
+    def hook(cls, role: str) -> Optional[Callable]:
+        """The callable :attr:`HOOKS` names for *role*, else the one an installed
+        package registers for :attr:`HOST`; ``None`` when neither resolves (the
+        caller then does without it, as for an unimportable producer)."""
+        row = ptk.SceneRecords.hook_row(cls.HOOKS.get(role), cls.HOST, role)
+        resolved = cls._resolve_row(f"Hook {role!r}", *row) if row else None
+        return resolved[0] if resolved else None
+
     #: The records this DCC produces: ``ptk.SceneRecords`` spec -> (module,
     #: class, classmethod taking the ExportContext).  Add a producer HERE and
     #: declare its record THERE; an unregistered key fails
@@ -2154,7 +2185,7 @@ class FbxUtils(_FbxUtilsInternal):
             None if only is None else {ptk.SceneRecords.resolve(k).key for k in only}
         )
         table: Dict[Any, Callable] = {}
-        for spec, row in cls.PRODUCERS.items():
+        for spec, row in ptk.SceneRecords.producer_rows(cls.PRODUCERS, cls.HOST).items():
             if wanted is not None and spec.key not in wanted:
                 continue
             resolved = cls._resolve_row(f"Producer for {spec.key!r}", *row)
@@ -2245,7 +2276,7 @@ class FbxUtils(_FbxUtilsInternal):
         them; ``None`` = all) resolved to callables, then every session
         stager -- those always run."""
         table: Dict[str, Tuple[Optional[Callable], Optional[Callable]]] = {}
-        for name, row in cls.STAGERS.items():
+        for name, row in ptk.SceneRecords.stager_rows(cls.STAGERS, cls.HOST).items():
             if names is not None and name not in names:
                 continue
             resolved = cls._resolve_row(f"Stager {name!r}", *row)
@@ -3326,15 +3357,18 @@ class FbxUtils(_FbxUtilsInternal):
         log: logging.Logger,
     ) -> Tuple[List[str], str, Iterable[Any]]:
         """:meth:`embed_dependencies`'s inputs, each ``None`` asked of the scene."""
-        if search_dirs is None or walk_root is None:
-            from blendertk.light_utils.lightmap_baker.lightmap_records import (
-                LightmapRecords,
-            )
+        from blendertk.env_utils._env_utils import EnvUtils
 
-            if search_dirs is None:
-                search_dirs = LightmapRecords.search_dirs()
-            if walk_root is None:
-                walk_root = LightmapRecords._walk_root()
+        if search_dirs is None:
+            dirs = FbxUtils.hook("dependency_dirs")
+            if dirs is None:
+                log.warning(
+                    "No dependency-folder hook resolved (the lightmap records'): "
+                    "files are searched for in the project's texture folders only."
+                )
+            search_dirs = dirs() if dirs else EnvUtils.texture_search_dirs()
+        if walk_root is None:
+            walk_root = EnvUtils.source_images_dir() or ""
         if files is None:
             files = FbxUtils._shipped_audio(file_path, log)
         return list(search_dirs), walk_root, files

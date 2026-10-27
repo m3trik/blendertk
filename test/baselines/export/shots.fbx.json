@@ -1,0 +1,240 @@
+{
+ "census": {
+  "AnimationCurve": 18,
+  "AnimationCurveNode": 9,
+  "AnimationLayer": 3,
+  "AnimationStack": 3,
+  "Geometry": 1,
+  "Model": 2,
+  "NodeAttribute": 1
+ },
+ "format": "fbx",
+ "geometry": {
+  "Cube.002": {
+   "polygon_vertices": 24,
+   "vertices": 8
+  }
+ },
+ "materials": {},
+ "models": {
+  "data_export": {
+   "Lcl Rotation": [
+    -90.0,
+    0.0,
+    0.0
+   ],
+   "Lcl Scaling": [
+    100.0,
+    100.0,
+    100.0
+   ],
+   "type": "Null"
+  },
+  "mover": {
+   "Lcl Rotation": [
+    -90.0,
+    0.0,
+    0.0
+   ],
+   "Lcl Scaling": [
+    100.0,
+    100.0,
+    100.0
+   ],
+   "Lcl Translation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "type": "Mesh"
+  }
+ },
+ "takes": {
+  "Scene": {
+   "mover|Lcl Rotation|d|X": [
+    0.0417,
+    1.6667,
+    19
+   ],
+   "mover|Lcl Rotation|d|Y": [
+    0.0417,
+    1.6667,
+    21
+   ],
+   "mover|Lcl Rotation|d|Z": [
+    0.0417,
+    1.6667,
+    20
+   ],
+   "mover|Lcl Scaling|d|X": [
+    0.0417,
+    1.6667,
+    13
+   ],
+   "mover|Lcl Scaling|d|Y": [
+    0.0417,
+    1.6667,
+    13
+   ],
+   "mover|Lcl Translation|d|X": [
+    0.0417,
+    1.6667,
+    40
+   ]
+  },
+  "ShotA": {
+   "mover|Lcl Rotation|d|X": [
+    0.0417,
+    0.8333,
+    2
+   ],
+   "mover|Lcl Rotation|d|Y": [
+    0.0417,
+    0.8333,
+    2
+   ],
+   "mover|Lcl Rotation|d|Z": [
+    0.0417,
+    0.8333,
+    2
+   ],
+   "mover|Lcl Scaling|d|X": [
+    0.0417,
+    0.8333,
+    2
+   ],
+   "mover|Lcl Scaling|d|Y": [
+    0.0417,
+    0.8333,
+    2
+   ],
+   "mover|Lcl Translation|d|X": [
+    0.0417,
+    0.8333,
+    20
+   ]
+  },
+  "ShotB": {
+   "mover|Lcl Rotation|d|X": [
+    0.875,
+    1.6667,
+    18
+   ],
+   "mover|Lcl Rotation|d|Y": [
+    0.875,
+    1.6667,
+    20
+   ],
+   "mover|Lcl Rotation|d|Z": [
+    0.875,
+    1.6667,
+    19
+   ],
+   "mover|Lcl Scaling|d|X": [
+    0.875,
+    1.6667,
+    13
+   ],
+   "mover|Lcl Scaling|d|Y": [
+    0.875,
+    1.6667,
+    13
+   ],
+   "mover|Lcl Translation|d|X": [
+    0.875,
+    1.6667,
+    20
+   ]
+  }
+ },
+ "user_properties": {
+  "data_export.animation": {
+   "clip_mode": "text",
+   "fps": 24.0,
+   "shots": [
+    {
+     "clip": "text",
+     "end": 20,
+     "start": 1
+    },
+    {
+     "clip": "text",
+     "end": 40,
+     "start": 21
+    }
+   ],
+   "version": 1
+  },
+  "data_export.handoff": {
+   "assembly": [
+    {
+     "data": [],
+     "part": "text",
+     "spec": "text"
+    },
+    {
+     "data": [
+      "text"
+     ],
+     "part": "text",
+     "spec": "text"
+    },
+    {
+     "data": [
+      "text"
+     ],
+     "part": "text",
+     "spec": "text"
+    },
+    {
+     "data": [
+      "text"
+     ],
+     "part": "text",
+     "spec": "text"
+    },
+    {
+     "data": [
+      "text"
+     ],
+     "part": "text",
+     "spec": "text"
+    }
+   ],
+   "extras": {
+    "source": {
+     "application": "text",
+     "version": "text"
+    }
+   },
+   "instructions": "text",
+   "rendering": {
+    "environment": {
+     "fallback": "text",
+     "intensity": 1.0,
+     "prefilter": "text",
+     "prefilterBlur": 0.04
+    },
+    "keyLight": {
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "intensity": 0.9,
+     "position": [
+      3,
+      6,
+      4
+     ],
+     "type": "text"
+    },
+    "renderer": {
+     "toneMapping": "text",
+     "toneMappingExposure": 1.0
+    }
+   },
+   "version": 3
+  }
+ }
+}

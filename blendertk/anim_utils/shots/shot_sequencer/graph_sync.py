@@ -299,7 +299,7 @@ class GraphSync:
             return []
         order = {path: i for i, path in enumerate(self.PATH_ORDER)}
         found = []
-        for fc in BlenderShotStore.iter_action_fcurves(node):  # no drivers here
+        for fc in AnimUtils.get_fcurves(node):  # no drivers here
             cid = f"{obj}|{fc.data_path}|{fc.array_index}"
             found.append((cid, fc, SegmentCollector.attr_label(fc)))
         return sorted(
@@ -324,7 +324,7 @@ class GraphSync:
         node = bpy.data.objects.get(obj)
         if node is None:
             return None
-        for fc in BlenderShotStore.iter_action_fcurves(node):
+        for fc in AnimUtils.get_fcurves(node):
             if fc.data_path == data_path and fc.array_index == index:
                 return fc
         return None

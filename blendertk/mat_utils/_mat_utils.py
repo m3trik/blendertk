@@ -3813,7 +3813,7 @@ class MatUtils(_MatUtilsInternal):
 
     @staticmethod
     @ptk.Deprecation.symbol(
-        "MatUpdater.update_materials", remove_in="0.22.0", since="2026-10-25"
+        "MatUpdater.update_materials", remove_in="0.23.0", since="2026-10-25"
     )
     def update_materials(
         materials=None, config=None, verbose=False, progress_callback=None

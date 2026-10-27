@@ -596,7 +596,7 @@ class _AnimUtilsInternal(object):
         moved points that land together the LEAST MOVED is kept -- the one whose
         frame is nearest its *ideal* (a snapped scale: its exact scaled time;
         default: its own frame), an exact tie going to the LATER source -- and
-        the others are removed (mayatk's ``_move_curve_keys`` decides the same).
+        the others are removed (mayatk's ``move_curve_keys`` decides the same).
         *replaced* is the frames of the points removed -- a moved one's at its
         SOURCE, where what is held on it still is -- and *pairs* the ``(old,
         new)`` frames of the moved points kept.  Removed last-first, so no
@@ -1142,7 +1142,7 @@ class AnimUtils(_AnimUtilsInternal):
         ptk.Deprecation.values(
             {"unbake": "extremes"},
             what="AnimUtils optimize level",
-            remove_in="0.22.0",
+            remove_in="0.23.0",
             since="2026-09-23",
         )
     )
@@ -3604,8 +3604,6 @@ class AnimUtils(_AnimUtilsInternal):
         """
         import bpy
 
-        from blendertk.anim_utils.shots._shots import BlenderShotStore
-
         if objects is None:
             objects = [
                 o
@@ -3614,7 +3612,7 @@ class AnimUtils(_AnimUtilsInternal):
             ]
         out = {}
         for o in ptk.make_iterable(objects):
-            for fc in BlenderShotStore.iter_action_fcurves(o):
+            for fc in AnimUtils.get_fcurves(o):
                 times = sorted(
                     {k.co.x for k in fc.keyframe_points if k.select_control_point}
                 )
