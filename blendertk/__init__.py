@@ -63,6 +63,8 @@ DEFAULT_INCLUDE = {
         "Matrices",
     ],
     "node_utils._node_utils": "*",
+    # The Channels table's API (its panel is tentacle's shared Channels tool).
+    "node_utils.attributes.channels._channels": ["Channels"],
     # DataNodes lives in its own module (mirror of mayatk's ``node_utils.data_nodes``).
     "node_utils.data_nodes": "*",
     "cam_utils._cam_utils": "*",
@@ -705,6 +707,13 @@ MOVED_NAMES = {
         "tentacle.slots.tools.texture_combine.TextureCombineSlots",
         "0.23.0",
     ),
+    "ChannelsSlots": (
+        "tentacle.slots.tools.channels.ChannelsSlots",
+        "0.23.0",
+    ),
+    # Channels' copy / paste took mayatk's names (no alias: the panel was their one caller).
+    "copy_values": ("blendertk.Channels.copy_attr_values", "0.23.0"),
+    "paste_values": ("blendertk.Channels.paste_attr_values", "0.23.0"),
 }
 
 bootstrap_package(

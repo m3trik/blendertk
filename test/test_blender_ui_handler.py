@@ -58,7 +58,6 @@ PANELS = [
     "substance_bridge",
     "arnold_bridge",
     "hierarchy_sync",
-    "channels",
     "shots",
     "shot_sequencer",
 ]
@@ -272,10 +271,6 @@ try:
             "SubstanceBridgeSlots",
         ),  # BridgeSlotsBase init is bpy-free (engine defers bpy)
         (
-            "channels",
-            "ChannelsSlots",
-        ),  # __init__ + table/header init are bpy-free (guarded refresh)
-        (
             "reference_manager",
             "ReferenceManagerSlots",
         ),  # *_init bpy-guarded → table degrades w/o bpy
@@ -304,7 +299,7 @@ try:
 
     check(
         "blendertk-tagged panels default to sticky (hide button)",
-        handler.default_persistence(sb.get_ui("channels"))
+        handler.default_persistence(sb.get_ui("reference_manager"))
         == _UiHandler.PERSISTENCE_STICKY,
     )
     check(
@@ -314,15 +309,15 @@ try:
     )
     check(
         "a UI Browser override outranks the blendertk default",
-        handler.resolve_persistence(sb.get_ui("channels"), context_default=None)
+        handler.resolve_persistence(sb.get_ui("reference_manager"), context_default=None)
         == _UiHandler.PERSISTENCE_STICKY
         and (
-            handler.set_persistence_override("channels", _UiHandler.PERSISTENCE_TRANSIENT)
-            or handler.resolve_persistence(sb.get_ui("channels"))
+            handler.set_persistence_override("reference_manager", _UiHandler.PERSISTENCE_TRANSIENT)
+            or handler.resolve_persistence(sb.get_ui("reference_manager"))
         )
         == _UiHandler.PERSISTENCE_TRANSIENT,
     )
-    handler.set_persistence_override("channels", None)  # leave the store clean
+    handler.set_persistence_override("reference_manager", None)  # leave the store clean
 
     # Gesture-scoped panels opt into the pin + auto-hide-on-key_show-release behavior by declaring a
     # "pin" header button in header_init (overriding BlenderUiHandler's blanket "blendertk"->hide
@@ -684,7 +679,7 @@ try:
             # `if not is_initialized` block, so a reload silently left every row icon click and
             # context-menu action bound to the OLD (dead) slots instance. tbl000_init now re-wires
             # them via _wire_table_signals on every call — verify a fresh instance actually takes
-            # over the live bindings (mirror of the channels reload-rewire regression test).
+            # over the live bindings (mirror of the shared Channels panel's reload-rewire test).
             from blendertk.env_utils.reference_manager import ReferenceManagerSlots
 
             _s2 = ReferenceManagerSlots.__new__(ReferenceManagerSlots)
@@ -1237,174 +1232,6 @@ try:
     else:
         check(
             "workspace_editor exposes slots for the real-time check", False, "no slots"
-        )
-
-    # channels: Compact View + the wheel-scrub step ladder are Qt-only (no bpy), so exercise them
-    # on the real loaded panel here. Compact collapses row height + hides the table column header;
-    # the ladder scales ×10 (Ctrl) / ×100 (Ctrl+Shift) / ÷10 (Alt) per modifier (mirror of Maya).
-    channels_ui = sb.get_ui("channels")
-    # The header wiring (header_init) runs in a deferred singleShot(0): pump once so it
-    # fires; nothing else pumps under this harness.
-    app.processEvents()
-    cslots = getattr(channels_ui, "slots", None)
-    ctbl = getattr(channels_ui, "tbl000", None)
-    if cslots is not None and ctbl is not None:
-        vh = ctbl.verticalHeader()
-        # Compact view defaults ON since 2026-07-12 — establish the known
-        # non-compact baseline first so base_h is the expanded height.
-        cslots._on_toggle_compact_view(False)
-        base_h = vh.defaultSectionSize()
-        cslots._on_toggle_compact_view(True)
-        compact_h = vh.defaultSectionSize()
-        hdr_hidden = ctbl.horizontalHeader().isHidden()
-        cslots._on_toggle_compact_view(False)
-        restored_h = vh.defaultSectionSize()
-        hdr_shown = not ctbl.horizontalHeader().isHidden()
-        check(
-            "channels compact view collapses rows + hides the column header",
-            compact_h < base_h and hdr_hidden and restored_h == base_h and hdr_shown,
-            f"base={base_h} compact={compact_h} restored={restored_h} hdr_hidden={hdr_hidden}",
-        )
-        Qt = cslots.sb.QtCore.Qt
-        ladder_ok = (
-            cslots._wheel_step(Qt.NoModifier, False) == 0.1
-            and cslots._wheel_step(Qt.ControlModifier, False) == 1.0
-            and cslots._wheel_step(Qt.ControlModifier | Qt.ShiftModifier, False) == 10.0
-            and cslots._wheel_step(Qt.AltModifier, False) == 0.01
-            and cslots._wheel_step(Qt.ControlModifier | Qt.AltModifier, False) == 0.0001
-            and cslots._wheel_step(Qt.ControlModifier, True) == 10
-            and cslots._wheel_step(Qt.AltModifier, True) == 0
-        )
-        check("channels wheel-step ladder scales ×10/÷10 per modifier", ladder_ok)
-        # The pump above ran header_init (every *_init), so the Compact View checkbox is wired;
-        # the footer single-object button is built in __init__.
-        chk = getattr(cslots, "_chk_compact", None)
-        check(
-            "channels header wires Compact View + footer single-object button",
-            chk is not None
-            and chk.objectName() == "chk_compact_view"
-            and getattr(cslots, "_footer_compact_btn", None) is not None,
-            f"chk_compact={chk!r} footer_btn={getattr(cslots, '_footer_compact_btn', None) is not None}",
-        )
-
-        # Scrub/wheel value editing is engine-agnostic (it only routes deltas through the
-        # controller's value getters/setters). Drive it with a stub controller — no bpy needed —
-        # to prove the per-object delta + display-space round-trip is wired correctly.
-        class _FakeCtl:
-            def __init__(self):
-                self.vals = {"a": 1.0, "b": 2.0}
-                self.sets = []  # (obj, text)
-
-            def get_selected_nodes(self):
-                return ["a", "b"]
-
-            def is_locked(self, obj, desc):
-                return False
-
-            def get_channel_value(self, obj, desc):
-                return self.vals[obj]
-
-            def set_channel_value(self, objs, desc, text):
-                for o in objs:
-                    self.vals[o] = float(text)
-                    self.sets.append((o, text))
-
-            def format_value(self, v):
-                return str(v)
-
-            # Enough of the engine surface for _refresh_table to run without bpy (used by the
-            # rebuild regression below, which drives the real tbl000_init -> _refresh_table path).
-            def build_table_data(self, *a, **k):
-                return [["location_x", "", "", "1.0", "float"]], [(False, "none")]
-
-            def collect_channels(self, *a, **k):
-                return [dict(_CHAN_DESC)]
-
-        _CHAN_DESC = {
-            "name": "location_x",
-            "data_path": "location",
-            "index": 0,
-            "kind": "transform",
-            "type": "float",
-            "is_angle": False,
-        }
-        fake = _FakeCtl()
-        cslots.controller = fake
-        desc = dict(_CHAN_DESC)
-        cslots._row_descriptors = [desc]
-        COL_V = cslots.COL_VALUE
-        # MMB scrub: dx=10 px * 0.01 step = +0.1 applied to each object's own start.
-        cslots._on_scrub_started(0, COL_V)
-        cslots._on_scrub_moved(0, COL_V, 10, 0)
-        scrub_ok = (
-            round(fake.vals["a"], 4) == 1.1
-            and round(fake.vals["b"], 4) == 2.1
-            and len(fake.sets) == 2
-        )
-        cslots._on_scrub_finished(0, COL_V)
-        check(
-            "channels MMB-scrub applies per-object delta in display space",
-            scrub_ok,
-            f"vals={fake.vals} sets={fake.sets}",
-        )
-
-        # Wheel (display mode, no editor open, no modifier): +1 notch * 0.1 default step.
-        fake.vals = {"a": 1.0, "b": 2.0}
-        fake.sets = []
-        Qt = cslots.sb.QtCore.Qt
-        cslots._on_wheel_scrolled(0, COL_V, 1, Qt.NoModifier)
-        wheel_ok = round(fake.vals["a"], 4) == 1.1 and round(fake.vals["b"], 4) == 2.1
-        check(
-            "channels wheel-scrub steps each object by the modifier's step",
-            wheel_ok,
-            f"vals={fake.vals}",
-        )
-
-        # Regression (wheel/edits silently dead after a UI reload): the tbl000 QWidget can
-        # outlive the slots instance. tbl000_init must RE-WIRE the table signals on EVERY call
-        # (not only when the widget is first initialized), or the persisted widget's
-        # cellWheelScrolled / cellChanged / scrub signals stay bound to the dead instance and
-        # no-op — the user-reported "scroll wheel over a value does nothing". Simulate the
-        # rebuild (new ChannelsSlots on the same persisted, already-initialized widget) and
-        # prove the wheel signal reaches the NEW instance. mirror of the mayatk panel.
-        from blendertk.node_utils.attributes.channels.channels_slots import (
-            ChannelsSlots as _ChannelsSlots,
-        )
-
-        cslots.tbl000_init(ctbl)
-        ctbl.is_initialized = (
-            True  # what _perform_slot_init stamps after the first init
-        )
-        s2 = _ChannelsSlots(
-            sb
-        )  # a fresh slots instance bound to the SAME persisted widget
-        s2.controller = _FakeCtl()
-        s2._row_descriptors = [dict(_CHAN_DESC)]
-        s2.controller.vals = {"a": 9.0, "b": 2.0}
-        # Isolate the tbl000_init re-wire specifically: drop every binding first (as a reloaded
-        # .ui handing tbl000_init a different-but-now-stale widget would), so ONLY the
-        # unconditional re-wire in tbl000_init — not the best-effort pass in __init__ — can make
-        # the wheel live again. With the old code (wiring trapped in `if not is_initialized`),
-        # tbl000_init leaves it disconnected and the assert fails.
-        try:
-            ctbl.cellWheelScrolled.disconnect()
-        except (RuntimeError, TypeError):
-            pass
-        s2.tbl000_init(
-            ctbl
-        )  # is_initialized already True -> must still re-wire the signals
-        ctbl.cellWheelScrolled.emit(0, COL_V, 1, Qt.NoModifier)
-        app.processEvents()
-        check(
-            "channels tbl000_init re-wires table signals after a rebuild (wheel not dead)",
-            round(s2.controller.vals["a"], 4) == 9.1,
-            f"s2.vals={s2.controller.vals} (9.0 = dead wiring bug, 9.1 = fixed)",
-        )
-    else:
-        check(
-            "channels exposes slots + table for compact-view check",
-            False,
-            "missing slots/tbl000",
         )
 
 except Exception as e:

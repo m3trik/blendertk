@@ -12,12 +12,17 @@ handles UI wiring — exactly the engine/slots split mayatk uses.
 A *channel* is described by a plain dict (see :meth:`_describe`) carrying the friendly ``name``,
 the Blender ``data_path`` + array ``index`` (so values, locks and keyframes resolve uniformly),
 the ``kind`` (``"transform"`` / ``"custom"``), the display ``type`` and an ``is_angle`` flag.
+Every public method taking a channel also takes its NAME (``location_x``, a custom property's
+key), resolved per object by :meth:`_channel`: tentacle's shared Channels panel keys its rows
+by name and calls this class by mayatk's names (the "Panel surface" section).
 
 ``import bpy`` is deferred into the call bodies (no import side effects) so the module — and the
 package surface — resolves under headless ``--background`` without a running Blender.
 """
 
 import math
+
+import pythontk as ptk
 
 from blendertk.core_utils._core_utils import CoreUtils
 
@@ -78,6 +83,47 @@ class Channels:
         "scale": "lock_scale",
     }
 
+    #: The display types (:meth:`get_attr_type`) a value cell scrubs and wheel-steps;
+    #: :attr:`INTEGER_TYPES` step in whole units. Mirror of mayatk's (there Maya's
+    #: storage types).
+    SCRUBBABLE_TYPES = frozenset({"float", "int"})
+    INTEGER_TYPES = frozenset({"int"})
+    #: The connection states (:meth:`classify_connection`) a plain click on the panel's
+    #: key icon keys. A constrained object's channels key like any other (the constraint
+    #: applies over them), and so does a muted F-curve; a driver overrides its channel,
+    #: so it is only removed (Ctrl). Mirror of mayatk's (there only the keyframe states).
+    KEYABLE_STATES = frozenset(
+        {
+            "none",
+            "keyframe",
+            "keyframe_active",
+            "keyframe_changed",
+            "constraint",
+            "muted",
+        }
+    )
+    #: The custom-property types :meth:`create_attribute` makes, in the panel's order.
+    #: Maya's ``double3`` is ``vector``; an arbitrary object has no enum property.
+    CREATE_TYPES = ("float", "int", "bool", "string", "vector")
+    #: Blender's own editors the panel's header opens (:meth:`open_editor`):
+    #: ``{key: (label, tooltip)}``.
+    EDITORS = {
+        "properties": (
+            "Properties Editor",
+            "Open Blender's Properties editor (Object tab) in a new window.",
+        ),
+        "drivers": ("Drivers Editor", "Open Blender's Drivers editor in a new window."),
+        "graph": (
+            "Graph Editor",
+            "Open Blender's Graph editor (F-curves) in a new window.",
+        ),
+    }
+    _EDITOR_ARGS = {
+        "properties": ("Properties", "OBJECT"),
+        "drivers": ("Drivers", None),
+        "graph": ("Graph Editor", None),
+    }
+
     def __init__(self):
         self._pinned_targets = None
         self._single_object_mode = False
@@ -108,9 +154,13 @@ class Channels:
 
         When pinned, returns the cached list filtered to objects still present in the blend file;
         otherwise the current selection. In ``single_object_mode`` only the active object is
-        returned (mirror of Maya's "most recently selected").
+        returned (mirror of Maya's "most recently selected"). Without Blender (no ``bpy``: the
+        panel loading in plain Qt) there are none.
         """
-        import bpy
+        try:
+            import bpy
+        except ImportError:
+            return []
 
         if self._pinned_targets is not None:
             names = {o.name for o in bpy.data.objects}
@@ -186,6 +236,45 @@ class Channels:
                 )
             )
         return out
+
+    @classmethod
+    def _channel(cls, obj, channel):
+        """The descriptor for *channel* on *obj*, or ``None`` when *obj* has no such channel.
+
+        *channel* is a descriptor (returned as is) or a channel NAME -- the panel's row key,
+        mayatk's attribute name -- resolved to the transform channel of that name or *obj*'s
+        custom property of that key (internal ``_`` and freeze-bake keys excluded).
+        """
+        if isinstance(channel, dict):
+            return channel
+        for d in cls._transform_descriptors():
+            if d["name"] == channel:
+                return d
+        try:
+            if channel in cls._custom_prop_keys(obj):
+                return cls._describe(
+                    channel,
+                    f'["{channel}"]',
+                    None,
+                    "custom",
+                    cls._value_type(obj[channel]),
+                )
+        except (AttributeError, KeyError, ReferenceError, TypeError):
+            pass
+        return None
+
+    @classmethod
+    def _first_channel(cls, objects, channel):
+        """*channel*'s descriptor on the first of *objects* that has it, else ``None``."""
+        for obj in objects or ():
+            d = cls._channel(obj, channel)
+            if d is not None:
+                return d
+        return None
+
+    @staticmethod
+    def _channel_name(channel):
+        return channel["name"] if isinstance(channel, dict) else channel
 
     @staticmethod
     def _value_type(val):
@@ -275,6 +364,9 @@ class Channels:
         convention); :meth:`parse_value` reverses it on edit.
         """
         try:
+            descriptor = cls._channel(obj, descriptor)
+            if descriptor is None:
+                return None
             if descriptor["kind"] == "transform":
                 val = getattr(obj, descriptor["data_path"])[descriptor["index"]]
                 return math.degrees(val) if descriptor["is_angle"] else val
@@ -357,8 +449,9 @@ class Channels:
 
     @classmethod
     def is_locked(cls, obj, descriptor):
-        """Lock state for *descriptor*. Only transform channels are lockable in Blender."""
-        if descriptor["kind"] != "transform":
+        """Lock state for *descriptor* (or a channel name). Only transform channels lock."""
+        descriptor = cls._channel(obj, descriptor)
+        if descriptor is None or descriptor["kind"] != "transform":
             return False
         lock_attr = cls._LOCK_ATTR.get(descriptor["data_path"])
         if not lock_attr:
@@ -371,7 +464,8 @@ class Channels:
     @classmethod
     def toggle_lock(cls, objects, descriptor):
         """Toggle the lock state of *descriptor* across *objects* (transform channels only)."""
-        if not objects or descriptor["kind"] != "transform":
+        descriptor = cls._first_channel(objects, descriptor)
+        if descriptor is None or descriptor["kind"] != "transform":
             return
         new_state = not cls.is_locked(objects[0], descriptor)
         cls.set_lock(objects, [descriptor], new_state)
@@ -381,8 +475,9 @@ class Channels:
         """Lock or unlock *descriptors* across all *objects* (transform channels only)."""
         with CoreUtils.undo_chunk(f"{'Lock' if lock else 'Unlock'} Attrs"):
             for obj in objects:
-                for d in descriptors:
-                    if d["kind"] != "transform":
+                for channel in descriptors:
+                    d = cls._channel(obj, channel)
+                    if d is None or d["kind"] != "transform":
                         continue
                     lock_attr = cls._LOCK_ATTR.get(d["data_path"])
                     if not lock_attr:
@@ -457,8 +552,11 @@ class Channels:
         but the value was moved off its F-curve without a key -- see :meth:`is_off_curve`),
         ``"muted"`` (F-curve or driver present but muted), ``"driven_key"`` (driver), or
         ``"constraint"`` (transform channel on a constrained object). Mirrors the Maya tool's
-        connection states with Blender's drivers / F-curves.
+        connection states with Blender's drivers / F-curves. *descriptor* may be a channel name.
         """
+        descriptor = cls._channel(obj, descriptor)
+        if descriptor is None:
+            return "none"
         drv = cls._find_driver(obj, descriptor)
         if drv is not None:
             return "muted" if getattr(drv, "mute", False) else "driven_key"
@@ -495,7 +593,8 @@ class Channels:
         Returns:
             bool
         """
-        if cls._find_driver(obj, descriptor) is not None:
+        descriptor = cls._channel(obj, descriptor)
+        if descriptor is None or cls._find_driver(obj, descriptor) is not None:
             return False
         fc = cls._find_fcurve(obj, descriptor)
         if fc is None or getattr(fc, "mute", False):
@@ -545,7 +644,12 @@ class Channels:
 
         Each row is ``[name, "", "", value_str, type_str]``; each state is
         ``(is_locked, conn_type)``. A value differing across a multi-selection shows ``"*"``.
+        *filter_key* may also be a ``FILTER_MAP`` label, or :meth:`get_filter_kwargs`' dict
+        (mayatk's call shape: ``build_table_data(objects, get_filter_kwargs(label, invert))``).
         """
+        if isinstance(filter_key, dict):
+            return cls.build_table_data(objects, **filter_key)
+        filter_key = cls.FILTER_MAP.get(filter_key, filter_key)
         if not objects:
             return [["", "", "", "", "No selection"]], [(False, "none")]
 
@@ -577,22 +681,30 @@ class Channels:
 
     @classmethod
     def set_channel_value(cls, objects, descriptor, text):
-        """Parse *text* and set *descriptor* on all *objects*."""
-        value = cls.parse_value(text, descriptor)
-        if value is None:
-            return
-        with CoreUtils.undo_chunk(f"Edit Attr: {descriptor['name']}"):
+        """Parse *text* and set *descriptor* (or a channel name) on all *objects*.
+
+        One undo step; none when nothing took the value (unparseable, or no object has
+        the channel).
+        """
+        with CoreUtils.undo_chunk(f"Edit Attr: {cls._channel_name(descriptor)}") as step:
+            changed = False
             for obj in objects:
+                d = cls._channel(obj, descriptor)
+                value = cls.parse_value(text, d) if d is not None else None
+                if value is None:
+                    continue
                 try:
-                    if descriptor["kind"] == "transform":
-                        getattr(obj, descriptor["data_path"])[descriptor["index"]] = (
-                            value
-                        )
+                    if d["kind"] == "transform":
+                        getattr(obj, d["data_path"])[d["index"]] = value
+                    elif d["name"] in obj.keys():
+                        obj[d["name"]] = value
                     else:
-                        if descriptor["name"] in obj.keys():
-                            obj[descriptor["name"]] = value
+                        continue
+                    changed = True
                 except Exception:
                     pass
+            if not changed:
+                step.cancel()
 
     @classmethod
     def reset_to_default(cls, objects, descriptors):
@@ -603,7 +715,10 @@ class Channels:
         """
         with CoreUtils.undo_chunk("Reset to Default"):
             for obj in objects:
-                for d in descriptors:
+                for channel in descriptors:
+                    d = cls._channel(obj, channel)
+                    if d is None:
+                        continue
                     try:
                         if d["kind"] == "transform":
                             default = 1.0 if d["data_path"] == "scale" else 0.0
@@ -633,7 +748,8 @@ class Channels:
         Decides set-vs-remove from the primary object so a batch stays consistent. Returns
         ``"set"`` / ``"removed"`` / ``None``.
         """
-        if not objects:
+        descriptor = cls._first_channel(objects, descriptor)
+        if descriptor is None:
             return None
         primary_fc = cls._find_fcurve(objects[0], descriptor)
         removing = bool(primary_fc and cls._has_key_at_current_frame(primary_fc))
@@ -650,7 +766,8 @@ class Channels:
         """
         import bpy
 
-        if not objects:
+        descriptor = cls._first_channel(objects, descriptor)
+        if descriptor is None:
             return None
         frame = bpy.context.scene.frame_current
         dp, idx = descriptor["data_path"], descriptor["index"]
@@ -673,6 +790,9 @@ class Channels:
 
         Returns ``True`` if anything was removed.
         """
+        descriptor = cls._first_channel(objects, descriptor)
+        if descriptor is None:
+            return False
         broke = False
         dp, idx = descriptor["data_path"], descriptor["index"]
         with CoreUtils.undo_chunk("Break Connection") as step:
@@ -726,7 +846,10 @@ class Channels:
         changed = False
         with CoreUtils.undo_chunk(f"{'Mute' if mute else 'Unmute'} Attrs") as step:
             for obj in objects:
-                for d in descriptors:
+                for channel in descriptors:
+                    d = cls._channel(obj, channel)
+                    if d is None:
+                        continue
                     drv = cls._find_driver(obj, d)
                     if drv is not None:
                         try:
@@ -762,7 +885,10 @@ class Channels:
         count = 0
         with CoreUtils.undo_chunk("Set Breakdown Key"):
             for obj in objects:
-                for d in descriptors:
+                for channel in descriptors:
+                    d = cls._channel(obj, channel)
+                    if d is None:
+                        continue
                     dp, idx = d["data_path"], d["index"]
                     try:
                         obj.keyframe_insert(
@@ -790,12 +916,14 @@ class Channels:
         Blender analogue of Maya's "Select Connection" (which selects the upstream source
         node): selects the driver's variable target object(s); failing that, a constrained
         transform channel's constraint target(s). Returns ``True`` if anything was selected.
+        *descriptor* may be a channel name.
         """
-        import bpy
-
         if not objects:
             return False
         obj = objects[0]
+        descriptor = cls._channel(obj, descriptor)
+        if descriptor is None:
+            return False
         targets = []
         drv = cls._find_driver(obj, descriptor)
         if drv is not None:
@@ -811,22 +939,8 @@ class Channels:
                     targets.append(tid)
         if not targets:
             return False
-        # the window's view layer: windowless, select_all / select_set / the active
-        # write address the scene's default layer, not the one the window shows
-        with CoreUtils.window_context_override():
-            try:
-                bpy.ops.object.select_all(action="DESELECT")
-            except RuntimeError:
-                pass
-            for tid in targets:
-                try:
-                    tid.select_set(True)
-                except (AttributeError, RuntimeError):
-                    pass
-            try:
-                bpy.context.view_layer.objects.active = targets[0]
-            except (AttributeError, TypeError):
-                pass
+        # The window's view layer, in any mode; the first target becomes active.
+        CoreUtils.select(targets, mode="replace")
         return True
 
     # Map UI-friendly type names → (python default, is_float).
@@ -846,8 +960,14 @@ class Channels:
         min_val=None,
         max_val=None,
         default_val=0.0,
+        keyable=True,
+        enum_names="",
     ):
         """Create a custom (ID) property on *objects*.
+
+        *keyable* and *enum_names* are mayatk's keywords, taken for one call shape and
+        unused: every Blender custom property is keyable, and an arbitrary object has no
+        enum property (:attr:`CREATE_TYPES` offers none).
 
         Parameters mirror the Maya tool's create-attribute form (numeric range + default). Maya's
         ``double3`` compound maps to a 3-element float ARRAY property (``vector``) — the direct
@@ -905,8 +1025,9 @@ class Channels:
         """Delete custom *descriptors* across all *objects* (transform channels are skipped)."""
         with CoreUtils.undo_chunk("Delete Attrs"):
             for obj in objects:
-                for d in descriptors:
-                    if d["kind"] != "custom":
+                for channel in descriptors:
+                    d = cls._channel(obj, channel)
+                    if d is None or d["kind"] != "custom":
                         continue
                     try:
                         if d["name"] in obj.keys():
@@ -942,31 +1063,38 @@ class Channels:
 
     @staticmethod
     def rename_node(obj, new_name):
-        """Rename the object datablock and return its (possibly suffixed) new name."""
+        """Rename the object datablock (Blender may suffix the name: ``.001``); return the object.
+
+        The object is its own handle -- as mayatk's returns the node's new long name -- and
+        keeps its identity through the rename, so a pin on it holds.
+        """
         if not new_name or obj is None:
-            return getattr(obj, "name", "")
-        with CoreUtils.undo_chunk("Rename Node"):
+            return obj
+        with CoreUtils.undo_chunk("Rename Node") as step:
             try:
                 obj.name = new_name
-                return obj.name
             except Exception:
-                return getattr(obj, "name", "")
+                step.cancel()
+        return obj
 
     # ------------------------------------------------------------------
     # Copy / paste
     # ------------------------------------------------------------------
 
-    def copy_values(self, objects, descriptors):
-        """Copy *descriptors*' values from the primary object into the instance clipboard."""
+    def copy_attr_values(self, objects, attr_names):
+        """Copy the channels' values (names or descriptors) from the primary object into
+        the instance clipboard. Returns it (``{name: (descriptor, value)}``)."""
         self._clipboard = {}
-        if not objects or not descriptors:
+        if not objects or not attr_names:
             return {}
         primary = objects[0]
-        for d in descriptors:
-            self._clipboard[d["name"]] = (d, self.get_channel_value(primary, d))
+        for channel in attr_names:
+            d = self._channel(primary, channel)
+            if d is not None:
+                self._clipboard[d["name"]] = (d, self.get_channel_value(primary, d))
         return self._clipboard
 
-    def paste_values(self, objects):
+    def paste_attr_values(self, objects):
         """Paste previously copied values onto *objects* (matched by channel name)."""
         if not objects or not self._clipboard:
             return
@@ -987,64 +1115,102 @@ class Channels:
     # Transform freeze (Maya's Freeze Transforms → Blender Apply Transform)
     # ------------------------------------------------------------------
 
-    @classmethod
-    def freeze_transforms(cls, objects, descriptors=None):
-        """Apply (freeze) transforms on *objects*, restricted to the touched channel groups.
+    #: Each transform group's whole-group names and per-axis channels
+    #: (:meth:`can_freeze_selection`).
+    _FREEZE_GROUPS = {
+        "location": ({"location"}, ("location_x", "location_y", "location_z")),
+        "rotation": (
+            {"rotation", "rotation_euler"},
+            ("rotation_x", "rotation_y", "rotation_z"),
+        ),
+        "scale": ({"scale"}, ("scale_x", "scale_y", "scale_z")),
+    }
+    #: The groups in ``btk.restore_transforms``' words.
+    _RESTORE_CHANNELS = {"location": "translate", "rotation": "rotate", "scale": "scale"}
 
-        Delegates to ``btk.freeze_transforms`` (which wraps ``object.transform_apply``). When
-        *descriptors* name only some of location/rotation/scale, only those groups are applied.
-        Returns ``True`` when a freeze ran.
+    @classmethod
+    def can_freeze_selection(cls, attr_names):
+        """Whether *attr_names* (channel names or descriptors) make a whole-group freeze.
+
+        Mirror of mayatk's: ``object.transform_apply`` applies location, rotation and scale
+        as whole groups, so a selection qualifies when it is empty (freeze everything) or
+        names only transform channels covering whole groups -- the group's name, or all
+        three of its axes. The Channels panel enables its Freeze / Unfreeze items by it.
         """
-        if not objects:
+        if not attr_names:
+            return True
+        names = {cls._channel_name(c) for c in attr_names}
+        known = set()
+        for whole, axes in cls._FREEZE_GROUPS.values():
+            known |= whole | set(axes)
+        if not names <= known:
+            return False
+        for whole, axes in cls._FREEZE_GROUPS.values():
+            picked = names & set(axes)
+            if picked and not names & whole and picked != set(axes):
+                return False
+        return True
+
+    @classmethod
+    def freeze_transforms(cls, objects, attrs=None, store=True):
+        """Apply (freeze) transforms on *objects*: every group, or the whole groups *attrs* names.
+
+        Delegates to ``btk.freeze_transforms`` (``object.transform_apply``), which with
+        *store* records the pre-freeze channels for :meth:`unfreeze_transforms`. *attrs*
+        (channel names or descriptors) must make whole groups (:meth:`can_freeze_selection`);
+        ``None`` freezes everything.
+
+        Returns:
+            bool: True when a freeze ran, False when *attrs* failed the check.
+        """
+        if not objects or not cls.can_freeze_selection(attrs or []):
             return False
         import blendertk as btk
 
-        groups = cls._groups_from_descriptors(descriptors)
-        # A non-empty selection that names only custom props (no transform group) is not freezable
-        # — don't silently fall through to a full freeze. ``descriptors=None`` means "freeze all".
-        if descriptors and not groups:
-            return False
-        kwargs = {
-            "location": "location" in groups if groups else True,
-            "rotation": "rotation" in groups if groups else True,
-            "scale": "scale" in groups if groups else True,
-        }
+        groups = cls._groups_from_descriptors(attrs)
+        kwargs = {g: (g in groups) if groups else True for g in cls._FREEZE_GROUPS}
         with CoreUtils.undo_chunk("Freeze Transforms"):
-            btk.freeze_transforms(objects, **kwargs)
+            btk.freeze_transforms(objects, store=store, **kwargs)
         return True
 
     @classmethod
     def _groups_from_descriptors(cls, descriptors):
-        """Return the set of {location, rotation, scale} groups *descriptors* touch."""
-        if not descriptors:
-            return set()
-        mapping = {
-            "location": "location",
-            "rotation_euler": "rotation",
-            "scale": "scale",
-        }
-        return {
-            mapping[d["data_path"]]
-            for d in descriptors
-            if d["kind"] == "transform" and d["data_path"] in mapping
-        }
+        """The {location, rotation, scale} groups *descriptors* (or channel / group names) touch."""
+        groups = set()
+        for channel in descriptors or ():
+            name = cls._channel_name(channel)
+            for group, (whole, axes) in cls._FREEZE_GROUPS.items():
+                if name in whole or name in axes:
+                    groups.add(group)
+        return groups
 
     @classmethod
-    def unfreeze_transforms(cls, objects):
+    def unfreeze_transforms(cls, objects, attrs=None):
         """Restore previously frozen transforms on *objects* (Maya's Unfreeze Transforms).
 
         Delegates to ``btk.restore_transforms``, which composes the stored pre-freeze
         channels back into the local transform and counter-shifts the geometry so the
-        world position is preserved. Unlike :meth:`freeze_transforms` (which can target a
-        channel-group subset), restore is whole-history — it replays every stored channel —
-        so there is no per-channel argument. Returns the restored objects.
+        world position is preserved. *attrs* (channel names or descriptors) restricts the
+        restore to the whole groups it names, by :meth:`freeze_transforms`' rule; ``None``
+        restores every stored channel.
+
+        Returns:
+            list: The restored objects; empty when none had stored data or *attrs* failed
+            the check.
         """
         if not objects:
             return []
+        channels = None
+        if attrs is not None:
+            if not cls.can_freeze_selection(attrs):
+                return []
+            groups = cls._groups_from_descriptors(attrs)
+            if groups:
+                channels = {cls._RESTORE_CHANNELS[g] for g in groups}
         import blendertk as btk
 
         with CoreUtils.undo_chunk("Unfreeze Transforms"):
-            return btk.restore_transforms(objects) or []
+            return btk.restore_transforms(objects, channels=channels) or []
 
     @staticmethod
     def has_unfreeze_info(objects):
@@ -1055,3 +1221,202 @@ class Channels:
 
         statuses = btk.has_stored_transforms(objects) or {}
         return any(statuses.values())
+
+    # ------------------------------------------------------------------
+    # Panel surface: what tentacle's shared Channels panel asks of a host, by mayatk's
+    # names (mayatk's ``Channels`` is the reference)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def get_filter_kwargs(cls, filter_key="Custom", invert=False):
+        """The table filter for combo label *filter_key* (its complement with *invert*),
+        for :meth:`build_table_data`: mayatk's two-step call shape (there the kwargs are
+        ``cmds.listAttr``'s)."""
+        return {
+            "filter_key": cls.FILTER_MAP.get(filter_key, "custom"),
+            "invert": bool(invert),
+        }
+
+    @classmethod
+    def get_attr_type(cls, obj, attr_name):
+        """*attr_name*'s display type on *obj* (``"float"``, ``"int"``, ``"bool"``,
+        ``"string"``, ``"vector"``); ``"?"`` when *obj* has no such channel."""
+        d = cls._channel(obj, attr_name)
+        return d["type"] if d is not None else "?"
+
+    @classmethod
+    def get_attr_value(cls, obj, attr_name):
+        """*attr_name*'s value on *obj* in display units (degrees for a rotation);
+        ``None`` on failure."""
+        return cls.get_channel_value(obj, attr_name)
+
+    @classmethod
+    def collect_value_strings(cls, objects, attr_names):
+        """``{name: (value string, connection state)}`` for the rows already shown: the
+        live-update path, which skips the lock and type reads. A value that differs across
+        *objects* shows ``"*"``; a name the primary object lacks is left out."""
+        if not objects:
+            return {}
+        primary, others = objects[0], objects[1:]
+        result = {}
+        for name in attr_names:
+            d = cls._channel(primary, name)
+            if d is None:
+                continue
+            val = cls.get_channel_value(primary, d)
+            for other in others:
+                if not cls._same_value(cls.get_channel_value(other, name), val):
+                    val = "*"
+                    break
+            result[name] = (cls.format_value(val), cls.classify_connection(primary, d))
+        return result
+
+    @classmethod
+    def set_attribute_value(cls, objects, attr_name, text):
+        """Parse *text* and set *attr_name* on all *objects* (one undo step)."""
+        cls.set_channel_value(objects, attr_name, text)
+
+    @classmethod
+    def mute_attrs(cls, objects, attr_names):
+        """Mute the F-curves / drivers on *attr_names* across *objects* (one undo step)."""
+        return cls.set_mute(objects, attr_names, True)
+
+    @classmethod
+    def unmute_attrs(cls, objects, attr_names):
+        """Unmute the F-curves / drivers on *attr_names* across *objects* (one undo step)."""
+        return cls.set_mute(objects, attr_names, False)
+
+    @classmethod
+    def get_custom_attrs(cls, obj):
+        """*obj*'s custom property names: the channels a rename may change."""
+        try:
+            return cls._custom_prop_keys(obj)
+        except (AttributeError, ReferenceError, TypeError):
+            return []
+
+    @staticmethod
+    def node_name(obj, full=False):
+        """*obj*'s name (*full* changes nothing: an object's name is unique in the file);
+        ``None`` for no object or one Blender has freed (deleted, or swapped by an undo)."""
+        if obj is None:
+            return None
+        try:
+            return obj.name
+        except (AttributeError, ReferenceError):
+            return None
+
+    @staticmethod
+    def select_nodes(objects):
+        """Replace the selection with *objects*; return those selected."""
+        return CoreUtils.select(list(objects or []), mode="replace")
+
+    @classmethod
+    def get_numeric_values(cls, objects, attr_name):
+        """``{object: value}`` (display units) for the *objects* whose *attr_name* is
+        numeric and unlocked: what a scrub or a wheel step moves."""
+        values = {}
+        for obj in objects:
+            d = cls._channel(obj, attr_name)
+            if d is None or cls.is_locked(obj, d):
+                continue
+            val = cls.get_channel_value(obj, d)
+            if isinstance(val, bool) or not isinstance(val, (int, float)):
+                continue
+            values[obj] = float(val)
+        return values
+
+    @classmethod
+    def set_numeric_values(cls, values, attr_name):
+        """Set *attr_name* on each object of *values* (``{object: value}``, display units:
+        degrees for a rotation) as one undo step; an int property stays int."""
+        with CoreUtils.undo_chunk(f"Edit Attr: {attr_name}") as step:
+            changed = False
+            for obj, value in values.items():
+                d = cls._channel(obj, attr_name)
+                if d is None:
+                    continue
+                try:
+                    if d["kind"] == "transform":
+                        if d["is_angle"]:
+                            value = math.radians(value)
+                        getattr(obj, d["data_path"])[d["index"]] = value
+                    elif d["type"] == "int":
+                        obj[d["name"]] = int(round(value))
+                    else:
+                        obj[d["name"]] = float(value)
+                    changed = True
+                except Exception:
+                    pass
+            if not changed:
+                step.cancel()
+
+    @staticmethod
+    def defer(fn):
+        """Run *fn* once the current handler or event returns (a zero-delay
+        ``bpy.app.timers`` timer); at once without Blender. Mirror of mayatk's
+        (``evalDeferred``): a burst of depsgraph updates is one rebuild after them,
+        outside the handler."""
+        try:
+            import bpy
+        except ImportError:
+            fn()
+            return
+
+        def tick():
+            fn()
+            return None  # once
+
+        bpy.app.timers.register(tick, first_interval=0.0)
+
+    @classmethod
+    def open_editor(cls, key):
+        """Open the :attr:`EDITORS` editor *key* in a new window; ``False`` when it could
+        not be opened (an unknown key, no window to open from)."""
+        args = cls._EDITOR_ARGS.get(key)
+        if args is None:
+            return False
+        from blendertk.ui_utils._ui_utils import UiUtils
+
+        try:
+            return UiUtils.open_editor(*args) is not None
+        except Exception:
+            return False
+
+    @staticmethod
+    def watch_scene(owner, on_rebuild, on_values, widget=None):
+        """Call a panel back on the scene events that change what it shows (mirror of
+        mayatk's).
+
+        *on_rebuild*: the selection changed, a file loaded, an undo or redo (which swaps
+        ``bpy.data``, so held objects are read again). *on_values*: the frame changed.
+        Every subscription is *owner*'s (:meth:`unwatch`); with *widget* they end as it
+        is destroyed. Per-object property callbacks (mayatk's ``watch_nodes``) are not
+        built: a value changed outside the panel shows at the next of these events.
+
+        Returns:
+            bool: False without Blender (nothing to watch).
+        """
+        try:
+            import bpy  # noqa: F401 -- the handlers need a running Blender
+        except ImportError:
+            return False
+        from blendertk.core_utils.script_job_manager import ScriptJobManager
+
+        mgr = ScriptJobManager.instance()
+        for event in ("SelectionChanged", "SceneOpened", "Undo", "Redo"):
+            mgr.subscribe(event, on_rebuild, owner=owner)
+        mgr.subscribe("timeChanged", on_values, owner=owner)
+        if widget is not None:
+            mgr.connect_cleanup(widget, owner=owner)
+        return True
+
+    @staticmethod
+    def unwatch(owner=None, tokens=()):
+        """End subscriptions: the *tokens* given, and every one *owner* holds."""
+        from blendertk.core_utils.script_job_manager import ScriptJobManager
+
+        mgr = ScriptJobManager.instance()
+        for token in tokens or ():
+            mgr.unsubscribe(token)
+        if owner is not None:
+            mgr.unsubscribe_all(owner)

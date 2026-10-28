@@ -28,6 +28,9 @@ def check(name, cond, detail=""):
 
 try:
     import bpy
+    from types import SimpleNamespace
+
+    from blendertk.core_utils._core_utils import CoreUtils
     from blendertk.node_utils.attributes.channels._channels import Channels
 
     def reset():
@@ -288,10 +291,10 @@ try:
     A = m1  # keep a valid object for the rename check below
 
     # --- rename node -------------------------------------------------------
-    newname = ch.rename_node(A, "Renamed_A")
+    handle = ch.rename_node(A, "Renamed_A")
     check(
-        "rename_node -> object renamed",
-        A.name == "Renamed_A" and newname == "Renamed_A",
+        "rename_node -> object renamed, the object returned (its handle)",
+        A.name == "Renamed_A" and handle == A,
         A.name,
     )
 
@@ -302,8 +305,8 @@ try:
     loc_x = next(
         d for d in ch.collect_channels([src], "keyable") if d["name"] == "location_x"
     )
-    ch.copy_values([src], [loc_x])
-    ch.paste_values([dst])
+    ch.copy_attr_values([src], [loc_x])
+    ch.paste_attr_values([dst])
     check(
         "copy/paste location_x", abs(dst.location[0] - 3.0) < 1e-6, f"{dst.location[0]}"
     )
@@ -523,19 +526,107 @@ try:
         f"{states(lx)} x={A.location[0]}",
     )
 
+    # --- The shared panel's surface: channels by NAME ----------------------
+    # tentacle's Channels panel keys its rows by name and calls mayatk's names.
+    reset()
+    A = cube("A", (1, 2, 3))
+    B = cube("B", (4, 2, 0))
+    A["weight"] = 0.5
+    B["weight"] = 0.5
+    A["count"] = 1
+    ch.set_lock([A], ["location_x"], True)
+    check(
+        "set_lock / is_locked take a channel name",
+        A.lock_location[0] and ch.is_locked(A, "location_x"),
+    )
+    check(
+        "get_attr_type by name ('?' for none)",
+        ch.get_attr_type(A, "rotation_z") == "float"
+        and ch.get_attr_type(A, "weight") == "float"
+        and ch.get_attr_type(A, "count") == "int"
+        and ch.get_attr_type(A, "nope") == "?",
+    )
+    ch.set_attribute_value([A, B], "rotation_z", "90")
+    check(
+        "set_attribute_value: degrees in, radians stored, on every object",
+        abs(A.rotation_euler[2] - math.pi / 2) < 1e-5
+        and abs(B.rotation_euler[2] - math.pi / 2) < 1e-5,
+    )
+    data = ch.collect_value_strings([A, B], ["location_x", "location_y", "weight", "nope"])
+    check(
+        "collect_value_strings: '*' when mixed, the shared value, a missing name skipped",
+        data.get("location_x", ("",))[0] == "*"
+        and data.get("location_y", ("",))[0] == "2"
+        and data.get("weight", ("",))[0] == "0.5"
+        and "nope" not in data,
+        data,
+    )
+    vals = ch.get_numeric_values([A, B], "location_x")
+    check("get_numeric_values skips a locked channel", vals == {B: 4.0}, vals)
+    ch.set_numeric_values({B: 6.0}, "location_x")
+    ch.set_numeric_values({A: 45.0}, "rotation_x")
+    ch.set_numeric_values({A: 2.6}, "count")
+    check(
+        "set_numeric_values: display units in, an angle converted, an int kept int",
+        abs(B.location[0] - 6.0) < 1e-6
+        and abs(A.rotation_euler[0] - math.radians(45)) < 1e-5
+        and A["count"] == 3
+        and isinstance(A["count"], int),
+        A["count"],
+    )
+    check(
+        "get_custom_attrs lists the user properties",
+        set(ch.get_custom_attrs(A)) == {"weight", "count"},
+        ch.get_custom_attrs(A),
+    )
+    gone = cube("Gone")
+    bpy.data.objects.remove(gone, do_unlink=True)
+    check(
+        "node_name: the object's name; None for none or a freed one",
+        ch.node_name(A) == "A" and ch.node_name(None) is None and ch.node_name(gone) is None,
+    )
+    check(
+        "can_freeze_selection takes whole groups (or nothing) only",
+        ch.can_freeze_selection([])
+        and ch.can_freeze_selection(["scale_x", "scale_y", "scale_z"])
+        and not ch.can_freeze_selection(["scale_x"])
+        and not ch.can_freeze_selection(["weight"]),
+    )
+    check(
+        "freeze_transforms refuses a partial group",
+        ch.freeze_transforms([B], ["location_x"]) is False,
+    )
+    rows, _states = ch.build_table_data([A], ch.get_filter_kwargs("Custom"))
+    check(
+        "build_table_data takes get_filter_kwargs' dict (mayatk's call shape)",
+        [r[0] for r in rows] == ["count", "weight"],
+        rows,
+    )
+    bpy.context.scene.frame_set(1)
+    ch.set_key_at_current_time([B], "location_y")
+    ch.mute_attrs([B], ["location_y"])
+    muted = ch.classify_connection(B, "location_y")
+    ch.unmute_attrs([B], ["location_y"])
+    check(
+        "mute_attrs / unmute_attrs by name",
+        muted == "muted" and ch.classify_connection(B, "location_y") != "muted",
+        muted,
+    )
+    ch.select_nodes([B])
+    check("select_nodes replaces the selection", B.select_get() and not A.select_get())
+    check("open_editor: an unknown key is False", ch.open_editor("nope") is False)
+    owner = SimpleNamespace(name="channels-check-owner")
+    watched = ch.watch_scene(owner, lambda: None, lambda: None)
+    ch.unwatch(owner=owner)
+    check("watch_scene subscribes in Blender", watched is True)
+
     # --- Every panel edit is ONE undo step, a drag-fill included ------------
-    # Mirror of mayatk's TestEditBatchUndo and its engine's undo chunks. Repro
-    # (Channels, Blender 5.1): the panel writes through RNA and pushed NO undo
+    # Repro (Channels, Blender 5.1): the panel writes through RNA and pushed NO undo
     # step, so one Ctrl+Z reverted the user's previous operation along with the
     # edit, and Redo brought back only that operation (measured: a three-cell
     # fill of scale 2.5 after a move -> one undo gave scale 1 AND the move undone;
-    # redo restored the move, scale stayed 1).
-    from types import SimpleNamespace
-
-    from blendertk.node_utils.attributes.channels.channels_slots import (
-        ChannelsSlots,
-    )
-
+    # redo restored the move, scale stayed 1). The panel's gestures (tentacle's
+    # shared panel) wrap engine calls in ``CoreUtils.undo_chunk``; these replay them.
     T = {d["name"]: d for d in Channels._transform_descriptors()}
 
     def custom(key):
@@ -566,42 +657,29 @@ try:
         bpy.ops.ed.redo()
         return edited, undone, kept, read(objs())
 
-    def stand_in(descriptors, state="unlocked"):
-        """A ChannelsSlots over the real engine, minus the Qt widgets it never needs here."""
-        s = ChannelsSlots.__new__(ChannelsSlots)
-        s.controller = ch
-        s._row_descriptors = list(descriptors)
-        s._scrub_state = None
-        s._edit_chunk = None
-        s.ui = SimpleNamespace(
-            tbl000=SimpleNamespace(actions=SimpleNamespace(get=lambda r, c: state))
-        )
-        s.sb = SimpleNamespace(
-            QtCore=SimpleNamespace(
-                Qt=SimpleNamespace(AltModifier=1, ControlModifier=2, ShiftModifier=4)
-            ),
-            QtWidgets=SimpleNamespace(
-                QApplication=SimpleNamespace(keyboardModifiers=lambda: 0),
-                QLineEdit=type("QLineEdit", (), {}),
-            ),
-        )
-        s._refresh_table = lambda *a: None
-        s._set_value_cell_text = lambda *a: None
-        return s
-
     def fill(o):
-        s = SimpleNamespace(_edit_chunk=None)
-        ChannelsSlots._on_edit_batch_started(s)
-        for axis in "xyz":  # one cellChanged per cell, as the fill delivers them
-            ch.set_channel_value(o, T[f"scale_{axis}"], "2.5")
-        ChannelsSlots._on_edit_batch_finished(s)
+        # The panel's drag-fill: one chunk over one cellChanged per cell.
+        with CoreUtils.undo_chunk("Channels Edit"):
+            for axis in "xyz":
+                ch.set_attribute_value(o, f"scale_{axis}", "2.5")
 
     def scrub(o):
-        s = stand_in([T["scale_x"]])
-        s._on_scrub_started(0, ChannelsSlots.COL_VALUE)
-        for dx in (40, 80, 100):
-            s._on_scrub_moved(0, ChannelsSlots.COL_VALUE, dx, 0)
-        s._on_scrub_finished(0, ChannelsSlots.COL_VALUE)
+        # The panel's MMB scrub: one chunk from its first move to the release.
+        with CoreUtils.undo_chunk("Scrub scale_x"):
+            for value in (1.4, 1.8, 2.0):
+                ch.set_numeric_values({x: value for x in o}, "scale_x")
+
+    def drag_lock(o):
+        # The panel's icon drag down the Lock column: one chunk, a set_lock per row.
+        with CoreUtils.undo_chunk("Channels Drag"):
+            for name in ("location_x", "location_y", "location_z"):
+                ch.set_lock(o, [name], True)
+
+    def wheel(o):
+        # The panel's wheel notch: one chunk over every object's step.
+        with CoreUtils.undo_chunk("Wheel scale_x"):
+            values = ch.get_numeric_values(o, "scale_x")
+            ch.set_numeric_values({x: v + 0.1 for x, v in values.items()}, "scale_x")
 
     def key_x(o):
         o[0].keyframe_insert("location", index=0, frame=1)
@@ -611,12 +689,12 @@ try:
 
     def copied_scale_2(o):
         o[0].scale[0] = 2.0
-        ch.copy_values(o, [T["scale_x"]])
+        ch.copy_attr_values(o, ["scale_x"])
         o[0].scale[0] = 1.0
 
     def frozen_scale_2(o):
         o[0].scale[0] = 2.0
-        ch.freeze_transforms(o, [T["scale_x"]])
+        ch.freeze_transforms(o, ["scale_x", "scale_y", "scale_z"])
 
     def has_curve(o):
         return ch._find_fcurve(o[0], T["location_x"]) is not None
@@ -627,7 +705,6 @@ try:
     def none(o):
         pass
 
-    lock_rows = [T["location_x"], T["location_y"], T["location_z"]]
     # fmt: off
     cases = [
         # (name, objects, setup, edit, read, before, after)
@@ -658,24 +735,19 @@ try:
          lambda o: [k for k in ("old", "new") if k in o[0].keys()], ["old"], ["new"]),
         ("rename_node", ["U"], none,
          lambda o: ch.rename_node(o[0], "Renamed"), lambda o: o[0].name, "U", "Renamed"),
-        ("paste_values", ["U"], copied_scale_2,
-         lambda o: ch.paste_values(o), scale_x, 1.0, 2.0),
+        ("paste_attr_values", ["U"], copied_scale_2,
+         lambda o: ch.paste_attr_values(o), scale_x, 1.0, 2.0),
         ("freeze_transforms", ["U"], scale_2,
-         lambda o: ch.freeze_transforms(o, [T["scale_x"]]), scale_x, 2.0, 1.0),
+         lambda o: ch.freeze_transforms(o, ["scale_x", "scale_y", "scale_z"]),
+         scale_x, 2.0, 1.0),
         ("unfreeze_transforms", ["U"], frozen_scale_2,
          lambda o: ch.unfreeze_transforms(o), scale_x, 1.0, 2.0),
         ("a drag-fill (editBatchStarted / editBatchFinished)", ["U"], none, fill,
          lambda o: [round(v, 4) for v in o[0].scale], [1.0] * 3, [2.5] * 3),
-        ("an icon drag down the Lock column", ["U"], none,
-         lambda o: stand_in(lock_rows)._on_icon_cells_dragged(
-             [0, 1, 2], ChannelsSlots.COL_LOCK
-         ),
+        ("an icon drag down the Lock column", ["U"], none, drag_lock,
          lambda o: list(o[0].lock_location), [False] * 3, [True] * 3),
         ("an MMB scrub", ["U"], none, scrub, scale_x, 1.0, 2.0),
-        ("a wheel notch over two objects", ["U", "V"], none,
-         lambda o: stand_in([T["scale_x"]])._on_wheel_scrolled(
-             0, ChannelsSlots.COL_VALUE, 1, 0
-         ),
+        ("a wheel notch over two objects", ["U", "V"], none, wheel,
          lambda o: [round(x.scale[0], 4) for x in o], [1.0, 1.0], [1.1, 1.1]),
     ]
     # fmt: on
@@ -693,38 +765,6 @@ try:
         "undo: no bracket left global undo off",
         bpy.context.preferences.edit.use_global_undo is True,
     )
-    try:
-        ChannelsSlots._on_edit_batch_finished(SimpleNamespace(_edit_chunk=None))
-        unmatched = ""
-    except Exception as e:
-        unmatched = f"{type(e).__name__}: {e}"
-    check("undo: an unmatched batch finish closes nothing", not unmatched, unmatched)
-
-    # --- The panel's Slots module imports without Qt -----------------------
-    # Headless Blender ships no Qt binding, so a Qt-only uitk import belongs in
-    # the method that uses it (blendertk/CLAUDE.md). uitk is put on the path and
-    # qtpy blocked, so the check fails only on a module-top Qt import.
-    import importlib
-
-    _slots_mod = "blendertk.node_utils.attributes.channels.channels_slots"
-    _saved_path = list(sys.path)
-    _saved_qtpy = sys.modules.get("qtpy", "absent")
-    sys.path.insert(0, os.path.join(MONO, "uitk"))
-    sys.modules["qtpy"] = None  # ``import qtpy`` now raises ImportError
-    sys.modules.pop(_slots_mod, None)
-    try:
-        importlib.import_module(_slots_mod)
-        slots_err = ""
-    except ImportError as e:
-        slots_err = repr(e)
-    finally:
-        sys.path[:] = _saved_path
-        if _saved_qtpy == "absent":
-            sys.modules.pop("qtpy", None)
-        else:
-            sys.modules["qtpy"] = _saved_qtpy
-        sys.modules.pop(_slots_mod, None)
-    check("channels_slots imports without Qt", not slots_err, slots_err)
 
 except Exception as e:
     traceback.print_exc()

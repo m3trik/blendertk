@@ -23,7 +23,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 436,
+          "line": 438,
           "deprecated": false
         }
       ]
@@ -18414,7 +18414,7 @@
         {
           "name": "Channels",
           "summary": "Blender attribute query / mutation logic.",
-          "line": 25,
+          "line": 30,
           "bases": [],
           "members": [
             {
@@ -18423,7 +18423,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 91,
+              "line": 137,
               "deprecated": false
             },
             {
@@ -18432,7 +18432,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 95,
+              "line": 141,
               "deprecated": false
             },
             {
@@ -18441,7 +18441,7 @@
               "kind": "method",
               "signature": "(self, objects)",
               "summary": "Pin the manager to a fixed object list;",
-              "line": 102,
+              "line": 148,
               "deprecated": false
             },
             {
@@ -18450,7 +18450,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Return the target object list.",
-              "line": 106,
+              "line": 152,
               "deprecated": false
             },
             {
@@ -18459,7 +18459,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, filter_key='custom', invert=False)",
               "summary": "Return the channel descriptors shared across all *objects* for the given filter.",
-              "line": 206,
+              "line": 295,
               "deprecated": false
             },
             {
@@ -18468,7 +18468,7 @@
               "kind": "classmethod",
               "signature": "(cls, obj, descriptor)",
               "summary": "Return the raw Python value for *descriptor* on *obj* (``None`` on failure).",
-              "line": 271,
+              "line": 360,
               "deprecated": false
             },
             {
@@ -18477,7 +18477,7 @@
               "kind": "classmethod",
               "signature": "(cls, val)",
               "summary": "Convert a channel value to a display string (``\"*\"`` marks a mixed multi-selection).",
-              "line": 294,
+              "line": 386,
               "deprecated": false
             },
             {
@@ -18486,7 +18486,7 @@
               "kind": "classmethod",
               "signature": "(cls, text, descriptor)",
               "summary": "Convert user-entered *text* to a Python value for *descriptor* (``None`` = skip).",
-              "line": 329,
+              "line": 421,
               "deprecated": false
             },
             {
@@ -18494,8 +18494,8 @@
               "qualname": "Channels.is_locked",
               "kind": "classmethod",
               "signature": "(cls, obj, descriptor)",
-              "summary": "Lock state for *descriptor*.",
-              "line": 359,
+              "summary": "Lock state for *descriptor* (or a channel name).",
+              "line": 451,
               "deprecated": false
             },
             {
@@ -18504,7 +18504,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptor)",
               "summary": "Toggle the lock state of *descriptor* across *objects* (transform channels only).",
-              "line": 372,
+              "line": 465,
               "deprecated": false
             },
             {
@@ -18513,7 +18513,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptors, lock)",
               "summary": "Lock or unlock *descriptors* across all *objects* (transform channels only).",
-              "line": 380,
+              "line": 474,
               "deprecated": false
             },
             {
@@ -18522,7 +18522,7 @@
               "kind": "classmethod",
               "signature": "(cls, obj, descriptor)",
               "summary": "Classify what drives *descriptor* on *obj*.",
-              "line": 452,
+              "line": 547,
               "deprecated": false
             },
             {
@@ -18531,7 +18531,7 @@
               "kind": "classmethod",
               "signature": "(cls, obj, descriptor, tolerance=1e-06)",
               "summary": "Return ``True`` if keyed *descriptor* on *obj* holds a value its F-curve does not.",
-              "line": 481,
+              "line": 579,
               "deprecated": false
             },
             {
@@ -18540,7 +18540,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, filter_key='custom', invert=False)",
               "summary": "Build ``(rows, states)`` for the table.",
-              "line": 543,
+              "line": 642,
               "deprecated": false
             },
             {
@@ -18548,8 +18548,8 @@
               "qualname": "Channels.set_channel_value",
               "kind": "classmethod",
               "signature": "(cls, objects, descriptor, text)",
-              "summary": "Parse *text* and set *descriptor* on all *objects*.",
-              "line": 579,
+              "summary": "Parse *text* and set *descriptor* (or a channel name) on all *objects*.",
+              "line": 683,
               "deprecated": false
             },
             {
@@ -18558,7 +18558,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptors)",
               "summary": "Reset *descriptors* to their default values across all *objects*.",
-              "line": 598,
+              "line": 710,
               "deprecated": false
             },
             {
@@ -18567,7 +18567,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptor)",
               "summary": "Set or remove a keyframe on *descriptor* at the current frame across *objects*.",
-              "line": 630,
+              "line": 745,
               "deprecated": false
             },
             {
@@ -18576,7 +18576,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptor, keyed=True)",
               "summary": "Set (``keyed=True``) or remove (``keyed=False``) the key on *descriptor* at the current",
-              "line": 643,
+              "line": 759,
               "deprecated": false
             },
             {
@@ -18585,7 +18585,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptor)",
               "summary": "Remove the animation / driver on *descriptor* across *objects* (Maya's break-connection).",
-              "line": 671,
+              "line": 788,
               "deprecated": false
             },
             {
@@ -18594,7 +18594,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptors, mute=True)",
               "summary": "Mute / unmute the F-curve (or driver) on each descriptor across *objects*.",
-              "line": 719,
+              "line": 839,
               "deprecated": false
             },
             {
@@ -18603,7 +18603,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptors)",
               "summary": "Set a breakdown key on *descriptors* at the current frame across *objects*.",
-              "line": 750,
+              "line": 873,
               "deprecated": false
             },
             {
@@ -18612,16 +18612,16 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptor)",
               "summary": "Select the object(s) driving *descriptor* on the primary object.",
-              "line": 787,
+              "line": 913,
               "deprecated": false
             },
             {
               "name": "create_attribute",
               "qualname": "Channels.create_attribute",
               "kind": "classmethod",
-              "signature": "(cls, objects, name, attr_type, min_val=None, max_val=None, default_val=0.0)",
+              "signature": "(cls, objects, name, attr_type, min_val=None, max_val=None, default_val=0.0, keyable=True, enum_names='')",
               "summary": "Create a custom (ID) property on *objects*.",
-              "line": 841,
+              "line": 955,
               "deprecated": false
             },
             {
@@ -18630,7 +18630,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptors)",
               "summary": "Delete custom *descriptors* across all *objects* (transform channels are skipped).",
-              "line": 904,
+              "line": 1024,
               "deprecated": false
             },
             {
@@ -18639,7 +18639,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, old_name, new_name)",
               "summary": "Rename a custom property on *objects* (preserves value + UI metadata).",
-              "line": 918,
+              "line": 1039,
               "deprecated": false
             },
             {
@@ -18647,44 +18647,53 @@
               "qualname": "Channels.rename_node",
               "kind": "staticmethod",
               "signature": "(obj, new_name)",
-              "summary": "Rename the object datablock and return its (possibly suffixed) new name.",
-              "line": 944,
+              "summary": "Rename the object datablock (Blender may suffix the name: ``.001``);",
+              "line": 1065,
               "deprecated": false
             },
             {
-              "name": "copy_values",
-              "qualname": "Channels.copy_values",
+              "name": "copy_attr_values",
+              "qualname": "Channels.copy_attr_values",
               "kind": "method",
-              "signature": "(self, objects, descriptors)",
-              "summary": "Copy *descriptors*' values from the primary object into the instance clipboard.",
-              "line": 959,
+              "signature": "(self, objects, attr_names)",
+              "summary": "Copy the channels' values (names or descriptors) from the primary object into",
+              "line": 1084,
               "deprecated": false
             },
             {
-              "name": "paste_values",
-              "qualname": "Channels.paste_values",
+              "name": "paste_attr_values",
+              "qualname": "Channels.paste_attr_values",
               "kind": "method",
               "signature": "(self, objects)",
               "summary": "Paste previously copied values onto *objects* (matched by channel name).",
-              "line": 969,
+              "line": 1097,
+              "deprecated": false
+            },
+            {
+              "name": "can_freeze_selection",
+              "qualname": "Channels.can_freeze_selection",
+              "kind": "classmethod",
+              "signature": "(cls, attr_names)",
+              "summary": "Whether *attr_names* (channel names or descriptors) make a whole-group freeze.",
+              "line": 1132,
               "deprecated": false
             },
             {
               "name": "freeze_transforms",
               "qualname": "Channels.freeze_transforms",
               "kind": "classmethod",
-              "signature": "(cls, objects, descriptors=None)",
-              "summary": "Apply (freeze) transforms on *objects*, restricted to the touched channel groups.",
-              "line": 991,
+              "signature": "(cls, objects, attrs=None, store=True)",
+              "summary": "Apply (freeze) transforms on *objects*: every group, or the whole groups *attrs* names.",
+              "line": 1155,
               "deprecated": false
             },
             {
               "name": "unfreeze_transforms",
               "qualname": "Channels.unfreeze_transforms",
               "kind": "classmethod",
-              "signature": "(cls, objects)",
+              "signature": "(cls, objects, attrs=None)",
               "summary": "Restore previously frozen transforms on *objects* (Maya's Unfreeze Transforms).",
-              "line": 1033,
+              "line": 1188,
               "deprecated": false
             },
             {
@@ -18693,77 +18702,151 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Return ``True`` when at least one of *objects* carries stored freeze data.",
-              "line": 1050,
-              "deprecated": false
-            }
-          ]
-        }
-      ],
-      "constants": []
-    },
-    {
-      "relpath": "node_utils/attributes/channels/channels_slots.py",
-      "summary": "UI slots for the Channels panel (``channels.ui``).",
-      "functions": [],
-      "classes": [
-        {
-          "name": "ChannelsSlots",
-          "summary": "Switchboard slots for the Channels panel.",
-          "line": 32,
-          "bases": [],
-          "members": [
-            {
-              "name": "apply_launch_config",
-              "qualname": "ChannelsSlots.apply_launch_config",
-              "kind": "method",
-              "signature": "(self, targets=None, filter=None, search=None)",
-              "summary": "Configure the window from an external launch call (mirror of mayatk).",
-              "line": 134,
+              "line": 1216,
               "deprecated": false
             },
             {
-              "name": "cmb000_init",
-              "qualname": "ChannelsSlots.cmb000_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Populate the filter combobox + wire its invert action (bpy-free).",
-              "line": 311,
+              "name": "get_filter_kwargs",
+              "qualname": "Channels.get_filter_kwargs",
+              "kind": "classmethod",
+              "signature": "(cls, filter_key='Custom', invert=False)",
+              "summary": "The table filter for combo label *filter_key* (its complement with *invert*),",
+              "line": 1231,
               "deprecated": false
             },
             {
-              "name": "cmb000",
-              "qualname": "ChannelsSlots.cmb000",
-              "kind": "method",
-              "signature": "(self, index)",
-              "summary": "Filter changed — refresh table.",
-              "line": 335,
+              "name": "get_attr_type",
+              "qualname": "Channels.get_attr_type",
+              "kind": "classmethod",
+              "signature": "(cls, obj, attr_name)",
+              "summary": "*attr_name*'s display type on *obj* (``\"float\"``, ``\"int\"``, ``\"bool\"``,",
+              "line": 1241,
               "deprecated": false
             },
             {
-              "name": "header_init",
-              "qualname": "ChannelsSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Populate the header menu (Qt-only;",
-              "line": 357,
+              "name": "get_attr_value",
+              "qualname": "Channels.get_attr_value",
+              "kind": "classmethod",
+              "signature": "(cls, obj, attr_name)",
+              "summary": "*attr_name*'s value on *obj* in display units (degrees for a rotation);",
+              "line": 1248,
               "deprecated": false
             },
             {
-              "name": "show_create_menu",
-              "qualname": "ChannelsSlots.show_create_menu",
-              "kind": "method",
-              "signature": "(self, *args)",
-              "summary": "Show the *Create Attribute* popup (a custom-property form).",
-              "line": 791,
+              "name": "collect_value_strings",
+              "qualname": "Channels.collect_value_strings",
+              "kind": "classmethod",
+              "signature": "(cls, objects, attr_names)",
+              "summary": "``{name: (value string, connection state)}`` for the rows already shown: the",
+              "line": 1254,
               "deprecated": false
             },
             {
-              "name": "tbl000_init",
-              "qualname": "ChannelsSlots.tbl000_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Table setup: (re)wire signals every show, one-time build, then a guarded refresh.",
-              "line": 915,
+              "name": "set_attribute_value",
+              "qualname": "Channels.set_attribute_value",
+              "kind": "classmethod",
+              "signature": "(cls, objects, attr_name, text)",
+              "summary": "Parse *text* and set *attr_name* on all *objects* (one undo step).",
+              "line": 1275,
+              "deprecated": false
+            },
+            {
+              "name": "mute_attrs",
+              "qualname": "Channels.mute_attrs",
+              "kind": "classmethod",
+              "signature": "(cls, objects, attr_names)",
+              "summary": "Mute the F-curves / drivers on *attr_names* across *objects* (one undo step).",
+              "line": 1280,
+              "deprecated": false
+            },
+            {
+              "name": "unmute_attrs",
+              "qualname": "Channels.unmute_attrs",
+              "kind": "classmethod",
+              "signature": "(cls, objects, attr_names)",
+              "summary": "Unmute the F-curves / drivers on *attr_names* across *objects* (one undo step).",
+              "line": 1285,
+              "deprecated": false
+            },
+            {
+              "name": "get_custom_attrs",
+              "qualname": "Channels.get_custom_attrs",
+              "kind": "classmethod",
+              "signature": "(cls, obj)",
+              "summary": "*obj*'s custom property names: the channels a rename may change.",
+              "line": 1290,
+              "deprecated": false
+            },
+            {
+              "name": "node_name",
+              "qualname": "Channels.node_name",
+              "kind": "staticmethod",
+              "signature": "(obj, full=False)",
+              "summary": "*obj*'s name (*full* changes nothing: an object's name is unique in the file);",
+              "line": 1298,
+              "deprecated": false
+            },
+            {
+              "name": "select_nodes",
+              "qualname": "Channels.select_nodes",
+              "kind": "staticmethod",
+              "signature": "(objects)",
+              "summary": "Replace the selection with *objects*;",
+              "line": 1309,
+              "deprecated": false
+            },
+            {
+              "name": "get_numeric_values",
+              "qualname": "Channels.get_numeric_values",
+              "kind": "classmethod",
+              "signature": "(cls, objects, attr_name)",
+              "summary": "``{object: value}`` (display units) for the *objects* whose *attr_name* is",
+              "line": 1314,
+              "deprecated": false
+            },
+            {
+              "name": "set_numeric_values",
+              "qualname": "Channels.set_numeric_values",
+              "kind": "classmethod",
+              "signature": "(cls, values, attr_name)",
+              "summary": "Set *attr_name* on each object of *values* (``{object: value}``, display units:",
+              "line": 1329,
+              "deprecated": false
+            },
+            {
+              "name": "defer",
+              "qualname": "Channels.defer",
+              "kind": "staticmethod",
+              "signature": "(fn)",
+              "summary": "Run *fn* once the current handler or event returns (a zero-delay",
+              "line": 1354,
+              "deprecated": false
+            },
+            {
+              "name": "open_editor",
+              "qualname": "Channels.open_editor",
+              "kind": "classmethod",
+              "signature": "(cls, key)",
+              "summary": "Open the :attr:`EDITORS` editor *key* in a new window;",
+              "line": 1372,
+              "deprecated": false
+            },
+            {
+              "name": "watch_scene",
+              "qualname": "Channels.watch_scene",
+              "kind": "staticmethod",
+              "signature": "(owner, on_rebuild, on_values, widget=None)",
+              "summary": "Call a panel back on the scene events that change what it shows (mirror of",
+              "line": 1386,
+              "deprecated": false
+            },
+            {
+              "name": "unwatch",
+              "qualname": "Channels.unwatch",
+              "kind": "staticmethod",
+              "signature": "(owner=None, tokens=())",
+              "summary": "End subscriptions: the *tokens* given, and every one *owner* holds.",
+              "line": 1414,
               "deprecated": false
             }
           ]

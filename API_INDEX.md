@@ -774,11 +774,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `node_utils/attributes/channels/_channels.py` — Channels — Blender attribute query / mutation logic.
 - `class Channels`
-  - methods: is_pinned, single_object_mode, pin_targets, get_selected_nodes, collect_channels, get_channel_value, format_value, parse_value, is_locked, toggle_lock, set_lock, classify_connection, is_off_curve, build_table_data, set_channel_value, reset_to_default, toggle_key_at_current_time, set_key_at_current_time, break_connections, set_mute, set_breakdown_key, select_connections, create_attribute, delete_attributes, rename_attribute, rename_node, copy_values, paste_values, freeze_transforms, unfreeze_transforms, has_unfreeze_info
-
-### `node_utils/attributes/channels/channels_slots.py` — UI slots for the Channels panel (``channels.ui``).
-- `class ChannelsSlots`
-  - methods: apply_launch_config, cmb000_init, cmb000, header_init, show_create_menu, tbl000_init
+  - methods: is_pinned, single_object_mode, pin_targets, get_selected_nodes, collect_channels, get_channel_value, format_value, parse_value, is_locked, toggle_lock, set_lock, classify_connection, is_off_curve, build_table_data, set_channel_value, reset_to_default, toggle_key_at_current_time, set_key_at_current_time, break_connections, set_mute, set_breakdown_key, select_connections, create_attribute, delete_attributes, rename_attribute, rename_node, copy_attr_values, paste_attr_values, can_freeze_selection, freeze_transforms, unfreeze_transforms, has_unfreeze_info, get_filter_kwargs, get_attr_type, get_attr_value, collect_value_strings, set_attribute_value, mute_attrs, unmute_attrs, get_custom_attrs, node_name, select_nodes, get_numeric_values, set_numeric_values, defer, open_editor, watch_scene, unwatch
 
 ### `node_utils/data_nodes.py` — The Blender scene store -- mirror of mayatk's ``node_utils.data_nodes``.
 - `class DataNodes(pythontk.SceneStoreBase)`

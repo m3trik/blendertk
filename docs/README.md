@@ -35,7 +35,7 @@ Same subpackage names, main-module filenames, and namespace classes as mayatk â€
 | `env_utils` | `BlenderConnection`, workspaces (`workspace.mel` shared with Maya), reference manager, hierarchy sync, FBX/USD, scene exporter, Maya + Unity bridges, WebXR preview, docked script console |
 | `light_utils` | Lightmap baker + web export, HDR manager, lights-from-geometry |
 | `mat_utils` | Game shader, material updater, texture path editor, shader templates, render opacity, image-to-plane, emissive groups, Marmoset + Substance live-RPC bridges |
-| `node_utils` | `NodeUtils`, `DataNodes` ([shared scene data carriers](data_nodes.md)), Channels tool |
+| `node_utils` | `NodeUtils`, `DataNodes` ([shared scene data carriers](data_nodes.md)), the Channels engine |
 | `nurbs_utils` | Curve helpers (relaxed mirror), `ImageTracer`, curve-to-tube |
 | `rig_utils` | Constraints/drivers/armature primitives; tube / wheel / telescope / shadow rigs |
 | `ui_utils` | `BlenderUiHandler`, native-menu wrapper, Qt dock container, calculator, style setter |

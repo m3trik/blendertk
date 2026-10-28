@@ -166,7 +166,6 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`mat_utils/texture_path_editor.py`](#mat_utils--texture_path_editor) — Texture Path Editor tool panel — Switchboard slot wiring for the co-located
 - [`node_utils/_node_utils.py`](#node_utils--_node_utils) — Node / datablock utilities — instancing via shared object data.
 - [`node_utils/attributes/channels/_channels.py`](#node_utils--attributes--channels--_channels) — Channels — Blender attribute query / mutation logic.
-- [`node_utils/attributes/channels/channels_slots.py`](#node_utils--attributes--channels--channels_slots) — UI slots for the Channels panel (``channels.ui``).
 - [`node_utils/data_nodes.py`](#node_utils--data_nodes) — The Blender scene store -- mirror of mayatk's ``node_utils.data_nodes``.
 - [`nurbs_utils/_nurbs_utils.py`](#nurbs_utils--_nurbs_utils) — Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` namespace.
 - [`nurbs_utils/curve_to_tube.py`](#nurbs_utils--curve_to_tube) — Curve to Tube tool — Blender port of mayatk's ``nurbs_utils.curve_to_tube``.
@@ -213,7 +212,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L436) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L438) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -3063,7 +3062,7 @@ Node / datablock utilities — instancing via shared object data.
 
 Channels — Blender attribute query / mutation logic.
 
-- **[`class Channels`](blendertk/blendertk/node_utils/attributes/channels/_channels.py#L25)** — Blender attribute query / mutation logic.
+- **[`class Channels`](blendertk/blendertk/node_utils/attributes/channels/_channels.py#L30)** — Blender attribute query / mutation logic.
   - `Channels.is_pinned(self)` *(property)*
   - `Channels.single_object_mode(self)` *(property)*
   - `Channels.pin_targets(self, objects)` — Pin the manager to a fixed object list;
@@ -3072,13 +3071,13 @@ Channels — Blender attribute query / mutation logic.
   - `Channels.get_channel_value(cls, obj, descriptor)` *(class)* — Return the raw Python value for *descriptor* on *obj* (``None`` on failure).
   - `Channels.format_value(cls, val)` *(class)* — Convert a channel value to a display string (``"*"`` marks a mixed multi-selection).
   - `Channels.parse_value(cls, text, descriptor)` *(class)* — Convert user-entered *text* to a Python value for *descriptor* (``None`` = skip).
-  - `Channels.is_locked(cls, obj, descriptor)` *(class)* — Lock state for *descriptor*.
+  - `Channels.is_locked(cls, obj, descriptor)` *(class)* — Lock state for *descriptor* (or a channel name).
   - `Channels.toggle_lock(cls, objects, descriptor)` *(class)* — Toggle the lock state of *descriptor* across *objects* (transform channels only).
   - `Channels.set_lock(cls, objects, descriptors, lock)` *(class)* — Lock or unlock *descriptors* across all *objects* (transform channels only).
   - `Channels.classify_connection(cls, obj, descriptor)` *(class)* — Classify what drives *descriptor* on *obj*.
   - `Channels.is_off_curve(cls, obj, descriptor, tolerance=1e-06)` *(class)* — Return ``True`` if keyed *descriptor* on *obj* holds a value its F-curve does not.
   - `Channels.build_table_data(cls, objects, filter_key='custom', invert=False)` *(class)* — Build ``(rows, states)`` for the table.
-  - `Channels.set_channel_value(cls, objects, descriptor, text)` *(class)* — Parse *text* and set *descriptor* on all *objects*.
+  - `Channels.set_channel_value(cls, objects, descriptor, text)` *(class)* — Parse *text* and set *descriptor* (or a channel name) on all *objects*.
   - `Channels.reset_to_default(cls, objects, descriptors)` *(class)* — Reset *descriptors* to their default values across all *objects*.
   - `Channels.toggle_key_at_current_time(cls, objects, descriptor)` *(class)* — Set or remove a keyframe on *descriptor* at the current frame across *objects*.
   - `Channels.set_key_at_current_time(cls, objects, descriptor, keyed=True)` *(class)* — Set (``keyed=True``) or remove (``keyed=False``) the key on *descriptor* at the current
@@ -3086,28 +3085,32 @@ Channels — Blender attribute query / mutation logic.
   - `Channels.set_mute(cls, objects, descriptors, mute=True)` *(class)* — Mute / unmute the F-curve (or driver) on each descriptor across *objects*.
   - `Channels.set_breakdown_key(cls, objects, descriptors)` *(class)* — Set a breakdown key on *descriptors* at the current frame across *objects*.
   - `Channels.select_connections(cls, objects, descriptor)` *(class)* — Select the object(s) driving *descriptor* on the primary object.
-  - `Channels.create_attribute(cls, objects, name, attr_type, min_val=None, max_val=None, default_val=0.0)` *(class)* — Create a custom (ID) property on *objects*.
+  - `Channels.create_attribute(cls, objects, name, attr_type, min_val=None, max_val=None, default_val=0.0, keyable=True, enum_names='')` *(class)* — Create a custom (ID) property on *objects*.
   - `Channels.delete_attributes(cls, objects, descriptors)` *(class)* — Delete custom *descriptors* across all *objects* (transform channels are skipped).
   - `Channels.rename_attribute(cls, objects, old_name, new_name)` *(class)* — Rename a custom property on *objects* (preserves value + UI metadata).
-  - `Channels.rename_node(obj, new_name)` *(static)* — Rename the object datablock and return its (possibly suffixed) new name.
-  - `Channels.copy_values(self, objects, descriptors)` — Copy *descriptors*' values from the primary object into the instance clipboard.
-  - `Channels.paste_values(self, objects)` — Paste previously copied values onto *objects* (matched by channel name).
-  - `Channels.freeze_transforms(cls, objects, descriptors=None)` *(class)* — Apply (freeze) transforms on *objects*, restricted to the touched channel groups.
-  - `Channels.unfreeze_transforms(cls, objects)` *(class)* — Restore previously frozen transforms on *objects* (Maya's Unfreeze Transforms).
+  - `Channels.rename_node(obj, new_name)` *(static)* — Rename the object datablock (Blender may suffix the name: ``.001``);
+  - `Channels.copy_attr_values(self, objects, attr_names)` — Copy the channels' values (names or descriptors) from the primary object into
+  - `Channels.paste_attr_values(self, objects)` — Paste previously copied values onto *objects* (matched by channel name).
+  - `Channels.can_freeze_selection(cls, attr_names)` *(class)* — Whether *attr_names* (channel names or descriptors) make a whole-group freeze.
+  - `Channels.freeze_transforms(cls, objects, attrs=None, store=True)` *(class)* — Apply (freeze) transforms on *objects*: every group, or the whole groups *attrs* names.
+  - `Channels.unfreeze_transforms(cls, objects, attrs=None)` *(class)* — Restore previously frozen transforms on *objects* (Maya's Unfreeze Transforms).
   - `Channels.has_unfreeze_info(objects)` *(static)* — Return ``True`` when at least one of *objects* carries stored freeze data.
-
-<a id="node_utils--attributes--channels--channels_slots"></a>
-### `node_utils/attributes/channels/channels_slots.py`
-
-UI slots for the Channels panel (``channels.ui``).
-
-- **[`class ChannelsSlots`](blendertk/blendertk/node_utils/attributes/channels/channels_slots.py#L32)** — Switchboard slots for the Channels panel.
-  - `ChannelsSlots.apply_launch_config(self, targets=None, filter=None, search=None)` — Configure the window from an external launch call (mirror of mayatk).
-  - `ChannelsSlots.cmb000_init(self, widget)` — Populate the filter combobox + wire its invert action (bpy-free).
-  - `ChannelsSlots.cmb000(self, index)` — Filter changed — refresh table.
-  - `ChannelsSlots.header_init(self, widget)` — Populate the header menu (Qt-only;
-  - `ChannelsSlots.show_create_menu(self, *args)` — Show the *Create Attribute* popup (a custom-property form).
-  - `ChannelsSlots.tbl000_init(self, widget)` — Table setup: (re)wire signals every show, one-time build, then a guarded refresh.
+  - `Channels.get_filter_kwargs(cls, filter_key='Custom', invert=False)` *(class)* — The table filter for combo label *filter_key* (its complement with *invert*),
+  - `Channels.get_attr_type(cls, obj, attr_name)` *(class)* — *attr_name*'s display type on *obj* (``"float"``, ``"int"``, ``"bool"``,
+  - `Channels.get_attr_value(cls, obj, attr_name)` *(class)* — *attr_name*'s value on *obj* in display units (degrees for a rotation);
+  - `Channels.collect_value_strings(cls, objects, attr_names)` *(class)* — ``{name: (value string, connection state)}`` for the rows already shown: the
+  - `Channels.set_attribute_value(cls, objects, attr_name, text)` *(class)* — Parse *text* and set *attr_name* on all *objects* (one undo step).
+  - `Channels.mute_attrs(cls, objects, attr_names)` *(class)* — Mute the F-curves / drivers on *attr_names* across *objects* (one undo step).
+  - `Channels.unmute_attrs(cls, objects, attr_names)` *(class)* — Unmute the F-curves / drivers on *attr_names* across *objects* (one undo step).
+  - `Channels.get_custom_attrs(cls, obj)` *(class)* — *obj*'s custom property names: the channels a rename may change.
+  - `Channels.node_name(obj, full=False)` *(static)* — *obj*'s name (*full* changes nothing: an object's name is unique in the file);
+  - `Channels.select_nodes(objects)` *(static)* — Replace the selection with *objects*;
+  - `Channels.get_numeric_values(cls, objects, attr_name)` *(class)* — ``{object: value}`` (display units) for the *objects* whose *attr_name* is
+  - `Channels.set_numeric_values(cls, values, attr_name)` *(class)* — Set *attr_name* on each object of *values* (``{object: value}``, display units:
+  - `Channels.defer(fn)` *(static)* — Run *fn* once the current handler or event returns (a zero-delay
+  - `Channels.open_editor(cls, key)` *(class)* — Open the :attr:`EDITORS` editor *key* in a new window;
+  - `Channels.watch_scene(owner, on_rebuild, on_values, widget=None)` *(static)* — Call a panel back on the scene events that change what it shows (mirror of
+  - `Channels.unwatch(owner=None, tokens=())` *(static)* — End subscriptions: the *tokens* given, and every one *owner* holds.
 
 <a id="node_utils--data_nodes"></a>
 ### `node_utils/data_nodes.py`

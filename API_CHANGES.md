@@ -2,7 +2,7 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (521)
+## Moved out (530)
 
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b000` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
@@ -357,6 +357,15 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/shader_templates.py::ShaderTemplatesSlots.source_images_dir` → `tentacle.slots.tools.shader_templates.ShaderTemplatesSlots` (from 0.23.0)
 - `mat_utils/shader_templates.py::ShaderTemplatesSlots.template_name` → `tentacle.slots.tools.shader_templates.ShaderTemplatesSlots` (from 0.23.0)
 - `mat_utils/shader_templates.py::ShaderTemplatesSlots.workspace_dir` → `tentacle.slots.tools.shader_templates.ShaderTemplatesSlots` (from 0.23.0)
+- `node_utils/attributes/channels/_channels.py::Channels.copy_values` → `blendertk.Channels.copy_attr_values` (from 0.23.0)
+- `node_utils/attributes/channels/_channels.py::Channels.paste_values` → `blendertk.Channels.paste_attr_values` (from 0.23.0)
+- `node_utils/attributes/channels/channels_slots.py::ChannelsSlots` → `tentacle.slots.tools.channels.ChannelsSlots` (from 0.23.0)
+- `node_utils/attributes/channels/channels_slots.py::ChannelsSlots.apply_launch_config` → `tentacle.slots.tools.channels.ChannelsSlots` (from 0.23.0)
+- `node_utils/attributes/channels/channels_slots.py::ChannelsSlots.cmb000` → `tentacle.slots.tools.channels.ChannelsSlots` (from 0.23.0)
+- `node_utils/attributes/channels/channels_slots.py::ChannelsSlots.cmb000_init` → `tentacle.slots.tools.channels.ChannelsSlots` (from 0.23.0)
+- `node_utils/attributes/channels/channels_slots.py::ChannelsSlots.header_init` → `tentacle.slots.tools.channels.ChannelsSlots` (from 0.23.0)
+- `node_utils/attributes/channels/channels_slots.py::ChannelsSlots.show_create_menu` → `tentacle.slots.tools.channels.ChannelsSlots` (from 0.23.0)
+- `node_utils/attributes/channels/channels_slots.py::ChannelsSlots.tbl000_init` → `tentacle.slots.tools.channels.ChannelsSlots` (from 0.23.0)
 - `nurbs_utils/curve_to_tube.py::CurveToTubeSlots` → `tentacle.slots.tools.curve_to_tube.CurveToTubeSlots` (from 0.23.0)
 - `nurbs_utils/curve_to_tube.py::CurveToTubeSlots.b001_init` → `tentacle.slots.tools.curve_to_tube.CurveToTubeSlots` (from 0.23.0)
 - `nurbs_utils/curve_to_tube.py::CurveToTubeSlots.header_init` → `tentacle.slots.tools.curve_to_tube.CurveToTubeSlots` (from 0.23.0)
@@ -526,7 +535,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (182)
+## Added (201)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -667,6 +676,25 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/shader_templates.py::ShaderTemplates.save_template(cls, nodes, file_path, exclude_types=None, logger=None) -> None`
 - `mat_utils/shader_templates.py::ShaderTemplates.store(cls) -> 'ptk.PresetStore'`
 - `mat_utils/shader_templates.py::ShaderTemplates.suggested_name(cls, nodes) -> str`
+- `node_utils/attributes/channels/_channels.py::Channels.can_freeze_selection(cls, attr_names)`
+- `node_utils/attributes/channels/_channels.py::Channels.collect_value_strings(cls, objects, attr_names)`
+- `node_utils/attributes/channels/_channels.py::Channels.copy_attr_values(self, objects, attr_names)`
+- `node_utils/attributes/channels/_channels.py::Channels.defer(fn)`
+- `node_utils/attributes/channels/_channels.py::Channels.get_attr_type(cls, obj, attr_name)`
+- `node_utils/attributes/channels/_channels.py::Channels.get_attr_value(cls, obj, attr_name)`
+- `node_utils/attributes/channels/_channels.py::Channels.get_custom_attrs(cls, obj)`
+- `node_utils/attributes/channels/_channels.py::Channels.get_filter_kwargs(cls, filter_key='Custom', invert=False)`
+- `node_utils/attributes/channels/_channels.py::Channels.get_numeric_values(cls, objects, attr_name)`
+- `node_utils/attributes/channels/_channels.py::Channels.mute_attrs(cls, objects, attr_names)`
+- `node_utils/attributes/channels/_channels.py::Channels.node_name(obj, full=False)`
+- `node_utils/attributes/channels/_channels.py::Channels.open_editor(cls, key)`
+- `node_utils/attributes/channels/_channels.py::Channels.paste_attr_values(self, objects)`
+- `node_utils/attributes/channels/_channels.py::Channels.select_nodes(objects)`
+- `node_utils/attributes/channels/_channels.py::Channels.set_attribute_value(cls, objects, attr_name, text)`
+- `node_utils/attributes/channels/_channels.py::Channels.set_numeric_values(cls, values, attr_name)`
+- `node_utils/attributes/channels/_channels.py::Channels.unmute_attrs(cls, objects, attr_names)`
+- `node_utils/attributes/channels/_channels.py::Channels.unwatch(owner=None, tokens=())`
+- `node_utils/attributes/channels/_channels.py::Channels.watch_scene(owner, on_rebuild, on_values, widget=None)`
 - `nurbs_utils/curve_to_tube.py::CurveToTube.describe(tubes)`
 - `rig_utils/articulated_rig/_articulated_rig.py::ArticulatedRig.group_uuid(self) -> Optional[str]`
 - `rig_utils/articulated_rig/_articulated_rig.py::ArticulatedRig.parts_of(self, nodes: Sequence[Any]) -> List[Any]`
@@ -751,7 +779,7 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/emissive_groups.py::EmissiveGroups.transfer_out`
 - `mat_utils/emissive_groups.py::EmissiveGroups.validate`
 
-## Signature changed (14)
+## Signature changed (17)
 
 - `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.edit_frame_based`
   - was: `(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None) -> List[Target]`
@@ -783,6 +811,15 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/_mat_utils.py::MatUpdater.update_materials`
   - was: `(cls, materials=None, config=None, verbose=False, progress_callback=None)`
   - now: `(cls, materials=None, config=None, verbose=False, progress_callback=None, shader_type=None)`
+- `node_utils/attributes/channels/_channels.py::Channels.create_attribute`
+  - was: `(cls, objects, name, attr_type, min_val=None, max_val=None, default_val=0.0)`
+  - now: `(cls, objects, name, attr_type, min_val=None, max_val=None, default_val=0.0, keyable=True, enum_names='')`
+- `node_utils/attributes/channels/_channels.py::Channels.freeze_transforms`
+  - was: `(cls, objects, descriptors=None)`
+  - now: `(cls, objects, attrs=None, store=True)`
+- `node_utils/attributes/channels/_channels.py::Channels.unfreeze_transforms`
+  - was: `(cls, objects)`
+  - now: `(cls, objects, attrs=None)`
 - `rig_utils/wheel_rig.py::WheelRig.rig_rotation`
   - was: `(self, movement_axis: str = 'LOC_Z', rotation_index: int = None, wheel_height: float = 1.0, wheels: list = None, use_world_space: bool = False) -> list`
   - now: `(self, movement_axis: str = 'translateZ', rotation_axis=None, wheel_height: float = 1.0, wheels: list = None, use_world_space: bool = False) -> list`
