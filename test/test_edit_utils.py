@@ -2051,6 +2051,57 @@ try:
     btk.EditUtils.delete_selected()
     check("delete_selected in Object Mode deletes the object", len(bpy.data.objects) == 0)
 
+    # ---- the polygons panel's object operations: mayatk's names and signatures
+    def _cubes_touching():
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0, 0, 0))
+        a = bpy.context.active_object
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(1, 0, 0))
+        b = bpy.context.active_object
+        both = btk.combine_objects([a, b], uninstance=False)
+        return both if not isinstance(both, list) else both[0]
+
+    both = _cubes_touching()
+    btk.CoreUtils.select([both])
+    check(
+        "merge_vertices(None) in Object Mode welds every coincident vertex",
+        btk.EditUtils.merge_vertices(None, tolerance=0.001) == [both]
+        and len(both.data.vertices) == 12,
+        f"{len(both.data.vertices)}",
+    )
+    btk.CoreUtils.select([])
+    check("merge_vertices(None) with nothing selected is []", btk.EditUtils.merge_vertices(None) == [])
+
+    bpy.ops.object.select_all(action="DESELECT")
+    bpy.ops.mesh.primitive_cube_add(size=2.0)
+    base = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(1, 1, 1))
+    cutter = bpy.context.active_object
+    btk.CoreUtils.select([cutter, base])
+    bpy.context.view_layer.objects.active = base
+    out = btk.EditUtils.boolean_objects(None, operation="difference", interactive=True)
+    check(
+        "boolean_objects(None): the active mesh is the base; interactive keeps the modifier",
+        out == [base] and any(m.type == "BOOLEAN" for m in base.modifiers),
+    )
+    try:
+        btk.EditUtils.boolean_objects([base, cutter], operation="xor")
+        check("boolean_objects rejects an unknown operation", False)
+    except ValueError:
+        check("boolean_objects rejects an unknown operation", True)
+    check("boolean_objects needs two meshes", btk.EditUtils.boolean_objects([base]) == [])
+
+    both = _cubes_touching()
+    parts = btk.EditUtils.separate_objects([both], group_by_material=True, select=True)
+    check(
+        "separate_objects(group_by_material): one Empty per material, selected",
+        len(parts) == 1
+        and parts[0].type == "EMPTY"
+        and len(parts[0].children) == 2
+        and btk.CoreUtils.selected_objects() == parts,
+        f"{[(p.name, p.type) for p in parts]}",
+    )
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

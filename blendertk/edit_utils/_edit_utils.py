@@ -551,6 +551,41 @@ class _EditUtilsInternal(object):
         return empty
 
     @staticmethod
+    def _group_parts_by_material(parts_by_source):
+        """Parent each source's separated parts under one Empty per material --
+        mirror of mayatk's ``_group_results_by_material``: groups named
+        ``{source}_{suffix}_grp``, parts ``{source}_{suffix}`` (one) or
+        ``{source}_{suffix}_{inner}`` (several); suffixes A, B, ... (numeric
+        past 26). Returns the Empties."""
+        groups = []
+        for source, parts in parts_by_source:
+            buckets = {}
+            for part in parts:
+                buckets.setdefault(_EditUtilsInternal._material_key(part), []).append(
+                    part
+                )
+            suffixes = ptk.StrUtils.sequential_suffixes(len(buckets))
+            for suffix, members in zip(suffixes, buckets.values()):
+                inner = (
+                    [""]
+                    if len(members) == 1
+                    else [
+                        f"_{s}"
+                        for s in ptk.StrUtils.sequential_suffixes(
+                            len(members), lowercase=True
+                        )
+                    ]
+                )
+                for member, tail in zip(members, inner):
+                    member.name = f"{source}_{suffix}{tail}"
+                groups.append(
+                    _EditUtilsInternal._group_under_empty(
+                        members, f"{source}_{suffix}_grp", center=True
+                    )
+                )
+        return groups
+
+    @staticmethod
     def _join_copies(copies, name):
         """Join ``copies`` into a single mesh named ``name`` (object-level op, headless-safe).
 
@@ -915,6 +950,97 @@ class EditUtils(_EditUtilsInternal):
         _EditUtilsInternal._bmesh_each(objects, _sub)
 
     @staticmethod
+    @CoreUtils.undoable
+    def merge_vertices(objects=None, tolerance=0.001, selected_only=None):
+        """Merge the vertices within *tolerance* (Blender's Merge by Distance).
+        One undo step. Mirror of mayatk's ``EditUtils.merge_vertices``.
+
+        Parameters:
+            objects (list, optional): Meshes; ``None``: the selection.
+            tolerance (float): The maximum merge distance (each mesh's local space).
+            selected_only (bool, optional): Merge only the selected vertices of
+                the meshes in Edit Mode (``mesh.remove_doubles``). ``None``: when
+                a mesh is in Edit Mode. Otherwise every vertex of every mesh.
+
+        Returns:
+            list: The meshes merged; ``[]`` with none.
+        """
+        import bmesh
+        import bpy
+
+        meshes = _EditUtilsInternal._meshes(
+            objects if objects is not None else CoreUtils.selected_objects()
+        )
+        if not meshes:
+            return []
+        editing = [o for o in meshes if o.mode == "EDIT"]
+        if selected_only is None:
+            selected_only = bool(editing)
+        if selected_only:
+            if not editing:
+                return []
+            with CoreUtils.window_context_override():
+                bpy.ops.mesh.remove_doubles(threshold=tolerance)
+            return editing
+        for o in meshes:
+            if o.mode == "EDIT":
+                bm = bmesh.from_edit_mesh(o.data)
+                bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=tolerance)
+                bmesh.update_edit_mesh(o.data)
+            else:
+                _EditUtilsInternal._bmesh_edit(
+                    o,
+                    lambda bm: bmesh.ops.remove_doubles(
+                        bm, verts=bm.verts[:], dist=tolerance
+                    ),
+                )
+        return meshes
+
+    #: Boolean operations (mayatk's names) -> the Boolean modifier's.
+    _BOOLEAN_OPERATIONS = {
+        "union": "UNION",
+        "difference": "DIFFERENCE",
+        "intersection": "INTERSECT",
+    }
+
+    @staticmethod
+    @CoreUtils.undoable
+    def boolean_objects(objects=None, operation="difference", interactive=False):
+        """Boolean meshes with Boolean modifiers: the first is the base (for
+        ``None``, the active mesh), the rest its operands. One undo step. Mirror
+        of mayatk's ``EditUtils.boolean_objects``.
+
+        Parameters:
+            objects (list, optional): Meshes, base first. ``None``: the selection.
+            operation (str): ``"union"``, ``"difference"`` or ``"intersection"``.
+            interactive (bool): Keep the modifiers live (non-destructive)
+                instead of applying them.
+
+        Returns:
+            list: The base; ``[]`` with fewer than two meshes.
+
+        Raises:
+            ValueError: An unknown *operation*.
+        """
+        kind = EditUtils._BOOLEAN_OPERATIONS.get(operation)
+        if kind is None:
+            raise ValueError(
+                f"Unknown boolean operation {operation!r}: "
+                f"use one of {sorted(EditUtils._BOOLEAN_OPERATIONS)}."
+            )
+        if objects is None:
+            meshes = _EditUtilsInternal._meshes(CoreUtils.selected_objects())
+            active = CoreUtils.active_object()
+            if active in meshes:  # base first (Maya's order-matters convention)
+                meshes = [active] + [o for o in meshes if o != active]
+        else:
+            meshes = _EditUtilsInternal._meshes(objects)
+        if len(meshes) < 2:
+            return []
+        base = EditUtils.boolean_op(meshes, operation=kind, apply=not interactive)
+        return [base] if base is not None else []
+
+    @staticmethod
     @CoreUtils._object_mode
     def boolean_op(objects, operation="DIFFERENCE", apply=True):
         """Boolean the first mesh by the remaining ones via Boolean modifiers (the §5 map for
@@ -1048,17 +1174,25 @@ class EditUtils(_EditUtilsInternal):
         return count
 
     @staticmethod
-    def select_edges_by_angle(objects, low_angle=0.0, high_angle=180.0):
+    @CoreUtils.undoable
+    def select_edges_by_angle(objects=None, low_angle=0.0, high_angle=180.0):
         """Select interior edges whose dihedral (face) angle is within ``[low_angle, high_angle]``
         degrees, on the given mesh object(s) — the Blender analogue of Maya's Select-Edges-By-Angle
         *range* (native ``mesh.edges_select_sharp`` takes only a single lower threshold).
 
-        ``objects`` must already be in Edit Mode (the ``selection`` slot's ``_edit_mesh('EDGE')``
-        ensures this and supplies the active object — the edit-mode object set is passed in rather than
-        read from ``bpy.context``, which is unreliable from a deferred call). Boundary edges (not exactly
-        two faces) are excluded. Replaces the current edge selection; returns the edges selected."""
+        Given ``objects`` must already be in Edit Mode (the edit-mode object set is passed in
+        rather than read from ``bpy.context``, which is unreliable from a deferred call); ``None``
+        (mayatk's signature, one undo step) puts the active or first selected mesh there with the
+        edge mask, and returns ``[]`` when there is none. Boundary edges (not exactly two faces)
+        are excluded. Replaces the current edge selection; returns the number of edges selected."""
         import bmesh
 
+        if objects is None:
+            if CoreUtils.ensure_component_mode("mesh", "edge") is None:
+                return []
+            objects = [
+                o for o in CoreUtils.selected_objects() if o.type == "MESH" and o.mode == "EDIT"
+            ]
         lo, hi = math.radians(low_angle), math.radians(high_angle)
         total = 0
         for obj in _EditUtilsInternal._meshes(objects):
@@ -1572,7 +1706,8 @@ class EditUtils(_EditUtilsInternal):
             XformUtils.center_pivot(symmetrized, mode="object")
 
     @staticmethod
-    def wedge(objects, angle=90.0, divisions=4):
+    @CoreUtils.undoable
+    def wedge(objects=None, angle=None, divisions=None):
         """Wedge the selected faces about a selected hinge edge — mirror of Maya's
         ``WedgePolygon`` (``bmesh.ops.spin``: the faces sweep ``angle`` degrees around the edge
         in ``divisions`` steps, extruding the arc).
@@ -1585,6 +1720,12 @@ class EditUtils(_EditUtilsInternal):
         import bmesh
         from mathutils import Matrix, Vector
 
+        # mayatk's signature: None takes the selection, at Maya's Wedge
+        # defaults (90 degrees in 4 steps). One undo step.
+        if objects is None:
+            objects = CoreUtils.selected_objects()
+        angle = 90.0 if angle is None else angle
+        divisions = 4 if divisions is None else divisions
         wedged = 0
         for o in _EditUtilsInternal._meshes(objects):
             if o.mode != "EDIT":
@@ -2035,14 +2176,17 @@ class EditUtils(_EditUtilsInternal):
         return freed
 
     @staticmethod
+    @CoreUtils.undoable
     @CoreUtils._object_mode
     def separate_objects(
         objects=None,
         *,
         by_material=False,
+        group_by_material=False,
         rename=False,
         center_pivots=True,
         uninstance=True,
+        select=False,
     ):
         """Separate mesh(es) into loose parts, or one object per material (``by_material``) — Blender
         mirror of mayatk's ``EditUtils.separate_objects`` (``mesh.separate`` LOOSE/MATERIAL). Optionally
@@ -2070,6 +2214,10 @@ class EditUtils(_EditUtilsInternal):
             NodeUtils.uninstance(objs)
         sep_type = "MATERIAL" if by_material else "LOOSE"
         new_objects = []
+        # (source name, its parts) for group_by_material: mayatk parents the
+        # results under per-material groups, which are Empties here. ``select``
+        # selects the results (the parts, or the groups) after; one undo step.
+        by_source = []
         for obj in objs:
             before = set(bpy.data.objects)
             bpy.ops.object.select_all(action="DESELECT")
@@ -2094,14 +2242,20 @@ class EditUtils(_EditUtilsInternal):
                     # only that path drops it. A stale bake would make a later
                     # Un-Freeze double-apply the translation.
                     XformUtils.center_pivot(produced, mode="median")
-                if rename:
+                if rename and not group_by_material:
                     base = obj.name.split(".")[0]
                     for i, p in enumerate(produced):
                         p.name = base if i == 0 else f"{base}_part{i:02d}"
                 new_objects.extend(parts)
+                by_source.append((obj.name.split(".")[0], produced))
+        if group_by_material and by_source:
+            new_objects = _EditUtilsInternal._group_parts_by_material(by_source)
+        if select and new_objects:
+            CoreUtils.select(new_objects)
         return new_objects
 
     @staticmethod
+    @CoreUtils.undoable
     @CoreUtils._object_mode
     def combine_objects(
         objects=None,
@@ -2161,8 +2315,15 @@ class EditUtils(_EditUtilsInternal):
         ]
 
     @staticmethod
+    @CoreUtils.undoable
     def detach_components(
-        *, duplicate=False, separate=True, separate_each=False, center_pivot=True
+        components=None,
+        duplicate=True,
+        separate=True,
+        keep_faces_together=True,
+        center_pivot=True,
+        *,
+        separate_each=None,
     ):
         """Detach the active mesh's selected faces — Blender mirror of mayatk's
         ``EditUtils.detach_components``. Edit-mode workflow (acts on the active mesh's current
@@ -2185,6 +2346,11 @@ class EditUtils(_EditUtilsInternal):
         """
         import bpy
 
+        # mayatk's signature (one undo step): *components* is the Edit-Mode
+        # selection here, and ``separate_each`` the legacy spelling of
+        # ``not keep_faces_together``.
+        if separate_each is None:
+            separate_each = not keep_faces_together
         # The window's view layer + context: the mesh.* ops poll the edit object from
         # screen context (windowless, mesh.separate refused 'Selection not supported in
         # object mode'), and select_set / the active write address the scene's default

@@ -282,6 +282,114 @@ try:
     except ValueError:
         check("transfer refuses a type Blender lacks", True)
 
+    # ---- polygon operations (tentacle's polygons panel): mayatk's names
+    def edit(o, faces=(), mode="FACE"):
+        """*o* active in Edit Mode with only *faces* (indices) selected."""
+        import bmesh
+
+        btk.CoreUtils.select([o])
+        bpy.context.view_layer.objects.active = o
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_mode(type=mode)
+        bpy.ops.mesh.select_all(action="DESELECT")
+        bm = bmesh.from_edit_mesh(o.data)
+        bm.faces.ensure_lookup_table()
+        for i in faces:
+            bm.faces[i].select = True
+        bm.select_flush_mode()
+        bmesh.update_edit_mesh(o.data)
+
+    def leave(o):
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return len(o.data.polygons), len(o.data.vertices)
+
+    reset()
+    o = cube()
+    btk.CoreUtils.select([o])
+    check(
+        "an object outside Edit Mode has no components: []",
+        Components.poke_faces(None) == [] and Components.inset_faces(None) == [],
+    )
+    check(
+        "collapse_components with nothing in Edit Mode is ([], [])",
+        Components.collapse_components(None) == ([], []),
+    )
+
+    reset()
+    o = cube()
+    edit(o, [0])
+    Components.poke_faces(None)
+    check("poke_faces fans the face into 4 triangles", leave(o)[0] == 9)
+
+    reset()
+    o = cube()
+    edit(o, [0])
+    Components.extrude(None, divisions=3)
+    check("extrude with divisions stacks 3 extrusions", leave(o)[0] == 6 + 4 * 3)
+
+    reset()
+    o = cube()
+    edit(o, [0])
+    Components.inset_faces(None, offset=0.2)
+    check("inset_faces rings the face (4 new faces)", leave(o)[0] == 10)
+
+    reset()
+    o = cube()
+    edit(o, [0])
+    Components.divide_faces(None)
+    check("divide_faces both ways: 4 quads from 1", leave(o)[0] == 6 + 3)
+
+    reset()
+    o = cube()
+    edit(o, [0])
+    Components.divide_faces(None, cuts=2)
+    faces = leave(o)[0]
+    check("divide_faces with 2 cuts: a 3x3 grid from 1", faces == 6 + 8, f"{faces}")
+
+    reset()
+    o = cube()
+    edit(o, [0, 1])
+    collapsed, skipped = Components.collapse_components(None)
+    check("collapse_components collapses the faces", collapsed == [o] and skipped == [])
+    leave(o)
+
+    reset()
+    o = cube()
+    edit(o, [0])
+    try:
+        Components.circularize(None)
+        has = True
+    except RuntimeError as error:  # factory startup: no LoopTools
+        has = "LoopTools" in str(error)
+    check("circularize names LoopTools when it is absent", has)
+    leave(o)
+
+    reset()
+    o = cube()
+    edit(o, [], mode="VERT")
+    import bmesh as _bm
+
+    bm = _bm.from_edit_mesh(o.data)
+    bm.verts.ensure_lookup_table()
+    bm.verts[0].select = bm.verts[1].select = True
+    _bm.update_edit_mesh(o.data)
+    gap = (bm.verts[0].co - bm.verts[1].co).length
+    got = Components.adjusted_distance_between_vertices(
+        None, None, adjust=0.1, as_percentage=True
+    )
+    check(
+        "adjusted_distance_between_vertices(None): the two selected verts +0.1%",
+        got is not None and abs(got - gap * 1.001) < 1e-6,
+        f"{got} vs {gap}",
+    )
+    bm.verts[1].select = False
+    _bm.update_edit_mesh(o.data)
+    check(
+        "adjusted_distance_between_vertices(None) needs exactly two vertices",
+        Components.adjusted_distance_between_vertices(None, None) is None,
+    )
+    leave(o)
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

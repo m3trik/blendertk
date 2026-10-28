@@ -1026,7 +1026,7 @@ Per-object **outliner text colour** for Blender — the true analogue of Maya's
 
 Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
 
-- **[`class EditUtils(_EditUtilsInternal)`](blendertk/blendertk/edit_utils/_edit_utils.py#L720)** — Namespace mirror of mayatk's ``EditUtils`` (helpers also exposed module-level).
+- **[`class EditUtils(_EditUtilsInternal)`](blendertk/blendertk/edit_utils/_edit_utils.py#L755)** — Namespace mirror of mayatk's ``EditUtils`` (helpers also exposed module-level).
   - `EditUtils.get_symmetry()` *(static)* — The active mesh's symmetry (its mirror flags): what tentacle's symmetry
   - `EditUtils.set_symmetry(axis=None, state=True, space=None)` *(static)* — Set the selected meshes' symmetry: an axis on or off, and/or matching
   - `EditUtils.hook_bind_inverse(target, obj)` *(static)* — The ``matrix_inverse`` a Hook modifier needs so its geometry does **not jump** at bind time.
@@ -1036,12 +1036,14 @@ Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tri
   - `EditUtils.triangulate(objects)` *(static)* — Triangulate all faces of the given mesh object(s) (bmesh, headless).
   - `EditUtils.tris_to_quads(objects, angle=40.0)` *(static)* — Merge adjacent triangles back into quads where the face/shape angle is within ``angle``
   - `EditUtils.subdivide_mesh(objects, cuts=1)` *(static)* — Subdivide every edge ``cuts`` times, grid-filling faces (bmesh, headless) — "Add Divisions".
+  - `EditUtils.merge_vertices(objects=None, tolerance=0.001, selected_only=None)` *(static)* — Merge the vertices within *tolerance* (Blender's Merge by Distance).
+  - `EditUtils.boolean_objects(objects=None, operation='difference', interactive=False)` *(static)* — Boolean meshes with Boolean modifiers: the first is the base (for
   - `EditUtils.boolean_op(objects, operation='DIFFERENCE', apply=True)` *(static)* — Boolean the first mesh by the remaining ones via Boolean modifiers (the §5 map for
   - `EditUtils.set_subdivision(objects, viewport_levels=None, render_levels=None, ensure=True)` *(static)* — Set Subdivision-Surface levels on the given mesh object(s), kept **live** (non-destructive
   - `EditUtils.apply_subdivision(objects)` *(static)* — Bake the live Subsurf modifier into real geometry — the destructive counterpart of
   - `EditUtils.set_shading(objects, smooth=True, selected_only=False)` *(static)* — Set smooth (averaged vertex normals) or flat (face normals) shading — the Blender
   - `EditUtils.average_normals(objects, by_uv_shell=False)` *(static)* — Average vertex normals by softening edges — Blender mirror of ``mtk.Components.average_normals``
-  - `EditUtils.select_edges_by_angle(objects, low_angle=0.0, high_angle=180.0)` *(static)* — Select interior edges whose dihedral (face) angle is within ``[low_angle, high_angle]``
+  - `EditUtils.select_edges_by_angle(objects=None, low_angle=0.0, high_angle=180.0)` *(static)* — Select interior edges whose dihedral (face) angle is within ``[low_angle, high_angle]``
   - `EditUtils.set_edge_hardness(objects, angle=30.0, upper_hardness=0, lower_hardness=180)` *(static)* — Smooth-shade, then mark interior edges hard/soft by their dihedral angle relative to
   - `EditUtils.clear_custom_split_normals(objects)` *(static)* — Clear custom split normals on the given mesh object(s) — the Blender analogue of Maya's
   - `EditUtils.add_custom_split_normals(objects)` *(static)* — Bake the current normals of the given mesh object(s) as custom split normals — the Blender
@@ -1056,16 +1058,16 @@ Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tri
   - `EditUtils.mirror(objects, axis='x', pivot='object', mergeMode=-1, delete_original=False, merge_threshold=0.001, center_pivot=True, axis_frame=None)` *(static)* — Mirror mesh object(s) across an axis plane — mirror of ``mtk.EditUtils.mirror``.
   - `EditUtils.mirror_instance(objects, axis='x', pivot='object', axis_frame=None)` *(static)* — Mirror as **linked duplicates**: each object gets a copy that shares its mesh data,
   - `EditUtils.cut_along_axis(objects, axis='x', pivot='center', amount=1, offset=0.0, spacing=0.0, distribution='linear', weight_bias=0.5, weight_curve=2.0, invert=False, delete=False, mirror=False, merge_threshold=0.0001, center_pivot=True, axis_frame=None)` *(static)* — Cut mesh object(s) along an axis — mirror of ``mtk.EditUtils.cut_along_axis``.
-  - `EditUtils.wedge(objects, angle=90.0, divisions=4)` *(static)* — Wedge the selected faces about a selected hinge edge — mirror of Maya's
+  - `EditUtils.wedge(objects=None, angle=None, divisions=None)` *(static)* — Wedge the selected faces about a selected hinge edge — mirror of Maya's
   - `EditUtils.snap_closest_verts(obj_a, obj_b, tolerance=10.0)` *(static)* — Snap each vertex of ``obj_a`` onto the closest vertex of ``obj_b`` within
   - `EditUtils.snap_to_grid(objects=None, grid_size=1.0, axes='xyz')` *(static)* — Snap to the nearest grid point — mirror of ``mtk.Snap.snap_to_grid``.
   - `EditUtils.snap_to_surface(source_meshes, target, offset=0.0, threshold=None, invert=False)` *(static)* — Project the source meshes' vertices onto the closest point of ``target``'s surface —
   - `EditUtils.get_standoff_distances(cls, objects, target, sample_limit=None)` *(class)* — Measure how far each mesh in *objects* stands off *target*'s surface —
   - `EditUtils.get_similar_mesh(objects=None, *, tolerance=0.0, inc_orig=False, select=False, vertex=False, edge=False, face=False, triangle=False, shell=False, uvcoord=False, area=False, world_area=False, bounding_box=False)` *(static)* — Find scene mesh objects similar to ``objects`` by topology / area / bounding-box metrics —
   - `EditUtils.ungroup_objects(objects=None)` *(static)* — Dissolve the given group Empties (or the selection's) — mirror of mayatk's
-  - `EditUtils.separate_objects(objects=None, *, by_material=False, rename=False, center_pivots=True, uninstance=True)` *(static)* — Separate mesh(es) into loose parts, or one object per material (``by_material``) — Blender
+  - `EditUtils.separate_objects(objects=None, *, by_material=False, group_by_material=False, rename=False, center_pivots=True, uninstance=True, select=False)` *(static)* — Separate mesh(es) into loose parts, or one object per material (``by_material``) — Blender
   - `EditUtils.combine_objects(objects=None, *, group_by_material=False, cluster_by_distance=False, threshold=10000.0, uninstance=True)` *(static)* — Combine mesh objects into one — Blender mirror of mayatk's ``EditUtils.combine_objects``
-  - `EditUtils.detach_components(*, duplicate=False, separate=True, separate_each=False, center_pivot=True)` *(static)* — Detach the active mesh's selected faces — Blender mirror of mayatk's
+  - `EditUtils.detach_components(components=None, duplicate=True, separate=True, keep_faces_together=True, center_pivot=True, *, separate_each=None)` *(static)* — Detach the active mesh's selected faces — Blender mirror of mayatk's
   - `EditUtils.get_overlapping_faces(objects, delete=False, select=True, round_ndigits=5)` *(static)* — Find faces geometrically coincident with another face — doubled geometry on *distinct*
   - `EditUtils.get_overlapping_duplicates(objects=None, retain=None, select=False, delete=False, round_ndigits=5)` *(static)* — Find duplicate mesh objects overlapping in world space — mirror of
   - `EditUtils.delete_selected()` *(static)* — Delete the selection: in Edit Mode, the selected components of the active
@@ -1094,7 +1096,7 @@ Bridge: connect two open edge loops with new faces — mirror of mayatk's
 
 Component-level mesh operations — mirror of mayatk's ``core_utils.components``.
 
-- **[`class Components(_ComponentsInternal)`](blendertk/blendertk/edit_utils/components.py#L56)** — Component-level mesh operations — mirror of mayatk's ``Components``.
+- **[`class Components(_ComponentsInternal)`](blendertk/blendertk/edit_utils/components.py#L103)** — Component-level mesh operations — mirror of mayatk's ``Components``.
   - `Components.crease_edges(edges=None, amount=None, angle=None)` *(static)* — Crease the meshes *edges* (subdivision sharpness): in Edit Mode their
   - `Components.transfer_creased_edges(frm=None, to=None)` *(static)* — Copy the edge creases of the mesh *frm* to the meshes *to* with Blender's
   - `Components.set_edge_hardness(objects, angle_threshold, upper_hardness=None, lower_hardness=None, unlock_normals=False)` *(static)* — Mark edges hard or soft by their angle against ``angle_threshold``.
@@ -1105,6 +1107,20 @@ Component-level mesh operations — mirror of mayatk's ``core_utils.components``
   - `Components.toggle_normal_lock(objects)` *(static)* — Lock the normals of *objects* (bake them as custom split normals), or
   - `Components.transfer_normals(objects, space='world')` *(static)* — Transfer normals from the first mesh of *objects* to the rest, as
   - `Components.transfer_mesh_data(objects, data_type, **options)` *(static)* — Copy *data_type* from the first mesh of *objects* to the rest with Blender's
+  - `Components.extrude(components=None, keep_faces_together=True, divisions=1, thickness=0.0)` *(static)* — Extrude the Edit-Mode selection (``mesh.extrude_region``, or each face
+  - `Components.inset_faces(faces=None, offset=0.1, depth=0.0, individual=False)` *(static)* — Inset the selected faces (``mesh.inset``: *offset* is its thickness).
+  - `Components.divide_faces(faces=None, u=True, v=True, cuts=1, tris=False)` *(static)* — Divide the selected faces with ``mesh.subdivide`` (*cuts* each way),
+  - `Components.circularize(components=None)` *(static)* — Reshape the selected loop into an even circle with the LoopTools
+  - `Components.fill_holes(components=None)` *(static)* — Cap the holes bounded by the selected border edges (``mesh.fill_holes``,
+  - `Components.symmetrize(components=None)` *(static)* — Mirror the selected components across the mesh's X axis
+  - `Components.bridge_edges(edges=None)` *(static)* — Bridge the selected edge loops (``mesh.bridge_edge_loops``).
+  - `Components.collapse_components(components=None)` *(static)* — Collapse each selected face region to a point;
+  - `Components.connect_components(components=None)` *(static)* — Connect the selected vertices (in pick order, else across their
+  - `Components.poke_faces(faces=None)` *(static)* — Add a center vertex to each selected face (``mesh.poke``).
+  - `Components.slide_edges(edges=None)` *(static)* — Slide the selected edge loops interactively: edge select mode, then
+  - `Components.offset_edge_loops(edges=None)` *(static)* — Add an edge loop on each side of the selected edges
+  - `Components.edit_edge_flow(edges=None)` *(static)* — Move the selected edge loops to follow the surface curvature with the
+  - `Components.adjusted_distance_between_vertices(p1=None, p2=None, adjust=0.0, as_percentage=False)` *(static)* — The distance between two points, adjusted by *adjust* (an amount, or
   - `Components.get_transfer_types(cls)` *(class)* — The Transfer menu: ``{label: what it copies}`` in menu order, each a
   - `Components.transfer(cls, objects, transfer_type)` *(class)* — Copy a :meth:`get_transfer_types` layer from the first mesh of *objects*
 
@@ -1203,19 +1219,19 @@ Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
   - `EditMacros.m_merge_vertices(tolerance=0.0001)` *(static)* — Merge vertices by distance — on the active mesh in Edit Mode, or across every selected
   - `EditMacros.m_group()` *(static)* — Group the selected objects under an Empty at the selection's center, keeping their
   - `EditMacros.m_ungroup()` *(static)* — Ungroup the selected group Empties — children keep their world transforms
-- **[`class SelectionMacros`](blendertk/blendertk/edit_utils/macros/_macros.py#L451)**
+- **[`class SelectionMacros`](blendertk/blendertk/edit_utils/macros/_macros.py#L440)**
   - `SelectionMacros.m_object_selection()` *(static)* — Object selection mask — leave edit mode (object mode).
   - `SelectionMacros.m_vertex_selection(cls)` *(class)* — Vertex selection mask (edit mode).
   - `SelectionMacros.m_edge_selection(cls)` *(class)* — Edge selection mask (edit mode).
   - `SelectionMacros.m_face_selection(cls)` *(class)* — Face selection mask (edit mode).
   - `SelectionMacros.m_invert_selection()` *(static)* — Invert the current selection (component-aware).
   - `SelectionMacros.m_toggle_UV_select_type()` *(static)* — Toggle UV select mode between Vertex and Face (Blender's ``uv_select_mode`` enum is
-- **[`class UiMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros/_macros.py#L504)**
+- **[`class UiMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros/_macros.py#L493)**
   - `UiMacros.m_toggle_panels(cls, toggle_menu: bool = True, toggle_panels: bool = True)` *(class)* — Toggle the main window's bars (topbar + statusbar) and the 3D viewport's header,
-- **[`class AnimationMacros`](blendertk/blendertk/edit_utils/macros/_macros.py#L547)**
+- **[`class AnimationMacros`](blendertk/blendertk/edit_utils/macros/_macros.py#L536)**
   - `AnimationMacros.m_set_selected_keys(cls)` *(class)* — Set keys on the selected objects' transform channels at the current frame.
   - `AnimationMacros.m_unset_selected_keys(cls)` *(class)* — Remove keys on the selected objects' transform channels at the current frame.
-- **[`class MacroManager`](blendertk/blendertk/edit_utils/macros/_macros.py#L573)** — Register ``m_*`` macros to Blender hotkeys from the same string spec Maya uses.
+- **[`class MacroManager`](blendertk/blendertk/edit_utils/macros/_macros.py#L562)** — Register ``m_*`` macros to Blender hotkeys from the same string spec Maya uses.
   - `MacroManager.set_macros(cls, *args)` *(class)* — Register a macro per spec string (``"m_name, key=1, cat=Display"``).
   - `MacroManager.call_with_input(func, input_string)` *(static)* — Parse ``"arg, key=val, ..."`` into positional/keyword args and call ``func``.
   - `MacroManager.set_macro(cls, name, key=None, cat=None, ann=None)` *(class)* — Bind macro ``name`` to ``key`` (e.g.
@@ -1244,7 +1260,7 @@ Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
   - `MacroManager.export_bindings(cls) -> Dict[str, dict]` *(class)* — The persist-worthy subset of the live bindings — every macro with a
   - `MacroManager.import_bindings(cls, data: Optional[Dict[str, dict]]) -> int` *(class)* — Apply a loaded binding set (the preset ``value_applier``): release
   - `MacroManager.show_editor(cls, parent=None)` *(class)* — Open the Macro Manager — the unified uitk ``ShortcutEditor`` over
-- **[`class Macros(MacroManager, DisplayMacros, EditMacros, SelectionMacros, AnimationMacros, UiMacros)`](blendertk/blendertk/edit_utils/macros/_macros.py#L1258)** — Concrete macro holder — combines every macro mixin with the manager (mirror of mayatk).
+- **[`class Macros(MacroManager, DisplayMacros, EditMacros, SelectionMacros, AnimationMacros, UiMacros)`](blendertk/blendertk/edit_utils/macros/_macros.py#L1247)** — Concrete macro holder — combines every macro mixin with the manager (mirror of mayatk).
 
 <a id="edit_utils--naming--_naming"></a>
 ### `edit_utils/naming/_naming.py`
@@ -1284,7 +1300,7 @@ Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Sel
 
 - **[`class Selection`](blendertk/blendertk/edit_utils/selection.py#L35)** — Namespace mirror of mayatk's ``Selection`` (category-driven select-by-type).
   - `Selection.loop_multi_select(ring=False)` *(static)* — Extend the current edge selection to full loops (rings with ``ring``) — version-portable.
-  - `Selection.select_by_type(selection_type, objects=None, mode='replace')` *(static)* — Select objects by category or leaf type (mirror of ``mtk.Selection.select_by_type``).
+  - `Selection.select_by_type(selection_type, objects=None, mode='replace', scope=None)` *(static)* — Select objects by category or leaf type (mirror of ``mtk.Selection.select_by_type``).
   - `Selection.select_children(objects)` *(static)* — The immediate children of the given objects (one level below only).
   - `Selection.select_hierarchy_above(objects)` *(static)* — All ancestor objects above the given objects (full parent chain).
   - `Selection.select_hierarchy_below(objects)` *(static)* — All descendant objects below the given objects (full child subtree).
@@ -1301,7 +1317,21 @@ Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Sel
   - `Selection.select_uv_edge_loop(obj)` *(static)* — UV Edge Loop: the topological edge loop through the selection, truncated at UV seams —
   - `Selection.get_available_selection_types()` *(static)* — A flat, sorted list of every leaf selection-type label.
   - `Selection.get_selection_categories()` *(static)* — Dict of category -> leaf-label list (mirror of ``mtk.Selection.get_selection_categories``).
-- **[`class SelectionOrder`](blendertk/blendertk/edit_utils/selection.py#L765)** — Ordered **object** selection — rolled infrastructure Blender doesn't ship.
+  - `Selection.objects_in_scope(scope='all')` *(static)* — The objects a selection filter draws from -- mirror of mayatk's:
+  - `Selection.reorder_selection(objects=None, method='name', reverse=False)` *(static)* — Reorder *objects* (``None``: the selection) by *method*
+  - `Selection.get_conversion_types(cls)` *(class)* — The conversions :meth:`convert_selection` knows, in menu order --
+  - `Selection.convert_selection(cls, conversion)` *(class)* — Convert the Edit-Mode selection of the active (else first selected)
+  - `Selection.get_selection_constraints()` *(static)* — ``None``: Blender keeps no selection constraint on -- mirror of
+  - `Selection.set_selection_constraint(cls, constraint, state=True)` *(class)* — Expand the current Edit-Mode selection once by *constraint*'s rule:
+  - `Selection.select_edge_path(cls, components=None, path='edge_loop', step=1)` *(class)* — Select the edge path through the Edit-Mode selection of the active
+  - `Selection.select_similar(cls, objects=None, tolerance=0.0, include_original=False, **metrics)` *(class)* — Select what is similar to the selection -- mirror of mayatk's
+  - `Selection.select_island(cls, faces=None, range_x=0.05, range_y=0.05, range_z=0.05, delimit=None)` *(class)* — Select the contiguous faces, around the selected ones, whose normals
+  - `Selection.toggle_selectability(objects=None)` *(static)* — Toggle whether *objects* can be picked in the viewport
+  - `Selection.get_ignore_backfacing()` *(static)* — True while viewport picks skip what faces away from the camera: the
+  - `Selection.set_ignore_backfacing(state=True)` *(static)* — Turn X-ray off (*state*) or on in every 3D view;
+  - `Selection.get_rig_selection_mode()` *(static)* — ``"normal"``: blendertk's rigs lock no mesh, so there is no rig-aware
+  - `Selection.set_rig_selection_mode(cls, mode)` *(class)* — Mirror of mayatk's: no mesh is locked here, so none is unlocked.
+- **[`class SelectionOrder`](blendertk/blendertk/edit_utils/selection.py#L1239)** — Ordered **object** selection — rolled infrastructure Blender doesn't ship.
   - `SelectionOrder.enable(cls)` *(class)* — Start tracking (idempotent).
   - `SelectionOrder.disable(cls)` *(class)* — Stop tracking and clear the recorded order.
   - `SelectionOrder.is_enabled(cls)` *(class)*
@@ -1316,7 +1346,7 @@ Snap: vertices to a target surface, to the closest target vertex, or to the
 - **[`class Snap(pythontk.HelpMixin)`](blendertk/blendertk/edit_utils/snap.py#L21)** — Vertex and mesh snapping utilities.
   - `Snap.source_and_target()` *(static)* — The selected meshes as ``(sources, target)``: the active mesh is the
   - `Snap.snap_to_surface(source_meshes, target_mesh, offset=None, threshold=None, invert=False)` *(static)* — Snap the source meshes' vertices onto the target's surface, at
-  - `Snap.snap_to_closest_vertex(obj1, obj2, tolerance=10.0)` *(static)* — Snap *obj1*'s vertices to *obj2*'s closest within *tolerance*;
+  - `Snap.snap_to_closest_vertex(obj1, obj2, tolerance=10.0, freeze_transforms=False)` *(static)* — Snap *obj1*'s vertices to *obj2*'s closest within *tolerance*;
   - `Snap.snap_to_grid(objects=None, grid_size=1.0, axes='xyz')` *(static)* — Snap the selected vertices (Edit Mode) or each object's origin to
 
 <a id="edit_utils--target_weld"></a>

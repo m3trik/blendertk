@@ -43,10 +43,10 @@ class Snap(ptk.HelpMixin):
 
     @staticmethod
     @CoreUtils.undoable
-    def snap_to_closest_vertex(obj1, obj2, tolerance=10.0):
+    def snap_to_closest_vertex(obj1, obj2, tolerance=10.0, freeze_transforms=False):
         """Snap *obj1*'s vertices to *obj2*'s closest within *tolerance*;
-        returns the count moved (Maya's ``freeze_transforms`` has no use here:
-        the world math is exact under any transform)."""
+        returns the count moved. *freeze_transforms* is mayatk's signature and
+        has no effect: the world math here is exact under any transform."""
         return EditUtils.snap_closest_verts(obj1, obj2, tolerance=tolerance)
 
     @staticmethod

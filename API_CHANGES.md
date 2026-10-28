@@ -852,7 +852,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (442)
+## Added (472)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -988,19 +988,35 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `display_utils/exploded_view.py::ExplodedView.toggle_explode(self, objects: Optional[list] = None) -> list`
 - `display_utils/exploded_view.py::ExplodedView.un_explode(self, objects: Optional[list] = None) -> list`
 - `display_utils/exploded_view.py::ExplodedView.un_explode_all(self) -> list`
+- `edit_utils/_edit_utils.py::EditUtils.boolean_objects(objects=None, operation='difference', interactive=False)`
 - `edit_utils/_edit_utils.py::EditUtils.convert_objects(cls, objects, conversion)`
 - `edit_utils/_edit_utils.py::EditUtils.delete_selected()`
 - `edit_utils/_edit_utils.py::EditUtils.get_conversion_types(cls)`
 - `edit_utils/_edit_utils.py::EditUtils.get_symmetry()`
+- `edit_utils/_edit_utils.py::EditUtils.merge_vertices(objects=None, tolerance=0.001, selected_only=None)`
 - `edit_utils/_edit_utils.py::EditUtils.set_symmetry(axis=None, state=True, space=None)`
 - `edit_utils/components.py::Components(class)`
+- `edit_utils/components.py::Components.adjusted_distance_between_vertices(p1=None, p2=None, adjust=0.0, as_percentage=False)`
 - `edit_utils/components.py::Components.average_normals(objects, by_uv_shell=False)`
+- `edit_utils/components.py::Components.bridge_edges(edges=None)`
+- `edit_utils/components.py::Components.circularize(components=None)`
+- `edit_utils/components.py::Components.collapse_components(components=None)`
+- `edit_utils/components.py::Components.connect_components(components=None)`
 - `edit_utils/components.py::Components.crease_edges(edges=None, amount=None, angle=None)`
+- `edit_utils/components.py::Components.divide_faces(faces=None, u=True, v=True, cuts=1, tris=False)`
+- `edit_utils/components.py::Components.edit_edge_flow(edges=None)`
+- `edit_utils/components.py::Components.extrude(components=None, keep_faces_together=True, divisions=1, thickness=0.0)`
+- `edit_utils/components.py::Components.fill_holes(components=None)`
 - `edit_utils/components.py::Components.get_transfer_types(cls)`
+- `edit_utils/components.py::Components.inset_faces(faces=None, offset=0.1, depth=0.0, individual=False)`
+- `edit_utils/components.py::Components.offset_edge_loops(edges=None)`
+- `edit_utils/components.py::Components.poke_faces(faces=None)`
 - `edit_utils/components.py::Components.reverse_normals(objects, mode=0)`
 - `edit_utils/components.py::Components.set_edge_hardness(objects, angle_threshold, upper_hardness=None, lower_hardness=None, unlock_normals=False)`
 - `edit_utils/components.py::Components.set_edge_softness(objects, soft=True)`
 - `edit_utils/components.py::Components.set_to_face_normals(objects)`
+- `edit_utils/components.py::Components.slide_edges(edges=None)`
+- `edit_utils/components.py::Components.symmetrize(components=None)`
 - `edit_utils/components.py::Components.toggle_normal_lock(objects)`
 - `edit_utils/components.py::Components.transfer(cls, objects, transfer_type)`
 - `edit_utils/components.py::Components.transfer_creased_edges(frm=None, to=None)`
@@ -1022,8 +1038,22 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `edit_utils/primitives.py::Primitives(class)`
 - `edit_utils/primitives.py::Primitives.create(cls, category, name)`
 - `edit_utils/primitives.py::Primitives.get_primitive_types(cls)`
+- `edit_utils/selection.py::Selection.convert_selection(cls, conversion)`
+- `edit_utils/selection.py::Selection.get_conversion_types(cls)`
+- `edit_utils/selection.py::Selection.get_ignore_backfacing()`
+- `edit_utils/selection.py::Selection.get_rig_selection_mode()`
+- `edit_utils/selection.py::Selection.get_selection_constraints()`
+- `edit_utils/selection.py::Selection.objects_in_scope(scope='all')`
+- `edit_utils/selection.py::Selection.reorder_selection(objects=None, method='name', reverse=False)`
+- `edit_utils/selection.py::Selection.select_edge_path(cls, components=None, path='edge_loop', step=1)`
+- `edit_utils/selection.py::Selection.select_island(cls, faces=None, range_x=0.05, range_y=0.05, range_z=0.05, delimit=None)`
+- `edit_utils/selection.py::Selection.select_similar(cls, objects=None, tolerance=0.0, include_original=False, **metrics)`
+- `edit_utils/selection.py::Selection.set_ignore_backfacing(state=True)`
+- `edit_utils/selection.py::Selection.set_rig_selection_mode(cls, mode)`
+- `edit_utils/selection.py::Selection.set_selection_constraint(cls, constraint, state=True)`
+- `edit_utils/selection.py::Selection.toggle_selectability(objects=None)`
 - `edit_utils/snap.py::Snap(class)`
-- `edit_utils/snap.py::Snap.snap_to_closest_vertex(obj1, obj2, tolerance=10.0)`
+- `edit_utils/snap.py::Snap.snap_to_closest_vertex(obj1, obj2, tolerance=10.0, freeze_transforms=False)`
 - `edit_utils/snap.py::Snap.snap_to_grid(objects=None, grid_size=1.0, axes='xyz')`
 - `edit_utils/snap.py::Snap.snap_to_surface(source_meshes, target_mesh, offset=None, threshold=None, invert=False)`
 - `edit_utils/snap.py::Snap.source_and_target()`
@@ -1334,7 +1364,7 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/emissive_groups.py::EmissiveGroups.validate`
 - `ui_utils/blender_ui_handler.py::BlenderUiHandler.default_persistence`
 
-## Signature changed (25)
+## Signature changed (30)
 
 - `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.edit_frame_based`
   - was: `(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None) -> List[Target]`
@@ -1357,12 +1387,27 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `display_utils/color_id.py::ColorId.reset_colors`
   - was: `(cls, objects: Sequence, reset_material: bool = True, reset_object: bool = True, reset_vertex: bool = True, reset_outliner: bool = True, reset_sets: bool = True) -> None`
   - now: `(cls, objects: Sequence, reset_outliner: bool = True, reset_wireframe: bool = True, reset_vertex: bool = True, reset_material: bool = True, reset_sets: bool = True) -> None`
+- `edit_utils/_edit_utils.py::EditUtils.detach_components`
+  - was: `(*, duplicate=False, separate=True, separate_each=False, center_pivot=True)`
+  - now: `(components=None, duplicate=True, separate=True, keep_faces_together=True, center_pivot=True, *, separate_each=None)`
 - `edit_utils/_edit_utils.py::EditUtils.mirror`
   - was: `(objects, axis='x', pivot='object', merge_mode=1, delete_original=False, merge_threshold=0.001, center_pivot=True, axis_frame=None)`
   - now: `(objects, axis='x', pivot='object', mergeMode=-1, delete_original=False, merge_threshold=0.001, center_pivot=True, axis_frame=None)`
+- `edit_utils/_edit_utils.py::EditUtils.select_edges_by_angle`
+  - was: `(objects, low_angle=0.0, high_angle=180.0)`
+  - now: `(objects=None, low_angle=0.0, high_angle=180.0)`
+- `edit_utils/_edit_utils.py::EditUtils.separate_objects`
+  - was: `(objects=None, *, by_material=False, rename=False, center_pivots=True, uninstance=True)`
+  - now: `(objects=None, *, by_material=False, group_by_material=False, rename=False, center_pivots=True, uninstance=True, select=False)`
+- `edit_utils/_edit_utils.py::EditUtils.wedge`
+  - was: `(objects, angle=90.0, divisions=4)`
+  - now: `(objects=None, angle=None, divisions=None)`
 - `edit_utils/bridge.py::Bridge.bridge`
   - was: `(objects=None, divisions=0, smoothing_angle=None, offset=0, merge=False)`
   - now: `(objects=None, divisions=0, smoothing_angle=None, offset=0, merge=False, *, curve_type=None, taper=None, twist=None, cleanup_curves=False)`
+- `edit_utils/selection.py::Selection.select_by_type`
+  - was: `(selection_type, objects=None, mode='replace')`
+  - now: `(selection_type, objects=None, mode='replace', scope=None)`
 - `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.perform_export`
   - was: `(self, export_dir: str, objects: Optional[Union[List, Callable]] = None, preset_name: Optional[str] = None, output_name: Optional[str] = None, export_visible: bool = True, create_log_file: bool = False, *, log_level: Optional[str] = None, log_handler: Optional[object] = None, tasks: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None, progress_callback: Optional[Callable[[int, int, Optional[str]], Any]] = None) -> bool`
   - now: `(self, export_dir: str, objects: Optional[Union[List, Callable]] = None, preset_file: Optional[str] = None, output_name: Optional[str] = None, export_visible: bool = True, create_log_file: bool = False, *, log_level: Optional[str] = None, log_handler: Optional[object] = None, tasks: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None, progress_callback: Optional[Callable[[int, int, Optional[str]], Any]] = None) -> bool`

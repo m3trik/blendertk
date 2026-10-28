@@ -417,20 +417,9 @@ class EditMacros(_ViewportMixin):
     @staticmethod
     def m_merge_vertices(tolerance=0.0001):
         """Merge vertices by distance — on the active mesh in Edit Mode, or across every selected
-        mesh in Object Mode (mirrors Maya's component- and object-mode merge)."""
-        obj = CoreUtils.active_object()
-        if obj and obj.type == "MESH" and obj.mode == "EDIT":
-            bpy.ops.mesh.remove_doubles(threshold=tolerance)
-            return
-        import bmesh
-
-        for o in (m for m in CoreUtils.selected_objects() if m.type == "MESH"):
-            bm = bmesh.new()
-            bm.from_mesh(o.data)
-            bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=tolerance)
-            bm.to_mesh(o.data)
-            bm.free()
-            o.data.update()
+        mesh in Object Mode (mirrors Maya's component- and object-mode merge): the hotkey
+        for ``EditUtils.merge_vertices``."""
+        EditUtils.merge_vertices(None, tolerance=tolerance)
 
     @staticmethod
     def m_group():

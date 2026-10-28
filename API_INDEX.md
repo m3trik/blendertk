@@ -202,7 +202,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `edit_utils/_edit_utils.py` — Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
 - `class EditUtils(_EditUtilsInternal)`
-  - methods: get_symmetry, set_symmetry, hook_bind_inverse, hook_curve_point, decimate, dissolve_coplanar, triangulate, tris_to_quads, subdivide_mesh, boolean_op, set_subdivision, apply_subdivision, set_shading, average_normals, select_edges_by_angle, set_edge_hardness, clear_custom_split_normals, add_custom_split_normals, has_custom_split_normals, flip_normals, recalculate_normals, propagate_normals, conform_normals, extract_reversed_faces, clean_geometry, crease_edges, mirror, mirror_instance, cut_along_axis, wedge, snap_closest_verts, snap_to_grid, snap_to_surface, get_standoff_distances, get_similar_mesh, ungroup_objects, separate_objects, combine_objects, detach_components, get_overlapping_faces, get_overlapping_duplicates, delete_selected, get_conversion_types, convert_objects, loft
+  - methods: get_symmetry, set_symmetry, hook_bind_inverse, hook_curve_point, decimate, dissolve_coplanar, triangulate, tris_to_quads, subdivide_mesh, merge_vertices, boolean_objects, boolean_op, set_subdivision, apply_subdivision, set_shading, average_normals, select_edges_by_angle, set_edge_hardness, clear_custom_split_normals, add_custom_split_normals, has_custom_split_normals, flip_normals, recalculate_normals, propagate_normals, conform_normals, extract_reversed_faces, clean_geometry, crease_edges, mirror, mirror_instance, cut_along_axis, wedge, snap_closest_verts, snap_to_grid, snap_to_surface, get_standoff_distances, get_similar_mesh, ungroup_objects, separate_objects, combine_objects, detach_components, get_overlapping_faces, get_overlapping_duplicates, delete_selected, get_conversion_types, convert_objects, loft
 
 ### `edit_utils/bevel.py` — Bevel tool engine.
 - `class Bevel`
@@ -214,7 +214,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `edit_utils/components.py` — Component-level mesh operations — mirror of mayatk's ``core_utils.components``.
 - `class Components(_ComponentsInternal)`
-  - methods: crease_edges, transfer_creased_edges, set_edge_hardness, average_normals, set_edge_softness, set_to_face_normals, reverse_normals, toggle_normal_lock, transfer_normals, transfer_mesh_data, get_transfer_types, transfer
+  - methods: crease_edges, transfer_creased_edges, set_edge_hardness, average_normals, set_edge_softness, set_to_face_normals, reverse_normals, toggle_normal_lock, transfer_normals, transfer_mesh_data, extrude, inset_faces, divide_faces, circularize, fill_holes, symmetrize, bridge_edges, collapse_components, connect_components, poke_faces, slide_edges, offset_edge_loops, edit_edge_flow, adjusted_distance_between_vertices, get_transfer_types, transfer
 
 ### `edit_utils/curtain/_curtain.py` — Procedural draped-cloth (curtain) generator for Blender -- mirror of mayatk's
 - `class Rail(pythontk.Polyline)`
@@ -276,7 +276,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `edit_utils/selection.py` — Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``
 - `class Selection`
-  - methods: loop_multi_select, select_by_type, select_children, select_hierarchy_above, select_hierarchy_below, convert_to, select_face_path, select_vertex_perimeter, select_edge_perimeter, select_face_perimeter, select_border_edges, select_shell_border, select_uv_shell, select_uv_shell_border, select_uv_perimeter, select_uv_edge_loop, get_available_selection_types, get_selection_categories
+  - methods: loop_multi_select, select_by_type, select_children, select_hierarchy_above, select_hierarchy_below, convert_to, select_face_path, select_vertex_perimeter, select_edge_perimeter, select_face_perimeter, select_border_edges, select_shell_border, select_uv_shell, select_uv_shell_border, select_uv_perimeter, select_uv_edge_loop, get_available_selection_types, get_selection_categories, objects_in_scope, reorder_selection, get_conversion_types, convert_selection, get_selection_constraints, set_selection_constraint, select_edge_path, select_similar, select_island, toggle_selectability, get_ignore_backfacing, set_ignore_backfacing, get_rig_selection_mode, set_rig_selection_mode
 - `class SelectionOrder`
   - methods: enable, disable, is_enabled, get, set_order
 

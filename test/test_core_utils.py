@@ -1136,6 +1136,8 @@ try:
     _LAYER_CALLS = ("select_set", "select_get", "hide_set", "hide_get", "visible_get")
     _SCREEN = ("selected_objects", "active_object", "object", "selected_editable_objects")
     _ALLOW = {
+        ("edit_utils/selection.py", "select_island"): "BMFace.select_set on an edit "
+        "bmesh, not an Object's view-layer state",
         ("core_utils/diagnostics/mesh_diag.py", "_reselect_faces"): "BMFace.select_set "
         "on an edit bmesh, not an Object's view-layer state",
         ("core_utils/_core_utils.py", "visible_override"): "reveals on the context's "

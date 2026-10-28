@@ -183,7 +183,7 @@ class Selection:
     # the UV-overlap operators and the select_set writes all resolve the context's
     # view layer, which windowless is the scene's default, not the window's.
     @CoreUtils.window_context_override()
-    def select_by_type(selection_type, objects=None, mode="replace"):
+    def select_by_type(selection_type, objects=None, mode="replace", scope=None):
         """Select objects by category or leaf type (mirror of ``mtk.Selection.select_by_type``).
 
         Parameters:
@@ -192,6 +192,8 @@ class Selection:
             objects (list, optional): Objects to filter from. Defaults to the current
                 selection, falling back to every object in the file.
             mode (str): "replace", "add", or "remove".
+            scope (str, optional): With *objects* None: draw them from
+                :meth:`objects_in_scope` (``"all"``, ``"selected"`` or ``"visible"``).
 
         Returns:
             list: The matched objects (also applied to the live selection per ``mode``).
@@ -199,7 +201,9 @@ class Selection:
         import bpy
         from blendertk.core_utils._core_utils import CoreUtils
 
-        if objects is None:
+        if objects is None and scope:
+            objects = Selection.objects_in_scope(scope)
+        elif objects is None:
             sel = list(CoreUtils.selected_objects())
             objects = sel if sel else list(bpy.data.objects)
         objects = [o for o in objects if o]
@@ -760,6 +764,476 @@ class Selection:
             category: list(types.keys())
             for category, types in Selection._SELECTION_CONFIG.items()
         }
+
+    # ------------------------------------------------------------------ the selection panel's operations
+    # Mirrors of mayatk's (tentacle's selection panel calls them).
+
+    @staticmethod
+    def objects_in_scope(scope="all"):
+        """The objects a selection filter draws from -- mirror of mayatk's:
+        ``"all"`` (every object in the scene), ``"selected"`` or ``"visible"``
+        (visible in the window's view layer).
+
+        Raises:
+            ValueError: An unknown *scope*.
+        """
+        import bpy
+
+        if scope == "selected":
+            return CoreUtils.selected_objects()
+        if scope not in ("all", "visible"):
+            raise ValueError(
+                f"Unknown scope {scope!r}: use 'all', 'selected' or 'visible'."
+            )
+        with CoreUtils.window_context_override():  # the window's scene and layer
+            if scope == "all":
+                return list(bpy.context.scene.objects)
+            layer = bpy.context.view_layer
+            return [o for o in layer.objects if o.visible_get(view_layer=layer)]
+
+    @staticmethod
+    def reorder_selection(objects=None, method="name", reverse=False):
+        """Reorder *objects* (``None``: the selection) by *method*
+        (``CoreUtils.reorder_objects``) -- mirror of mayatk's. Blender's
+        reselection carries no order, so the order is recorded on
+        :class:`SelectionOrder` and the last object made active (Blender's
+        newest pick).
+
+        Returns:
+            list: The objects in their new order; ``[]`` with none.
+        """
+        objects = (
+            CoreUtils.selected_objects()
+            if objects is None
+            else [o for o in objects if o is not None]
+        )
+        if not objects:
+            return []
+        reordered = CoreUtils.reorder_objects(objects, method=method, reverse=reverse)
+        if reordered:
+            SelectionOrder.set_order(reordered)
+            layer = CoreUtils.active_view_layer()
+            if layer is not None:
+                layer.objects.active = reordered[-1]
+        return list(reordered or [])
+
+    @staticmethod
+    def _select_linked():
+        import bpy
+
+        bpy.ops.mesh.select_linked()
+
+    @staticmethod
+    def _region_to_loop():
+        import bpy
+
+        bpy.ops.mesh.region_to_loop()
+
+    @staticmethod
+    def _faces_select_linked_flat():
+        import bpy
+
+        bpy.ops.mesh.faces_select_linked_flat()
+
+    @staticmethod
+    def _shortest_path_select():
+        import bpy
+
+        bpy.ops.mesh.shortest_path_select()
+
+    #: Convert To: conversion name (mayatk's) -> the operation on the Edit-Mode
+    #: mesh. Blender has no vertex-face or UV component, so those two are not
+    #: listed; touching vs contained is ``convert_to``'s one native flag.
+    _CONVERSIONS = {
+        "vertices": lambda obj: Selection.convert_to(obj, "VERT"),
+        "vertex_perimeter": lambda obj: Selection.select_vertex_perimeter(obj),
+        "edges": lambda obj: Selection.convert_to(obj, "EDGE"),
+        "edge_loop": lambda obj: Selection.loop_multi_select(),
+        "edge_ring": lambda obj: Selection.loop_multi_select(ring=True),
+        "contained_edges": lambda obj: Selection.convert_to(obj, "EDGE", contained=True),
+        "edge_perimeter": lambda obj: Selection.select_edge_perimeter(obj),
+        "border_edges": lambda obj: Selection.select_border_edges(obj),
+        "faces": lambda obj: Selection.convert_to(obj, "FACE"),
+        "face_path": lambda obj: Selection.select_face_path(obj),
+        "contained_faces": lambda obj: Selection.convert_to(obj, "FACE", contained=True),
+        "face_perimeter": lambda obj: Selection.select_face_perimeter(obj),
+        "uv_shell": lambda obj: Selection.select_uv_shell(obj),
+        "uv_shell_border": lambda obj: Selection.select_uv_shell_border(obj),
+        "uv_perimeter": lambda obj: Selection.select_uv_perimeter(obj),
+        "uv_edge_loop": lambda obj: Selection.select_uv_edge_loop(obj),
+        "shell": lambda obj: Selection._select_linked(),
+        "shell_border": lambda obj: Selection.select_shell_border(obj),
+    }
+
+    @classmethod
+    def get_conversion_types(cls):
+        """The conversions :meth:`convert_selection` knows, in menu order --
+        mirror of mayatk's, less the vertex-face and UV components Blender
+        lacks."""
+        return list(cls._CONVERSIONS)
+
+    @classmethod
+    def convert_selection(cls, conversion):
+        """Convert the Edit-Mode selection of the active (else first selected)
+        mesh, entering Edit Mode on it -- mirror of mayatk's
+        ``Selection.convert_selection``.
+
+        Returns:
+            list: The mesh; ``[]`` with no mesh.
+
+        Raises:
+            ValueError: An unknown *conversion*.
+            RuntimeError: Blender refused (its report).
+        """
+        op = cls._CONVERSIONS.get(conversion)
+        if op is None:
+            raise ValueError(f"Unknown conversion {conversion!r}.")
+        obj = CoreUtils.ensure_component_mode("mesh")
+        if obj is None:
+            return []
+        with CoreUtils.window_context_override():
+            op(obj)
+        return [obj]
+
+    #: Selection constraints (mayatk's names) -> the one-shot expansion each is
+    #: here, and the select mode it needs (``None``: keep). Angle grows a face
+    #: selection: ``faces_select_linked_flat`` works in face mode only.
+    _CONSTRAINTS = {
+        "angle": (lambda obj: Selection._faces_select_linked_flat(), "face"),
+        "border": (lambda obj: Selection._region_to_loop(), None),
+        "edge_loop": (lambda obj: Selection.loop_multi_select(), None),
+        "edge_ring": (lambda obj: Selection.loop_multi_select(ring=True), None),
+        "shell": (lambda obj: Selection._select_linked(), None),
+        "uv_edge_loop": (lambda obj: Selection.select_uv_edge_loop(obj), None),
+    }
+
+    @staticmethod
+    def get_selection_constraints():
+        """``None``: Blender keeps no selection constraint on -- mirror of
+        mayatk's, which returns the constraints Maya has on."""
+        return None
+
+    @classmethod
+    def set_selection_constraint(cls, constraint, state=True):
+        """Expand the current Edit-Mode selection once by *constraint*'s rule:
+        Blender's reading of mayatk's persistent constraint, as it has no
+        drag-select constraint to leave on. *state* False does nothing (nothing
+        stays on to switch off).
+
+        Returns:
+            None: no constraint stays on.
+
+        Raises:
+            ValueError: An unknown *constraint*, or no mesh to act on.
+            RuntimeError: Blender refused (its report).
+        """
+        entry = cls._CONSTRAINTS.get(constraint)
+        if entry is None:
+            raise ValueError(f"Unknown selection constraint {constraint!r}.")
+        if not state:
+            return None
+        op, mask = entry
+        obj = CoreUtils.ensure_component_mode("mesh", mask)
+        if obj is None:
+            raise ValueError("Selection constraints need a mesh: select one.")
+        with CoreUtils.window_context_override():
+            op(obj)
+        return None
+
+    #: Select Nth's paths -> the selection operation, and the select mode it
+    #: needs. The two-pick paths keep the mode: forcing edge mode would rebuild
+    #: the selection and clear the pick history ``shortest_path_select`` reads.
+    _EDGE_PATHS = {
+        "edge_ring": (lambda: Selection.loop_multi_select(ring=True), "edge"),
+        "edge_loop": (lambda: Selection.loop_multi_select(), "edge"),
+        "edge_loop_path": (lambda: Selection._shortest_path_select(), None),
+        "shortest_path": (lambda: Selection._shortest_path_select(), None),
+        "border_edges": (lambda: Selection._region_to_loop(), "edge"),
+    }
+
+    @classmethod
+    def select_edge_path(cls, components=None, path="edge_loop", step=1):
+        """Select the edge path through the Edit-Mode selection of the active
+        (else first selected) mesh, keeping every *step*-th component -- mirror
+        of mayatk's ``Selection.select_edge_path``. ``components`` is accepted
+        for mayatk's signature: the Edit-Mode selection is what is read.
+
+        Returns:
+            list: The mesh; ``[]`` with no mesh.
+
+        Raises:
+            ValueError: An unknown *path*.
+            RuntimeError: Blender refused (its report: two picks needed).
+        """
+        import bpy
+
+        entry = cls._EDGE_PATHS.get(path)
+        if entry is None:
+            raise ValueError(f"Unknown edge path {path!r}.")
+        run, mask = entry
+        obj = CoreUtils.ensure_component_mode("mesh", mask)
+        if obj is None:
+            return []
+        with CoreUtils.window_context_override():
+            run()
+            if step > 1:
+                # Headless-verified (Blender 5.1): select_nth(skip=step-1, nth=1)
+                # keeps 1 of every `step` (12-vert circle, skip=3/nth=1 -> 3 kept),
+                # mayatk's result[::step]. The RNA labels suggest the opposite
+                # mapping; trust the measurement.
+                bpy.ops.mesh.select_nth(skip=step - 1, nth=1)
+        return [obj]
+
+    #: Edit-Mode Select Similar: Blender's native type per component mode.
+    _COMPONENT_SIMILAR = {"VERT": "NORMAL", "EDGE": "LENGTH", "FACE": "AREA"}
+
+    @staticmethod
+    def _uv_island_select_mode():
+        """True with the UV editor in Island select mode, the analogue of Maya's
+        UV-shell selection type: Blender 5's ``use_uv_select_island`` toggle,
+        4.x's ``uv_select_mode`` ``ISLAND`` value."""
+        import bpy
+
+        ts = bpy.context.scene.tool_settings
+        return bool(getattr(ts, "use_uv_select_island", False)) or (
+            getattr(ts, "uv_select_mode", "") == "ISLAND"
+        )
+
+    @classmethod
+    def select_similar(cls, objects=None, tolerance=0.0, include_original=False, **metrics):
+        """Select what is similar to the selection -- mirror of mayatk's
+        ``Selection.select_similar``.
+
+        * Object Mode: meshes alike by the checked *metrics*
+          (``EditUtils.get_similar_mesh``).
+        * Edit Mode, UV editor in Island select mode: the UV islands of the
+          selected island's topology and shape (``UvUtils.get_similar_uv_shells``,
+          the Stack (Similar) oracle); nothing moves.
+        * Edit Mode otherwise: Blender's native Select Similar for the component
+          mode, *tolerance* its 0-1 threshold (larger values count as 1).
+
+        Returns:
+            tuple: ``(scope, matched)``: scope ``"objects"``, ``"uv_shells"`` or
+                ``"components"``; *matched* what was found beyond the reference
+                (``[]`` for none, and with nothing selected).
+
+        Raises:
+            TypeError: An unknown metric.
+            RuntimeError: Blender refused (its report).
+        """
+        import bpy
+
+        from blendertk.edit_utils._edit_utils import EditUtils
+        from blendertk.uv_utils._uv_utils import UvUtils
+
+        known = {
+            "vertex", "edge", "face", "triangle", "shell", "uvcoord", "area",
+            "world_area", "bounding_box",
+        }
+        unknown = set(metrics) - known
+        if unknown:
+            raise TypeError(f"Unknown Select Similar metrics: {sorted(unknown)}")
+        objects = (
+            CoreUtils.selected_objects()
+            if objects is None
+            else [o for o in objects if o is not None]
+        )
+        if not objects:
+            return "objects", []
+        active = CoreUtils.active_object()
+        if active is not None and active.mode == "EDIT":
+            if cls._uv_island_select_mode():
+                found = UvUtils.get_similar_uv_shells(
+                    [o for o in objects if o.type == "MESH"],
+                    tolerance=tolerance,
+                    include_reference=include_original,
+                    select=True,
+                )
+                return "uv_shells", [
+                    (name, index) for name, faces in (found or {}).items() for index in faces
+                ]
+            vert, edge, face = bpy.context.scene.tool_settings.mesh_select_mode
+            mode = "FACE" if face else "EDGE" if edge else "VERT"
+            with CoreUtils.window_context_override():
+                bpy.ops.mesh.select_similar(
+                    type=cls._COMPONENT_SIMILAR[mode],
+                    threshold=min(max(tolerance, 0.0), 1.0),
+                )
+            return "components", [active]
+        matched = EditUtils.get_similar_mesh(
+            objects, tolerance=tolerance, inc_orig=include_original, select=True, **metrics
+        )
+        return "objects", [o for o in matched or () if o not in objects]
+
+    #: Select Island's delimiters (Blender's Select Linked ones).
+    _ISLAND_DELIMITERS = ("SEAM", "SHARP", "NORMAL", "MATERIAL", "UV")
+
+    @classmethod
+    def select_island(
+        cls, faces=None, range_x=0.05, range_y=0.05, range_z=0.05, delimit=None
+    ):
+        """Select the contiguous faces, around the selected ones, whose normals
+        are within the ranges of a selected face's normal -- mirror of mayatk's
+        ``Selection.select_island``. Growth also stops at the *delimit*
+        boundaries: ``"SEAM"`` (UV seams), ``"SHARP"`` (sharp edges),
+        ``"NORMAL"`` (flipped neighbors), ``"MATERIAL"`` (another material),
+        ``"UV"`` (UV-island borders). ``None`` puts the active or first selected
+        mesh in Edit Mode.
+
+        Returns:
+            list: The meshes whose faces were selected; ``[]`` with no face selected.
+
+        Raises:
+            ValueError: An unknown delimiter.
+        """
+        import bmesh
+
+        delimit = {str(d).upper() for d in (delimit or ())}
+        unknown = delimit - set(cls._ISLAND_DELIMITERS)
+        if unknown:
+            raise ValueError(
+                f"Unknown delimiters {sorted(unknown)}: use {list(cls._ISLAND_DELIMITERS)}."
+            )
+        if faces is None:
+            if CoreUtils.ensure_component_mode("mesh") is None:
+                return []
+            faces = CoreUtils.selected_objects()
+        meshes = [
+            o for o in faces if getattr(o, "type", None) == "MESH" and o.mode == "EDIT"
+        ]
+        done = []
+        for o in meshes:
+            bm = bmesh.from_edit_mesh(o.data)
+            bm.faces.index_update()
+            seeds = [f for f in bm.faces if f.select]
+            if not seeds:
+                continue
+            refs = [f.normal.copy() for f in seeds]
+            uv_layer = bm.loops.layers.uv.active
+
+            def similar(face, refs=refs):
+                n = face.normal
+                return any(
+                    abs(n.x - r.x) <= range_x
+                    and abs(n.y - r.y) <= range_y
+                    and abs(n.z - r.z) <= range_z
+                    for r in refs
+                )
+
+            def stops(edge, face, other, uv_layer=uv_layer):
+                return (
+                    ("SEAM" in delimit and edge.seam)
+                    or ("SHARP" in delimit and not edge.smooth)
+                    or ("NORMAL" in delimit and not edge.is_contiguous)
+                    or ("MATERIAL" in delimit and face.material_index != other.material_index)
+                    or (
+                        "UV" in delimit
+                        and uv_layer is not None
+                        and Selection._edge_is_uv_boundary(edge, uv_layer)
+                    )
+                )
+
+            island = {f.index for f in seeds}
+            stack = list(seeds)
+            while stack:
+                face = stack.pop()
+                for edge in face.edges:
+                    for other in edge.link_faces:
+                        if (
+                            other.index not in island
+                            and similar(other)
+                            and not stops(edge, face, other)
+                        ):
+                            island.add(other.index)
+                            stack.append(other)
+            for seq in (bm.verts, bm.edges, bm.faces):
+                for element in seq:
+                    element.select = False
+            for f in bm.faces:
+                if f.index in island:
+                    f.select_set(True)
+            bm.select_flush_mode()
+            bmesh.update_edit_mesh(o.data)
+            done.append(o)
+        return done
+
+    @staticmethod
+    @CoreUtils.undoable
+    def toggle_selectability(objects=None):
+        """Toggle whether *objects* can be picked in the viewport
+        (``hide_select``) -- mirror of mayatk's: one state for all, selectable
+        again when every one is unselectable, else unselectable. One undo step.
+
+        Blender drops an object it makes unselectable from the selection, so a
+        selection can only be made unselectable; called with ``None`` and
+        nothing selected, every unselectable object in the window's view layer
+        becomes selectable again, and is selected.
+
+        Returns:
+            (tuple/list): ``(selectable, objects)``, the new state; ``[]`` with
+                nothing to toggle.
+        """
+        objects = (
+            CoreUtils.selected_objects()
+            if objects is None
+            else [o for o in objects if o is not None]
+        )
+        if objects:
+            selectable = all(o.hide_select for o in objects)
+            for o in objects:
+                o.hide_select = not selectable
+            return selectable, objects
+        layer = CoreUtils.active_view_layer()
+        hidden = [o for o in (layer.objects if layer is not None else ()) if o.hide_select]
+        if not hidden:
+            return []
+        for o in hidden:
+            o.hide_select = False
+        CoreUtils.select(hidden, mode="add")
+        return True, hidden
+
+    @staticmethod
+    def get_ignore_backfacing():
+        """True while viewport picks skip what faces away from the camera: the
+        3D views' X-ray is off -- mirror of mayatk's (camera-based selection).
+        ``None`` without a 3D view (nothing to read)."""
+        areas = CoreUtils.get_areas("VIEW_3D")
+        if not areas:
+            return None
+        return not areas[0].spaces.active.shading.show_xray
+
+    @staticmethod
+    def set_ignore_backfacing(state=True):
+        """Turn X-ray off (*state*) or on in every 3D view; returns the state set."""
+        for area in CoreUtils.get_areas("VIEW_3D"):
+            area.spaces.active.shading.show_xray = not state
+        return bool(state)
+
+    #: mayatk's rig picking modes.
+    RIG_SELECTION_MODES = ("rig", "normal", "meshes_only")
+
+    @staticmethod
+    def get_rig_selection_mode():
+        """``"normal"``: blendertk's rigs lock no mesh, so there is no rig-aware
+        picking to lift -- mirror of mayatk's (tentacle shows the control in Maya
+        only)."""
+        return "normal"
+
+    @classmethod
+    def set_rig_selection_mode(cls, mode):
+        """Mirror of mayatk's: no mesh is locked here, so none is unlocked.
+
+        Returns:
+            list: ``[]``: the rigged meshes unlocked.
+
+        Raises:
+            ValueError: An unknown *mode*.
+        """
+        if mode not in cls.RIG_SELECTION_MODES:
+            raise ValueError(
+                f"Unknown rig selection mode {mode!r}: use one of {cls.RIG_SELECTION_MODES}."
+            )
+        return []
 
 
 class SelectionOrder:

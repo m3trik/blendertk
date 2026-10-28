@@ -53,6 +53,53 @@ class _ComponentsInternal(object):
         return bool(active and active.mode == "EDIT")
 
 
+    @staticmethod
+    def _edit_meshes(objects):
+        """The meshes of *objects* in Edit Mode: what a component operation acts
+        on, Blender's component selection existing only there."""
+        import pythontk as ptk
+
+        return [
+            o
+            for o in ptk.make_iterable(objects or ())
+            if getattr(o, "type", None) == "MESH" and getattr(o, "mode", None) == "EDIT"
+        ]
+
+    @staticmethod
+    def _run_edit_op(objects, idname, **props):
+        """Run the edit-mesh operator *idname* (``"mesh.poke"``) on the Edit-Mode
+        selection. Returns the meshes of *objects* in Edit Mode; ``[]``, with
+        nothing run, when none is (entering Edit Mode on the user's behalf would
+        act on a selection they cannot see).
+
+        Raises:
+            RuntimeError: Blender refused (its report).
+        """
+        import bpy
+
+        meshes = _ComponentsInternal._edit_meshes(objects)
+        if not meshes:
+            return []
+        group, name = idname.split(".")
+        # The window context: edit-mesh operators poll ``edit_object`` from
+        # screen context, dead in the Qt-pump state.
+        with CoreUtils.window_context_override():
+            getattr(getattr(bpy.ops, group), name)(**props)
+        return meshes
+
+    @staticmethod
+    def _require_operator(idname, label, addon):
+        """Raise unless the add-on operator *idname* is registered: the add-on
+        is the canonical implementation (wrap-if-present, never rebuilt)."""
+        from blendertk.ui_utils._ui_utils import UiUtils
+
+        if UiUtils.get_operator(idname) is None:
+            raise RuntimeError(
+                f"{label} needs the {addon} add-on: install it from "
+                "Edit > Preferences > Get Extensions, then retry."
+            )
+
+
 class Components(_ComponentsInternal):
     """Component-level mesh operations — mirror of mayatk's ``Components``."""
 
@@ -305,6 +352,319 @@ class Components(_ComponentsInternal):
                 except RuntimeError as error:  # the operator's own report
                     raise ValueError(str(error)) from error
         return targets
+
+    # ------------------------------------------------------------------ polygon operations
+    # Mirrors of mayatk's (tentacle's polygons panel calls them): ``None`` takes
+    # the selection, and the Edit-Mode selection of its meshes is what they act
+    # on; ``[]`` comes back when no selected mesh is in Edit Mode.
+
+    @staticmethod
+    @CoreUtils.undoable
+    @CoreUtils.selected
+    def extrude(components=None, keep_faces_together=True, divisions=1, thickness=0.0):
+        """Extrude the Edit-Mode selection (``mesh.extrude_region``, or each face
+        on its own), *divisions* times, each step pushed along the normals by its
+        share of *thickness* (``transform.shrink_fatten``). One undo step. Mirror
+        of mayatk's ``Components.extrude`` (whose extrude manipulator Blender
+        lacks: *thickness* 0 extrudes in place, divisions stacked there).
+
+        Returns:
+            list: The meshes extruded; ``[]`` with none in Edit Mode.
+
+        Raises:
+            RuntimeError: No 3D viewport for a non-zero *thickness* (checked
+                before anything changes), or Blender refused.
+        """
+        import bpy
+
+        meshes = Components._edit_meshes(components)
+        if not meshes:
+            return []
+        ctx = None
+        if thickness:
+            ctx = CoreUtils.get_view3d_context()
+            if not ctx:
+                raise RuntimeError(
+                    "No 3D viewport available: open a 3D view to extrude with a "
+                    "thickness."
+                )
+            # ``get_view3d_context`` may give ``region=None``; shrink_fatten takes none.
+            ctx = {k: v for k, v in ctx.items() if v is not None}
+        op = (
+            bpy.ops.mesh.extrude_region
+            if keep_faces_together
+            else bpy.ops.mesh.extrude_faces_move
+        )
+        steps = max(int(divisions), 1)
+        for _ in range(steps):
+            with CoreUtils.window_context_override():
+                op()
+            if ctx:  # shrink_fatten needs a VIEW_3D region
+                with bpy.context.temp_override(**ctx):
+                    bpy.ops.transform.shrink_fatten(value=thickness / steps)
+        return meshes
+
+    @staticmethod
+    @CoreUtils.undoable
+    @CoreUtils.selected
+    def inset_faces(faces=None, offset=0.1, depth=0.0, individual=False):
+        """Inset the selected faces (``mesh.inset``: *offset* is its thickness).
+        One undo step. Mirror of mayatk's ``Components.inset_faces``.
+
+        Returns:
+            list: The meshes inset; ``[]`` with none in Edit Mode.
+        """
+        return Components._run_edit_op(
+            faces, "mesh.inset", thickness=offset, depth=depth, use_individual=individual
+        )
+
+    @staticmethod
+    @CoreUtils.undoable
+    @CoreUtils.selected
+    def divide_faces(faces=None, u=True, v=True, cuts=1, tris=False):
+        """Divide the selected faces with ``mesh.subdivide`` (*cuts* each way),
+        triangulating the result with *tris*. One undo step. Mirror of mayatk's
+        ``Components.divide_faces``: *u* / *v* are its one-direction splits,
+        which Blender's subdivide has no face pattern for, so they are accepted
+        for the shared signature and a face always divides both ways (tentacle
+        shows the U / V boxes in Maya only).
+
+        Returns:
+            list: The meshes divided; ``[]`` with none in Edit Mode.
+        """
+        import bpy
+
+        meshes = Components._edit_meshes(faces)
+        if not meshes:
+            return []
+        with CoreUtils.window_context_override():
+            bpy.ops.mesh.subdivide(number_cuts=max(int(cuts), 1))
+            if tris:
+                bpy.ops.mesh.quads_convert_to_tris()
+        return meshes
+
+    @staticmethod
+    @CoreUtils.undoable
+    def circularize(components=None):
+        """Reshape the selected loop into an even circle with the LoopTools
+        add-on's Circle. One undo step. Mirror of mayatk's. The add-on is checked
+        first, so a missing one is named even with nothing selected.
+
+        Returns:
+            list: The meshes; ``[]`` with none in Edit Mode.
+
+        Raises:
+            RuntimeError: LoopTools is not installed, or Blender refused.
+        """
+        Components._require_operator("mesh.looptools_circle", "Circularize", "LoopTools")
+        if components is None:
+            components = CoreUtils.selected_objects()
+        return Components._run_edit_op(components, "mesh.looptools_circle")
+
+    @staticmethod
+    @CoreUtils.undoable
+    @CoreUtils.selected
+    def fill_holes(components=None):
+        """Cap the holes bounded by the selected border edges (``mesh.fill_holes``,
+        any number of sides). One undo step. Mirror of mayatk's.
+
+        Returns:
+            list: The meshes; ``[]`` with none in Edit Mode.
+        """
+        return Components._run_edit_op(components, "mesh.fill_holes", sides=0)
+
+    @staticmethod
+    @CoreUtils.undoable
+    @CoreUtils.selected
+    def symmetrize(components=None):
+        """Mirror the selected components across the mesh's X axis
+        (``mesh.symmetrize``). One undo step. Mirror of mayatk's.
+
+        Returns:
+            list: The meshes; ``[]`` with none in Edit Mode.
+        """
+        return Components._run_edit_op(components, "mesh.symmetrize")
+
+    @staticmethod
+    @CoreUtils.undoable
+    @CoreUtils.selected
+    def bridge_edges(edges=None):
+        """Bridge the selected edge loops (``mesh.bridge_edge_loops``). One undo
+        step. Mirror of mayatk's ``Components.bridge_edges``.
+
+        Returns:
+            list: The meshes; ``[]`` with none in Edit Mode.
+        """
+        return Components._run_edit_op(edges, "mesh.bridge_edge_loops")
+
+    @staticmethod
+    @CoreUtils.undoable
+    def collapse_components(components=None):
+        """Collapse each selected face region to a point; merge selected loose
+        vertices and edges at one center (``mesh.merge``). One undo step. Mirror
+        of mayatk's ``Components.collapse_components``.
+
+        Faces count only while face select mode is on: in vertex mode a face
+        whose vertices are all picked reads as selected too, and loose picks
+        must merge at one center. An edge picked beside faces collapses with its
+        region (``COLLAPSE`` works per connected region), so nothing is skipped.
+
+        Returns:
+            tuple: ``(meshes, [])``; ``([], [])`` with nothing selected in Edit Mode.
+        """
+        import bmesh
+        import bpy
+
+        meshes = Components._edit_meshes(
+            components if components is not None else CoreUtils.selected_objects()
+        )
+        picked = [
+            o for o in meshes if any(v.select for v in bmesh.from_edit_mesh(o.data).verts)
+        ]
+        if not picked:
+            return [], []
+        face_mode = bpy.context.scene.tool_settings.mesh_select_mode[2]
+        faces = face_mode and any(
+            any(f.select for f in bmesh.from_edit_mesh(o.data).faces) for o in picked
+        )
+        with CoreUtils.window_context_override():
+            bpy.ops.mesh.merge(type="COLLAPSE" if faces else "CENTER")
+        return picked, []
+
+    @staticmethod
+    @CoreUtils.undoable
+    def connect_components(components=None):
+        """Connect the selected vertices (in pick order, else across their
+        faces) with new edges: ``mesh.vert_connect_path``, falling back to
+        ``mesh.vert_connect``. One undo step. Mirror of mayatk's (Maya's
+        interactive Connect tool there).
+
+        Success is judged by the edge count: the path op raises "Invalid
+        selection order" without a pick history, and the fallback can finish
+        while connecting nothing.
+
+        Returns:
+            list: The mesh; ``[]`` with no mesh or nothing connected.
+        """
+        import bmesh
+        import bpy
+
+        obj = CoreUtils.ensure_component_mode("mesh")
+        if obj is None:
+            return []
+        before = len(bmesh.from_edit_mesh(obj.data).edges)
+        for op in (bpy.ops.mesh.vert_connect_path, bpy.ops.mesh.vert_connect):
+            try:
+                with CoreUtils.window_context_override():
+                    op()
+                break
+            except RuntimeError:  # unordered / cross-face picks the path op rejects
+                continue
+        if len(bmesh.from_edit_mesh(obj.data).edges) == before:
+            return []
+        return [obj]
+
+    @staticmethod
+    @CoreUtils.undoable
+    @CoreUtils.selected
+    def poke_faces(faces=None):
+        """Add a center vertex to each selected face (``mesh.poke``). One undo
+        step. Mirror of mayatk's.
+
+        Returns:
+            list: The meshes; ``[]`` with none in Edit Mode.
+        """
+        return Components._run_edit_op(faces, "mesh.poke")
+
+    @staticmethod
+    def slide_edges(edges=None):
+        """Slide the selected edge loops interactively: edge select mode, then
+        Blender's modal ``transform.edge_slide`` under a 3D-viewport override.
+        Mirror of mayatk's (Maya's Slide Edge tool). Not undoable here: the modal
+        pushes its own undo step on confirm.
+
+        Returns:
+            bool: True: the slide is running.
+
+        Raises:
+            ValueError: No mesh is active or selected.
+            RuntimeError: No 3D viewport, or Blender refused.
+        """
+        import bpy
+
+        if CoreUtils.ensure_component_mode("mesh", "edge") is None:
+            raise ValueError("Slide needs an active or selected mesh.")
+        ctx = CoreUtils.get_view3d_context()
+        if not ctx:
+            raise RuntimeError("No 3D viewport available: open a 3D view to slide edges.")
+        ctx = {k: v for k, v in ctx.items() if v is not None}
+        with bpy.context.temp_override(**ctx):
+            bpy.ops.transform.edge_slide("INVOKE_DEFAULT")
+        return True
+
+    @staticmethod
+    @CoreUtils.undoable
+    @CoreUtils.selected
+    def offset_edge_loops(edges=None):
+        """Add an edge loop on each side of the selected edges
+        (``mesh.offset_edge_loops``). One undo step. Mirror of mayatk's.
+
+        Returns:
+            list: The meshes; ``[]`` with none in Edit Mode.
+        """
+        return Components._run_edit_op(edges, "mesh.offset_edge_loops")
+
+    @staticmethod
+    @CoreUtils.undoable
+    def edit_edge_flow(edges=None):
+        """Move the selected edge loops to follow the surface curvature with the
+        Edit Mesh Tools (or Loop Flow) add-on's Set Flow. One undo step. Mirror
+        of mayatk's. The add-on is checked first, so a missing one is named even
+        with nothing selected.
+
+        Returns:
+            list: The meshes; ``[]`` with none in Edit Mode.
+
+        Raises:
+            RuntimeError: The add-on is not installed, or Blender refused.
+        """
+        Components._require_operator(
+            "mesh.set_edge_flow", "Edit Edge Flow", "Edit Mesh Tools (or Loop Flow)"
+        )
+        if edges is None:
+            edges = CoreUtils.selected_objects()
+        return Components._run_edit_op(edges, "mesh.set_edge_flow")
+
+    @staticmethod
+    def adjusted_distance_between_vertices(
+        p1=None, p2=None, adjust=0.0, as_percentage=False
+    ):
+        """The distance between two points, adjusted by *adjust* (an amount, or
+        a percentage with *as_percentage*). Mirror of mayatk's.
+
+        Parameters:
+            p1, p2: Points ``(x, y, z)``. Both ``None``: the active mesh's two
+                selected vertices in Edit Mode, in its local space (where
+                Blender's merge measures).
+
+        Returns:
+            (float/None): The distance; ``None`` when called with ``None`` and
+                the selection is not exactly two vertices.
+        """
+        import pythontk as ptk
+
+        if p1 is None and p2 is None:
+            import bmesh
+
+            active = CoreUtils.active_object()
+            if not (active and active.type == "MESH" and active.mode == "EDIT"):
+                return None
+            coords = [tuple(v.co) for v in bmesh.from_edit_mesh(active.data).verts if v.select]
+            if len(coords) != 2:
+                return None
+            p1, p2 = coords
+        distance = ptk.distance_between_points(p1, p2)
+        return distance * (1 + adjust / 100) if as_percentage else distance + adjust
 
     #: The Transfer menu (:meth:`get_transfer_types` / :meth:`transfer`): label ->
     #: (the transfer, what it copies). Data Transfer copies one data layer at a time,

@@ -93,6 +93,9 @@ order = [
     "env_utils",
     "display_utils",
     "light_utils",
+    # Selection's Select Similar reads UV islands (UvUtils): it ranks above
+    # uv_utils, as mayatk's edit_utils does.
+    "edit_utils/selection",
     "uv_utils",
     "edit_utils",
     "anim_utils",
