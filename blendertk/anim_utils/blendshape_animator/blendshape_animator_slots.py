@@ -787,7 +787,6 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
 
     def _on_tree_selection_changed(self) -> None:
         """Sync tree selection -> Blender selection."""
-        import bpy
 
         objs = []
         for t in self._selected_tweens():
@@ -801,14 +800,7 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
 
         self._syncing_selection = True
         try:
-            # the window's view layer: windowless, select_set / the active write
-            # address the scene's default layer, not the one the user sees
-            with CoreUtils.window_context_override():
-                for o in list(bpy.context.view_layer.objects):
-                    o.select_set(False)
-                for o in objs:
-                    o.select_set(True)
-                bpy.context.view_layer.objects.active = objs[0]
+            CoreUtils.select(objs)
         finally:
             self._syncing_selection = False
 
@@ -869,13 +861,7 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
                 except ReferenceError:
                     continue
             if objs:
-                # the window's view layer (windowless: the scene default)
-                with CoreUtils.window_context_override():
-                    for o in list(bpy.context.view_layer.objects):
-                        o.select_set(False)
-                    for o in objs:
-                        o.select_set(True)
-                    bpy.context.view_layer.objects.active = objs[0]
+                CoreUtils.select(objs)
                 self._set_status(f"Selected {len(objs)} mesh(es)")
         elif chosen is act_jump:
             bpy.context.scene.frame_set(single.target_frame)

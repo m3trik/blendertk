@@ -207,7 +207,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `core_utils/_core_utils.py` — Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 - `class CoreUtils(pythontk.CoreUtils, _CoreUtilsInternal)`
-  - methods: strip_dup_suffix, all_ids, undo_chunk, undo_push, visible_override, undoable, undo_checkpoint, get_env_info, ensure_packages, ensure_image_deps, user_config_path, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected, active_view_layer, selected_objects, active_object, preserved_selection, reorder_objects, get_areas, tag_redraw, get_view3d_context, window_context_override, edit_mode
+  - methods: strip_dup_suffix, all_ids, undo_chunk, undo_push, visible_override, undoable, undo_checkpoint, get_env_info, ensure_packages, ensure_image_deps, user_config_path, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected, active_view_layer, selected_objects, select, active_object, preserved_selection, reorder_objects, get_areas, tag_redraw, get_view3d_context, window_context_override, edit_mode
 
 ### `core_utils/auto_instancer/_auto_instancer.py` — Scene auto-instancer: convert geometrically identical meshes to instances.
 - `class InstanceCandidate`
@@ -262,11 +262,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class DisplayUtils(_DisplayUtilsInternal)`
   - methods: is_exploded, explode_view, unexplode_view, unexplode_all, get_visible_geometry, set_viewport_overlay
 
-### `display_utils/color_id.py` — Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui``.
+### `display_utils/color_id.py` — Color ID engine: color-code scene objects across channels.
 - `class ColorId`
-  - methods: assign_id_material, set_object_color, set_vertex_color, set_outliner_color, get_outliner_color, reset_outliner_colors, collection_tag_colors, nearest_collection_tag, add_to_color_set, get_color_set_color, remove_from_color_sets, apply_color, show_channels, has_object_color, get_object_color, get_material_color, get_average_vertex_color, color_difference, get_objects_by_color, reset_colors, reset_vertex_colors
-- `class ColorIdSlots(pythontk.LoggingMixin)`
-  - methods: header_init, selected_objects, selected_button, target_color, b000, b001, b002, b003
+  - methods: assign_id_material, set_object_color, set_vertex_color, set_outliner_color, get_outliner_color, reset_outliner_colors, collection_tag_colors, nearest_collection_tag, add_to_color_set, get_color_set_color, remove_from_color_sets, apply_color, show_channels, has_object_color, get_object_color, get_material_color, get_average_vertex_color, color_difference, get_objects_by_color, select_by_color, get_color, lead_object, scene_objects, reset_colors, reset_vertex_colors
 
 ### `display_utils/exploded_view.py` — Exploded View: spread meshes apart from their shared center, and back.
 - `class ExplodedView(pythontk.LoggingMixin)`
@@ -621,10 +619,6 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `mat_utils/image_to_plane/_image_to_plane.py` — Map image files to textured planes in Blender — port of mayatk's ``mat_utils.image_to_plane``.
 - `class ImageToPlane(pythontk.LoggingMixin)`
   - methods: create, remove
-
-### `mat_utils/image_to_plane/image_to_plane_slots.py` — Switchboard slots for the Image to Plane UI — port of mayatk's ``ImageToPlaneSlots``.
-- `class ImageToPlaneSlots(pythontk.LoggingMixin)`
-  - methods: header_init, txt_suffix_init
 
 ### `mat_utils/marmoset_bridge/_marmoset_bridge.py` — Blender-side glue for the Marmoset Toolbag engine -- mirror of mayatk's
 - `class MarmosetBridge(pythontk.HandoffBridge, _MarmosetBridgeInternal)`

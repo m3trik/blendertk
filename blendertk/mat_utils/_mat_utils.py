@@ -1774,17 +1774,8 @@ class MatUtils(_MatUtilsInternal):
         """
         from blendertk.core_utils._core_utils import CoreUtils
 
-        # the window's layer: windowless, ``context.view_layer`` is the scene's default
-        view_layer = CoreUtils._active_view_layer()
-        if not add:
-            for o in list(view_layer.objects):
-                o.select_set(False, view_layer=view_layer)
         users = MatUtils.find_by_mat_id(material)
-        selectable = [o for o in users if o.name in view_layer.objects]
-        for o in selectable:
-            o.select_set(True, view_layer=view_layer)
-        if selectable:
-            view_layer.objects.active = selectable[0]
+        CoreUtils.select(users, mode="add" if add else "replace")
         return users
 
     @staticmethod

@@ -450,32 +450,15 @@ class Selection:
     @staticmethod
     def _apply_selection_mode(objects, mode):
         """Apply the selection mode to the given objects (mirror of ``mtk``'s helper, via
-        ``Object.select_set`` instead of ``cmds.select``).
+        :func:`CoreUtils.select` instead of ``cmds.select``).
 
         Predicates commonly run over ``bpy.data.objects`` (the whole file), which can
-        include objects outside the active view layer (e.g. an excluded collection) that
-        ``select_set`` can't touch -- skip those via ``_safe_select_set`` instead of
-        letting one un-selectable match raise and abort the whole selection.
+        include objects outside the active view layer (e.g. an excluded collection);
+        ``CoreUtils.select`` skips those rather than letting one raise.
         """
-        objs = [o for o in objects if o]
-        if mode == "replace":
-            import bpy
+        from blendertk.core_utils._core_utils import CoreUtils
 
-            for o in list(bpy.context.view_layer.objects):
-                if o:
-                    Selection._safe_select_set(o, False)
-        if mode == "remove":
-            for o in objs:
-                Selection._safe_select_set(o, False)
-            return
-        active = None
-        for o in objs:
-            if Selection._safe_select_set(o, True) and active is None:
-                active = o
-        if active is not None:
-            import bpy
-
-            bpy.context.view_layer.objects.active = active
+        CoreUtils.select(objects, mode=mode)
 
     # ---------------------------------------------------------- Convert-To (cmb003 mirror) ---
     # Mirror of mayatk's ``core_utils.components.GetComponentsMixin``/``Components`` conversion

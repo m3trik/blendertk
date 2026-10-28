@@ -83,7 +83,7 @@ DEFAULT_INCLUDE = {
         "RizomUVBridge",
     ],
     "display_utils._display_utils": "*",
-    # Color ID tool — engine + co-located panel (ColorIdSlots discovered by the handler).
+    # Color ID — mirror of mayatk's ``display_utils.color_id.ColorId`` (its panel is tentacle's).
     "display_utils.color_id": [
         "ColorId",
     ],
@@ -233,8 +233,7 @@ DEFAULT_INCLUDE = {
     "mat_utils.texture_baker": [
         "TextureBaker",
     ],
-    # Image-to-Plane tool — engine + co-located panel (``ImageToPlaneSlots`` discovered by the
-    # handler, not registered). Mirror of mayatk's ``mat_utils.image_to_plane`` subpackage.
+    # Image-to-Plane — mirror of mayatk's ``mat_utils.image_to_plane`` (its panel is tentacle's).
     "mat_utils.image_to_plane._image_to_plane": [
         "ImageToPlane",
     ],
@@ -597,6 +596,14 @@ MOVED_NAMES = {
     ),
     "ShellXformSlots": (
         "tentacle.slots.tools.shell_xform.ShellXformSlots",
+        "0.23.0",
+    ),
+    "ColorIdSlots": (
+        "tentacle.slots.tools.color_id.ColorIdSlots",
+        "0.23.0",
+    ),
+    "ImageToPlaneSlots": (
+        "tentacle.slots.tools.image_to_plane.ImageToPlaneSlots",
         "0.23.0",
     ),
 }

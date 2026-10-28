@@ -278,15 +278,7 @@ class Preview:
             select = widget.isChecked()
         except Exception:
             select = True
-        # the window's view layer: windowless, select_all / select_set / the active
-        # write address the scene's default layer, not the one the window shows
-        with CoreUtils.window_context_override():
-            if select:
-                bpy.ops.object.select_all(action="DESELECT")
-            for obj in objects:
-                obj.select_set(select)
-            if select:
-                bpy.context.view_layer.objects.active = objects[0]
+        CoreUtils.select(objects, mode="replace" if select else "remove")
 
     # ------------------------------------------------------------------ internals
     def _apply_select_result(self, *args):
@@ -392,16 +384,13 @@ class Preview:
             obj.matrix_world = snap["matrix"]
         bpy.context.view_layer.update()
         # 3. restore selection + active
-        # the window's view layer: windowless, select_all / select_set / the active
-        # write address the scene's default layer, not the one the window shows
-        with CoreUtils.window_context_override():
-            bpy.ops.object.select_all(action="DESELECT")
-            for n in self._captured:
-                o = bpy.data.objects.get(n)
-                if o:
-                    o.select_set(True)
-            if self._active and self._active in bpy.data.objects:
-                bpy.context.view_layer.objects.active = bpy.data.objects[self._active]
+        CoreUtils.select(bpy.data.objects.get(n) for n in self._captured)
+        if self._active and self._active in bpy.data.objects:
+            view_layer = CoreUtils.active_view_layer()
+            try:
+                view_layer.objects.active = bpy.data.objects[self._active]
+            except RuntimeError:  # not in the window's layer
+                pass
 
     @staticmethod
     def _fresh_copy(data):

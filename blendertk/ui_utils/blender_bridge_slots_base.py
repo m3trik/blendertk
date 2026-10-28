@@ -223,28 +223,13 @@ class BlenderBridgeSlotsBase(BridgeSlotsBase):
         *select* action would be the one thing this feature promises not to
         do. The export itself doesn't care either way.
         """
-        import bpy
-
         members = self._bake_source_set().members()
         # Also resyncs the suffix rows if the set was removed outside the panel.
         self._refresh_param_enablement()
         if not members:
             self.bridge.logger.warning("This file has no bake-source set.")
             return
-        # the window's view layer: windowless, select_all / select_set / select_get and
-        # the active write address the scene's default layer, not the one on screen
-        with CoreUtils.window_context_override():
-            bpy.ops.object.select_all(action="DESELECT")
-            selected = []
-            for obj in members:
-                try:
-                    obj.select_set(True)
-                except RuntimeError:  # not in the active view layer
-                    continue
-                if obj.select_get():
-                    selected.append(obj)
-            if selected:
-                bpy.context.view_layer.objects.active = selected[0]
+        selected = CoreUtils.select(members)
         unreachable = len(members) - len(selected)
         self.bridge.logger.info(
             f"Selected {len(selected)} bake-source object(s)."

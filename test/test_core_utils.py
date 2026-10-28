@@ -508,6 +508,46 @@ try:
             _raised and _sel_state() == (None, []),
         )
 
+    # --- select: Blender's cmds.select (replace / add / remove, the first one active) -------
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    sa = bpy.context.view_layer.objects.active
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    sb_ = bpy.context.view_layer.objects.active
+    bpy.ops.mesh.primitive_cube_add(location=(6, 0, 0))
+    sc = bpy.context.view_layer.objects.active
+    _vl = bpy.context.view_layer
+    done = btk.CoreUtils.select([sb_, None, sa])
+    check(
+        "select: replaces the selection, skips None, makes the first active",
+        done == [sb_, sa] and _sel_state() == (sb_, sorted([sa.name, sb_.name])),
+        f"{done} {_sel_state()}",
+    )
+    btk.CoreUtils.select([sc], mode="add")
+    check("select: add keeps the rest", len(_sel_state()[1]) == 3 and _vl.objects.active == sc)
+    btk.CoreUtils.select([sa, sc], mode="remove")
+    check("select: remove deselects only those", _sel_state()[1] == [sb_.name], f"{_sel_state()}")
+    btk.CoreUtils.select([])
+    check("select: replace with nothing clears the active too", _sel_state() == (None, []))
+    sc.hide_set(True)
+    check("select: a hidden object takes no select and is left out",
+          btk.CoreUtils.select([sa, sc]) == [sa], f"{_sel_state()}")
+    sc.hide_set(False)
+    # measured: removing objects, then linking a new one, left the layer's iteration
+    # reading a stale ``None`` until the active object was read (the resync)
+    for o in list(bpy.data.objects):
+        bpy.data.objects.remove(o, do_unlink=True)
+    fresh = bpy.data.objects.new("fresh", bpy.data.meshes.new("fresh"))
+    bpy.context.scene.collection.objects.link(fresh)  # data API: no operator resync
+    check("select: right after removals (a stale layer entry) still selects",
+          btk.CoreUtils.select([fresh]) == [fresh] and _vl.objects.active == fresh)
+    try:
+        btk.CoreUtils.select([fresh], mode="toggle")
+    except ValueError:
+        check("select: an unknown mode raises ValueError", True)
+    else:
+        check("select: an unknown mode raises ValueError", False)
+
     # --- edit_mode: the Edit-Mode bracket (scope alone, then prior state back) --------------
     reset()
     bpy.ops.mesh.primitive_cube_add()
@@ -1132,8 +1172,6 @@ try:
         "(select_by_type)",
         ("edit_utils/selection.py", "_select_uv_overlap"): "context-relative helper "
         "(select_by_type)",
-        ("edit_utils/selection.py", "_apply_selection_mode"): "context-relative helper "
-        "(select_by_type)",
         ("edit_utils/_edit_utils.py", "_apply_modifier"): "only called from "
         "@_object_mode functions",
         ("edit_utils/_edit_utils.py", "_join_copies"): "only called from "
@@ -1291,6 +1329,44 @@ try:
         "static: no select_set / hide_set inside a live view_layer.objects loop",
         not live,
         "; ".join(live),
+    )
+
+    # Replacing the selection is ``CoreUtils.select``: a hand-written loop over the
+    # layer's objects calling ``select_set`` misses the resync (a stale entry reads None).
+    loops = []
+    for dirpath, dirnames, filenames in os.walk(pkg_root):
+        dirnames[:] = [d for d in dirnames if d not in ("__pycache__", "templates")]
+        for fname in filenames:
+            if not fname.endswith(".py"):
+                continue
+            path = os.path.join(dirpath, fname)
+            with open(path, encoding="utf-8") as fh:
+                tree = ast.parse(fh.read())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.For):
+                    continue
+                it = node.iter
+                if isinstance(it, ast.Call) and _dotted(it.func) == "list" and it.args:
+                    it = it.args[0]
+                if not (
+                    isinstance(it, ast.Attribute)
+                    and it.attr == "objects"
+                    and ("view_layer" in _dotted(it.value) or _dotted(it.value) == "vl")
+                ):
+                    continue
+                if any(
+                    isinstance(n, ast.Call)
+                    and isinstance(n.func, ast.Attribute)
+                    and n.func.attr == "select_set"
+                    for stmt in node.body
+                    for n in ast.walk(stmt)
+                ):
+                    rel = os.path.relpath(path, pkg_root).replace(os.sep, "/")
+                    loops.append(f"{rel}:{node.lineno}")
+    check(
+        "static: selection is set through CoreUtils.select, not a layer loop",
+        not loops,
+        "; ".join(loops),
     )
 
 except Exception as e:

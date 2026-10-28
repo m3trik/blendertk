@@ -365,6 +365,20 @@ class _CoreUtilsInternal(object):
                     setattr(mod, name, obj)
 
     @staticmethod
+    def _layer_objects(vl) -> list:
+        """*vl*'s objects, resynced and free of ``None``.
+
+        Reading the active object resyncs the layer; iterating ``objects`` does not.
+        Measured: an object whose collection links changed (visible_override's temporary
+        master link) was missing from the iteration, and after ``bpy.data.objects.remove``
+        a stale entry read ``None``.
+        """
+        if vl is None:
+            return []
+        _ = vl.objects.active  # the resync
+        return [o for o in vl.objects if o is not None]
+
+    @staticmethod
     def _active_view_layer():
         """The active view layer, resolved **without** depending on a context *window*.
 
@@ -1117,6 +1131,47 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         return [o for o in vl.objects.selected if o]
 
     @staticmethod
+    def select(objects, mode: str = "replace") -> list:
+        """Set the object selection (Blender's counterpart of ``cmds.select``).
+
+        On the window's view layer (:func:`_active_view_layer`), whatever the context, by
+        ``Object.select_set`` -- which works in any mode, where ``object.select_all``
+        poll-fails outside Object Mode. Objects the layer can't select (another scene, an
+        excluded collection) are skipped, not raised on.
+
+        Parameters:
+            objects (iterable): The objects; ``None`` entries are skipped.
+            mode (str): ``"replace"`` (the default), ``"add"`` or ``"remove"``. Replace and add
+                make the first selected object active; replace with nothing selectable
+                clears the active object too.
+
+        Returns:
+            (list): The objects whose selection state was set (a hidden or
+                select-disabled object takes no select and is left out).
+        """
+        if mode not in ("replace", "add", "remove"):
+            raise ValueError(f"mode must be 'replace', 'add' or 'remove', not {mode!r}")
+        vl = _CoreUtilsInternal._active_view_layer()
+        if vl is None:
+            return []
+        objs = [o for o in objects if o is not None]
+        if mode == "replace":
+            for o in _CoreUtilsInternal._layer_objects(vl):
+                o.select_set(False, view_layer=vl)
+        done = []
+        for o in objs:
+            try:
+                o.select_set(mode != "remove", view_layer=vl)
+            except RuntimeError:  # not in this view layer
+                continue
+            # an unselectable object (hidden, select-disabled) takes no select
+            if o.select_get(view_layer=vl) == (mode != "remove"):
+                done.append(o)
+        if mode != "remove" and (done or mode == "replace"):
+            vl.objects.active = done[0] if done else None
+        return done
+
+    @staticmethod
     def active_object():
         """The active object, resolved window-independently (``view_layer.objects.active``).
 
@@ -1153,15 +1208,7 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         """
         import logging
 
-        def layer_objects(vl):
-            # Reading the active object resyncs the layer; iterating ``objects`` does
-            # not. Measured: an object whose collection links changed (visible_override's
-            # temporary master link) was missing from the iteration, and a stale entry
-            # can read None.
-            if vl is None:
-                return []
-            _ = vl.objects.active  # the resync
-            return [o for o in vl.objects if o is not None]
+        layer_objects = _CoreUtilsInternal._layer_objects
 
         def alive(obj):
             try:
@@ -1413,25 +1460,22 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
             view_layer = bpy.context.view_layer
             prior_active = view_layer.objects.active
             prior_mode = getattr(prior_active, "mode", "OBJECT")
-            prior_selection = [o for o in view_layer.objects if o.select_get()]
+            prior_selection = [
+                o for o in _CoreUtilsInternal._layer_objects(view_layer) if o.select_get()
+            ]
             try:
                 if prior_mode != "OBJECT":
                     bpy.ops.object.mode_set(mode="OBJECT")
-                # select_set, not object.select_all: that op polls Object Mode
-                # and reads screen context; select_set is mode-independent.
-                for o in list(view_layer.objects):
-                    o.select_set(o in objects)
+                CoreUtils.select(objects)
                 if objects:
-                    view_layer.objects.active = objects[0]
                     bpy.ops.object.mode_set(mode="EDIT")
                 yield objects
             finally:
                 try:
                     if getattr(view_layer.objects.active, "mode", "OBJECT") != "OBJECT":
                         bpy.ops.object.mode_set(mode="OBJECT")
-                    alive = set(view_layer.objects)
-                    for o in list(view_layer.objects):
-                        o.select_set(o in prior_selection)
+                    alive = set(_CoreUtilsInternal._layer_objects(view_layer))
+                    CoreUtils.select(o for o in prior_selection if o in alive)
                     if prior_active is not None and prior_active in alive:
                         view_layer.objects.active = prior_active
                         if prior_mode != "OBJECT":

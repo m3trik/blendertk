@@ -63,7 +63,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`core_utils/script_job_manager.py`](#core_utils--script_job_manager) — Centralized Blender event-subscription manager — the Blender counterpart of mayatk's
 - [`core_utils/units.py`](#core_utils--units) — Blender's lengths and angles, converted by the kind of value that holds them.
 - [`display_utils/_display_utils.py`](#display_utils--_display_utils) — Display utilities — the exploded-view toggle (mirror of mayatk's
-- [`display_utils/color_id.py`](#display_utils--color_id) — Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui``.
+- [`display_utils/color_id.py`](#display_utils--color_id) — Color ID engine: color-code scene objects across channels.
 - [`display_utils/exploded_view.py`](#display_utils--exploded_view) — Exploded View: spread meshes apart from their shared center, and back.
 - [`display_utils/outliner_tint.py`](#display_utils--outliner_tint) — Per-object **outliner text colour** for Blender — the true analogue of Maya's
 - [`edit_utils/_edit_utils.py`](#edit_utils--_edit_utils) — Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
@@ -133,7 +133,6 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`mat_utils/emissive_groups.py`](#mat_utils--emissive_groups) — Emissive Groups' Blender half: one boolean FACE attribute per group on its
 - [`mat_utils/game_shader.py`](#mat_utils--game_shader) — Game Shader — auto-build a Principled-BSDF material from a set of PBR textures.
 - [`mat_utils/image_to_plane/_image_to_plane.py`](#mat_utils--image_to_plane--_image_to_plane) — Map image files to textured planes in Blender — port of mayatk's ``mat_utils.image_to_plane``.
-- [`mat_utils/image_to_plane/image_to_plane_slots.py`](#mat_utils--image_to_plane--image_to_plane_slots) — Switchboard slots for the Image to Plane UI — port of mayatk's ``ImageToPlaneSlots``.
 - [`mat_utils/marmoset_bridge/_marmoset_bridge.py`](#mat_utils--marmoset_bridge--_marmoset_bridge) — Blender-side glue for the Marmoset Toolbag engine -- mirror of mayatk's
 - [`mat_utils/marmoset_bridge/_marmoset_engine.py`](#mat_utils--marmoset_bridge--_marmoset_engine) — Drive Marmoset Toolbag from the outside -- launch + templated automation.
 - [`mat_utils/marmoset_bridge/_toolbag_helpers.py`](#mat_utils--marmoset_bridge--_toolbag_helpers) — Shared helpers for Marmoset Toolbag template scripts.
@@ -227,7 +226,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L434) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L433) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -1002,7 +1001,7 @@ Per-camera visibility sets — rolled infrastructure for Maya's camera-sets isol
 
 Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 
-- **[`class CoreUtils(pythontk.CoreUtils, _CoreUtilsInternal)`](blendertk/blendertk/core_utils/_core_utils.py#L464)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
+- **[`class CoreUtils(pythontk.CoreUtils, _CoreUtilsInternal)`](blendertk/blendertk/core_utils/_core_utils.py#L478)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
   - `CoreUtils.strip_dup_suffix(name: str) -> str` *(static)* — Strip Blender's ``.NNN`` name-collision suffix (``Cube.001`` -> ``Cube``).
   - `CoreUtils.all_ids(library=None) -> list` *(static)* — Every datablock in the file, across every ID collection -- or only
   - `CoreUtils.undo_chunk(name: str = '')` *(static)* — Collapse every change made inside the block into ONE Blender undo step.
@@ -1023,6 +1022,7 @@ Core blendertk utilities — DCC-environment info + cross-cutting decorators.
   - `CoreUtils.selected(func: Callable) -> Callable` *(static)* — Pass the selection (:meth:`selected_objects`) to *func*'s target parameter
   - `CoreUtils.active_view_layer()` *(static)* — The active view layer, resolved without depending on a context window
   - `CoreUtils.selected_objects()` *(static)* — The current object selection, filtered of ``None`` (mirror of Maya's
+  - `CoreUtils.select(objects, mode: str = 'replace') -> list` *(static)* — Set the object selection (Blender's counterpart of ``cmds.select``).
   - `CoreUtils.active_object()` *(static)* — The active object, resolved window-independently (``view_layer.objects.active``).
   - `CoreUtils.preserved_selection()` *(static)* — Restore the viewport selection after a scene-mutating block — mirror of
   - `CoreUtils.reorder_objects(objects=None, method='name', reverse=False)` *(static)* — Reorder a set of objects by a sorting method — mirror of ``mtk.reorder_objects``
@@ -1191,9 +1191,9 @@ Display utilities — the exploded-view toggle (mirror of mayatk's
 <a id="display_utils--color_id"></a>
 ### `display_utils/color_id.py`
 
-Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui``.
+Color ID engine: color-code scene objects across channels.
 
-- **[`class ColorId`](blendertk/blendertk/display_utils/color_id.py#L46)** — Engine: apply / select-by / reset object colors across the material, object-color (drawn
+- **[`class ColorId`](blendertk/blendertk/display_utils/color_id.py#L43)** — Engine: apply / select-by / reset object colors across the material, object-color (drawn
   - `ColorId.assign_id_material(cls, obj, color: Color)` *(class)* — Assign an ID material named ``ID_<HEX>`` with ``color`` as its base color to ``obj``
   - `ColorId.set_object_color(obj, color: Color)` *(static)* — Set the object's viewport display color (``obj.color`` — Object-color shading).
   - `ColorId.set_vertex_color(obj, color: Color, name: str = 'Color')` *(static)* — Write ``color`` to every corner of a mesh color attribute (created/reused, set active).
@@ -1205,25 +1205,20 @@ Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui
   - `ColorId.add_to_color_set(cls, objects: Sequence, color: Color)` *(class)* — Group ``objects`` under a color-tagged ``ID_<HEX>`` collection in the outliner.
   - `ColorId.get_color_set_color(cls, obj) -> Optional[Color]` *(class)* — The exact color stamped on the object's ID collection, or None when it has none.
   - `ColorId.remove_from_color_sets(cls, objects: Sequence) -> None` *(class)* — Unlink ``objects`` from every stamped ID collection;
-  - `ColorId.apply_color(cls, objects: Sequence, color: Optional[Color] = None, apply_to_material: bool = False, apply_to_object: bool = False, apply_to_vertex: bool = False, apply_to_outliner: bool = False, set_per_color: bool = False) -> None` *(class)* — Apply ``color`` (random when None) to each object across the enabled channels.
+  - `ColorId.apply_color(cls, objects: Sequence, color: Optional[Color] = None, apply_to_material: bool = False, apply_to_vertex: bool = False, apply_to_wireframe: bool = False, apply_to_outliner: bool = False, set_per_color: bool = False, apply_to_object: bool = False) -> None` *(class)* — Apply ``color`` (random when None) to each object across the enabled channels, as
   - `ColorId.show_channels(cls, channels: dict) -> int` *(class)* — Point every 3D viewport at the enabled channels' color source;
   - `ColorId.has_object_color(cls, obj, tolerance: float = 0.0001) -> bool` *(class)* — True when ``obj`` carries an assigned object color (i.e.
   - `ColorId.get_object_color(obj) -> Optional[Color]` *(static)* — The object's viewport display color (``obj.color`` RGB), or None.
   - `ColorId.get_material_color(obj) -> Optional[Color]` *(static)* — Base color of the object's active material (Principled base, else diffuse), or None.
   - `ColorId.get_average_vertex_color(obj) -> Optional[Color]` *(static)* — Average of the active mesh color attribute, or None when there is none.
   - `ColorId.color_difference(c1: Color, c2: Color) -> float` *(static)* — Average absolute per-channel RGB difference.
-  - `ColorId.get_objects_by_color(cls, target_color: Color, threshold: float = 0.1, check_material: bool = False, check_object: bool = False, check_vertex: bool = False, check_outliner: bool = False, check_set: bool = False) -> List` *(class)* — View-layer mesh objects whose color (on any enabled channel) is within ``threshold``.
-  - `ColorId.reset_colors(cls, objects: Sequence, reset_material: bool = True, reset_object: bool = True, reset_vertex: bool = True, reset_outliner: bool = True, reset_sets: bool = True) -> None` *(class)* — Clear color assignments on ``objects`` for the chosen channels.
+  - `ColorId.get_objects_by_color(cls, target_color: Color, threshold: float = 0.1, check_material_color: bool = False, check_vertex_color: bool = False, check_wireframe_color: bool = False, check_outliner_color: bool = False, check_set: bool = False) -> List` *(class)* — View-layer mesh objects whose color (on any enabled channel) is within ``threshold``.
+  - `ColorId.select_by_color(cls, target_color: Color, threshold: float = 0.1, **checks) -> List` *(class)* — Select the objects :meth:`get_objects_by_color` finds, replacing the selection
+  - `ColorId.get_color(cls, obj, check_material_color: bool = False, check_vertex_color: bool = False, check_wireframe_color: bool = False, check_outliner_color: bool = False, check_set: bool = False) -> Optional[Color]` *(class)* — The first color ``obj`` carries on the enabled channels (0-1 RGB), or None.
+  - `ColorId.lead_object()` *(static)* — The object Get Color reads: the active object, or None (mirror of mayatk's,
+  - `ColorId.scene_objects() -> List` *(static)* — Every object a scene-wide Color ID action covers (the panel's Ctrl+click
+  - `ColorId.reset_colors(cls, objects: Sequence, reset_outliner: bool = True, reset_wireframe: bool = True, reset_vertex: bool = True, reset_material: bool = True, reset_sets: bool = True) -> None` *(class)* — Clear color assignments on ``objects`` for the chosen channels, as ONE undo step
   - `ColorId.reset_vertex_colors(obj) -> None` *(static)* — Remove every color attribute from a mesh object.
-- **[`class ColorIdSlots(pythontk.LoggingMixin)`](blendertk/blendertk/display_utils/color_id.py#L532)** — Switchboard slot wiring for the Color ID panel (swatch palette + channels + presets).
-  - `ColorIdSlots.header_init(self, widget)` — Configure header help text and preset combobox.
-  - `ColorIdSlots.selected_objects(self) -> List` *(property)* — Return the currently selected objects, or an empty list if none are selected.
-  - `ColorIdSlots.selected_button(self)` *(property)* — Return the currently checked swatch button in the palette group.
-  - `ColorIdSlots.target_color(self) -> Optional[Color]` *(property)* — Return the color of the selected swatch, or None if no swatch is selected.
-  - `ColorIdSlots.b000(self) -> None` — Reset — clear the ENABLED channels (Ctrl+click resets every object in the scene).
-  - `ColorIdSlots.b001(self) -> None` — Set Color — apply the active color to the selected objects on the enabled channels.
-  - `ColorIdSlots.b002(self) -> None` — Select By Color — select scene objects matching the active color (enabled channels).
-  - `ColorIdSlots.b003(self) -> None` — Get Color — read the active object's color into the selected swatch.
 
 <a id="display_utils--exploded_view"></a>
 ### `display_utils/exploded_view.py`
@@ -1543,7 +1538,7 @@ Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Sel
   - `Selection.select_uv_edge_loop(obj)` *(static)* — UV Edge Loop: the topological edge loop through the selection, truncated at UV seams —
   - `Selection.get_available_selection_types()` *(static)* — A flat, sorted list of every leaf selection-type label.
   - `Selection.get_selection_categories()` *(static)* — Dict of category -> leaf-label list (mirror of ``mtk.Selection.get_selection_categories``).
-- **[`class SelectionOrder`](blendertk/blendertk/edit_utils/selection.py#L782)** — Ordered **object** selection — rolled infrastructure Blender doesn't ship.
+- **[`class SelectionOrder`](blendertk/blendertk/edit_utils/selection.py#L765)** — Ordered **object** selection — rolled infrastructure Blender doesn't ship.
   - `SelectionOrder.enable(cls)` *(class)* — Start tracking (idempotent).
   - `SelectionOrder.disable(cls)` *(class)* — Stop tracking and clear the recorded order.
   - `SelectionOrder.is_enabled(cls)` *(class)*
@@ -1745,7 +1740,7 @@ Slots for the Hierarchy Sync panel -- Blender port of mayatk's ``env_utils.hiera
   - `HierarchySyncController.log_diff_results(self)` — Log detailed hierarchy difference analysis results using rich formatting.
   - `HierarchySyncController.get_recent_reference_scenes(self) -> List[str]` — Get recent reference scenes from settings.
   - `HierarchySyncController.save_recent_reference_scene(self, scene_path: str)` — Save reference scene to recent list.
-- **[`class HierarchySyncSlots(pythontk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/hierarchy_sync_slots.py#L930)** — Slots class for hierarchy management UI operations.
+- **[`class HierarchySyncSlots(pythontk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/hierarchy_sync_slots.py#L923)** — Slots class for hierarchy management UI operations.
   - `HierarchySyncSlots.header_init(self, widget)` — Initialize the header widget.
   - `HierarchySyncSlots.tree000_init(self, widget)` — Initialize the reference/linked hierarchy tree widget.
   - `HierarchySyncSlots.tree001_init(self, widget)` — Initialize the current scene hierarchy tree widget.
@@ -2619,18 +2614,9 @@ Game Shader — auto-build a Principled-BSDF material from a set of PBR textures
 
 Map image files to textured planes in Blender — port of mayatk's ``mat_utils.image_to_plane``.
 
-- **[`class ImageToPlane(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/image_to_plane/_image_to_plane.py#L21)** — Create textured planes from image files (mirror of mayatk's ``ImageToPlane``).
+- **[`class ImageToPlane(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/image_to_plane/_image_to_plane.py#L23)** — Create textured planes from image files (mirror of mayatk's ``ImageToPlane``).
   - `ImageToPlane.create(cls, image_paths, mat_type='standard', suffix=None, prefix='', plane_height=10.0, group=False, group_name='imagePlanes_GRP', roughness=0.0)` *(class)* — Create textured planes for one or more images.
   - `ImageToPlane.remove(cls, objects=None)` *(class)* — Remove planes and their auto-created materials/images (orphans only) — mirror of
-
-<a id="mat_utils--image_to_plane--image_to_plane_slots"></a>
-### `mat_utils/image_to_plane/image_to_plane_slots.py`
-
-Switchboard slots for the Image to Plane UI — port of mayatk's ``ImageToPlaneSlots``.
-
-- **[`class ImageToPlaneSlots(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/image_to_plane/image_to_plane_slots.py#L33)** — Switchboard slots for the Image to Plane panel.
-  - `ImageToPlaneSlots.header_init(self, widget)` — Configure header menu.
-  - `ImageToPlaneSlots.txt_suffix_init(self, widget)` — Add a prefix/suffix/auto-mode picker to the affix field.
 
 <a id="mat_utils--marmoset_bridge--_marmoset_bridge"></a>
 ### `mat_utils/marmoset_bridge/_marmoset_bridge.py`

@@ -45,11 +45,11 @@ try:
     check("get_average_vertex_color", avg is not None and abs(avg[0] - 0.8) < 0.02, str(avg))
 
     # select-by-color (object channel) finds only A
-    found = CM.get_objects_by_color(RED, check_object=True)
+    found = CM.get_objects_by_color(RED, check_wireframe_color=True)
     check("select-by-color finds A only", [o.name for o in found] == ["A"], str([o.name for o in found]))
 
     # other color doesn't match
-    none_found = CM.get_objects_by_color((0.0, 0.0, 1.0), check_object=True)
+    none_found = CM.get_objects_by_color((0.0, 0.0, 1.0), check_wireframe_color=True)
     check("select-by-color blue finds nothing", none_found == [], str([o.name for o in none_found]))
 
     # reset clears all three channels (and leaves non-ID materials alone)
@@ -79,7 +79,7 @@ try:
     CM.apply_color([a], RED, apply_to_object=True)  # restore for the select-by check below
 
     # select-by-color on a white swatch must not sweep up every untouched object
-    white_hits = CM.get_objects_by_color((1.0, 1.0, 1.0), check_object=True)
+    white_hits = CM.get_objects_by_color((1.0, 1.0, 1.0), check_wireframe_color=True)
     check("select-by-color white skips unassigned objects", white_hits == [],
           str([o.name for o in white_hits]))
 
@@ -164,7 +164,7 @@ try:
           got is not None and CM.color_difference(got, RED) < 1e-6, str(got))
     check("text: untouched object reads None", CM.get_outliner_color(b) is None)
     check("text: select-by finds A only",
-          [o.name for o in CM.get_objects_by_color(RED, check_outliner=True)] == ["A"])
+          [o.name for o in CM.get_objects_by_color(RED, check_outliner_color=True)] == ["A"])
     check("text: apply_color routes the channel",
           (CM.apply_color([b], RED, apply_to_outliner=True), CM.get_outliner_color(b))[1] is not None)
     check("text: tinted_objects lists both", len(OutlinerTint.tinted_objects()) == 2)
@@ -295,75 +295,84 @@ try:
           CM.add_to_color_set([None], RED) is None
           and len(bpy.data.collections) == n_cols)
 
-    # ── slot wiring: the channel checkboxes scope RESET too ──────────────────
-    # Regression: b000 called reset_colors(objects) with no flags, so all five reset_*
-    # defaults (True) fired — clearing a wireframe tint also stripped the ID material, the
-    # vertex colors, the outliner stamp and the ID collection.
-    from blendertk.display_utils.color_id import ColorIdSlots
-
-    class _Chk:  # isChecked-only stand-in for a channel checkbox
-        def __init__(self, state): self._state = bool(state)
-        def isChecked(self): return self._state
-
-    class _StubSb:  # b000 reads only the Ctrl modifier + message_box
-        def __init__(self):
-            self.messages = []
-            self.app = type("A", (), {"keyboardModifiers": staticmethod(lambda: 0)})()
-            self.QtCore = type(
-                "C", (), {"Qt": type("Q", (), {"ControlModifier": object()})})()
-        def message_box(self, message, **kw): self.messages.append(message)
-
-    def make_slots(**channels):
-        """A ColorIdSlots without its Qt __init__ (swatch group / presets need a real sb)."""
-        s = ColorIdSlots.__new__(ColorIdSlots)
-        s.sb = _StubSb()
-        s.ui = type("U", (), {})()
-        for name, key in (("chk012", "wireframe"), ("chk013", "outliner"),
-                          ("chk014", "material"), ("chk015", "vertex"), ("chk016", "set")):
-            setattr(s.ui, name, _Chk(channels.get(key)))
-        return s
-
+    # ── channel scope: each channel resets on its own ────────────────────────
+    # Regression: the panel's Reset called reset_colors(objects) with no flags, so all five
+    # reset_* defaults (True) fired — clearing a wireframe tint also stripped the ID material,
+    # the vertex colors, the outliner stamp and the ID collection. (The panel's flag wiring
+    # and its no-channel guard: tentacle's test_color_id_panel.py.)
     reset_scene()
-    bpy.ops.mesh.primitive_cube_add(); a = bpy.context.active_object; a.name = "A"
-    CM.apply_color([a], RED, apply_to_object=True, apply_to_material=True,
+    bpy.ops.mesh.primitive_cube_add()
+    a = bpy.context.active_object
+    a.name = "A"
+    if space is not None:
+        space.shading.wireframe_color_type = "THEME"
+    CM.apply_color([a], RED, apply_to_wireframe=True, apply_to_material=True,
                    apply_to_vertex=True, apply_to_outliner=True, set_per_color=True)
-    a.select_set(True); bpy.context.view_layer.objects.active = a
-
-    make_slots(wireframe=True).b000()  # only the wireframe channel enabled
-    check("slots: reset clears the enabled wireframe channel", not CM.has_object_color(a),
+    check("apply_to_wireframe (mayatk's keyword) writes obj.color", CM.has_object_color(a),
           str(tuple(a.color)[:3]))
-    check("slots: reset keeps the unchecked material channel",
+    check("apply_color points the wires at the object color",
+          bool(space) and space.shading.wireframe_color_type == "OBJECT",
+          space.shading.wireframe_color_type if space else None)
+
+    CM.reset_colors([a], reset_wireframe=True, reset_outliner=False, reset_material=False,
+                    reset_vertex=False, reset_sets=False)
+    check("scope: reset clears the enabled wireframe channel", not CM.has_object_color(a),
+          str(tuple(a.color)[:3]))
+    check("scope: reset keeps the unchecked material channel",
           bool(a.active_material) and a.active_material.name.startswith("ID_"),
           a.active_material.name if a.active_material else None)
-    check("slots: reset keeps the unchecked vertex channel", len(a.data.color_attributes) > 0)
-    check("slots: reset keeps the unchecked outliner channel",
+    check("scope: reset keeps the unchecked vertex channel", len(a.data.color_attributes) > 0)
+    check("scope: reset keeps the unchecked outliner channel",
           CM.get_outliner_color(a) is not None)
-    check("slots: reset keeps the unchecked ID collection",
+    check("scope: reset keeps the unchecked ID collection",
           CM.get_color_set_color(a) is not None)
 
-    make_slots(wireframe=True, outliner=True, material=True, vertex=True, set=True).b000()
-    check("slots: reset clears every enabled channel",
+    CM.reset_colors([a])  # every channel defaults on
+    check("scope: reset clears every enabled channel",
           not CM.has_object_color(a)
           and not (a.active_material and a.active_material.name.startswith("ID_"))
           and len(a.data.color_attributes) == 0
           and CM.get_outliner_color(a) is None
           and CM.get_color_set_color(a) is None)
 
-    CM.apply_color([a], RED, apply_to_object=True)
-    no_channels = make_slots()
-    no_channels.b000()
-    check("slots: reset with no channels enabled is a no-op",
-          CM.has_object_color(a) and bool(no_channels.sb.messages),
-          str(no_channels.sb.messages))
+    # ── the shared panel's reads: get_color, lead_object, select_by_color ───
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    a = bpy.context.active_object
+    a.name = "A"
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    b = bpy.context.active_object
+    b.name = "B"
+    BLUE = (0.1, 0.2, 0.9)
+    CM.apply_color([a], RED, apply_to_wireframe=True)
+    CM.apply_color([a], BLUE, apply_to_outliner=True)
+    got = CM.get_color(a, check_wireframe_color=True, check_outliner_color=True)
+    check("get_color reads the outliner stamp first",
+          got is not None and CM.color_difference(got, BLUE) < 1e-3, str(got))
+    got = CM.get_color(a, check_wireframe_color=True)
+    check("get_color reads the wireframe channel",
+          got is not None and CM.color_difference(got, RED) < 1e-3, str(got))
+    check("get_color: an untouched object's default white is no color",
+          CM.get_color(b, check_wireframe_color=True) is None)
+    check("get_color with no channel enabled reads nothing", CM.get_color(a) is None)
 
-    # ...and Select By Color used to answer a zero-check query's empty result by
-    # deselecting everything, costing the user their selection for nothing.
-    a.select_set(True)
-    no_channels = make_slots()
-    no_channels.b002()
-    check("slots: select-by with no channels keeps the selection",
-          a.select_get() and bool(no_channels.sb.messages),
-          str(no_channels.sb.messages))
+    bpy.context.view_layer.objects.active = b
+    check("lead_object is the active object", CM.lead_object() == b)
+
+    a.select_set(False)
+    b.select_set(True)
+    found = CM.select_by_color(RED, check_wireframe_color=True)
+    check("select_by_color selects the matches only",
+          [o.name for o in found] == ["A"] and a.select_get() and not b.select_get(),
+          str([o.name for o in found]))
+    check("select_by_color makes the first match active", CM.lead_object() == a)
+    none_found = CM.select_by_color((0.0, 1.0, 0.0), check_wireframe_color=True)
+    check("select_by_color with no match clears the selection",
+          none_found == [] and not a.select_get() and not b.select_get())
+
+    check("scene_objects lists the scene's objects",
+          sorted(o.name for o in CM.scene_objects()) == ["A", "B"])
+    check("swatch presets keep blendertk's store", CM.SWATCH_PRESET_DIR == "blendertk/color_id")
 
     # ── redraw helper ────────────────────────────────────────────────────────
     check("CoreUtils.tag_redraw tags the viewports",

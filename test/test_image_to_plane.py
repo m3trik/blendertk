@@ -1,9 +1,9 @@
-"""blendertk ImageToPlane (btk.ImageToPlane + ImageToPlaneSlots) headless test.
+"""blendertk ImageToPlane (btk.ImageToPlane) headless test.
 Run: blender --background --factory-startup --python blendertk/test/test_image_to_plane.py
 
 Writes a couple of real images to a temp dir, then exercises the engine (aspect-sized plane, image
-wired into a Principled material, alpha detection, grouping, remove cleanup) and the slot routing
-(affix resolution + queue→create over a stubbed list widget).
+wired into a Principled material, alpha detection, grouping, remove cleanup, the selected result)
+and the affix resolution the shared panel (tentacle's ``slots/tools/image_to_plane.py``) relies on.
 """
 import sys, os, tempfile, traceback
 
@@ -22,9 +22,7 @@ def check(name, cond, detail=""):
 try:
     import bpy
     import pythontk as ptk
-    import blendertk as btk
     from blendertk.mat_utils.image_to_plane._image_to_plane import ImageToPlane
-    from blendertk.mat_utils.image_to_plane.image_to_plane_slots import ImageToPlaneSlots
 
     tmp = tempfile.mkdtemp(prefix="itp_test_")
 
@@ -126,53 +124,24 @@ try:
     check("affix 'MAT_' → prefix", ptk.StrUtils.split_affix("MAT_", mode="auto", default="suffix") == ("MAT_", ""))
     check("affix empty → no split", ptk.StrUtils.split_affix("", mode="auto", default="suffix") == ("", ""))
 
-    # ---- slot _create_planes over a stubbed UI (queue → engine) -------------------------------
-    class _List:
-        def __init__(self, items):
-            self._items = list(items)
-        def count(self):
-            return len(self._items)
-        def item(self, i):
-            return type("It", (), {"text": lambda self, p=self._items[i]: p})()
-    class _Menu:
-        def __init__(self):
-            self.chk_group_result = type("C", (), {"isChecked": lambda self: False})()
-    class _Header:
-        def __init__(self):
-            self.menu = _Menu()
-    class _OptBox:
-        """Minimal option-box stub mirroring the real ``resolve_affix`` delegation."""
-        affix_mode = "auto"
-        def __init__(self, field):
-            self._field = field
-        def resolve_affix(self, *, default="prefix"):
-            return ptk.StrUtils.split_affix(self._field.text(), mode="auto", default=default)
-    class _Field:
-        def __init__(self, v):
-            self._v = v
-        def text(self):
-            return self._v
-        def value(self):
-            return self._v
-        def setText(self, t):
-            self._v = t
-        @property
-        def option_box(self):
-            return _OptBox(self)
+    # ---- the shared panel's contract: material types, the selected result, undo ------------
+    check("MAT_TYPES lists Blender's one material type",
+          ImageToPlane.MAT_TYPES == (("Principled BSDF", "standard"),), str(ImageToPlane.MAT_TYPES))
+
+    def selected():
+        return sorted(o.name for o in bpy.context.view_layer.objects if o.select_get())
 
     reset()
-    ui = type("U", (), {})()
-    ui.lst_files = _List([wide, tall])
-    ui.txt_suffix = _Field("_MAT")
-    ui.spn_height = _Field(4.0)
-    ui.header = _Header()
-    ui.footer = _Field("")
-    ui.b000 = ui.b001 = ui.b002 = ui.b004 = type("B", (), {"clicked": type("S", (), {"connect": lambda self, fn: None})()})()
-    sb = type("SB", (), {"loaded_ui": type("L", (), {"image_to_plane": ui})()})()
-    slots = ImageToPlaneSlots(sb)
-    slots._create_planes()
-    check("slot create made both planes", "wide" in bpy.data.objects and "tall" in bpy.data.objects)
-    check("slot footer reports", "Created 2 plane" in ui.footer.text(), ui.footer.text())
+    results = ImageToPlane.create([wide, tall])
+    check("create leaves the planes selected", selected() == ["tall", "wide"], str(selected()))
+    check("create makes a plane active",
+          bpy.context.view_layer.objects.active in (results["wide"], results["tall"]))
+    reset()
+    results = ImageToPlane.create([wide, tall], group=True)
+    check("grouped create leaves the group alone selected",
+          selected() == [results["__group__"].name], str(selected()))
+    check("create and remove are one undo step each (undoable wrappers)",
+          hasattr(ImageToPlane.create, "__wrapped__") and hasattr(ImageToPlane.remove, "__wrapped__"))
 
 except Exception:
     traceback.print_exc()

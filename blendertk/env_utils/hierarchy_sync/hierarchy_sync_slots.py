@@ -599,14 +599,7 @@ class HierarchySyncController(ptk.LoggingMixin):
         valid = [local_by_name[n] for n in object_names if n in local_by_name]
         from blendertk.core_utils._core_utils import CoreUtils
 
-        # the window's view layer (windowless: the scene's default)
-        with CoreUtils.window_context_override():
-            for o in list(bpy.context.view_layer.objects):
-                o.select_set(False)
-            for o in valid:
-                o.select_set(True)
-            if valid:
-                bpy.context.view_layer.objects.active = valid[0]
+        CoreUtils.select(valid)
         return len(valid)
 
     # ----------------------------- Tree orchestration ----------------------------- #

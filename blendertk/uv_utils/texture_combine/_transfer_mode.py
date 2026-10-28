@@ -316,7 +316,6 @@ class _TransferMode:
         raises from ``select_set``, and one with selection disabled declines:
         both are reported, never forced -- a transfer reads them either way.
         """
-        import bpy
 
         stored = self.sources
         alive = self._stored()
@@ -326,22 +325,7 @@ class _TransferMode:
                 if not stored
                 else "None of the stored source meshes are in the file -- re-capture them."
             )
-        selected = []
-        # the window's view layer: windowless, select_set and the active write
-        # address the scene's default layer
-        with CoreUtils.window_context_override():
-            for obj in list(bpy.context.view_layer.objects):
-                if obj.select_get():
-                    obj.select_set(False)
-            for obj in alive:
-                try:
-                    obj.select_set(True)
-                except RuntimeError:  # not in the active view layer
-                    continue
-                if obj.select_get():
-                    selected.append(obj)
-            if selected:
-                bpy.context.view_layer.objects.active = selected[0]
+        selected = CoreUtils.select(alive)
         missing = len(stored) - len(alive)
         unreachable = len(alive) - len(selected)
         self.slots.status(

@@ -56,9 +56,7 @@ PANELS = [
     "lightmap_baker",
     "reference_manager",
     "workspace_editor",
-    "color_id",
     "texture_path_editor",
-    "image_to_plane",
     "shader_templates",
     "mat_updater",
     "rizom_bridge",
@@ -308,10 +306,6 @@ try:
             "ChannelsSlots",
         ),  # __init__ + table/header init are bpy-free (guarded refresh)
         (
-            "color_id",
-            "ColorIdSlots",
-        ),  # __init__ (button groups + keep_square swatches) is bpy-free
-        (
             "audio_clips",
             "AudioClipsSlots",
         ),  # __init__ + cmb000/tb001/b004 _init are bpy-free (list refresh guarded)
@@ -327,10 +321,6 @@ try:
             "hdr_manager",
             "HdrManagerSlots",
         ),  # __init__ + header/cmb _init are bpy-free (os dir scan)
-        (
-            "image_to_plane",
-            "ImageToPlaneSlots",
-        ),  # __init__ (button connects) is bpy-free
         ("naming", "NamingSlots"),  # __init__ + option-box *_init are bpy-free
         (
             "shadow_rig",
@@ -410,7 +400,6 @@ try:
     # second header menu -- so assert what the load itself wired: pin replaced the default hide.
     GESTURE_SCOPED = [
         "reference_manager",
-        "color_id",
         "naming",
     ]
     for panel in GESTURE_SCOPED:
