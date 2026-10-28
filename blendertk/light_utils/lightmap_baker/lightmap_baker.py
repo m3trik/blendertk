@@ -33,16 +33,11 @@ lighting flattened behind an Emission material) was removed: it is not lightmapp
 discards every other map, and it only ever added a mode to choose wrongly from. Quality
 tiers come from :meth:`from_preset` (pythontk ``PresetStore``). HDR EXR throughout.
 
-The engine surface is Qt-free and defers ``import bpy`` (headless-importable); only the
-panel (``lightmap_baker_slots.LightmapBakerSlots``) touches Qt, lazily.
-
-The ``.ui`` shares mayatk's objectNames control for control, except where Cycles has
-no counterpart (Arnold's GI Samples: one Cycles sample count covers every ray -- ledgered
-in ``tentacle/docs/parity_map.py``). Now that uitk host-namespaces the QSettings branch per
-DCC (``Switchboard.add_ui`` / ``MainWindow._relative_state`` via ``context_tags``),
-identical objectNames across the two copies of the same panel no longer collide in the
-shared "uitk"/"shared" registry root, so there is no need to renumber widgets to dodge it.
-Both ``cmb002`` packing modes are live: "Atlas by Material" (per-material consolidation via
+The engine surface is Qt-free and defers ``import bpy`` (headless-importable). Its panel
+is tentacle's Lightmap Baker (``slots/tools/lightmap_baker.py``): one Slots class over this
+engine and mayatk's, its GI Samples dial (Arnold's: one Cycles sample count covers every
+ray) hidden here, where :attr:`LightmapBaker.PRESET_INT_KEYS` has no ``gi_samples``.
+Both packing modes are live: "Atlas by Material" (per-material consolidation via
 :meth:`LightmapBaker.pack_atlas`, the Blender port of mayatk's atlas packer) and
 "Per-Object" (one full-resolution map each).
 """
@@ -485,6 +480,14 @@ class LightmapBaker(ptk.LoggingMixin):
         "beside_textures",
         "reflection_probe",
     )
+    #: The Samples range a panel offers, in this renderer's units: Cycles
+    #: paths, which every tier counts in the hundreds or thousands (mayatk's
+    #: are Arnold AA samples, squared: up to 256).
+    SAMPLES_RANGE: Tuple[int, int] = (1, 4096)
+    #: The processors (:attr:`device` values) that sample adaptively: every
+    #: one -- Cycles adapts on the CPU and the GPU alike (mayatk's Arnold only
+    #: on the GPU).
+    ADAPTIVE_DEVICES: Tuple[str, ...] = ("AUTO", "GPU", "CPU")
     #: Retired built-in tier names -> the current one, warning until they go
     #: (mirrors mayatk). ``"quest"`` (until 2026-09-23) named one headset for a
     #: tier that serves every mobile / standalone-VR target; a script, an older
@@ -515,6 +518,17 @@ class LightmapBaker(ptk.LoggingMixin):
         return ptk.PresetStore("lightmap", package="blendertk", builtin_dir=builtin)
 
     @classmethod
+    def preset_name(cls, name: str) -> str:
+        """*name* as the preset store knows it now: itself when the store has
+        it -- a user preset saved under a retired tier name still wins -- else
+        the tier a retired name became (with a notice), else unchanged. What
+        :meth:`from_preset` loads, and the panel's Preset pointer follows.
+        Mirror of mayatk's."""
+        if cls.preset_store().exists(name):
+            return name
+        return cls._resolve_retired_preset(name)
+
+    @classmethod
     def from_preset(cls, name: str, **overrides) -> "LightmapBaker":
         """Construct a baker from a named preset.
 
@@ -542,8 +556,7 @@ class LightmapBaker(ptk.LoggingMixin):
         tier name (``quest``) still resolves, with a notice.
         """
         store = cls.preset_store()
-        if not store.exists(name):
-            name = cls._resolve_retired_preset(name)
+        name = cls.preset_name(name)
         if not store.exists(name):
             raise ValueError(
                 f"Unknown lightmap preset {name!r}. Available: {store.list()}"
@@ -4880,6 +4893,89 @@ class LightmapBaker(ptk.LoggingMixin):
                 and self._power(bpy.data.objects[name]) > 0.0
             ]
         return plan
+
+    @staticmethod
+    def scope_meshes(scope: str = "selected") -> List[Any]:
+        """The mesh objects a Scope word names, before the Exclude set (mirror
+        of mayatk's): what the Lightmap Baker panel's Bake hands :meth:`bake`
+        (its lights ride beside them, :meth:`scope_lights`).
+
+        The words are :class:`pythontk.HandoffScope`'s -- ``selected``,
+        ``visible``, ``scene``; anything unknown reads the selection.
+        ``visible`` reads the window's view layer (windowless, a bare
+        ``visible_get`` reads the default one). Every word resolves through
+        :meth:`TextureBaker.resolve_meshes`, so a selected light never bakes,
+        and a hidden mesh in the Scene scope does (Cycles bakes it).
+        """
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        def scene_meshes():
+            return TextureBaker.resolve_meshes(list(bpy.context.scene.objects))
+
+        def visible_meshes():
+            # The window's layer, resolved once: each resolve enters a context
+            # override.
+            layer = CoreUtils._active_view_layer()
+            return [o for o in scene_meshes() if o.visible_get(view_layer=layer)]
+
+        return list(
+            ptk.HandoffScope.resolve(
+                scope,
+                selected=lambda: TextureBaker.resolve_meshes(
+                    CoreUtils.selected_objects(), descendants=True
+                ),
+                all=scene_meshes,
+                visible=visible_meshes,
+            )
+            or []
+        )
+
+    @classmethod
+    def scope_lights(cls, scope: str = "selected") -> List[Any]:
+        """The light objects a Scope word holds (mirror of mayatk's): what
+        lights a bake of :meth:`scope_meshes` with :attr:`include_scene_lights`
+        off -- the lights selected or under the selection
+        (:meth:`_scope_lights`), every visible one (the window's view layer),
+        or every one in the scene."""
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        def scene_lights():
+            return [o for o in bpy.context.scene.objects if o.type == "LIGHT"]
+
+        def visible_lights():
+            layer = CoreUtils._active_view_layer()
+            return [o for o in scene_lights() if o.visible_get(view_layer=layer)]
+
+        return list(
+            ptk.HandoffScope.resolve(
+                scope,
+                selected=lambda: cls._scope_lights(None),
+                all=scene_lights,
+                visible=visible_lights,
+            )
+            or []
+        )
+
+    @staticmethod
+    def select(objects) -> List[Any]:
+        """Make *objects* the selection -- names or objects -- or clear it when
+        none can be selected (mirror of mayatk's): what the Lightmap Baker
+        panel's set rows and map picks select with. On the window's view layer
+        (``CoreUtils.select``): an object outside it, hidden or gone takes no
+        select and is left out of the objects this returns."""
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        found = [
+            bpy.data.objects.get(obj) if isinstance(obj, str) else obj
+            for obj in objects or ()
+        ]
+        return CoreUtils.select(found, mode="replace")
 
     @staticmethod
     def _scope_lights(objects=None) -> List[Any]:

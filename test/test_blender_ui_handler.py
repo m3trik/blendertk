@@ -49,7 +49,6 @@ def _sandbox_qsettings():
 # Co-located tool panels that BlenderUiHandler must discover from the blendertk package.
 PANELS = [
     "audio_clips",
-    "lightmap_baker",
     "reference_manager",
     "workspace_editor",
     "texture_path_editor",
@@ -289,10 +288,6 @@ try:
             "ReferenceManagerSlots",
         ),  # *_init bpy-guarded → table degrades w/o bpy
         ("render_effects", "RenderEffectsSlots"),  # __init__ (btn connect) is bpy-free
-        (
-            "lightmap_baker",
-            "LightmapBakerSlots",
-        ),  # __init__ + cmb _init are bpy-free (preset store)
     ):
         ui = sb.get_ui(panel)
         check(f"{panel} ui loads", ui is not None)
@@ -1171,82 +1166,6 @@ try:
         )
     else:
         check("audio_clips exposes slots for the option-box check", False, "no slots")
-
-    # lightmap_baker: the Resolution combo is a fixed power-of-two list (replacing the old
-    # spinbox) and the Scope combo gates which objects bake; both are Qt-only (no bpy). Verify
-    # the lists, the defaults, and that a Quality preset snaps the Resolution combo.
-    lb_ui = sb.get_ui("lightmap_baker")
-    # Read lazily, with no event pass: under PySide6 6.10 the option-box wrap
-    # used to drop a QUiLoader-built QSpinBox's wrapper here (uitk 2026-10-05).
-    lb = getattr(lb_ui, "slots", None)
-    if lb is not None:
-        res_items = [
-            lb_ui.cmb_resolution.itemText(i)
-            for i in range(lb_ui.cmb_resolution.count())
-        ]
-        check(
-            "lightmap_baker Resolution combo lists the fixed sizes (default 1024)",
-            res_items == [f"Resolution:\t{r}" for r in (256, 512, 1024, 2048, 4096)]
-            and lb._resolution() == 1024,
-            f"{res_items} _resolution()={lb._resolution()}",
-        )
-        scope_items = [
-            lb_ui.cmb_scope.itemText(i) for i in range(lb_ui.cmb_scope.count())
-        ]
-        check(
-            "lightmap_baker Scope combo lists Selected/Visible/Scene (default "
-            "selected; re-baking what changed is the Manage page's)",
-            scope_items == ["Selected", "Visible", "Scene"]
-            and lb._scope() == "selected",
-            f"{scope_items} _scope()={lb._scope()}",
-        )
-        # The Preset combo is uitk's preset template; a preset writes the dials
-        # (Bounces included) and the switches through the one field map.
-        from blendertk.light_utils.lightmap_baker.lightmap_baker import (
-            LightmapBaker as _LightmapBaker,
-        )
-
-        lb_store = _LightmapBaker.preset_store()
-        # The tiers' own numbers (tuned in the preset files, not here).
-        lb_want_preview, lb_want = lb_store.load("preview"), lb_store.load("desktop")
-        lb._apply_preset_values(lb_want_preview)
-        lb_preview = lb._resolution()
-        lb._apply_preset_values(lb_want)
-        check(
-            "lightmap_baker a preset snaps Resolution, Samples and Bounces",
-            lb_want_preview["resolution"] != lb_want["resolution"]
-            and lb_preview == lb_want_preview["resolution"]
-            and lb._resolution() == lb_want["resolution"]
-            and lb_ui.spn_samples.value() == lb_want["samples"]
-            and lb_ui.spn_bounces.value() == lb_want["bounces"],
-            f"preview={lb_preview} desktop={lb._resolution()} "
-            f"samples={lb_ui.spn_samples.value()} bounces={lb_ui.spn_bounces.value()} "
-            f"want={lb_want}",
-        )
-        lb_switches = {key: lb._toggle(key) for key in lb._TOGGLES}
-        check(
-            "lightmap_baker hangs each switch off the option box of its field",
-            all(toggle is not None for toggle in lb_switches.values()),
-            f"unwired: {[k for k, t in lb_switches.items() if t is None]}",
-        )
-        lb._apply_preset_values({"adaptive": False, "beside_textures": True})
-        check(
-            "lightmap_baker a preset writes the switches through the real toggles",
-            lb._adaptive() is False
-            and lb._beside_textures() is True
-            and lb_ui.txt_output_dir.placeholderText().startswith("(blank: beside"),
-            f"placeholder={lb_ui.txt_output_dir.placeholderText()!r}",
-        )
-        lb._apply_preset_values({"adaptive": True, "beside_textures": False})
-        lb_items = [lb_ui.cmb000.itemText(i) for i in range(lb_ui.cmb000.count())]
-        check(
-            "lightmap_baker Preset combo is the preset template over the shipped tiers",
-            getattr(lb, "_presets", None) is not None
-            and {"preview", "mobile", "desktop", "hero"} <= set(lb_items),
-            f"{lb_items}",
-        )
-    else:
-        check("lightmap_baker exposes slots for the combo check", False, "no slots")
 
     # workspace_editor: the minimal Project Window — one root field, RULE/LOCATION table with
     # per-row reset/remove action columns, and rule edits that write through to workspace.mel in

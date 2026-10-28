@@ -2,7 +2,7 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (394)
+## Moved out (426)
 
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b000` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
@@ -213,6 +213,38 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `light_utils/hdr_manager.py::HdrManagerSlots.spn_intensity` → `tentacle.slots.tools.hdr_manager.HdrManagerSlots` (from 0.23.0)
 - `light_utils/hdr_manager.py::HdrManagerSlots.spn_resolution` → `tentacle.slots.tools.hdr_manager.HdrManagerSlots` (from 0.23.0)
 - `light_utils/hdr_manager.py::HdrManagerSlots.spn_specular` → `tentacle.slots.tools.hdr_manager.HdrManagerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.b000` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.btn_reset_defaults_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.clear_exclusions` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.clear_isolation` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.cmb000_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.cmb002_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.cmb_device_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.cmb_page` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.cmb_page_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.cmb_resolution_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.cmb_scope_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.combine_selected` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.fix_all` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.header_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.open_map_folder` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.open_output` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.rebake_selected` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.revert_selected` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.select_by_state` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.select_exclusions` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.select_isolation` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.set_exclusions` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.set_exclusions_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.set_isolation` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.set_isolation_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.show_bake_state` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.spn_samples_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.tbl_maps_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.track_selected` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.txt000_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.txt_output_dir_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots` → `tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.b000` → `tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.b001` → `tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
@@ -399,7 +431,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/shell_xform.py::ShellXformSlots.tb008` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
 - `uv_utils/shell_xform.py::ShellXformSlots.tb008_init` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
 
-## Added (145)
+## Added (149)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -475,6 +507,10 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `light_utils/hdr_manager.py::HdrManager.rotation(self) -> float`
 - `light_utils/hdr_manager.py::HdrManager.specular(self) -> float`
 - `light_utils/hdr_manager.py::HdrManager.visibility(self) -> bool`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.preset_name(cls, name: str) -> str`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.scope_lights(cls, scope: str = 'selected') -> List[Any]`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.scope_meshes(scope: str = 'selected') -> List[Any]`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.select(objects) -> List[Any]`
 - `mat_utils/_mat_utils.py::MatUpdater.materials_using_textures(paths, shader_type=None)`
 - `mat_utils/_mat_utils.py::MatUpdater.selected_materials(cls, shader_type=None)`
 - `mat_utils/_mat_utils.py::MatUpdater.shader_type_choices()`

@@ -161,8 +161,9 @@ DEFAULT_INCLUDE = {
     ],
     "env_utils.hierarchy_sync.scene_data_sidecar": "SceneDataSidecar",
     "light_utils._light_utils": "*",
-    # Lightmap Baker — engine + co-located panel. The ``LightmapBakerSlots`` class is
-    # discovered by ``BlenderUiHandler`` (not registered here), matching the other tool Slots.
+    # Lightmap Baker — the engine (its panel is tentacle's shared Lightmap Baker tool) and
+    # the bake's Exclude / Isolate sets the panel's rows read.
+    "mat_utils.bake_sets": ["LightmapExcludeSet", "LightmapIsolateSet"],
     "light_utils.lightmap_baker.lightmap_baker": [
         "LightmapBaker",
     ],
@@ -684,6 +685,10 @@ MOVED_NAMES = {
     ),
     "MODE_WEIGHT": (
         "tentacle.slots.tools.blendshape_animator.MODE_WEIGHT",
+        "0.23.0",
+    ),
+    "LightmapBakerSlots": (
+        "tentacle.slots.tools.lightmap_baker.LightmapBakerSlots",
         "0.23.0",
     ),
 }

@@ -721,15 +721,9 @@ try:
                 with btk.CoreUtils.visible_override([m2]):
                     return m2.visible_get(view_layer=win_vl)
 
-            # The lightmap panel's reads: a light in a collection EXCLUDED from the
-            # window's layer only (the bake renders the window's layer), and a panel
-            # over stub widgets for the Scope / Exclude reads.
-            from types import SimpleNamespace as _NS
-
-            from blendertk.light_utils.lightmap_baker import (
-                lightmap_baker_slots as _lm_slots,
-            )
-
+            # The Lightmap Baker's reads: a light in a collection EXCLUDED from the
+            # window's layer only (the bake renders the window's layer), and the
+            # Scope / selection API its shared panel calls.
             def window_light():
                 coll = bpy.data.collections.get("PumpLights")
                 if coll is None:
@@ -740,28 +734,6 @@ try:
                     )
                     coll.objects.link(lamp)
                 win_vl.layer_collection.children[coll.name].exclude = True
-
-            def lm_panel(scope="Visible"):
-                panel = _lm_slots.LightmapBakerSlots.__new__(_lm_slots.LightmapBakerSlots)
-                texts = []
-                panel.ui = _NS(
-                    cmb_scope=_NS(currentText=lambda: scope),
-                    footer=_NS(setText=texts.append, text=lambda: texts[-1]),
-                )
-                panel._refresh_set_row = lambda _row: None
-                return panel
-
-            def select_exclusions():
-                panel = lm_panel()
-                rows = _lm_slots.LightmapBakerSlots._SET_ROWS
-                # The row's set, on this panel alone (the class table stays).
-                panel._SET_ROWS = {
-                    **rows,
-                    "set_exclusions": dict(
-                        rows["set_exclusions"], scene_set=_NS(members=lambda: [m2])
-                    ),
-                }
-                panel.select_exclusions()
 
             def lamp_row():
                 rows = btk.LightmapBaker._light_rows(bpy.context.scene)
@@ -876,16 +848,16 @@ try:
                     lambda r: "viewport_visible=False" in r,
                 ),
                 (
-                    "the lightmap panel's Visible scope reads the window layer",
+                    "LightmapBaker.scope_meshes('visible') reads the window layer",
                     hide_m2_in_window,
-                    lambda: lm_panel("Visible")._scope_objects(),
+                    lambda: btk.LightmapBaker.scope_meshes("visible"),
                     lambda r: m1 in r and m2 not in r,
                 ),
                 (
-                    "the lightmap panel's Select Exclusions selects in the window layer",
+                    "LightmapBaker.select selects in the window layer",
                     None,
-                    select_exclusions,
-                    lambda r: win_state() == (m2, [m2]),
+                    lambda: btk.LightmapBaker.select([m2]),
+                    lambda r: r == [m2] and win_state() == (m2, [m2]),
                 ),
             ]
             try:
