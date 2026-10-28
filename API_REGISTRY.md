@@ -163,7 +163,6 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`rig_utils/tube_rig/tube_path.py`](#rig_utils--tube_rig--tube_path) — Tube-mesh centerline extraction — Blender port of mayatk's ``rig_utils.tube_rig.tube_path.TubePath`…
 - [`rig_utils/wheel_rig.py`](#rig_utils--wheel_rig) — Wheel Rig — wheels that roll as their control moves (tentacle's Wheel Rig panel drives it).
 - [`ui_utils/_ui_utils.py`](#ui_utils--_ui_utils) — UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
-- [`ui_utils/blender_bridge_slots_base.py`](#ui_utils--blender_bridge_slots_base) — Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
 - [`ui_utils/blender_native_menus.py`](#ui_utils--blender_native_menus) — Symbolic-name -> Blender native-menu resolution + Qt wrapping for the both-button chord menu.
 - [`ui_utils/blender_ui_handler.py`](#ui_utils--blender_ui_handler)
 - [`ui_utils/blender_window.py`](#ui_utils--blender_window) — Native-window (win32/GHOST) helpers for hosting Qt widgets around a Blender window.
@@ -3256,15 +3255,6 @@ UI utilities — opening Blender editors (the analogue of Maya's editor-window m
   - `UiUtils.call_native_menu(menu_idname)` *(static)* — Pop Blender's own native menu ``menu_idname`` (e.g.
   - `UiUtils.popup_message(text, title='Info', icon='INFO')` *(static)* — Show a small native Blender info popup at the cursor (multi-line ``text`` supported).
 
-<a id="ui_utils--blender_bridge_slots_base"></a>
-### `ui_utils/blender_bridge_slots_base.py`
-
-Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
-
-- **[`class BlenderBridgeSlotsBase(BridgeSlotsBase)`](blendertk/blendertk/ui_utils/blender_bridge_slots_base.py#L29)** — Adds the Blender Scope resolution to :class:`BridgeSlotsBase`.
-  - `BlenderBridgeSlotsBase.resolve_scope_objects(self, scope: str)` — Objects to export for the chosen ``SCOPE`` param.
-  - `BlenderBridgeSlotsBase.scoped_objects(self, params, warn: bool = True)` — The Scope's objects closed over their hierarchy -- what the send ships.
-
 <a id="ui_utils--blender_native_menus"></a>
 ### `ui_utils/blender_native_menus.py`
 
@@ -3278,11 +3268,10 @@ Symbolic-name -> Blender native-menu resolution + Qt wrapping for the both-butto
 <a id="ui_utils--blender_ui_handler"></a>
 ### `ui_utils/blender_ui_handler.py`
 
-- **[`class BlenderUiHandler(UiHandler)`](blendertk/blendertk/ui_utils/blender_ui_handler.py#L10)** — UI Handler for Blender applications.
+- **[`class BlenderUiHandler(UiHandler)`](blendertk/blendertk/ui_utils/blender_ui_handler.py#L9)** — UI Handler for Blender applications.
   - `BlenderUiHandler.instance(cls, switchboard: Switchboard = None, **kwargs) -> 'BlenderUiHandler'` *(class)* — Return the BlenderUiHandler singleton, bootstrapping if needed.
   - `BlenderUiHandler.can_resolve(self, name: str) -> bool` — Recognise the native Blender menus this handler wraps on demand.
   - `BlenderUiHandler.show(self, ui, pos=None, force: bool = False, **kwargs)` — Swap a native-menu proxy for its wrapped, freshly-harvested menu window;
-  - `BlenderUiHandler.default_persistence(self, ui) -> str` — blendertk-sourced tool panels stay open by default (hide, not pin).
 
 <a id="ui_utils--blender_window"></a>
 ### `ui_utils/blender_window.py`

@@ -2,7 +2,7 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (843)
+## Moved out (847)
 
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b000` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
@@ -751,9 +751,13 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `rig_utils/wheel_rig.py::WheelRigSlots.txt000_init` → `tentacle.slots.tools.wheel_rig.WheelRigSlots` (from 0.23.0)
 - `rig_utils/wheel_rig.py::WheelRigSlots.update_rig_name_placeholder` → `tentacle.slots.tools.wheel_rig.WheelRigSlots` (from 0.23.0)
 - `rig_utils/wheel_rig.py::WheelRigSlots.wheel_rig` → `tentacle.slots.tools.wheel_rig.WheelRigSlots` (from 0.23.0)
-- `ui_utils/blender_bridge_slots_base.py::BlenderBridgeSlotsBase.clear_bake_source` → `tentacle.slots.tools._app_bridge.host_bridge.HostBridge.clear_bake_source` (from 0.23.0)
-- `ui_utils/blender_bridge_slots_base.py::BlenderBridgeSlotsBase.select_bake_source` → `tentacle.slots.tools._app_bridge.host_bridge.HostBridge.select_bake_source` (from 0.23.0)
-- `ui_utils/blender_bridge_slots_base.py::BlenderBridgeSlotsBase.set_bake_source_from_selection` → `tentacle.slots.tools._app_bridge.host_bridge.HostBridge.set_bake_source_from_selection` (from 0.23.0)
+- `ui_utils/blender_bridge_slots_base.py::BlenderBridgeSlotsBase` → `tentacle.slots.tools._app_bridge.host_bridge.HostBridge` (from 0.23.0)
+- `ui_utils/blender_bridge_slots_base.py::BlenderBridgeSlotsBase.clear_bake_source` → `tentacle.slots.tools._app_bridge.host_bridge.HostBridge` (from 0.23.0)
+- `ui_utils/blender_bridge_slots_base.py::BlenderBridgeSlotsBase.live_param_tooltip_blocks` → `tentacle.slots.tools._app_bridge.host_bridge.HostBridge` (from 0.23.0)
+- `ui_utils/blender_bridge_slots_base.py::BlenderBridgeSlotsBase.resolve_scope_objects` → `tentacle.slots.tools._app_bridge.host_bridge.HostBridge` (from 0.23.0)
+- `ui_utils/blender_bridge_slots_base.py::BlenderBridgeSlotsBase.scoped_objects` → `tentacle.slots.tools._app_bridge.host_bridge.HostBridge` (from 0.23.0)
+- `ui_utils/blender_bridge_slots_base.py::BlenderBridgeSlotsBase.select_bake_source` → `tentacle.slots.tools._app_bridge.host_bridge.HostBridge` (from 0.23.0)
+- `ui_utils/blender_bridge_slots_base.py::BlenderBridgeSlotsBase.set_bake_source_from_selection` → `tentacle.slots.tools._app_bridge.host_bridge.HostBridge` (from 0.23.0)
 - `ui_utils/calculator.py::CalculatorSlots` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
 - `ui_utils/calculator.py::CalculatorSlots.frames_to_sec` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
 - `ui_utils/calculator.py::CalculatorSlots.get_current_time` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
@@ -1263,7 +1267,7 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/emissive_groups.py::EmissiveGroups.transfer_in`
 - `mat_utils/emissive_groups.py::EmissiveGroups.transfer_out`
 - `mat_utils/emissive_groups.py::EmissiveGroups.validate`
-- `ui_utils/blender_bridge_slots_base.py::BlenderBridgeSlotsBase.live_param_tooltip_blocks`
+- `ui_utils/blender_ui_handler.py::BlenderUiHandler.default_persistence`
 
 ## Signature changed (17)
 

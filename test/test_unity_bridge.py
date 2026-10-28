@@ -124,10 +124,8 @@ try:
     # scene, unfiltered by type so a visible group Empty travels). Two
     # different functions, and only one of them is on the export path.
     #
-    # The mixin, not `BlenderBridgeSlotsBase.resolve_scope_objects` that
-    # delegates to it: that module imports `uitk.bridge`, and headless Blender
-    # ships no Qt binding -- which is why this suite reached for a stand-in in
-    # the first place. The mixin is Qt-free, so the real function is reachable.
+    # The mixin itself, the read `BridgeHost.resolve_scope("visible")` makes:
+    # Qt-free, so headless Blender (no Qt binding) reaches the real function.
     from blendertk.env_utils.handoff_export import BlenderExportMixin
 
     resolved = {o.name for o in BlenderExportMixin._visible_objects()}

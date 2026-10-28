@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-28 -- blendertk hosts no panels (`ui_utils/blender_ui_handler.py`, `ui_utils/blender_bridge_slots_base.py` removed, `__init__.py`, `CLAUDE.md`, `docs/STRUCTURE.md`).** Mirror of mayatk's: `BlenderUiHandler` registers no UI source and adds no persistence rule; `BlenderBridgeSlotsBase` is gone (`MOVED_NAMES` 0.23.0 -> `HostBridge`).
+  - Test(s): `test_blender_ui_handler.py` (scope precedence reads `BridgeHost`), `test_unity_bridge.py` comment.
 - **2026-10-28 -- Shot Sequencer panel moved to tentacle (`anim_utils/shots/shot_sequencer/`, `__init__.py`).** New `SequencerHost` (root export), mayatk's mirror. `MOVED_NAMES` (0.23.0): `ShotSequencerSlots`, `ShotEditDialog`, `ShotSequencerController` and its 12 mixins. No blendertk tool panel is left.
   - Test(s): `test_shot_sequencer.py` keeps the engine and host cases; `test_shot_sequencer_panel.py`, `test_graph_sync.py` and `shot_sequencer_live_check.py` moved to tentacle; the handler test's persistence checks read a stand-in window.
 - **2026-10-28 -- RizomUV Bridge and Maya Bridge panels moved to tentacle (`uv_utils/rizom_bridge/`, `env_utils/maya_bridge/`, `__init__.py`).** Mirror of mayatk's `RizomUVBridge` additions; `MayaBridge` gains `TEMPLATE_DIR` and `params_registry()`. Renamed, no alias: `RizomUVBridge.send` -> `send_to_rizomuv(objects, params=None)` (mayatk's name; the LOAD_* options come from `params`). `MOVED_NAMES` (0.23.0): `RizomBridgeSlots`, `MayaBridgeSlots`.

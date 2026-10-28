@@ -1,7 +1,6 @@
 # !/usr/bin/python
 # coding=utf-8
 import sys
-import os
 from uitk import Switchboard
 from uitk.handlers.ui_handler import UiHandler
 from blendertk.ui_utils.blender_native_menus import BlenderNativeMenus
@@ -10,16 +9,12 @@ from blendertk.ui_utils.blender_native_menus import BlenderNativeMenus
 class BlenderUiHandler(UiHandler):
     """UI Handler for Blender applications.
 
-    The Blender analogue of :class:`mayatk.ui_utils.maya_ui_handler.MayaUiHandler`:
-    it scans the **blendertk package** recursively so a tool that ships its own
-    Switchboard ``.ui`` + ``<Tool>Slots`` co-located with its logic (e.g.
-    ``light_utils/lightmap_baker/lightmap_baker.ui`` + ``LightmapBakerSlots``) is
-    auto-discovered and served by
-    ``marking_menu.show("<tool>")`` — exactly the way mayatk tools are. This keeps the
-    Blender tool panels in blendertk (next to the code that drives them), not in
-    tentacle, mirroring the mayatk/tentacle split.
+    The Blender analogue of :class:`mayatk.ui_utils.maya_ui_handler.MayaUiHandler`.
+    blendertk ships no panels (every tool's UI is tentacle's), so it registers no
+    UI source of its own; tentacle's launcher registers its tools on the same
+    switchboard.
 
-    Like ``MayaUiHandler``, it also **wraps the DCC's own native menus** for the both-button
+    Like ``MayaUiHandler``, it **wraps the DCC's own native menus** for the both-button
     chord menu (``ui/blender_menus`` — the mirror of ``ui/maya_menus``). Maya lifts the live
     ``QAction`` rows off its menu bar; Blender draws its menus in OpenGL, so
     :class:`BlenderNativeMenus` *harvests* the menu's Python ``draw`` into an equivalent
@@ -45,8 +40,6 @@ class BlenderUiHandler(UiHandler):
         prior setup. Production callers (tentacle's ``tcl_blender``) pass an explicit
         instance to share state with the rest of the application.
         """
-        self.root_dir = os.path.dirname(sys.modules["blendertk"].__file__)
-
         if switchboard is None:
             from uitk import Switchboard as _Switchboard
 
@@ -56,12 +49,7 @@ class BlenderUiHandler(UiHandler):
 
         super().__init__(
             switchboard=switchboard,
-            ui_root=self.root_dir,
-            slot_root=self.root_dir,
-            discover_slots=True,
-            recursive=True,
             log_level=log_level,
-            source_tags={"blendertk"},
             **kwargs,
         )
         # The switchboard's ``tk``: the host a Slots class written for either host
@@ -318,18 +306,3 @@ class BlenderUiHandler(UiHandler):
 
         widget.fit_to_window()
         return window
-
-    def default_persistence(self, ui) -> str:
-        """blendertk-sourced tool panels stay open by default (hide, not pin).
-
-        Mirrors MayaUiHandler: a panel popped from a marking-menu button is
-        doing work the user came for, so it shouldn't vanish when they leave
-        the menu. A *default* only — the UI Browser's global setting and its
-        per-window overrides both outrank it.
-        """
-        try:
-            if ui.has_tags(["blendertk"]):
-                return self.PERSISTENCE_STICKY
-        except AttributeError:
-            pass
-        return super().default_persistence(ui)

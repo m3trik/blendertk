@@ -869,6 +869,10 @@ MOVED_NAMES = {
         "tentacle.slots.tools._shot_sequencer.gap_manager.TIME_SNAP_EPS",
         "0.23.0",
     ),
+    "BlenderBridgeSlotsBase": (
+        "tentacle.slots.tools._app_bridge.host_bridge.HostBridge",
+        "0.23.0",
+    ),
 }
 
 bootstrap_package(

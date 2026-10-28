@@ -20487,42 +20487,6 @@
       ]
     },
     {
-      "relpath": "ui_utils/blender_bridge_slots_base.py",
-      "summary": "Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.",
-      "functions": [],
-      "classes": [
-        {
-          "name": "BlenderBridgeSlotsBase",
-          "summary": "Adds the Blender Scope resolution to :class:`BridgeSlotsBase`.",
-          "line": 29,
-          "bases": [
-            "BridgeSlotsBase"
-          ],
-          "members": [
-            {
-              "name": "resolve_scope_objects",
-              "qualname": "BlenderBridgeSlotsBase.resolve_scope_objects",
-              "kind": "method",
-              "signature": "(self, scope: str)",
-              "summary": "Objects to export for the chosen ``SCOPE`` param.",
-              "line": 33,
-              "deprecated": false
-            },
-            {
-              "name": "scoped_objects",
-              "qualname": "BlenderBridgeSlotsBase.scoped_objects",
-              "kind": "method",
-              "signature": "(self, params, warn: bool = True)",
-              "summary": "The Scope's objects closed over their hierarchy -- what the send ships.",
-              "line": 46,
-              "deprecated": false
-            }
-          ]
-        }
-      ],
-      "constants": []
-    },
-    {
       "relpath": "ui_utils/blender_native_menus.py",
       "summary": "Symbolic-name -> Blender native-menu resolution + Qt wrapping for the both-button chord menu.",
       "functions": [],
@@ -20575,7 +20539,7 @@
         {
           "name": "BlenderUiHandler",
           "summary": "UI Handler for Blender applications.",
-          "line": 10,
+          "line": 9,
           "bases": [
             "UiHandler"
           ],
@@ -20586,7 +20550,7 @@
               "kind": "classmethod",
               "signature": "(cls, switchboard: Switchboard = None, **kwargs) -> 'BlenderUiHandler'",
               "summary": "Return the BlenderUiHandler singleton, bootstrapping if needed.",
-              "line": 160,
+              "line": 148,
               "deprecated": false
             },
             {
@@ -20595,7 +20559,7 @@
               "kind": "method",
               "signature": "(self, name: str) -> bool",
               "summary": "Recognise the native Blender menus this handler wraps on demand.",
-              "line": 182,
+              "line": 170,
               "deprecated": false
             },
             {
@@ -20604,16 +20568,7 @@
               "kind": "method",
               "signature": "(self, ui, pos=None, force: bool = False, **kwargs)",
               "summary": "Swap a native-menu proxy for its wrapped, freshly-harvested menu window;",
-              "line": 227,
-              "deprecated": false
-            },
-            {
-              "name": "default_persistence",
-              "qualname": "BlenderUiHandler.default_persistence",
-              "kind": "method",
-              "signature": "(self, ui) -> str",
-              "summary": "blendertk-sourced tool panels stay open by default (hide, not pin).",
-              "line": 322,
+              "line": 215,
               "deprecated": false
             }
           ]

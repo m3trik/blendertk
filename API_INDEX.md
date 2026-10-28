@@ -769,17 +769,13 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class UiUtils(_UiUtilsInternal)`
   - methods: get_editor_types, open_editor, reveal_in_outliner, main_window, find_editor, close_area, close_editor, dock_editor, toggle_editor, toggle_fullscreen_area, toggle_window_bars, menu_exists, dispatch_log_link, call_native_menu, popup_message
 
-### `ui_utils/blender_bridge_slots_base.py` — Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
-- `class BlenderBridgeSlotsBase(BridgeSlotsBase)`
-  - methods: resolve_scope_objects, scoped_objects
-
 ### `ui_utils/blender_native_menus.py` — Symbolic-name -> Blender native-menu resolution + Qt wrapping for the both-button chord menu.
 - `class BlenderNativeMenus(pythontk.LoggingMixin)`
   - methods: names, resolve, get_menu
 
 ### `ui_utils/blender_ui_handler.py`
 - `class BlenderUiHandler(UiHandler)`
-  - methods: instance, can_resolve, show, default_persistence
+  - methods: instance, can_resolve, show
 
 ### `ui_utils/blender_window.py` — Native-window (win32/GHOST) helpers for hosting Qt widgets around a Blender window.
 - `class BlenderWindow`

@@ -220,16 +220,16 @@ try:
         BlenderUiHandler._instances.clear()
         BlenderUiHandler._instances.update(_saved_instances)
 
-    # 1. Every tool panel is tentacle's: the handler's scan of the blendertk
-    #    package registers none.
+    # 1. Every tool panel is tentacle's: the handler registers no UI source of
+    #    its own (tentacle's launcher registers its tools on this switchboard).
     registered = set(sb.registry.ui_registry.get("filename") or [])
-    check("the blendertk scan registers no panels", not registered, f"{sorted(registered)}")
+    check("the handler registers no UI source of its own", not registered, f"{sorted(registered)}")
 
-    # 2. The "blendertk" -> hide rule is a DEFAULT declared through
-    #     UiHandler.default_persistence, not a hardcoded header_buttons swap in
-    #     apply_styles. That distinction is the whole point: a hardcoded set is a
-    #     value the UI Browser's window-persistence override has no way to outrank
-    #     (which is why the setting had no effect on marking-menu panels).
+    # 2. A tool panel's hide rule is a DEFAULT -- uitk's, by the panel tag
+    #     tentacle registers its tools under -- not a hardcoded header_buttons
+    #     swap in apply_styles. That distinction is the whole point: a hardcoded
+    #     set is a value the UI Browser's window-persistence override has no way
+    #     to outrank (which is why the setting had no effect on marking-menu panels).
     from uitk.handlers.ui_handler import UiHandler as _UiHandler
 
     class _TaggedPanel:
@@ -239,13 +239,17 @@ try:
             return "handler_test_panel"
 
         def has_tags(self, tags):
-            return set(tags) <= {"blendertk"}
+            return bool(set(tags) & {_UiHandler.PANEL_TAG})
 
     _panel = _TaggedPanel()
     check(
-        "blendertk-tagged panels default to sticky (hide button)",
+        "panel-tagged windows default to sticky (hide button)",
         handler.default_persistence(_panel)
         == _UiHandler.PERSISTENCE_STICKY,
+    )
+    check(
+        "BlenderUiHandler adds no persistence rule of its own",
+        "default_persistence" not in vars(BlenderUiHandler),
     )
     check(
         "BlenderUiHandler does not override apply_styles",
@@ -253,7 +257,7 @@ try:
         "a hardcoded header_buttons swap would outrank the user's stored choice",
     )
     check(
-        "a UI Browser override outranks the blendertk default",
+        "a UI Browser override outranks the panel default",
         handler.resolve_persistence(_panel, context_default=None)
         == _UiHandler.PERSISTENCE_STICKY
         and (
@@ -390,8 +394,7 @@ try:
     from unittest import mock as _mock
 
     import blendertk as _btk
-    from blendertk.env_utils.handoff_export import BlenderExportMixin
-    from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
+    from blendertk.env_utils.handoff_export import BlenderExportMixin, BridgeHost
 
     _mesh = _types.SimpleNamespace(type="MESH", name="mesh")
     _empty = _types.SimpleNamespace(type="EMPTY", name="empty")
@@ -402,7 +405,8 @@ try:
     )
 
     def _scope(scope, owner):
-        return BlenderBridgeSlotsBase.resolve_scope_objects(owner, scope)
+        # What tentacle's HostBridge hands it: the panel's bridge, if built.
+        return BridgeHost.resolve_scope(scope, getattr(owner, "bridge", None))
 
     def _owner(scene=_mock.sentinel.no_bridge):
         if scene is _mock.sentinel.no_bridge:
