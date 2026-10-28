@@ -76,8 +76,6 @@ PANELS = [
     "smart_bake",
     "key_stash",
     "channels",
-    "telescope_rig",
-    "wheel_rig",
     "shadow_rig",
     "render_effects",
     "tube_rig",
@@ -344,11 +342,6 @@ try:
             "ImageToPlaneSlots",
         ),  # __init__ (button connects) is bpy-free
         ("naming", "NamingSlots"),  # __init__ + option-box *_init are bpy-free
-        (
-            "telescope_rig",
-            "TelescopeRigSlots",
-        ),  # __init__ (logging + btn connect) is bpy-free
-        ("wheel_rig", "WheelRigSlots"),  # __init__ (logging + btn connect) is bpy-free
         (
             "shadow_rig",
             "ShadowRigSlots",

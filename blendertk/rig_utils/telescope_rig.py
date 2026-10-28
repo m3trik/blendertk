@@ -1,6 +1,6 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Telescope Rig — engine + Switchboard slot wiring for the co-located ``telescope_rig.ui``.
+"""Telescope Rig — the telescoping-segment rig (tentacle's Telescope Rig panel drives it).
 
 Blender port of mayatk's ``rig_utils.telescope_rig`` (``btk.TelescopeRig`` ↔ ``mtk.TelescopeRig``):
 build a chain of segments that telescopes — extends and retracts — between a base and an end handle,
@@ -21,16 +21,14 @@ created — there is no interior to stretch. Either handle may be omitted and is
 outer end of the strut (measured along the aim axis). Every build returns a ``TelescopeRigBundle``
 that is also stamped onto the base handle as JSON, so ``teardown`` works in a later session.
 
-The ``.ui`` is a byte-identical copy of mayatk's (``header`` / ``grp_options.cmb_axis`` +
-``spin_collapsed`` / ``grp_finalize.btn_build`` + ``btn_remove`` / ``output_grp.txt003``) and
-``TelescopeRigSlots`` mirrors mayatk's slot 1:1 — same widget names, same log-link wiring (clickable
-``action://`` links in the log panel), same ``header_init`` shape. Maya's strict click-order
-selection has no Blender analogue (selection order isn't reliably preserved), so ``build_rig`` uses
-Blender's own idiom instead: Empties are handles, everything else is a segment, and the segments are
-ordered by distance from the **active** object.
+The panel is tentacle's (``slots/tools/telescope_rig.py``, shared with Maya); it reads its roles
+from :meth:`TelescopeRig.partition_selection`. Maya's strict click-order selection has no Blender
+analogue (selection order isn't reliably preserved), so that uses Blender's own idiom instead:
+Empties are handles, everything else is a segment, and the segments are ordered by distance from
+the **active** object.
 
-``import bpy`` is deferred into the call bodies and the Qt-only ``uitk`` helper into its method, so
-importing the module / resolving the package surface never needs a running Blender or Qt.
+``import bpy`` is deferred into the call bodies, so importing the module / resolving the package
+surface never needs a running Blender.
 """
 
 import json
@@ -213,6 +211,84 @@ class TelescopeRig(ptk.LoggingMixin):
         else:
             parent_matrix = obj.parent.matrix_world @ obj.matrix_parent_inverse
             obj.location = parent_matrix.inverted() @ world_position
+
+    # ---------------------------------------- selection roles (the panel builds from these)
+    @staticmethod
+    def _partition(sel, active):
+        """Split *sel* (objects) into ``(base, segments, end)`` objects by type + position (see
+        :meth:`partition_selection`). Ties (a nested strut, where every segment shares an
+        origin) put the longest tube first: the outer sleeve is always the base of a telescope.
+        """
+        handles = [o for o in sel if o.type == "EMPTY"]
+        segments = [o for o in sel if o.type != "EMPTY"]
+        if len(segments) < 2:
+            return None, segments, None
+
+        anchor = (active or sel[0]).matrix_world.translation
+        segments.sort(
+            key=lambda o: (
+                round((o.matrix_world.translation - anchor).length, 4),
+                -max(o.dimensions),
+            )
+        )
+
+        base = end = None
+        if len(handles) >= 2:
+            first = segments[0].matrix_world.translation
+            handles.sort(key=lambda o: (o.matrix_world.translation - first).length)
+            base, end = handles[0], handles[-1]
+            if active in handles and active != base:  # explicit beats inferred
+                base, end = end, base
+        elif len(handles) == 1:
+            handle = handles[0]
+            position = handle.matrix_world.translation
+            to_first = (position - segments[0].matrix_world.translation).length
+            to_last = (position - segments[-1].matrix_world.translation).length
+            if handle == active or to_first <= to_last:
+                base = handle
+            else:
+                end = handle
+        return base, segments, end
+
+    @classmethod
+    def partition_selection(cls, selection=None):
+        """Split the selection into ``(base_locator, segments, end_locator)`` object NAMES --
+        mirror of mayatk's ``partition_selection``.
+
+        Blender has no reliable click-order, so roles come from type + position instead of
+        selection order: Empties are handles, everything else is a segment, the segments are
+        ordered by distance from the **active** object (the base end of the strut), and a lone
+        handle goes to whichever end of that chain it sits nearer (the active one is the base).
+        Either handle may be absent (``None``); :meth:`setup_telescope_rig` then creates it.
+
+        Parameters:
+            selection (list/None): Objects or their names. ``None`` (the default) reads the
+                selection. The active object counts only when it is among them.
+
+        Returns:
+            tuple: ``(base, segments, end)`` as names -- ``(None, [], None)`` for an empty
+            selection; fewer than two segments come back with no handle assigned.
+        """
+        import bpy
+
+        if selection is None:
+            sel = CoreUtils.selected_objects()
+        else:
+            sel = [
+                o
+                for o in (RigUtils.resolve_object(x) for x in ptk.make_iterable(selection))
+                if o is not None
+            ]
+        if not sel:
+            return None, [], None
+        bpy.context.view_layer.update()  # current matrices for the distance sort
+        active = CoreUtils.active_object()  # the window's layer, not the default
+        base, segments, end = cls._partition(sel, active if active in sel else None)
+        return (
+            base.name if base is not None else None,
+            [s.name for s in segments],
+            end.name if end is not None else None,
+        )
 
     # ------------------------------------------------------------------ build
     @CoreUtils.undo_checkpoint
@@ -644,320 +720,38 @@ class TelescopeRig(ptk.LoggingMixin):
         handles and the segment objects are left in place.
 
         Parameters:
-            bundle (TelescopeRigBundle): The build record to remove. Defaults to the most recent
-                build on this instance.
+            bundle (TelescopeRigBundle/list): The build record to remove, or a list of them,
+                removed together as ONE undo step (a Remove over a selection that spans several
+                rigs; mirror of mayatk's). Defaults to the most recent build on this instance.
 
         Returns:
             bool: True when a bundle was torn down, False when there was nothing to do.
         """
-        bundle = bundle or self.bundle
-        if bundle is None:
+        if isinstance(bundle, (list, tuple)):
+            bundles = [b for b in bundle if b is not None]
+        else:
+            bundles = [b for b in (bundle or self.bundle,) if b is not None]
+        if not bundles:
             self.logger.warning("No telescope rig bundle to tear down.")
             return False
-        # No separate "Removing..." record: the header/summary pair read as two
-        # unrelated paragraphs for one instantaneous op. One closing box says
-        # what happened, and says more.
-        self._delete_bundle_nodes(bundle, restore=True)
-        if bundle is self.bundle:
-            self.bundle = None
-        if self.logger.isEnabledFor(logging.INFO):
-            self.logger.log_box(
-                "RIG REMOVED",
-                [
-                    f"Name     : {bundle.name}",
-                    f"Segments : {len(bundle.segments)}",
-                ],
-                level="SUCCESS",
-            )
-        else:
-            self.logger.success("Telescope Rig removed.")
-        return True
-
-
-class TelescopeRigSlots(ptk.LoggingMixin):
-    """Switchboard slot wiring for the Telescope Rig panel.
-
-    Self-contained (``ptk.LoggingMixin`` only) so blendertk carries no back-dependency on
-    tentacle; the Qt-only ``uitk`` helper is deferred into ``header_init``.
-    """
-
-    def __init__(self, switchboard, log_level="WARNING"):
-        super().__init__()
-        self.set_log_level(log_level)
-        self.sb = switchboard
-        self.ui = self.sb.loaded_ui.telescope_rig
-        self.bundle = None  # most recent build, for a selection-less Remove
-
-        # Setup Logging Redirect. Best-effort: a mock/headless switchboard may not carry
-        # ``registered_widgets.TextEditLogHandler`` — the panel still works without it.
-        self._mirror_engine_log(self)
-        self.logger.info("Telescope Rig Tool initialized.", preset="italic")
-
-        # Connect clickable log links (action:// URIs in QTextBrowser)
-        if hasattr(self.ui.txt003, "anchorClicked"):
-            self.ui.txt003.anchorClicked.connect(self._on_log_link_clicked)
-
-        # Connect Signals
-        self.ui.btn_build.clicked.connect(self.build_rig)
-        self.ui.btn_remove.clicked.connect(self.remove_rig)
-
-        self._init_tooltips()
-
-    def _on_log_link_clicked(self, url) -> None:
-        """Dispatch clickable ``action://`` links from the log panel."""
-        from blendertk.ui_utils._ui_utils import UiUtils
-
-        UiUtils.dispatch_log_link(url, self.logger)
-
-    def _mirror_engine_log(self, owner) -> None:
-        """Stream *owner*'s log into this panel's browser (no-op on a stub switchboard)."""
-        try:
-            owner.logger.set_text_handler(self.sb.registered_widgets.TextEditLogHandler)
-            owner.logger.setup_logging_redirect(self.ui.txt003)
-        except (AttributeError, TypeError):
-            pass
-
-    def header_init(self, widget):
-        """Configure header help text."""
-        widget.set_help_text(
-            self.sb.tooltip.fmt(
-                title="Telescope Rig",
-                body="Build a telescoping segment chain where segments extend "
-                "and retract between a base and end handle, driven by their "
-                "distance.",
-                steps=[
-                    "Select the segments — <b>at least 2</b>. Empties in the "
-                    "selection are treated as handles, everything else as a "
-                    "segment.",
-                    "Make the <b>base</b> end of the strut <b>active</b> — "
-                    "Blender doesn't preserve click-order, so the segments are "
-                    "ordered by distance from the active object.",
-                    "Leave <b>Collapsed Dist</b> on <i>Auto</i> to measure the "
-                    "longest segment, or enter the base→end distance at full "
-                    "retraction.",
-                    "Press <b>Build</b> to wire the constraints + scale driver "
-                    "on each segment.",
-                ],
-                notes=[
-                    "Two segments builds a sliding strut — the halves ride "
-                    "their handles and never stretch.",
-                    "Handles you don't supply are created for you at the outer "
-                    "ends of the strut.",
-                    "<b>Remove</b> tears down the rig on the selection (or the "
-                    "last one built), including any handles it created.",
-                    "Build results stream to the log panel; handle names are "
-                    "rendered as clickable <i>action://</i> links that select "
-                    "the object in the viewport.",
-                ],
-            )
-        )
-
-    def _init_tooltips(self):
-        """Set the polished (uitk ``fmt``) tooltips for every option and action."""
-        try:
-            fmt = self.sb.tooltip.fmt
-            ui = self.ui
-        except AttributeError:  # stub/headless switchboard
-            return
-
-        ui.cmb_axis.setToolTip(
-            fmt(
-                title="Aim Axis",
-                body="The segments' long axis — the local axis that points "
-                "from the base toward the end handle. The rig aims every "
-                "segment along it and drives that axis' scale.",
-                notes=[
-                    "The other two scale channels are locked at build time "
-                    "so the stack can't shear.",
-                    "Auto-created handles are placed along this axis, at the "
-                    "outer ends of the first and last segment.",
-                ],
-            )
-        )
-        ui.spin_collapsed.setToolTip(
-            fmt(
-                title="Collapsed Distance",
-                body="Base-to-end distance at which the segments are fully "
-                "retracted (nested). As the end handle pulls farther than "
-                "this, the segments slide apart to bridge the gap.",
-                notes=[
-                    "<b>Auto</b> (0) measures the longest segment along the "
-                    "aim axis — fully nested, the strut is as long as its "
-                    "longest tube.",
-                    "Pushing closer than this distance clamps the segments "
-                    "at their fully-nested size.",
-                    "Ignored for a two-segment strut — there is no interior "
-                    "segment to scale.",
-                ],
-            )
-        )
-        ui.btn_build.setToolTip(
-            fmt(
-                title="Build Telescope Rig",
-                body="Wires constraints and a scale driver onto each segment "
-                "so they extend and retract as the gap between the base and "
-                "end handles changes.",
-                steps=[
-                    "Select the <b>segments</b> <i>(min 2)</i>, with the base "
-                    "end <b>active</b>.",
-                    "Optionally include Empties as the <b>base</b>/<b>end</b> "
-                    "handles — either one you omit is created for you.",
-                    "Press <b>Build Telescope Rig</b>.",
-                ],
-                notes=[
-                    "Needs at least 2 objects: two segments is a sliding "
-                    "strut, three or more telescope.",
-                ],
-            )
-        )
-        ui.btn_remove.setToolTip(
-            fmt(
-                title="Remove Telescope Rig",
-                body="Deletes the constraints and scale drivers the build "
-                "created, restores the channel locks it changed, and puts the "
-                "segments back on their build-pose location and scale.",
-                steps=[
-                    "Select any part of the rig — a handle or a segment.",
-                    "Press <b>Remove Telescope Rig</b>.",
-                ],
-                notes=[
-                    "Handles the build created are deleted; handles you "
-                    "supplied are kept.",
-                    "The build record is stamped on the base handle, so a rig "
-                    "from an earlier session still tears down cleanly.",
-                ],
-            )
-        )
-
-    def _partition_selection(self, sel, active):
-        """Split a Blender selection into (base_handle, segments, end_handle).
-
-        Blender has no reliable click-order, so roles come from type + position instead of
-        selection index: Empties are handles, everything else is a segment, segments are ordered
-        by distance from the *active* object (the base end of the strut), and a lone handle is
-        assigned to whichever end of that chain it sits nearer.
-        """
-        handles = [o for o in sel if o.type == "EMPTY"]
-        segments = [o for o in sel if o.type != "EMPTY"]
-        if len(segments) < 2:
-            return None, segments, None
-
-        anchor = (active or sel[0]).matrix_world.translation
-        # Ties (a nested strut, where every segment shares an origin) fall back to the longest
-        # tube first — the outer sleeve is always the base of a telescope.
-        segments.sort(
-            key=lambda o: (
-                round((o.matrix_world.translation - anchor).length, 4),
-                -max(o.dimensions),
-            )
-        )
-
-        base = end = None
-        if len(handles) >= 2:
-            first = segments[0].matrix_world.translation
-            handles.sort(key=lambda o: (o.matrix_world.translation - first).length)
-            base, end = handles[0], handles[-1]
-            if active in handles and active is not base:  # explicit beats inferred
-                base, end = end, base
-        elif len(handles) == 1:
-            handle = handles[0]
-            position = handle.matrix_world.translation
-            to_first = (position - segments[0].matrix_world.translation).length
-            to_last = (position - segments[-1].matrix_world.translation).length
-            if handle is active or to_first <= to_last:
-                base = handle
-            else:
-                end = handle
-        return base, segments, end
-
-    def build_rig(self):
-        import bpy
-
-        sel = CoreUtils.selected_objects()
-        bpy.context.view_layer.update()
-        active = CoreUtils.active_object()  # the window's layer, not the default
-        base, segments, end = (
-            self._partition_selection(sel, active if active in sel else None)
-            if sel
-            else (None, [], None)
-        )
-        if len(segments) < 2:
-            self.logger.error("Insufficient selection.")
-            self.sb.message_box(
-                "Selection Error:\n"
-                "Select at least 2 segments, with the BASE end ACTIVE:\n"
-                "1. Segments (min 2) — ordered by distance from the active object\n"
-                "2. Base/End handles (optional Empties — created if omitted)"
-            )
-            return
-
-        collapsed_dist = self.ui.spin_collapsed.value() or None
-        aim_axis = ("x", "y", "z")[self.ui.cmb_axis.currentIndex()]
-
-        try:
-            rig = TelescopeRig()
-            # ``logger`` is a ClassProperty (no setter) — configure it, never reassign it.
-            self._mirror_engine_log(rig)
-
-            # ONE record for the whole read-back of the selection. Three
-            # separate info lines rendered as three blank-line-separated
-            # paragraphs above the engine's own banner.
-            if self.logger.isEnabledFor(logging.INFO):
-                detected = []
-                for role, obj in (("Base", base), ("End", end)):
-                    if obj is None:
-                        detected.append(f"{role:<9}: auto (created)")
-                    else:
-                        link = self.logger.log_link(obj.name, "select", node=obj.name)
-                        detected.append(f"{role:<9}: {link}")
-                detected.append(
-                    f"{'Segments':<9}: {len(segments)} (aim axis {aim_axis.upper()})"
+        report = self.logger.isEnabledFor(logging.INFO)
+        for item in bundles:
+            self._delete_bundle_nodes(item, restore=True)
+            # Equal, not only identical: a record read back from the scene (find_bundles) is
+            # this instance's last build when they match.
+            if item == self.bundle:
+                self.bundle = None
+            # No separate "Removing..." record: the header/summary pair read as two unrelated
+            # paragraphs for one instantaneous op. One closing box per rig says what happened.
+            if report:
+                self.logger.log_box(
+                    "RIG REMOVED",
+                    [
+                        f"Name     : {item.name}",
+                        f"Segments : {len(item.segments)}",
+                    ],
+                    level="SUCCESS",
                 )
-                self.logger.log_group("Selection", detected)
-
-            self.bundle = rig.setup_telescope_rig(
-                base_locator=base,
-                end_locator=end,
-                segments=segments,
-                collapsed_distance=collapsed_dist,
-                aim_axis=aim_axis,
-            )
-        except Exception as e:
-            self.logger.error(f"Error setting up rig: {str(e)}")
-            self.sb.message_box(f"Error setting up rig: {str(e)}")
-
-    def remove_rig(self):
-        sel = CoreUtils.selected_objects()
-        if sel:
-            bundles = TelescopeRig.find_bundles(sel)
-            empty_msg = "No telescope rig found on the selected objects."
-        else:
-            bundles = [self.bundle] if self.bundle else []
-            empty_msg = (
-                "Nothing selected and no rig built this session.\n"
-                "Select a rig handle or segment and try again."
-            )
-        if not bundles:
-            self.logger.error(empty_msg.splitlines()[0])
-            self.sb.message_box(empty_msg)
-            return
-
-        try:
-            rig = TelescopeRig()
-            self._mirror_engine_log(rig)
-            for bundle in bundles:
-                rig.teardown(bundle)
-                if bundle is self.bundle:
-                    self.bundle = None
-        except Exception as e:
-            self.logger.error(f"Error removing rig: {str(e)}")
-            self.sb.message_box(f"Error removing rig: {str(e)}")
-
-
-# -----------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
-
-    ui = BlenderUiHandler.instance().get("telescope_rig", reload=True)
-    ui.show(pos="screen", app_exec=True)
+            else:
+                self.logger.success("Telescope Rig removed.")
+        return True

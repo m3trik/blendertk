@@ -22,7 +22,7 @@ def approx(a, b, tol=2e-3):
 
 try:
     import bpy
-    from blendertk.rig_utils.wheel_rig import WheelRig, WheelRigSlots
+    from blendertk.rig_utils.wheel_rig import WheelRig
 
     def reset():
         bpy.ops.object.select_all(action="DESELECT")
@@ -47,7 +47,7 @@ try:
     w2 = empty("wheel_R", (-2, 0, 0), rot=(0, 0, math.pi))   # mirrored
     bpy.context.view_layer.update()
     rig = WheelRig(control, [w1, w2])
-    rigged = rig.rig_rotation(movement_axis="LOC_Y", rotation_index=0, wheel_height=2.0)  # radius=1
+    rigged = rig.rig_rotation(movement_axis="translateY", rotation_axis="rotateX", wheel_height=2.0)  # radius=1
     check("rig_rotation returns 2 wheels", len(rigged) == 2, f"n={len(rigged)}")
 
     # ---- driver wired with 4 vars (travel + height/enable/direction) ----
@@ -85,7 +85,8 @@ try:
     bpy.context.view_layer.update()
 
     # ---- re-entrant rebuild keeps one driver per channel (no stacking) ----
-    rig.rig_rotation(movement_axis="LOC_Y", rotation_index=0, wheel_height=2.0)
+    # Blender's own spellings (a LOC_ channel, a rotation index) name the same channel.
+    rig.rig_rotation(movement_axis="LOC_Y", rotation_axis=0, wheel_height=2.0)
     drivers_on_axis = [d for d in (w1.animation_data.drivers if w1.animation_data else [])
                        if d.data_path == "rotation_euler" and d.array_index == 0]
     check("rebuild does not stack drivers", len(drivers_on_axis) == 1, f"n={len(drivers_on_axis)}")
@@ -100,7 +101,7 @@ try:
     bpy.context.view_layer.update()
     bpy.ops.ed.undo_push(message="baseline")
     WheelRig(control, [w1]).rig_rotation(
-        movement_axis="LOC_Y", rotation_index=0, wheel_height=2.0
+        movement_axis="translateY", rotation_axis="rotateX", wheel_height=2.0
     )
     bpy.ops.ed.undo()
     w1 = bpy.data.objects["wheel_L"]
@@ -126,56 +127,82 @@ try:
     except ValueError:
         check("rejects invalid inputs", True)
 
-    # ---- Slots.wheel_rig path via stubs (selection ordering: active=control, rest=wheels) ----
-    class _Sig:
-        def connect(self, *a, **k): pass
+    reset()
+    probe = WheelRig(empty("c", (0, 0, 0)), [empty("w", (1, 0, 0))], freeze_transforms=False)
+    for bad in ({"movement_axis": "translateW"}, {"rotation_axis": "rotateW"}):
+        try:
+            probe.rig_rotation(**bad)
+            check(f"rejects an unknown axis {bad}", False)
+        except ValueError:
+            check(f"rejects an unknown axis {bad}", True)
 
-    class _LE:
-        def __init__(self, t): self._t = t
-        def text(self): return self._t
-        def setText(self, t): self._t = t
-        def setPlaceholderText(self, t): pass
-
-    class _Cmb:
-        def currentIndex(self): return 1  # Move Y -> Rotate Y
-        def clear(self): pass
-        def addItems(self, items): pass
-        def setCurrentIndex(self, idx): pass
-
-    class _Chk:
-        def isChecked(self): return False
-
-    class _Btn:
-        def __init__(self): self.clicked = _Sig()
-        def setToolTip(self, t): pass
-
-    class _UI:
-        def __init__(self):
-            self.b000 = _Btn()
-            self.s000 = _LE("2.0")
-            self.cmb000 = _Cmb()
-            self.txt000 = _LE("")
-            self.chk010 = _Chk()
-            self.on_close = _Sig()
-            self.destroyed = _Sig()
-
-    class _SB:
-        def __init__(self, ui):
-            self.loaded_ui = type("L", (), {"wheel_rig": ui})()
-            self.messages = []
-        def message_box(self, msg, *a, **k): self.messages.append(msg)
-
+    # ---- from_selection: what tentacle's Wheel Rig panel runs (active = driver) ----
     reset()
     ctrl = empty("ctrl", (0, 0, 0))
-    wa = empty("wa", (1, 0, 0)); wb = empty("wb", (-1, 0, 0))
+    wa = empty("wa", (1, 0, 0))
+    wb = empty("wb", (-1, 0, 0))
     for o in (ctrl, wa, wb):
         o.select_set(True)
-    bpy.context.view_layer.objects.active = ctrl   # control = active (last)
-    sb = _SB(_UI())
-    WheelRigSlots(sb).b000()
-    check("Slots.b000: no error", not sb.messages, f"msgs={sb.messages}")
-    check("Slots.b000: wheels driven (rotation_euler[1])",
+    bpy.context.view_layer.objects.active = ctrl   # the driver: active (selected last)
+    check("default_rig_name: <driver>_wheel_rig before any rig",
+          WheelRig.default_rig_name() == "ctrl_wheel_rig", f"{WheelRig.default_rig_name()}")
+    built = WheelRig.from_selection(
+        freeze_transforms=False, movement_axis="translateY", rotation_axis="rotateY", wheel_height=2.0
+    )
+    check("from_selection: the active object drives, the rest are wheels",
+          built.control == ctrl and sorted(w.name for w in built.wheels) == ["wa", "wb"],
+          f"{built.control.name} {[w.name for w in built.wheels]}")
+    check("from_selection: wheels driven (rotation_euler[1])",
           rot_driver(wa, 1) is not None and rot_driver(wb, 1) is not None)
+    check("from_selection: named after the driver", built.rig_name == "ctrl_wheel_rig", built.rig_name)
+    again = WheelRig.from_selection(
+        rig_name="other", freeze_transforms=False, movement_axis="translateY", rotation_axis="rotateY"
+    )
+    check("from_selection: a re-run keeps the stored rig ID", again.rig_name == "ctrl_wheel_rig",
+          again.rig_name)
+    check("default_rig_name: the stored ID once rigged",
+          WheelRig.default_rig_name(ctrl) == "ctrl_wheel_rig")
+
+    # one Undo takes the whole click back (stamp included)
+    reset()
+    ctrl = empty("ctrl", (0, 0, 0))
+    wa = empty("wa", (1, 0, 0))
+    for o in (ctrl, wa):
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = ctrl
+    bpy.context.view_layer.update()
+    bpy.ops.ed.undo_push(message="baseline")
+    WheelRig.from_selection(freeze_transforms=False, movement_axis="translateY", wheel_height=2.0)
+    check("from_selection: Move Y infers Rotate Y", rot_driver(wa, 1) is not None)
+    bpy.ops.ed.undo()
+    check("from_selection: one undo leaves the wheel driver-free and the driver unstamped",
+          rot_driver(bpy.data.objects["wa"], 1) is None
+          and "wheel_rig_id" not in bpy.data.objects["ctrl"])
+
+    # a refused selection raises before anything is touched
+    reset()
+    lone = empty("lone", (0, 0, 0))
+    lone.select_set(True)
+    bpy.context.view_layer.objects.active = lone
+    try:
+        WheelRig.from_selection()
+        refused = ""
+    except ValueError as exc:
+        refused = str(exc)
+    check("from_selection: one selected object is refused", "driver" in refused, refused)
+    check("from_selection: a refusal stamps nothing", "wheel_rig_id" not in lone)
+
+    # wheel_size: the larger extent across the axes the wheel turns in
+    reset()
+    bpy.ops.mesh.primitive_cylinder_add(radius=1.0, depth=0.5)   # 2 x 2 x 0.5
+    wheel = bpy.context.view_layer.objects.active
+    bpy.context.view_layer.update()
+    size = WheelRig.wheel_size(wheel, movement_axis="translateZ")
+    check("wheel_size: Move Z reads the Y/Z extents (the diameter)", approx(size, 2.0), f"{size}")
+    check("wheel_size: the selection's wheel by default",
+          approx(WheelRig.wheel_size(movement_axis="translateX") or 0.0, 2.0))
+    bpy.ops.object.select_all(action="DESELECT")
+    check("wheel_size: nothing selected measures nothing", WheelRig.wheel_size() is None)
 
 except Exception:
     lines.append("FAIL harness | " + traceback.format_exc().replace("\n", " | "))

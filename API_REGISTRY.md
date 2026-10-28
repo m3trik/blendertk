@@ -192,12 +192,12 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`rig_utils/shadow_rig/_shadow_rig.py`](#rig_utils--shadow_rig--_shadow_rig) — Shadow Rig engine — the panel (``shadow_rig_slots.py``) drives the co-located ``shadow_rig.ui``.
 - [`rig_utils/shadow_rig/shadow_preview.py`](#rig_utils--shadow_rig--shadow_preview) — A live viewport preview of a horizon rig: the artist drags the light and
 - [`rig_utils/shadow_rig/shadow_rig_slots.py`](#rig_utils--shadow_rig--shadow_rig_slots) — Shadow Rig panel (Blender) — the Switchboard slots for ``shadow_rig.ui``.
-- [`rig_utils/telescope_rig.py`](#rig_utils--telescope_rig) — Telescope Rig — engine + Switchboard slot wiring for the co-located ``telescope_rig.ui``.
+- [`rig_utils/telescope_rig.py`](#rig_utils--telescope_rig) — Telescope Rig — the telescoping-segment rig (tentacle's Telescope Rig panel drives it).
 - [`rig_utils/tube_rig/_tube_rig.py`](#rig_utils--tube_rig--_tube_rig) — Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies + panel).
 - [`rig_utils/tube_rig/strategies.py`](#rig_utils--tube_rig--strategies) — Tube Rig build strategies (Blender) — mirror of mayatk's ``tube_rig/strategies.py``.
 - [`rig_utils/tube_rig/tube_path.py`](#rig_utils--tube_rig--tube_path) — Tube-mesh centerline extraction — Blender port of mayatk's ``rig_utils.tube_rig.tube_path.TubePath`…
 - [`rig_utils/tube_rig/tube_rig_slots.py`](#rig_utils--tube_rig--tube_rig_slots) — Tube Rig panel (Blender) — the Switchboard slots for ``tube_rig.ui``.
-- [`rig_utils/wheel_rig.py`](#rig_utils--wheel_rig) — Wheel Rig — engine + Switchboard slot wiring for the co-located ``wheel_rig.ui``.
+- [`rig_utils/wheel_rig.py`](#rig_utils--wheel_rig) — Wheel Rig — wheels that roll as their control moves (tentacle's Wheel Rig panel drives it).
 - [`ui_utils/_ui_utils.py`](#ui_utils--_ui_utils) — UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
 - [`ui_utils/blender_bridge_slots_base.py`](#ui_utils--blender_bridge_slots_base) — Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
 - [`ui_utils/blender_native_menus.py`](#ui_utils--blender_native_menus) — Symbolic-name -> Blender native-menu resolution + Qt wrapping for the both-button chord menu.
@@ -3688,20 +3688,17 @@ Shadow Rig panel (Blender) — the Switchboard slots for ``shadow_rig.ui``.
 <a id="rig_utils--telescope_rig"></a>
 ### `rig_utils/telescope_rig.py`
 
-Telescope Rig — engine + Switchboard slot wiring for the co-located ``telescope_rig.ui``.
+Telescope Rig — the telescoping-segment rig (tentacle's Telescope Rig panel drives it).
 
-- **[`class TelescopeRigBundle`](blendertk/blendertk/rig_utils/telescope_rig.py#L49)** — Record of everything one ``setup_telescope_rig`` build created — mirror of mayatk's
+- **[`class TelescopeRigBundle`](blendertk/blendertk/rig_utils/telescope_rig.py#L47)** — Record of everything one ``setup_telescope_rig`` build created — mirror of mayatk's
   - `TelescopeRigBundle.to_json(self) -> str`
   - `TelescopeRigBundle.from_json(cls, payload: str) -> 'TelescopeRigBundle'` *(class)* — Rebuild a bundle from :meth:`to_json` output, ignoring unknown keys (a scene stamped by
-- **[`class TelescopeRig(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/telescope_rig.py#L84)** — Constraint + driver telescoping-segment rig (mirror of mayatk's ``TelescopeRig``).
+- **[`class TelescopeRig(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/telescope_rig.py#L82)** — Constraint + driver telescoping-segment rig (mirror of mayatk's ``TelescopeRig``).
+  - `TelescopeRig.partition_selection(cls, selection=None)` *(class)* — Split the selection into ``(base_locator, segments, end_locator)`` object NAMES --
   - `TelescopeRig.setup_telescope_rig(self, base_locator=None, end_locator=None, segments=None, collapsed_distance=None, aim_axis='y', lock_attributes=True, name='telescope')` — Wire a telescoping rig between two handles.
   - `TelescopeRig.scene_bundles(cls)` *(class)* — Every telescope-rig bundle stamped into the current .blend.
   - `TelescopeRig.find_bundles(cls, objects)` *(class)* — Bundles whose handles or segments intersect *objects*.
   - `TelescopeRig.teardown(self, bundle=None)` — Remove a telescope rig built by this class.
-- **[`class TelescopeRigSlots(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/telescope_rig.py#L677)** — Switchboard slot wiring for the Telescope Rig panel.
-  - `TelescopeRigSlots.header_init(self, widget)` — Configure header help text.
-  - `TelescopeRigSlots.build_rig(self)`
-  - `TelescopeRigSlots.remove_rig(self)`
 
 <a id="rig_utils--tube_rig--_tube_rig"></a>
 ### `rig_utils/tube_rig/_tube_rig.py`
@@ -3769,26 +3766,16 @@ Tube Rig panel (Blender) — the Switchboard slots for ``tube_rig.ui``.
 <a id="rig_utils--wheel_rig"></a>
 ### `rig_utils/wheel_rig.py`
 
-Wheel Rig — engine + Switchboard slot wiring for the co-located ``wheel_rig.ui``.
+Wheel Rig — wheels that roll as their control moves (tentacle's Wheel Rig panel drives it).
 
-- **[`class WheelRig(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/wheel_rig.py#L30)** — Handles basic wheel rigging by linking rotation to linear control movement.
+- **[`class WheelRig(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/wheel_rig.py#L29)** — Handles basic wheel rigging by linking rotation to linear control movement.
   - `WheelRig.rig_name(self) -> str` *(property)*
+  - `WheelRig.default_rig_name(cls, control=None)` *(class)* — The name a rig on *control* takes when none is given: the rig ID an earlier rig
+  - `WheelRig.from_selection(cls, rig_name=None, freeze_transforms=True, **kwargs)` *(class)* — Rig the selected wheels to the driver as ONE undo step: what tentacle's Wheel Rig
+  - `WheelRig.wheel_size(obj=None, movement_axis='translateZ')` *(static)* — A wheel's diameter from *obj*'s dimensions: its larger extent across the two axes
   - `WheelRig.get_drivers(self)` — Return every rotation driver fcurve currently attached to this rig's wheels.
   - `WheelRig.delete_drivers(self) -> None` — Remove this rig's rotation drivers from its wheels.
-  - `WheelRig.rig_rotation(self, movement_axis: str = 'LOC_Z', rotation_index: int = None, wheel_height: float = 1.0, wheels: list = None, use_world_space: bool = False) -> list` — Rig wheels to rotate based on control movement.
-- **[`class WheelRigSlots(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/wheel_rig.py#L273)** — Switchboard slot wiring for the Wheel Rig panel.
-  - `WheelRigSlots.header_init(self, widget)` — Configure header menu with mode toggle and instructions.
-  - `WheelRigSlots.rig_name(self) -> str` *(property)* — Get the rig name from the text box.
-  - `WheelRigSlots.movement_axis(self) -> str` *(property)* — Get the control travel channel from the axis combo box.
-  - `WheelRigSlots.rotation_axis(self) -> int` *(property)* — Get the wheel ``rotation_euler`` index that corresponds to the selected movement axis.
-  - `WheelRigSlots.resolve_selection(self)` — Resolve the current selection into control (driver) and wheels.
-  - `WheelRigSlots.set_wheel_height(self)` — Get the wheel height from the selected object's bounding box.
-  - `WheelRigSlots.txt000_init(self, widget)` — Rig-name field — optional, so clearing back to auto-naming is a state.
-  - `WheelRigSlots.s000_init(self, widget)` — Initialize the wheel height field's option-box menu.
-  - `WheelRigSlots.update_rig_name_placeholder(self)` — Update the rig name placeholder based on the driver (active object).
-  - `WheelRigSlots.cleanup(self)` — Unsubscribe from the centralized ScriptJobManager.
-  - `WheelRigSlots.wheel_rig(self)` *(property)* — Get or create the wheel rig attached to the selected control.
-  - `WheelRigSlots.b000(self)` — Create or update Wheel Rig.
+  - `WheelRig.rig_rotation(self, movement_axis: str = 'translateZ', rotation_axis=None, wheel_height: float = 1.0, wheels: list = None, use_world_space: bool = False) -> list` — Rig wheels to rotate based on control movement (mirror of mayatk's ``rig_rotation``:
 
 <a id="ui_utils--_ui_utils"></a>
 ### `ui_utils/_ui_utils.py`

@@ -886,13 +886,11 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class ShadowRigSlots(pythontk.LoggingMixin)`
   - methods: header_init, cmb_type_init, txt_source_init, b003_init, b002_init, b009_init, prepare_operation, b001_init, chk_follow_init, chk_follow, s001_init, s001, s002, s003, chk_horizon_preview_init, chk_horizon_preview, b002, b003, source_from_selection, reproject_sources, apply_source, rebuild_rig, restore_expression, b009, detach_to_plane, b010, perform_operation
 
-### `rig_utils/telescope_rig.py` — Telescope Rig — engine + Switchboard slot wiring for the co-located ``telescope_rig.ui``.
+### `rig_utils/telescope_rig.py` — Telescope Rig — the telescoping-segment rig (tentacle's Telescope Rig panel drives it).
 - `class TelescopeRigBundle`
   - methods: to_json, from_json
 - `class TelescopeRig(pythontk.LoggingMixin)`
-  - methods: setup_telescope_rig, scene_bundles, find_bundles, teardown
-- `class TelescopeRigSlots(pythontk.LoggingMixin)`
-  - methods: header_init, build_rig, remove_rig
+  - methods: partition_selection, setup_telescope_rig, scene_bundles, find_bundles, teardown
 
 ### `rig_utils/tube_rig/_tube_rig.py` — Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies + panel).
 - `class TubeRig(pythontk.LoggingMixin, _TubeRigInternal)`
@@ -918,11 +916,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class TubeRigSlots(pythontk.LoggingMixin)`
   - methods: txt000_init, header_init, b000, b001, b002, b003, b004
 
-### `rig_utils/wheel_rig.py` — Wheel Rig — engine + Switchboard slot wiring for the co-located ``wheel_rig.ui``.
+### `rig_utils/wheel_rig.py` — Wheel Rig — wheels that roll as their control moves (tentacle's Wheel Rig panel drives it).
 - `class WheelRig(pythontk.LoggingMixin)`
-  - methods: rig_name, get_drivers, delete_drivers, rig_rotation
-- `class WheelRigSlots(pythontk.LoggingMixin)`
-  - methods: header_init, rig_name, movement_axis, rotation_axis, resolve_selection, set_wheel_height, txt000_init, s000_init, update_rig_name_placeholder, cleanup, wheel_rig, b000
+  - methods: rig_name, default_rig_name, from_selection, wheel_size, get_drivers, delete_drivers, rig_rotation
 
 ### `ui_utils/_ui_utils.py` — UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
 - constants: EDITOR_TYPES
