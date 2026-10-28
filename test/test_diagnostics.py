@@ -294,6 +294,53 @@ try:
         "a no-op removal leaves the bake inaccurate, which is what it was for",
     )
 
+    # ---- cleanup_meshes: Mesh Cleanup's one call (the shared Edit panel words it)
+    for _o in list(bpy.data.objects):
+        bpy.data.objects.remove(_o, do_unlink=True)
+    bpy.ops.mesh.primitive_circle_add(vertices=6, fill_type="NGON")
+    _ngon = bpy.context.active_object
+    btk.CoreUtils.select([_ngon])
+    _rep = btk.Diagnostics.cleanup_meshes("selected", checks=["ngons", "lamina"])
+    check(
+        "cleanup_meshes select: runs Blender's checks, counts them, shows Edit Mode",
+        _rep["checks"] == ["ngons"] and _rep["problems"] == {"ngons": 1}
+        and _rep["selected"] == 1 and _ngon.mode == "EDIT",
+        f"{_rep['checks']} {_rep['problems']} mode={_ngon.mode}",
+    )
+    bpy.ops.object.mode_set(mode="OBJECT")
+    _rep = btk.Diagnostics.cleanup_meshes("selected", checks=["holed"])
+    check(
+        "cleanup_meshes select with no Blender check does nothing",
+        _rep["checks"] == [] and _ngon.mode == "OBJECT",
+        f"{_rep['checks']}",
+    )
+    btk.CoreUtils.select([])
+    check(
+        "cleanup_meshes: nothing in scope, no objects",
+        btk.Diagnostics.cleanup_meshes("selected", checks=["ngons"])["objects"] == [],
+    )
+    import bmesh as _bmesh
+
+    _bm = _bmesh.new()
+    _bmesh.ops.create_cube(_bm, size=2.0)
+    _bm.verts.ensure_lookup_table()
+    _bm.verts.new(_bm.verts[0].co.copy())  # a loose double
+    _me = bpy.data.meshes.new("CleanM")
+    _bm.to_mesh(_me)
+    _bm.free()
+    _clean = bpy.data.objects.new("Clean", _me)
+    bpy.context.collection.objects.link(_clean)
+    btk.CoreUtils.select([_clean])
+    _rep = btk.Diagnostics.cleanup_meshes(
+        "selected", True, merge_vertices=True, merge_distance=0.001, delete_loose=True
+    )
+    check(
+        "cleanup_meshes repair: merges the double and reports the passes",
+        _rep["vertices"] == (9, 8)
+        and _rep["repairs"] == ["merge vertices", "delete loose"],
+        f"{_rep['vertices']} {_rep['repairs']}",
+    )
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

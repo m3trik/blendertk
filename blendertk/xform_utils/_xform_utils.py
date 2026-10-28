@@ -564,8 +564,9 @@ class XformUtils(_XformUtilsInternal):
                 XformUtils.center_pivot(obj, mode="object")
 
     @staticmethod
+    @CoreUtils.undoable
     @CoreUtils._object_mode
-    def center_pivot(objects, mode="object"):
+    def center_pivot(objects=None, mode="object"):
         """Move each object's origin (Blender's single pivot) — mirror of Maya's Center Pivot.
 
         ``mode``: ``"object"`` bounding-box center, ``"median"`` / ``"component"`` geometry
@@ -577,12 +578,18 @@ class XformUtils(_XformUtilsInternal):
         This is the ONLY sanctioned origin-move entry point: it drops the stored
         location bake afterwards (see ``_invalidate_location_bake``), which a
         direct ``bpy.ops.object.origin_set`` call does not.
+
+        ``objects`` None takes the selection, mayatk's ``center_pivot`` contract:
+        returns the objects whose origins moved, ``[]`` (nothing runs) when there
+        are none. One undo step.
         """
         import bpy
 
+        if objects is None:
+            objects = CoreUtils.selected_objects()
         objects = [o for o in ptk.make_iterable(objects) if o]
         if not objects:
-            return
+            return []
         bpy.ops.object.select_all(action="DESELECT")
         for o in objects:
             o.select_set(True)
@@ -601,14 +608,17 @@ class XformUtils(_XformUtilsInternal):
             bpy.ops.object.origin_set(type=otype, center=center)
         _XformUtilsInternal._invalidate_location_bake(objects)
         bpy.context.view_layer.update()  # refresh matrix_world for downstream reads
+        return objects
 
     @staticmethod
+    @CoreUtils.undoable
     @CoreUtils._object_mode
     def transfer_pivot(
         objects,
         translate=True,
         rotate=False,
         scale=False,
+        bake=True,
         world_space=True,
         mirror="",
         select_targets_after_transfer=False,
@@ -623,10 +633,27 @@ class XformUtils(_XformUtilsInternal):
         read in world space). ``mirror`` ("x"/"y"/"z", default off) reflects the transferred origin
         across that world axis-plane through the origin before the snap — the position level of
         mtk's mirror= (orientation-conjugation stays N/A: a point origin has no orientation).
-        Returns the target objects (selected afterward when requested).
+        Returns the target objects (selected afterward when requested); ``[]``
+        when fewer than two objects are given. ``bake`` is taken for mtk's
+        signature: a Blender origin is always baked.
+
+        ``objects`` None takes the selection with the ACTIVE object as the source
+        (Blender's convention for a source and its targets; mayatk's is the first
+        selected); ``[]`` with nothing selected. One undo step.
+
+        Raises:
+            ValueError: ``None`` with a selection the active object is not part of.
         """
         import bpy
 
+        if objects is None:
+            selection = CoreUtils.selected_objects()
+            if not selection:
+                return []
+            active = CoreUtils.active_object()
+            if active is None or active not in selection:
+                raise ValueError("Select target object(s) with the source object active.")
+            objects = [active] + [o for o in selection if o != active]
         objects = [o for o in ptk.make_iterable(objects) if o]
         if len(objects) < 2:
             return []
@@ -660,6 +687,116 @@ class XformUtils(_XformUtilsInternal):
             bpy.context.view_layer.objects.active = targets[0]
         bpy.context.view_layer.update()
         return targets
+
+    @staticmethod
+    @CoreUtils.undoable
+    def reset_pivot(objects=None, position=True, orientation=True):
+        """Reset the pivot: Blender's single origin back on the geometry's
+        bounding-box center (:func:`center_pivot` ``"object"``). Mirror of mayatk's
+        ``XformUtils.reset_pivot`` (the manipulator pivot there); ``orientation`` is
+        taken for its signature: an origin has no orientation of its own.
+
+        Returns the objects (``None``: the selection); ``[]`` with none. One undo step.
+        """
+        if objects is None:
+            objects = CoreUtils.selected_objects()
+        objects = [o for o in ptk.make_iterable(objects) if o]
+        if objects and position:
+            XformUtils.center_pivot(objects, mode="object")
+        return objects
+
+    #: Object types whose data can take a baked rotation (``transform_apply``):
+    #: an empty, camera or light has no data to counter-rotate.
+    _ROTATION_BAKEABLE = ("MESH", "CURVE", "SURFACE", "FONT", "GREASEPENCIL", "LATTICE")
+
+    @staticmethod
+    @CoreUtils.undoable
+    def world_align_pivot(objects=None, pivot_type="object", mode="set"):
+        """World-align the pivot. Mirror of mayatk's ``XformUtils.world_align_pivot``.
+
+        ``pivot_type="manip"`` sets the scene's transform orientation to Global:
+        Blender's manipulator orientation, temporary and non-destructive.
+        ``"object"`` bakes each object's rotation into its data
+        (:func:`freeze_transforms`, ``store=True`` so Un-Freeze reverses it): the
+        geometry holds still while the local axes world-align, Blender's permanent
+        object pivot. Only objects with data take it (:attr:`_ROTATION_BAKEABLE`);
+        the selection and the active object come back.
+
+        Parameters:
+            objects (list/None): The objects; None takes the selection.
+            pivot_type (str): ``"manip"`` or ``"object"``.
+            mode (str): ``"set"`` applies; ``"get"`` returns ``{"position",
+                "orientation", "objects"}`` (the origins' mean, the world axes),
+                or None with no object.
+
+        Returns:
+            (bool/dict/None): ``"set"``: True when applied, False when no object
+                could take it.
+
+        Raises:
+            ValueError: An unknown *pivot_type* or *mode*; or every object's data
+                is linked (multi-user) and cannot be baked.
+            RuntimeError: Blender refused to leave an object's mode.
+        """
+        import bpy
+        from mathutils import Vector
+
+        if objects is None:
+            objects = CoreUtils.selected_objects()
+        objects = [o for o in ptk.make_iterable(objects) if o]
+        if mode == "get":
+            if not objects:
+                return None
+            center = sum((o.matrix_world.translation for o in objects), Vector())
+            return {
+                "position": list(center / len(objects)),
+                "orientation": [0, 0, 0],
+                "objects": [o.name for o in objects],
+            }
+        if mode != "set":
+            raise ValueError(f"Invalid mode {mode!r}; use 'get' or 'set'.")
+        if pivot_type == "manip":
+            bpy.context.scene.transform_orientation_slots[0].type = "GLOBAL"
+            return True
+        if pivot_type != "object":
+            raise ValueError(
+                f"Invalid pivot_type {pivot_type!r}; use 'manip' or 'object'."
+            )
+        targets = [o for o in objects if o.type in XformUtils._ROTATION_BAKEABLE]
+        if not targets:
+            return False
+        CoreUtils.ensure_object_mode()
+        # The selection is read and restored through the window's view layer
+        # (windowless, ``context.view_layer`` is the scene's default layer).
+        with CoreUtils.window_context_override(), CoreUtils.preserved_selection():
+            baked = XformUtils.freeze_transforms(
+                targets, location=False, rotation=True, scale=False, store=True
+            )
+        if not baked:
+            raise ValueError(
+                "World-Aligned Pivot skipped every object: linked (multi-user) data "
+                "cannot be baked. Make the objects single-user first."
+            )
+        return True
+
+    @staticmethod
+    @CoreUtils.undoable
+    def bake_pivot(objects, position=False, orientation=False):
+        """Bake Blender's temporary pivot, the 3D cursor, into the objects' origins
+        (:func:`center_pivot` ``"cursor"``; the geometry holds still). Mirror of
+        mayatk's ``XformUtils.bake_pivot`` (the manipulator pivot there): Maya's
+        repositionable manipulator pivot is Blender's cursor-as-pivot workflow.
+        ``orientation`` is taken for its signature: an origin has no orientation of
+        its own (:func:`world_align_pivot` world-aligns the axes).
+
+        Returns the objects (``None``: the selection); ``[]`` with none. One undo step.
+        """
+        if objects is None:
+            objects = CoreUtils.selected_objects()
+        objects = [o for o in ptk.make_iterable(objects) if o]
+        if objects and position:
+            XformUtils.center_pivot(objects, mode="cursor")
+        return objects
 
     @staticmethod
     def get_pivot_modes():

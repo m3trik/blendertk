@@ -2373,16 +2373,93 @@ class EditUtils(_EditUtilsInternal):
                 duplicates.extend(grp[1:])  # keep the first of each group
 
         if select:
-            bpy.ops.object.select_all(action="DESELECT")
-            for o in duplicates:
-                try:
-                    o.select_set(True)
-                except RuntimeError:  # not in the active view layer
-                    pass
+            CoreUtils.select(duplicates)
         if delete:
             for o in duplicates:
                 bpy.data.objects.remove(o, do_unlink=True)
         return duplicates
+
+    @staticmethod
+    @CoreUtils.undoable
+    def delete_selected():
+        """Delete the selection: in Edit Mode, the selected components of the active
+        select mode (deleting a face selection by its vertices would take every
+        neighbouring face too); otherwise, after leaving any other mode, the selected
+        objects. Mirror of mayatk's ``EditUtils.delete_selected``.
+
+        Raises:
+            RuntimeError: Blender refused (leaving the mode, the operator's poll).
+        """
+        import bpy
+
+        active = CoreUtils.active_object()
+        # mesh.delete / object.delete / mode_set poll screen context, dead in the
+        # Qt-pump state.
+        with CoreUtils.window_context_override():
+            if active is not None and active.mode == "EDIT":
+                vert, edge, face = bpy.context.tool_settings.mesh_select_mode
+                bpy.ops.mesh.delete(type="FACE" if face else "EDGE" if edge else "VERT")
+                return
+            CoreUtils.ensure_object_mode()
+            if CoreUtils.selected_objects():
+                bpy.ops.object.delete()
+
+    #: The Convert menu (:meth:`get_conversion_types` / :meth:`convert_objects`):
+    #: label -> the ``object.convert`` target, or None for Instance to Object --
+    #: Maya's ``convertInstanceToObject``: a linked duplicate shares one data-block
+    #: as a Maya instance shares one shape, so each object takes its own copy
+    #: (``make_single_user``).
+    _CONVERSIONS = {
+        "Mesh": "MESH",
+        "Curve": "CURVE",
+        "Point Cloud": "POINTCLOUD",
+        "Hair Curves": "CURVES",
+        "Grease Pencil": "GREASEPENCIL",
+        "Instance to Object": None,
+    }
+
+    @classmethod
+    def get_conversion_types(cls):
+        """The Convert menu: ``{label: object.convert target}`` in menu order, each
+        a conversion :meth:`convert_objects` runs; Blender's own Object > Convert
+        targets, listed for any source as Blender lists them (one that does not
+        apply leaves the object as it is). Mirror of mayatk's
+        ``EditUtils.get_conversion_types``. A copy: editing it changes nothing."""
+        return dict(cls._CONVERSIONS)
+
+    @classmethod
+    @CoreUtils.undoable
+    @CoreUtils.selected
+    def convert_objects(cls, objects, conversion):
+        """Convert *objects* (``None``: the selection) by a :meth:`get_conversion_types`
+        label, in Object Mode. Mirror of mayatk's ``EditUtils.convert_objects``.
+
+        Returns:
+            list: The selection the conversion left; ``[]`` with nothing selected.
+
+        Raises:
+            ValueError: An unknown *conversion*.
+            RuntimeError: Blender refused it (leaving the mode, the operator's poll).
+        """
+        import bpy
+
+        if conversion not in cls._CONVERSIONS:
+            raise ValueError(
+                f"Unknown conversion '{conversion}': {', '.join(cls._CONVERSIONS)}."
+            )
+        objects = [o for o in ptk.make_iterable(objects) if o is not None]
+        CoreUtils.ensure_object_mode()
+        if set(objects) != set(CoreUtils.selected_objects()):
+            CoreUtils.select(objects)
+        target = cls._CONVERSIONS[conversion]
+        # convert / make_single_user read the context selection: screen context,
+        # dead in the Qt-pump state.
+        with CoreUtils.window_context_override():
+            if target is None:
+                bpy.ops.object.make_single_user(object=True, obdata=True)
+            else:
+                bpy.ops.object.convert(target=target)
+        return CoreUtils.selected_objects()
 
     @staticmethod
     def loft(objects=None, *, close=False, reverse_normals=False, section_spans=1):

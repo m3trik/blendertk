@@ -249,6 +249,39 @@ try:
         Components.transfer_creased_edges(None) == [],
     )
 
+    # ---- transfer: the shared Edit panel's Transfer menu (active = source)
+    check(
+        "get_transfer_types: Blender's Data Transfer layers and Material Slots",
+        list(Components.get_transfer_types())
+        == ["UVs", "Vertex Colors", "Vertex Group Weights", "Custom Normals", "Material Slots"],
+    )
+    reset()
+    src, tgt = cube(), cube()
+    for loop in src.data.uv_layers.active.data:
+        loop.uv = (0.25, 0.75)
+    btk.CoreUtils.select([src, tgt])  # replace: the first (src) is active
+    got = Components.transfer(None, "UVs")
+    check(
+        "transfer(None, 'UVs'): [source, *targets], the UVs copied",
+        got == [src, tgt]
+        and all(abs(lp.uv[0] - 0.25) < 1e-4 for lp in tgt.data.uv_layers.active.data),
+    )
+    reset()
+    src, tgt = cube(), cube(x=4.0)
+    src.data.materials.append(bpy.data.materials.new("XferMat"))
+    Components.transfer([src, tgt], "Material Slots")
+    check(
+        "transfer 'Material Slots': the source's slots reach the target",
+        list(tgt.data.materials) == list(src.data.materials),
+    )
+    btk.CoreUtils.select([])
+    check("transfer(None) with nothing selected is []", Components.transfer(None, "UVs") == [])
+    try:
+        Components.transfer(None, "Maps")
+        check("transfer refuses a type Blender lacks", False)
+    except ValueError:
+        check("transfer refuses a type Blender lacks", True)
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

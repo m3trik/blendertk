@@ -36,6 +36,14 @@ EDITOR_TYPES = {
     "Asset Browser": "ASSETS",
     "Spreadsheet": "SPREADSHEET",
     "Preferences": "PREFERENCES",
+    # mayatk's names (the reference) for the editors Blender serves with its own,
+    # so a panel shared by both hosts opens either by one name.
+    "Attribute Editor": "PROPERTIES",
+    "Tool Settings": "PROPERTIES",
+    "Channel Box": "PROPERTIES",
+    "Layer Editor": "OUTLINER",
+    "Node Editor": "ShaderNodeTree",
+    "Command Line": "CONSOLE",
 }
 
 
@@ -145,6 +153,46 @@ class _UiUtilsInternal(object):
         ):
             return bpy.ops.screen.screen_full_area(use_hide_panels=hide_panels)
 
+    @staticmethod
+    def _raise_native_window(title_fragment):
+        """Best-effort: lift this process's visible GHOST window whose title holds
+        *title_fragment* to the top, and to the foreground where Windows allows it
+        (always same-process; denied cross-process, where the lift still applies).
+        An operator can open a window invisibly while another process holds the
+        foreground (the user came from Maya straight to a Qt panel). Windows-only and
+        English-UI titles; a no-op elsewhere or with no match."""
+        import sys
+
+        if sys.platform != "win32":
+            return
+        import ctypes
+        import os
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        pid = os.getpid()
+        found = []
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def _enum(hwnd, _lparam):
+            owner = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+            if owner.value == pid and user32.IsWindowVisible(hwnd):
+                class_name = ctypes.create_unicode_buffer(64)
+                user32.GetClassNameW(hwnd, class_name, 64)
+                if class_name.value == "GHOST_WindowClass":
+                    title = ctypes.create_unicode_buffer(128)
+                    user32.GetWindowTextW(hwnd, title, 128)
+                    if title_fragment in title.value:
+                        found.append(hwnd)
+            return True
+
+        user32.EnumWindows(_enum, 0)
+        if found:
+            hwnd_top, swp_nomove, swp_nosize = 0, 0x2, 0x1
+            user32.SetWindowPos(found[0], hwnd_top, 0, 0, 0, 0, swp_nomove | swp_nosize)
+            user32.SetForegroundWindow(found[0])
+
 
 class UiUtils(_UiUtilsInternal):
     """Namespace mirror (helpers also exposed module-level)."""
@@ -153,6 +201,49 @@ class UiUtils(_UiUtilsInternal):
     def get_editor_types():
         """The friendly-name → ``Area.ui_type`` map understood by :func:`open_editor`."""
         return dict(EDITOR_TYPES)
+
+    #: Category -> the editors a browsing UI lists under it: Blender's own editor
+    #: set, never mayatk's alias names. Every name is a key of
+    #: :data:`EDITOR_TYPES`. Mirror of mayatk's ``UiUtils._EDITOR_CATEGORIES``.
+    _EDITOR_CATEGORIES = {
+        "General Editors": (
+            "Outliner",
+            "Properties",
+            "Preferences",
+            "Spreadsheet",
+            "Text Editor",
+            "Python Console",
+            "Info Log",
+            "File Browser",
+            "Asset Browser",
+            "3D Viewport",
+        ),
+        "Modeling Editors": ("UV Editor", "Image Editor"),
+        "Animation Editors": (
+            "Timeline",
+            "Dope Sheet",
+            "Graph Editor",
+            "Drivers",
+            "NLA Editor",
+        ),
+        "Rendering Editors": (
+            "Shader Editor",
+            "Compositor",
+            "Geometry Nodes",
+            "Video Sequencer",
+            "Movie Clip Editor",
+        ),
+    }
+
+    @classmethod
+    def get_editor_categories(cls):
+        """``{category: [editor name, ...]}``: the editors a browsing UI lists, each
+        opening with :func:`open_editor`. Mirror of mayatk's
+        ``UiUtils.get_editor_categories``. A copy: editing it changes nothing."""
+        return {
+            category: [name for name in names if name in EDITOR_TYPES]
+            for category, names in cls._EDITOR_CATEGORIES.items()
+        }
 
     @staticmethod
     def open_editor(editor, properties_context=None):
@@ -224,6 +315,53 @@ class UiUtils(_UiUtilsInternal):
                 pass  # tab not available in this Blender version
         return window
 
+    #: Preferences section (mayatk's names) -> the Preferences editor tab it shows.
+    #: Mirror of mayatk's ``UiUtils._PREFERENCE_SECTIONS`` (Maya's own windows).
+    _PREFERENCE_SECTIONS = {
+        "general": "INTERFACE",
+        "colors": "THEMES",
+        "hotkeys": "KEYMAP",
+        "plugins": "ADDONS",
+    }
+
+    @classmethod
+    def open_preferences(cls, section=None):
+        """Open Blender's Preferences editor on *section*'s tab: ``"general"`` (the
+        default) Interface, ``"colors"`` Themes, ``"hotkeys"`` Keymap, ``"plugins"``
+        Add-ons. Mirror of mayatk's ``UiUtils.open_preferences`` (Maya's own windows).
+
+        ``screen.userpref_show`` runs under :func:`window_context_override` (its poll
+        reads ``context.window``, None from tentacle's Qt event pump), and the window
+        is lifted afterwards (:func:`_raise_native_window`): with another process
+        holding the foreground it can open fully obscured.
+
+        Returns:
+            str: The tab shown.
+
+        Raises:
+            ValueError: An unknown *section*.
+            RuntimeError: Blender refused to open it (its words).
+        """
+        import bpy
+
+        tab = cls._PREFERENCE_SECTIONS.get(section or "general")
+        if tab is None:
+            raise ValueError(
+                f"Unknown preferences section {section!r}; use one of "
+                f"{sorted(cls._PREFERENCE_SECTIONS)}."
+            )
+        try:
+            bpy.context.preferences.active_section = tab
+        except (TypeError, AttributeError):
+            pass  # a tab this Blender lacks: the editor opens on its last one
+        try:
+            with CoreUtils.window_context_override():
+                bpy.ops.screen.userpref_show()
+        except Exception as error:  # noqa: BLE001 - a poll refusal or no window
+            raise RuntimeError(str(error)) from error
+        _UiUtilsInternal._raise_native_window("Preferences")
+        return tab
+
     @staticmethod
     def reveal_in_outliner(objects):
         """Select *objects* (names or Objects) and scroll the Outliner to the active one.
@@ -270,6 +408,16 @@ class UiUtils(_UiUtilsInternal):
 
         wins = bpy.context.window_manager.windows
         return wins[0] if wins else None
+
+    @staticmethod
+    def browse_directory(start="", caption="Select Folder", ok_caption="Select"):
+        """Pick a directory in the platform's folder dialog (Qt); ``""`` when
+        dismissed. Mirror of mayatk's ``UiUtils.browse_directory`` (Maya's own
+        ``fileDialog2`` there). *ok_caption* is taken for that signature; the
+        platform dialog keeps its own button label. GUI-only (modal)."""
+        from qtpy import QtWidgets
+
+        return QtWidgets.QFileDialog.getExistingDirectory(None, caption, start or "") or ""
 
     @staticmethod
     def find_editor(editor, window=None):

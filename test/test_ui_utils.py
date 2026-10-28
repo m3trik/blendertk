@@ -202,6 +202,64 @@ try:
         f"{getattr(pencil, 'type', pencil)} added={added}",
     )
 
+    # ---- get_editor_categories + mayatk's editor names (the shared Editors panel's calls)
+    _cats = UiUtils.get_editor_categories()
+    _listed = [n for names in _cats.values() for n in names]
+    check(
+        "get_editor_categories: Blender's four groups",
+        list(_cats)
+        == ["General Editors", "Modeling Editors", "Animation Editors", "Rendering Editors"],
+        f"{list(_cats)}",
+    )
+    check(
+        "get_editor_categories: every listed editor is a registered type",
+        _listed and set(_listed) <= set(UiUtils.get_editor_types()),
+        f"{_listed}",
+    )
+    _aliases = {
+        "Attribute Editor": "PROPERTIES",
+        "Tool Settings": "PROPERTIES",
+        "Channel Box": "PROPERTIES",
+        "Layer Editor": "OUTLINER",
+        "Node Editor": "ShaderNodeTree",
+        "Command Line": "CONSOLE",
+    }
+    check(
+        "get_editor_categories lists none of mayatk's alias names",
+        not set(_listed) & set(_aliases),
+        f"{set(_listed) & set(_aliases)}",
+    )
+    for _alias, _ui_type in _aliases.items():
+        check(
+            f"mayatk's {_alias!r} opens Blender's {_ui_type}",
+            UiUtils.get_editor_types().get(_alias) == _ui_type,
+        )
+
+    # ---- browse_directory: a modal dialog (GUI-only), so its presence is what is pinned here
+    check("UiUtils.browse_directory mirrors mtk (callable)", callable(getattr(UiUtils, "browse_directory", None)))
+
+    # ---- open_preferences: the tab is set before the editor opens (GUI-only, so
+    # headless the operator's refusal is what reaches the caller, as RuntimeError)
+    import bpy
+
+    try:
+        UiUtils.open_preferences("nowhere")
+        check("open_preferences: an unknown section raises ValueError", False)
+    except ValueError:
+        check("open_preferences: an unknown section raises ValueError", True)
+    _prior_section = bpy.context.preferences.active_section
+    try:
+        UiUtils.open_preferences("hotkeys")
+        _opened = True
+    except RuntimeError:
+        _opened = bpy.app.background  # no window to open in
+    check(
+        "open_preferences('hotkeys') shows the Keymap tab",
+        _opened and bpy.context.preferences.active_section == "KEYMAP",
+        bpy.context.preferences.active_section,
+    )
+    bpy.context.preferences.active_section = _prior_section
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

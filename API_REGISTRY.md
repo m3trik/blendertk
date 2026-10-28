@@ -62,6 +62,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`edit_utils/dynamic_pipe.py`](#edit_utils--dynamic_pipe) — Dynamic Pipe tool — Blender port of mayatk's ``edit_utils.dynamic_pipe``.
 - [`edit_utils/macros/_macros.py`](#edit_utils--macros--_macros) — Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
 - [`edit_utils/naming/_naming.py`](#edit_utils--naming--_naming) — Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
+- [`edit_utils/primitives.py`](#edit_utils--primitives) — Primitive creation -- mirror of mayatk's ``edit_utils.primitives.Primitives``.
 - [`edit_utils/selection.py`](#edit_utils--selection) — Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``
 - [`edit_utils/snap.py`](#edit_utils--snap) — Snap: vertices to a target surface, to the closest target vertex, or to the
 - [`edit_utils/target_weld.py`](#edit_utils--target_weld) — Target Weld — interactive drag-a-vertex-onto-another merge tool.
@@ -188,7 +189,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L445) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L446) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -769,6 +770,7 @@ Core blendertk utilities — DCC-environment info + cross-cutting decorators.
   - `CoreUtils.format_scene_info_html(info)` *(static)* — Render a :func:`get_scene_info` record as an HTML report for the text-view dialog.
   - `CoreUtils.analyze_scene(objects=None, adaptive=True, sections=None)` *(static)* — Game-readiness scene report -- the sectioned audit behind Get Scene Info.
   - `CoreUtils.cleanup_scene(quiet=False)` *(static)* — Purge orphan datablocks (0 users, no fake user) across the main collections — the
+  - `CoreUtils.purge_unused_data(recursive=True, linked=True)` *(static)* — Purge the data-blocks nothing uses -- meshes, materials, images and the
   - `CoreUtils.selected(func: Callable) -> Callable` *(static)* — Pass the selection (:meth:`selected_objects`) to *func*'s target parameter
   - `CoreUtils.active_view_layer()` *(static)* — The active view layer, resolved without depending on a context window
   - `CoreUtils.leaf_name(node) -> str` *(static)* — *node*'s name as shown (mirror of mayatk's ``CoreUtils.leaf_name``, a DAG path's
@@ -853,8 +855,9 @@ AutoInstancer's instancing strategy: the Blender binding of the ptk engine.
 
 Mesh diagnostics — the Blender counterpart of mayatk's ``core_utils.diagnostics.mesh_diag``
 
-- **[`class MeshDiagnostics(_MeshDiagnosticsInternal)`](blendertk/blendertk/core_utils/diagnostics/mesh_diag.py#L75)** — Mesh problem-detection (mirror of mayatk's ``MeshDiagnostics``).
+- **[`class MeshDiagnostics(_MeshDiagnosticsInternal)`](blendertk/blendertk/core_utils/diagnostics/mesh_diag.py#L171)** — Mesh problem-detection (mirror of mayatk's ``MeshDiagnostics``).
   - `MeshDiagnostics.find_problem_geometry(objects, *, ngons=False, nonmanifold=False, interior=False, nonplanar=False, loose=False, concave=False, quads=False, zero_area_faces=False, zero_length_edges=False, zero_uv_area=False, planar_tolerance=0.001, area_tolerance=1e-06, edge_length_tolerance=1e-06, uv_area_tolerance=1e-06, select=True)` *(static)* — Find (and optionally **select**) problem mesh components — the diagnostic half of Maya's
+  - `MeshDiagnostics.cleanup_meshes(cls, scope='selected', repair=False, *, checks=(), area_tolerance=1e-05, edge_length_tolerance=1e-05, uv_area_tolerance=1e-05, merge_vertices=False, merge_distance=0.0001, delete_history=False, delete_loose=False, dissolve_degenerate=False, recalculate_normals=False, fill_holes=False, overlapping_faces=False, overlapping_objects=False, omit_selected=False)` *(class)* — Mesh Cleanup: select, or repair, common topology problems on the meshes
 
 <a id="core_utils--diagnostics--scene_audit"></a>
 ### `core_utils/diagnostics/scene_audit.py`
@@ -902,7 +905,7 @@ Live-preview driver for the tentacle Blender tool panels — the Blender analogu
 
 Centralized Blender event-subscription manager — the Blender counterpart of mayatk's
 
-- **[`class ScriptJobManager`](blendertk/blendertk/core_utils/script_job_manager.py#L90)** — Centralized Blender event dispatcher (mirror of mayatk's ``ScriptJobManager``).
+- **[`class ScriptJobManager`](blendertk/blendertk/core_utils/script_job_manager.py#L98)** — Centralized Blender event dispatcher (mirror of mayatk's ``ScriptJobManager``).
   - `ScriptJobManager.instance(cls) -> 'ScriptJobManager'` *(class)* — Return the module-wide singleton, creating it on first access.
   - `ScriptJobManager.reset(cls) -> None` *(class)* — Tear down the singleton and allow a fresh one to be created (tests / reload).
   - `ScriptJobManager.subscribe(self, event: str, callback: Callable, *, owner: Any = None, ephemeral: bool = False) -> int` — Register *callback* (called with no args) for a Maya-named *event*.
@@ -1065,6 +1068,9 @@ Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tri
   - `EditUtils.detach_components(*, duplicate=False, separate=True, separate_each=False, center_pivot=True)` *(static)* — Detach the active mesh's selected faces — Blender mirror of mayatk's
   - `EditUtils.get_overlapping_faces(objects, delete=False, select=True, round_ndigits=5)` *(static)* — Find faces geometrically coincident with another face — doubled geometry on *distinct*
   - `EditUtils.get_overlapping_duplicates(objects=None, retain=None, select=False, delete=False, round_ndigits=5)` *(static)* — Find duplicate mesh objects overlapping in world space — mirror of
+  - `EditUtils.delete_selected()` *(static)* — Delete the selection: in Edit Mode, the selected components of the active
+  - `EditUtils.get_conversion_types(cls)` *(class)* — The Convert menu: ``{label: object.convert target}`` in menu order, each
+  - `EditUtils.convert_objects(cls, objects, conversion)` *(class)* — Convert *objects* (``None``: the selection) by a :meth:`get_conversion_types`
   - `EditUtils.loft(objects=None, *, close=False, reverse_normals=False, section_spans=1)` *(static)* — Loft a mesh surface across a sequence of profile curves / mesh edge-loops — a Blender mesh
 
 <a id="edit_utils--bevel"></a>
@@ -1088,7 +1094,7 @@ Bridge: connect two open edge loops with new faces — mirror of mayatk's
 
 Component-level mesh operations — mirror of mayatk's ``core_utils.components``.
 
-- **[`class Components(_ComponentsInternal)`](blendertk/blendertk/edit_utils/components.py#L34)** — Component-level mesh operations — mirror of mayatk's ``Components``.
+- **[`class Components(_ComponentsInternal)`](blendertk/blendertk/edit_utils/components.py#L56)** — Component-level mesh operations — mirror of mayatk's ``Components``.
   - `Components.crease_edges(edges=None, amount=None, angle=None)` *(static)* — Crease the meshes *edges* (subdivision sharpness): in Edit Mode their
   - `Components.transfer_creased_edges(frm=None, to=None)` *(static)* — Copy the edge creases of the mesh *frm* to the meshes *to* with Blender's
   - `Components.set_edge_hardness(objects, angle_threshold, upper_hardness=None, lower_hardness=None, unlock_normals=False)` *(static)* — Mark edges hard or soft by their angle against ``angle_threshold``.
@@ -1099,6 +1105,8 @@ Component-level mesh operations — mirror of mayatk's ``core_utils.components``
   - `Components.toggle_normal_lock(objects)` *(static)* — Lock the normals of *objects* (bake them as custom split normals), or
   - `Components.transfer_normals(objects, space='world')` *(static)* — Transfer normals from the first mesh of *objects* to the rest, as
   - `Components.transfer_mesh_data(objects, data_type, **options)` *(static)* — Copy *data_type* from the first mesh of *objects* to the rest with Blender's
+  - `Components.get_transfer_types(cls)` *(class)* — The Transfer menu: ``{label: what it copies}`` in menu order, each a
+  - `Components.transfer(cls, objects, transfer_type)` *(class)* — Copy a :meth:`get_transfer_types` layer from the first mesh of *objects*
 
 <a id="edit_utils--curtain--_curtain"></a>
 ### `edit_utils/curtain/_curtain.py`
@@ -1260,6 +1268,15 @@ Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
   - `Naming.suffix_by_type(cls, objects, group_suffix=None, locator_suffix=None, joint_suffix=None, mesh_suffix=None, nurbs_curve_suffix=None, camera_suffix=None, light_suffix=None, display_layer_suffix=None, ik_handle_suffix=None, nurbs_surface_suffix=None, cluster_suffix=None, lattice_suffix=None, skin_cluster_suffix=None, blend_shape_suffix=None, constraint_suffix=None, material_suffix=None, shading_group_suffix=None, texture_suffix=None, set_suffix=None, custom_suffixes=None, affix_mode=None, affix_modes=None, strip=None, strip_trailing_ints=False, strip_trailing_underscores=False, strip_trailing_padding=True, dry_run=False)` *(class)* — Apply each object's conventional type **affix** (stripping any other it
   - `Naming.append_location_based_suffix(cls, objects, first_obj_as_ref=False, alphabetical=False, strip_trailing_ints=True, strip_defined_suffixes=True, valid_suffixes=None, reverse=False, independent_groups=False, dry_run=False)` *(class)* — Suffix objects by their distance from a reference point (origin, or the first object's
 
+<a id="edit_utils--primitives"></a>
+### `edit_utils/primitives.py`
+
+Primitive creation -- mirror of mayatk's ``edit_utils.primitives.Primitives``.
+
+- **[`class Primitives(_PrimitivesInternal)`](blendertk/blendertk/edit_utils/primitives.py#L99)** — Primitive creation (mirror of mayatk's ``Primitives``).
+  - `Primitives.get_primitive_types(cls)` *(class)* — The Create menu: ``{category: [label, ...]}`` in menu order, each label an
+  - `Primitives.create(cls, category, name)` *(class)* — Make one Create-menu item (:meth:`get_primitive_types`): a new object,
+
 <a id="edit_utils--selection"></a>
 ### `edit_utils/selection.py`
 
@@ -1360,6 +1377,11 @@ blendertk environment / scene-library utilities — the engine behind the Refere
   - `EnvUtils.create_workspace(root, rules=None, create_dirs=True)` *(static)* — Create a marked workspace at ``root`` — the Blender counterpart of Maya's File ▸
   - `EnvUtils.promote_workspace(root=None)` *(static)* — Mark ``root`` (default: the current workspace folder) as a shared Maya/Blender project
   - `EnvUtils.find_workspaces(root_dir, recursive=False)` *(static)* — Project folders under ``root_dir`` — marked workspaces (a ``workspace.mel`` at their
+  - `EnvUtils.is_workspace(path)` *(static)* — True if *path* is a workspace root this session opens as it is: marked by
+  - `EnvUtils.saved_scene_path()` *(static)* — The open .blend's path, or ``""`` when it has never been saved.
+  - `EnvUtils.get_recent_projects(index=None, format='standard')` *(static)* — Recently used workspaces, most recent first: the folders of Blender's
+  - `EnvUtils.find_workspace_using_path(scene_path=None)` *(static)* — The workspace that holds *scene_path* (default: the open .blend): the
+  - `EnvUtils.python_executable()` *(static)* — Blender's bundled interpreter (``<python>/bin/python``;
   - `EnvUtils.open_scene(path)` *(static)* — Open a .blend file (replaces the current file — Maya's ``file -open``).
   - `EnvUtils.new_scene()` *(static)* — Discard the current file and start an empty, unsaved scene (Maya's ``file -new``).
   - `EnvUtils.scene_has_content()` *(static)* — True if the open file holds authored data — anything beyond Blender's *default
@@ -1367,6 +1389,11 @@ blendertk environment / scene-library utilities — the engine behind the Refere
   - `EnvUtils.scene_status(scene=None)` *(static)* — The scene's modelling and session state as plain values: what a
   - `EnvUtils.scene_settings(scene=None)` *(static)* — The live scene's time setup as the bridges' ``scene`` record (see
   - `EnvUtils.apply_scene_settings(settings, scene=None)` *(static)* — Apply a ``scene`` record (any subset of :attr:`SCENE_SETTINGS_KEYS`) to the live
+  - `EnvUtils.get_linear_unit()` *(static)* — The scene's linear unit by mayatk's name (``"centimeter"``), a key of
+  - `EnvUtils.set_linear_unit(unit)` *(static)* — Set the scene's unit system and length unit from mayatk's unit name, in
+  - `EnvUtils.frame_rates()` *(static)* — ``{rate name: fps}`` for the frame rates a Blender scene takes: the video
+  - `EnvUtils.autosave_settings()` *(static)* — Blender's autosave as mayatk's ``{"max_backups", "interval"}``: the
+  - `EnvUtils.set_autosave_settings(max_backups=None, interval=None)` *(static)* — Set Blender's backup versions (*max_backups*) and Auto Save timer
   - `EnvUtils.format_scene_name(name, case=None, suffix='')` *(static)* — Apply a naming convention to a base scene name — ``case`` via :meth:`pythontk.StrUtils.set_case`
   - `EnvUtils.scene_save_path(directory, name, case=None, suffix='', subfolder='')` *(static)* — The absolute ``.blend`` path :meth:`save_scene_as` would write — the pure
   - `EnvUtils.save_scene_as(directory, name, case=None, suffix='', subfolder='', overwrite=True)` *(static)* — Save the current scene as a .blend under ``directory`` with naming conventions applied —
@@ -2787,6 +2814,7 @@ Node / datablock utilities — instancing via shared object data.
 - **[`class NodeUtils(_NodeUtilsInternal)`](blendertk/blendertk/node_utils/_node_utils.py#L125)** — Namespace mirror of mayatk's ``NodeUtils`` (instance helpers also exposed module-level).
   - `NodeUtils.get_maya_node_type(obj) -> Optional[str]` *(static)* — The Maya node *obj* stands for: ``"locator"``, ``"group"`` or ``None``.
   - `NodeUtils.set_maya_node_type(objects, node_type: str, look: bool = True) -> List[Any]` *(static)* — Stamp Empties as the Maya node *node_type* they stand for.
+  - `NodeUtils.lock_nodes(objects=None, lock=True)` *(static)* — Lock objects against accidental edits, or unlock them: Blender's
   - `NodeUtils.is_locator(objects, filter: bool = False)` *(static)* — Whether each of *objects* (refs or names) is a locator.
   - `NodeUtils.expand_sets(objects) -> List[Any]` *(static)* — *objects* with every collection replaced by the objects in it.
   - `NodeUtils.is_group(objects, filter: bool = False)` *(static)* — Whether each of *objects* (refs or names) is a group.
@@ -3055,11 +3083,11 @@ The viewport grab for articulated rigs (Blender): press on a rigged part, drag, 
 
 Rig control-shape factory — Blender port of mayatk's ``rig_utils.controls.Controls``.
 
-- **[`class ControlNodes`](blendertk/blendertk/rig_utils/controls.py#L31)** — Return bundle of :meth:`Controls.create` — mirror of mayatk's ``ControlNodes``.
-- **[`class Controls(_ControlsInternal)`](blendertk/blendertk/rig_utils/controls.py#L163)** — Rig control-shape factory (curve-object widgets) — Blender mirror of mayatk's ``Controls``.
+- **[`class ControlNodes`](blendertk/blendertk/rig_utils/controls.py#L32)** — Return bundle of :meth:`Controls.create` — mirror of mayatk's ``ControlNodes``.
+- **[`class Controls(_ControlsInternal)`](blendertk/blendertk/rig_utils/controls.py#L164)** — Rig control-shape factory (curve-object widgets) — Blender mirror of mayatk's ``Controls``.
   - `Controls.register_preset(cls, name, builder)` *(class)* — Register a custom shape *builder* (``() -> List[(points, cyclic)]``, pure geometry in the
   - `Controls.shapes(cls) -> List[str]` *(class)* — Sorted names of the registered shapes (for a UI combo / validation).
-  - `Controls.create(cls, shape='circle', name='ctrl', size=1.0, axis='y', color=None, location=(0, 0, 0), group=False, collection=None, return_nodes=False)` *(class)* — Build a control curve object in *shape*, scaled by *size*, oriented by *axis*, optionally
+  - `Controls.create(cls, shape='circle', name='ctrl', size=1.0, axis='y', color=None, location=(0, 0, 0), group=False, collection=None, return_nodes=False, select=False)` *(class)* — Build a control curve object in *shape*, scaled by *size*, oriented by *axis*, optionally
 
 <a id="rig_utils--rig_graph_build"></a>
 ### `rig_utils/rig_graph_build.py`
@@ -3269,11 +3297,14 @@ Wheel Rig — wheels that roll as their control moves (tentacle's Wheel Rig pane
 UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
 
 - [`EDITOR_TYPES`](blendertk/blendertk/ui_utils/_ui_utils.py#L16) — constant
-- **[`class UiUtils(_UiUtilsInternal)`](blendertk/blendertk/ui_utils/_ui_utils.py#L149)** — Namespace mirror (helpers also exposed module-level).
+- **[`class UiUtils(_UiUtilsInternal)`](blendertk/blendertk/ui_utils/_ui_utils.py#L197)** — Namespace mirror (helpers also exposed module-level).
   - `UiUtils.get_editor_types()` *(static)* — The friendly-name → ``Area.ui_type`` map understood by :func:`open_editor`.
+  - `UiUtils.get_editor_categories(cls)` *(class)* — ``{category: [editor name, ...]}``: the editors a browsing UI lists, each
   - `UiUtils.open_editor(editor, properties_context=None)` *(static)* — Open ``editor`` (a friendly name from :data:`EDITOR_TYPES` or a raw ``ui_type``)
+  - `UiUtils.open_preferences(cls, section=None)` *(class)* — Open Blender's Preferences editor on *section*'s tab: ``"general"`` (the
   - `UiUtils.reveal_in_outliner(objects)` *(static)* — Select *objects* (names or Objects) and scroll the Outliner to the active one.
   - `UiUtils.main_window()` *(static)* — The main Blender window (the first;
+  - `UiUtils.browse_directory(start='', caption='Select Folder', ok_caption='Select')` *(static)* — Pick a directory in the platform's folder dialog (Qt);
   - `UiUtils.find_editor(editor, window=None)` *(static)* — Open areas showing ``editor`` (friendly name or raw ``ui_type``) as ``(window, area)`` pairs.
   - `UiUtils.close_area(window, area)` *(static)* — Close exactly ``area`` in ``window`` via ``screen.area_close``;
   - `UiUtils.close_editor(editor, window=None)` *(static)* — Close every open area showing ``editor`` in the (main) window;
@@ -3403,7 +3434,7 @@ Match Blender's app UI chrome to another DCC's look using Blender's NATIVE theme
   - `StyleSetter.user_preset_path(name)` *(static)* — Path a preset named ``name`` would have in the user preset dir.
   - `StyleSetter.is_installed(name)` *(static)* — True if ``<name>.xml`` is in the user preset dir (i.e.
   - `StyleSetter.install(overwrite=False)` *(static)* — Copy the shipped theme presets into Blender's user preset dir so they appear in
-  - `StyleSetter.list_templates()` *(static)* — Ordered ``{display_name: filepath}`` of every native ``interface_theme`` preset the Themes
+  - `StyleSetter.list_templates(install_presets=True)` *(static)* — Ordered ``{display_name: filepath}`` of every native ``interface_theme`` preset the Themes
   - `StyleSetter.apply_template(filepath)` *(static)* — Apply any native theme preset by its ``.xml`` filepath (the token from :func:`list_templates`)
   - `StyleSetter.apply_theme_preset(name)` *(static)* — Apply a shipped/installed theme preset by NAME (not path).
   - `StyleSetter.set_style(name, install_presets=True, persist=False)` *(static)* — Switch Blender's UI to the named shipped style (e.g.
@@ -3592,8 +3623,11 @@ Transform utilities — object-level transform ops (world bbox, freeze, drop-to-
   - `XformUtils.get_stored_transforms(obj, prefix=_DEFAULT_BAKE_PREFIX)` *(static)* — Read one object's stored pre-freeze channels back as plain values —
   - `XformUtils.scale_connected_edges(objects, scale_factor=1.1)` *(static)* — Scale each CONNECTED set of selected edges about that set's own centroid — mirror
   - `XformUtils.drop_to_grid(objects, align='Min', origin=False, center_pivot=False)` *(static)* — Drop each object so its bbox ``Min`` / ``Mid`` / ``Max`` sits on the ground (Z=0).
-  - `XformUtils.center_pivot(objects, mode='object')` *(static)* — Move each object's origin (Blender's single pivot) — mirror of Maya's Center Pivot.
-  - `XformUtils.transfer_pivot(objects, translate=True, rotate=False, scale=False, world_space=True, mirror='', select_targets_after_transfer=False)` *(static)* — Transfer the object **origin** from the first object to the rest — mirror of Maya's
+  - `XformUtils.center_pivot(objects=None, mode='object')` *(static)* — Move each object's origin (Blender's single pivot) — mirror of Maya's Center Pivot.
+  - `XformUtils.transfer_pivot(objects, translate=True, rotate=False, scale=False, bake=True, world_space=True, mirror='', select_targets_after_transfer=False)` *(static)* — Transfer the object **origin** from the first object to the rest — mirror of Maya's
+  - `XformUtils.reset_pivot(objects=None, position=True, orientation=True)` *(static)* — Reset the pivot: Blender's single origin back on the geometry's
+  - `XformUtils.world_align_pivot(objects=None, pivot_type='object', mode='set')` *(static)* — World-align the pivot.
+  - `XformUtils.bake_pivot(objects, position=False, orientation=False)` *(static)* — Bake Blender's temporary pivot, the 3D cursor, into the objects' origins
   - `XformUtils.get_pivot_modes()` *(static)* — Center-pivot mode keys understood by :func:`center_pivot`.
   - `XformUtils.match_scale(source, target, average=True)` *(static)* — Uniformly rescale ``source`` object(s) to match ``target``'s bounding-box size.
   - `XformUtils.move_to(source, target, pivot='center')` *(static)* — Move ``source`` object(s) so their pivot aligns with the ``target``'s pivot point.

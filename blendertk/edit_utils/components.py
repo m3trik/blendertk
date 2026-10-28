@@ -20,6 +20,28 @@ class _ComponentsInternal(object):
     """Internal helpers for Components."""
 
     @staticmethod
+    def _transfer_order(objects):
+        """The transfer's meshes, the source first: *objects*, or for ``None`` the
+        selection with the active mesh first (it must be selected); ``[]`` with
+        nothing selected.
+
+        Raises:
+            ValueError: No selected active mesh for ``None``, or fewer than two meshes.
+        """
+        if objects is None:
+            selection = CoreUtils.selected_objects()
+            if not selection:
+                return []
+            active = CoreUtils.active_object()
+            if active is None or active not in selection or active.type != "MESH":
+                raise ValueError("Select target mesh(es) with the source mesh active.")
+            objects = [active] + [o for o in selection if o != active]
+        meshes = _ComponentsInternal._meshes(objects)
+        if len(meshes) < 2:
+            raise ValueError("Transfer needs a source mesh and one or more target meshes.")
+        return meshes
+
+    @staticmethod
     def _meshes(objects):
         return [o for o in objects or () if getattr(o, "type", None) == "MESH"]
 
@@ -266,17 +288,9 @@ class Components(_ComponentsInternal):
         """
         import bpy
 
-        if objects is None:
-            selection = CoreUtils.selected_objects()
-            if not selection:
-                return []
-            active = CoreUtils.active_object()
-            if active is None or active not in selection or active.type != "MESH":
-                raise ValueError("Select target mesh(es) with the source mesh active.")
-            objects = [active] + [o for o in selection if o != active]
-        meshes = Components._meshes(objects)
-        if len(meshes) < 2:
-            raise ValueError("Transfer needs a source mesh and one or more target meshes.")
+        meshes = Components._transfer_order(objects)
+        if not meshes:
+            return []
         source, targets = meshes[0], meshes[1:]
         options = {"loop_mapping": "POLYINTERP_NEAREST", **options}
         with CoreUtils.window_context_override():
@@ -291,3 +305,120 @@ class Components(_ComponentsInternal):
                 except RuntimeError as error:  # the operator's own report
                     raise ValueError(str(error)) from error
         return targets
+
+    #: The Transfer menu (:meth:`get_transfer_types` / :meth:`transfer`): label ->
+    #: (the transfer, what it copies). Data Transfer copies one data layer at a time,
+    #: so Maya's Attribute Values is its granular items here, and Maya's Shading Sets
+    #: is Material Slots; Maya's Maps (a render bake) and Vertex Order (an interactive
+    #: reindex) have no Blender operator.
+    _TRANSFERS = {
+        "UVs": ("_transfer_uvs", "The active UV map, source → targets."),
+        "Vertex Colors": (
+            "_transfer_vertex_colors",
+            "The active color attribute, in its own domain (point or face corner).",
+        ),
+        "Vertex Group Weights": (
+            "_transfer_vertex_weights",
+            "Every vertex group's weights, matched by name.",
+        ),
+        "Custom Normals": ("_transfer_custom_normals", "The custom split normals."),
+        "Material Slots": (
+            "_transfer_material_slots",
+            "The source's material slots, and so its shading.",
+        ),
+    }
+
+    @classmethod
+    def get_transfer_types(cls):
+        """The Transfer menu: ``{label: what it copies}`` in menu order, each a
+        transfer :meth:`transfer` runs. Mirror of mayatk's
+        ``Components.get_transfer_types`` (Maya's Transfer items there)."""
+        return {label: spec[1] for label, spec in cls._TRANSFERS.items()}
+
+    @classmethod
+    @CoreUtils.undoable
+    def transfer(cls, objects, transfer_type):
+        """Copy a :meth:`get_transfer_types` layer from the first mesh of *objects*
+        to the rest (Data Transfer, or the material-slot copy). Mirror of mayatk's
+        ``Components.transfer``.
+
+        Parameters:
+            objects (list/None): The meshes, the source first; ``None`` takes the
+                selection, the active mesh the source (it must be selected) --
+                Blender's convention, where Maya's source is the first selected.
+            transfer_type (str): A :meth:`get_transfer_types` label.
+
+        Returns:
+            list: ``[source, *targets]``; ``[]`` with nothing selected.
+
+        Raises:
+            ValueError: An unknown type, no selected active mesh for ``None``, fewer
+                than two meshes, or Blender's own report.
+        """
+        spec = cls._TRANSFERS.get(transfer_type)
+        if spec is None:
+            raise ValueError(
+                f"Unknown transfer '{transfer_type}': {', '.join(cls._TRANSFERS)}."
+            )
+        meshes = cls._transfer_order(objects)
+        if meshes:
+            getattr(cls, spec[0])(meshes)
+        return meshes
+
+    @staticmethod
+    def _transfer_uvs(meshes):
+        Components.transfer_mesh_data(
+            meshes, "UV", layers_select_src="ACTIVE", layers_select_dst="ACTIVE"
+        )
+
+    @staticmethod
+    def _transfer_vertex_colors(meshes):
+        """The source's active color attribute, matched to its domain, so painted
+        per-vertex and per-corner colors both transfer (a mesh with none: points,
+        ``geometry.color_attribute_add``'s own default)."""
+        attrs = getattr(meshes[0].data, "color_attributes", None)
+        active = attrs.active_color if attrs else None
+        data_type = (
+            "COLOR_CORNER" if active is not None and active.domain == "CORNER" else "COLOR_VERTEX"
+        )
+        Components.transfer_mesh_data(
+            meshes,
+            data_type,
+            vert_mapping="NEAREST",
+            layers_select_src="ACTIVE",
+            layers_select_dst="ACTIVE",
+        )
+
+    @staticmethod
+    def _transfer_vertex_weights(meshes):
+        Components.transfer_mesh_data(
+            meshes,
+            "VGROUP_WEIGHTS",
+            vert_mapping="NEAREST",
+            layers_select_src="ALL",
+            layers_select_dst="NAME",
+        )
+
+    @staticmethod
+    def _transfer_custom_normals(meshes):
+        Components.transfer_normals(meshes)
+
+    @staticmethod
+    def _transfer_material_slots(meshes):
+        """``object.material_slot_copy`` from the source, under an override naming
+        the source and targets: it reads the context object and selection, screen
+        context and dead in the Qt-pump state."""
+        import bpy
+
+        source = meshes[0]
+        with CoreUtils.window_context_override():
+            with bpy.context.temp_override(
+                active_object=source,
+                object=source,
+                selected_objects=meshes,
+                selected_editable_objects=meshes,
+            ):
+                try:
+                    bpy.ops.object.material_slot_copy()
+                except RuntimeError as error:  # the operator's own report
+                    raise ValueError(str(error)) from error

@@ -21,6 +21,7 @@ running Blender (the no-import-side-effects rule); the geometry builders are pur
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.rig_utils._rig_utils import RigUtils
 
 # A shape is a list of polylines; each polyline is (points, cyclic).
@@ -207,6 +208,7 @@ class Controls(_ControlsInternal):
         return Matrix.Rotation(math.radians(90), 3, "X")  # "y": +Z -> Y
 
     @classmethod
+    @CoreUtils.undoable
     def create(
         cls,
         shape="circle",
@@ -218,6 +220,7 @@ class Controls(_ControlsInternal):
         group=False,
         collection=None,
         return_nodes=False,
+        select=False,
     ):
         """Build a control curve object in *shape*, scaled by *size*, oriented by *axis*, optionally
         colored and wrapped in an offset *group* Empty.
@@ -233,6 +236,8 @@ class Controls(_ControlsInternal):
                 under it (zeroed relative to the group — the standard rig buffer).
             collection: Target collection (defaults to the active one).
             return_nodes (bool): Return a :class:`ControlNodes`; otherwise just the control object.
+            select (bool): Select the control, alone and active, in Object Mode (what a
+                menu click that creates one does).
 
         Returns:
             bpy.types.Object | ControlNodes
@@ -282,6 +287,9 @@ class Controls(_ControlsInternal):
             bpy.context.view_layer.update()
             RigUtils.parent_keep_transform(obj, grp)
 
+        if select:
+            CoreUtils.ensure_object_mode()
+            CoreUtils.select([obj])
         return ControlNodes(control=obj, group=grp) if return_nodes else obj
 
 

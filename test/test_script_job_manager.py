@@ -148,6 +148,34 @@ try:
                                           "save_post", "undo_post", "redo_post")))
     ScriptJobManager.reset()
 
+    # 11. unit events: dispatched from depsgraph updates only when the state changed
+    ScriptJobManager.reset()
+    mgr = ScriptJobManager.instance()
+    unit_state = {"linear": ("METRIC", "METERS", 1.0), "time": (24, 1.0)}
+    mgr._current_linear_unit = lambda: unit_state["linear"]  # deterministic readers
+    mgr._current_time_unit = lambda: unit_state["time"]
+    fired = []
+    mgr.subscribe("linearUnitChanged", lambda: fired.append("linear"), owner="U")
+    mgr.subscribe("timeUnitChanged", lambda: fired.append("time"), owner="U")
+    check("unit events ride the depsgraph master", has_master("depsgraph_update_post"))
+    master = mgr._handlers["depsgraph_update_post"]
+    master(None, None)
+    check("unit events: an unchanged scene dispatches nothing", fired == [], f"{fired}")
+    unit_state["linear"] = ("METRIC", "CENTIMETERS", 1.0)
+    master(None, None)
+    master(None, None)
+    check("linearUnitChanged dispatches once per change", fired == ["linear"], f"{fired}")
+    unit_state["time"] = (30, 1.0)
+    master(None, None)
+    check("timeUnitChanged dispatches on a frame-rate change", fired == ["linear", "time"], f"{fired}")
+    ScriptJobManager.reset()
+    check(
+        "the real unit readers read the scene without raising",
+        isinstance(ScriptJobManager.instance()._current_linear_unit(), tuple)
+        and isinstance(ScriptJobManager.instance()._current_time_unit(), tuple),
+    )
+    ScriptJobManager.reset()
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

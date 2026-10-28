@@ -606,6 +606,70 @@ try:
     check("set_rotate_order: an unkeyed object keeps its pose in the new order",
           still.rotation_mode == "ZYX" and _max_diff(still.matrix_world, _m) < 1e-5)
 
+    # ---- the pivot menu's operations (mayatk's names): None is the selection,
+    # [] with nothing selected -- what tentacle's shared Pivot panel calls
+    reset()
+    check(
+        "pivot ops: nothing selected -> [] for each",
+        btk.XformUtils.center_pivot(None) == []
+        and btk.XformUtils.reset_pivot() == []
+        and btk.XformUtils.bake_pivot(None, position=True) == []
+        and btk.XformUtils.transfer_pivot(None) == [],
+    )
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0)); pv_src = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(4, 0, 0)); pv_tgt = bpy.context.active_object
+    for v in pv_tgt.data.vertices:
+        v.co.x += 2.0  # geometry center at world x=6, origin at 4
+    bpy.context.view_layer.update()
+    btk.CoreUtils.select([pv_tgt])
+    got = btk.XformUtils.reset_pivot()
+    check("reset_pivot: the origin returns to the bounding-box center",
+          got == [pv_tgt] and approx(pv_tgt.location.x, 6.0), f"x={pv_tgt.location.x:.3f}")
+    btk.CoreUtils.select([pv_tgt])
+    got = btk.XformUtils.center_pivot(None, mode="world")
+    check("center_pivot(None, 'world'): the selection's origin to 0",
+          got == [pv_tgt] and approx(pv_tgt.location.x, 0.0), f"x={pv_tgt.location.x:.3f}")
+    pv_src.location.x = 1.0
+    bpy.context.view_layer.update()
+    btk.CoreUtils.select([pv_src, pv_tgt])  # replace: the first one (pv_src) is active
+    got = btk.XformUtils.transfer_pivot(None, bake=False)
+    check("transfer_pivot(None): the active object is the source",
+          got == [pv_tgt] and approx(pv_tgt.location.x, 1.0), f"x={pv_tgt.location.x:.3f}")
+    btk.CoreUtils.select([pv_tgt])
+    bpy.context.view_layer.objects.active = pv_src  # active, NOT selected
+    try:
+        btk.XformUtils.transfer_pivot(None)
+        check("transfer_pivot(None): an unselected active object raises", False)
+    except ValueError as error:
+        check("transfer_pivot(None): an unselected active object raises",
+              "active" in str(error), str(error))
+    pv_src.rotation_euler = (0.0, 0.0, 0.5)
+    bpy.context.view_layer.update()
+    btk.CoreUtils.select([pv_src])
+    check(
+        "world_align_pivot(manip): Global orientation, True",
+        btk.XformUtils.world_align_pivot(None, pivot_type="manip") is True
+        and bpy.context.scene.transform_orientation_slots[0].type == "GLOBAL",
+    )
+    done = btk.XformUtils.world_align_pivot(None, pivot_type="object")
+    check(
+        "world_align_pivot(object): the rotation is baked, the selection kept",
+        done is True and abs(pv_src.rotation_euler.z) < 1e-6 and pv_src.select_get(),
+        f"done={done} rz={pv_src.rotation_euler.z:.3f}",
+    )
+    bpy.ops.object.empty_add(location=(0, 0, 3)); pv_empty = bpy.context.active_object
+    btk.CoreUtils.select([pv_empty])
+    check(
+        "world_align_pivot(object): no object with data -> False",
+        btk.XformUtils.world_align_pivot(None, pivot_type="object") is False,
+    )
+    bpy.context.scene.cursor.location = (2.0, 0.0, 0.0)
+    btk.CoreUtils.select([pv_tgt])
+    got = btk.XformUtils.bake_pivot(None, position=True, orientation=True)
+    bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
+    check("bake_pivot: the 3D cursor becomes the origin",
+          got == [pv_tgt] and approx(pv_tgt.location.x, 2.0), f"x={pv_tgt.location.x:.3f}")
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

@@ -132,6 +132,34 @@ class _EnvUtilsInternal(object):
 class EnvUtils(_EnvUtilsInternal):
     """Namespace mirror of mayatk's ``EnvUtils`` (helpers also exposed module-level)."""
 
+    #: The host application's display name, for UI text naming the app a panel
+    #: drives ("Blender Preferences"). Mirror of mayatk's ``EnvUtils.APP_NAME``.
+    APP_NAME = "Blender"
+
+    #: Linear unit (mayatk's full name, the reference) -> its short name, for the
+    #: units a Blender scene works in: its metric and imperial length units
+    #: (Maya's yard has none). Mirror of mayatk's ``EnvUtils.SCENE_UNIT_VALUES``.
+    SCENE_UNIT_VALUES = {
+        "millimeter": "mm",
+        "centimeter": "cm",
+        "meter": "m",
+        "kilometer": "km",
+        "inch": "in",
+        "foot": "ft",
+        "mile": "mi",
+    }
+
+    #: Linear unit -> Blender's ``(unit system, length unit)``.
+    _LENGTH_UNITS = {
+        "millimeter": ("METRIC", "MILLIMETERS"),
+        "centimeter": ("METRIC", "CENTIMETERS"),
+        "meter": ("METRIC", "METERS"),
+        "kilometer": ("METRIC", "KILOMETERS"),
+        "inch": ("IMPERIAL", "INCHES"),
+        "foot": ("IMPERIAL", "FEET"),
+        "mile": ("IMPERIAL", "MILES"),
+    }
+
     @staticmethod
     def find_blend_files(root_dir, recursive=True, filter_text=""):
         """Every ``.blend`` file under ``root_dir`` (recursively by default), optionally name-filtered.
@@ -708,6 +736,89 @@ class EnvUtils(_EnvUtilsInternal):
         ]
 
     @staticmethod
+    def is_workspace(path):
+        """True if *path* is a workspace root this session opens as it is: marked by
+        a ``workspace.mel`` (a shared Maya/Blender project) or directly holding
+        .blend files (:func:`find_workspaces`). Mirror of mayatk's
+        ``EnvUtils.is_workspace`` (a marked folder only there)."""
+        if not path or not os.path.isdir(path):
+            return False
+        return os.path.normpath(path) in EnvUtils.find_workspaces(path, recursive=False)
+
+    @staticmethod
+    def saved_scene_path():
+        """The open .blend's path, or ``""`` when it has never been saved. Mirror of
+        mayatk's ``EnvUtils.saved_scene_path``."""
+        import bpy
+
+        return bpy.data.filepath or ""
+
+    @staticmethod
+    def get_recent_projects(index=None, format="standard"):
+        """Recently used workspaces, most recent first: the folders of Blender's
+        recent files (File > Open Recent) that are workspaces (:func:`is_workspace`),
+        since Blender keeps no project history of its own. Mirror of mayatk's
+        ``EnvUtils.get_recent_projects`` (Maya's recent-projects list there).
+
+        Parameters:
+            index (int/slice): Return the entry, or the entries, at it.
+            format (str): ``"standard"`` (paths), ``"timestamp"``, or the
+                ``"standard|timestamp"`` / ``"timestamp|standard"`` dicts, as mayatk's.
+        """
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        result = []
+        for recent in CoreUtils.get_recent_files():
+            folder = os.path.normpath(os.path.dirname(recent))
+            if folder not in result and EnvUtils.is_workspace(folder):
+                result.append(folder)
+        if index is not None:
+            try:
+                result = result[index]
+            except (IndexError, TypeError):
+                return []
+        scalar = isinstance(index, int)
+        items = [result] if scalar else result
+        keys = format.split("|")
+        if len(keys) == 2 and set(keys) == {"standard", "timestamp"}:
+            stamped = {path: ptk.time_stamp(path) for path in items}
+            if keys[0] == "timestamp":
+                return {stamp: path for path, stamp in stamped.items()}
+            return stamped
+        if "timestamp" in keys:
+            stamps = [ptk.time_stamp(path) for path in items]
+            return stamps[0] if scalar else stamps
+        return result
+
+    @staticmethod
+    def find_workspace_using_path(scene_path=None):
+        """The workspace that holds *scene_path* (default: the open .blend): the
+        nearest marked (``workspace.mel``) root above it, else its own folder when
+        that is a workspace; for an unsaved file, the session pin. None when nothing
+        qualifies. Mirror of mayatk's ``EnvUtils.find_workspace_using_path`` (the
+        marked walk-up alone there)."""
+        if scene_path is None:
+            from blendertk.node_utils.data_nodes import DataNodes
+
+            ws = DataNodes.scene_workspace()
+        elif scene_path and os.path.isabs(scene_path):
+            ws = ptk.Workspace.for_path(scene_path)
+        else:
+            ws = None
+        if ws is None or not (ws.is_marked or EnvUtils.is_workspace(ws.root)):
+            return None
+        return ws.root
+
+    @staticmethod
+    def python_executable():
+        """Blender's bundled interpreter (``<python>/bin/python``; ``sys.executable``
+        when none is found): the one pip must drive to install into Blender's
+        environment. Mirror of mayatk's ``EnvUtils.python_executable`` (mayapy)."""
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        return CoreUtils._blender_python_exe()
+
+    @staticmethod
     def open_scene(path):
         """Open a .blend file (replaces the current file — Maya's ``file -open``). True on success."""
         import bpy
@@ -924,6 +1035,87 @@ class EnvUtils(_EnvUtilsInternal):
             scene.frame_current = int(round(float(current)))
             applied.append("frame_current")
         return applied
+
+    @staticmethod
+    def get_linear_unit():
+        """The scene's linear unit by mayatk's name (``"centimeter"``), a key of
+        :attr:`SCENE_UNIT_VALUES`; None for a unit outside it (Adaptive, None,
+        micrometers, thou). Mirror of mayatk's ``EnvUtils.get_linear_unit``."""
+        import bpy
+
+        units = bpy.context.scene.unit_settings
+        current = (units.system, units.length_unit)
+        return next(
+            (name for name, pair in EnvUtils._LENGTH_UNITS.items() if pair == current),
+            None,
+        )
+
+    @staticmethod
+    def set_linear_unit(unit):
+        """Set the scene's unit system and length unit from mayatk's unit name, in
+        any case; the unit scale stays as it is. Mirror of mayatk's
+        ``EnvUtils.set_linear_unit``.
+
+        Returns:
+            str: The unit set.
+
+        Raises:
+            ValueError: A unit Blender has none for (yard), or an unknown one.
+        """
+        import bpy
+
+        unit = str(unit).lower()
+        pair = EnvUtils._LENGTH_UNITS.get(unit)
+        if pair is None:
+            raise ValueError(
+                f"No Blender length unit for {unit!r}; use one of "
+                f"{list(EnvUtils._LENGTH_UNITS)}."
+            )
+        units = bpy.context.scene.unit_settings
+        units.system, units.length_unit = pair  # the system first: it scopes the unit
+        return unit
+
+    @staticmethod
+    def frame_rates():
+        """``{rate name: fps}`` for the frame rates a Blender scene takes: the video
+        rates of pythontk's table (mayatk's time-unit names; Maya's 44100 / 48000 fps
+        audio units have no Blender counterpart), each set by
+        :func:`apply_scene_settings` (a fractional rate through ``fps_base``).
+        Mirror of mayatk's ``EnvUtils.frame_rates``."""
+        return {
+            name: fps for name, fps in ptk.VidUtils.FRAME_RATES.items() if fps < 1000
+        }
+
+    @staticmethod
+    def autosave_settings():
+        """Blender's autosave as mayatk's ``{"max_backups", "interval"}``: the
+        backup versions kept on save (Save Versions: ``.blend1`` ...) and the Auto
+        Save timer in minutes, 0 while Auto Save is off. Mirror of mayatk's
+        ``EnvUtils.autosave_settings``."""
+        import bpy
+
+        paths = bpy.context.preferences.filepaths
+        return {
+            "max_backups": paths.save_version,
+            "interval": (
+                paths.auto_save_time if paths.use_auto_save_temporary_files else 0
+            ),
+        }
+
+    @staticmethod
+    def set_autosave_settings(max_backups=None, interval=None):
+        """Set Blender's backup versions (*max_backups*) and Auto Save timer
+        (*interval*, minutes; 0 turns Auto Save off); ``None`` leaves a setting as
+        it is. Mirror of mayatk's ``EnvUtils.set_autosave_settings``."""
+        import bpy
+
+        paths = bpy.context.preferences.filepaths
+        if max_backups is not None:
+            paths.save_version = int(max_backups)
+        if interval is not None:
+            paths.use_auto_save_temporary_files = interval > 0
+            if interval > 0:
+                paths.auto_save_time = int(interval)
 
     @staticmethod
     def format_scene_name(name, case=None, suffix=""):

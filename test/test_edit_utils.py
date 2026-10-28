@@ -1946,6 +1946,111 @@ try:
         == {"enabled": False, "axes": [], "space": None, "by_axis": True},
     )
 
+    # ---- the shared Edit panel's Create / Convert / Delete
+    def _clear():
+        if bpy.context.view_layer.objects.active and bpy.context.view_layer.objects.active.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        for _o in list(bpy.data.objects):
+            bpy.data.objects.remove(_o, do_unlink=True)
+
+    _clear()
+    _types = btk.Primitives.get_primitive_types()
+    check(
+        "Primitives.get_primitive_types: Maya's categories, Blender's items",
+        list(_types) == ["Polygon", "NURBS", "Curve", "Helper", "Light"]
+        and "Monkey" in _types["Polygon"] and "Directional" in _types["Light"],
+        f"{list(_types)}",
+    )
+    _missing = []
+    for _cat, _names in _types.items():
+        for _name in _names:
+            _clear()
+            try:
+                _made = btk.Primitives.create(_cat, _name)
+            except Exception as _e:  # noqa: BLE001 - a raise is the failure reported
+                _missing.append(f"{_cat}/{_name}: {_e}")
+                continue
+            if _made is None:
+                _missing.append(f"{_cat}/{_name}: nothing made")
+    check("Primitives.create makes every listed item", _missing == [], f"{_missing}")
+
+    _clear()
+    btk.Primitives.create("Helper", "Null Group")
+    _null = bpy.context.view_layer.objects.active
+    check(
+        "Primitives.create Helper/Null Group: a typed group Empty, its arrows kept",
+        _null is not None and _null.get("maya_node_type") == "group"
+        and _null.empty_display_type == "ARROWS",
+    )
+    _clear()
+    bpy.ops.mesh.primitive_plane_add()
+    _plane = bpy.context.active_object
+    bpy.ops.object.mode_set(mode="EDIT")
+    btk.Primitives.create("Polygon", "Cube")
+    _plane.update_from_editmode()
+    check(
+        "Primitives.create from Edit Mode makes a new object (Object Mode first)",
+        len(bpy.data.objects) == 2 and len(_plane.data.vertices) == 4
+        and _plane.mode == "OBJECT",
+        f"objects={len(bpy.data.objects)} plane verts={len(_plane.data.vertices)}",
+    )
+    try:
+        btk.Primitives.create("Polygon", "Teapot")
+        check("Primitives.create refuses an unknown item", False)
+    except ValueError:
+        check("Primitives.create refuses an unknown item", True)
+
+    _clear()
+    _ctrl = btk.Controls.create("circle", name="SelCtrl", select=True)
+    check(
+        "Controls.create(select=True): the control alone selected and active",
+        btk.CoreUtils.selected_objects() == [_ctrl]
+        and btk.CoreUtils.active_object() is _ctrl,
+    )
+
+    _clear()
+    bpy.ops.curve.primitive_bezier_circle_add()
+    _crv = bpy.context.active_object
+    btk.EditUtils.convert_objects(None, "Mesh")
+    check("convert_objects(None, 'Mesh'): curve -> MESH", _crv.type == "MESH", _crv.type)
+    btk.CoreUtils.select([])
+    check(
+        "convert_objects with nothing selected is []",
+        btk.EditUtils.convert_objects(None, "Mesh") == [],
+    )
+    _clear()
+    bpy.ops.mesh.primitive_cube_add()
+    _src = bpy.context.active_object
+    bpy.ops.object.duplicate_move_linked()
+    _dup = bpy.context.active_object
+    btk.CoreUtils.select([_dup])
+    btk.EditUtils.convert_objects(None, "Instance to Object")
+    check(
+        "convert_objects 'Instance to Object': the linked duplicate takes its own data",
+        _dup.data != _src.data,
+    )
+
+    _clear()
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=3, y_subdivisions=3)
+    _grid = bpy.context.active_object
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_mode(type="FACE")
+    bpy.ops.mesh.select_all(action="DESELECT")
+    _bm = bmesh.from_edit_mesh(_grid.data)
+    _bm.faces.ensure_lookup_table()
+    min(_bm.faces, key=lambda f: f.calc_center_median().length).select_set(True)
+    bmesh.update_edit_mesh(_grid.data)
+    btk.EditUtils.delete_selected()
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check(
+        "delete_selected in face mode keeps the neighbours (9 -> 8 faces)",
+        len(_grid.data.polygons) == 8,
+        len(_grid.data.polygons),
+    )
+    btk.CoreUtils.select([_grid])
+    btk.EditUtils.delete_selected()
+    check("delete_selected in Object Mode deletes the object", len(bpy.data.objects) == 0)
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

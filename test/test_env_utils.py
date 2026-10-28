@@ -229,6 +229,131 @@ try:
     )
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
+    # ---- is_workspace / saved_scene_path / get_recent_projects / find_workspace_using_path
+    # (mayatk's names: what tentacle's shared Workspace tab calls through ``self.tk``)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    check("saved_scene_path: an unsaved file is ''", btk.EnvUtils.saved_scene_path() == "")
+    _ws_root = tempfile.mkdtemp(prefix="btk_is_ws_")
+    try:
+        _plain = os.path.join(_ws_root, "plain")
+        _blends = os.path.join(_ws_root, "blends")
+        _marked = os.path.join(_ws_root, "marked")
+        for _d in (_plain, _blends, os.path.join(_marked, "scenes")):
+            os.makedirs(_d)
+        with open(os.path.join(_marked, "workspace.mel"), "w") as _f:
+            _f.write('//Maya Project Definition\n\nworkspace -fr "scene" "scenes";\n')
+        check("is_workspace: a plain folder is not one", not btk.EnvUtils.is_workspace(_plain))
+        check("is_workspace: '' is not one", not btk.EnvUtils.is_workspace(""))
+        check("is_workspace: a marked folder is one", btk.EnvUtils.is_workspace(_marked))
+        _shot = os.path.join(_blends, "shot.blend")
+        bpy.ops.wm.save_as_mainfile(filepath=_shot)
+        check("is_workspace: a folder of .blend files is one", btk.EnvUtils.is_workspace(_blends))
+        check(
+            "saved_scene_path: the saved file",
+            os.path.normcase(btk.EnvUtils.saved_scene_path()) == os.path.normcase(_shot),
+            btk.EnvUtils.saved_scene_path(),
+        )
+        check(
+            "find_workspace_using_path: the open file's folder of .blend files",
+            os.path.normcase(btk.EnvUtils.find_workspace_using_path() or "")
+            == os.path.normcase(_blends),
+            f"{btk.EnvUtils.find_workspace_using_path()}",
+        )
+        _inner = os.path.join(_marked, "scenes", "shot.blend")
+        check(
+            "find_workspace_using_path: a path in a marked project is that project",
+            os.path.normcase(btk.EnvUtils.find_workspace_using_path(_inner) or "")
+            == os.path.normcase(_marked),
+            f"{btk.EnvUtils.find_workspace_using_path(_inner)}",
+        )
+        check(
+            "find_workspace_using_path: a relative path is None",
+            btk.EnvUtils.find_workspace_using_path("shot.blend") is None,
+        )
+        from blendertk.core_utils._core_utils import CoreUtils as _Core
+
+        _prior_recent = _Core.__dict__["get_recent_files"]  # the staticmethod itself
+        _Core.get_recent_files = staticmethod(
+            lambda index=None: [_shot, os.path.join(_plain, "x.blend"), _shot]
+        )
+        try:
+            _recent = btk.EnvUtils.get_recent_projects()
+            _first = btk.EnvUtils.get_recent_projects(0)
+        finally:
+            _Core.get_recent_files = _prior_recent
+        check(
+            "get_recent_projects: workspace folders of the recent files, once each",
+            [os.path.normcase(p) for p in _recent] == [os.path.normcase(_blends)],
+            f"{_recent}",
+        )
+        check(
+            "get_recent_projects(0): the most recent one",
+            os.path.normcase(_first) == os.path.normcase(_blends),
+            f"{_first}",
+        )
+    finally:
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        shutil.rmtree(_ws_root, ignore_errors=True)
+
+    # ---- working units + autosave by mayatk's names (the shared Preferences panel's calls)
+    check("APP_NAME names Blender", btk.EnvUtils.APP_NAME == "Blender")
+    _units = bpy.context.scene.unit_settings
+    _prior_units = (_units.system, _units.length_unit)
+    try:
+        check(
+            "set_linear_unit('Centimeter') -> metric centimeters",
+            btk.EnvUtils.set_linear_unit("Centimeter") == "centimeter"
+            and (_units.system, _units.length_unit) == ("METRIC", "CENTIMETERS"),
+        )
+        check("get_linear_unit reads it back", btk.EnvUtils.get_linear_unit() == "centimeter")
+        btk.EnvUtils.set_linear_unit("foot")
+        check(
+            "set_linear_unit('foot') -> imperial feet",
+            (_units.system, _units.length_unit) == ("IMPERIAL", "FEET")
+            and btk.EnvUtils.get_linear_unit() == "foot",
+        )
+        try:
+            btk.EnvUtils.set_linear_unit("yard")
+            check("set_linear_unit('yard') raises (no Blender unit)", False)
+        except ValueError:
+            check("set_linear_unit('yard') raises (no Blender unit)", True)
+        _units.system, _units.length_unit = "METRIC", "ADAPTIVE"
+        check("get_linear_unit: Adaptive is None", btk.EnvUtils.get_linear_unit() is None)
+        check(
+            "SCENE_UNIT_VALUES are the units set_linear_unit takes",
+            set(btk.EnvUtils.SCENE_UNIT_VALUES) == set(btk.EnvUtils._LENGTH_UNITS),
+        )
+    finally:
+        _units.system, _units.length_unit = _prior_units
+    _rates = btk.EnvUtils.frame_rates()
+    check(
+        "frame_rates: the video rates by mayatk's names, no audio units",
+        _rates.get("film") == 24.0 and "44100fps" not in _rates and "48000fps" not in _rates,
+        f"{_rates}",
+    )
+    _paths = bpy.context.preferences.filepaths
+    _prior_save = (_paths.save_version, _paths.use_auto_save_temporary_files, _paths.auto_save_time)
+    try:
+        btk.EnvUtils.set_autosave_settings(max_backups=3, interval=0)
+        check(
+            "set_autosave_settings: versions kept, interval 0 turns Auto Save off",
+            _paths.save_version == 3
+            and not _paths.use_auto_save_temporary_files
+            and btk.EnvUtils.autosave_settings() == {"max_backups": 3, "interval": 0},
+        )
+        btk.EnvUtils.set_autosave_settings(interval=4)
+        check(
+            "set_autosave_settings: an interval turns Auto Save on",
+            _paths.use_auto_save_temporary_files
+            and btk.EnvUtils.autosave_settings()["interval"] == 4,
+        )
+    finally:
+        _paths.save_version, _paths.use_auto_save_temporary_files, _paths.auto_save_time = _prior_save
+
+    # ---- python_executable: the interpreter the shared updater drives pip with
+    _py = btk.EnvUtils.python_executable()
+    check("python_executable is an existing interpreter", bool(_py) and os.path.isfile(_py), f"{_py}")
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

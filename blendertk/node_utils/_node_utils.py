@@ -205,6 +205,34 @@ class NodeUtils(_NodeUtilsInternal):
         return stamped
 
     @staticmethod
+    @CoreUtils.undoable
+    def lock_nodes(objects=None, lock=True):
+        """Lock objects against accidental edits, or unlock them: Blender's
+        ``hide_select`` -- a locked object cannot be selected, so a stray click or box
+        select cannot grab, move or delete it. Mirror of mayatk's
+        ``NodeUtils.lock_nodes`` (``lockNode`` there; Blender locks no data).
+
+        Parameters:
+            objects (list/None): The objects. ``None`` takes the selection to lock,
+                and every object of the view layer to unlock (a locked object cannot
+                be selected to be named).
+            lock (bool): Lock, or unlock.
+
+        Returns:
+            list: The objects changed; ``[]`` locking with nothing selected.
+        """
+        if objects is None:
+            if lock:
+                objects = CoreUtils.selected_objects()
+            else:
+                layer = CoreUtils.active_view_layer()
+                objects = list(layer.objects) if layer is not None else []
+        objects = [o for o in ptk.make_iterable(objects) if o is not None]
+        for o in objects:
+            o.hide_select = lock
+        return objects
+
+    @staticmethod
     def is_locator(objects, filter: bool = False):
         """Whether each of *objects* (refs or names) is a locator.
 

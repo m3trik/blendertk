@@ -852,7 +852,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (415)
+## Added (442)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -956,9 +956,11 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `core_utils/_core_utils.py::CoreUtils.ensure_component_mode(object_type='mesh', component=None)`
 - `core_utils/_core_utils.py::CoreUtils.ensure_object_mode()`
 - `core_utils/_core_utils.py::CoreUtils.leaf_name(node) -> str`
+- `core_utils/_core_utils.py::CoreUtils.purge_unused_data(recursive=True, linked=True)`
 - `core_utils/_core_utils.py::CoreUtils.select(objects, mode: str = 'replace') -> list`
 - `core_utils/_core_utils.py::CoreUtils.selected(func: Callable) -> Callable`
 - `core_utils/_core_utils.py::CoreUtils.suspended_refresh()`
+- `core_utils/diagnostics/mesh_diag.py::MeshDiagnostics.cleanup_meshes(cls, scope='selected', repair=False, *, checks=(), area_tolerance=1e-05, edge_length_tolerance=1e-05, uv_area_tolerance=1e-05, merge_vertices=False, merge_distance=0.0001, delete_history=False, delete_loose=False, dissolve_degenerate=False, recalculate_normals=False, fill_holes=False, overlapping_faces=False, overlapping_objects=False, omit_selected=False)`
 - `core_utils/preview.py::Preview.apply_result_selection(widget, results)`
 - `display_utils/_display_utils.py::DisplayUtils.clear_xray()`
 - `display_utils/_display_utils.py::DisplayUtils.cycle_component_ids()`
@@ -986,16 +988,21 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `display_utils/exploded_view.py::ExplodedView.toggle_explode(self, objects: Optional[list] = None) -> list`
 - `display_utils/exploded_view.py::ExplodedView.un_explode(self, objects: Optional[list] = None) -> list`
 - `display_utils/exploded_view.py::ExplodedView.un_explode_all(self) -> list`
+- `edit_utils/_edit_utils.py::EditUtils.convert_objects(cls, objects, conversion)`
+- `edit_utils/_edit_utils.py::EditUtils.delete_selected()`
+- `edit_utils/_edit_utils.py::EditUtils.get_conversion_types(cls)`
 - `edit_utils/_edit_utils.py::EditUtils.get_symmetry()`
 - `edit_utils/_edit_utils.py::EditUtils.set_symmetry(axis=None, state=True, space=None)`
 - `edit_utils/components.py::Components(class)`
 - `edit_utils/components.py::Components.average_normals(objects, by_uv_shell=False)`
 - `edit_utils/components.py::Components.crease_edges(edges=None, amount=None, angle=None)`
+- `edit_utils/components.py::Components.get_transfer_types(cls)`
 - `edit_utils/components.py::Components.reverse_normals(objects, mode=0)`
 - `edit_utils/components.py::Components.set_edge_hardness(objects, angle_threshold, upper_hardness=None, lower_hardness=None, unlock_normals=False)`
 - `edit_utils/components.py::Components.set_edge_softness(objects, soft=True)`
 - `edit_utils/components.py::Components.set_to_face_normals(objects)`
 - `edit_utils/components.py::Components.toggle_normal_lock(objects)`
+- `edit_utils/components.py::Components.transfer(cls, objects, transfer_type)`
 - `edit_utils/components.py::Components.transfer_creased_edges(frm=None, to=None)`
 - `edit_utils/components.py::Components.transfer_mesh_data(objects, data_type, **options)`
 - `edit_utils/components.py::Components.transfer_normals(objects, space='world')`
@@ -1012,12 +1019,25 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `edit_utils/naming/_naming.py::Naming.scope_objects(cls, scene=False) -> List`
 - `edit_utils/naming/_naming.py::Naming.select_by_name(cls, pattern, regex=False, ignore_case=False, locators_only=False) -> Tuple[List, int]`
 - `edit_utils/naming/_naming.py::Naming.select_link(cls, obj) -> str`
+- `edit_utils/primitives.py::Primitives(class)`
+- `edit_utils/primitives.py::Primitives.create(cls, category, name)`
+- `edit_utils/primitives.py::Primitives.get_primitive_types(cls)`
 - `edit_utils/snap.py::Snap(class)`
 - `edit_utils/snap.py::Snap.snap_to_closest_vertex(obj1, obj2, tolerance=10.0)`
 - `edit_utils/snap.py::Snap.snap_to_grid(objects=None, grid_size=1.0, axes='xyz')`
 - `edit_utils/snap.py::Snap.snap_to_surface(source_meshes, target_mesh, offset=None, threshold=None, invert=False)`
 - `edit_utils/snap.py::Snap.source_and_target()`
+- `env_utils/_env_utils.py::EnvUtils.autosave_settings()`
+- `env_utils/_env_utils.py::EnvUtils.find_workspace_using_path(scene_path=None)`
+- `env_utils/_env_utils.py::EnvUtils.frame_rates()`
+- `env_utils/_env_utils.py::EnvUtils.get_linear_unit()`
+- `env_utils/_env_utils.py::EnvUtils.get_recent_projects(index=None, format='standard')`
+- `env_utils/_env_utils.py::EnvUtils.is_workspace(path)`
+- `env_utils/_env_utils.py::EnvUtils.python_executable()`
+- `env_utils/_env_utils.py::EnvUtils.saved_scene_path()`
 - `env_utils/_env_utils.py::EnvUtils.scene_status(scene=None)`
+- `env_utils/_env_utils.py::EnvUtils.set_autosave_settings(max_backups=None, interval=None)`
+- `env_utils/_env_utils.py::EnvUtils.set_linear_unit(unit)`
 - `env_utils/handoff_export.py::BridgeHost(class)`
 - `env_utils/handoff_export.py::BridgeHost.install_package(spec: str) -> None`
 - `env_utils/handoff_export.py::BridgeHost.resolve_scope(scope: str, bridge=None) -> List[Any]`
@@ -1192,6 +1212,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/texture_path_editor.py::TexturePathEditor.stored_path(self, node) -> str`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.texture_dir(self) -> str`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.unresolved_file_nodes(self, file_nodes)`
+- `node_utils/_node_utils.py::NodeUtils.lock_nodes(objects=None, lock=True)`
 - `node_utils/_node_utils.py::NodeUtils.select_instances(objects=None, whole_scene=False)`
 - `node_utils/_node_utils.py::NodeUtils.selection_summary(limit=10)`
 - `node_utils/attributes/channels/_channels.py::Channels.can_freeze_selection(cls, attr_names)`
@@ -1243,11 +1264,14 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `rig_utils/wheel_rig.py::WheelRig.from_selection(cls, rig_name=None, freeze_transforms=True, **kwargs)`
 - `rig_utils/wheel_rig.py::WheelRig.wheel_size(obj=None, movement_axis='translateZ')`
 - `ui_utils/_ui_utils.py::UiUtils.annotate(cls)`
+- `ui_utils/_ui_utils.py::UiUtils.browse_directory(start='', caption='Select Folder', ok_caption='Select')`
 - `ui_utils/_ui_utils.py::UiUtils.current_tool(cls)`
+- `ui_utils/_ui_utils.py::UiUtils.get_editor_categories(cls)`
 - `ui_utils/_ui_utils.py::UiUtils.get_operator(idname)`
 - `ui_utils/_ui_utils.py::UiUtils.get_tool_types(cls)`
 - `ui_utils/_ui_utils.py::UiUtils.invoke_operator_dialog(cls, idname, **props)`
 - `ui_utils/_ui_utils.py::UiUtils.open_pencil()`
+- `ui_utils/_ui_utils.py::UiUtils.open_preferences(cls, section=None)`
 - `ui_utils/_ui_utils.py::UiUtils.set_tool(cls, tool)`
 - `ui_utils/node_icons.py::NodeIcons.audio_icon(size: int = 16)`
 - `uv_utils/_uv_utils.py::UvUtils.move_to_uv_space(objects, u, v, relative=True)`
@@ -1269,6 +1293,9 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_transfer.py::TextureTransfer.meshes(objects) -> List[Any]`
 - `uv_utils/texture_transfer.py::TextureTransfer.selection_sides(cls, mode: str = 'auto', stored=()) -> Tuple[str, Optional[List[Any]], List[Any]]`
 - `uv_utils/texture_transfer.py::TextureTransfer.shader_types() -> Dict[str, str]`
+- `xform_utils/_xform_utils.py::XformUtils.bake_pivot(objects, position=False, orientation=False)`
+- `xform_utils/_xform_utils.py::XformUtils.reset_pivot(objects=None, position=True, orientation=True)`
+- `xform_utils/_xform_utils.py::XformUtils.world_align_pivot(objects=None, pivot_type='object', mode='set')`
 
 ## Deprecations (10)
 
@@ -1307,7 +1334,7 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/emissive_groups.py::EmissiveGroups.validate`
 - `ui_utils/blender_ui_handler.py::BlenderUiHandler.default_persistence`
 
-## Signature changed (21)
+## Signature changed (25)
 
 - `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.edit_frame_based`
   - was: `(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None) -> List[Target]`
@@ -1360,9 +1387,15 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `node_utils/attributes/channels/_channels.py::Channels.unfreeze_transforms`
   - was: `(cls, objects)`
   - now: `(cls, objects, attrs=None)`
+- `rig_utils/controls.py::Controls.create`
+  - was: `(cls, shape='circle', name='ctrl', size=1.0, axis='y', color=None, location=(0, 0, 0), group=False, collection=None, return_nodes=False)`
+  - now: `(cls, shape='circle', name='ctrl', size=1.0, axis='y', color=None, location=(0, 0, 0), group=False, collection=None, return_nodes=False, select=False)`
 - `rig_utils/wheel_rig.py::WheelRig.rig_rotation`
   - was: `(self, movement_axis: str = 'LOC_Z', rotation_index: int = None, wheel_height: float = 1.0, wheels: list = None, use_world_space: bool = False) -> list`
   - now: `(self, movement_axis: str = 'translateZ', rotation_axis=None, wheel_height: float = 1.0, wheels: list = None, use_world_space: bool = False) -> list`
+- `ui_utils/style_setter/_style_setter.py::StyleSetter.list_templates`
+  - was: `()`
+  - now: `(install_presets=True)`
 - `uv_utils/_uv_utils.py::UvUtils.distribute_uv_shells`
   - was: `(objects, axis='u')`
   - now: `(objects, axis='u', spacing=None)`
@@ -1372,3 +1405,9 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `uv_utils/texture_combine/texture_combine.py::TextureCombine.default_name`
   - was: `(self, transforms: Sequence[str]) -> str`
   - now: `(self, transforms: Sequence[str], fallback: str = 'combined') -> str`
+- `xform_utils/_xform_utils.py::XformUtils.center_pivot`
+  - was: `(objects, mode='object')`
+  - now: `(objects=None, mode='object')`
+- `xform_utils/_xform_utils.py::XformUtils.transfer_pivot`
+  - was: `(objects, translate=True, rotate=False, scale=False, world_space=True, mirror='', select_targets_after_transfer=False)`
+  - now: `(objects, translate=True, rotate=False, scale=False, bake=True, world_space=True, mirror='', select_targets_after_transfer=False)`

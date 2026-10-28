@@ -23,7 +23,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 445,
+          "line": 446,
           "deprecated": false
         }
       ]
@@ -3932,12 +3932,21 @@
               "deprecated": false
             },
             {
+              "name": "purge_unused_data",
+              "qualname": "CoreUtils.purge_unused_data",
+              "kind": "staticmethod",
+              "signature": "(recursive=True, linked=True)",
+              "summary": "Purge the data-blocks nothing uses -- meshes, materials, images and the",
+              "line": 1076,
+              "deprecated": false
+            },
+            {
               "name": "selected",
               "qualname": "CoreUtils.selected",
               "kind": "staticmethod",
               "signature": "(func: Callable) -> Callable",
               "summary": "Pass the selection (:meth:`selected_objects`) to *func*'s target parameter",
-              "line": 1076,
+              "line": 1097,
               "deprecated": false
             },
             {
@@ -3946,7 +3955,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The active view layer, resolved without depending on a context window",
-              "line": 1115,
+              "line": 1136,
               "deprecated": false
             },
             {
@@ -3955,7 +3964,7 @@
               "kind": "staticmethod",
               "signature": "(node) -> str",
               "summary": "*node*'s name as shown (mirror of mayatk's ``CoreUtils.leaf_name``, a DAG path's",
-              "line": 1124,
+              "line": 1145,
               "deprecated": false
             },
             {
@@ -3964,7 +3973,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The current object selection, filtered of ``None`` (mirror of Maya's",
-              "line": 1133,
+              "line": 1154,
               "deprecated": false
             },
             {
@@ -3973,7 +3982,7 @@
               "kind": "staticmethod",
               "signature": "(objects, mode: str = 'replace') -> list",
               "summary": "Set the object selection (Blender's counterpart of ``cmds.select``).",
-              "line": 1151,
+              "line": 1172,
               "deprecated": false
             },
             {
@@ -3982,7 +3991,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The active object, resolved window-independently (``view_layer.objects.active``).",
-              "line": 1192,
+              "line": 1213,
               "deprecated": false
             },
             {
@@ -3991,7 +4000,7 @@
               "kind": "staticmethod",
               "signature": "(object_type='mesh', component=None)",
               "summary": "Put an object of *object_type* into Edit Mode -- Maya's component mode --",
-              "line": 1204,
+              "line": 1225,
               "deprecated": false
             },
             {
@@ -4000,7 +4009,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Leave Edit (or any other) Mode for Object Mode -- Maya's object mode.",
-              "line": 1257,
+              "line": 1278,
               "deprecated": false
             },
             {
@@ -4009,7 +4018,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Restore the viewport selection after a scene-mutating block — mirror of",
-              "line": 1282,
+              "line": 1303,
               "deprecated": false
             },
             {
@@ -4018,7 +4027,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, method='name', reverse=False)",
               "summary": "Reorder a set of objects by a sorting method — mirror of ``mtk.reorder_objects``",
-              "line": 1333,
+              "line": 1354,
               "deprecated": false
             },
             {
@@ -4027,7 +4036,7 @@
               "kind": "staticmethod",
               "signature": "(area_type=None)",
               "summary": "All areas of ``area_type`` (``\"VIEW_3D\"``, ``\"IMAGE_EDITOR\"``, …) across every open",
-              "line": 1408,
+              "line": 1429,
               "deprecated": false
             },
             {
@@ -4036,7 +4045,7 @@
               "kind": "classmethod",
               "signature": "(cls, area_type=None) -> int",
               "summary": "Queue a redraw of every area of ``area_type`` (all areas when None);",
-              "line": 1431,
+              "line": 1452,
               "deprecated": false
             },
             {
@@ -4045,7 +4054,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Context-override dict targeting the first VIEW_3D area/region, or ``None`` if there is no",
-              "line": 1450,
+              "line": 1471,
               "deprecated": false
             },
             {
@@ -4054,7 +4063,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Yield with a valid ``window`` in context when ``bpy.context.window`` is ``None``.",
-              "line": 1480,
+              "line": 1501,
               "deprecated": false
             },
             {
@@ -4063,7 +4072,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Yield with *objects* -- and only them -- in Edit Mode;",
-              "line": 1517,
+              "line": 1538,
               "deprecated": false
             }
           ]
@@ -4464,7 +4473,7 @@
         {
           "name": "MeshDiagnostics",
           "summary": "Mesh problem-detection (mirror of mayatk's ``MeshDiagnostics``).",
-          "line": 75,
+          "line": 171,
           "bases": [
             "_MeshDiagnosticsInternal"
           ],
@@ -4475,7 +4484,16 @@
               "kind": "staticmethod",
               "signature": "(objects, *, ngons=False, nonmanifold=False, interior=False, nonplanar=False, loose=False, concave=False, quads=False, zero_area_faces=False, zero_length_edges=False, zero_uv_area=False, planar_tolerance=0.001, area_tolerance=1e-06, edge_length_tolerance=1e-06, uv_area_tolerance=1e-06, select=True)",
               "summary": "Find (and optionally **select**) problem mesh components — the diagnostic half of Maya's",
-              "line": 80,
+              "line": 176,
+              "deprecated": false
+            },
+            {
+              "name": "cleanup_meshes",
+              "qualname": "MeshDiagnostics.cleanup_meshes",
+              "kind": "classmethod",
+              "signature": "(cls, scope='selected', repair=False, *, checks=(), area_tolerance=1e-05, edge_length_tolerance=1e-05, uv_area_tolerance=1e-05, merge_vertices=False, merge_distance=0.0001, delete_history=False, delete_loose=False, dissolve_degenerate=False, recalculate_normals=False, fill_holes=False, overlapping_faces=False, overlapping_objects=False, omit_selected=False)",
+              "summary": "Mesh Cleanup: select, or repair, common topology problems on the meshes",
+              "line": 354,
               "deprecated": false
             }
           ]
@@ -4675,7 +4693,7 @@
         {
           "name": "ScriptJobManager",
           "summary": "Centralized Blender event dispatcher (mirror of mayatk's ``ScriptJobManager``).",
-          "line": 90,
+          "line": 98,
           "bases": [],
           "members": [
             {
@@ -4684,7 +4702,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> 'ScriptJobManager'",
               "summary": "Return the module-wide singleton, creating it on first access.",
-              "line": 101,
+              "line": 109,
               "deprecated": false
             },
             {
@@ -4693,7 +4711,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> None",
               "summary": "Tear down the singleton and allow a fresh one to be created (tests / reload).",
-              "line": 108,
+              "line": 116,
               "deprecated": false
             },
             {
@@ -4702,7 +4720,7 @@
               "kind": "method",
               "signature": "(self, event: str, callback: Callable, *, owner: Any = None, ephemeral: bool = False) -> int",
               "summary": "Register *callback* (called with no args) for a Maya-named *event*.",
-              "line": 131,
+              "line": 140,
               "deprecated": false
             },
             {
@@ -4711,7 +4729,7 @@
               "kind": "method",
               "signature": "(self, token: int) -> None",
               "summary": "Remove a single subscription by *token*.",
-              "line": 173,
+              "line": 185,
               "deprecated": false
             },
             {
@@ -4720,7 +4738,7 @@
               "kind": "method",
               "signature": "(self, owner: Any) -> None",
               "summary": "Remove every subscription registered under *owner*.",
-              "line": 189,
+              "line": 201,
               "deprecated": false
             },
             {
@@ -4729,7 +4747,7 @@
               "kind": "method",
               "signature": "(self, widget, owner: Any) -> None",
               "summary": "Connect *widget*.destroyed → :meth:`unsubscribe_all` for *owner* (Qt).",
-              "line": 194,
+              "line": 206,
               "deprecated": false
             },
             {
@@ -4738,7 +4756,7 @@
               "kind": "method",
               "signature": "(self, token: int) -> None",
               "summary": "Temporarily silence a subscription without removing it.",
-              "line": 207,
+              "line": 219,
               "deprecated": false
             },
             {
@@ -4747,7 +4765,7 @@
               "kind": "method",
               "signature": "(self, token: int) -> None",
               "summary": "Undo one :meth:`suppress`;",
-              "line": 216,
+              "line": 228,
               "deprecated": false
             },
             {
@@ -4756,7 +4774,7 @@
               "kind": "method",
               "signature": "(self, *tokens: Optional[int]) -> Iterator[None]",
               "summary": "Silence *tokens* for the duration of a ``with`` block (mirror of mayatk).",
-              "line": 225,
+              "line": 237,
               "deprecated": false
             },
             {
@@ -4765,7 +4783,7 @@
               "kind": "method",
               "signature": "(self) -> Dict[str, Any]",
               "summary": "Snapshot of installed handlers and current subscriptions.",
-              "line": 247,
+              "line": 259,
               "deprecated": false
             },
             {
@@ -4774,7 +4792,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Pretty-print :meth:`status` for interactive debugging.",
-              "line": 263,
+              "line": 275,
               "deprecated": false
             },
             {
@@ -4783,7 +4801,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Remove every installed master handler and drop all subscriptions.",
-              "line": 283,
+              "line": 295,
               "deprecated": false
             }
           ]
@@ -5866,12 +5884,39 @@
               "deprecated": false
             },
             {
+              "name": "delete_selected",
+              "qualname": "EditUtils.delete_selected",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "Delete the selection: in Edit Mode, the selected components of the active",
+              "line": 2384,
+              "deprecated": false
+            },
+            {
+              "name": "get_conversion_types",
+              "qualname": "EditUtils.get_conversion_types",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "The Convert menu: ``{label: object.convert target}`` in menu order, each",
+              "line": 2422,
+              "deprecated": false
+            },
+            {
+              "name": "convert_objects",
+              "qualname": "EditUtils.convert_objects",
+              "kind": "classmethod",
+              "signature": "(cls, objects, conversion)",
+              "summary": "Convert *objects* (``None``: the selection) by a :meth:`get_conversion_types`",
+              "line": 2433,
+              "deprecated": false
+            },
+            {
               "name": "loft",
               "qualname": "EditUtils.loft",
               "kind": "staticmethod",
               "signature": "(objects=None, *, close=False, reverse_normals=False, section_spans=1)",
               "summary": "Loft a mesh surface across a sequence of profile curves / mesh edge-loops — a Blender mesh",
-              "line": 2388,
+              "line": 2465,
               "deprecated": false
             }
           ]
@@ -5937,7 +5982,7 @@
         {
           "name": "Components",
           "summary": "Component-level mesh operations — mirror of mayatk's ``Components``.",
-          "line": 34,
+          "line": 56,
           "bases": [
             "_ComponentsInternal"
           ],
@@ -5948,7 +5993,7 @@
               "kind": "staticmethod",
               "signature": "(edges=None, amount=None, angle=None)",
               "summary": "Crease the meshes *edges* (subdivision sharpness): in Edit Mode their",
-              "line": 40,
+              "line": 62,
               "deprecated": false
             },
             {
@@ -5957,7 +6002,7 @@
               "kind": "staticmethod",
               "signature": "(frm=None, to=None)",
               "summary": "Copy the edge creases of the mesh *frm* to the meshes *to* with Blender's",
-              "line": 67,
+              "line": 89,
               "deprecated": false
             },
             {
@@ -5966,7 +6011,7 @@
               "kind": "staticmethod",
               "signature": "(objects, angle_threshold, upper_hardness=None, lower_hardness=None, unlock_normals=False)",
               "summary": "Mark edges hard or soft by their angle against ``angle_threshold``.",
-              "line": 95,
+              "line": 117,
               "deprecated": false
             },
             {
@@ -5975,7 +6020,7 @@
               "kind": "staticmethod",
               "signature": "(objects, by_uv_shell=False)",
               "summary": "Average the normals of *objects* (soften every edge);",
-              "line": 134,
+              "line": 156,
               "deprecated": false
             },
             {
@@ -5984,7 +6029,7 @@
               "kind": "staticmethod",
               "signature": "(objects, soft=True)",
               "summary": "Soften (``soft=True``, smooth shading) or harden the edge normals of",
-              "line": 142,
+              "line": 164,
               "deprecated": false
             },
             {
@@ -5993,7 +6038,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Set the vertex normals of *objects* to their faces' (flat shading);",
-              "line": 154,
+              "line": 176,
               "deprecated": false
             },
             {
@@ -6002,7 +6047,7 @@
               "kind": "staticmethod",
               "signature": "(objects, mode=0)",
               "summary": "Reverse the normals of *objects* by Maya's ``polyNormal`` modes:",
-              "line": 166,
+              "line": 188,
               "deprecated": false
             },
             {
@@ -6011,7 +6056,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Lock the normals of *objects* (bake them as custom split normals), or",
-              "line": 187,
+              "line": 209,
               "deprecated": false
             },
             {
@@ -6020,7 +6065,7 @@
               "kind": "staticmethod",
               "signature": "(objects, space='world')",
               "summary": "Transfer normals from the first mesh of *objects* to the rest, as",
-              "line": 206,
+              "line": 228,
               "deprecated": false
             },
             {
@@ -6029,7 +6074,25 @@
               "kind": "staticmethod",
               "signature": "(objects, data_type, **options)",
               "summary": "Copy *data_type* from the first mesh of *objects* to the rest with Blender's",
-              "line": 239,
+              "line": 261,
+              "deprecated": false
+            },
+            {
+              "name": "get_transfer_types",
+              "qualname": "Components.get_transfer_types",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "The Transfer menu: ``{label: what it copies}`` in menu order, each a",
+              "line": 332,
+              "deprecated": false
+            },
+            {
+              "name": "transfer",
+              "qualname": "Components.transfer",
+              "kind": "classmethod",
+              "signature": "(cls, objects, transfer_type)",
+              "summary": "Copy a :meth:`get_transfer_types` layer from the first mesh of *objects*",
+              "line": 340,
               "deprecated": false
             }
           ]
@@ -7072,6 +7135,42 @@
       "constants": []
     },
     {
+      "relpath": "edit_utils/primitives.py",
+      "summary": "Primitive creation -- mirror of mayatk's ``edit_utils.primitives.Primitives``.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Primitives",
+          "summary": "Primitive creation (mirror of mayatk's ``Primitives``).",
+          "line": 99,
+          "bases": [
+            "_PrimitivesInternal"
+          ],
+          "members": [
+            {
+              "name": "get_primitive_types",
+              "qualname": "Primitives.get_primitive_types",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "The Create menu: ``{category: [label, ...]}`` in menu order, each label an",
+              "line": 103,
+              "deprecated": false
+            },
+            {
+              "name": "create",
+              "qualname": "Primitives.create",
+              "kind": "classmethod",
+              "signature": "(cls, category, name)",
+              "summary": "Make one Create-menu item (:meth:`get_primitive_types`): a new object,",
+              "line": 117,
+              "deprecated": false
+            }
+          ]
+        }
+      ],
+      "constants": []
+    },
+    {
       "relpath": "edit_utils/selection.py",
       "summary": "Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``",
       "functions": [],
@@ -7538,7 +7637,7 @@
               "kind": "staticmethod",
               "signature": "(root_dir, recursive=True, filter_text='')",
               "summary": "Every ``.blend`` file under ``root_dir`` (recursively by default), optionally name-filtered.",
-              "line": 136,
+              "line": 164,
               "deprecated": false
             },
             {
@@ -7547,7 +7646,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Every linked library as a record: ``{name, library, filepath, abspath, exists}``.",
-              "line": 173,
+              "line": 201,
               "deprecated": false
             },
             {
@@ -7556,7 +7655,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Set of normalized absolute paths of the ``.blend`` files currently linked as",
-              "line": 193,
+              "line": 221,
               "deprecated": false
             },
             {
@@ -7565,7 +7664,7 @@
               "kind": "staticmethod",
               "signature": "(path)",
               "summary": "True iff ``path`` is already linked as a library.",
-              "line": 203,
+              "line": 231,
               "deprecated": false
             },
             {
@@ -7574,7 +7673,7 @@
               "kind": "staticmethod",
               "signature": "(path, link=True, instance=True, target_collection=None, relative=False)",
               "summary": "Link (or append, ``link=False``) every collection from ``path`` and instance them into the",
-              "line": 211,
+              "line": 239,
               "deprecated": false
             },
             {
@@ -7583,7 +7682,7 @@
               "kind": "staticmethod",
               "signature": "(library)",
               "summary": "Reload a library from disk (``library`` is a datablock or its name).",
-              "line": 262,
+              "line": 290,
               "deprecated": false
             },
             {
@@ -7592,7 +7691,7 @@
               "kind": "staticmethod",
               "signature": "(library)",
               "summary": "Remove a library and everything linked from it (datablock or name).",
-              "line": 276,
+              "line": 304,
               "deprecated": false
             },
             {
@@ -7601,7 +7700,7 @@
               "kind": "staticmethod",
               "signature": "(library, scene_data='merge')",
               "summary": "Make every datablock linked from ``library`` **local** (a native, editable copy) and drop the",
-              "line": 304,
+              "line": 332,
               "deprecated": false
             },
             {
@@ -7610,7 +7709,7 @@
               "kind": "staticmethod",
               "signature": "(root=None)",
               "summary": "Pin (or clear, with None) the session's current workspace — the Blender analogue of",
-              "line": 445,
+              "line": 473,
               "deprecated": false
             },
             {
@@ -7619,7 +7718,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "The active ``pythontk.Workspace``, or None.",
-              "line": 454,
+              "line": 482,
               "deprecated": false
             },
             {
@@ -7628,7 +7727,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "Absolute root of the current workspace, or '' — what ``get_env_info(\"workspace\")``",
-              "line": 479,
+              "line": 507,
               "deprecated": false
             },
             {
@@ -7637,7 +7736,7 @@
               "kind": "staticmethod",
               "signature": "(scene: str, source: Optional[str] = None) -> Optional[str]",
               "summary": "Moved to :meth:`DataNodes.set_scene_source`, which records the stand-in",
-              "line": 491,
+              "line": 519,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -7647,7 +7746,7 @@
               "kind": "staticmethod",
               "signature": "(scene: Optional[str] = None) -> Optional[str]",
               "summary": "Moved to :meth:`DataNodes.twin_save_target`.",
-              "line": 502,
+              "line": 530,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -7657,7 +7756,7 @@
               "kind": "staticmethod",
               "signature": "(scene: Optional[str] = None) -> Optional[str]",
               "summary": "Moved to :meth:`DataNodes.scene_source`.",
-              "line": 512,
+              "line": 540,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -7667,7 +7766,7 @@
               "kind": "staticmethod",
               "signature": "() -> Optional[str]",
               "summary": "Moved to :meth:`DataNodes.scene_project_root`.",
-              "line": 522,
+              "line": 550,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -7677,7 +7776,7 @@
               "kind": "staticmethod",
               "signature": "() -> Optional[ptk.Workspace]",
               "summary": "Moved to :meth:`DataNodes.scene_workspace`.",
-              "line": 532,
+              "line": 560,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -7687,7 +7786,7 @@
               "kind": "staticmethod",
               "signature": "(subfolder: str = '', create: bool = False) -> str",
               "summary": "Moved to :meth:`DataNodes.scene_source_images_dir`.",
-              "line": 542,
+              "line": 570,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -7697,7 +7796,7 @@
               "kind": "staticmethod",
               "signature": "(suffix: str) -> str",
               "summary": "A file named for the open .blend, beside it: ``<blend dir>/<stem><suffix>``.",
-              "line": 549,
+              "line": 577,
               "deprecated": false
             },
             {
@@ -7706,7 +7805,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "The current workspace's texture folder — its ``sourceImages`` rule → an existing",
-              "line": 567,
+              "line": 595,
               "deprecated": false
             },
             {
@@ -7715,7 +7814,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "Where this scene's map files can be found NOW, most specific first.",
-              "line": 578,
+              "line": 606,
               "deprecated": false
             },
             {
@@ -7724,7 +7823,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "The current workspace's scene folder (``scene`` rule → existing ``scenes`` → the root),",
-              "line": 612,
+              "line": 640,
               "deprecated": false
             },
             {
@@ -7733,7 +7832,7 @@
               "kind": "staticmethod",
               "signature": "(root)",
               "summary": "The scene-rule folder of a *marked* workspace at ``root`` (absolute), or '' when",
-              "line": 619,
+              "line": 647,
               "deprecated": false
             },
             {
@@ -7742,7 +7841,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Saved workspace-template names (the Workspace Editor's Save Template entries) —",
-              "line": 632,
+              "line": 660,
               "deprecated": false
             },
             {
@@ -7751,7 +7850,7 @@
               "kind": "staticmethod",
               "signature": "(name=None)",
               "summary": "File rules for building a NEW workspace: the *name*d (default: active / last-saved)",
-              "line": 638,
+              "line": 666,
               "deprecated": false
             },
             {
@@ -7760,7 +7859,7 @@
               "kind": "staticmethod",
               "signature": "(name, rules=None)",
               "summary": "Save *rules* as workspace template *name* and make it the active default for new",
-              "line": 645,
+              "line": 673,
               "deprecated": false
             },
             {
@@ -7769,7 +7868,7 @@
               "kind": "staticmethod",
               "signature": "(name)",
               "summary": "Delete the user template *name* (the store keeps the active pointer consistent).",
-              "line": 659,
+              "line": 687,
               "deprecated": false
             },
             {
@@ -7778,7 +7877,7 @@
               "kind": "staticmethod",
               "signature": "(root, rules=None, create_dirs=True)",
               "summary": "Create a marked workspace at ``root`` — the Blender counterpart of Maya's File ▸",
-              "line": 665,
+              "line": 693,
               "deprecated": false
             },
             {
@@ -7787,7 +7886,7 @@
               "kind": "staticmethod",
               "signature": "(root=None)",
               "summary": "Mark ``root`` (default: the current workspace folder) as a shared Maya/Blender project",
-              "line": 677,
+              "line": 705,
               "deprecated": false
             },
             {
@@ -7796,7 +7895,52 @@
               "kind": "staticmethod",
               "signature": "(root_dir, recursive=False)",
               "summary": "Project folders under ``root_dir`` — marked workspaces (a ``workspace.mel`` at their",
-              "line": 691,
+              "line": 719,
+              "deprecated": false
+            },
+            {
+              "name": "is_workspace",
+              "qualname": "EnvUtils.is_workspace",
+              "kind": "staticmethod",
+              "signature": "(path)",
+              "summary": "True if *path* is a workspace root this session opens as it is: marked by",
+              "line": 739,
+              "deprecated": false
+            },
+            {
+              "name": "saved_scene_path",
+              "qualname": "EnvUtils.saved_scene_path",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "The open .blend's path, or ``\"\"`` when it has never been saved.",
+              "line": 749,
+              "deprecated": false
+            },
+            {
+              "name": "get_recent_projects",
+              "qualname": "EnvUtils.get_recent_projects",
+              "kind": "staticmethod",
+              "signature": "(index=None, format='standard')",
+              "summary": "Recently used workspaces, most recent first: the folders of Blender's",
+              "line": 757,
+              "deprecated": false
+            },
+            {
+              "name": "find_workspace_using_path",
+              "qualname": "EnvUtils.find_workspace_using_path",
+              "kind": "staticmethod",
+              "signature": "(scene_path=None)",
+              "summary": "The workspace that holds *scene_path* (default: the open .blend): the",
+              "line": 794,
+              "deprecated": false
+            },
+            {
+              "name": "python_executable",
+              "qualname": "EnvUtils.python_executable",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "Blender's bundled interpreter (``<python>/bin/python``;",
+              "line": 813,
               "deprecated": false
             },
             {
@@ -7805,7 +7949,7 @@
               "kind": "staticmethod",
               "signature": "(path)",
               "summary": "Open a .blend file (replaces the current file — Maya's ``file -open``).",
-              "line": 711,
+              "line": 822,
               "deprecated": false
             },
             {
@@ -7814,7 +7958,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Discard the current file and start an empty, unsaved scene (Maya's ``file -new``).",
-              "line": 724,
+              "line": 835,
               "deprecated": false
             },
             {
@@ -7823,7 +7967,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "True if the open file holds authored data — anything beyond Blender's *default",
-              "line": 740,
+              "line": 851,
               "deprecated": false
             },
             {
@@ -7832,7 +7976,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "True if replacing the open file (open / close / new) would lose work.",
-              "line": 757,
+              "line": 868,
               "deprecated": false
             },
             {
@@ -7841,7 +7985,7 @@
               "kind": "staticmethod",
               "signature": "(scene=None)",
               "summary": "The scene's modelling and session state as plain values: what a",
-              "line": 801,
+              "line": 912,
               "deprecated": false
             },
             {
@@ -7850,7 +7994,7 @@
               "kind": "staticmethod",
               "signature": "(scene=None)",
               "summary": "The live scene's time setup as the bridges' ``scene`` record (see",
-              "line": 857,
+              "line": 968,
               "deprecated": false
             },
             {
@@ -7859,7 +8003,52 @@
               "kind": "staticmethod",
               "signature": "(settings, scene=None)",
               "summary": "Apply a ``scene`` record (any subset of :attr:`SCENE_SETTINGS_KEYS`) to the live",
-              "line": 882,
+              "line": 993,
+              "deprecated": false
+            },
+            {
+              "name": "get_linear_unit",
+              "qualname": "EnvUtils.get_linear_unit",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "The scene's linear unit by mayatk's name (``\"centimeter\"``), a key of",
+              "line": 1040,
+              "deprecated": false
+            },
+            {
+              "name": "set_linear_unit",
+              "qualname": "EnvUtils.set_linear_unit",
+              "kind": "staticmethod",
+              "signature": "(unit)",
+              "summary": "Set the scene's unit system and length unit from mayatk's unit name, in",
+              "line": 1054,
+              "deprecated": false
+            },
+            {
+              "name": "frame_rates",
+              "qualname": "EnvUtils.frame_rates",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "``{rate name: fps}`` for the frame rates a Blender scene takes: the video",
+              "line": 1079,
+              "deprecated": false
+            },
+            {
+              "name": "autosave_settings",
+              "qualname": "EnvUtils.autosave_settings",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "Blender's autosave as mayatk's ``{\"max_backups\", \"interval\"}``: the",
+              "line": 1090,
+              "deprecated": false
+            },
+            {
+              "name": "set_autosave_settings",
+              "qualname": "EnvUtils.set_autosave_settings",
+              "kind": "staticmethod",
+              "signature": "(max_backups=None, interval=None)",
+              "summary": "Set Blender's backup versions (*max_backups*) and Auto Save timer",
+              "line": 1106,
               "deprecated": false
             },
             {
@@ -7868,7 +8057,7 @@
               "kind": "staticmethod",
               "signature": "(name, case=None, suffix='')",
               "summary": "Apply a naming convention to a base scene name — ``case`` via :meth:`pythontk.StrUtils.set_case`",
-              "line": 929,
+              "line": 1121,
               "deprecated": false
             },
             {
@@ -7877,7 +8066,7 @@
               "kind": "staticmethod",
               "signature": "(directory, name, case=None, suffix='', subfolder='')",
               "summary": "The absolute ``.blend`` path :meth:`save_scene_as` would write — the pure",
-              "line": 947,
+              "line": 1139,
               "deprecated": false
             },
             {
@@ -7886,7 +8075,7 @@
               "kind": "staticmethod",
               "signature": "(directory, name, case=None, suffix='', subfolder='', overwrite=True)",
               "summary": "Save the current scene as a .blend under ``directory`` with naming conventions applied —",
-              "line": 983,
+              "line": 1175,
               "deprecated": false
             },
             {
@@ -7895,7 +8084,7 @@
               "kind": "staticmethod",
               "signature": "(file_path=None, *, selection_only=False, materials=True, smoothing=True, normals=True, groups=True)",
               "summary": "Export the scene as a Wavefront OBJ — mirror of mayatk's ``export_scene_as_obj``.",
-              "line": 1014,
+              "line": 1206,
               "deprecated": false
             },
             {
@@ -7904,7 +8093,7 @@
               "kind": "staticmethod",
               "signature": "(path, new_base)",
               "summary": "Rename a .blend on disk (and its ``.blend1`` backup) — mirror of mayatk's ``rename_scene``.",
-              "line": 1078,
+              "line": 1270,
               "deprecated": false
             },
             {
@@ -7913,7 +8102,7 @@
               "kind": "staticmethod",
               "signature": "(path, permanent: bool = False)",
               "summary": "Move a .blend (and its ``.blend1`` backup) to the trash — mirror of mayatk's",
-              "line": 1119,
+              "line": 1311,
               "deprecated": false
             },
             {
@@ -7922,7 +8111,7 @@
               "kind": "staticmethod",
               "signature": "(library, mode)",
               "summary": "Set the display override for a linked library's objects — mirror of mayatk's",
-              "line": 1160,
+              "line": 1352,
               "deprecated": false
             },
             {
@@ -7931,7 +8120,7 @@
               "kind": "staticmethod",
               "signature": "(library)",
               "summary": "Return the active display mode (``\"off\"`` / ``\"reference\"`` / ``\"template\"``) for a linked",
-              "line": 1185,
+              "line": 1377,
               "deprecated": false
             }
           ]
@@ -17183,12 +17372,21 @@
               "deprecated": false
             },
             {
+              "name": "lock_nodes",
+              "qualname": "NodeUtils.lock_nodes",
+              "kind": "staticmethod",
+              "signature": "(objects=None, lock=True)",
+              "summary": "Lock objects against accidental edits, or unlock them: Blender's",
+              "line": 209,
+              "deprecated": false
+            },
+            {
               "name": "is_locator",
               "qualname": "NodeUtils.is_locator",
               "kind": "staticmethod",
               "signature": "(objects, filter: bool = False)",
               "summary": "Whether each of *objects* (refs or names) is a locator.",
-              "line": 208,
+              "line": 236,
               "deprecated": false
             },
             {
@@ -17197,7 +17395,7 @@
               "kind": "staticmethod",
               "signature": "(objects) -> List[Any]",
               "summary": "*objects* with every collection replaced by the objects in it.",
-              "line": 226,
+              "line": 254,
               "deprecated": false
             },
             {
@@ -17206,7 +17404,7 @@
               "kind": "staticmethod",
               "signature": "(objects, filter: bool = False)",
               "summary": "Whether each of *objects* (refs or names) is a group.",
-              "line": 258,
+              "line": 286,
               "deprecated": false
             },
             {
@@ -17215,7 +17413,7 @@
               "kind": "staticmethod",
               "signature": "(limit=10)",
               "summary": "What is selected, as plain values: what a status readout (tentacle's",
-              "line": 277,
+              "line": 305,
               "deprecated": false
             },
             {
@@ -17224,7 +17422,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Return objects that share their data with another object (Maya-style instances).",
-              "line": 345,
+              "line": 373,
               "deprecated": false
             },
             {
@@ -17233,7 +17431,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, whole_scene=False)",
               "summary": "Select *objects* together with every object sharing their data, or",
-              "line": 369,
+              "line": 397,
               "deprecated": false
             },
             {
@@ -17242,7 +17440,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, freeze_transforms=False, center_pivot=False, delete_history=False, retain_bbox_scale=False, retain_bbox_per_axis=False)",
               "summary": "Make ``objects[1:]`` instances of ``objects[0]`` by sharing its data — Blender's linked",
-              "line": 392,
+              "line": 420,
               "deprecated": false
             },
             {
@@ -17251,7 +17449,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, freeze=False)",
               "summary": "Break the instance link — make each object's data single-user (mirror of ``mtk.uninstance``).",
-              "line": 490,
+              "line": 518,
               "deprecated": false
             },
             {
@@ -17260,7 +17458,7 @@
               "kind": "staticmethod",
               "signature": "(obj, all=False)",
               "summary": "The object's parent — mirror of ``mtk.get_parent``.",
-              "line": 703,
+              "line": 731,
               "deprecated": false
             },
             {
@@ -17269,7 +17467,7 @@
               "kind": "staticmethod",
               "signature": "(obj, recursive=False)",
               "summary": "The object's children — mirror of ``mtk.get_children``.",
-              "line": 716,
+              "line": 744,
               "deprecated": false
             },
             {
@@ -17278,7 +17476,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "The object's data datablock (mesh/curve/…) — the Blender analogue of Maya's shape node",
-              "line": 724,
+              "line": 752,
               "deprecated": false
             },
             {
@@ -17287,7 +17485,7 @@
               "kind": "staticmethod",
               "signature": "(objects, parent, keep_transform=True)",
               "summary": "Parent ``objects`` under ``parent`` (``None`` to unparent) — mirror of ``mtk.reparent``.",
-              "line": 731,
+              "line": 759,
               "deprecated": false
             }
           ]
@@ -19144,14 +19342,14 @@
         {
           "name": "ControlNodes",
           "summary": "Return bundle of :meth:`Controls.create` — mirror of mayatk's ``ControlNodes``.",
-          "line": 31,
+          "line": 32,
           "bases": [],
           "members": []
         },
         {
           "name": "Controls",
           "summary": "Rig control-shape factory (curve-object widgets) — Blender mirror of mayatk's ``Controls``.",
-          "line": 163,
+          "line": 164,
           "bases": [
             "_ControlsInternal"
           ],
@@ -19162,7 +19360,7 @@
               "kind": "classmethod",
               "signature": "(cls, name, builder)",
               "summary": "Register a custom shape *builder* (``() -> List[(points, cyclic)]``, pure geometry in the",
-              "line": 186,
+              "line": 187,
               "deprecated": false
             },
             {
@@ -19171,16 +19369,16 @@
               "kind": "classmethod",
               "signature": "(cls) -> List[str]",
               "summary": "Sorted names of the registered shapes (for a UI combo / validation).",
-              "line": 192,
+              "line": 193,
               "deprecated": false
             },
             {
               "name": "create",
               "qualname": "Controls.create",
               "kind": "classmethod",
-              "signature": "(cls, shape='circle', name='ctrl', size=1.0, axis='y', color=None, location=(0, 0, 0), group=False, collection=None, return_nodes=False)",
+              "signature": "(cls, shape='circle', name='ctrl', size=1.0, axis='y', color=None, location=(0, 0, 0), group=False, collection=None, return_nodes=False, select=False)",
               "summary": "Build a control curve object in *shape*, scaled by *size*, oriented by *axis*, optionally",
-              "line": 210,
+              "line": 212,
               "deprecated": false
             }
           ]
@@ -20610,7 +20808,7 @@
         {
           "name": "UiUtils",
           "summary": "Namespace mirror (helpers also exposed module-level).",
-          "line": 149,
+          "line": 197,
           "bases": [
             "_UiUtilsInternal"
           ],
@@ -20621,7 +20819,16 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The friendly-name → ``Area.ui_type`` map understood by :func:`open_editor`.",
-              "line": 153,
+              "line": 201,
+              "deprecated": false
+            },
+            {
+              "name": "get_editor_categories",
+              "qualname": "UiUtils.get_editor_categories",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "``{category: [editor name, ...]}``: the editors a browsing UI lists, each",
+              "line": 239,
               "deprecated": false
             },
             {
@@ -20630,7 +20837,16 @@
               "kind": "staticmethod",
               "signature": "(editor, properties_context=None)",
               "summary": "Open ``editor`` (a friendly name from :data:`EDITOR_TYPES` or a raw ``ui_type``)",
-              "line": 158,
+              "line": 249,
+              "deprecated": false
+            },
+            {
+              "name": "open_preferences",
+              "qualname": "UiUtils.open_preferences",
+              "kind": "classmethod",
+              "signature": "(cls, section=None)",
+              "summary": "Open Blender's Preferences editor on *section*'s tab: ``\"general\"`` (the",
+              "line": 328,
               "deprecated": false
             },
             {
@@ -20639,7 +20855,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Select *objects* (names or Objects) and scroll the Outliner to the active one.",
-              "line": 228,
+              "line": 366,
               "deprecated": false
             },
             {
@@ -20648,7 +20864,16 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The main Blender window (the first;",
-              "line": 267,
+              "line": 405,
+              "deprecated": false
+            },
+            {
+              "name": "browse_directory",
+              "qualname": "UiUtils.browse_directory",
+              "kind": "staticmethod",
+              "signature": "(start='', caption='Select Folder', ok_caption='Select')",
+              "summary": "Pick a directory in the platform's folder dialog (Qt);",
+              "line": 413,
               "deprecated": false
             },
             {
@@ -20657,7 +20882,7 @@
               "kind": "staticmethod",
               "signature": "(editor, window=None)",
               "summary": "Open areas showing ``editor`` (friendly name or raw ``ui_type``) as ``(window, area)`` pairs.",
-              "line": 275,
+              "line": 423,
               "deprecated": false
             },
             {
@@ -20666,7 +20891,7 @@
               "kind": "staticmethod",
               "signature": "(window, area)",
               "summary": "Close exactly ``area`` in ``window`` via ``screen.area_close``;",
-              "line": 290,
+              "line": 438,
               "deprecated": false
             },
             {
@@ -20675,7 +20900,7 @@
               "kind": "staticmethod",
               "signature": "(editor, window=None)",
               "summary": "Close every open area showing ``editor`` in the (main) window;",
-              "line": 327,
+              "line": 475,
               "deprecated": false
             },
             {
@@ -20684,7 +20909,7 @@
               "kind": "staticmethod",
               "signature": "(editor, edge_size=70, window=None)",
               "summary": "Dock ``editor`` as a strip along the bottom of the main 3D viewport — the Blender analogue",
-              "line": 347,
+              "line": 495,
               "deprecated": false
             },
             {
@@ -20693,7 +20918,7 @@
               "kind": "staticmethod",
               "signature": "(editor, edge_size=70, window=None)",
               "summary": "Maya-style *docked* toggle for ``editor`` (backs the editors-menu Time & Range button).",
-              "line": 396,
+              "line": 544,
               "deprecated": false
             },
             {
@@ -20702,7 +20927,7 @@
               "kind": "staticmethod",
               "signature": "(editor=None, hide_panels=True, window=None)",
               "summary": "Toggle fullscreen-area mode — one editor fills the window (Ctrl+Alt+Space).",
-              "line": 422,
+              "line": 570,
               "deprecated": false
             },
             {
@@ -20711,7 +20936,7 @@
               "kind": "staticmethod",
               "signature": "(visible=None, window=None)",
               "summary": "Show/hide the main window's topbar (File/Edit/Render… menus + workspace tabs) and",
-              "line": 472,
+              "line": 620,
               "deprecated": false
             },
             {
@@ -20720,7 +20945,7 @@
               "kind": "staticmethod",
               "signature": "(menu_idname)",
               "summary": "True if ``menu_idname`` (e.g.",
-              "line": 546,
+              "line": 694,
               "deprecated": false
             },
             {
@@ -20729,7 +20954,7 @@
               "kind": "staticmethod",
               "signature": "(idname)",
               "summary": "The ``bpy.ops`` callable for a dotted operator id (``\"wm.link\"``), or None",
-              "line": 557,
+              "line": 705,
               "deprecated": false
             },
             {
@@ -20738,7 +20963,7 @@
               "kind": "classmethod",
               "signature": "(cls, idname, **props)",
               "summary": "Invoke an operator by dotted id as a menu click does (``INVOKE_DEFAULT``):",
-              "line": 580,
+              "line": 728,
               "deprecated": false
             },
             {
@@ -20747,7 +20972,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "The friendly-name -> ``(tool idname, object type)`` map understood by",
-              "line": 624,
+              "line": 772,
               "deprecated": false
             },
             {
@@ -20756,7 +20981,7 @@
               "kind": "classmethod",
               "signature": "(cls, tool)",
               "summary": "Activate a viewport tool: a friendly name from :meth:`get_tool_types`, or a",
-              "line": 631,
+              "line": 779,
               "deprecated": false
             },
             {
@@ -20765,7 +20990,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "The 3D viewport's active tool: its friendly name from :meth:`get_tool_types`,",
-              "line": 681,
+              "line": 829,
               "deprecated": false
             },
             {
@@ -20774,7 +20999,7 @@
               "kind": "staticmethod",
               "signature": "(url, logger=None) -> bool",
               "summary": "Handle ``action://`` links emitted by ``logger.log_link()`` in a QTextBrowser.",
-              "line": 703,
+              "line": 851,
               "deprecated": false
             },
             {
@@ -20783,7 +21008,7 @@
               "kind": "staticmethod",
               "signature": "(menu_idname)",
               "summary": "Pop Blender's own native menu ``menu_idname`` (e.g.",
-              "line": 833,
+              "line": 981,
               "deprecated": false
             },
             {
@@ -20792,7 +21017,7 @@
               "kind": "staticmethod",
               "signature": "(text, title='Info', icon='INFO')",
               "summary": "Show a small native Blender info popup at the cursor (multi-line ``text`` supported).",
-              "line": 859,
+              "line": 1007,
               "deprecated": false
             },
             {
@@ -20801,7 +21026,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Activate Blender's Annotate tool (freehand notes over the viewport).",
-              "line": 889,
+              "line": 1037,
               "deprecated": false
             },
             {
@@ -20810,7 +21035,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Add an empty Grease Pencil object to draw into: Blender's pencil is an",
-              "line": 905,
+              "line": 1053,
               "deprecated": false
             }
           ]
@@ -21423,7 +21648,7 @@
               "name": "list_templates",
               "qualname": "StyleSetter.list_templates",
               "kind": "staticmethod",
-              "signature": "()",
+              "signature": "(install_presets=True)",
               "summary": "Ordered ``{display_name: filepath}`` of every native ``interface_theme`` preset the Themes",
               "line": 193,
               "deprecated": false
@@ -21434,7 +21659,7 @@
               "kind": "staticmethod",
               "signature": "(filepath)",
               "summary": "Apply any native theme preset by its ``.xml`` filepath (the token from :func:`list_templates`)",
-              "line": 212,
+              "line": 216,
               "deprecated": false
             },
             {
@@ -21443,7 +21668,7 @@
               "kind": "staticmethod",
               "signature": "(name)",
               "summary": "Apply a shipped/installed theme preset by NAME (not path).",
-              "line": 222,
+              "line": 226,
               "deprecated": false
             },
             {
@@ -21452,7 +21677,7 @@
               "kind": "staticmethod",
               "signature": "(name, install_presets=True, persist=False)",
               "summary": "Switch Blender's UI to the named shipped style (e.g.",
-              "line": 237,
+              "line": 241,
               "deprecated": false
             }
           ]
@@ -22775,18 +23000,45 @@
               "name": "center_pivot",
               "qualname": "XformUtils.center_pivot",
               "kind": "staticmethod",
-              "signature": "(objects, mode='object')",
+              "signature": "(objects=None, mode='object')",
               "summary": "Move each object's origin (Blender's single pivot) — mirror of Maya's Center Pivot.",
-              "line": 568,
+              "line": 569,
               "deprecated": false
             },
             {
               "name": "transfer_pivot",
               "qualname": "XformUtils.transfer_pivot",
               "kind": "staticmethod",
-              "signature": "(objects, translate=True, rotate=False, scale=False, world_space=True, mirror='', select_targets_after_transfer=False)",
+              "signature": "(objects, translate=True, rotate=False, scale=False, bake=True, world_space=True, mirror='', select_targets_after_transfer=False)",
               "summary": "Transfer the object **origin** from the first object to the rest — mirror of Maya's",
-              "line": 607,
+              "line": 616,
+              "deprecated": false
+            },
+            {
+              "name": "reset_pivot",
+              "qualname": "XformUtils.reset_pivot",
+              "kind": "staticmethod",
+              "signature": "(objects=None, position=True, orientation=True)",
+              "summary": "Reset the pivot: Blender's single origin back on the geometry's",
+              "line": 693,
+              "deprecated": false
+            },
+            {
+              "name": "world_align_pivot",
+              "qualname": "XformUtils.world_align_pivot",
+              "kind": "staticmethod",
+              "signature": "(objects=None, pivot_type='object', mode='set')",
+              "summary": "World-align the pivot.",
+              "line": 714,
+              "deprecated": false
+            },
+            {
+              "name": "bake_pivot",
+              "qualname": "XformUtils.bake_pivot",
+              "kind": "staticmethod",
+              "signature": "(objects, position=False, orientation=False)",
+              "summary": "Bake Blender's temporary pivot, the 3D cursor, into the objects' origins",
+              "line": 784,
               "deprecated": false
             },
             {
@@ -22795,7 +23047,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Center-pivot mode keys understood by :func:`center_pivot`.",
-              "line": 665,
+              "line": 802,
               "deprecated": false
             },
             {
@@ -22804,7 +23056,7 @@
               "kind": "staticmethod",
               "signature": "(source, target, average=True)",
               "summary": "Uniformly rescale ``source`` object(s) to match ``target``'s bounding-box size.",
-              "line": 670,
+              "line": 807,
               "deprecated": false
             },
             {
@@ -22813,7 +23065,7 @@
               "kind": "staticmethod",
               "signature": "(source, target, pivot='center')",
               "summary": "Move ``source`` object(s) so their pivot aligns with the ``target``'s pivot point.",
-              "line": 687,
+              "line": 824,
               "deprecated": false
             },
             {
@@ -22822,7 +23074,7 @@
               "kind": "staticmethod",
               "signature": "(objects, value='', world_space=True)",
               "summary": "Combined bounding box of ``objects`` — mirror of ``mtk.get_bounding_box`` (name + behavior).",
-              "line": 705,
+              "line": 842,
               "deprecated": false
             },
             {
@@ -22831,7 +23083,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Bounding-box center of ``objects`` as an ``(x, y, z)`` tuple (mirror of",
-              "line": 745,
+              "line": 882,
               "deprecated": false
             },
             {
@@ -22840,7 +23092,7 @@
               "kind": "staticmethod",
               "signature": "(obj, pivot)",
               "summary": "World pivot frame (orientation + position, scale stripped) for a per-object linear/",
-              "line": 751,
+              "line": 888,
               "deprecated": false
             },
             {
@@ -22849,7 +23101,7 @@
               "kind": "staticmethod",
               "signature": "(a, b)",
               "summary": "Distance between two points — each an object (world origin), ``Vector``, or 3-sequence",
-              "line": 816,
+              "line": 953,
               "deprecated": false
             },
             {
@@ -22858,7 +23110,7 @@
               "kind": "staticmethod",
               "signature": "(objects, reference_point=None, reverse=False)",
               "summary": "Order ``objects`` by distance from ``reference_point`` (an object / Vector / 3-seq;",
-              "line": 824,
+              "line": 961,
               "deprecated": false
             },
             {
@@ -22867,7 +23119,7 @@
               "kind": "staticmethod",
               "signature": "(objects, target_pos, aim_vect=(1, 0, 0), up_vect=(0, 1, 0))",
               "summary": "Aim ``objects`` at a world-space point — mirror of ``mtk.aim_object_at_point`` (which uses",
-              "line": 842,
+              "line": 979,
               "deprecated": false
             },
             {
@@ -22876,7 +23128,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, prefix=_DEFAULT_BAKE_PREFIX, name='Authored')",
               "summary": "Point the transform gizmo at an object's PRE-FREEZE axes, without un-freezing —",
-              "line": 863,
+              "line": 1000,
               "deprecated": false
             },
             {
@@ -22885,7 +23137,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The pivot keys the operations resolve (``get_operation_axis_matrix``,",
-              "line": 910,
+              "line": 1047,
               "deprecated": false
             },
             {
@@ -22894,7 +23146,7 @@
               "kind": "staticmethod",
               "signature": "(objects, order, preserve=True)",
               "summary": "Change objects' Euler order keeping their pose and keyed animation --",
-              "line": 932,
+              "line": 1069,
               "deprecated": false
             }
           ]

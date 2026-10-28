@@ -1073,6 +1073,27 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         return removed
 
     @staticmethod
+    def purge_unused_data(recursive=True, linked=True):
+        """Purge the data-blocks nothing uses -- meshes, materials, images and the
+        rest -- with Blender's own ``bpy.data.orphans_purge`` (File > Clean Up >
+        Purge Unused Data); local ones always. Unlike :meth:`cleanup_scene` (a fixed
+        set of collections), this is Blender's purge itself. No undo step: Blender's
+        undo does not hold purged data-blocks.
+
+        Parameters:
+            recursive (bool): Also purge what only the purged data-blocks used.
+            linked (bool): Also purge unused data-blocks linked from libraries.
+
+        Returns:
+            int: How many data-blocks were removed.
+        """
+        import bpy
+
+        return bpy.data.orphans_purge(
+            do_local_ids=True, do_linked_ids=linked, do_recursive=recursive
+        )
+
+    @staticmethod
     def selected(func: Callable) -> Callable:
         """Pass the selection (:meth:`selected_objects`) to *func*'s target parameter
         when it is ``None``; with nothing selected, return ``[]`` without calling it.

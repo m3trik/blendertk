@@ -1136,6 +1136,8 @@ try:
     _LAYER_CALLS = ("select_set", "select_get", "hide_set", "hide_get", "visible_get")
     _SCREEN = ("selected_objects", "active_object", "object", "selected_editable_objects")
     _ALLOW = {
+        ("core_utils/diagnostics/mesh_diag.py", "_reselect_faces"): "BMFace.select_set "
+        "on an edit bmesh, not an Object's view-layer state",
         ("core_utils/_core_utils.py", "visible_override"): "reveals on the context's "
         "AND the window's layer on purpose",
         ("core_utils/diagnostics/scene_audit.py", "_visible"): "explicit view_layer "
@@ -1407,6 +1409,15 @@ try:
         "ensure_component_mode / ensure_object_mode work windowless (the Qt-pump state)",
         got is cm_mesh and pump_mode == "EDIT" and left is True and cm_mesh.mode == "OBJECT",
         f"got={getattr(got, 'name', got)} inside={pump_mode} after={cm_mesh.mode}",
+    )
+
+    # ---- purge_unused_data: the shared Edit panel's Optimize (Blender)
+    _orphan = bpy.data.meshes.new("PurgeMe")
+    _removed = btk.CoreUtils.purge_unused_data()
+    check(
+        "purge_unused_data removes an unused mesh and counts it",
+        _removed >= 1 and "PurgeMe" not in bpy.data.meshes,
+        _removed,
     )
 
 except Exception as e:

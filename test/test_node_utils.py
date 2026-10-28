@@ -524,6 +524,31 @@ try:
         str(summary),
     )
 
+    # ---- lock_nodes: the shared Edit panel's Lock / Unlock (hide_select)
+    for _o in list(bpy.data.objects):
+        bpy.data.objects.remove(_o, do_unlink=True)
+    bpy.ops.mesh.primitive_cube_add()
+    _a = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    _b = bpy.context.active_object
+    btk.CoreUtils.select([_a])
+    check(
+        "lock_nodes(None, lock=True): the selection, made unselectable",
+        btk.NodeUtils.lock_nodes(None, lock=True) == [_a]
+        and _a.hide_select and not _b.hide_select,
+    )
+    _b.hide_select = True
+    check(
+        "lock_nodes(None, lock=False): every object unlocked",
+        len(btk.NodeUtils.lock_nodes(None, lock=False)) == 2
+        and not (_a.hide_select or _b.hide_select),
+    )
+    btk.CoreUtils.select([])
+    check(
+        "lock_nodes(None) locking with nothing selected is []",
+        btk.NodeUtils.lock_nodes(None, lock=True) == [],
+    )
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

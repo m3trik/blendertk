@@ -67,11 +67,19 @@ _HANDLER_EVENTS: Dict[str, str] = {
     "DepsgraphUpdated": "depsgraph_update_post",
     "Undo": "undo_post",
     "Redo": "redo_post",
+    "linearUnitChanged": "depsgraph_update_post",
+    "timeUnitChanged": "depsgraph_update_post",
 }
 # Scene-change events that prune ephemeral subscriptions (mirror of mayatk).
 _SCENE_CHANGE_EVENTS: FrozenSet[str] = frozenset({"SceneOpened", "NewSceneOpened"})
 # Events dispatched only when the selection set actually changed (depsgraph fires constantly).
 _SELECTION_EVENTS: FrozenSet[str] = frozenset({"SelectionChanged"})
+# Maya events Blender has no handler for, dispatched from depsgraph updates only when
+# the state they name changed: event -> the ScriptJobManager reader of that state.
+_STATE_EVENTS: Dict[str, str] = {
+    "linearUnitChanged": "_current_linear_unit",
+    "timeUnitChanged": "_current_time_unit",
+}
 
 
 class _Subscription:
@@ -126,6 +134,7 @@ class ScriptJobManager:
         # suppressed() blocks compose correctly (mirror of mayatk).
         self._suppressed: Dict[int, int] = {}
         self._last_selection: FrozenSet[str] = frozenset()
+        self._last_states: Dict[str, Any] = {}  # _STATE_EVENTS event -> last state
 
     # -------------------------------------------------------------- public API
     def subscribe(
@@ -168,6 +177,9 @@ class ScriptJobManager:
         self._subs[token] = _Subscription(token, event, callback, owner, ephemeral)
         self._events.setdefault(event, []).append(token)
         self._ensure_handler(_HANDLER_EVENTS[event])
+        if event in _STATE_EVENTS and event not in self._last_states:
+            # The baseline, so the first depsgraph fire dispatches only a real change.
+            self._last_states[event] = self._read_state(event)
         return token
 
     def unsubscribe(self, token: int) -> None:
@@ -313,6 +325,13 @@ class ScriptJobManager:
                     if current == self._last_selection:
                         continue
                     self._last_selection = current
+                elif event in _STATE_EVENTS:
+                    if not self._events.get(event):
+                        continue  # nobody listens: no state read per depsgraph update
+                    state = self._read_state(event)
+                    if state == self._last_states.get(event):
+                        continue
+                    self._last_states[event] = state
                 self._dispatch(event)
 
         getattr(bpy.app.handlers, name).append(_master)
@@ -372,6 +391,30 @@ class ScriptJobManager:
             return frozenset(o.name for o in CoreUtils.selected_objects())
         except Exception:
             return self._last_selection
+
+    def _read_state(self, event: str) -> Any:
+        """The state a :data:`_STATE_EVENTS` *event* watches; its last value when it
+        cannot be read (no scene)."""
+        try:
+            return getattr(self, _STATE_EVENTS[event])()
+        except Exception:  # noqa: BLE001 - a handler must never raise
+            return self._last_states.get(event)
+
+    @staticmethod
+    def _current_linear_unit() -> Tuple:
+        """The scene's unit system, length unit and scale (``linearUnitChanged``)."""
+        import bpy
+
+        units = bpy.context.scene.unit_settings
+        return (units.system, units.length_unit, units.scale_length)
+
+    @staticmethod
+    def _current_time_unit() -> Tuple:
+        """The scene's frame rate as ``(fps, fps_base)`` (``timeUnitChanged``)."""
+        import bpy
+
+        render = bpy.context.scene.render
+        return (render.fps, render.fps_base)
 
     def _prune_ephemerals(self) -> None:
         """Remove every ephemeral subscription (scene changed)."""

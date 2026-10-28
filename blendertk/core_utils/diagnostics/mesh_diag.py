@@ -71,6 +71,102 @@ class _MeshDiagnosticsInternal(object):
             area += a.x * b.y - b.x * a.y
         return abs(area) * 0.5
 
+    #: Mesh Cleanup's checks Blender runs (``cleanup_meshes(checks=...)``):
+    #: :meth:`MeshDiagnostics.find_problem_geometry`'s criteria of those names. Maya's
+    #: ``holed``, ``lamina`` and ``shared_uvs`` find nothing here: a face holds no
+    #: hole, bmesh refuses a second face on one vertex set, and UVs are per face
+    #: corner. Twin of mayatk's ``_CLEANUP_FLAGS``.
+    _CLEANUP_CHECKS = (
+        "ngons",
+        "nonplanar",
+        "quads",
+        "concave",
+        "zero_area_faces",
+        "zero_length_edges",
+        "zero_uv_area",
+        "nonmanifold",
+    )
+
+    @staticmethod
+    def _cleanup_pool(scope):
+        """The meshes Mesh Cleanup's *scope* names: ``"selected"`` the selected
+        meshes; ``"visible"`` / ``"all"`` every visible / every mesh of the WINDOW's
+        view layer (windowless, ``context.view_layer`` is the scene's default one,
+        and ``bpy.data.objects`` spans other scenes and linked libraries)."""
+        import bpy
+
+        if scope == "selected":
+            return [o for o in CoreUtils.selected_objects() if o.type == "MESH"]
+        with CoreUtils.window_context_override():
+            meshes = [o for o in bpy.context.view_layer.objects if o.type == "MESH"]
+            if scope == "visible":
+                return [o for o in meshes if o.visible_get()]
+        return meshes
+
+    @staticmethod
+    def _geo_counts(objects):
+        """``(vertices, faces)`` across *objects*' mesh data (accurate in Object
+        Mode, where the cleanup runs)."""
+        verts = faces = 0
+        for o in objects:
+            data = getattr(o, "data", None)
+            try:
+                verts += len(data.vertices)
+                faces += len(data.polygons)
+            except (AttributeError, ReferenceError):
+                continue
+        return verts, faces
+
+    @staticmethod
+    def _show_problem_components(objects, mode):
+        """Enter Edit Mode on a problem mesh in the *mode* component select mode, so
+        the flags ``find_problem_geometry`` stamped show. Under
+        :func:`CoreUtils.window_context_override`: ``mode_set`` / ``select_mode`` poll
+        the window context, ``None`` in the Qt-pump state. A refusal is swallowed:
+        the components are flagged on the mesh data already."""
+        import bpy
+
+        meshes = [o for o in objects if getattr(o, "type", None) == "MESH"]
+        if not meshes:
+            return
+        active = CoreUtils.active_object()
+        if active not in meshes:
+            active = meshes[0]
+        with CoreUtils.window_context_override():
+            bpy.context.view_layer.objects.active = active
+            try:
+                if active.mode != "EDIT":
+                    bpy.ops.object.mode_set(mode="EDIT")
+                bpy.ops.mesh.select_mode(type=mode)
+            except RuntimeError:
+                pass
+
+    @staticmethod
+    def _reselect_faces(obj, indices):
+        """Re-select faces by index, adding to the selection, flushed down to their
+        vertices and edges so they survive ``mesh.select_mode``'s flush."""
+        import bmesh
+
+        if not indices:
+            return
+        if obj.mode == "EDIT":  # a mesh-data write would miss the live edit bmesh
+            bm = bmesh.from_edit_mesh(obj.data)
+            bm.faces.ensure_lookup_table()
+            for i in indices:
+                bm.faces[i].select_set(True)
+            bm.select_flush(True)
+            bmesh.update_edit_mesh(obj.data)
+            return
+        mesh = obj.data
+        for i in indices:
+            poly = mesh.polygons[i]
+            poly.select = True
+            for vi in poly.vertices:
+                mesh.vertices[vi].select = True
+            for li in poly.loop_indices:
+                mesh.edges[mesh.loops[li].edge_index].select = True
+        mesh.update()
+
 
 class MeshDiagnostics(_MeshDiagnosticsInternal):
     """Mesh problem-detection (mirror of mayatk's ``MeshDiagnostics``)."""
@@ -252,3 +348,128 @@ class MeshDiagnostics(_MeshDiagnosticsInternal):
         EditUtils._bmesh_each(objects, _detect)
         counts["_mode"] = mode
         return counts
+
+    @classmethod
+    @CoreUtils.undoable
+    def cleanup_meshes(
+        cls,
+        scope="selected",
+        repair=False,
+        *,
+        checks=(),
+        area_tolerance=0.00001,
+        edge_length_tolerance=0.00001,
+        uv_area_tolerance=0.00001,
+        merge_vertices=False,
+        merge_distance=0.0001,
+        delete_history=False,
+        delete_loose=False,
+        dissolve_degenerate=False,
+        recalculate_normals=False,
+        fill_holes=False,
+        overlapping_faces=False,
+        overlapping_objects=False,
+        omit_selected=False,
+    ):
+        """Mesh Cleanup: select, or repair, common topology problems on the meshes
+        *scope* names -- one undo step. Mirror of mayatk's
+        ``MeshDiagnostics.cleanup_meshes`` (keyword for keyword; the report's shape
+        is the same).
+
+        Blender's checks are :meth:`find_problem_geometry`'s, counted per check;
+        Select shows the matches in Edit Mode. Its repair is
+        ``EditUtils.clean_geometry``'s passes: *merge_vertices* (within
+        *merge_distance*), *delete_loose*, *dissolve_degenerate*,
+        *recalculate_normals*, *fill_holes*. Maya's ``holed``, ``lamina`` and
+        ``shared_uvs`` checks and *delete_history* are taken for the shared panel
+        and do nothing: Blender has no such data, nor construction history.
+
+        Returns:
+            dict: ``objects``, ``checks``, ``duplicates``, ``overlapping_faces``,
+            ``problems`` (matches per check), ``selected``, ``repairs``,
+            ``vertices`` / ``faces`` -- see mayatk's.
+
+        Raises:
+            RuntimeError: Blender refused an operator.
+        """
+        report = {
+            "objects": [],
+            "checks": [],
+            "duplicates": None,
+            "overlapping_faces": 0,
+            "problems": {},
+            "selected": 0,
+            "repairs": [],
+            "vertices": (0, 0),
+            "faces": (0, 0),
+        }
+        if overlapping_objects:
+            retain = CoreUtils.selected_objects() if omit_selected else None
+            found = EditUtils.get_overlapping_duplicates(
+                retain=retain, select=not repair, delete=repair
+            )
+            report["duplicates"] = len(found)
+            return report
+
+        pool = cls._cleanup_pool(scope)
+        wanted = set(checks)
+        report["objects"] = pool
+        report["checks"] = [name for name in cls._CLEANUP_CHECKS if name in wanted]
+        if not pool or not (repair or report["checks"] or overlapping_faces):
+            return report
+
+        kept = {}  # select: the overlapping faces, re-selected after the scan
+        if overlapping_faces:
+            report["overlapping_faces"] = EditUtils.get_overlapping_faces(
+                pool, delete=repair, select=not repair
+            )
+            if not repair and report["checks"]:
+                kept = {o: [p.index for p in o.data.polygons if p.select] for o in pool}
+        if repair:
+            before = cls._geo_counts(pool)
+            EditUtils.clean_geometry(
+                pool,
+                merge=merge_vertices,
+                merge_distance=merge_distance,
+                delete_loose=delete_loose,
+                degenerate=dissolve_degenerate,
+                recalculate=recalculate_normals,
+                fill_holes=fill_holes,
+            )
+            after = cls._geo_counts(pool)
+            report["vertices"], report["faces"] = (
+                (before[0], after[0]),
+                (before[1], after[1]),
+            )
+            report["repairs"] = [
+                label
+                for on, label in (
+                    (merge_vertices, "merge vertices"),
+                    (delete_loose, "delete loose"),
+                    (dissolve_degenerate, "dissolve degenerate"),
+                    (recalculate_normals, "recalculate normals"),
+                    (fill_holes, "fill holes"),
+                )
+                if on
+            ]
+            return report
+
+        mode = "FACE"  # overlapping faces alone
+        if report["checks"]:
+            counts = cls.find_problem_geometry(
+                pool,
+                select=True,
+                area_tolerance=area_tolerance,
+                edge_length_tolerance=edge_length_tolerance,
+                uv_area_tolerance=uv_area_tolerance,
+                **{name: name in report["checks"] for name in cls._CLEANUP_CHECKS},
+            )
+            mode = counts.pop("_mode", "VERT")
+            for o, indices in kept.items():  # the scan rewrote the select flags
+                cls._reselect_faces(o, indices)
+            report["problems"] = {
+                name: counts[name] for name in report["checks"] if counts.get(name)
+            }
+            report["selected"] = sum(report["problems"].values())
+        cls._show_problem_components(pool, mode)
+        return report
