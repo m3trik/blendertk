@@ -176,9 +176,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class AudioUtils(pythontk.LoggingMixin)`
   - methods: ensure_sequence_editor, get_sequence_editor, list_clips, read_all_events, get_clip, add_clip, remove_clip, remove_all_clips, rename_clip, replace_clip, move_clip, trim_clip, get_fps, clips_in_range, shift_clips_in_range, cached_waveform, clear_waveform_cache, sync_scene_range, bake_events, track_files, export_record
 
-### `audio_utils/audio_clips.py` — Audio Clips — scene-wide sound-strip management over Blender's Video Sequence Editor (VSE).
-- `class AudioClipsSlots(pythontk.LoggingMixin)`
-  - methods: header_init, cmb000_init, cmb000, select_track, b001, b002, b005, b006, tb001_init, tb001, b003, b004_init, b004
+### `audio_utils/audio_clips.py` — Audio Clips: the Audio Clips panel's engine over Blender's Video Sequence Editor.
+- `class AudioClips(pythontk.LoggingMixin)`
+  - methods: list_tracks, find_track, get_trim, add_tracks, rename_track, replace_track, remove_track, remove, key_track, trim_track, sync_scene_range, reveal, watch
 
 ### `audio_utils/segments.py` — Consumer-facing audio-segment discovery for the sequencer + manifest (Blender).
 - `class AudioSegment(_AudioSegmentInternal)`
@@ -678,11 +678,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `mat_utils/render_opacity/render_effects.py` — Render Effects — Blender per-object render-effect channels for engine-ready control (mirror of
 - `class RenderEffects(pythontk.LoggingMixin)`
-  - methods: ensure_opacity_prop, channel_records, apply_channel_records, objects_with_visibility_keys, create, ensure_highlight_props, key_pulse, preview_channels, objects_with_channel, channel_colors, channel_color_stops, set_channel_color, stage_export_proxies, remove_export_proxies, finish_export, remove, set_key, key_fade, write_keys, scene_store, scene_recipe, apply_effect, sync_visibility_from_opacity, ensure_connections, prepare_for_export, visibility_tracks, export_record, refresh_export_metadata
-
-### `mat_utils/render_opacity/render_effects_slots.py` — Switchboard slots for the Render Effects panel (``render_effects.ui``).
-- `class RenderEffectsSlots(pythontk.LoggingMixin)`
-  - methods: header_init, cmb_effect_init, cmb_effect, stk_effects_init, ui_field, focus, unfocus, b000, btn_remove, btn_webxr_init, btn_webxr
+  - methods: ensure_opacity_prop, channel_records, apply_channel_records, objects_with_visibility_keys, create, ensure_highlight_props, key_pulse, preview_channels, selected_objects, has_channel, select_objects, objects_with_channel, channel_colors, channel_color_stops, set_channel_color, stage_export_proxies, remove_export_proxies, finish_export, remove, set_key, key_fade, write_keys, scene_store, scene_recipe, apply_effect, sync_visibility_from_opacity, ensure_connections, prepare_for_export, visibility_tracks, export_record, refresh_export_metadata
 
 ### `mat_utils/shader_templates.py` — Shader templates: save a material's node graph as a reusable template, rebuild it.
 - `class ShaderTemplates`

@@ -585,6 +585,64 @@ class RenderEffects(ptk.LoggingMixin):
             fps=fps or cls._scene_fps() or 30.0,
         )
 
+    # ------------------------------------------------------------------ selection
+
+    @classmethod
+    def selected_objects(cls, last_only: bool = False) -> list:
+        """The objects the Render Effects actions act on, by name -- mirror of
+        mayatk's, whose nodes are names. With *last_only*, the selection's
+        lead alone: the active object, Blender keeping no selection order (an
+        active object outside the selection leaves one of the selected).
+
+        Returns:
+            Object names; ``[]`` when nothing is selected, or without Blender
+            (a panel builds before any scene is there to read).
+        """
+        try:
+            import bpy  # noqa: F401
+        except ImportError:
+            return []
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        objects = list(CoreUtils.selected_objects())
+        if last_only and objects:
+            active = CoreUtils.active_object()
+            objects = [active] if active in objects else objects[-1:]
+        return [o.name for o in objects]
+
+    @classmethod
+    def has_channel(cls, obj, channel="opacity") -> bool:
+        """Whether *obj* (an object or its name) carries *channel*'s property
+        -- mirror of mayatk's.
+
+        Raises:
+            KeyError: An unknown channel.
+        """
+        if channel not in cls.CHANNELS:
+            raise KeyError(
+                f"Unknown render-effect channel {channel!r}. "
+                f"Known: {', '.join(cls.CHANNELS)}."
+            )
+        found = cls._resolve([obj])
+        return bool(found) and channel in found[0]
+
+    @classmethod
+    def select_objects(cls, objects) -> list:
+        """Make *objects* (objects or names) the selection, the first one
+        active, and return their names, the missing ones dropped -- mirror of
+        mayatk's. A view of them, not an edit: ``CoreUtils.select`` pushes no
+        undo step. With none resolved the selection is left as it was.
+        """
+        objects = list(objects or ())
+        if not objects:
+            return []
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        resolved = cls._resolve(objects)
+        if resolved:
+            CoreUtils.select(resolved)
+        return [o.name for o in resolved]
+
     # ------------------------------------------------------------------ colour
 
     @classmethod

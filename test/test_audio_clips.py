@@ -1,10 +1,10 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Audio Clips panel slots (``blendertk.audio_utils.audio_clips``) headless test.
+"""Audio Clips engine (``blendertk.audio_utils.audio_clips.AudioClips``) headless test.
 
-bpy-only: the slots' Qt widgets are stood in for by plain objects (headless
-Blender ships no Qt binding), so what is proven is the slot logic over real VSE
-sound strips -- ``select_track``, the Shot Manifest's "Open in Audio Clips".
+bpy-only: the operations tentacle's shared Audio Clips panel calls (mirror of
+mayatk's ``AudioClips`` by name), over real VSE sound strips. The panel itself
+is tentacle's ``test/test_audio_clips_panel.py``.
 
 Run headless (fresh instance -- session-safety rule):
   & "C:\\Program Files\\Blender Foundation\\Blender 5.1\\blender.exe" --background \\
@@ -23,55 +23,6 @@ for p in (REPO, os.path.join(MONO, "pythontk")):
         sys.path.insert(0, p)
 
 
-class _Combo:
-    """The clips combo's surface the slots use."""
-
-    def __init__(self):
-        self.items, self.index = [], -1
-
-    def findText(self, text):
-        return self.items.index(text) if text in self.items else -1
-
-    def currentText(self):
-        return self.items[self.index] if 0 <= self.index < len(self.items) else ""
-
-    def setCurrentIndex(self, index):
-        self.index = index
-
-    def clear(self):
-        self.items, self.index = [], -1
-
-    def addItems(self, names):
-        self.items.extend(names)
-        if self.index < 0 and self.items:
-            self.index = 0
-
-    def blockSignals(self, _block):
-        return False
-
-    def repaint(self):
-        pass
-
-
-class _Spin:
-    def __init__(self):
-        self.value = None
-
-    def blockSignals(self, _block):
-        return False
-
-    def setValue(self, value):
-        self.value = value
-
-
-class _Footer:
-    def __init__(self):
-        self.text = ""
-
-    def setText(self, text):
-        self.text = text
-
-
 def _run_audio_clips_checks():
     lines = []
 
@@ -83,47 +34,130 @@ def _run_audio_clips_checks():
         )
         return ok
 
-    import types
-
+    import bpy
     import pythontk as ptk
 
     from blendertk.audio_utils._audio_utils import AudioUtils
-    from blendertk.audio_utils.audio_clips import AudioClipsSlots
+    from blendertk.audio_utils.audio_clips import AudioClips
+    from blendertk.core_utils.script_job_manager import ScriptJobManager
 
-    slots = AudioClipsSlots.__new__(AudioClipsSlots)  # no Switchboard headless
-    slots.ui = types.SimpleNamespace(
-        cmb000=_Combo(), s000=_Spin(), s001=_Spin(), footer=_Footer()
+    check(
+        "the panel vocabulary: a clip, placed by moving it, with no end key",
+        (AudioClips.ITEM_NOUN, AudioClips.END_KEYS) == ("Clip", False)
+        and ptk.AudioUtils.SOURCE_EXTENSIONS <= AudioClips.PLAYABLE_EXTENSIONS,
     )
     AudioUtils.remove_all_clips()
+    scene = bpy.context.scene
     with ptk.TempArtifacts(prefix="btk_audio_clips_") as tmp:
         wav = str(tmp.path(".wav"))
-        with wave.open(wav, "wb") as fh:  # a tenth of a second of silence
+        with wave.open(wav, "wb") as fh:  # one second of silence
             fh.setnchannels(1)
             fh.setsampwidth(2)
             fh.setframerate(44100)
-            fh.writeframes(b"\x00\x00" * 4410)
-        AudioUtils.add_clip(wav, frame_start=1, name="early")
-        slots._refresh_combo()
-        # A strip added after the combo was filled: found on a refresh.
-        AudioUtils.add_clip(wav, frame_start=20, name="late")
-        found = slots.select_track("late")
+            fh.writeframes(b"\x00\x00" * 44100)
+        stem = os.path.splitext(os.path.basename(wav))[0]
+        scene.frame_current = 5
+        added = AudioClips.add_tracks([wav, str(tmp.path(".wav"))])
         check(
-            "select_track: a strip the combo does not list yet is found and shown",
-            found
-            and slots.ui.cmb000.currentText() == "late"
-            and slots.ui.footer.text == "Clip 'late'.",
-            f"found={found} combo={slots.ui.cmb000.items} "
-            f"current={slots.ui.cmb000.currentText()!r} footer={slots.ui.footer.text!r}",
+            "add_tracks: each file a clip at the current frame, a missing one skipped",
+            added == [stem] and AudioUtils.get_clip(stem)["frame_start"] == 5,
+            f"{added}",
         )
-        missing = slots.select_track("nowhere")
         check(
-            "select_track: a name no strip answers to reports it and selects nothing",
-            missing is False
-            and slots.ui.cmb000.currentText() == "late"
-            and "nowhere" in slots.ui.footer.text,
-            f"returned={missing} footer={slots.ui.footer.text!r}",
+            "list_tracks / find_track name the strips",
+            AudioClips.list_tracks() == [stem]
+            and AudioClips.find_track(stem) == stem
+            and AudioClips.find_track("nowhere") is None,
+            f"{AudioClips.list_tracks()}",
         )
-        AudioUtils.remove_all_clips()
+        placed = AudioClips.key_track(stem, frame=20)
+        check(
+            "key_track moves the strip (its position is its keyed state)",
+            placed == 20.0 and AudioUtils.get_clip(stem)["frame_start"] == 20,
+            f"{placed} {AudioUtils.get_clip(stem)}",
+        )
+        scene.frame_current = 30
+        AudioClips.key_track(stem)
+        check(
+            "key_track places at the current frame by default",
+            AudioUtils.get_clip(stem)["frame_start"] == 30,
+        )
+        renamed = AudioClips.rename_track(stem, "early")
+        check(
+            "rename_track returns the strip's new name",
+            renamed == "early" and AudioClips.find_track("early") == "early",
+            f"{renamed}",
+        )
+        refused = []
+        for call in (
+            lambda: AudioClips.rename_track("nowhere", "x"),
+            lambda: AudioClips.replace_track("nowhere", wav),
+            lambda: AudioClips.key_track("nowhere", frame=1),
+            lambda: AudioClips.reveal(None),
+            lambda: AudioClips.reveal("nowhere"),
+        ):
+            try:
+                call()
+            except ValueError as exc:
+                refused.append(str(exc))
+        check(
+            "a missing (or unnamed) clip is refused with a ValueError for the user",
+            len(refused) == 5,
+            f"{refused}",
+        )
+        check(
+            "replace_track keeps the strip's name",
+            AudioClips.replace_track("early", wav) == "early",
+        )
+        played = AudioClips.trim_track("early", start=1, end=1)
+        check(
+            "trim_track trims both ends and reports the frames that play",
+            played == AudioUtils.get_clip("early")["duration"]
+            and AudioClips.get_trim("early") == (1, 1),
+            f"{played} {AudioClips.get_trim('early')}",
+        )
+        check(
+            "trim_track / get_trim answer None for a missing clip",
+            AudioClips.trim_track("nowhere", start=1) is None
+            and AudioClips.get_trim("nowhere") is None,
+        )
+        info = AudioUtils.get_clip("early")
+        check(
+            "sync_scene_range fits the frame range to the clips",
+            AudioClips.sync_scene_range(extend_only=False)
+            == (info["frame_start"], info["frame_end"]),
+            f"{(scene.frame_start, scene.frame_end)} vs {info}",
+        )
+        check(
+            "reveal selects the clip in the Sequencer",
+            AudioClips.reveal("early") == "early"
+            and scene.sequence_editor.active_strip.name == "early",
+        )
+        check(
+            "remove_track deletes one clip",
+            AudioClips.remove_track("early") is True and AudioClips.list_tracks() == [],
+        )
+        AudioClips.add_tracks([wav, wav])
+        check(
+            "remove deletes every clip",
+            AudioClips.remove() == 2 and AudioClips.list_tracks() == [],
+        )
+    owner = type("Owner", (), {})()
+    events = []
+    tokens = AudioClips.watch(
+        owner, on_scene=lambda: events.append("scene"), on_time=events.append
+    )
+    jobs = ScriptJobManager.instance()
+    jobs._dispatch("SceneOpened")
+    jobs._dispatch("timeChanged")
+    check(
+        "watch: a file load and a frame change reach the owner",
+        len(tokens) == 2
+        and events == ["scene", float(bpy.context.scene.frame_current)],
+        f"{tokens} {events}",
+    )
+    jobs.unsubscribe_all(owner)
+    AudioUtils.remove_all_clips()
     return lines
 
 

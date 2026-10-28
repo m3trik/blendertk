@@ -48,7 +48,6 @@ def _sandbox_qsettings():
 
 # Co-located tool panels that BlenderUiHandler must discover from the blendertk package.
 PANELS = [
-    "audio_clips",
     "reference_manager",
     "workspace_editor",
     "texture_path_editor",
@@ -62,7 +61,6 @@ PANELS = [
     "hierarchy_sync",
     "scene_exporter",
     "channels",
-    "render_effects",
     "shots",
     "shot_sequencer",
 ]
@@ -280,14 +278,9 @@ try:
             "ChannelsSlots",
         ),  # __init__ + table/header init are bpy-free (guarded refresh)
         (
-            "audio_clips",
-            "AudioClipsSlots",
-        ),  # __init__ + cmb000/tb001/b004 _init are bpy-free (list refresh guarded)
-        (
             "reference_manager",
             "ReferenceManagerSlots",
         ),  # *_init bpy-guarded → table degrades w/o bpy
-        ("render_effects", "RenderEffectsSlots"),  # __init__ (btn connect) is bpy-free
     ):
         ui = sb.get_ui(panel)
         check(f"{panel} ui loads", ui is not None)
@@ -1118,54 +1111,6 @@ try:
     finally:
         med.close()
         Macros._editor = None
-
-    # audio_clips: no bpy under the offscreen .venv, so the clips combo/spinboxes degrade to
-    # empty/zero (guarded via _has_bpy()) rather than raising — verify the degrade AND that the
-    # Qt-only option-box wiring (management menu buttons, Move's select/refresh actions, Sync
-    # Scene Range's checkbox) still fully materializes.
-    ac_ui = sb.get_ui("audio_clips")
-    ac = getattr(ac_ui, "slots", None)
-    if ac is not None:
-        check(
-            "audio_clips cmb000 degrades to empty (no bpy) without raising",
-            ac_ui.cmb000.count() == 0,
-        )
-        check(
-            "audio_clips trim spinboxes degrade to 0 (no bpy)",
-            ac_ui.s000.value() == 0 and ac_ui.s001.value() == 0,
-        )
-        cmb_menu = ac_ui.cmb000.option_box.menu
-        check(
-            "audio_clips cmb000 option box wires the clip-management menu",
-            all(
-                hasattr(cmb_menu, n)
-                for n in (
-                    "btn_rename_track",
-                    "btn_replace_track",
-                    "btn_remove_selected",
-                    "btn_remove_audio",
-                )
-            ),
-        )
-        # tb001 folds its two actions into the option-box MENU (QPushButtons),
-        # mirroring Maya — not as registered ActionOptions. Check the menu buttons.
-        tb001_menu = ac_ui.tb001.option_box.menu
-        check(
-            "audio_clips tb001 option box wires reveal + sync menu actions",
-            all(
-                hasattr(tb001_menu, n)
-                for n in ("btn_reveal_sequencer", "btn_sync_range")
-            ),
-        )
-        # The fit mode is a two-valued combo since 2026-07-12 (was a
-        # chk_extend_only checkbox); "Extend Only" preserves the old default.
-        _fit = getattr(ac_ui.b004.option_box.menu, "cmb_fit", None)
-        check(
-            "audio_clips b004 option box wires the fit-mode combo (default Extend Only)",
-            _fit is not None and _fit.currentText() == "Extend Only",
-        )
-    else:
-        check("audio_clips exposes slots for the option-box check", False, "no slots")
 
     # workspace_editor: the minimal Project Window — one root field, RULE/LOCATION table with
     # per-row reset/remove action columns, and rule edits that write through to workspace.mel in

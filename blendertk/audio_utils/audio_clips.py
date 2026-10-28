@@ -1,403 +1,222 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Audio Clips — scene-wide sound-strip management over Blender's Video Sequence Editor (VSE).
+"""Audio Clips: the Audio Clips panel's engine over Blender's Video Sequence Editor.
 
-Blender counterpart of mayatk's ``audio_utils.audio_clips.AudioClipsSlots`` (name + role
-mirrored; the underlying model is NOT mirrored — see :mod:`blendertk.audio_utils._audio_utils`
-for why). Every action here is a thin pass-through to :class:`AudioUtils`.
+Mirror of mayatk's ``audio_utils.audio_clips.AudioClips`` by name: the operations
+tentacle's shared ``slots/tools/audio_clips.py`` calls on either host, here over
+:class:`~blendertk.audio_utils.AudioUtils`' sound-strip CRUD. The model is not
+mirrored (see :mod:`blendertk.audio_utils._audio_utils` for why): a Maya track is
+keyed on a carrier node and mixed into one composite WAV for the Time Slider,
+while a Sequencer strip is registered and placed at once and plays as it is. So
+placing a clip moves its strip (:meth:`AudioClips.key_track`), and mayatk's
+composite, export, keying-option and legacy-schema operations have no twin here
+-- the panel disables their controls (``tentacle/docs/parity_map.py``'s
+``audio_clips_slots`` row has the reasons). Three are Blender's own: a strip's
+trim (:meth:`AudioClips.get_trim`, :meth:`AudioClips.trim_track`) and fitting the
+scene range to the strips (:meth:`AudioClips.sync_scene_range`).
 
-Scope of this port
--------------------
-Built for real: browse-to-add (one or more files, each becomes a clip at the current frame),
-rename/replace/remove a clip, remove all, move the selected clip to the current frame, trim its
-head/tail, sync the scene frame range to the loaded clips, and reveal a clip in the Sequencer
-editor.
-
-Dropped as architecturally inapplicable (see the parity ledger's ``audio_clips_slots`` entries
-and the reasons in :mod:`blendertk.audio_utils._audio_utils`'s module docstring for the full
-rationale): the Auto-Convert / Export-mode / Trim-Silence / Suffix-Time-Range / Channels-panel
-header controls (all solve Maya's single-audio-slot Time-Slider + WAV-only playback problems that
-the VSE doesn't have), and the Key-Audio-Event option box's Auto-End-None / Snap-To-Frame /
-Next-Event / Key-All / Stagger controls plus Cleanup-Unused (all exist only to manage Maya's
-two-phase "register a track, then key it" workflow and its single-slot composite; a VSE strip is
-always both registered and placed, so there is no unplaced/unkeyed state to manage).
-
-Panel discovery / launcher
----------------------------
-Co-located ``audio_clips.ui`` + this module are discovered automatically by
-``BlenderUiHandler``'s recursive scan (only the engine, :class:`~blendertk.audio_utils.AudioUtils`,
-is registered in ``blendertk/__init__.py``'s ``DEFAULT_INCLUDE`` — mirrors every other tool panel).
-Mayatk's launcher button lives inside the (not-yet-ported) Shot Manifest panel; since that panel
-doesn't exist on the Blender side yet, this panel's launcher sits in
-``tentacle/slots/blender/scene.py``'s header "Manage" section instead (``marking_menu.show
-("audio_clips")``) until Shot Manifest lands.
-
-``import bpy`` / the Qt-only ``uitk`` helpers are deferred into call bodies (headless Blender
-ships no Qt binding; this module must also resolve with no Blender running).
+``import bpy`` is deferred into the call bodies: the panel loads with no Blender
+running, and every read then answers empty.
 """
 
-import os
+from typing import List, Optional, Tuple
 
 import pythontk as ptk
 
 from blendertk.audio_utils._audio_utils import AudioUtils
 
 
-class AudioClipsSlots(ptk.LoggingMixin):
-    """Switchboard slots for the Audio Clips panel.
+class AudioClips(ptk.LoggingMixin):
+    """The scene's sound clips, as the Audio Clips panel drives them (mirror of
+    mayatk's ``AudioClips``; a clip is addressed by its strip name)."""
 
-    Tentacle-independent (``ptk.LoggingMixin`` only): ``self.sb`` / ``self.ui`` are set in
-    ``__init__``, every action calls :class:`AudioUtils` directly. No selection concept applies
-    here (clips are scene-wide VSE strips, not scene objects) — the combo (``cmb000``) is the
-    only "selection", decoupled from Blender's own object/strip selection state.
-    """
+    ITEM_NOUN: str = "Clip"
+    """What one entry is called here: a Sequencer sound strip (mayatk: ``"Track"``)."""
 
-    AUDIO_GLOBS = [
-        "*.wav",
-        "*.aif",
-        "*.aiff",
-        "*.mp3",
-        "*.ogg",
-        "*.m4a",
-        "*.flac",
-        "*.aac",
-        "*.opus",
-    ]
-    AUDIO_FILTER = f"Audio Files ({' '.join(AUDIO_GLOBS)});;All Files (*)"
+    PLACE_LABEL: str = "Move To Current Frame"
+    """The panel's place action (:meth:`key_track`): a strip is one placement,
+    so placing it moves it (mayatk keys another ON event)."""
 
-    def __init__(self, switchboard, log_level="WARNING"):
-        self.sb = switchboard
-        self.ui = self.sb.loaded_ui.audio_clips
-        self.logger.setLevel(log_level)
-        self.logger.set_log_prefix("[audio_clips] ")
-        try:
-            self.ui.footer.setDefaultStatusText(
-                "Add audio files from the clips combo's option box, or select a clip to manage it."
-            )
-        except Exception as e:
-            self.logger.debug(f"Footer default text unavailable: {e}")
+    REVEAL_LABEL: str = "Reveal In Sequencer"
+    """The panel's :meth:`reveal` action."""
 
-    # ------------------------------------------------------------------ bpy availability
+    END_KEYS: bool = False
+    """A strip's end is intrinsic (its sound's length less its trim): there is
+    no end key to write (mayatk's tracks key one: ``True``)."""
+
+    PLAYABLE_EXTENSIONS = frozenset(AudioUtils.PLAYABLE_EXTENSIONS)
+    """What the Sequencer plays as it is: every format the panel offers, so
+    nothing is converted (mayatk's Time Slider plays WAV/AIFF only)."""
+
     @staticmethod
-    def _has_bpy():
+    def _scene():
+        """The current scene, or ``None`` with no Blender running."""
         try:
             import bpy
+        except ImportError:
+            return None
+        return bpy.context.scene
 
-            return bpy is not None
-        except Exception:
-            return False
+    # ------------------------------------------------------------------ read
 
-    # ------------------------------------------------------------------
-    # Header
-    # ------------------------------------------------------------------
+    @classmethod
+    def list_tracks(cls) -> List[str]:
+        """Every sound strip's name, by start frame (``[]`` outside Blender)."""
+        if cls._scene() is None:
+            return []
+        return [clip["name"] for clip in AudioUtils.list_clips()]
 
-    def header_init(self, widget):
-        """Help text only — no header menu items apply (see module docstring)."""
-        widget.set_help_text(
-            self.sb.tooltip.fmt(
-                title="Audio Clips",
-                body="Scene-wide sound clips as native Video Sequence Editor strips — "
-                "add/remove/trim them and keep the scene frame range in sync.",
-                steps=[
-                    "Use <b>Add Clips…</b> in the clips combo's option box (▸) to browse "
-                    "for audio files. Each selected file becomes a new clip at the "
-                    "current frame.",
-                    "Select a clip in the combo.",
-                    "Move the playhead to where it should start, then press "
-                    "<b>Move To Current Frame</b> to reposition it.",
-                    "Use <b>Trim</b> to shave frames off either end without moving the clip.",
-                    "Press <b>Sync Scene Range</b> to fit the scene's frame range to the "
-                    "loaded clips.",
-                ],
-                sections=[
-                    (
-                        "Clips option box (▸)",
-                        [
-                            "<b>Rename Selected</b> / <b>Replace Selected</b> — rename the clip "
-                            "or swap its source file (position/trim is preserved).",
-                            "<b>Remove Selected</b> / <b>Remove All</b> — delete one clip or "
-                            "every clip in the scene.",
-                        ],
-                    ),
-                    (
-                        "Move To Current Frame option box (▸)",
-                        [
-                            "<b>select icon</b> — reveal the selected clip in the Sequencer "
-                            "editor.",
-                            "<b>refresh icon</b> — same as the Sync Scene Range button.",
-                        ],
-                    ),
-                ],
-                notes=[
-                    "Every clip is a real Sequencer sound strip — open the Sequencer/VSE "
-                    "editor to see its waveform, drag it, or scrub audio during playback; "
-                    "this panel does not duplicate that display.",
-                ],
-            )
-        )
+    @classmethod
+    def find_track(cls, name: str) -> Optional[str]:
+        """*name* when a sound strip is called that, else ``None`` (the Shot
+        Manifest's "Open in Audio Clips"; mayatk normalizes it to a track id)."""
+        if not name or cls._scene() is None:
+            return None
+        return name if AudioUtils.get_clip(name) is not None else None
 
-    # ------------------------------------------------------------------
-    # Clips combo
-    # ------------------------------------------------------------------
+    @classmethod
+    def get_trim(cls, track_id: str) -> Optional[Tuple[int, int]]:
+        """``(head, tail)``: the frames trimmed off *track_id*'s ends; ``None``
+        when there is no such strip (or no Blender)."""
+        if not track_id or cls._scene() is None:
+            return None
+        info = AudioUtils.get_clip(track_id)
+        return (int(info["trim_start"]), int(info["trim_end"])) if info else None
 
-    def cmb000_init(self, widget):
-        """Browse option box + clip-management menu; refreshes on every dropdown open."""
-        from uitk.widgets.optionBox.options.browse import BrowseOption
+    # ------------------------------------------------------------------ edit
 
-        if not getattr(widget, "is_initialized", False):
-            # Audio-file picker — folded into the "Clips" menu as "Add Clips…"
-            # rather than a standalone browse icon (mirror of Maya's "Add Tracks…").
-            self._browse_option = BrowseOption(
-                wrapped_widget=widget,
-                file_types=self.AUDIO_FILTER,
-                mode="files",
-                title="Select Audio Files",
-                tooltip="Browse for audio files to add as clips at the current frame.",
-                callback=self._browse_audio_files_cb,
-            )
+    @classmethod
+    def add_tracks(cls, audio_files: List[str]) -> List[str]:
+        """Add each of *audio_files* as a clip at the current frame (a strip is
+        registered and placed at once).
 
-            widget.option_box.menu.setTitle("Clips")
-            btn_add = widget.option_box.menu.add(
-                "QPushButton",
-                setText="Add Clips…",
-                setObjectName="btn_add_clips",
-                setToolTip="Browse for audio files to add as clips at the current frame.",
-            )
-            btn_add.clicked.connect(lambda *_: self._browse_option.browse())
-            btn_rename = widget.option_box.menu.add(
-                "QPushButton",
-                setText="Rename Selected",
-                setObjectName="btn_rename_track",
-                setToolTip="Rename the selected clip.",
-            )
-            btn_rename.clicked.connect(self.b001)
-            btn_replace = widget.option_box.menu.add(
-                "QPushButton",
-                setText="Replace Selected",
-                setObjectName="btn_replace_track",
-                setToolTip="Swap the selected clip's audio file (position/trim is preserved).",
-            )
-            btn_replace.clicked.connect(self.b002)
-            btn_remove_sel = widget.option_box.menu.add(
-                "QPushButton",
-                setText="Remove Selected",
-                setObjectName="btn_remove_selected",
-                setToolTip="Delete the selected clip.",
-            )
-            btn_remove_sel.clicked.connect(self.b005)
-            btn_remove_all = widget.option_box.menu.add(
-                "QPushButton",
-                setText="Remove All",
-                setObjectName="btn_remove_audio",
-                setToolTip="Delete every clip in the scene.",
-            )
-            btn_remove_all.clicked.connect(self.b006)
-
-            # Re-list on every dropdown open, so clips added/removed directly in the
-            # Sequencer editor (outside this panel) are never stale.
-            widget.before_popup_shown.connect(self._refresh_combo)
-            widget.is_initialized = True
-
-        self._refresh_combo()
-
-    def _refresh_combo(self, *_args):
-        """Repopulate the clips combo from the live scene; keep the current name selected.
-
-        Degrades to an empty list under the Qt-only offscreen smoke test (no Blender running).
+        Returns:
+            The names of the strips made; a file that is missing or will not
+            load is skipped (logged).
         """
-        cmb = self.ui.cmb000
-        current = cmb.currentText()
-        names = [c["name"] for c in AudioUtils.list_clips()] if self._has_bpy() else []
-        cmb.blockSignals(True)
-        cmb.clear()
-        if names:
-            cmb.addItems(names)
-        cmb.blockSignals(False)
-        if current and current in names:
-            idx = cmb.findText(current)
-            if idx >= 0:
-                cmb.setCurrentIndex(idx)
-        cmb.repaint()
-        self._sync_trim_spinboxes()
-
-    def cmb000(self, index, widget):
-        """Selection only informs Move/Trim/the option-box actions — no side effect."""
-        self._sync_trim_spinboxes()
-
-    def select_track(self, name: str) -> bool:
-        """Show the clip *name* in the clips combo -- the Shot Manifest's "Open
-        in Audio Clips" (mirror of mayatk's ``select_track``); False when no
-        strip answers to it."""
-        cmb = self.ui.cmb000
-        index = cmb.findText(name)
-        if index < 0:
-            self._refresh_combo()
-            index = cmb.findText(name)
-        if index < 0:
-            self.ui.footer.setText(f"No clip '{name}' in this scene.")
-            return False
-        cmb.setCurrentIndex(index)
-        self.ui.footer.setText(f"Clip '{name}'.")
-        return True
-
-    def _sync_trim_spinboxes(self):
-        """Reflect the selected clip's current trim into ``s000``/``s001`` (a live inspector,
-        not just a one-shot default) so Apply Trim edits from the real current values."""
-        current = self.ui.cmb000.currentText()
-        info = AudioUtils.get_clip(current) if (current and self._has_bpy()) else None
-        for spin, key in ((self.ui.s000, "trim_start"), (self.ui.s001, "trim_end")):
-            spin.blockSignals(True)
-            spin.setValue(int(info[key]) if info else 0)
-            spin.blockSignals(False)
-
-    def _browse_audio_files_cb(self, paths):
-        """BrowseOption callback — add each selected file as a new clip at the current frame."""
-        paths = [paths] if isinstance(paths, str) else list(paths or [])
-        if not paths:
-            return
-        added = []
-        errors = []
-        for path in paths:
+        added: List[str] = []
+        for path in audio_files or ():
             try:
                 added.append(AudioUtils.add_clip(path))
-            except (FileNotFoundError, RuntimeError) as e:
-                errors.append(f"{os.path.basename(path)}: {e}")
-                self.logger.warning(f"Could not add '{path}': {e}")
-        self._refresh_combo()
-        if added:
-            idx = self.ui.cmb000.findText(added[-1])
-            if idx >= 0:
-                self.ui.cmb000.setCurrentIndex(idx)
-        suffix = f" ({len(errors)} failed)" if errors else ""
-        self.ui.footer.setText(
-            f"Added {len(added)} clip(s){suffix}." if added else "No clips added."
-        )
+            except (FileNotFoundError, RuntimeError) as error:
+                cls.logger.warning(f"Could not add {path!r}: {error}")
+        return added
 
-    # ------------------------------------------------------------------
-    # Manage (option-box menu callbacks)
-    # ------------------------------------------------------------------
+    @staticmethod
+    def rename_track(track_id: str, new_name: str) -> str:
+        """Rename the strip *track_id*.
 
-    def b001(self):
-        """Rename Selected — rename the clip currently shown in the combo."""
-        current = self.ui.cmb000.currentText()
-        if not current:
-            self.ui.footer.setText("Select a clip first.")
-            return
-        new_name = self.sb.input_dialog(
-            title="Rename Clip",
-            label=f"Rename '{current}' to:",
-            text=current,
-            parent=self.ui,
-            placeholder="e.g. footstep_left",
-            validate=lambda t: bool(t.strip()) and t.strip() != current,
-            error_text="Name cannot be empty or unchanged.",
-        )
-        if not new_name:
-            return
-        result = AudioUtils.rename_clip(current, new_name)
-        if result is None:
-            self.ui.footer.setText(f"Clip '{current}' not found — refresh the combo.")
-            return
-        self._refresh_combo()
-        idx = self.ui.cmb000.findText(result)
-        if idx >= 0:
-            self.ui.cmb000.setCurrentIndex(idx)
-        self.ui.footer.setText(f"Renamed '{current}' -> '{result}'.")
+        Returns:
+            Its name afterwards (Blender suffixes a name already in use).
 
-    def b002(self):
-        """Replace Selected — swap the selected clip's source file."""
-        current = self.ui.cmb000.currentText()
-        if not current:
-            self.ui.footer.setText("Select a clip first.")
-            return
-        path = self.sb.file_dialog(
-            file_types=self.AUDIO_GLOBS,
-            title="Replace Clip Audio",
-            filter_description="Audio Files",
-            allow_multiple=False,
-        )
-        if not path:
-            return
-        try:
-            AudioUtils.replace_clip(current, path)
-        except FileNotFoundError as e:
-            self.ui.footer.setText(str(e))
-            return
-        self.ui.footer.setText(f"Replaced '{current}' with '{os.path.basename(path)}'.")
-
-    def b005(self):
-        """Remove Selected — delete the clip currently shown in the combo."""
-        current = self.ui.cmb000.currentText()
-        if not current:
-            self.ui.footer.setText("Select a clip first.")
-            return
-        if AudioUtils.remove_clip(current):
-            self._refresh_combo()
-            self.ui.footer.setText(f"Removed '{current}'.")
-        else:
-            self.ui.footer.setText(f"Clip '{current}' not found — refresh the combo.")
-
-    def b006(self):
-        """Remove All — delete every clip in the scene."""
-        count = AudioUtils.remove_all_clips()
-        self._refresh_combo()
-        self.ui.footer.setText(
-            f"Removed {count} clip(s)." if count else "No clips to remove."
-        )
-
-    # ------------------------------------------------------------------
-    # Move To Current Frame
-    # ------------------------------------------------------------------
-
-    def tb001_init(self, widget):
-        """Move option box — reveal-in-Sequencer + Sync Scene Range folded into the menu.
-
-        Mirrors Maya's tb001, whose carrier-select + sync actions live as menu
-        rows rather than standalone option-box icons.
+        Raises:
+            ValueError: No such strip, worded for the user.
         """
-        widget.option_box.menu.setTitle("Move To Current Frame")
-        widget.option_box.menu.add(
-            "QPushButton",
-            setText="Reveal In Sequencer",
-            setObjectName="btn_reveal_sequencer",
-            setToolTip="Reveal the selected clip in the Sequencer editor.",
-        ).clicked.connect(lambda *_: self._reveal_in_sequencer())
-        widget.option_box.menu.add(
-            "QPushButton",
-            setText="Sync Scene Range",
-            setObjectName="btn_sync_range",
-            setToolTip="Sync the scene frame range to the loaded clips (same as the button below).",
-        ).clicked.connect(lambda *_: self.b004())
+        renamed = AudioUtils.rename_clip(track_id, new_name)
+        if renamed is None:
+            raise ValueError(f"Clip '{track_id}' not found.")
+        return renamed
 
-    def tb001(self, widget=None):
-        """Move the selected clip so it starts at the current frame (trim is preserved)."""
-        current = self.ui.cmb000.currentText()
-        if not current:
-            self.ui.footer.setText("No clip selected — browse for audio files first.")
-            return
+    @staticmethod
+    def replace_track(track_id: str, path: str) -> str:
+        """Point the strip *track_id* at the audio file *path*, keeping its
+        name, place and trim (mayatk's track takes the new file's name).
+
+        Returns:
+            The strip's name.
+
+        Raises:
+            ValueError: No such strip, worded for the user.
+            FileNotFoundError: *path* does not exist.
+        """
+        if not AudioUtils.replace_clip(track_id, path):
+            raise ValueError(f"Clip '{track_id}' not found.")
+        return track_id
+
+    @staticmethod
+    def remove_track(track_id: str) -> bool:
+        """Delete the strip *track_id* (and its sound, once unused).
+
+        Returns:
+            Whether it existed.
+        """
+        return AudioUtils.remove_clip(track_id)
+
+    @staticmethod
+    def remove() -> int:
+        """Delete every sound strip.
+
+        Returns:
+            How many there were.
+        """
+        return AudioUtils.remove_all_clips()
+
+    @classmethod
+    def key_track(
+        cls, track_id: str, frame: Optional[float] = None, auto_end: bool = False
+    ) -> float:
+        """Place *track_id* at *frame* (the current frame when omitted): its
+        strip moves there, trim kept -- a strip's position IS its keyed state
+        (mayatk keys another ON event). *auto_end* is accepted for mayatk's
+        signature: a strip ends where its sound does (:attr:`END_KEYS`).
+
+        Returns:
+            The frame placed at.
+
+        Raises:
+            ValueError: No such strip, worded for the user.
+        """
+        if frame is None:
+            frame = cls._scene().frame_current
+        if not AudioUtils.move_clip(track_id, frame):
+            raise ValueError(f"Clip '{track_id}' not found.")
+        return float(int(frame))
+
+    @staticmethod
+    def trim_track(
+        track_id: str, start: Optional[int] = None, end: Optional[int] = None
+    ) -> Optional[int]:
+        """Trim *start* / *end* frames off the strip's head / tail, leaving
+        where it sits (``None`` leaves that end).
+
+        Returns:
+            The frames that play afterwards, or ``None`` when there is no such strip.
+        """
+        if not AudioUtils.trim_clip(track_id, offset_start=start, offset_end=end):
+            return None
+        return int(AudioUtils.get_clip(track_id)["duration"])
+
+    @staticmethod
+    def sync_scene_range(extend_only: bool = True) -> Tuple[int, int]:
+        """Fit the scene's frame range to the clips (``AudioUtils.sync_scene_range``):
+        grow it over clips outside it, or with *extend_only* off fit it exactly.
+
+        Returns:
+            ``(frame_start, frame_end)`` afterwards.
+        """
+        return AudioUtils.sync_scene_range(extend_only=extend_only)
+
+    @classmethod
+    def reveal(cls, track_id: Optional[str] = None) -> str:
+        """Select the strip *track_id* in the Sequencer and frame it in an open
+        Sequencer editor (mayatk selects the carrier node holding its tracks).
+
+        Returns:
+            The strip's name.
+
+        Raises:
+            ValueError: No strip named, or none by that name, worded for the user.
+        """
+        if not track_id:
+            raise ValueError("Select a clip first.")
         import bpy
 
-        frame = bpy.context.scene.frame_current
-        if AudioUtils.move_clip(current, frame):
-            self.ui.footer.setText(f"Moved '{current}' to frame {frame}.")
-        else:
-            self.ui.footer.setText(f"Clip '{current}' not found — refresh the combo.")
-
-    def _reveal_in_sequencer(self):
-        """Select *current* in the VSE and frame it in an open Sequencer editor, if any."""
-        import bpy
-
-        name = self.ui.cmb000.currentText()
-        if not name:
-            self.ui.footer.setText("Select a clip first.")
-            return
         seq_ed = bpy.context.scene.sequence_editor
-        strip = seq_ed.strips_all.get(name) if seq_ed else None
+        strip = seq_ed.strips_all.get(track_id) if seq_ed else None
         if strip is None:
-            self.ui.footer.setText(f"Clip '{name}' not found — refresh the combo.")
-            return
-        for s in seq_ed.strips_all:
-            s.select = False
+            raise ValueError(f"Clip '{track_id}' not found.")
+        for other in seq_ed.strips_all:
+            other.select = False
         strip.select = True
         seq_ed.active_strip = strip
         for window in bpy.context.window_manager.windows:
@@ -406,69 +225,46 @@ class AudioClipsSlots(ptk.LoggingMixin):
                     with bpy.context.temp_override(window=window, area=area):
                         try:
                             bpy.ops.sequencer.view_selected()
-                        except RuntimeError as e:
-                            self.logger.debug(f"view_selected failed: {e}")
+                        except RuntimeError as error:
+                            cls.logger.debug(f"view_selected failed: {error}")
                     break
-        self.ui.footer.setText(f"Selected '{name}' in the Sequencer.")
+        return strip.name
 
-    # ------------------------------------------------------------------
-    # Trim
-    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------ events
 
-    def b003(self):
-        """Apply Trim — trim the selected clip's head/tail to the ``s000``/``s001`` values."""
-        current = self.ui.cmb000.currentText()
-        if not current:
-            self.ui.footer.setText("Select a clip first.")
-            return
-        offset_start = int(self.ui.s000.value())
-        offset_end = int(self.ui.s001.value())
-        if AudioUtils.trim_clip(
-            current, offset_start=offset_start, offset_end=offset_end
-        ):
-            info = AudioUtils.get_clip(current)
-            self.ui.footer.setText(
-                f"Trimmed '{current}' — {info['duration']} frame(s) visible."
-            )
-        else:
-            self.ui.footer.setText(f"Clip '{current}' not found — refresh the combo.")
+    @classmethod
+    def watch(
+        cls, owner, on_scene=None, on_tracks=None, on_time=None, widget=None
+    ) -> List[int]:
+        """Tell *owner* what happens to the scene's audio, through the
+        ``ScriptJobManager`` -- mirror of mayatk's.
 
-    # ------------------------------------------------------------------
-    # Sync Scene Range
-    # ------------------------------------------------------------------
+        * *on_scene* -- a .blend loaded (``load_post``).
+        * *on_tracks* -- accepted for mayatk's signature, never called: a strip
+          has no carrier attribute to watch (the panel re-lists its clips when
+          its list opens).
+        * *on_time(frame)* -- the current frame changed (``frame_change_post``).
 
-    def b004_init(self, widget):
-        widget.option_box.menu.setTitle("Sync Scene Range")
-        # Extend Only vs Exact Fit is a two-valued mode, not a modifier — name both states.
-        fit = widget.option_box.menu.add(
-            "QComboBox",
-            setObjectName="cmb_fit",
-            setToolTip=(
-                "Extend Only: only grow the range to cover clips that fall outside it.\n"
-                "Exact Fit: fit the range exactly to the clips (can also shrink it)."
-            ),
-        )
-        fit.addItems(["Extend Only", "Exact Fit"])
-        fit.setCurrentText(
-            "Extend Only"
-        )  # preserve prior default (checkbox on = extend only)
+        Every subscription is *owner*'s; with *widget*, they end when it is
+        destroyed. Without bpy the manager only books them.
 
-    def b004(self, widget=None):
-        """Fit the scene frame range to the loaded clips."""
-        extend_only = True
+        Returns:
+            The subscription tokens.
+        """
+        from blendertk.core_utils.script_job_manager import ScriptJobManager
+
+        jobs = ScriptJobManager.instance()
+        tokens: List[int] = []
+        if on_scene is not None:
+            tokens.append(jobs.subscribe("SceneOpened", on_scene, owner=owner))
+        if on_time is not None:
+
+            def time_changed():
+                scene = cls._scene()
+                if scene is not None:
+                    on_time(float(scene.frame_current))
+
+            tokens.append(jobs.subscribe("timeChanged", time_changed, owner=owner))
         if widget is not None:
-            menu = getattr(widget.option_box, "menu", None)
-            cmb = getattr(menu, "cmb_fit", None) if menu else None
-            if cmb is not None:
-                extend_only = cmb.currentText() == "Extend Only"
-        start, end = AudioUtils.sync_scene_range(extend_only=extend_only)
-        self.ui.footer.setText(f"Scene range synced to clips: {start}-{end}.")
-
-
-# -----------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
-
-    ui = BlenderUiHandler.instance().get("audio_clips", reload=True)
-    ui.show(pos="screen", app_exec=True)
+            jobs.connect_cleanup(widget, owner=owner)
+        return tokens

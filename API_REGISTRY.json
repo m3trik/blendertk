@@ -4291,132 +4291,132 @@
     },
     {
       "relpath": "audio_utils/audio_clips.py",
-      "summary": "Audio Clips — scene-wide sound-strip management over Blender's Video Sequence Editor (VSE).",
+      "summary": "Audio Clips: the Audio Clips panel's engine over Blender's Video Sequence Editor.",
       "functions": [],
       "classes": [
         {
-          "name": "AudioClipsSlots",
-          "summary": "Switchboard slots for the Audio Clips panel.",
-          "line": 46,
+          "name": "AudioClips",
+          "summary": "The scene's sound clips, as the Audio Clips panel drives them (mirror of",
+          "line": 29,
           "bases": [
             "pythontk.LoggingMixin"
           ],
           "members": [
             {
-              "name": "header_init",
-              "qualname": "AudioClipsSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Help text only — no header menu items apply (see module docstring).",
-              "line": 94,
+              "name": "list_tracks",
+              "qualname": "AudioClips.list_tracks",
+              "kind": "classmethod",
+              "signature": "(cls) -> List[str]",
+              "summary": "Every sound strip's name, by start frame (``[]`` outside Blender).",
+              "line": 63,
               "deprecated": false
             },
             {
-              "name": "cmb000_init",
-              "qualname": "AudioClipsSlots.cmb000_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Browse option box + clip-management menu;",
-              "line": 143,
+              "name": "find_track",
+              "qualname": "AudioClips.find_track",
+              "kind": "classmethod",
+              "signature": "(cls, name: str) -> Optional[str]",
+              "summary": "*name* when a sound strip is called that, else ``None`` (the Shot",
+              "line": 70,
               "deprecated": false
             },
             {
-              "name": "cmb000",
-              "qualname": "AudioClipsSlots.cmb000",
-              "kind": "method",
-              "signature": "(self, index, widget)",
-              "summary": "Selection only informs Move/Trim/the option-box actions — no side effect.",
-              "line": 223,
+              "name": "get_trim",
+              "qualname": "AudioClips.get_trim",
+              "kind": "classmethod",
+              "signature": "(cls, track_id: str) -> Optional[Tuple[int, int]]",
+              "summary": "``(head, tail)``: the frames trimmed off *track_id*'s ends;",
+              "line": 78,
               "deprecated": false
             },
             {
-              "name": "select_track",
-              "qualname": "AudioClipsSlots.select_track",
-              "kind": "method",
-              "signature": "(self, name: str) -> bool",
-              "summary": "Show the clip *name* in the clips combo -- the Shot Manifest's \"Open",
-              "line": 227,
+              "name": "add_tracks",
+              "qualname": "AudioClips.add_tracks",
+              "kind": "classmethod",
+              "signature": "(cls, audio_files: List[str]) -> List[str]",
+              "summary": "Add each of *audio_files* as a clip at the current frame (a strip is",
+              "line": 89,
               "deprecated": false
             },
             {
-              "name": "b001",
-              "qualname": "AudioClipsSlots.b001",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Rename Selected — rename the clip currently shown in the combo.",
-              "line": 280,
+              "name": "rename_track",
+              "qualname": "AudioClips.rename_track",
+              "kind": "staticmethod",
+              "signature": "(track_id: str, new_name: str) -> str",
+              "summary": "Rename the strip *track_id*.",
+              "line": 106,
               "deprecated": false
             },
             {
-              "name": "b002",
-              "qualname": "AudioClipsSlots.b002",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Replace Selected — swap the selected clip's source file.",
-              "line": 307,
+              "name": "replace_track",
+              "qualname": "AudioClips.replace_track",
+              "kind": "staticmethod",
+              "signature": "(track_id: str, path: str) -> str",
+              "summary": "Point the strip *track_id* at the audio file *path*, keeping its",
+              "line": 121,
               "deprecated": false
             },
             {
-              "name": "b005",
-              "qualname": "AudioClipsSlots.b005",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Remove Selected — delete the clip currently shown in the combo.",
-              "line": 328,
+              "name": "remove_track",
+              "qualname": "AudioClips.remove_track",
+              "kind": "staticmethod",
+              "signature": "(track_id: str) -> bool",
+              "summary": "Delete the strip *track_id* (and its sound, once unused).",
+              "line": 137,
               "deprecated": false
             },
             {
-              "name": "b006",
-              "qualname": "AudioClipsSlots.b006",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Remove All — delete every clip in the scene.",
-              "line": 340,
+              "name": "remove",
+              "qualname": "AudioClips.remove",
+              "kind": "staticmethod",
+              "signature": "() -> int",
+              "summary": "Delete every sound strip.",
+              "line": 146,
               "deprecated": false
             },
             {
-              "name": "tb001_init",
-              "qualname": "AudioClipsSlots.tb001_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Move option box — reveal-in-Sequencer + Sync Scene Range folded into the menu.",
-              "line": 352,
+              "name": "key_track",
+              "qualname": "AudioClips.key_track",
+              "kind": "classmethod",
+              "signature": "(cls, track_id: str, frame: Optional[float] = None, auto_end: bool = False) -> float",
+              "summary": "Place *track_id* at *frame* (the current frame when omitted): its",
+              "line": 155,
               "deprecated": false
             },
             {
-              "name": "tb001",
-              "qualname": "AudioClipsSlots.tb001",
-              "kind": "method",
-              "signature": "(self, widget=None)",
-              "summary": "Move the selected clip so it starts at the current frame (trim is preserved).",
-              "line": 372,
+              "name": "trim_track",
+              "qualname": "AudioClips.trim_track",
+              "kind": "staticmethod",
+              "signature": "(track_id: str, start: Optional[int] = None, end: Optional[int] = None) -> Optional[int]",
+              "summary": "Trim *start* / *end* frames off the strip's head / tail, leaving",
+              "line": 176,
               "deprecated": false
             },
             {
-              "name": "b003",
-              "qualname": "AudioClipsSlots.b003",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Apply Trim — trim the selected clip's head/tail to the ``s000``/``s001`` values.",
-              "line": 418,
+              "name": "sync_scene_range",
+              "qualname": "AudioClips.sync_scene_range",
+              "kind": "staticmethod",
+              "signature": "(extend_only: bool = True) -> Tuple[int, int]",
+              "summary": "Fit the scene's frame range to the clips (``AudioUtils.sync_scene_range``):",
+              "line": 190,
               "deprecated": false
             },
             {
-              "name": "b004_init",
-              "qualname": "AudioClipsSlots.b004_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "",
-              "line": 440,
+              "name": "reveal",
+              "qualname": "AudioClips.reveal",
+              "kind": "classmethod",
+              "signature": "(cls, track_id: Optional[str] = None) -> str",
+              "summary": "Select the strip *track_id* in the Sequencer and frame it in an open",
+              "line": 200,
               "deprecated": false
             },
             {
-              "name": "b004",
-              "qualname": "AudioClipsSlots.b004",
-              "kind": "method",
-              "signature": "(self, widget=None)",
-              "summary": "Fit the scene frame range to the loaded clips.",
-              "line": 456,
+              "name": "watch",
+              "qualname": "AudioClips.watch",
+              "kind": "classmethod",
+              "signature": "(cls, owner, on_scene=None, on_tracks=None, on_time=None, widget=None) -> List[int]",
+              "summary": "Tell *owner* what happens to the scene's audio, through the",
+              "line": 236,
               "deprecated": false
             }
           ]
@@ -16603,12 +16603,39 @@
               "deprecated": false
             },
             {
+              "name": "selected_objects",
+              "qualname": "RenderEffects.selected_objects",
+              "kind": "classmethod",
+              "signature": "(cls, last_only: bool = False) -> list",
+              "summary": "The objects the Render Effects actions act on, by name -- mirror of",
+              "line": 591,
+              "deprecated": false
+            },
+            {
+              "name": "has_channel",
+              "qualname": "RenderEffects.has_channel",
+              "kind": "classmethod",
+              "signature": "(cls, obj, channel='opacity') -> bool",
+              "summary": "Whether *obj* (an object or its name) carries *channel*'s property",
+              "line": 614,
+              "deprecated": false
+            },
+            {
+              "name": "select_objects",
+              "qualname": "RenderEffects.select_objects",
+              "kind": "classmethod",
+              "signature": "(cls, objects) -> list",
+              "summary": "Make *objects* (objects or names) the selection, the first one",
+              "line": 630,
+              "deprecated": false
+            },
+            {
               "name": "objects_with_channel",
               "qualname": "RenderEffects.objects_with_channel",
               "kind": "classmethod",
               "signature": "(cls, channel='highlight') -> list",
               "summary": "Every object carrying the channel's property.",
-              "line": 618,
+              "line": 676,
               "deprecated": false
             },
             {
@@ -16617,7 +16644,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects=None, channel='highlight', stop: str = 'hi') -> dict",
               "summary": "What each object's channel colour is authored as right now.",
-              "line": 637,
+              "line": 695,
               "deprecated": false
             },
             {
@@ -16626,7 +16653,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects=None, channel='highlight') -> dict",
               "summary": "Both ends of each object's colour ramp, high first.",
-              "line": 668,
+              "line": 726,
               "deprecated": false
             },
             {
@@ -16635,7 +16662,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects=None, color=None, channel='highlight', stop: str = 'hi') -> list",
               "summary": "Restate an already-authored channel colour, leaving its keys alone.",
-              "line": 700,
+              "line": 758,
               "deprecated": false
             },
             {
@@ -16644,7 +16671,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Stage one transient Empty per keyed channel per object, for the FBX write.",
-              "line": 779,
+              "line": 837,
               "deprecated": false
             },
             {
@@ -16653,7 +16680,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Delete every staged render-effect curve proxy and its action.",
-              "line": 829,
+              "line": 887,
               "deprecated": false
             },
             {
@@ -16662,7 +16689,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Undo :meth:`prepare_for_export`'s staging (mirror of mayatk's).",
-              "line": 848,
+              "line": 906,
               "deprecated": false
             },
             {
@@ -16671,7 +16698,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects=None, mode=None, channel=None)",
               "summary": "Remove a channel's prop and anim curves from *objects*, and heal the",
-              "line": 853,
+              "line": 911,
               "deprecated": false
             },
             {
@@ -16680,7 +16707,7 @@
               "kind": "staticmethod",
               "signature": "(obj, data_path, frame, value, interp, index=-1)",
               "summary": "Set *value* then insert a keyframe at *frame* with the given interpolation.",
-              "line": 889,
+              "line": 947,
               "deprecated": false
             },
             {
@@ -16689,7 +16716,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects=None, start=0, end=None, direction='in', auto_create=True, tangent='LINEAR', delete_visibility_keys=False, channel='opacity', whole_frames=True, recipe=None)",
               "summary": "Key an opacity fade (linear) and mirror it to render visibility (stepped).",
-              "line": 942,
+              "line": 1000,
               "deprecated": false
             },
             {
@@ -16698,7 +16725,7 @@
               "kind": "classmethod",
               "signature": "(cls, obj, keys, channel='opacity', interp='LINEAR', mirror=None)",
               "summary": "Key a planned ``[(frame, value), ...]`` on *obj*'s channel prop -- the",
-              "line": 991,
+              "line": 1049,
               "deprecated": false
             },
             {
@@ -16707,7 +16734,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The class holding the scene's effect recipe -- the shot store.",
-              "line": 1022,
+              "line": 1080,
               "deprecated": false
             },
             {
@@ -16716,7 +16743,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "The scene's effect recipe -- the shot store's, which the Render",
-              "line": 1031,
+              "line": 1089,
               "deprecated": false
             },
             {
@@ -16725,7 +16752,7 @@
               "kind": "classmethod",
               "signature": "(cls, obj, effect, start, end, recipe=None, fps=None, place=None, anchor=None)",
               "summary": "Key one recipe effect on *obj*, placed in the range ``start..end``.",
-              "line": 1048,
+              "line": 1106,
               "deprecated": false
             },
             {
@@ -16734,7 +16761,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects=None) -> None",
               "summary": "Rebuild the ``hide_render`` curve from the ``opacity`` curve (stepped, hidden when ≤ 0).",
-              "line": 1096,
+              "line": 1154,
               "deprecated": false
             },
             {
@@ -16743,7 +16770,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects=None) -> None",
               "summary": "Kept for mayatk API parity;",
-              "line": 1116,
+              "line": 1174,
               "deprecated": false
             },
             {
@@ -16752,7 +16779,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> list",
               "summary": "Stage the curve-proxy transport for an FBX write;",
-              "line": 1125,
+              "line": 1183,
               "deprecated": false
             },
             {
@@ -16761,7 +16788,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> list",
               "summary": "Every visibility-keyed object in the file, as stepped on/off tracks.",
-              "line": 1150,
+              "line": 1208,
               "deprecated": false
             },
             {
@@ -16770,7 +16797,7 @@
               "kind": "classmethod",
               "signature": "(cls, ctx: ptk.ExportContext) -> Optional[ptk.Record]",
               "summary": "The ``render_effects`` record for this file, or ``None`` when it",
-              "line": 1243,
+              "line": 1301,
               "deprecated": false
             },
             {
@@ -16779,124 +16806,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> Optional[str]",
               "summary": "Republish the ``render_effects`` channel on the ``data_export`` carrier.",
-              "line": 1325,
-              "deprecated": false
-            }
-          ]
-        }
-      ],
-      "constants": []
-    },
-    {
-      "relpath": "mat_utils/render_opacity/render_effects_slots.py",
-      "summary": "Switchboard slots for the Render Effects panel (``render_effects.ui``).",
-      "functions": [],
-      "classes": [
-        {
-          "name": "RenderEffectsSlots",
-          "summary": "Switchboard slots for the Render Effects UI.",
-          "line": 50,
-          "bases": [
-            "pythontk.LoggingMixin"
-          ],
-          "members": [
-            {
-              "name": "header_init",
-              "qualname": "RenderEffectsSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Configure header menu.",
-              "line": 168,
-              "deprecated": false
-            },
-            {
-              "name": "cmb_effect_init",
-              "qualname": "RenderEffectsSlots.cmb_effect_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "The effect picker: one entry per page.",
-              "line": 270,
-              "deprecated": false
-            },
-            {
-              "name": "cmb_effect",
-              "qualname": "RenderEffectsSlots.cmb_effect",
-              "kind": "method",
-              "signature": "(self, index, widget=None)",
-              "summary": "Show the picked effect's page.",
-              "line": 276,
-              "deprecated": false
-            },
-            {
-              "name": "stk_effects_init",
-              "qualname": "RenderEffectsSlots.stk_effects_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Build every page into the stack, bind the recipe, register the rows.",
-              "line": 289,
-              "deprecated": false
-            },
-            {
-              "name": "ui_field",
-              "qualname": "RenderEffectsSlots.ui_field",
-              "kind": "method",
-              "signature": "(self, name)",
-              "summary": "A page field by objectName, from whichever page holds it.",
-              "line": 334,
-              "deprecated": false
-            },
-            {
-              "name": "focus",
-              "qualname": "RenderEffectsSlots.focus",
-              "kind": "method",
-              "signature": "(self, channel, objects, title='', apply=None, apply_text='')",
-              "summary": "Open on one effect for *objects*, as the manifest's row actions do.",
-              "line": 428,
-              "deprecated": false
-            },
-            {
-              "name": "unfocus",
-              "qualname": "RenderEffectsSlots.unfocus",
-              "kind": "method",
-              "signature": "(self, *_args) -> None",
-              "summary": "Back to the standalone panel: the picker, its title, the Key texts",
-              "line": 461,
-              "deprecated": false
-            },
-            {
-              "name": "b000",
-              "qualname": "RenderEffectsSlots.b000",
-              "kind": "method",
-              "signature": "(self, widget=None)",
-              "summary": "Key: the shown page's keyer (``PAGES``).",
-              "line": 558,
-              "deprecated": false
-            },
-            {
-              "name": "btn_remove",
-              "qualname": "RenderEffectsSlots.btn_remove",
-              "kind": "method",
-              "signature": "(self, widget=None)",
-              "summary": "Strip the shown page's channel from the selection.",
-              "line": 564,
-              "deprecated": false
-            },
-            {
-              "name": "btn_webxr_init",
-              "qualname": "RenderEffectsSlots.btn_webxr_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "",
-              "line": 570,
-              "deprecated": false
-            },
-            {
-              "name": "btn_webxr",
-              "qualname": "RenderEffectsSlots.btn_webxr",
-              "kind": "method",
-              "signature": "(self, widget=None)",
-              "summary": "Preview the shown page's effect in WebXR.",
-              "line": 591,
+              "line": 1383,
               "deprecated": false
             }
           ]

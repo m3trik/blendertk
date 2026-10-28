@@ -238,9 +238,8 @@ DEFAULT_INCLUDE = {
     "mat_utils.image_to_plane._image_to_plane": [
         "ImageToPlane",
     ],
-    # Per-object render effects — engine + co-located panel (``RenderEffectsSlots``
-    # discovered by the handler, not registered). Mirror of mayatk's
-    # ``mat_utils.render_opacity`` subpackage.
+    # Per-object render effects (its panel is tentacle's shared Render Effects tool).
+    # Mirror of mayatk's ``mat_utils.render_opacity`` subpackage.
     "mat_utils.render_opacity.render_effects": ["RenderEffects"],
     # Material manifest (baked-map metadata carrier) — mirror of mayatk's
     # ``mat_utils.mat_manifest``; shared by the Marmoset/Substance bridges.
@@ -318,11 +317,12 @@ DEFAULT_INCLUDE = {
         "BlendshapeAnimator",
     ],
     # Audio Clips — scene-wide sound-strip CRUD over the Video Sequence Editor, mirror of
-    # mayatk's ``audio_utils`` (the ``AudioClipsSlots`` panel is discovered by
-    # ``BlenderUiHandler``, not registered here).
+    # mayatk's ``audio_utils`` (``AudioClips`` is the API tentacle's shared Audio Clips
+    # tool calls).
     "audio_utils._audio_utils": [
         "AudioUtils",
     ],
+    "audio_utils.audio_clips": ["AudioClips"],
     # Audio-segment snapshots over VSE sound strips (mirror of mayatk's
     # ``audio_utils.segments.AudioSegment``) — the sequencer's audio tracks.
     "audio_utils.segments": ["AudioSegment"],
@@ -689,6 +689,14 @@ MOVED_NAMES = {
     ),
     "LightmapBakerSlots": (
         "tentacle.slots.tools.lightmap_baker.LightmapBakerSlots",
+        "0.23.0",
+    ),
+    "RenderEffectsSlots": (
+        "tentacle.slots.tools.render_effects.RenderEffectsSlots",
+        "0.23.0",
+    ),
+    "AudioClipsSlots": (
+        "tentacle.slots.tools.audio_clips.AudioClipsSlots",
         "0.23.0",
     ),
 }

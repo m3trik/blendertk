@@ -43,7 +43,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`anim_utils/smart_bake/bake_session.py`](#anim_utils--smart_bake--bake_session) — Persistence and restore engine for SmartBake's nondestructive manifest — mirror of mayatk's
 - [`anim_utils/stagger_keys.py`](#anim_utils--stagger_keys) — Dedicated stagger-keys module to keep AnimUtils lean and testable (mirror of mayatk's
 - [`audio_utils/_audio_utils.py`](#audio_utils--_audio_utils) — Scene-wide audio-clip utilities over Blender's Video Sequence Editor (VSE).
-- [`audio_utils/audio_clips.py`](#audio_utils--audio_clips) — Audio Clips — scene-wide sound-strip management over Blender's Video Sequence Editor (VSE).
+- [`audio_utils/audio_clips.py`](#audio_utils--audio_clips) — Audio Clips: the Audio Clips panel's engine over Blender's Video Sequence Editor.
 - [`audio_utils/segments.py`](#audio_utils--segments) — Consumer-facing audio-segment discovery for the sequencer + manifest (Blender).
 - [`cam_utils/_cam_utils.py`](#cam_utils--_cam_utils) — Camera utilities — clip-plane adjustment (mirror of mayatk's ``cam_utils``) plus interactive
 - [`cam_utils/camera_visibility.py`](#cam_utils--camera_visibility) — Per-camera visibility sets — rolled infrastructure for Maya's camera-sets isolate
@@ -146,7 +146,6 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`mat_utils/marmoset_bridge/toolbag_log.py`](#mat_utils--marmoset_bridge--toolbag_log) — Marmoset Toolbag log-file resolution, classification, and live tailing.
 - [`mat_utils/mat_manifest.py`](#mat_utils--mat_manifest) — Material-to-texture manifest for bridge workflows -- mirror of mayatk's ``mat_utils.mat_manifest``.
 - [`mat_utils/render_opacity/render_effects.py`](#mat_utils--render_opacity--render_effects) — Render Effects — Blender per-object render-effect channels for engine-ready control (mirror of
-- [`mat_utils/render_opacity/render_effects_slots.py`](#mat_utils--render_opacity--render_effects_slots) — Switchboard slots for the Render Effects panel (``render_effects.ui``).
 - [`mat_utils/shader_templates.py`](#mat_utils--shader_templates) — Shader templates: save a material's node graph as a reusable template, rebuild it.
 - [`mat_utils/substance_bridge/_substance_bridge.py`](#mat_utils--substance_bridge--_substance_bridge) — Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
 - [`mat_utils/substance_bridge/_substance_engine.py`](#mat_utils--substance_bridge--_substance_engine) — Drive Substance 3D Painter from the outside -- the DCC-free half of the bridge.
@@ -885,22 +884,22 @@ Scene-wide audio-clip utilities over Blender's Video Sequence Editor (VSE).
 <a id="audio_utils--audio_clips"></a>
 ### `audio_utils/audio_clips.py`
 
-Audio Clips — scene-wide sound-strip management over Blender's Video Sequence Editor (VSE).
+Audio Clips: the Audio Clips panel's engine over Blender's Video Sequence Editor.
 
-- **[`class AudioClipsSlots(pythontk.LoggingMixin)`](blendertk/blendertk/audio_utils/audio_clips.py#L46)** — Switchboard slots for the Audio Clips panel.
-  - `AudioClipsSlots.header_init(self, widget)` — Help text only — no header menu items apply (see module docstring).
-  - `AudioClipsSlots.cmb000_init(self, widget)` — Browse option box + clip-management menu;
-  - `AudioClipsSlots.cmb000(self, index, widget)` — Selection only informs Move/Trim/the option-box actions — no side effect.
-  - `AudioClipsSlots.select_track(self, name: str) -> bool` — Show the clip *name* in the clips combo -- the Shot Manifest's "Open
-  - `AudioClipsSlots.b001(self)` — Rename Selected — rename the clip currently shown in the combo.
-  - `AudioClipsSlots.b002(self)` — Replace Selected — swap the selected clip's source file.
-  - `AudioClipsSlots.b005(self)` — Remove Selected — delete the clip currently shown in the combo.
-  - `AudioClipsSlots.b006(self)` — Remove All — delete every clip in the scene.
-  - `AudioClipsSlots.tb001_init(self, widget)` — Move option box — reveal-in-Sequencer + Sync Scene Range folded into the menu.
-  - `AudioClipsSlots.tb001(self, widget=None)` — Move the selected clip so it starts at the current frame (trim is preserved).
-  - `AudioClipsSlots.b003(self)` — Apply Trim — trim the selected clip's head/tail to the ``s000``/``s001`` values.
-  - `AudioClipsSlots.b004_init(self, widget)`
-  - `AudioClipsSlots.b004(self, widget=None)` — Fit the scene frame range to the loaded clips.
+- **[`class AudioClips(pythontk.LoggingMixin)`](blendertk/blendertk/audio_utils/audio_clips.py#L29)** — The scene's sound clips, as the Audio Clips panel drives them (mirror of
+  - `AudioClips.list_tracks(cls) -> List[str]` *(class)* — Every sound strip's name, by start frame (``[]`` outside Blender).
+  - `AudioClips.find_track(cls, name: str) -> Optional[str]` *(class)* — *name* when a sound strip is called that, else ``None`` (the Shot
+  - `AudioClips.get_trim(cls, track_id: str) -> Optional[Tuple[int, int]]` *(class)* — ``(head, tail)``: the frames trimmed off *track_id*'s ends;
+  - `AudioClips.add_tracks(cls, audio_files: List[str]) -> List[str]` *(class)* — Add each of *audio_files* as a clip at the current frame (a strip is
+  - `AudioClips.rename_track(track_id: str, new_name: str) -> str` *(static)* — Rename the strip *track_id*.
+  - `AudioClips.replace_track(track_id: str, path: str) -> str` *(static)* — Point the strip *track_id* at the audio file *path*, keeping its
+  - `AudioClips.remove_track(track_id: str) -> bool` *(static)* — Delete the strip *track_id* (and its sound, once unused).
+  - `AudioClips.remove() -> int` *(static)* — Delete every sound strip.
+  - `AudioClips.key_track(cls, track_id: str, frame: Optional[float] = None, auto_end: bool = False) -> float` *(class)* — Place *track_id* at *frame* (the current frame when omitted): its
+  - `AudioClips.trim_track(track_id: str, start: Optional[int] = None, end: Optional[int] = None) -> Optional[int]` *(static)* — Trim *start* / *end* frames off the strip's head / tail, leaving
+  - `AudioClips.sync_scene_range(extend_only: bool = True) -> Tuple[int, int]` *(static)* — Fit the scene's frame range to the clips (``AudioUtils.sync_scene_range``):
+  - `AudioClips.reveal(cls, track_id: Optional[str] = None) -> str` *(class)* — Select the strip *track_id* in the Sequencer and frame it in an open
+  - `AudioClips.watch(cls, owner, on_scene=None, on_tracks=None, on_time=None, widget=None) -> List[int]` *(class)* — Tell *owner* what happens to the scene's audio, through the
 
 <a id="audio_utils--segments"></a>
 ### `audio_utils/segments.py`
@@ -2765,6 +2764,9 @@ Render Effects — Blender per-object render-effect channels for engine-ready co
   - `RenderEffects.ensure_highlight_props(cls, obj, color=None, dim_color=None)` *(class)* — Seed ``highlight`` (0-1, keyable) and both ends of its colour ramp.
   - `RenderEffects.key_pulse(cls, objects=None, start=0, end=100, period=None, bright_fraction=None, ramp_fraction=None, lead_in=None, lead_out=None, color=None, dim_color=None, auto_create=True, channel='highlight', delete_visibility_keys=False, whole_frames=True, recipe=None)` *(class)* — Key a repeating bright/dim pulse on *channel*'s prop over ``start..end``.
   - `RenderEffects.preview_channels(cls, objects, channel='highlight', keys=(), colors=None, fps=None) -> dict` *(class)* — The WebXR-push overlay that previews one effect on *objects* at *keys*.
+  - `RenderEffects.selected_objects(cls, last_only: bool = False) -> list` *(class)* — The objects the Render Effects actions act on, by name -- mirror of
+  - `RenderEffects.has_channel(cls, obj, channel='opacity') -> bool` *(class)* — Whether *obj* (an object or its name) carries *channel*'s property
+  - `RenderEffects.select_objects(cls, objects) -> list` *(class)* — Make *objects* (objects or names) the selection, the first one
   - `RenderEffects.objects_with_channel(cls, channel='highlight') -> list` *(class)* — Every object carrying the channel's property.
   - `RenderEffects.channel_colors(cls, objects=None, channel='highlight', stop: str = 'hi') -> dict` *(class)* — What each object's channel colour is authored as right now.
   - `RenderEffects.channel_color_stops(cls, objects=None, channel='highlight') -> dict` *(class)* — Both ends of each object's colour ramp, high first.
@@ -2785,24 +2787,6 @@ Render Effects — Blender per-object render-effect channels for engine-ready co
   - `RenderEffects.visibility_tracks(cls) -> list` *(class)* — Every visibility-keyed object in the file, as stepped on/off tracks.
   - `RenderEffects.export_record(cls, ctx: ptk.ExportContext) -> Optional[ptk.Record]` *(class)* — The ``render_effects`` record for this file, or ``None`` when it
   - `RenderEffects.refresh_export_metadata(cls) -> Optional[str]` *(class)* — Republish the ``render_effects`` channel on the ``data_export`` carrier.
-
-<a id="mat_utils--render_opacity--render_effects_slots"></a>
-### `mat_utils/render_opacity/render_effects_slots.py`
-
-Switchboard slots for the Render Effects panel (``render_effects.ui``).
-
-- **[`class RenderEffectsSlots(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/render_opacity/render_effects_slots.py#L50)** — Switchboard slots for the Render Effects UI.
-  - `RenderEffectsSlots.header_init(self, widget)` — Configure header menu.
-  - `RenderEffectsSlots.cmb_effect_init(self, widget)` — The effect picker: one entry per page.
-  - `RenderEffectsSlots.cmb_effect(self, index, widget=None)` — Show the picked effect's page.
-  - `RenderEffectsSlots.stk_effects_init(self, widget)` — Build every page into the stack, bind the recipe, register the rows.
-  - `RenderEffectsSlots.ui_field(self, name)` — A page field by objectName, from whichever page holds it.
-  - `RenderEffectsSlots.focus(self, channel, objects, title='', apply=None, apply_text='')` — Open on one effect for *objects*, as the manifest's row actions do.
-  - `RenderEffectsSlots.unfocus(self, *_args) -> None` — Back to the standalone panel: the picker, its title, the Key texts
-  - `RenderEffectsSlots.b000(self, widget=None)` — Key: the shown page's keyer (``PAGES``).
-  - `RenderEffectsSlots.btn_remove(self, widget=None)` — Strip the shown page's channel from the selection.
-  - `RenderEffectsSlots.btn_webxr_init(self, widget)`
-  - `RenderEffectsSlots.btn_webxr(self, widget=None)` — Preview the shown page's effect in WebXR.
 
 <a id="mat_utils--shader_templates"></a>
 ### `mat_utils/shader_templates.py`
