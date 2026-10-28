@@ -149,6 +149,29 @@ class BakeSet:
         return list(col.objects) if col is not None else []
 
     @classmethod
+    def member_names(cls) -> List[str]:
+        """The members' names, for display (mirror of mayatk's short names)."""
+        return [obj.name for obj in cls.members()]
+
+    @classmethod
+    def select(cls) -> List[Any]:
+        """Select the set's members on the window's view layer; returns those selected.
+
+        A member outside the active view layer, or one locked from selection
+        (``hide_select``), takes no select and is left out
+        (:meth:`CoreUtils.select`): reported rather than forced, since unhiding
+        geometry to satisfy a *select* would change the scene the set promises to
+        leave alone. Leaves the selection alone when the file has no set. Mirror
+        of mayatk's.
+        """
+        members = cls.members()
+        if not members:
+            return []
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        return CoreUtils.select(members, mode="replace")
+
+    @classmethod
     def meshes(cls) -> List[Any]:
         """The mesh objects the set covers -- a member counts its descendants.
 

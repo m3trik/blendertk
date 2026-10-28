@@ -2,7 +2,7 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (593)
+## Moved out (601)
 
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b000` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
@@ -299,6 +299,14 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `env_utils/scene_exporter/scene_exporter_slots.py::SceneExporterSlots.txt000_init` → `tentacle.slots.tools.scene_exporter.SceneExporterSlots` (from 0.23.0)
 - `env_utils/scene_exporter/scene_exporter_slots.py::SceneExporterSlots.txt001_init` → `tentacle.slots.tools.scene_exporter.SceneExporterSlots` (from 0.23.0)
 - `env_utils/scene_exporter/scene_exporter_slots.py::SceneExporterSlots.workspace` → `tentacle.slots.tools.scene_exporter.SceneExporterSlots` (from 0.23.0)
+- `env_utils/unity_bridge/_unity_panel.py::UnityPanelMixin` → `tentacle.slots.tools._unity_bridge._unity_panel.UnityPanelMixin` (from 0.23.0)
+- `env_utils/unity_bridge/_unity_panel.py::UnityPanelMixin.default_output_dir` → `tentacle.slots.tools._unity_bridge._unity_panel.UnityPanelMixin` (from 0.23.0)
+- `env_utils/unity_bridge/_unity_panel.py::UnityPanelMixin.list_template_modes` → `tentacle.slots.tools._unity_bridge._unity_panel.UnityPanelMixin` (from 0.23.0)
+- `env_utils/unity_bridge/_unity_panel.py::UnityPanelMixin.template_dir` → `tentacle.slots.tools._unity_bridge._unity_panel.UnityPanelMixin` (from 0.23.0)
+- `env_utils/unity_bridge/unity_bridge_slots.py::UnityBridgeSlots` → `tentacle.slots.tools.unity_bridge.UnityBridgeSlots` (from 0.23.0)
+- `env_utils/unity_bridge/unity_bridge_slots.py::UnityBridgeSlots.b000` → `tentacle.slots.tools.unity_bridge.UnityBridgeSlots` (from 0.23.0)
+- `env_utils/unity_bridge/unity_bridge_slots.py::UnityBridgeSlots.make_bridge` → `tentacle.slots.tools.unity_bridge.UnityBridgeSlots` (from 0.23.0)
+- `env_utils/unity_bridge/unity_bridge_slots.py::UnityBridgeSlots.params_module` → `tentacle.slots.tools.unity_bridge.UnityBridgeSlots` (from 0.23.0)
 - `light_utils/hdr_manager.py::HdrManagerSlots` → `tentacle.slots.tools.hdr_manager.HdrManagerSlots` (from 0.23.0)
 - `light_utils/hdr_manager.py::HdrManagerSlots.add_hdr` → `tentacle.slots.tools.hdr_manager.HdrManagerSlots` (from 0.23.0)
 - `light_utils/hdr_manager.py::HdrManagerSlots.clear_network` → `tentacle.slots.tools.hdr_manager.HdrManagerSlots` (from 0.23.0)
@@ -598,7 +606,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (226)
+## Added (233)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -675,6 +683,10 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `edit_utils/snap.py::Snap.snap_to_grid(objects=None, grid_size=1.0, axes='xyz')`
 - `edit_utils/snap.py::Snap.snap_to_surface(source_meshes, target_mesh, offset=None, threshold=None, invert=False)`
 - `edit_utils/snap.py::Snap.source_and_target()`
+- `env_utils/handoff_export.py::BridgeHost(class)`
+- `env_utils/handoff_export.py::BridgeHost.install_package(spec: str) -> None`
+- `env_utils/handoff_export.py::BridgeHost.resolve_scope(scope: str, bridge=None) -> List[Any]`
+- `env_utils/handoff_export.py::BridgeHost.scope_closure(objects, params: Optional[Dict[str, Any]] = None) -> List[Any]`
 - `env_utils/hierarchy_sync/hierarchy_sync_session.py::HierarchySyncSession(class)`
 - `env_utils/hierarchy_sync/hierarchy_sync_session.py::HierarchySyncSession.analyze(self, reference_path: str, fuzzy_matching: bool = True, dry_run: bool = True, filter_meshes: bool = False, filter_cameras: bool = False, filter_lights: bool = False) -> bool`
 - `env_utils/hierarchy_sync/hierarchy_sync_session.py::HierarchySyncSession.clean_path(path: str) -> str`
@@ -706,6 +718,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.presets(self) -> Dict[str, Optional[str]]`
 - `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.refresh_fbx_presets(self) -> Dict[str, Optional[str]]`
 - `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.restore_fbx_preset(self, metadata: Optional[Dict[str, str]]) -> Optional[str]`
+- `env_utils/unity_bridge/_unity_bridge.py::UnityBridge.params_registry(cls)`
 - `light_utils/hdr_manager.py::HdrManager(class)`
 - `light_utils/hdr_manager.py::HdrManager.clear(self) -> None`
 - `light_utils/hdr_manager.py::HdrManager.create_network(self, hdrMap: str = '', hdrMapVisibility: bool = False, intensity: Optional[float] = None, exposure: Optional[float] = None, rotation: Optional[float] = None, resolution: Optional[int] = None, samples: Optional[int] = None, diffuse: Optional[float] = None, specular: Optional[float] = None, preview: Optional[bool] = None)`
@@ -727,6 +740,8 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/_mat_utils.py::MatUpdater.selected_materials(cls, shader_type=None)`
 - `mat_utils/_mat_utils.py::MatUpdater.shader_type_choices()`
 - `mat_utils/_mat_utils.py::MatUpdater.texture_root()`
+- `mat_utils/bake_sets.py::BakeSet.member_names(cls) -> List[str]`
+- `mat_utils/bake_sets.py::BakeSet.select(cls) -> List[Any]`
 - `mat_utils/emissive_groups.py::BlenderEmissiveGroups(class)`
 - `mat_utils/emissive_groups.py::BlenderEmissiveGroups.add_members(self, store: str, face_map: FaceMap) -> None`
 - `mat_utils/emissive_groups.py::BlenderEmissiveGroups.carrier_weights(self, prefix: str) -> List[str]`

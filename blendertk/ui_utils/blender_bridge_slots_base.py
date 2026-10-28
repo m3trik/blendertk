@@ -4,8 +4,8 @@
 
 The DCC-agnostic base lives upstream in :mod:`uitk.bridge.slots`
 (re-exported through :mod:`uitk.bridge`). This thin subclass injects
-what every Blender bridge shares: the meaning of a blank Output Dir and the
-Scope resolution.
+what every Blender bridge shares: the meaning of a blank Output Dir, the
+Scope resolution (``BridgeHost``'s) and the Bake Source row.
 
 A blank Output Dir means "the bridge's own rule" (uitk's ``default_output_dir``,
 ``""``, is kept): hand-off intermediates go to a ``TempArtifacts`` scratch per
@@ -14,17 +14,16 @@ send, and what is kept goes to a folder of the file's project (a bake's maps to
 Toolbag scene to ``data/marmoset``). mayatk's base means the same.
 
 Mirror of mayatk's :class:`mayatk.ui_utils.maya_bridge_slots_base.MayaBridgeSlotsBase` --
-the Marmoset, Substance, and Unity bridge slots subclass this instead of
-inheriting from ``BridgeSlotsBase`` directly, so the rule lives in one
-place.
+the Marmoset, Substance, Rizom and Maya bridge slots subclass this instead
+of inheriting from ``BridgeSlotsBase`` directly, so the rule lives in one
+place. A bridge that has moved to tentacle (Unity) sits on tentacle's
+``HostBridge`` instead, over the same ``BridgeHost`` / ``BakeSourceSet`` API.
 """
 
 from __future__ import annotations
 
 from uitk.bridge import BridgeSlotsBase
-from pythontk import HandoffScope, TooltipFormat
-
-from blendertk.core_utils._core_utils import CoreUtils
+from pythontk import TooltipFormat
 
 
 class BlenderBridgeSlotsBase(BridgeSlotsBase):
@@ -34,55 +33,15 @@ class BlenderBridgeSlotsBase(BridgeSlotsBase):
     def resolve_scope_objects(self, scope: str):
         """Objects to export for the chosen ``SCOPE`` param.
 
-        ``"selected"`` is the default AND the fallback for any unknown value --
-        an unrecognised scope must never silently widen a send to the whole
-        scene.
-
-        Lives on the shared base so every Blender bridge (Maya / Unity /
-        Marmoset / Substance) resolves scope identically; the spec that drives
-        it is :meth:`uitk.bridge.Parameters.scope_spec`, shared with mayatk's
-        mirror (``MayaBridgeSlotsBase.resolve_scope_objects``). The precedence
-        (the fallbacks above) is :class:`pythontk.HandoffScope`'s; this supplies
-        only Blender's scene reads.
+        :meth:`blendertk.BridgeHost.resolve_scope`, with this panel's bridge as
+        the whole-scene hook -- the one resolver every Blender bridge shares, and
+        the one tentacle's bridge panels call (``btk.BridgeHost``). Mirror of
+        mayatk's (``MayaBridgeSlotsBase.resolve_scope_objects``). ``getattr``:
+        a panel that has not built its bridge yet has no ``.bridge`` at all.
         """
-        import bpy
-        import blendertk as btk
+        from blendertk.env_utils.handoff_export import BridgeHost
 
-        def scene_hook():
-            # The bridge's whole-scene hook (``BlenderExportMixin._scene_objects``:
-            # the current SCENE's objects -- not ``bpy.data.objects``, which also
-            # sweeps in unlinked/orphaned objects and other scenes' -- UNFILTERED by
-            # type, since each bridge's export options decide what travels and
-            # empties/armatures must reach the exporter or the hierarchy silently
-            # flattens on the far side). Routed through the hook, not re-derived,
-            # so "Entire Scene" and ``save_as``'s whole-scene default can never
-            # drift apart. getattr: a panel that has not built its bridge yet has
-            # no ``.bridge`` at all, and bridges without the hook (RPC bakers)
-            # answer ``None`` and fall back to the scene's geometry. Mirror of
-            # mayatk's resolver.
-            bridge = getattr(self, "bridge", None)
-            return bridge._scene_objects() if bridge is not None else None
-
-        def visible():
-            # The engines' hook, same as "all" -- but unconditionally, because
-            # it is a STATICMETHOD that consults only the scene. A bridge
-            # without the mixin therefore still gets the real answer rather than
-            # a second, drifting copy of it here (this WAS that copy; the preview
-            # bridge needed the same read and two would have been three). Mirror
-            # of mayatk's resolver.
-            from blendertk.env_utils.handoff_export import BlenderExportMixin
-
-            return BlenderExportMixin._visible_objects()
-
-        return HandoffScope.resolve(
-            scope,
-            selected=lambda: btk.selected_objects(),
-            all=(
-                scene_hook,
-                lambda: [o for o in bpy.context.scene.objects if o.type == "MESH"],
-            ),
-            visible=visible,
-        )
+        return BridgeHost.resolve_scope(scope, getattr(self, "bridge", None))
 
     def scoped_objects(self, params, warn: bool = True):
         """The Scope's objects closed over their hierarchy -- what the send ships.
@@ -92,7 +51,7 @@ class BlenderBridgeSlotsBase(BridgeSlotsBase):
         it is handed, never their children, and Maya's export-selection writes
         the subtree: a panel send of a selected Empty used to ship the Empty
         alone (measured on the RizomUV send, whose engine does not close the
-        scope itself). The rule is ``BlenderExportMixin.scope_closure``'s,
+        scope itself). The rule is :meth:`blendertk.BridgeHost.scope_closure`'s,
         Visible Only included; the export-mixin and texture bridges apply it
         again in their own produce step for callers that bypass the panel,
         which is idempotent.
@@ -100,21 +59,20 @@ class BlenderBridgeSlotsBase(BridgeSlotsBase):
         objects = super().scoped_objects(params, warn=warn)
         if not objects:
             return objects
-        from blendertk.env_utils.handoff_export import BlenderExportMixin
+        from blendertk.env_utils.handoff_export import BridgeHost
 
-        return BlenderExportMixin.scope_closure(objects, params)
+        return BridgeHost.scope_closure(objects, params)
 
     def _install_optional_package(self, spec: str) -> None:
         """Install an optional package where Blender will actually import it.
 
         Overrides the base's ``pip install --user``: Blender's bundled
-        interpreter does not put the user-site on ``sys.path``, so a ``--user``
-        install would succeed and still be unimportable. Routes through
-        :meth:`CoreUtils.ensure_packages`, which installs into Blender's
-        per-version user-modules dir (already on ``sys.path``) using the
-        bundled interpreter, and adds it to ``sys.path`` for this session.
+        interpreter does not put the user-site on ``sys.path``
+        (:meth:`blendertk.BridgeHost.install_package`).
         """
-        CoreUtils.ensure_packages({spec: spec.replace("-", "_")})
+        from blendertk.env_utils.handoff_export import BridgeHost
+
+        BridgeHost.install_package(spec)
 
     # ------------------------------------------------------------------
     # Bake Source set (param-row actions + the live member tooltip)
@@ -179,12 +137,11 @@ class BlenderBridgeSlotsBase(BridgeSlotsBase):
     def _bake_source_tooltip(self) -> str:
         """The Bake Source set's live member list (appended to each hover target)."""
         try:
-            members = self._bake_source_set().members()
+            names = self._bake_source_set().member_names()
         except Exception:  # noqa: BLE001 -- a tooltip must never raise into Qt
             return ""
         return TooltipFormat.stored_items(
-            members,
-            formatter=lambda o: o.name,
+            names,
             noun="object(s) in this file's set",
             empty_text="No bake source defined in this file.",
         )
@@ -217,19 +174,20 @@ class BlenderBridgeSlotsBase(BridgeSlotsBase):
         """Select the bake-source set's members.
 
         Members outside the active view layer (an excluded collection) can't
-        be selected at all -- ``select_set`` raises there -- and one whose
-        ``hide_select`` is on silently refuses. Both are reported rather than
-        forced: unhiding geometry behind the user's back to satisfy a
-        *select* action would be the one thing this feature promises not to
-        do. The export itself doesn't care either way.
+        be selected at all, and one whose ``hide_select`` is on silently
+        refuses (:meth:`BakeSourceSet.select` leaves both out). Both are
+        reported rather than forced: unhiding geometry behind the user's back
+        to satisfy a *select* action would be the one thing this feature
+        promises not to do. The export itself doesn't care either way.
         """
-        members = self._bake_source_set().members()
+        bake_set = self._bake_source_set()
+        members = bake_set.members()
         # Also resyncs the suffix rows if the set was removed outside the panel.
         self._refresh_param_enablement()
         if not members:
             self.bridge.logger.warning("This file has no bake-source set.")
             return
-        selected = CoreUtils.select(members)
+        selected = bake_set.select()
         unreachable = len(members) - len(selected)
         self.bridge.logger.info(
             f"Selected {len(selected)} bake-source object(s)."

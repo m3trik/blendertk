@@ -37,10 +37,6 @@ from blendertk.env_utils.handoff_export import BlenderExportMixin
 _PKG_DIR = Path(__file__).resolve().parent
 
 
-# Module-level helper so the slots can populate the combo without a live engine. Single-sources
-# the delivery modes from the shared deliverer.
-
-
 class UnityBridge(BlenderExportMixin, ptk.HandoffBridge):
     """Export the Blender selection and copy it into a Unity project's ``Assets/``.
 
@@ -93,10 +89,19 @@ class UnityBridge(BlenderExportMixin, ptk.HandoffBridge):
     def list_template_modes(self):
         return UnityBridge.list_delivery_modes()
 
-    def params_defaults(self):
+    @classmethod
+    def params_registry(cls):
+        """The panel's parameter registry (``parameters.Parameters``, a
+        ``uitk.bridge.ParamRegistry``): what tentacle's Unity Bridge builds its
+        rows from, and :meth:`params_defaults` reads. Imported on use, as the
+        defaults always were: the registry is uitk's, and the engine surface
+        imports without uitk (a headless Blender ships no Qt binding)."""
         from blendertk.env_utils.unity_bridge import parameters as _params
 
-        return _params.Parameters.defaults()
+        return _params.Parameters
+
+    def params_defaults(self):
+        return self.params_registry().defaults()
 
     def _produce(self, objects, request) -> ptk.Payload:
         """Export the FBX (via the mixin), embed what it depends on, and stamp

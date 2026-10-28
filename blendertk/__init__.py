@@ -136,11 +136,13 @@ DEFAULT_INCLUDE = {
     "env_utils.scene_state": [
         "SceneState",
     ],
-    # Unity Bridge — mirror of mayatk's ``env_utils.unity_bridge._unity_bridge`` (the
-    # ``UnityBridgeSlots`` panel is discovered by BlenderUiHandler, not registered here).
+    # Unity Bridge — mirror of mayatk's ``env_utils.unity_bridge._unity_bridge`` (its panel
+    # is tentacle's shared tool).
     "env_utils.unity_bridge._unity_bridge": [
         "UnityBridge",
     ],
+    # What every bridge panel asks of the host: scope, closure, package install.
+    "env_utils.handoff_export": ["BridgeHost"],
     # Scene Exporter — batch FBX/GLB export task pipeline, mirror of mayatk's
     # ``env_utils.scene_exporter`` (its panel is tentacle's shared Scene Exporter tool).
     "env_utils.scene_exporter._scene_exporter": [
@@ -163,7 +165,7 @@ DEFAULT_INCLUDE = {
     "light_utils._light_utils": "*",
     # Lightmap Baker — the engine (its panel is tentacle's shared Lightmap Baker tool) and
     # the bake's Exclude / Isolate sets the panel's rows read.
-    "mat_utils.bake_sets": ["LightmapExcludeSet", "LightmapIsolateSet"],
+    "mat_utils.bake_sets": ["BakeSourceSet", "LightmapExcludeSet", "LightmapIsolateSet"],
     "light_utils.lightmap_baker.lightmap_baker": [
         "LightmapBaker",
     ],
@@ -729,6 +731,14 @@ MOVED_NAMES = {
     ),
     "TreePathMatcher": (
         "tentacle.slots.tools._hierarchy_sync.tree_matcher.TreePathMatcher",
+        "0.23.0",
+    ),
+    "UnityBridgeSlots": (
+        "tentacle.slots.tools.unity_bridge.UnityBridgeSlots",
+        "0.23.0",
+    ),
+    "UnityPanelMixin": (
+        "tentacle.slots.tools._unity_bridge._unity_panel.UnityPanelMixin",
         "0.23.0",
     ),
 }

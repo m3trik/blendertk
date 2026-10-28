@@ -972,6 +972,22 @@ try:
             and [o.name for o in BakeSourceSet.members()] == ["bs_b"],
             str([(c.name, list(c.keys())) for c in _cols]),
         )
+        check(
+            "member_names reads the members' names (the Bake Source row's tooltip)",
+            BakeSourceSet.member_names() == ["bs_b"],
+            str(BakeSourceSet.member_names()),
+        )
+        from blendertk.core_utils._core_utils import CoreUtils as _CoreUtils
+
+        _CoreUtils.select([bs_a], mode="replace")
+        _picked = BakeSourceSet.select()
+        check(
+            "select makes the set's members the selection",
+            [o.name for o in _picked] == ["bs_b"]
+            and bs_b.select_get()
+            and not bs_a.select_get(),
+            str([o.name for o in _picked]),
+        )
         _legacy_set([bs_a])  # a stray legacy beside the canonical one
         BakeSourceSet.clear()
         check(

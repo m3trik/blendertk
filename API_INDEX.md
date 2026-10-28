@@ -363,6 +363,8 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `env_utils/handoff_export.py` — Blender-side selection + export hooks shared by the hand-off bridge engines.
 - `class BlenderExportMixin`
   - methods: lightmap_search_dirs, hdr_codec, scope_closure
+- `class BridgeHost`
+  - methods: resolve_scope, scope_closure, install_package
 
 ### `env_utils/hierarchy_sync/_fbx_stage_worker.py` — Convert an FBX reference to a standalone ``.blend`` inside a FRESH headless Blender.
 - `main() -> int`
@@ -491,19 +493,11 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/unity_bridge/_unity_bridge.py` — Unity bridge engine -- export the Blender selection into a Unity project's Assets/.
 - `class UnityBridge(BlenderExportMixin, pythontk.HandoffBridge)`
-  - methods: list_template_modes, params_defaults, list_delivery_modes
-
-### `env_utils/unity_bridge/_unity_panel.py` — What every Unity panel shares: the 'Unity Project' row, the Editor combo, script management.
-- `class UnityPanelMixin`
-  - methods: template_dir, list_template_modes, default_output_dir
+  - methods: list_template_modes, params_registry, params_defaults, list_delivery_modes
 
 ### `env_utils/unity_bridge/parameters.py` — User-tunable parameters for the Blender->Unity bridge panel -- mirror of mayatk's
 - constants: PARAMS
 - `class Parameters(ParamRegistry)`
-
-### `env_utils/unity_bridge/unity_bridge_slots.py` — Slots for the Unity bridge panel -- mirror of mayatk's
-- `class UnityBridgeSlots(UnityPanelMixin, BlenderBridgeSlotsBase)`
-  - methods: params_module, make_bridge, b000
 
 ### `env_utils/upstream_patches.py` — Defects in Blender's own Python that blendertk corrects, each with the probe
 - constants: SIBLING_ARMATURES
@@ -560,7 +554,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `mat_utils/bake_sets.py` — Scene-stored bake sets: named object sets the bake tools read (Blender).
 - `class BakeSet`
-  - methods: conventional_name, name, respell, collection, exists, members, meshes, define, clear
+  - methods: conventional_name, name, respell, collection, exists, members, member_names, select, meshes, define, clear
 - `class BakeSourceSet(BakeSet)`
   - methods: companion_path
 - `class LightmapExcludeSet(BakeSet)`

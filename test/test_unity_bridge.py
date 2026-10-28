@@ -10,11 +10,10 @@ Unity install is needed -- the project is just a folder with an ``Assets/`` dir.
 Two things stay module-level-Qt-bound and are therefore covered elsewhere, matching how
 the Maya/Rizom bridge slots split their coverage:
 
-* ``unity_bridge_slots.py`` imports ``uitk`` at module level (like ``maya_bridge_slots.py``)
-  -- never imported here. The scope-resolution *primitives* it delegates to
-  (``btk.selected_objects`` / ``btk.get_visible_geometry`` / a scene-mesh scan) are
-  exercised directly below; the Slots' ``_resolve_scope_objects`` wiring itself is covered
-  under the workspace ``.venv`` by ``test_blender_ui_handler.py``.
+* The panel is tentacle's shared Unity Bridge tool (``slots/tools/unity_bridge.py``),
+  which imports ``uitk`` -- never imported here. What it asks of blendertk for the Scope,
+  ``btk.BridgeHost`` (``resolve_scope`` / ``scope_closure``), is Qt-free and exercised
+  directly below, with the primitives it reads.
 * ``UnityBridge.params_defaults()`` (and therefore the public ``send()``, which calls it via
   ``merge_params``) imports ``parameters.py`` -> ``uitk.bridge.AttributeSpec`` -- also Qt-bound
   (see ``mayatk.env_utils.blender_bridge`` and every other hand-off bridge for the same
@@ -84,9 +83,9 @@ try:
     finally:
         shutil.rmtree(tmp_no_assets, ignore_errors=True)
 
-    # ---- scope-resolution primitives (what the Qt-bound Slots delegates to) --
-    # Mirrors UnityBridgeSlots._resolve_scope_objects: "all" -> scene mesh objects,
-    # "visible" -> btk.get_visible_geometry(), "selected"/default -> btk.selected_objects().
+    # ---- scope resolution: BridgeHost and the primitives it reads ------------
+    # "all" -> the engine's whole-scene hook, else the scene's mesh objects;
+    # "visible" -> the export mixin's visible read; "selected"/default -> btk.selected_objects().
     reset()
     bpy.ops.mesh.primitive_cube_add()
     visible_cube = bpy.context.active_object
@@ -136,6 +135,32 @@ try:
         "the export mixin's visible read excludes hidden objects",
         "VisibleCube" in resolved and "HiddenCube" not in resolved,
         f"{sorted(resolved)}",
+    )
+
+    # The API the shared panel calls (btk.BridgeHost), against the same scene.
+    from blendertk.env_utils.handoff_export import BridgeHost
+
+    by_scope = {
+        scope: {o.name for o in BridgeHost.resolve_scope(scope)}
+        for scope in ("selected", "visible", "bogus")
+    }
+    check(
+        "BridgeHost.resolve_scope: the selection, the visible, and no widening",
+        by_scope["selected"] == {"VisibleCube"}
+        and "VisibleCube" in by_scope["visible"]
+        and "HiddenCube" not in by_scope["visible"]
+        and by_scope["bogus"] == {"VisibleCube"},
+        f"{by_scope}",
+    )
+    bpy.ops.object.empty_add()
+    group = bpy.context.active_object
+    group.name = "UnityGroup"
+    visible_cube.parent = group
+    closed = {o.name for o in BridgeHost.scope_closure([group], {"SCOPE": "selected"})}
+    check(
+        "BridgeHost.scope_closure ships a scoped group's children",
+        closed == {"UnityGroup", "VisibleCube"},
+        f"{sorted(closed)}",
     )
 
     # ---- end-to-end: real FBX export -> copy into a temp Unity project -------

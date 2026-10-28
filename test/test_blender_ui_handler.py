@@ -53,7 +53,6 @@ PANELS = [
     "texture_path_editor",
     "rizom_bridge",
     "maya_bridge",
-    "unity_bridge",
     "marmoset_bridge",
     "substance_bridge",
     "arnold_bridge",
@@ -257,10 +256,6 @@ try:
             "WorkspaceEditorSlots",
         ),  # pythontk.Workspace engine — bpy-free
         ("maya_bridge", "MayaBridgeSlots"),  # engine/slots init is bpy-free
-        (
-            "unity_bridge",
-            "UnityBridgeSlots",
-        ),  # engine/slots init is bpy-free (unitytk lookup guarded)
         (
             "marmoset_bridge",
             "MarmosetBridgeSlots",
@@ -1024,12 +1019,9 @@ try:
     )
 
     # unity_bridge: params_defaults() (Qt path via uitk.bridge.AttributeSpec; needs no bpy, so it
-    # belongs here rather than in the headless test_unity_bridge harness which lacks Qt) + the
-    # single-mode combo surface (parity with mayatk -- no leftover "Unity Studio" mode).
+    # belongs here rather than in the headless test_unity_bridge harness which lacks Qt). The
+    # panel's mode combo is tentacle's shared tool's (test_unity_bridge_panel).
     from blendertk.env_utils.unity_bridge._unity_bridge import UnityBridge
-    from blendertk.env_utils.unity_bridge.unity_bridge_slots import (
-        UnityBridgeSlots as _UBS,
-    )
 
     _ub_defaults = UnityBridge().params_defaults()
     check(
@@ -1040,30 +1032,6 @@ try:
         and _ub_defaults.get("SCOPE") == "selected"
         and _ub_defaults.get("UNITY_VERSION") == "",
         f"{_ub_defaults}",
-    )
-    # One *delivery* mode (Copy to Project) plus the panel-native script-management
-    # mode — the mayatk twin carries exactly the same pair. The retired Unity Studio /
-    # existing-project delivery modes must stay gone.
-    check(
-        "unity_bridge delivery modes match mayatk (Copy to Project + Manage Scripts)",
-        _UBS.MODE_COPY == "copy_to_assets"
-        and _UBS.MODE_MANAGE == "manage_scripts"
-        and _UBS.MODE_LABELS
-        == {
-            _UBS.MODE_COPY: "Copy to Project",
-            _UBS.MODE_MANAGE: "Manage Unity Scripts",
-        }
-        and not hasattr(_UBS, "MODE_STUDIO")
-        and not hasattr(_UBS, "MODE_EXISTING"),
-        f"{_UBS.MODE_LABELS}",
-    )
-    # The combo picks a MODE and template_dir is the package dir, so the template
-    # rows (Refresh / Open Templates Folder) would re-scan nothing and reveal .py
-    # source. Owned by the vendored UnityPanelMixin, shared with mayatk + extapps.
-    check(
-        "unity_bridge combo offers no template management (TEMPLATE_MENU off)",
-        _UBS.TEMPLATE_MENU is False,
-        f"{_UBS.TEMPLATE_MENU!r}",
     )
 
     # Macro Manager: the bespoke panel was retired — the UI is now the unified uitk
@@ -1244,7 +1212,6 @@ except Exception as e:
 try:
     from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
     from blendertk.env_utils.maya_bridge.maya_bridge_slots import MayaBridgeSlots
-    from blendertk.env_utils.unity_bridge.unity_bridge_slots import UnityBridgeSlots
     from blendertk.mat_utils.marmoset_bridge.marmoset_bridge_slots import (
         MarmosetBridgeSlots,
     )
@@ -1259,7 +1226,6 @@ try:
     # forever. Pin the inheritance, not merely the presence of the parameter.
     for _cls in (
         MayaBridgeSlots,
-        UnityBridgeSlots,
         MarmosetBridgeSlots,
         SubstanceBridgeSlots,
         RizomBridgeSlots,

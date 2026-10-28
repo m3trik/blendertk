@@ -105,9 +105,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`env_utils/scene_state.py`](#env_utils--scene_state) — Read named sections of live-scene state for transport.
 - [`env_utils/script_output.py`](#env_utils--script_output) — Blender script-output console — the blendertk analogue of mayatk's ``ScriptConsole``.
 - [`env_utils/unity_bridge/_unity_bridge.py`](#env_utils--unity_bridge--_unity_bridge) — Unity bridge engine -- export the Blender selection into a Unity project's Assets/.
-- [`env_utils/unity_bridge/_unity_panel.py`](#env_utils--unity_bridge--_unity_panel) — What every Unity panel shares: the 'Unity Project' row, the Editor combo, script management.
 - [`env_utils/unity_bridge/parameters.py`](#env_utils--unity_bridge--parameters) — User-tunable parameters for the Blender->Unity bridge panel -- mirror of mayatk's
-- [`env_utils/unity_bridge/unity_bridge_slots.py`](#env_utils--unity_bridge--unity_bridge_slots) — Slots for the Unity bridge panel -- mirror of mayatk's
 - [`env_utils/upstream_patches.py`](#env_utils--upstream_patches) — Defects in Blender's own Python that blendertk corrects, each with the probe
 - [`env_utils/usd.py`](#env_utils--usd) — USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.usd``
 - [`env_utils/webxr_preview.py`](#env_utils--webxr_preview) — Push the Blender selection to a live browser / WebXR preview.
@@ -210,7 +208,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L438) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L440) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -1594,10 +1592,14 @@ FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.
 
 Blender-side selection + export hooks shared by the hand-off bridge engines.
 
-- **[`class BlenderExportMixin`](blendertk/blendertk/env_utils/handoff_export.py#L25)** — The Blender producer hooks for hand-off bridges (``_resolve_objects`` + ``_produce``).
+- **[`class BlenderExportMixin`](blendertk/blendertk/env_utils/handoff_export.py#L29)** — The Blender producer hooks for hand-off bridges (``_resolve_objects`` + ``_produce``).
   - `BlenderExportMixin.lightmap_search_dirs(self) -> List[str]` — Where Blender's map files live now (:class:`pythontk.PreviewBridge` hook).
   - `BlenderExportMixin.hdr_codec(self) -> Any` — What a GLB built here encodes its float images with (:class:`pythontk.PreviewBridge` hook).
   - `BlenderExportMixin.scope_closure(cls, objects, params: Optional[Dict[str, Any]] = None) -> List[Any]` *(class)* — What a send of *objects* under *params*' Scope ships: their hierarchy closure.
+- **[`class BridgeHost`](blendertk/blendertk/env_utils/handoff_export.py#L700)** — What a bridge panel asks of Blender: a Scope's objects, what a send of them
+  - `BridgeHost.resolve_scope(scope: str, bridge=None) -> List[Any]` *(static)* — The objects a ``SCOPE`` word names (``uitk.bridge.Parameters.scope_spec``).
+  - `BridgeHost.scope_closure(objects, params: Optional[Dict[str, Any]] = None) -> List[Any]` *(static)* — What a send of the scoped *objects* ships: their hierarchy closure.
+  - `BridgeHost.install_package(spec: str) -> None` *(static)* — Install the pip requirement *spec* where Blender imports it from.
 
 <a id="env_utils--hierarchy_sync--_fbx_stage_worker"></a>
 ### `env_utils/hierarchy_sync/_fbx_stage_worker.py`
@@ -2014,20 +2016,11 @@ Blender script-output console — the blendertk analogue of mayatk's ``ScriptCon
 
 Unity bridge engine -- export the Blender selection into a Unity project's Assets/.
 
-- **[`class UnityBridge(BlenderExportMixin, pythontk.HandoffBridge)`](blendertk/blendertk/env_utils/unity_bridge/_unity_bridge.py#L44)** — Export the Blender selection and copy it into a Unity project's ``Assets/``.
+- **[`class UnityBridge(BlenderExportMixin, pythontk.HandoffBridge)`](blendertk/blendertk/env_utils/unity_bridge/_unity_bridge.py#L40)** — Export the Blender selection and copy it into a Unity project's ``Assets/``.
   - `UnityBridge.list_template_modes(self)`
+  - `UnityBridge.params_registry(cls)` *(class)* — The panel's parameter registry (``parameters.Parameters``, a
   - `UnityBridge.params_defaults(self)`
   - `UnityBridge.list_delivery_modes(cls) -> List[Tuple[str, str]]` *(class)* — ``[(mode_stem, ""), ...]`` for the panel's delivery combo.
-
-<a id="env_utils--unity_bridge--_unity_panel"></a>
-### `env_utils/unity_bridge/_unity_panel.py`
-
-What every Unity panel shares: the 'Unity Project' row, the Editor combo, script management.
-
-- **[`class UnityPanelMixin`](blendertk/blendertk/env_utils/unity_bridge/_unity_panel.py#L34)** — Unity-panel behavior shared by the three Unity Slots classes.
-  - `UnityPanelMixin.template_dir(self) -> Path` *(property)*
-  - `UnityPanelMixin.list_template_modes(self)`
-  - `UnityPanelMixin.default_output_dir(self) -> str`
 
 <a id="env_utils--unity_bridge--parameters"></a>
 ### `env_utils/unity_bridge/parameters.py`
@@ -2036,16 +2029,6 @@ User-tunable parameters for the Blender->Unity bridge panel -- mirror of mayatk'
 
 - [`PARAMS`](blendertk/blendertk/env_utils/unity_bridge/parameters.py#L22) — constant
 - **[`class Parameters(ParamRegistry)`](blendertk/blendertk/env_utils/unity_bridge/parameters.py#L163)** — Parameters — module namespace.
-
-<a id="env_utils--unity_bridge--unity_bridge_slots"></a>
-### `env_utils/unity_bridge/unity_bridge_slots.py`
-
-Slots for the Unity bridge panel -- mirror of mayatk's
-
-- **[`class UnityBridgeSlots(UnityPanelMixin, BlenderBridgeSlotsBase)`](blendertk/blendertk/env_utils/unity_bridge/unity_bridge_slots.py#L38)** — Slots wired to ``unity_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
-  - `UnityBridgeSlots.params_module(self)` *(property)*
-  - `UnityBridgeSlots.make_bridge(self)` — Build the engine, or ``None`` when the optional unitytk is absent.
-  - `UnityBridgeSlots.b000(self)` — Run the selected template: export-and-copy, or script management.
 
 <a id="env_utils--upstream_patches"></a>
 ### `env_utils/upstream_patches.py`
@@ -2346,13 +2329,15 @@ Scene-stored bake sets: named object sets the bake tools read (Blender).
   - `BakeSet.collection(cls)` *(class)* — This file's stamped collection, or ``None`` when the file has no set.
   - `BakeSet.exists(cls) -> bool` *(class)* — Whether the set's collection is present in the file.
   - `BakeSet.members(cls) -> List[Any]` *(class)* — The set's objects (an empty list when there is no set).
+  - `BakeSet.member_names(cls) -> List[str]` *(class)* — The members' names, for display (mirror of mayatk's short names).
+  - `BakeSet.select(cls) -> List[Any]` *(class)* — Select the set's members on the window's view layer;
   - `BakeSet.meshes(cls) -> List[Any]` *(class)* — The mesh objects the set covers -- a member counts its descendants.
   - `BakeSet.define(cls, objects: Optional[List[Any]] = None, conventional: bool = False) -> List[Any]` *(class)* — Replace the set's contents with *objects* (default: the selection).
   - `BakeSet.clear(cls) -> None` *(class)* — Remove the set's collection (one undo step);
-- **[`class BakeSourceSet(BakeSet)`](blendertk/blendertk/mat_utils/bake_sets.py#L281)** — The file's bake source, shared by the Substance and Marmoset bridges.
+- **[`class BakeSourceSet(BakeSet)`](blendertk/blendertk/mat_utils/bake_sets.py#L304)** — The file's bake source, shared by the Substance and Marmoset bridges.
   - `BakeSourceSet.companion_path(cls, export_path: str) -> str` *(class)* — ``.../asset.fbx`` -> ``.../asset_source.fbx``.
-- **[`class LightmapExcludeSet(BakeSet)`](blendertk/blendertk/mat_utils/bake_sets.py#L321)** — Objects every lightmap bake of the file gives no map of their own.
-- **[`class LightmapIsolateSet(BakeSet)`](blendertk/blendertk/mat_utils/bake_sets.py#L340)** — Objects that bake in a pass of their own, out of every other bake's render.
+- **[`class LightmapExcludeSet(BakeSet)`](blendertk/blendertk/mat_utils/bake_sets.py#L344)** — Objects every lightmap bake of the file gives no map of their own.
+- **[`class LightmapIsolateSet(BakeSet)`](blendertk/blendertk/mat_utils/bake_sets.py#L363)** — Objects that bake in a pass of their own, out of every other bake's render.
   - `LightmapIsolateSet.groups(cls) -> List[List[Any]]` *(class)* — The set's meshes by member: what lies under each one moves together.
   - `LightmapIsolateSet.meshes(cls) -> List[Any]` *(class)* — Every mesh :meth:`groups` holds: each member with all it carries.
 
@@ -3496,7 +3481,7 @@ UI utilities — opening Blender editors (the analogue of Maya's editor-window m
 
 Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
 
-- **[`class BlenderBridgeSlotsBase(BridgeSlotsBase)`](blendertk/blendertk/ui_utils/blender_bridge_slots_base.py#L30)** — Adds the Blender Scope resolution to :class:`BridgeSlotsBase`.
+- **[`class BlenderBridgeSlotsBase(BridgeSlotsBase)`](blendertk/blendertk/ui_utils/blender_bridge_slots_base.py#L29)** — Adds the Blender Scope resolution to :class:`BridgeSlotsBase`.
   - `BlenderBridgeSlotsBase.resolve_scope_objects(self, scope: str)` — Objects to export for the chosen ``SCOPE`` param.
   - `BlenderBridgeSlotsBase.scoped_objects(self, params, warn: bool = True)` — The Scope's objects closed over their hierarchy -- what the send ships.
   - `BlenderBridgeSlotsBase.live_param_tooltip_blocks(self)` — Make the Bake Source row report the file's CURRENT members.

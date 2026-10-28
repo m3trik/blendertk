@@ -23,7 +23,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 438,
+          "line": 440,
           "deprecated": false
         }
       ]
@@ -8946,7 +8946,7 @@
         {
           "name": "BlenderExportMixin",
           "summary": "The Blender producer hooks for hand-off bridges (``_resolve_objects`` + ``_produce``).",
-          "line": 25,
+          "line": 29,
           "bases": [],
           "members": [
             {
@@ -8955,7 +8955,7 @@
               "kind": "method",
               "signature": "(self) -> List[str]",
               "summary": "Where Blender's map files live now (:class:`pythontk.PreviewBridge` hook).",
-              "line": 106,
+              "line": 110,
               "deprecated": false
             },
             {
@@ -8964,7 +8964,7 @@
               "kind": "method",
               "signature": "(self) -> Any",
               "summary": "What a GLB built here encodes its float images with (:class:`pythontk.PreviewBridge` hook).",
-              "line": 125,
+              "line": 129,
               "deprecated": false
             },
             {
@@ -8973,7 +8973,42 @@
               "kind": "classmethod",
               "signature": "(cls, objects, params: Optional[Dict[str, Any]] = None) -> List[Any]",
               "summary": "What a send of *objects* under *params*' Scope ships: their hierarchy closure.",
-              "line": 254,
+              "line": 258,
+              "deprecated": false
+            }
+          ]
+        },
+        {
+          "name": "BridgeHost",
+          "summary": "What a bridge panel asks of Blender: a Scope's objects, what a send of them",
+          "line": 700,
+          "bases": [],
+          "members": [
+            {
+              "name": "resolve_scope",
+              "qualname": "BridgeHost.resolve_scope",
+              "kind": "staticmethod",
+              "signature": "(scope: str, bridge=None) -> List[Any]",
+              "summary": "The objects a ``SCOPE`` word names (``uitk.bridge.Parameters.scope_spec``).",
+              "line": 710,
+              "deprecated": false
+            },
+            {
+              "name": "scope_closure",
+              "qualname": "BridgeHost.scope_closure",
+              "kind": "staticmethod",
+              "signature": "(objects, params: Optional[Dict[str, Any]] = None) -> List[Any]",
+              "summary": "What a send of the scoped *objects* ships: their hierarchy closure.",
+              "line": 750,
+              "deprecated": false
+            },
+            {
+              "name": "install_package",
+              "qualname": "BridgeHost.install_package",
+              "kind": "staticmethod",
+              "signature": "(spec: str) -> None",
+              "summary": "Install the pip requirement *spec* where Blender imports it from.",
+              "line": 770,
               "deprecated": false
             }
           ]
@@ -11738,7 +11773,7 @@
         {
           "name": "UnityBridge",
           "summary": "Export the Blender selection and copy it into a Unity project's ``Assets/``.",
-          "line": 44,
+          "line": 40,
           "bases": [
             "BlenderExportMixin",
             "pythontk.HandoffBridge"
@@ -11750,6 +11785,15 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "",
+              "line": 89,
+              "deprecated": false
+            },
+            {
+              "name": "params_registry",
+              "qualname": "UnityBridge.params_registry",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "The panel's parameter registry (``parameters.Parameters``, a",
               "line": 93,
               "deprecated": false
             },
@@ -11759,7 +11803,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "",
-              "line": 96,
+              "line": 103,
               "deprecated": false
             },
             {
@@ -11768,50 +11812,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> List[Tuple[str, str]]",
               "summary": "``[(mode_stem, \"\"), ...]`` for the panel's delivery combo.",
-              "line": 127,
-              "deprecated": false
-            }
-          ]
-        }
-      ],
-      "constants": []
-    },
-    {
-      "relpath": "env_utils/unity_bridge/_unity_panel.py",
-      "summary": "What every Unity panel shares: the 'Unity Project' row, the Editor combo, script management.",
-      "functions": [],
-      "classes": [
-        {
-          "name": "UnityPanelMixin",
-          "summary": "Unity-panel behavior shared by the three Unity Slots classes.",
-          "line": 34,
-          "bases": [],
-          "members": [
-            {
-              "name": "template_dir",
-              "qualname": "UnityPanelMixin.template_dir",
-              "kind": "property",
-              "signature": "(self) -> Path",
-              "summary": "",
-              "line": 90,
-              "deprecated": false
-            },
-            {
-              "name": "list_template_modes",
-              "qualname": "UnityPanelMixin.list_template_modes",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "",
-              "line": 95,
-              "deprecated": false
-            },
-            {
-              "name": "default_output_dir",
-              "qualname": "UnityPanelMixin.default_output_dir",
-              "kind": "method",
-              "signature": "(self) -> str",
-              "summary": "",
-              "line": 102,
+              "line": 132,
               "deprecated": false
             }
           ]
@@ -11845,52 +11846,6 @@
           "deprecated": false
         }
       ]
-    },
-    {
-      "relpath": "env_utils/unity_bridge/unity_bridge_slots.py",
-      "summary": "Slots for the Unity bridge panel -- mirror of mayatk's",
-      "functions": [],
-      "classes": [
-        {
-          "name": "UnityBridgeSlots",
-          "summary": "Slots wired to ``unity_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.",
-          "line": 38,
-          "bases": [
-            "UnityPanelMixin",
-            "BlenderBridgeSlotsBase"
-          ],
-          "members": [
-            {
-              "name": "params_module",
-              "qualname": "UnityBridgeSlots.params_module",
-              "kind": "property",
-              "signature": "(self)",
-              "summary": "",
-              "line": 102,
-              "deprecated": false
-            },
-            {
-              "name": "make_bridge",
-              "qualname": "UnityBridgeSlots.make_bridge",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Build the engine, or ``None`` when the optional unitytk is absent.",
-              "line": 105,
-              "deprecated": false
-            },
-            {
-              "name": "b000",
-              "qualname": "UnityBridgeSlots.b000",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Run the selected template: export-and-copy, or script management.",
-              "line": 119,
-              "deprecated": false
-            }
-          ]
-        }
-      ],
-      "constants": []
     },
     {
       "relpath": "env_utils/upstream_patches.py",
@@ -14005,12 +13960,30 @@
               "deprecated": false
             },
             {
+              "name": "member_names",
+              "qualname": "BakeSet.member_names",
+              "kind": "classmethod",
+              "signature": "(cls) -> List[str]",
+              "summary": "The members' names, for display (mirror of mayatk's short names).",
+              "line": 152,
+              "deprecated": false
+            },
+            {
+              "name": "select",
+              "qualname": "BakeSet.select",
+              "kind": "classmethod",
+              "signature": "(cls) -> List[Any]",
+              "summary": "Select the set's members on the window's view layer;",
+              "line": 157,
+              "deprecated": false
+            },
+            {
               "name": "meshes",
               "qualname": "BakeSet.meshes",
               "kind": "classmethod",
               "signature": "(cls) -> List[Any]",
               "summary": "The mesh objects the set covers -- a member counts its descendants.",
-              "line": 152,
+              "line": 175,
               "deprecated": false
             },
             {
@@ -14019,7 +13992,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects: Optional[List[Any]] = None, conventional: bool = False) -> List[Any]",
               "summary": "Replace the set's contents with *objects* (default: the selection).",
-              "line": 168,
+              "line": 191,
               "deprecated": false
             },
             {
@@ -14028,7 +14001,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> None",
               "summary": "Remove the set's collection (one undo step);",
-              "line": 238,
+              "line": 261,
               "deprecated": false
             }
           ]
@@ -14036,7 +14009,7 @@
         {
           "name": "BakeSourceSet",
           "summary": "The file's bake source, shared by the Substance and Marmoset bridges.",
-          "line": 281,
+          "line": 304,
           "bases": [
             "BakeSet"
           ],
@@ -14047,7 +14020,7 @@
               "kind": "classmethod",
               "signature": "(cls, export_path: str) -> str",
               "summary": "``.../asset.fbx`` -> ``.../asset_source.fbx``.",
-              "line": 304,
+              "line": 327,
               "deprecated": false
             }
           ]
@@ -14055,7 +14028,7 @@
         {
           "name": "LightmapExcludeSet",
           "summary": "Objects every lightmap bake of the file gives no map of their own.",
-          "line": 321,
+          "line": 344,
           "bases": [
             "BakeSet"
           ],
@@ -14064,7 +14037,7 @@
         {
           "name": "LightmapIsolateSet",
           "summary": "Objects that bake in a pass of their own, out of every other bake's render.",
-          "line": 340,
+          "line": 363,
           "bases": [
             "BakeSet"
           ],
@@ -14075,7 +14048,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> List[List[Any]]",
               "summary": "The set's meshes by member: what lies under each one moves together.",
-              "line": 360,
+              "line": 383,
               "deprecated": false
             },
             {
@@ -14084,7 +14057,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> List[Any]",
               "summary": "Every mesh :meth:`groups` holds: each member with all it carries.",
-              "line": 394,
+              "line": 417,
               "deprecated": false
             }
           ]
@@ -21522,7 +21495,7 @@
         {
           "name": "BlenderBridgeSlotsBase",
           "summary": "Adds the Blender Scope resolution to :class:`BridgeSlotsBase`.",
-          "line": 30,
+          "line": 29,
           "bases": [
             "BridgeSlotsBase"
           ],
@@ -21533,7 +21506,7 @@
               "kind": "method",
               "signature": "(self, scope: str)",
               "summary": "Objects to export for the chosen ``SCOPE`` param.",
-              "line": 34,
+              "line": 33,
               "deprecated": false
             },
             {
@@ -21542,7 +21515,7 @@
               "kind": "method",
               "signature": "(self, params, warn: bool = True)",
               "summary": "The Scope's objects closed over their hierarchy -- what the send ships.",
-              "line": 87,
+              "line": 46,
               "deprecated": false
             },
             {
@@ -21551,7 +21524,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Make the Bake Source row report the file's CURRENT members.",
-              "line": 151,
+              "line": 109,
               "deprecated": false
             },
             {
@@ -21560,7 +21533,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Store the current selection as this file's bake source.",
-              "line": 192,
+              "line": 149,
               "deprecated": false
             },
             {
@@ -21569,7 +21542,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Select the bake-source set's members.",
-              "line": 216,
+              "line": 173,
               "deprecated": false
             },
             {
@@ -21578,7 +21551,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Remove the bake-source collection;",
-              "line": 244,
+              "line": 202,
               "deprecated": false
             }
           ]
