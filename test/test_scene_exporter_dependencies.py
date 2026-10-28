@@ -187,7 +187,7 @@ try:
         export_dir=preset_out,
         objects=[cube],
         output_name="with_preset",
-        preset_name="default",
+        preset_file="default",
         tasks={"export_data_node": False},
     )
     preset_fbx = os.path.join(preset_out, "with_preset.fbx")

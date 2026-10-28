@@ -74,8 +74,7 @@ DEFAULT_INCLUDE = {
     "uv_utils._uv_utils": "*",
     # UV-to-UV texture transfer adapter -- mirror of mayatk.uv_utils.texture_transfer
     "uv_utils.texture_transfer": ["TextureTransfer"],
-    # Texture Combine engine -- mirror of mayatk's; its co-located
-    # ``TextureCombineSlots`` panel is discovered by ``BlenderUiHandler``.
+    # Texture Combine engine -- mirror of mayatk's (its panel is tentacle's shared tool).
     "uv_utils.texture_combine.texture_combine": ["TextureCombine", "CombineInputs"],
     # RizomUV bridge engine — mirror of mayatk's ``uv_utils.rizom_bridge._rizom_bridge.RizomUVBridge``
     # (the ``RizomBridgeSlots`` panel class is discovered by the handler, not registered).
@@ -141,8 +140,7 @@ DEFAULT_INCLUDE = {
         "UnityBridge",
     ],
     # Scene Exporter — batch FBX/GLB export task pipeline, mirror of mayatk's
-    # ``env_utils.scene_exporter`` (the ``SceneExporterSlots`` panel class is discovered by
-    # BlenderUiHandler, not registered).
+    # ``env_utils.scene_exporter`` (its panel is tentacle's shared Scene Exporter tool).
     "env_utils.scene_exporter._scene_exporter": [
         "SceneExporter",
     ],
@@ -697,6 +695,14 @@ MOVED_NAMES = {
     ),
     "AudioClipsSlots": (
         "tentacle.slots.tools.audio_clips.AudioClipsSlots",
+        "0.23.0",
+    ),
+    "SceneExporterSlots": (
+        "tentacle.slots.tools.scene_exporter.SceneExporterSlots",
+        "0.23.0",
+    ),
+    "TextureCombineSlots": (
+        "tentacle.slots.tools.texture_combine.TextureCombineSlots",
         "0.23.0",
     ),
 }

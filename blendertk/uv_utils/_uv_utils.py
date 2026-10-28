@@ -1625,6 +1625,12 @@ class UvUtils(_UvUtilsInternal):
             match_by_similarity (bool): When True (default), treat the inputs as
                 unordered groups and pair them by geometric similarity. Set
                 False when the caller already supplies ordered pairs.
+
+        Returns:
+            list: ``(source name, target name, how)`` per pair transferred --
+                mayatk's shape: *how* is ``"topology"`` for the exact copy and
+                ``"nearest"`` for the spatial ``data_transfer`` (a source with
+                no UV layer transfers nothing and is left out).
         """
         from blendertk.edit_utils._edit_utils import EditUtils
 
@@ -1650,17 +1656,22 @@ class UvUtils(_UvUtilsInternal):
                 )
             pairs = zip(sources, targets)
 
+        results = []
         for src, dst in pairs:
-            cls._transfer_uv_pair(src, dst)
+            how = cls._transfer_uv_pair(src, dst)
+            if how is not None:
+                results.append((src.name, dst.name, how))
+        return results
 
     @staticmethod
     def _transfer_uv_pair(src, dst):
-        """Copy one mesh's active UV layer onto another's."""
+        """Copy one mesh's active UV layer onto another's; how (``"topology"``,
+        ``"nearest"``), or ``None`` when *src* has no UV layer."""
         import bpy
 
         src_uv = src.data.uv_layers.active
         if src_uv is None:
-            return
+            return None
         dst_uv = dst.data.uv_layers.active or dst.data.uv_layers.new(name=src_uv.name)
 
         src_data, dst_data = src_uv.data, dst_uv.data
@@ -1673,7 +1684,7 @@ class UvUtils(_UvUtilsInternal):
             src_data.foreach_get("uv", buf)
             dst_data.foreach_set("uv", buf)
             dst.data.update()
-            return
+            return "topology"
 
         with CoreUtils.window_context_override():
             try:
@@ -1693,6 +1704,7 @@ class UvUtils(_UvUtilsInternal):
                 layers_select_src="ACTIVE",
                 layers_select_dst="ACTIVE",
             )
+        return "nearest"
 
     @staticmethod
     def get_uv_shell_sets(objects=None, whole_shells=False):

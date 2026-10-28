@@ -135,9 +135,13 @@ class _TextureCombineInternal:
         ``None`` reads the selection; empties / parents expand to the meshes
         beneath them. EVERY object using a mesh found is included, picked or
         not: linked duplicates share the UVs a combine moves, so each must
-        also receive the material made for them. Mirror of mayatk's.
+        also receive the material made for them. Mirror of mayatk's. Without
+        Blender (the panel loading Qt-only) there is nothing: ``[]``.
         """
-        import bpy
+        try:
+            import bpy
+        except ImportError:
+            return []
 
         if objects is None:
             objects = CoreUtils.selected_objects()
@@ -308,6 +312,10 @@ class _TextureCombineInternal:
 
     @classmethod
     def _load(cls) -> Dict[str, Dict[str, Any]]:
+        try:
+            import bpy  # noqa: F401
+        except ImportError:  # no Blender (the panel loading Qt-only): no file
+            return {}
         from blendertk.node_utils.data_nodes import DataNodes
 
         data = ptk.SceneRecords.TEXTURE_COMBINE.load(DataNodes, {})
@@ -797,13 +805,17 @@ class TextureCombine(ptk.LoggingMixin, _TextureCombineInternal):
             node = node.parent
         return "|" + "|".join(reversed(chain))
 
-    def default_name(self, transforms: Sequence[str]) -> str:
-        """What a blank name stands for: the meshes' common name."""
+    def default_name(
+        self, transforms: Sequence[str], fallback: str = "combined"
+    ) -> str:
+        """What a blank name stands for: the meshes' common name, else
+        *fallback* -- mirror of mayatk's (objects or names; the parent chain
+        is read as mayatk's long names)."""
         name = ptk.StrUtils.common_name(
             [self._node_path(t) for t in transforms],
             strip=ptk.NamingConvention.all_affixes(),
         )
-        return name or "combined"
+        return name or fallback
 
     @CoreUtils._object_mode
     def combine(
@@ -822,6 +834,7 @@ class TextureCombine(ptk.LoggingMixin, _TextureCombineInternal):
         output_dir: Optional[str] = None,
         assign_prefix: str = "",
         assign_suffix: Optional[str] = None,
+        assign_shader_type: Optional[str] = None,
         lightmaps: bool = True,
         inputs: Optional[CombineInputs] = None,
     ) -> Dict[str, Any]:
@@ -841,8 +854,10 @@ class TextureCombine(ptk.LoggingMixin, _TextureCombineInternal):
             supersample / texture_padding / output_dir / assign_*: As
                 :meth:`TextureTransfer.transfer` (*texture_padding* is its
                 ``padding``: the maps' gutter fill, ``-1`` fills every empty
-                texel). mayatk's ``assign_shader_type`` has no twin: a Blender
-                material is one node graph, with no shader type to rebuild on.
+                texel).
+            assign_shader_type: mayatk's keyword, for one signature: a Blender
+                material is one node graph, with no shader type to rebuild on
+                (``TextureTransfer.shader_types()`` is empty), so any value raises.
             lightmaps: Consolidate the combined objects' committed lightmaps
                 (:meth:`consolidate_lightmaps`).
             inputs: A :meth:`gather` already made for *objects* (a panel that
@@ -858,6 +873,11 @@ class TextureCombine(ptk.LoggingMixin, _TextureCombineInternal):
                 mesh already in another combine (restore that one first).
             RuntimeError: The packer (``xatlas``) cannot be provisioned.
         """
+        if assign_shader_type:
+            raise ValueError(
+                f"no shader type {assign_shader_type!r} to rebuild on: a Blender "
+                "material is one node graph"
+            )
         inputs = inputs or self.gather(objects)
         self.apply_rows(inputs, rows)
         name = (name or "").strip() or self.default_name(inputs.transforms)
@@ -1220,6 +1240,110 @@ class TextureCombine(ptk.LoggingMixin, _TextureCombineInternal):
         cls._release(entry.get("kept"))
         cls._save(data)
         return True
+
+    # ------------------------------------------------------------ selection
+    # Mirror of mayatk's: what the shared Texture Combine panel sets and reads
+    # beside the combine. A face component is ``<object>.f[a:b]`` (mayatk's
+    # spelling, :meth:`_face_ranges`); Blender selects faces in Edit Mode.
+
+    @classmethod
+    def leaf_name(cls, node) -> str:
+        """*node*'s own name, for a label (mirror of mayatk's): an object's
+        name, a face component's object (``Cube.001.f[0:3]`` -> ``Cube.001``)."""
+        return cls._face_component(str(getattr(node, "name", node)))[0]
+
+    @classmethod
+    def select(cls, nodes) -> int:
+        """Replace the selection with *nodes* -- objects (or their names)
+        and/or face components (``<object>.f[a:b]``) -- mirror of mayatk's.
+        Objects go through ``CoreUtils.select``; face components put their
+        objects in Edit Mode with exactly those faces selected. With nothing
+        that exists, the selection stays as it is.
+
+        Returns:
+            How many of *nodes* were selected: objects the view layer took (a
+            hidden or select-disabled one takes none), or face components
+            whose object went into Edit Mode.
+        """
+        import bpy
+
+        objects, faces, components = [], {}, []
+        for node in ptk.make_iterable(nodes):
+            if isinstance(node, str) and ".f[" in node:
+                name, ids = cls._face_component(node)
+                faces.setdefault(name, []).extend(ids)
+                components.append(name)
+                continue
+            obj = bpy.data.objects.get(node) if isinstance(node, str) else node
+            if obj is not None:
+                objects.append(obj)
+        if components:
+            edited = cls._select_faces(faces)
+            return sum(1 for name in components if name in edited)
+        return len(CoreUtils.select(objects)) if objects else 0
+
+    @staticmethod
+    def _select_faces(faces: Dict[str, List[int]]) -> set:
+        """Edit Mode on the objects of *faces* (``{object name: face ids}``)
+        with exactly those faces selected; the names of the objects it put
+        there."""
+        import bmesh
+        import bpy
+
+        objs = [bpy.data.objects[n] for n in faces if n in bpy.data.objects]
+        if not objs:
+            return set()
+        with CoreUtils.window_context_override():
+            active = bpy.context.view_layer.objects.active
+            if active is not None and active.mode != "OBJECT":
+                bpy.ops.object.mode_set(mode="OBJECT")
+            objs = CoreUtils.select(objs)  # the first one active
+            if not objs:
+                return set()
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.context.tool_settings.mesh_select_mode = (False, False, True)
+            for obj in objs:
+                bm = bmesh.from_edit_mesh(obj.data)
+                bm.faces.ensure_lookup_table()
+                wanted = set(faces[obj.name])
+                for face in bm.faces:
+                    face.select_set(face.index in wanted)
+                bm.select_flush_mode()
+                bmesh.update_edit_mesh(obj.data)
+        return {o.name for o in objs}
+
+    @classmethod
+    def material_faces(cls, inputs: CombineInputs, material) -> List[str]:
+        """The faces of *inputs*' meshes that wear *material*, as
+        ``<object>.f[a:b]`` strings on every linked duplicate -- mirror of
+        mayatk's."""
+        faces: List[str] = []
+        for read in inputs.shapes.values():
+            try:
+                index = read["materials"].index(material)
+            except ValueError:
+                continue
+            ids = [
+                i for i, m in enumerate(read["face_material"].tolist()) if m == index
+            ]
+            for xf in read["transforms"]:
+                faces += cls._face_ranges(xf, ids)
+        return faces
+
+    @classmethod
+    def selected_faces(cls) -> List[str]:
+        """The faces selected in Edit Mode, as ``<object>.f[a:b]`` strings, for
+        an island override row -- mirror of mayatk's (Blender has no component
+        selection outside Edit Mode, so an Object Mode selection holds none)."""
+        import bmesh
+
+        faces: List[str] = []
+        for obj in CoreUtils.selected_objects():
+            if obj.type != "MESH" or obj.mode != "EDIT":
+                continue
+            bm = bmesh.from_edit_mesh(obj.data)
+            faces += cls._face_ranges(obj.name, [f.index for f in bm.faces if f.select])
+        return faces
 
     # ------------------------------------------------------------ lightmaps
     def consolidate_lightmaps(

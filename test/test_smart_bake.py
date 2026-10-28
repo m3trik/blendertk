@@ -7,8 +7,8 @@ tentacle's shared ``slots/tools/smart_bake.py``, tested by tentacle's
 ``_run_data_internal_export_exclusion_checks`` needs **bpy, not Qt** — it builds a real scene
 (a ``data_internal`` carrier via ``DataNodes.ensure_internal()`` plus two ordinary meshes) and
 proves the carrier is absent from all three Scene Exporter object-set modes (All Scene Objects /
-All Visible Objects / Selected Objects Only), replicating ``scene_exporter_slots.py``'s
-``b000.objects_to_export()`` branches inline (see that function for the source of truth).
+All Visible Objects / Selected Objects Only), read through ``SceneExporter.objects_to_export``
+-- the object set the panel's Scope row hands the export.
 
 ``_run_engine_round_trip_checks`` also needs **bpy, not Qt** — exercises
 ``SmartBake.analyze()``/``get_time_range()``/``bake()``/``restore()`` directly (not through
@@ -103,8 +103,8 @@ def _run_data_internal_export_exclusion_checks():
     try:
         import bpy
         import bmesh
-        import blendertk as btk
         from blendertk.node_utils.data_nodes import DataNodes
+        from blendertk.env_utils.scene_exporter._scene_exporter import SceneExporter
 
         def reset():
             if (
@@ -141,8 +141,8 @@ def _run_data_internal_export_exclusion_checks():
         # geometry()'s default pool walks exactly that collection, so force the refresh first.
         bpy.context.view_layer.update()
 
-        # ---- "All Scene Objects" (scene_exporter_slots.objects_to_export, export_mode == "all")
-        all_names = {o.name for o in bpy.context.scene.objects if o.type == "MESH"}
+        # ---- "All Scene Objects" (export_mode == "all")
+        all_names = {o.name for o in SceneExporter.objects_to_export("all")}
         check(
             "All Scene Objects excludes data_internal",
             DataNodes.INTERNAL not in all_names,
@@ -155,7 +155,7 @@ def _run_data_internal_export_exclusion_checks():
         )
 
         # ---- "All Visible Objects" (export_mode == "visible", the default/fallback)
-        visible_names = {o.name for o in btk.get_visible_geometry()}
+        visible_names = {o.name for o in SceneExporter.objects_to_export("visible")}
         check(
             "All Visible Objects excludes data_internal",
             DataNodes.INTERNAL not in visible_names,
@@ -172,7 +172,7 @@ def _run_data_internal_export_exclusion_checks():
         bpy.ops.object.select_all(action="DESELECT")
         mesh_a.select_set(True)
         mesh_b.select_set(True)
-        selected_names = {o.name for o in btk.selected_objects()}
+        selected_names = {o.name for o in SceneExporter.objects_to_export("selected")}
         check(
             "Selected Objects Only excludes data_internal when not selected",
             DataNodes.INTERNAL not in selected_names,
