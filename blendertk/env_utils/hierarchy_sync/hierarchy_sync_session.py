@@ -713,7 +713,9 @@ class HierarchySyncSession(ptk.LoggingMixin):
     def recent_scenes() -> List[str]:
         """The recently opened ``.blend`` files, most recent first."""
         try:
-            return CoreUtils.get_recent_files() or []
+            from blendertk.env_utils._env_utils import EnvUtils
+
+            return EnvUtils.get_recent_files() or []
         except Exception:
             return []
 

@@ -139,6 +139,48 @@ class ReferenceManager(ptk.LoggingMixin, _ReferenceManagerInternal):
     _progress = None
     _report = None
 
+    @classmethod
+    def selected_reference_paths(cls, extensions=None) -> List[str]:
+        """The files behind the selected objects' linked libraries, each once, in
+        selection order -- what the Mesh Converter's "From FBX references" toggle
+        reads. An object answers for its own library, its override's reference's, or
+        the linked collection it instances; a library reading a bake answers its
+        bake's source (:meth:`bake_source`: a .ma, an .fbx, a USD). Mirror of mayatk's.
+
+        Parameters:
+            extensions (tuple): Keep only files with these extensions
+                (``(".fbx",)``); None keeps every one.
+
+        Returns:
+            (list): Paths; ``[]`` when nothing selected is linked (or without bpy).
+        """
+        if _bpy() is None:
+            return []
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        wanted = tuple(ext.lower() for ext in extensions) if extensions else None
+        paths = []
+        for obj in CoreUtils.selected_objects():
+            override = getattr(obj, "override_library", None)
+            instanced = (
+                obj.instance_collection if obj.instance_type == "COLLECTION" else None
+            )
+            owners = (obj, getattr(override, "reference", None), instanced)
+            library = next(
+                (o.library for o in owners if o is not None and o.library), None
+            )
+            if library is None:
+                continue
+            path = EnvUtils._abspath(library.filepath)
+            path = cls.bake_source(path) or path
+            if (
+                path
+                and (wanted is None or path.lower().endswith(wanted))
+                and path not in paths
+            ):
+                paths.append(path)
+        return paths
+
     def __init__(
         self,
         log_level="WARNING",

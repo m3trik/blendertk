@@ -2,7 +2,7 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (848)
+## Moved out (850)
 
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b000` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
@@ -280,6 +280,8 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `audio_utils/audio_clips.py::AudioClipsSlots.select_track` → `tentacle.slots.tools.audio_clips.AudioClipsSlots` (from 0.23.0)
 - `audio_utils/audio_clips.py::AudioClipsSlots.tb001` → `tentacle.slots.tools.audio_clips.AudioClipsSlots` (from 0.23.0)
 - `audio_utils/audio_clips.py::AudioClipsSlots.tb001_init` → `tentacle.slots.tools.audio_clips.AudioClipsSlots` (from 0.23.0)
+- `core_utils/_core_utils.py::CoreUtils.get_recent_autosave` → `blendertk.EnvUtils.get_recent_autosave` (from 0.23.0)
+- `core_utils/_core_utils.py::CoreUtils.get_recent_files` → `blendertk.EnvUtils.get_recent_files` (from 0.23.0)
 - `display_utils/color_id.py::ColorIdSlots` → `tentacle.slots.tools.color_id.ColorIdSlots` (from 0.23.0)
 - `display_utils/color_id.py::ColorIdSlots.b000` → `tentacle.slots.tools.color_id.ColorIdSlots` (from 0.23.0)
 - `display_utils/color_id.py::ColorIdSlots.b001` → `tentacle.slots.tools.color_id.ColorIdSlots` (from 0.23.0)
@@ -853,7 +855,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (538)
+## Added (550)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -971,6 +973,9 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `core_utils/_core_utils.py::CoreUtils.selected(func: Callable) -> Callable`
 - `core_utils/_core_utils.py::CoreUtils.suspended_refresh()`
 - `core_utils/diagnostics/mesh_diag.py::MeshDiagnostics.cleanup_meshes(cls, scope='selected', repair=False, *, checks=(), area_tolerance=1e-05, edge_length_tolerance=1e-05, uv_area_tolerance=1e-05, merge_vertices=False, merge_distance=0.0001, delete_history=False, delete_loose=False, dissolve_degenerate=False, recalculate_normals=False, fill_holes=False, overlapping_faces=False, overlapping_objects=False, omit_selected=False)`
+- `core_utils/diagnostics/scene_diag.py::SceneDiagnostics(class)`
+- `core_utils/diagnostics/scene_diag.py::SceneDiagnostics.fix_missing_color_spaces(images=None, force_update=False, dry_run=False, verbose=True)`
+- `core_utils/diagnostics/transform_diag.py::TransformDiagnostics.transforms_in_scope(scope='selection')`
 - `core_utils/preview.py::Preview.apply_result_selection(widget, results)`
 - `display_utils/_display_utils.py::DisplayUtils.clear_xray()`
 - `display_utils/_display_utils.py::DisplayUtils.cycle_component_ids()`
@@ -1072,14 +1077,22 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `edit_utils/snap.py::Snap.snap_to_surface(source_meshes, target_mesh, offset=None, threshold=None, invert=False)`
 - `edit_utils/snap.py::Snap.source_and_target()`
 - `env_utils/_env_utils.py::EnvUtils.autosave_settings()`
+- `env_utils/_env_utils.py::EnvUtils.export_scene(cls, file_path, file_format='fbx', *, selection_only=False, include_cameras=False, include_lights=False, include_skins=False, include_tangents=True, embed_textures=True, progress=None)`
 - `env_utils/_env_utils.py::EnvUtils.find_workspace_using_path(scene_path=None)`
+- `env_utils/_env_utils.py::EnvUtils.foreign_scene_bridge()`
+- `env_utils/_env_utils.py::EnvUtils.foreign_scene_import()`
 - `env_utils/_env_utils.py::EnvUtils.frame_rates()`
+- `env_utils/_env_utils.py::EnvUtils.get_file_commands(cls, direction='import')`
 - `env_utils/_env_utils.py::EnvUtils.get_linear_unit()`
+- `env_utils/_env_utils.py::EnvUtils.get_recent_autosave(filter_time=24, timestamp_format='%H:%M:%S')`
+- `env_utils/_env_utils.py::EnvUtils.get_recent_files(index=None)`
 - `env_utils/_env_utils.py::EnvUtils.get_recent_projects(index=None, format='standard')`
 - `env_utils/_env_utils.py::EnvUtils.is_workspace(path)`
 - `env_utils/_env_utils.py::EnvUtils.python_executable()`
+- `env_utils/_env_utils.py::EnvUtils.run_file_command(cls, name)`
 - `env_utils/_env_utils.py::EnvUtils.saved_scene_path()`
 - `env_utils/_env_utils.py::EnvUtils.scene_status(scene=None)`
+- `env_utils/_env_utils.py::EnvUtils.scene_triangle_count(selection_only=False)`
 - `env_utils/_env_utils.py::EnvUtils.set_autosave_settings(max_backups=None, interval=None)`
 - `env_utils/_env_utils.py::EnvUtils.set_linear_unit(unit)`
 - `env_utils/handoff_export.py::BridgeHost(class)`
@@ -1146,6 +1159,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `env_utils/reference_manager.py::ReferenceManager.save_scene(self, path: str) -> str`
 - `env_utils/reference_manager.py::ReferenceManager.scene_has_complex_animation(cls, path: str) -> bool`
 - `env_utils/reference_manager.py::ReferenceManager.scene_modified(self) -> bool`
+- `env_utils/reference_manager.py::ReferenceManager.selected_reference_paths(cls, extensions=None) -> List[str]`
 - `env_utils/reference_manager.py::ReferenceManager.set_reference_display_mode(self, ref, mode: str) -> bool`
 - `env_utils/reference_manager.py::ReferenceManager.update_references(self)`
 - `env_utils/reference_manager.py::ReferenceManager.workspace_files(self) -> dict`
@@ -1431,7 +1445,7 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/emissive_groups.py::EmissiveGroups.validate`
 - `ui_utils/blender_ui_handler.py::BlenderUiHandler.default_persistence`
 
-## Signature changed (44)
+## Signature changed (45)
 
 - `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.edit_frame_based`
   - was: `(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None) -> List[Target]`
@@ -1445,6 +1459,9 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `core_utils/auto_instancer/_auto_instancer.py::AutoInstancer.run_once`
   - was: `(cls, objects: Optional[Sequence[object]] = None, *, return_summary: bool = False, **config) -> Union[List[object], Tuple[List[object], Dict[str, object]]]`
   - now: `(cls, objects: Optional[Sequence[object]] = None, *, return_summary: bool = False, select: bool = False, **config) -> Union[List[object], Tuple[List[object], Dict[str, object]]]`
+- `core_utils/diagnostics/transform_diag.py::TransformDiagnostics.fix_non_orthogonal_axes`
+  - was: `(objects=None, dry_run=False, tolerance=1e-05, break_connections=False)`
+  - now: `(objects=None, dry_run=False, tolerance=1e-05, quiet=False, break_connections=False)`
 - `display_utils/color_id.py::ColorId.apply_color`
   - was: `(cls, objects: Sequence, color: Optional[Color] = None, apply_to_material: bool = False, apply_to_object: bool = False, apply_to_vertex: bool = False, apply_to_outliner: bool = False, set_per_color: bool = False) -> None`
   - now: `(cls, objects: Sequence, color: Optional[Color] = None, apply_to_material: bool = False, apply_to_vertex: bool = False, apply_to_wireframe: bool = False, apply_to_outliner: bool = False, set_per_color: bool = False, apply_to_object: bool = False) -> None`

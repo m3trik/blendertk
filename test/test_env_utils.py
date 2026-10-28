@@ -270,17 +270,16 @@ try:
             "find_workspace_using_path: a relative path is None",
             btk.EnvUtils.find_workspace_using_path("shot.blend") is None,
         )
-        from blendertk.core_utils._core_utils import CoreUtils as _Core
-
-        _prior_recent = _Core.__dict__["get_recent_files"]  # the staticmethod itself
-        _Core.get_recent_files = staticmethod(
+        _Env = btk.EnvUtils
+        _prior_recent = _Env.__dict__["get_recent_files"]  # the staticmethod itself
+        _Env.get_recent_files = staticmethod(
             lambda index=None: [_shot, os.path.join(_plain, "x.blend"), _shot]
         )
         try:
             _recent = btk.EnvUtils.get_recent_projects()
             _first = btk.EnvUtils.get_recent_projects(0)
         finally:
-            _Core.get_recent_files = _prior_recent
+            _Env.get_recent_files = _prior_recent
         check(
             "get_recent_projects: workspace folders of the recent files, once each",
             [os.path.normcase(p) for p in _recent] == [os.path.normcase(_blends)],
@@ -353,6 +352,85 @@ try:
     # ---- python_executable: the interpreter the shared updater drives pip with
     _py = btk.EnvUtils.python_executable()
     check("python_executable is an existing interpreter", bool(_py) and os.path.isfile(_py), f"{_py}")
+
+    # ---- the Scene panel's host half: recent files, the foreign scene, file commands,
+    # the dense-export count and Export Scene's writer
+    check(
+        "get_recent_files / get_recent_autosave live on EnvUtils (mayatk's home)",
+        isinstance(btk.EnvUtils.get_recent_files(), list)
+        and isinstance(btk.EnvUtils.get_recent_autosave(filter_time=24), list)
+        and not hasattr(btk.CoreUtils, "get_recent_files")
+        and not hasattr(btk.CoreUtils, "get_recent_autosave"),
+    )
+    from blendertk.env_utils.maya_bridge._maya_bridge import MayaBridge
+    from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
+
+    check(
+        "foreign_scene_bridge / foreign_scene_import: the Maya bridge and its pull engine",
+        btk.EnvUtils.foreign_scene_bridge() is MayaBridge
+        and MayaBridge.spec.app.name == "Maya"
+        and btk.EnvUtils.foreign_scene_import() is MayaSceneImport
+        and MayaSceneImport.SCENE_EXTENSIONS == (".ma", ".mb"),
+    )
+    _imports = btk.EnvUtils.get_file_commands("import")
+    _exports = btk.EnvUtils.get_file_commands("export")
+    check(
+        "get_file_commands: Blender's registered import / export operators, by name",
+        {"Import OBJ", "Append from .blend", "Link from .blend"} <= set(_imports)
+        and {"Export Selection", "Export FBX", "Export OBJ", "Export glTF"}
+        <= set(_exports),
+        f"{_imports} | {_exports}",
+    )
+    try:
+        btk.EnvUtils.run_file_command("Import Nothing")
+        _unknown = False
+    except ValueError:
+        _unknown = True
+    check("run_file_command: an unknown name is a ValueError", _unknown)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    try:
+        btk.EnvUtils.run_file_command("Export Selection")
+        _refused = ""
+    except ValueError as _error:
+        _refused = str(_error)
+    check(
+        "run_file_command: Export Selection with nothing selected says so",
+        "requires a selection" in _refused,
+        _refused,
+    )
+
+    bpy.ops.mesh.primitive_cube_add()
+    _tri_cube = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    btk.CoreUtils.select([_tri_cube])
+    _all_tris = btk.EnvUtils.scene_triangle_count()
+    _sel_tris = btk.EnvUtils.scene_triangle_count(selection_only=True)
+    check(
+        "scene_triangle_count: the scene, and the selection",
+        (_all_tris, _sel_tris) == (24, 12),
+        f"{_all_tris} / {_sel_tris}",
+    )
+    _export_dir = tempfile.mkdtemp(prefix="btk_export_scene_")
+    try:
+        _written = {
+            fmt: btk.EnvUtils.export_scene(
+                os.path.join(_export_dir, f"scene.{fmt}"), fmt, embed_textures=False
+            )
+            for fmt in ("fbx", "obj")
+        }
+        check(
+            "export_scene writes FBX and OBJ through the host's writers",
+            all(os.path.isfile(path) for path in _written.values()),
+            f"{_written}",
+        )
+        try:
+            btk.EnvUtils.export_scene(os.path.join(_export_dir, "x.abc"), "abc")
+            _bad = False
+        except ValueError:
+            _bad = True
+        check("export_scene: an unknown format is a ValueError", _bad)
+    finally:
+        shutil.rmtree(_export_dir, ignore_errors=True)
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

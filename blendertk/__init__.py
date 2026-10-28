@@ -48,6 +48,7 @@ DEFAULT_INCLUDE = {
     # ``.fix_non_orthogonal_axes`` (or via ``btk.MeshDiagnostics`` / ``btk.TransformDiagnostics``).
     "core_utils.diagnostics->Diagnostics": "*",
     "core_utils.diagnostics.mesh_diag": "MeshDiagnostics",
+    "core_utils.diagnostics.scene_diag": "SceneDiagnostics",
     "core_utils.diagnostics.transform_diag": "TransformDiagnostics",
     # Get Scene Info's engine + its section vocabulary (mirror of mtk.SceneAnalyzer /
     # mtk.SceneInfoSection; mayatk keeps the latter in ``audit_records``).
@@ -877,6 +878,8 @@ MOVED_NAMES = {
         "0.23.0",
     ),
     "loft": ("blendertk.NurbsUtils.loft", "0.23.0"),
+    "get_recent_files": ("blendertk.EnvUtils.get_recent_files", "0.23.0"),
+    "get_recent_autosave": ("blendertk.EnvUtils.get_recent_autosave", "0.23.0"),
 }
 
 bootstrap_package(

@@ -103,6 +103,12 @@ class ScriptJobManager:
     :meth:`instance`.
     """
 
+    #: The events after which the session's workspace may have changed: what a
+    #: workspace readout refreshes on. Blender has no workspace event, so a file
+    #: open or save stands in (a session-pin change shows on the next one). Mirror
+    #: of mayatk's ``ScriptJobManager.WORKSPACE_EVENTS`` (``workspaceChanged``).
+    WORKSPACE_EVENTS = ("SceneOpened", "SceneSaved")
+
     _instance: Optional["ScriptJobManager"] = None
 
     @classmethod

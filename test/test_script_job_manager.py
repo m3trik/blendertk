@@ -176,6 +176,14 @@ try:
     )
     ScriptJobManager.reset()
 
+    from blendertk.core_utils import script_job_manager as _sjm_module
+
+    check(
+        "WORKSPACE_EVENTS: scene open / save (no workspace event), each subscribable",
+        ScriptJobManager.WORKSPACE_EVENTS == ("SceneOpened", "SceneSaved")
+        and all(e in _sjm_module._HANDLER_EVENTS for e in ScriptJobManager.WORKSPACE_EVENTS),
+    )
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

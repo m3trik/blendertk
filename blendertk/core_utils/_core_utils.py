@@ -871,53 +871,6 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         return os.path.join(base, filename) if base else None
 
     @staticmethod
-    def get_recent_files(index=None):
-        """Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).
-
-        Reads Blender's own ``recent-files.txt`` (the source of File ▸ Open Recent). ``index``
-        may be an int or slice. Missing files are filtered out.
-        """
-        path = CoreUtils.user_config_path("recent-files.txt") or ""
-        files = []
-        if path and os.path.isfile(path):
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                files = [line.strip() for line in f if line.strip()]
-            files = [p for p in files if os.path.isfile(p)]
-        return files[index] if index is not None else files
-
-    @staticmethod
-    def get_recent_autosave(filter_time=24, timestamp_format="%H:%M:%S"):
-        """Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first
-        (mirror of ``mtk.get_recent_autosave``). ``filter_time`` is the max age in hours.
-
-        Blender autosaves land in the temporary directory (Preferences ▸ File Paths, falling
-        back to the OS temp dir) as ``.blend`` files.
-        """
-        import time
-        import glob
-        import tempfile
-        import bpy
-
-        temp_dir = (
-            bpy.context.preferences.filepaths.temporary_directory
-            or tempfile.gettempdir()
-        )
-        cutoff = time.time() - filter_time * 3600
-        results = []
-        for path in glob.glob(os.path.join(temp_dir, "*.blend")):
-            try:
-                mtime = os.path.getmtime(path)
-            except OSError:
-                continue
-            if mtime >= cutoff:
-                results.append((path, mtime))
-        results.sort(key=lambda x: x[1], reverse=True)
-        return [
-            (path, time.strftime(timestamp_format, time.localtime(mtime)))
-            for path, mtime in results
-        ]
-
-    @staticmethod
     def get_scene_info(objects=None):
         """Scene audit record — the Blender analogue of Maya's Get Scene Info (a focused
         object/poly/material summary, not Maya's adaptive game-ready tri-budget profiler).

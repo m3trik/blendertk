@@ -265,6 +265,10 @@ class MayaSceneImport(ptk.LoggingMixin):
     Scriptable and synchronous; async affordances belong to the calling UI layer.
     """
 
+    #: The scene files this engine converts (Maya's own): what an Import Maya Scene
+    #: browser offers. Twin of mayatk's ``BlenderSceneImport.SCENE_EXTENSIONS``.
+    SCENE_EXTENSIONS = SUPPORTED_EXTENSIONS
+
     #: The largest deviation an ``"extremes"`` key reduction may leave on any curve, in
     #: the curve's own units (metres, radians, scale factor). Absolute, not the level's
     #: default of 1% of each curve's amplitude: measured on a production conversion

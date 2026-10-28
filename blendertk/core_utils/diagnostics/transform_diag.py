@@ -127,6 +127,23 @@ class TransformDiagnostics(_TransformDiagnosticsInternal):
     # would bind to the aggregate, so ``Diagnostics.x is TransformDiagnostics.x``
     # would no longer hold (test_diagnostics asserts it).
     @staticmethod
+    def transforms_in_scope(scope="selection"):
+        """The objects a check covers: ``"selection"`` -- the selected objects;
+        ``"all"`` -- every object in the scene, what FBX export sees. Mirror of
+        mayatk's.
+
+        Raises:
+            ValueError: Any other *scope*.
+        """
+        import bpy
+
+        if scope == "all":
+            return list(bpy.context.scene.objects)
+        if scope == "selection":
+            return list(CoreUtils.selected_objects())
+        raise ValueError(f"Unknown scope {scope!r}: expected 'selection' or 'all'.")
+
+    @staticmethod
     def get_non_orthogonal(objects=None, tolerance=1e-5, detailed=False):
         """Return the objects whose evaluated (world) axes are not perpendicular — the
         condition FBX reports as "Non-orthogonal matrix support" (mirror of
@@ -162,7 +179,7 @@ class TransformDiagnostics(_TransformDiagnosticsInternal):
     @CoreUtils.undoable
     @CoreUtils._object_mode
     def fix_non_orthogonal_axes(
-        objects=None, dry_run=False, tolerance=1e-5, break_connections=False
+        objects=None, dry_run=False, tolerance=1e-5, quiet=False, break_connections=False
     ):
         """Bake out non-orthogonal (sheared) world axes — shear breaks FBX export (mirror of
         ``mtk.TransformDiagnostics.fix_non_orthogonal_axes``). ``@_object_mode``-guarded: the
@@ -184,6 +201,7 @@ class TransformDiagnostics(_TransformDiagnosticsInternal):
             objects: objects (datablocks or names) to check; ``None`` uses the current selection.
             dry_run: when True, only report which objects would be fixed (no changes).
             tolerance: max axis-pair cosine treated as orthogonal.
+            quiet: no console lines (the skipped and dry-run notes); mayatk's flag.
             break_connections: remove transform drivers/fcurves/constraints on driven objects
                 instead of skipping them.
 
@@ -205,13 +223,13 @@ class TransformDiagnostics(_TransformDiagnosticsInternal):
                 skipped.append((obj, info["driven"]))
             else:
                 flagged.append(obj)
-        for obj, driven in skipped:
+        for obj, driven in () if quiet else skipped:
             print(
                 f"Skipping {obj.name} — transform driven by {', '.join(driven)}. "
                 "Bake or remove it, or run with break_connections=True."
             )
         if dry_run:
-            for o in flagged:
+            for o in () if quiet else flagged:
                 print(f"Dry run: would fix non-orthogonal axes on {o.name}")
             return flagged
         if not flagged:

@@ -136,7 +136,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `core_utils/_core_utils.py` — Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 - `class CoreUtils(pythontk.CoreUtils, _CoreUtilsInternal)`
-  - methods: strip_dup_suffix, all_ids, suspended_refresh, undo_chunk, undo_push, visible_override, undoable, undo_checkpoint, get_env_info, ensure_packages, ensure_image_deps, user_config_path, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, purge_unused_data, selected, active_view_layer, leaf_name, selected_objects, select, active_object, ensure_component_mode, ensure_object_mode, preserved_selection, reorder_objects, get_areas, tag_redraw, get_view3d_context, window_context_override, edit_mode
+  - methods: strip_dup_suffix, all_ids, suspended_refresh, undo_chunk, undo_push, visible_override, undoable, undo_checkpoint, get_env_info, ensure_packages, ensure_image_deps, user_config_path, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, purge_unused_data, selected, active_view_layer, leaf_name, selected_objects, select, active_object, ensure_component_mode, ensure_object_mode, preserved_selection, reorder_objects, get_areas, tag_redraw, get_view3d_context, window_context_override, edit_mode
 
 ### `core_utils/auto_instancer/_auto_instancer.py` — Scene auto-instancer: convert geometrically identical meshes to instances.
 - `class InstanceCandidate`
@@ -167,9 +167,13 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class SceneAnalyzer`
   - methods: format_audit_html, format_audit_text
 
+### `core_utils/diagnostics/scene_diag.py` — Scene-level repairs -- mirror of mayatk's ``core_utils.diagnostics.scene_diag``.
+- `class SceneDiagnostics(object)`
+  - methods: fix_missing_color_spaces
+
 ### `core_utils/diagnostics/transform_diag.py` — Transform diagnostics — the Blender counterpart of mayatk's
 - `class TransformDiagnostics(_TransformDiagnosticsInternal)`
-  - methods: get_non_orthogonal, fix_non_orthogonal_axes
+  - methods: transforms_in_scope, get_non_orthogonal, fix_non_orthogonal_axes
 
 ### `core_utils/diagnostics/uv_diag.py` — UV diagnostics -- the Blender counterpart of mayatk's
 - `class UvDiagnostics(object)`
@@ -295,7 +299,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/_env_utils.py` — blendertk environment / scene-library utilities — the engine behind the Reference Manager panel.
 - `class EnvUtils(_EnvUtilsInternal)`
-  - methods: find_blend_files, list_libraries, linked_blend_paths, is_blend_linked, link_blend_file, reload_library, remove_library, make_library_local, set_current_workspace, current_workspace, workspace_root, set_scene_source, twin_save_target, scene_source, scene_project_root, scene_workspace, scene_source_images_dir, scene_artifact_path, source_images_dir, texture_search_dirs, scenes_dir, workspace_scenes_dir, list_workspace_templates, workspace_template_rules, save_workspace_template, delete_workspace_template, create_workspace, promote_workspace, find_workspaces, is_workspace, saved_scene_path, get_recent_projects, find_workspace_using_path, python_executable, open_scene, new_scene, scene_has_content, scene_has_unsaved_changes, scene_status, scene_settings, apply_scene_settings, get_linear_unit, set_linear_unit, frame_rates, autosave_settings, set_autosave_settings, format_scene_name, scene_save_path, save_scene_as, export_scene_as_obj, rename_scene_file, delete_scene_file, set_reference_display_mode, get_reference_display_mode
+  - methods: find_blend_files, list_libraries, linked_blend_paths, is_blend_linked, link_blend_file, reload_library, remove_library, make_library_local, set_current_workspace, current_workspace, workspace_root, set_scene_source, twin_save_target, scene_source, scene_project_root, scene_workspace, scene_source_images_dir, scene_artifact_path, source_images_dir, texture_search_dirs, scenes_dir, workspace_scenes_dir, list_workspace_templates, workspace_template_rules, save_workspace_template, delete_workspace_template, create_workspace, promote_workspace, find_workspaces, is_workspace, saved_scene_path, get_recent_files, get_recent_autosave, get_recent_projects, find_workspace_using_path, python_executable, open_scene, new_scene, scene_has_content, scene_has_unsaved_changes, scene_status, scene_settings, apply_scene_settings, get_linear_unit, set_linear_unit, frame_rates, autosave_settings, set_autosave_settings, format_scene_name, scene_save_path, save_scene_as, export_scene_as_obj, foreign_scene_bridge, foreign_scene_import, get_file_commands, run_file_command, scene_triangle_count, export_scene, rename_scene_file, delete_scene_file, set_reference_display_mode, get_reference_display_mode
 
 ### `env_utils/blender_connection.py` — Launch a FRESH headless Blender to run a script / code string and capture its output — the
 - constants: RESULT_PASS
@@ -415,7 +419,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/reference_manager.py` — Reference Manager engine -- the workspace's scene files, the scene's references
 - `class ReferenceManager(pythontk.LoggingMixin, _ReferenceManagerInternal)`
-  - methods: current_workspace, current_working_dir, recursive_search, ignore_empty_workspaces, workspace_files, find_available_workspaces, invalidate_workspace_files, current_references, bake_source, row_key, add_reference, remove_references, import_references, update_references, get_reference_display_mode, set_reference_display_mode, follow_bake_sources, purge_unused_bakes, is_foreign, needs_conversion, scene_has_complex_animation, find_foreign_scenes, bake_scene, import_scene, bake_project_root, foreign_scratch_path, discard_stale_scratches, current_scene, scene_modified, save_open_scene, save_scene, new_scene, is_current, open_scene, rename_scene_file, remove_scene_file
+  - methods: selected_reference_paths, current_workspace, current_working_dir, recursive_search, ignore_empty_workspaces, workspace_files, find_available_workspaces, invalidate_workspace_files, current_references, bake_source, row_key, add_reference, remove_references, import_references, update_references, get_reference_display_mode, set_reference_display_mode, follow_bake_sources, purge_unused_bakes, is_foreign, needs_conversion, scene_has_complex_animation, find_foreign_scenes, bake_scene, import_scene, bake_project_root, foreign_scratch_path, discard_stale_scratches, current_scene, scene_modified, save_open_scene, save_scene, new_scene, is_current, open_scene, rename_scene_file, remove_scene_file
 
 ### `env_utils/scene_exporter/_scene_exporter.py` — Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 - `class SceneExporter(pythontk.SceneExporterBase)`

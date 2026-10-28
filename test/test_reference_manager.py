@@ -103,6 +103,28 @@ try:
     )
     check("list_libraries reports the linked file", rec is not None and rec["exists"])
 
+    # selected_reference_paths: the file behind the selected instance's library -- what
+    # the Mesh Converter's "From FBX references" toggle reads.
+    _instance = next(
+        o
+        for o in bpy.data.objects
+        if o.instance_type == "COLLECTION"
+        and o.instance_collection
+        and o.instance_collection.name == "LibColl"
+    )
+    btk.CoreUtils.select([_instance])
+    _paths = btk.ReferenceManager.selected_reference_paths()
+    check(
+        "selected_reference_paths names the selected instance's library",
+        [os.path.normcase(p) for p in _paths]
+        == [os.path.normcase(os.path.normpath(lib_path))],
+        f"{_paths}",
+    )
+    check(
+        "selected_reference_paths keeps only the extensions asked for",
+        btk.ReferenceManager.selected_reference_paths((".fbx",)) == [],
+    )
+
     # 6. reload then remove.
     check("reload_library succeeds", btk.reload_library(rec["library"]))
     check("remove_library succeeds", btk.remove_library(rec["library"]))

@@ -41,6 +41,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`core_utils/auto_instancer/instancing_strategy.py`](#core_utils--auto_instancer--instancing_strategy) — AutoInstancer's instancing strategy: the Blender binding of the ptk engine.
 - [`core_utils/diagnostics/mesh_diag.py`](#core_utils--diagnostics--mesh_diag) — Mesh diagnostics — the Blender counterpart of mayatk's ``core_utils.diagnostics.mesh_diag``
 - [`core_utils/diagnostics/scene_audit.py`](#core_utils--diagnostics--scene_audit) — Scene audit -- the Blender port of mayatk's ``core_utils.diagnostics.scene_audit``.
+- [`core_utils/diagnostics/scene_diag.py`](#core_utils--diagnostics--scene_diag) — Scene-level repairs -- mirror of mayatk's ``core_utils.diagnostics.scene_diag``.
 - [`core_utils/diagnostics/transform_diag.py`](#core_utils--diagnostics--transform_diag) — Transform diagnostics — the Blender counterpart of mayatk's
 - [`core_utils/diagnostics/uv_diag.py`](#core_utils--diagnostics--uv_diag) — UV diagnostics -- the Blender counterpart of mayatk's
 - [`core_utils/preview.py`](#core_utils--preview) — Live-preview driver for the tentacle Blender tool panels — the Blender analogue of
@@ -191,7 +192,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L448) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L449) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -781,8 +782,6 @@ Core blendertk utilities — DCC-environment info + cross-cutting decorators.
   - `CoreUtils.ensure_packages(packages, add_to_path=True)` *(static)* — Make arbitrary pip packages importable in Blender's Python.
   - `CoreUtils.ensure_image_deps(packages=None, add_to_path=True)` *(static)* — Make image-processing libraries importable in Blender's Python (default: Pillow → ``PIL``).
   - `CoreUtils.user_config_path(filename, base=None)` *(static)* — Absolute path of ``filename`` in Blender's user ``CONFIG`` dir (where Blender keeps
-  - `CoreUtils.get_recent_files(index=None)` *(static)* — Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).
-  - `CoreUtils.get_recent_autosave(filter_time=24, timestamp_format='%H:%M:%S')` *(static)* — Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first
   - `CoreUtils.get_scene_info(objects=None)` *(static)* — Scene audit record — the Blender analogue of Maya's Get Scene Info (a focused
   - `CoreUtils.format_scene_info_html(info)` *(static)* — Render a :func:`get_scene_info` record as an HTML report for the text-view dialog.
   - `CoreUtils.analyze_scene(objects=None, adaptive=True, sections=None)` *(static)* — Game-readiness scene report -- the sectioned audit behind Get Scene Info.
@@ -887,14 +886,23 @@ Scene audit -- the Blender port of mayatk's ``core_utils.diagnostics.scene_audit
   - `SceneAnalyzer.format_audit_html(cls, adaptive: bool = False, objects=None, progress_callback: Optional[Callable[[int, int, str], None]] = None, sections: Optional[Iterable[str]] = None, scope: Optional[str] = None) -> Dict[str, str]` *(class)* — Run the audit and return ``{"_header": html, section: html, ...}``.
   - `SceneAnalyzer.format_audit_text(cls, adaptive: bool = False, objects=None, sections: Optional[Iterable[str]] = None, scope: Optional[str] = None) -> Dict[str, str]` *(class)* — :meth:`format_audit_html` as plain text (console / log).
 
+<a id="core_utils--diagnostics--scene_diag"></a>
+### `core_utils/diagnostics/scene_diag.py`
+
+Scene-level repairs -- mirror of mayatk's ``core_utils.diagnostics.scene_diag``.
+
+- **[`class SceneDiagnostics(object)`](blendertk/blendertk/core_utils/diagnostics/scene_diag.py#L15)** — Scene-level repairs (mirror of mayatk's ``SceneDiagnostics``).
+  - `SceneDiagnostics.fix_missing_color_spaces(images=None, force_update=False, dry_run=False, verbose=True)` *(static)* — Give each texture image its color space by map type (``MatUtils.
+
 <a id="core_utils--diagnostics--transform_diag"></a>
 ### `core_utils/diagnostics/transform_diag.py`
 
 Transform diagnostics — the Blender counterpart of mayatk's
 
 - **[`class TransformDiagnostics(_TransformDiagnosticsInternal)`](blendertk/blendertk/core_utils/diagnostics/transform_diag.py#L122)** — Transform/shear diagnostics (mirror of mayatk's ``TransformDiagnostics``).
+  - `TransformDiagnostics.transforms_in_scope(scope='selection')` *(static)* — The objects a check covers: ``"selection"`` -- the selected objects;
   - `TransformDiagnostics.get_non_orthogonal(objects=None, tolerance=1e-05, detailed=False)` *(static)* — Return the objects whose evaluated (world) axes are not perpendicular — the
-  - `TransformDiagnostics.fix_non_orthogonal_axes(objects=None, dry_run=False, tolerance=1e-05, break_connections=False)` *(static)* — Bake out non-orthogonal (sheared) world axes — shear breaks FBX export (mirror of
+  - `TransformDiagnostics.fix_non_orthogonal_axes(objects=None, dry_run=False, tolerance=1e-05, quiet=False, break_connections=False)` *(static)* — Bake out non-orthogonal (sheared) world axes — shear breaks FBX export (mirror of
 
 <a id="core_utils--diagnostics--uv_diag"></a>
 ### `core_utils/diagnostics/uv_diag.py`
@@ -1397,7 +1405,7 @@ Target Weld — interactive drag-a-vertex-onto-another merge tool.
 
 blendertk environment / scene-library utilities — the engine behind the Reference Manager panel.
 
-- **[`class EnvUtils(_EnvUtilsInternal)`](blendertk/blendertk/env_utils/_env_utils.py#L132)** — Namespace mirror of mayatk's ``EnvUtils`` (helpers also exposed module-level).
+- **[`class EnvUtils(_EnvUtilsInternal)`](blendertk/blendertk/env_utils/_env_utils.py#L220)** — Namespace mirror of mayatk's ``EnvUtils`` (helpers also exposed module-level).
   - `EnvUtils.find_blend_files(root_dir, recursive=True, filter_text='')` *(static)* — Every ``.blend`` file under ``root_dir`` (recursively by default), optionally name-filtered.
   - `EnvUtils.list_libraries()` *(static)* — Every linked library as a record: ``{name, library, filepath, abspath, exists}``.
   - `EnvUtils.linked_blend_paths()` *(static)* — Set of normalized absolute paths of the ``.blend`` files currently linked as
@@ -1429,6 +1437,8 @@ blendertk environment / scene-library utilities — the engine behind the Refere
   - `EnvUtils.find_workspaces(root_dir, recursive=False)` *(static)* — Project folders under ``root_dir`` — marked workspaces (a ``workspace.mel`` at their
   - `EnvUtils.is_workspace(path)` *(static)* — True if *path* is a workspace root this session opens as it is: marked by
   - `EnvUtils.saved_scene_path()` *(static)* — The open .blend's path, or ``""`` when it has never been saved.
+  - `EnvUtils.get_recent_files(index=None)` *(static)* — Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).
+  - `EnvUtils.get_recent_autosave(filter_time=24, timestamp_format='%H:%M:%S')` *(static)* — Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first
   - `EnvUtils.get_recent_projects(index=None, format='standard')` *(static)* — Recently used workspaces, most recent first: the folders of Blender's
   - `EnvUtils.find_workspace_using_path(scene_path=None)` *(static)* — The workspace that holds *scene_path* (default: the open .blend): the
   - `EnvUtils.python_executable()` *(static)* — Blender's bundled interpreter (``<python>/bin/python``;
@@ -1448,6 +1458,12 @@ blendertk environment / scene-library utilities — the engine behind the Refere
   - `EnvUtils.scene_save_path(directory, name, case=None, suffix='', subfolder='')` *(static)* — The absolute ``.blend`` path :meth:`save_scene_as` would write — the pure
   - `EnvUtils.save_scene_as(directory, name, case=None, suffix='', subfolder='', overwrite=True)` *(static)* — Save the current scene as a .blend under ``directory`` with naming conventions applied —
   - `EnvUtils.export_scene_as_obj(file_path=None, *, selection_only=False, materials=True, smoothing=True, normals=True, groups=True)` *(static)* — Export the scene as a Wavefront OBJ — mirror of mayatk's ``export_scene_as_obj``.
+  - `EnvUtils.foreign_scene_bridge()` *(static)* — The hand-off bridge CLASS that writes the other DCC's native scene:
+  - `EnvUtils.foreign_scene_import()` *(static)* — The engine CLASS that pulls a file into this scene through the other DCC:
+  - `EnvUtils.get_file_commands(cls, direction='import')` *(class)* — The names of Blender's own import (*direction* ``"import"``) or export
+  - `EnvUtils.run_file_command(cls, name)` *(class)* — Run Blender's own import / export command *name*
+  - `EnvUtils.scene_triangle_count(selection_only=False)` *(static)* — Triangles in the scene's meshes -- or, *selection_only*, in the selected
+  - `EnvUtils.export_scene(cls, file_path, file_format='fbx', *, selection_only=False, include_cameras=False, include_lights=False, include_skins=False, include_tangents=True, embed_textures=True, progress=None)` *(class)* — Write the scene, or the selection, to *file_path* in *file_format*: the
   - `EnvUtils.rename_scene_file(path, new_base)` *(static)* — Rename a .blend on disk (and its ``.blend1`` backup) — mirror of mayatk's ``rename_scene``.
   - `EnvUtils.delete_scene_file(path, permanent: bool = False)` *(static)* — Move a .blend (and its ``.blend1`` backup) to the trash — mirror of mayatk's
   - `EnvUtils.set_reference_display_mode(library, mode)` *(static)* — Set the display override for a linked library's objects — mirror of mayatk's
@@ -1792,6 +1808,7 @@ Shadow doctor for embedded-DCC installs (companion of package-manager.bat).
 Reference Manager engine -- the workspace's scene files, the scene's references
 
 - **[`class ReferenceManager(pythontk.LoggingMixin, _ReferenceManagerInternal)`](blendertk/blendertk/env_utils/reference_manager.py#L102)** — Blender's Reference Manager engine: the workspace's scene files, the file's
+  - `ReferenceManager.selected_reference_paths(cls, extensions=None) -> List[str]` *(class)* — The files behind the selected objects' linked libraries, each once, in
   - `ReferenceManager.current_workspace(self) -> str` *(property)* — The session's workspace root (``EnvUtils.workspace_root``: the pin, else
   - `ReferenceManager.current_working_dir(self) -> str` *(property)* — The folder being browsed (the session's workspace until one is set;
   - `ReferenceManager.recursive_search(self) -> bool` *(property)* — Whether workspace discovery searches below the root's immediate children.

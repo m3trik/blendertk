@@ -341,6 +341,62 @@ try:
         f"{_rep['vertices']} {_rep['repairs']}",
     )
 
+    # ---- the Scene panel's host half: transforms_in_scope, a quiet fix, Fix Color Spaces
+    import contextlib as _contextlib
+    import io as _io
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_cube_add()
+    _a = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    _b = bpy.context.active_object
+    btk.CoreUtils.select([_a])
+    check(
+        "transforms_in_scope: the selection, and the whole scene",
+        TransformDiagnostics.transforms_in_scope("selection") == [_a]
+        and set(TransformDiagnostics.transforms_in_scope("all")) == {_a, _b},
+    )
+    try:
+        TransformDiagnostics.transforms_in_scope("visible")
+        _raised = False
+    except ValueError:
+        _raised = True
+    check("transforms_in_scope: an unknown scope is a ValueError", _raised)
+
+    bpy.ops.object.empty_add()
+    _skew_parent = bpy.context.active_object
+    _skew_parent.scale = (1.0, 3.0, 1.0)
+    _b.parent = _skew_parent
+    _b.rotation_euler = (0.0, 0.0, 0.7)
+    bpy.context.view_layer.update()
+    _out = _io.StringIO()
+    with _contextlib.redirect_stdout(_out):
+        _would = TransformDiagnostics.fix_non_orthogonal_axes(
+            [_b], dry_run=True, quiet=True
+        )
+    check(
+        "fix_non_orthogonal_axes(quiet=True): mayatk's flag, nothing printed",
+        _would == [_b] and not _out.getvalue(),
+        _out.getvalue(),
+    )
+
+    _img = bpy.data.images.new("scene_rock_nrm", 4, 4)
+    _img.source = "FILE"
+    _img.filepath = "//tex/rock_Normal.png"
+    _img.colorspace_settings.name = "sRGB"
+    _report = btk.Diagnostics.fix_missing_color_spaces(
+        images=[_img], force_update=True, verbose=False
+    )
+    check(
+        "Diagnostics.fix_missing_color_spaces: mayatk's report of the real changes",
+        _img.colorspace_settings.name == "Non-Color"
+        and _report["fixed_count"] == len(_report["changes"]) == 1
+        and _report["changes"][0]["node"] == _img.name
+        and (_report["changes"][0]["from"], _report["changes"][0]["to"])
+        == ("sRGB", "Non-Color"),
+        f"{_report}",
+    )
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

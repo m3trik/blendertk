@@ -23,7 +23,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 448,
+          "line": 449,
           "deprecated": false
         }
       ]
@@ -3968,30 +3968,12 @@
               "deprecated": false
             },
             {
-              "name": "get_recent_files",
-              "qualname": "CoreUtils.get_recent_files",
-              "kind": "staticmethod",
-              "signature": "(index=None)",
-              "summary": "Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).",
-              "line": 874,
-              "deprecated": false
-            },
-            {
-              "name": "get_recent_autosave",
-              "qualname": "CoreUtils.get_recent_autosave",
-              "kind": "staticmethod",
-              "signature": "(filter_time=24, timestamp_format='%H:%M:%S')",
-              "summary": "Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first",
-              "line": 889,
-              "deprecated": false
-            },
-            {
               "name": "get_scene_info",
               "qualname": "CoreUtils.get_scene_info",
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Scene audit record — the Blender analogue of Maya's Get Scene Info (a focused",
-              "line": 921,
+              "line": 874,
               "deprecated": false
             },
             {
@@ -4000,7 +3982,7 @@
               "kind": "staticmethod",
               "signature": "(info)",
               "summary": "Render a :func:`get_scene_info` record as an HTML report for the text-view dialog.",
-              "line": 971,
+              "line": 924,
               "deprecated": false
             },
             {
@@ -4009,7 +3991,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, adaptive=True, sections=None)",
               "summary": "Game-readiness scene report -- the sectioned audit behind Get Scene Info.",
-              "line": 1005,
+              "line": 958,
               "deprecated": false
             },
             {
@@ -4018,7 +4000,7 @@
               "kind": "staticmethod",
               "signature": "(quiet=False)",
               "summary": "Purge orphan datablocks (0 users, no fake user) across the main collections — the",
-              "line": 1025,
+              "line": 978,
               "deprecated": false
             },
             {
@@ -4027,7 +4009,7 @@
               "kind": "staticmethod",
               "signature": "(recursive=True, linked=True)",
               "summary": "Purge the data-blocks nothing uses -- meshes, materials, images and the",
-              "line": 1076,
+              "line": 1029,
               "deprecated": false
             },
             {
@@ -4036,7 +4018,7 @@
               "kind": "staticmethod",
               "signature": "(func: Callable) -> Callable",
               "summary": "Pass the selection (:meth:`selected_objects`) to *func*'s target parameter",
-              "line": 1097,
+              "line": 1050,
               "deprecated": false
             },
             {
@@ -4045,7 +4027,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The active view layer, resolved without depending on a context window",
-              "line": 1136,
+              "line": 1089,
               "deprecated": false
             },
             {
@@ -4054,7 +4036,7 @@
               "kind": "staticmethod",
               "signature": "(node) -> str",
               "summary": "*node*'s name as shown (mirror of mayatk's ``CoreUtils.leaf_name``, a DAG path's",
-              "line": 1145,
+              "line": 1098,
               "deprecated": false
             },
             {
@@ -4063,7 +4045,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The current object selection, filtered of ``None`` (mirror of Maya's",
-              "line": 1154,
+              "line": 1107,
               "deprecated": false
             },
             {
@@ -4072,7 +4054,7 @@
               "kind": "staticmethod",
               "signature": "(objects, mode: str = 'replace') -> list",
               "summary": "Set the object selection (Blender's counterpart of ``cmds.select``).",
-              "line": 1172,
+              "line": 1125,
               "deprecated": false
             },
             {
@@ -4081,7 +4063,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The active object, resolved window-independently (``view_layer.objects.active``).",
-              "line": 1213,
+              "line": 1166,
               "deprecated": false
             },
             {
@@ -4090,7 +4072,7 @@
               "kind": "staticmethod",
               "signature": "(object_type='mesh', component=None)",
               "summary": "Put an object of *object_type* into Edit Mode -- Maya's component mode --",
-              "line": 1225,
+              "line": 1178,
               "deprecated": false
             },
             {
@@ -4099,7 +4081,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Leave Edit (or any other) Mode for Object Mode -- Maya's object mode.",
-              "line": 1278,
+              "line": 1231,
               "deprecated": false
             },
             {
@@ -4108,7 +4090,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Restore the viewport selection after a scene-mutating block — mirror of",
-              "line": 1303,
+              "line": 1256,
               "deprecated": false
             },
             {
@@ -4117,7 +4099,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, method='name', reverse=False)",
               "summary": "Reorder a set of objects by a sorting method — mirror of ``mtk.reorder_objects``",
-              "line": 1354,
+              "line": 1307,
               "deprecated": false
             },
             {
@@ -4126,7 +4108,7 @@
               "kind": "staticmethod",
               "signature": "(area_type=None)",
               "summary": "All areas of ``area_type`` (``\"VIEW_3D\"``, ``\"IMAGE_EDITOR\"``, …) across every open",
-              "line": 1429,
+              "line": 1382,
               "deprecated": false
             },
             {
@@ -4135,7 +4117,7 @@
               "kind": "classmethod",
               "signature": "(cls, area_type=None) -> int",
               "summary": "Queue a redraw of every area of ``area_type`` (all areas when None);",
-              "line": 1452,
+              "line": 1405,
               "deprecated": false
             },
             {
@@ -4144,7 +4126,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Context-override dict targeting the first VIEW_3D area/region, or ``None`` if there is no",
-              "line": 1471,
+              "line": 1424,
               "deprecated": false
             },
             {
@@ -4153,7 +4135,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Yield with a valid ``window`` in context when ``bpy.context.window`` is ``None``.",
-              "line": 1501,
+              "line": 1454,
               "deprecated": false
             },
             {
@@ -4162,7 +4144,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Yield with *objects* -- and only them -- in Edit Mode;",
-              "line": 1538,
+              "line": 1491,
               "deprecated": false
             }
           ]
@@ -4643,6 +4625,33 @@
       "constants": []
     },
     {
+      "relpath": "core_utils/diagnostics/scene_diag.py",
+      "summary": "Scene-level repairs -- mirror of mayatk's ``core_utils.diagnostics.scene_diag``.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "SceneDiagnostics",
+          "summary": "Scene-level repairs (mirror of mayatk's ``SceneDiagnostics``).",
+          "line": 15,
+          "bases": [
+            "object"
+          ],
+          "members": [
+            {
+              "name": "fix_missing_color_spaces",
+              "qualname": "SceneDiagnostics.fix_missing_color_spaces",
+              "kind": "staticmethod",
+              "signature": "(images=None, force_update=False, dry_run=False, verbose=True)",
+              "summary": "Give each texture image its color space by map type (``MatUtils.",
+              "line": 24,
+              "deprecated": false
+            }
+          ]
+        }
+      ],
+      "constants": []
+    },
+    {
       "relpath": "core_utils/diagnostics/transform_diag.py",
       "summary": "Transform diagnostics — the Blender counterpart of mayatk's",
       "functions": [],
@@ -4656,21 +4665,30 @@
           ],
           "members": [
             {
+              "name": "transforms_in_scope",
+              "qualname": "TransformDiagnostics.transforms_in_scope",
+              "kind": "staticmethod",
+              "signature": "(scope='selection')",
+              "summary": "The objects a check covers: ``\"selection\"`` -- the selected objects;",
+              "line": 130,
+              "deprecated": false
+            },
+            {
               "name": "get_non_orthogonal",
               "qualname": "TransformDiagnostics.get_non_orthogonal",
               "kind": "staticmethod",
               "signature": "(objects=None, tolerance=1e-05, detailed=False)",
               "summary": "Return the objects whose evaluated (world) axes are not perpendicular — the",
-              "line": 130,
+              "line": 147,
               "deprecated": false
             },
             {
               "name": "fix_non_orthogonal_axes",
               "qualname": "TransformDiagnostics.fix_non_orthogonal_axes",
               "kind": "staticmethod",
-              "signature": "(objects=None, dry_run=False, tolerance=1e-05, break_connections=False)",
+              "signature": "(objects=None, dry_run=False, tolerance=1e-05, quiet=False, break_connections=False)",
               "summary": "Bake out non-orthogonal (sheared) world axes — shear breaks FBX export (mirror of",
-              "line": 164,
+              "line": 181,
               "deprecated": false
             }
           ]
@@ -4792,7 +4810,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> 'ScriptJobManager'",
               "summary": "Return the module-wide singleton, creating it on first access.",
-              "line": 109,
+              "line": 115,
               "deprecated": false
             },
             {
@@ -4801,7 +4819,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> None",
               "summary": "Tear down the singleton and allow a fresh one to be created (tests / reload).",
-              "line": 116,
+              "line": 122,
               "deprecated": false
             },
             {
@@ -4810,7 +4828,7 @@
               "kind": "method",
               "signature": "(self, event: str, callback: Callable, *, owner: Any = None, ephemeral: bool = False) -> int",
               "summary": "Register *callback* (called with no args) for a Maya-named *event*.",
-              "line": 140,
+              "line": 146,
               "deprecated": false
             },
             {
@@ -4819,7 +4837,7 @@
               "kind": "method",
               "signature": "(self, token: int) -> None",
               "summary": "Remove a single subscription by *token*.",
-              "line": 185,
+              "line": 191,
               "deprecated": false
             },
             {
@@ -4828,7 +4846,7 @@
               "kind": "method",
               "signature": "(self, owner: Any) -> None",
               "summary": "Remove every subscription registered under *owner*.",
-              "line": 201,
+              "line": 207,
               "deprecated": false
             },
             {
@@ -4837,7 +4855,7 @@
               "kind": "method",
               "signature": "(self, widget, owner: Any) -> None",
               "summary": "Connect *widget*.destroyed → :meth:`unsubscribe_all` for *owner* (Qt).",
-              "line": 206,
+              "line": 212,
               "deprecated": false
             },
             {
@@ -4846,7 +4864,7 @@
               "kind": "method",
               "signature": "(self, token: int) -> None",
               "summary": "Temporarily silence a subscription without removing it.",
-              "line": 219,
+              "line": 225,
               "deprecated": false
             },
             {
@@ -4855,7 +4873,7 @@
               "kind": "method",
               "signature": "(self, token: int) -> None",
               "summary": "Undo one :meth:`suppress`;",
-              "line": 228,
+              "line": 234,
               "deprecated": false
             },
             {
@@ -4864,7 +4882,7 @@
               "kind": "method",
               "signature": "(self, *tokens: Optional[int]) -> Iterator[None]",
               "summary": "Silence *tokens* for the duration of a ``with`` block (mirror of mayatk).",
-              "line": 237,
+              "line": 243,
               "deprecated": false
             },
             {
@@ -4873,7 +4891,7 @@
               "kind": "method",
               "signature": "(self) -> Dict[str, Any]",
               "summary": "Snapshot of installed handlers and current subscriptions.",
-              "line": 259,
+              "line": 265,
               "deprecated": false
             },
             {
@@ -4882,7 +4900,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Pretty-print :meth:`status` for interactive debugging.",
-              "line": 275,
+              "line": 281,
               "deprecated": false
             },
             {
@@ -4891,7 +4909,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Remove every installed master handler and drop all subscriptions.",
-              "line": 295,
+              "line": 301,
               "deprecated": false
             }
           ]
@@ -8013,7 +8031,7 @@
         {
           "name": "EnvUtils",
           "summary": "Namespace mirror of mayatk's ``EnvUtils`` (helpers also exposed module-level).",
-          "line": 132,
+          "line": 220,
           "bases": [
             "_EnvUtilsInternal"
           ],
@@ -8024,7 +8042,7 @@
               "kind": "staticmethod",
               "signature": "(root_dir, recursive=True, filter_text='')",
               "summary": "Every ``.blend`` file under ``root_dir`` (recursively by default), optionally name-filtered.",
-              "line": 164,
+              "line": 252,
               "deprecated": false
             },
             {
@@ -8033,7 +8051,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Every linked library as a record: ``{name, library, filepath, abspath, exists}``.",
-              "line": 201,
+              "line": 289,
               "deprecated": false
             },
             {
@@ -8042,7 +8060,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Set of normalized absolute paths of the ``.blend`` files currently linked as",
-              "line": 221,
+              "line": 309,
               "deprecated": false
             },
             {
@@ -8051,7 +8069,7 @@
               "kind": "staticmethod",
               "signature": "(path)",
               "summary": "True iff ``path`` is already linked as a library.",
-              "line": 231,
+              "line": 319,
               "deprecated": false
             },
             {
@@ -8060,7 +8078,7 @@
               "kind": "staticmethod",
               "signature": "(path, link=True, instance=True, target_collection=None, relative=False)",
               "summary": "Link (or append, ``link=False``) every collection from ``path`` and instance them into the",
-              "line": 239,
+              "line": 327,
               "deprecated": false
             },
             {
@@ -8069,7 +8087,7 @@
               "kind": "staticmethod",
               "signature": "(library)",
               "summary": "Reload a library from disk (``library`` is a datablock or its name).",
-              "line": 290,
+              "line": 378,
               "deprecated": false
             },
             {
@@ -8078,7 +8096,7 @@
               "kind": "staticmethod",
               "signature": "(library)",
               "summary": "Remove a library and everything linked from it (datablock or name).",
-              "line": 304,
+              "line": 392,
               "deprecated": false
             },
             {
@@ -8087,7 +8105,7 @@
               "kind": "staticmethod",
               "signature": "(library, scene_data='merge')",
               "summary": "Make every datablock linked from ``library`` **local** (a native, editable copy) and drop the",
-              "line": 332,
+              "line": 420,
               "deprecated": false
             },
             {
@@ -8096,7 +8114,7 @@
               "kind": "staticmethod",
               "signature": "(root=None)",
               "summary": "Pin (or clear, with None) the session's current workspace — the Blender analogue of",
-              "line": 473,
+              "line": 561,
               "deprecated": false
             },
             {
@@ -8105,7 +8123,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "The active ``pythontk.Workspace``, or None.",
-              "line": 482,
+              "line": 570,
               "deprecated": false
             },
             {
@@ -8114,7 +8132,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "Absolute root of the current workspace, or '' — what ``get_env_info(\"workspace\")``",
-              "line": 507,
+              "line": 595,
               "deprecated": false
             },
             {
@@ -8123,7 +8141,7 @@
               "kind": "staticmethod",
               "signature": "(scene: str, source: Optional[str] = None) -> Optional[str]",
               "summary": "Moved to :meth:`DataNodes.set_scene_source`, which records the stand-in",
-              "line": 519,
+              "line": 607,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -8133,7 +8151,7 @@
               "kind": "staticmethod",
               "signature": "(scene: Optional[str] = None) -> Optional[str]",
               "summary": "Moved to :meth:`DataNodes.twin_save_target`.",
-              "line": 530,
+              "line": 618,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -8143,7 +8161,7 @@
               "kind": "staticmethod",
               "signature": "(scene: Optional[str] = None) -> Optional[str]",
               "summary": "Moved to :meth:`DataNodes.scene_source`.",
-              "line": 540,
+              "line": 628,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -8153,7 +8171,7 @@
               "kind": "staticmethod",
               "signature": "() -> Optional[str]",
               "summary": "Moved to :meth:`DataNodes.scene_project_root`.",
-              "line": 550,
+              "line": 638,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -8163,7 +8181,7 @@
               "kind": "staticmethod",
               "signature": "() -> Optional[ptk.Workspace]",
               "summary": "Moved to :meth:`DataNodes.scene_workspace`.",
-              "line": 560,
+              "line": 648,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -8173,7 +8191,7 @@
               "kind": "staticmethod",
               "signature": "(subfolder: str = '', create: bool = False) -> str",
               "summary": "Moved to :meth:`DataNodes.scene_source_images_dir`.",
-              "line": 570,
+              "line": 658,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -8183,7 +8201,7 @@
               "kind": "staticmethod",
               "signature": "(suffix: str) -> str",
               "summary": "A file named for the open .blend, beside it: ``<blend dir>/<stem><suffix>``.",
-              "line": 577,
+              "line": 665,
               "deprecated": false
             },
             {
@@ -8192,7 +8210,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "The current workspace's texture folder — its ``sourceImages`` rule → an existing",
-              "line": 595,
+              "line": 683,
               "deprecated": false
             },
             {
@@ -8201,7 +8219,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "Where this scene's map files can be found NOW, most specific first.",
-              "line": 606,
+              "line": 694,
               "deprecated": false
             },
             {
@@ -8210,7 +8228,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "The current workspace's scene folder (``scene`` rule → existing ``scenes`` → the root),",
-              "line": 640,
+              "line": 728,
               "deprecated": false
             },
             {
@@ -8219,7 +8237,7 @@
               "kind": "staticmethod",
               "signature": "(root)",
               "summary": "The scene-rule folder of a *marked* workspace at ``root`` (absolute), or '' when",
-              "line": 647,
+              "line": 735,
               "deprecated": false
             },
             {
@@ -8228,7 +8246,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Saved workspace-template names (the Workspace Editor's Save Template entries) —",
-              "line": 660,
+              "line": 748,
               "deprecated": false
             },
             {
@@ -8237,7 +8255,7 @@
               "kind": "staticmethod",
               "signature": "(name=None)",
               "summary": "File rules for building a NEW workspace: the *name*d (default: active / last-saved)",
-              "line": 666,
+              "line": 754,
               "deprecated": false
             },
             {
@@ -8246,7 +8264,7 @@
               "kind": "staticmethod",
               "signature": "(name, rules=None)",
               "summary": "Save *rules* as workspace template *name* and make it the active default for new",
-              "line": 673,
+              "line": 761,
               "deprecated": false
             },
             {
@@ -8255,7 +8273,7 @@
               "kind": "staticmethod",
               "signature": "(name)",
               "summary": "Delete the user template *name* (the store keeps the active pointer consistent).",
-              "line": 687,
+              "line": 775,
               "deprecated": false
             },
             {
@@ -8264,7 +8282,7 @@
               "kind": "staticmethod",
               "signature": "(root, rules=None, create_dirs=True)",
               "summary": "Create a marked workspace at ``root`` — the Blender counterpart of Maya's File ▸",
-              "line": 693,
+              "line": 781,
               "deprecated": false
             },
             {
@@ -8273,7 +8291,7 @@
               "kind": "staticmethod",
               "signature": "(root=None)",
               "summary": "Mark ``root`` (default: the current workspace folder) as a shared Maya/Blender project",
-              "line": 705,
+              "line": 793,
               "deprecated": false
             },
             {
@@ -8282,7 +8300,7 @@
               "kind": "staticmethod",
               "signature": "(root_dir, recursive=False)",
               "summary": "Project folders under ``root_dir`` — marked workspaces (a ``workspace.mel`` at their",
-              "line": 719,
+              "line": 807,
               "deprecated": false
             },
             {
@@ -8291,7 +8309,7 @@
               "kind": "staticmethod",
               "signature": "(path)",
               "summary": "True if *path* is a workspace root this session opens as it is: marked by",
-              "line": 739,
+              "line": 827,
               "deprecated": false
             },
             {
@@ -8300,7 +8318,25 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The open .blend's path, or ``\"\"`` when it has never been saved.",
-              "line": 749,
+              "line": 837,
+              "deprecated": false
+            },
+            {
+              "name": "get_recent_files",
+              "qualname": "EnvUtils.get_recent_files",
+              "kind": "staticmethod",
+              "signature": "(index=None)",
+              "summary": "Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).",
+              "line": 845,
+              "deprecated": false
+            },
+            {
+              "name": "get_recent_autosave",
+              "qualname": "EnvUtils.get_recent_autosave",
+              "kind": "staticmethod",
+              "signature": "(filter_time=24, timestamp_format='%H:%M:%S')",
+              "summary": "Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first",
+              "line": 862,
               "deprecated": false
             },
             {
@@ -8309,7 +8345,7 @@
               "kind": "staticmethod",
               "signature": "(index=None, format='standard')",
               "summary": "Recently used workspaces, most recent first: the folders of Blender's",
-              "line": 757,
+              "line": 894,
               "deprecated": false
             },
             {
@@ -8318,7 +8354,7 @@
               "kind": "staticmethod",
               "signature": "(scene_path=None)",
               "summary": "The workspace that holds *scene_path* (default: the open .blend): the",
-              "line": 794,
+              "line": 929,
               "deprecated": false
             },
             {
@@ -8327,7 +8363,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Blender's bundled interpreter (``<python>/bin/python``;",
-              "line": 813,
+              "line": 948,
               "deprecated": false
             },
             {
@@ -8336,7 +8372,7 @@
               "kind": "staticmethod",
               "signature": "(path)",
               "summary": "Open a .blend file (replaces the current file — Maya's ``file -open``).",
-              "line": 822,
+              "line": 957,
               "deprecated": false
             },
             {
@@ -8345,7 +8381,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Discard the current file and start an empty, unsaved scene (Maya's ``file -new``).",
-              "line": 835,
+              "line": 970,
               "deprecated": false
             },
             {
@@ -8354,7 +8390,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "True if the open file holds authored data — anything beyond Blender's *default",
-              "line": 851,
+              "line": 986,
               "deprecated": false
             },
             {
@@ -8363,7 +8399,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "True if replacing the open file (open / close / new) would lose work.",
-              "line": 868,
+              "line": 1003,
               "deprecated": false
             },
             {
@@ -8372,7 +8408,7 @@
               "kind": "staticmethod",
               "signature": "(scene=None)",
               "summary": "The scene's modelling and session state as plain values: what a",
-              "line": 912,
+              "line": 1047,
               "deprecated": false
             },
             {
@@ -8381,7 +8417,7 @@
               "kind": "staticmethod",
               "signature": "(scene=None)",
               "summary": "The live scene's time setup as the bridges' ``scene`` record (see",
-              "line": 968,
+              "line": 1103,
               "deprecated": false
             },
             {
@@ -8390,7 +8426,7 @@
               "kind": "staticmethod",
               "signature": "(settings, scene=None)",
               "summary": "Apply a ``scene`` record (any subset of :attr:`SCENE_SETTINGS_KEYS`) to the live",
-              "line": 993,
+              "line": 1128,
               "deprecated": false
             },
             {
@@ -8399,7 +8435,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The scene's linear unit by mayatk's name (``\"centimeter\"``), a key of",
-              "line": 1040,
+              "line": 1175,
               "deprecated": false
             },
             {
@@ -8408,7 +8444,7 @@
               "kind": "staticmethod",
               "signature": "(unit)",
               "summary": "Set the scene's unit system and length unit from mayatk's unit name, in",
-              "line": 1054,
+              "line": 1189,
               "deprecated": false
             },
             {
@@ -8417,7 +8453,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "``{rate name: fps}`` for the frame rates a Blender scene takes: the video",
-              "line": 1079,
+              "line": 1214,
               "deprecated": false
             },
             {
@@ -8426,7 +8462,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Blender's autosave as mayatk's ``{\"max_backups\", \"interval\"}``: the",
-              "line": 1090,
+              "line": 1225,
               "deprecated": false
             },
             {
@@ -8435,7 +8471,7 @@
               "kind": "staticmethod",
               "signature": "(max_backups=None, interval=None)",
               "summary": "Set Blender's backup versions (*max_backups*) and Auto Save timer",
-              "line": 1106,
+              "line": 1241,
               "deprecated": false
             },
             {
@@ -8444,7 +8480,7 @@
               "kind": "staticmethod",
               "signature": "(name, case=None, suffix='')",
               "summary": "Apply a naming convention to a base scene name — ``case`` via :meth:`pythontk.StrUtils.set_case`",
-              "line": 1121,
+              "line": 1256,
               "deprecated": false
             },
             {
@@ -8453,7 +8489,7 @@
               "kind": "staticmethod",
               "signature": "(directory, name, case=None, suffix='', subfolder='')",
               "summary": "The absolute ``.blend`` path :meth:`save_scene_as` would write — the pure",
-              "line": 1139,
+              "line": 1274,
               "deprecated": false
             },
             {
@@ -8462,7 +8498,7 @@
               "kind": "staticmethod",
               "signature": "(directory, name, case=None, suffix='', subfolder='', overwrite=True)",
               "summary": "Save the current scene as a .blend under ``directory`` with naming conventions applied —",
-              "line": 1175,
+              "line": 1310,
               "deprecated": false
             },
             {
@@ -8471,7 +8507,61 @@
               "kind": "staticmethod",
               "signature": "(file_path=None, *, selection_only=False, materials=True, smoothing=True, normals=True, groups=True)",
               "summary": "Export the scene as a Wavefront OBJ — mirror of mayatk's ``export_scene_as_obj``.",
-              "line": 1206,
+              "line": 1341,
+              "deprecated": false
+            },
+            {
+              "name": "foreign_scene_bridge",
+              "qualname": "EnvUtils.foreign_scene_bridge",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "The hand-off bridge CLASS that writes the other DCC's native scene:",
+              "line": 1405,
+              "deprecated": false
+            },
+            {
+              "name": "foreign_scene_import",
+              "qualname": "EnvUtils.foreign_scene_import",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "The engine CLASS that pulls a file into this scene through the other DCC:",
+              "line": 1418,
+              "deprecated": false
+            },
+            {
+              "name": "get_file_commands",
+              "qualname": "EnvUtils.get_file_commands",
+              "kind": "classmethod",
+              "signature": "(cls, direction='import')",
+              "summary": "The names of Blender's own import (*direction* ``\"import\"``) or export",
+              "line": 1452,
+              "deprecated": false
+            },
+            {
+              "name": "run_file_command",
+              "qualname": "EnvUtils.run_file_command",
+              "kind": "classmethod",
+              "signature": "(cls, name)",
+              "summary": "Run Blender's own import / export command *name*",
+              "line": 1474,
+              "deprecated": false
+            },
+            {
+              "name": "scene_triangle_count",
+              "qualname": "EnvUtils.scene_triangle_count",
+              "kind": "staticmethod",
+              "signature": "(selection_only=False)",
+              "summary": "Triangles in the scene's meshes -- or, *selection_only*, in the selected",
+              "line": 1503,
+              "deprecated": false
+            },
+            {
+              "name": "export_scene",
+              "qualname": "EnvUtils.export_scene",
+              "kind": "classmethod",
+              "signature": "(cls, file_path, file_format='fbx', *, selection_only=False, include_cameras=False, include_lights=False, include_skins=False, include_tangents=True, embed_textures=True, progress=None)",
+              "summary": "Write the scene, or the selection, to *file_path* in *file_format*: the",
+              "line": 1533,
               "deprecated": false
             },
             {
@@ -8480,7 +8570,7 @@
               "kind": "staticmethod",
               "signature": "(path, new_base)",
               "summary": "Rename a .blend on disk (and its ``.blend1`` backup) — mirror of mayatk's ``rename_scene``.",
-              "line": 1270,
+              "line": 1591,
               "deprecated": false
             },
             {
@@ -8489,7 +8579,7 @@
               "kind": "staticmethod",
               "signature": "(path, permanent: bool = False)",
               "summary": "Move a .blend (and its ``.blend1`` backup) to the trash — mirror of mayatk's",
-              "line": 1311,
+              "line": 1632,
               "deprecated": false
             },
             {
@@ -8498,7 +8588,7 @@
               "kind": "staticmethod",
               "signature": "(library, mode)",
               "summary": "Set the display override for a linked library's objects — mirror of mayatk's",
-              "line": 1352,
+              "line": 1673,
               "deprecated": false
             },
             {
@@ -8507,7 +8597,7 @@
               "kind": "staticmethod",
               "signature": "(library)",
               "summary": "Return the active display mode (``\"off\"`` / ``\"reference\"`` / ``\"template\"``) for a linked",
-              "line": 1377,
+              "line": 1698,
               "deprecated": false
             }
           ]
@@ -9321,7 +9411,7 @@
               "kind": "staticmethod",
               "signature": "(path: str) -> None",
               "summary": "Open *path* as the current file (Maya's forced ``file -open``).",
-              "line": 721,
+              "line": 723,
               "deprecated": false
             },
             {
@@ -9330,7 +9420,7 @@
               "kind": "staticmethod",
               "signature": "() -> List[str]",
               "summary": "The extensions a reference may have (what the staging accepts).",
-              "line": 729,
+              "line": 731,
               "deprecated": false
             }
           ]
@@ -9530,7 +9620,7 @@
               "kind": "property",
               "signature": "(self) -> Optional[str]",
               "summary": "The Maya GUI executable (explicit, or discovered via the bridge's AppSpec).",
-              "line": 294,
+              "line": 298,
               "deprecated": false
             },
             {
@@ -9539,7 +9629,7 @@
               "kind": "property",
               "signature": "(self) -> Optional[str]",
               "summary": "The headless ``mayapy`` interpreter derived from :attr:`maya_path`.",
-              "line": 305,
+              "line": 309,
               "deprecated": false
             },
             {
@@ -9548,7 +9638,7 @@
               "kind": "method",
               "signature": "(self) -> str",
               "summary": "Return :attr:`mayapy_path` or raise an error naming what's missing.",
-              "line": 310,
+              "line": 314,
               "deprecated": false
             },
             {
@@ -9557,7 +9647,7 @@
               "kind": "method",
               "signature": "(self, src_path: str, out_path: str, *, via: str = 'fbx', embed_textures: bool = False, include_animation: bool = True, rig_mode: str = 'auto') -> str",
               "summary": "Render the Maya-side conversion script (exposed for tests/preview).",
-              "line": 331,
+              "line": 335,
               "deprecated": false
             },
             {
@@ -9566,7 +9656,7 @@
               "kind": "method",
               "signature": "(self, src_path: str, out_path: str, *, via: str = 'fbx', timeout: Optional[float] = None, on_output: Optional[Callable[[Optional[str]], Optional[bool]]] = None, **script_opts: Any) -> 'ptk.ScriptRunResult'",
               "summary": "Convert *src_path* to *out_path* in a fresh ``mayapy`` (blocking).",
-              "line": 381,
+              "line": 385,
               "deprecated": false
             },
             {
@@ -9575,7 +9665,7 @@
               "kind": "method",
               "signature": "(self, src_path: str, *, via: str = 'fbx', cleanup: bool = True, use_cache: bool = True, timeout: Optional[float] = None, fbx_options: Optional[Dict[str, Any]] = None, rig_mode: str = 'auto', scene_settings: Union[bool, str] = 'auto', reduce_keys: Union[bool, str, None] = REDUCE_KEYS_DEFAULT, scene_data: bool = True, progress: Optional[Callable[..., Optional[bool]]] = None, **script_opts: Any) -> List[Any]",
               "summary": "Import the Maya scene at *src_path*;",
-              "line": 506,
+              "line": 510,
               "deprecated": false
             },
             {
@@ -9584,7 +9674,7 @@
               "kind": "method",
               "signature": "(self, payload_path: str, *, fbx_options: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None, scene_settings: bool = False, reduce_keys: Union[bool, str, None] = False, scene_data: bool = True, progress: Optional[Callable[[int, int, str], Optional[bool]]] = None, stream_home: Optional[str] = None) -> List[Any]",
               "summary": "Import a Maya hand-off payload into the open scene and apply its manifest.",
-              "line": 707,
+              "line": 711,
               "deprecated": false
             },
             {
@@ -9593,7 +9683,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> bool",
               "summary": "Turn off the viewports' Relationship Lines overlay for the loaded file;",
-              "line": 1053,
+              "line": 1057,
               "deprecated": false
             },
             {
@@ -9602,7 +9692,7 @@
               "kind": "staticmethod",
               "signature": "(manifest_path: str, hdri: str = '', strength: float = 1.0) -> Dict[str, str]",
               "summary": "Light the world: an explicit *hdri*, else the scene's sky dome, else ambient.",
-              "line": 1863,
+              "line": 1867,
               "deprecated": false
             },
             {
@@ -9611,7 +9701,7 @@
               "kind": "property",
               "signature": "(self) -> Optional[str]",
               "summary": "The Blender executable used for the bake — this host's own binary.",
-              "line": 2797,
+              "line": 2801,
               "deprecated": false
             },
             {
@@ -9620,7 +9710,7 @@
               "kind": "method",
               "signature": "(self) -> str",
               "summary": "Return :attr:`blender_path` or raise an error naming what's missing.",
-              "line": 2819,
+              "line": 2823,
               "deprecated": false
             },
             {
@@ -9629,7 +9719,7 @@
               "kind": "method",
               "signature": "(self, src_path: str, out_path: str, reduce_keys: Union[bool, str, None] = None, info: Optional[Mapping[str, str]] = None, stream_home: Optional[str] = None) -> str",
               "summary": "Render the Blender-side intermediate->.blend bake script (exposed for",
-              "line": 2829,
+              "line": 2833,
               "deprecated": false
             },
             {
@@ -9638,7 +9728,7 @@
               "kind": "method",
               "signature": "(self, src_path: str, out_path: str, *, timeout: Optional[float] = None, reduce_keys: Union[bool, str, None] = None, on_output: Optional[Callable[[Optional[str]], Optional[bool]]] = None, info: Optional[Mapping[str, str]] = None, stream_home: Optional[str] = None) -> Any",
               "summary": "Bake the USD/FBX intermediate *src_path* into the .blend at *out_path*",
-              "line": 2877,
+              "line": 2881,
               "deprecated": false
             },
             {
@@ -9647,7 +9737,7 @@
               "kind": "method",
               "signature": "(self, src_path: str, *, via: str = 'fbx', use_cache: bool = True, timeout: Optional[float] = None, rig_mode: str = 'auto', reduce_keys: Union[bool, str, None] = REDUCE_KEYS_DEFAULT, progress: Optional[Callable[..., Optional[bool]]] = None, project: Optional[str] = None, **script_opts: Any) -> str",
               "summary": "Bake *src_path* to a ``.blend`` in the project's bake cache and return its",
-              "line": 2932,
+              "line": 2936,
               "deprecated": false
             },
             {
@@ -9656,7 +9746,7 @@
               "kind": "classmethod",
               "signature": "(cls, project: Optional[str] = None, create: bool = False) -> Optional[str]",
               "summary": "Where the bakes of *project* (default: the open file's) live: its",
-              "line": 3107,
+              "line": 3111,
               "deprecated": false
             },
             {
@@ -9665,7 +9755,7 @@
               "kind": "classmethod",
               "signature": "(cls, src_path: str, project: Optional[str] = None) -> Optional[str]",
               "summary": "Where *project*'s (default: the open file's) bake of *src_path* lives",
-              "line": 3181,
+              "line": 3185,
               "deprecated": false
             },
             {
@@ -9674,7 +9764,7 @@
               "kind": "classmethod",
               "signature": "(cls, baked_path: str) -> Dict[str, str]",
               "summary": "The bake record of the ``.blend`` at *baked_path* --",
-              "line": 3197,
+              "line": 3201,
               "deprecated": false
             },
             {
@@ -9683,7 +9773,7 @@
               "kind": "classmethod",
               "signature": "(cls, baked_path: str) -> Optional[str]",
               "summary": "The foreign scene *baked_path* was baked from, or None if it is not a bake.",
-              "line": 3239,
+              "line": 3243,
               "deprecated": false
             },
             {
@@ -9692,7 +9782,7 @@
               "kind": "method",
               "signature": "(self, baked_path: str, project: Optional[str] = None) -> Optional[str]",
               "summary": "The project bake standing in for the bake *baked_path* that lives in",
-              "line": 3251,
+              "line": 3255,
               "deprecated": false
             },
             {
@@ -9701,7 +9791,7 @@
               "kind": "method",
               "signature": "(self, project: Optional[str] = None, dry_run: bool = False) -> List[str]",
               "summary": "Remove the bakes in *project*'s bake cache that no file references.",
-              "line": 3295,
+              "line": 3299,
               "deprecated": false
             },
             {
@@ -9710,7 +9800,7 @@
               "kind": "staticmethod",
               "signature": "(maya_exe: str) -> Optional[str]",
               "summary": "Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.",
-              "line": 3331,
+              "line": 3335,
               "deprecated": false
             },
             {
@@ -9719,7 +9809,7 @@
               "kind": "staticmethod",
               "signature": "(src_path: str) -> bool",
               "summary": "Cheap pre-conversion probe: does the scene declare *driven* animation the",
-              "line": 3342,
+              "line": 3346,
               "deprecated": false
             },
             {
@@ -9728,7 +9818,7 @@
               "kind": "staticmethod",
               "signature": "(root_dir: str, recursive: bool = False, extensions: Optional[Sequence[str]] = None) -> List[str]",
               "summary": "Every importable Maya scene (``.ma`` / ``.mb``) under *root_dir* — sorted abs paths.",
-              "line": 3403,
+              "line": 3407,
               "deprecated": false
             }
           ]
@@ -10714,12 +10804,21 @@
           ],
           "members": [
             {
+              "name": "selected_reference_paths",
+              "qualname": "ReferenceManager.selected_reference_paths",
+              "kind": "classmethod",
+              "signature": "(cls, extensions=None) -> List[str]",
+              "summary": "The files behind the selected objects' linked libraries, each once, in",
+              "line": 143,
+              "deprecated": false
+            },
+            {
               "name": "current_workspace",
               "qualname": "ReferenceManager.current_workspace",
               "kind": "property",
               "signature": "(self) -> str",
               "summary": "The session's workspace root (``EnvUtils.workspace_root``: the pin, else",
-              "line": 179,
+              "line": 221,
               "deprecated": false
             },
             {
@@ -10728,7 +10827,7 @@
               "kind": "property",
               "signature": "(self) -> str",
               "summary": "The folder being browsed (the session's workspace until one is set;",
-              "line": 192,
+              "line": 234,
               "deprecated": false
             },
             {
@@ -10737,7 +10836,7 @@
               "kind": "property",
               "signature": "(self) -> bool",
               "summary": "Whether workspace discovery searches below the root's immediate children.",
-              "line": 209,
+              "line": 251,
               "deprecated": false
             },
             {
@@ -10746,7 +10845,7 @@
               "kind": "property",
               "signature": "(self) -> bool",
               "summary": "Whether a workspace holding no scene is left out of discovery.",
-              "line": 219,
+              "line": 261,
               "deprecated": false
             },
             {
@@ -10755,7 +10854,7 @@
               "kind": "property",
               "signature": "(self) -> dict",
               "summary": "``{workspace: [scene paths]}`` for the workspaces under the browsed folder.",
-              "line": 229,
+              "line": 271,
               "deprecated": false
             },
             {
@@ -10764,7 +10863,7 @@
               "kind": "method",
               "signature": "(self, root_dir: Optional[str] = None) -> list",
               "summary": "The workspaces under *root_dir* (default: the browsed folder) as",
-              "line": 235,
+              "line": 277,
               "deprecated": false
             },
             {
@@ -10773,7 +10872,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Scan for workspaces and rebuild the file cache (mirror of mayatk's).",
-              "line": 250,
+              "line": 292,
               "deprecated": false
             },
             {
@@ -10782,7 +10881,7 @@
               "kind": "property",
               "signature": "(self) -> List[_LibraryRef]",
               "summary": "The file's directly linked libraries, as references ([] without Blender).",
-              "line": 274,
+              "line": 316,
               "deprecated": false
             },
             {
@@ -10791,7 +10890,7 @@
               "kind": "classmethod",
               "signature": "(cls, linked_path) -> Optional[str]",
               "summary": "The foreign scene *linked_path* was baked from, or None if it is not a bake",
-              "line": 288,
+              "line": 330,
               "deprecated": false
             },
             {
@@ -10800,7 +10899,7 @@
               "kind": "classmethod",
               "signature": "(cls, linked_path) -> str",
               "summary": "Normalized path of the row a library reading *linked_path* stands for: its",
-              "line": 300,
+              "line": 342,
               "deprecated": false
             },
             {
@@ -10809,7 +10908,7 @@
               "kind": "method",
               "signature": "(self, namespace: str, file_path: str) -> bool",
               "summary": "Link *file_path*'s collections (``EnvUtils.link_blend_file``) -- the Blender",
-              "line": 307,
+              "line": 349,
               "deprecated": false
             },
             {
@@ -10818,7 +10917,7 @@
               "kind": "method",
               "signature": "(self, namespaces=None) -> list",
               "summary": "Remove the libraries named *namespaces* (all when None) and everything",
-              "line": 329,
+              "line": 371,
               "deprecated": false
             },
             {
@@ -10827,7 +10926,7 @@
               "kind": "method",
               "signature": "(self, namespaces=None, namespace_mode='remove', scene_data='merge') -> int",
               "summary": "Make the libraries named *namespaces* (all when None) local -- Blender's",
-              "line": 344,
+              "line": 386,
               "deprecated": false
             },
             {
@@ -10836,7 +10935,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Reload every library from disk -- one reading a bake in temp re-homed first",
-              "line": 366,
+              "line": 408,
               "deprecated": false
             },
             {
@@ -10845,7 +10944,7 @@
               "kind": "method",
               "signature": "(self, ref) -> str",
               "summary": "``\"off\"`` / ``\"reference\"`` / ``\"template\"`` for *ref*'s objects (\"off\"",
-              "line": 374,
+              "line": 416,
               "deprecated": false
             },
             {
@@ -10854,7 +10953,7 @@
               "kind": "method",
               "signature": "(self, ref, mode: str) -> bool",
               "summary": "Set *ref*'s display override (:attr:`DISPLAY_MODES`).",
-              "line": 379,
+              "line": 421,
               "deprecated": false
             },
             {
@@ -10863,7 +10962,7 @@
               "kind": "method",
               "signature": "(self) -> list",
               "summary": "Relink every library that reads a bake in temp (made before 2026-10-13,",
-              "line": 384,
+              "line": 426,
               "deprecated": false
             },
             {
@@ -10872,7 +10971,7 @@
               "kind": "method",
               "signature": "(self, dry_run: bool = False) -> list",
               "summary": "Remove the bakes in the project that no file links",
-              "line": 422,
+              "line": 464,
               "deprecated": false
             },
             {
@@ -10881,7 +10980,7 @@
               "kind": "classmethod",
               "signature": "(cls, path) -> bool",
               "summary": "True if *path* is a foreign (Maya / FBX / USD) scene -- a row baked to a",
-              "line": 431,
+              "line": 473,
               "deprecated": false
             },
             {
@@ -10890,7 +10989,7 @@
               "kind": "classmethod",
               "signature": "(cls, path) -> bool",
               "summary": "True if bringing *path* in runs a conversion in the other DCC (a headless",
-              "line": 440,
+              "line": 482,
               "deprecated": false
             },
             {
@@ -10899,7 +10998,7 @@
               "kind": "classmethod",
               "signature": "(cls, path: str) -> bool",
               "summary": "True if the foreign scene *path* declares driven animation a raw import",
-              "line": 453,
+              "line": 495,
               "deprecated": false
             },
             {
@@ -10908,7 +11007,7 @@
               "kind": "classmethod",
               "signature": "(cls, root_dir: str, recursive: bool = False, extensions=None) -> List[str]",
               "summary": "The foreign scenes under *root_dir* (``MayaSceneImport.find_scenes``).",
-              "line": 459,
+              "line": 501,
               "deprecated": false
             },
             {
@@ -10917,7 +11016,7 @@
               "kind": "method",
               "signature": "(self, path: str, **kwargs) -> str",
               "summary": "Bake the foreign scene *path* to a cached ``.blend`` and return it",
-              "line": 467,
+              "line": 509,
               "deprecated": false
             },
             {
@@ -10926,7 +11025,7 @@
               "kind": "method",
               "signature": "(self, path: str, **kwargs) -> list",
               "summary": "Import the foreign scene *path* as local data with no link behind it",
-              "line": 473,
+              "line": 515,
               "deprecated": false
             },
             {
@@ -10935,7 +11034,7 @@
               "kind": "method",
               "signature": "(self) -> Optional[str]",
               "summary": "The project a reference's bake goes in: the open file's",
-              "line": 478,
+              "line": 520,
               "deprecated": false
             },
             {
@@ -10944,7 +11043,7 @@
               "kind": "staticmethod",
               "signature": "(path: str) -> str",
               "summary": "The deterministic scratch ``.blend`` a foreign row opens as",
-              "line": 504,
+              "line": 546,
               "deprecated": false
             },
             {
@@ -10953,7 +11052,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Discard every untouched scratch twin that is no longer the open file (one",
-              "line": 511,
+              "line": 553,
               "deprecated": false
             },
             {
@@ -10962,7 +11061,7 @@
               "kind": "method",
               "signature": "(self) -> str",
               "summary": "The open .blend's path;",
-              "line": 517,
+              "line": 559,
               "deprecated": false
             },
             {
@@ -10971,7 +11070,7 @@
               "kind": "method",
               "signature": "(self) -> bool",
               "summary": "True if replacing the open file would lose work",
-              "line": 523,
+              "line": 565,
               "deprecated": false
             },
             {
@@ -10980,7 +11079,7 @@
               "kind": "method",
               "signature": "(self) -> Optional[bool]",
               "summary": "Flush the open file to its own path so its unsaved edits reach disk.",
-              "line": 532,
+              "line": 574,
               "deprecated": false
             },
             {
@@ -10989,7 +11088,7 @@
               "kind": "method",
               "signature": "(self, path: str) -> str",
               "summary": "Save the open file as *path* (``wm.save_as_mainfile``);",
-              "line": 550,
+              "line": 592,
               "deprecated": false
             },
             {
@@ -10998,7 +11097,7 @@
               "kind": "method",
               "signature": "(self) -> bool",
               "summary": "Discard the open file and start an empty one (Maya's ``file -new``) -- the",
-              "line": 561,
+              "line": 603,
               "deprecated": false
             },
             {
@@ -11007,7 +11106,7 @@
               "kind": "method",
               "signature": "(self, path, current=None) -> bool",
               "summary": "True if *path*'s scene is the open one: the file itself, or -- a foreign",
-              "line": 572,
+              "line": 614,
               "deprecated": false
             },
             {
@@ -11016,7 +11115,7 @@
               "kind": "method",
               "signature": "(self, file_path: str, set_workspace: bool = True) -> bool",
               "summary": "Open *file_path* (replaces the file), pinning the session's workspace to",
-              "line": 586,
+              "line": 628,
               "deprecated": false
             },
             {
@@ -11025,7 +11124,7 @@
               "kind": "method",
               "signature": "(self, old_path: str, new_path: str, folder=None)",
               "summary": "Rename the scene file *old_path* to *new_path* (same folder) on disk, its",
-              "line": 650,
+              "line": 692,
               "deprecated": false
             },
             {
@@ -11034,7 +11133,7 @@
               "kind": "method",
               "signature": "(self, path: str, permanent: bool = False, use_folder: bool = False) -> Optional[bool]",
               "summary": "Remove one scene with its ``.blend1`` backup: to the trash, or --",
-              "line": 665,
+              "line": 707,
               "deprecated": false
             }
           ]
