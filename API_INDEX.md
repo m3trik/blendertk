@@ -390,16 +390,12 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `env_utils/maya_bridge/_maya_bridge.py` — Maya bridge engine -- export the Blender selection and run a chosen import template in Maya.
 - constants: DEFAULTS
 - `class MayaBridge(BlenderExportMixin, pythontk.ScriptLaunchBridge)`
-  - methods: maya_path, headless_app_path, mayapy_from_maya_exe, params_defaults, render_context, list_templates, template_modes, list_template_modes
+  - methods: maya_path, headless_app_path, mayapy_from_maya_exe, params_registry, params_defaults, render_context, list_templates, template_modes, list_template_modes
 
 ### `env_utils/maya_bridge/_scene_import.py` — Import a Maya scene (.ma/.mb) into Blender via a headless-Maya round-trip
 - constants: BAKE_CACHE_KIND, BAKE_INFO_SOURCE, BAKE_INFO_KEY, BAKE_INFO_TEXT, SUPPORTED_EXTENSIONS, USD_EXTENSIONS, GLTF_EXTENSIONS, BAKE_SOURCE_EXTENSIONS, BAKE_SOURCE_SUFFIX, MAYA_GROUP_EMPTY_DISPLAY_SIZE, FBX_IMPORT_OPTIONS, REDUCE_KEYS_DEFAULT
 - `class MayaSceneImport(pythontk.LoggingMixin)`
   - methods: maya_path, mayapy_path, require_mayapy, render_script, convert, import_scene, import_payload, hide_relationship_lines, apply_world, blender_path, require_blender, render_bake_script, bake, bake_scene, bake_dir, bake_slot, bake_info, bake_source, rehome_bake, purge_unused_bakes, mayapy_from_maya_exe, scene_has_complex_animation, find_scenes
-
-### `env_utils/maya_bridge/maya_bridge_slots.py` — Slots for the Maya bridge panel.
-- `class MayaBridgeSlots(BlenderBridgeSlotsBase)`
-  - methods: params_module, template_dir, make_bridge, list_template_modes, b000
 
 ### `env_utils/maya_bridge/parameters.py` — Registry of user-tunable Maya-bridge parameters exposed to the panel.
 - constants: PARAMS
@@ -886,16 +882,12 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `uv_utils/rizom_bridge/_rizom_bridge.py` — RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 - constants: APP
 - `class RizomUVBridge(pythontk.LoggingMixin, _RizomUVBridgeInternal)`
-  - methods: rizom_path, rizom_version, export_path, script_path, build_send_script, send, process_with_rizomuv, expand_by_materials
+  - methods: rizom_path, rizom_version, export_path, script_path, build_send_script, send_to_rizomuv, process_with_rizomuv, params_registry, referenced_keys, list_template_modes, run_preset, pack_into_existing, expand_by_materials
 
 ### `uv_utils/rizom_bridge/parameters.py` — Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 - constants: PARAMS, DERIVED_KEYS, HOST_TOKEN_DEFAULTS, MIN_VERSIONS, FBX_USE_UV_SET_NAMES_MIN_VERSION
 - `class Parameters(ParamRegistry)`
   - methods: expand_includes, preset_min_version, referenced_keys, derived_values, render_context, strip_unsupported
-
-### `uv_utils/rizom_bridge/rizom_bridge_slots.py` — Slots for the RizomUV bridge panel.
-- `class RizomBridgeSlots(BlenderBridgeSlotsBase)`
-  - methods: params_module, template_dir, make_bridge, list_template_modes, b000, open_uv_editor
 
 ### `uv_utils/texture_combine/texture_combine.py` — Several materials into ONE: one atlas, one material, in place -- no duplicated meshes.
 - `class CombineInputs`

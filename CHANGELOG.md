@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-28 -- RizomUV Bridge and Maya Bridge panels moved to tentacle (`uv_utils/rizom_bridge/`, `env_utils/maya_bridge/`, `__init__.py`).** Mirror of mayatk's `RizomUVBridge` additions; `MayaBridge` gains `TEMPLATE_DIR` and `params_registry()`. Renamed, no alias: `RizomUVBridge.send` -> `send_to_rizomuv(objects, params=None)` (mayatk's name; the LOAD_* options come from `params`). `MOVED_NAMES` (0.23.0): `RizomBridgeSlots`, `MayaBridgeSlots`.
+  - Test(s): `test_rizom_construction.py`, `test_rizom_roundtrip.py`, `test_maya_bridge.py`, `test_bridges.py`; the handler test's bridge-resolver and scope-closure blocks went with the panels (`BridgeHost` pins the closure), its persistence checks use the Shot Sequencer panel.
 - **2026-10-28 -- Marmoset and Substance Bridge panels moved to tentacle (`mat_utils/marmoset_bridge/`, `mat_utils/substance_bridge/`, `ui_utils/blender_bridge_slots_base.py`, `__init__.py`).** Mirror of mayatk's engine additions; the Bake Source row left `BlenderBridgeSlotsBase`. `MOVED_NAMES` (0.23.0).
   - Test(s): `test_bridges.py`; the handler test's Bake Source and resolver checks for these two moved to tentacle.
 - **2026-10-28 -- Workspace Editor and Arnold Bridge panels moved to tentacle (`env_utils/workspace_editor.py` removed, `mat_utils/arnold_bridge.py`, `env_utils/_env_utils.py`, `__init__.py`).** The inert `ArnoldBridge` mirrors mayatk's `base_materials()` / `select_bridged()` (returning `[]`); the dead `EnvUtils._workspace_template_store` is gone. `MOVED_NAMES` (0.23.0): `ArnoldBridgeSlots`, `WorkspaceEditorSlots`.

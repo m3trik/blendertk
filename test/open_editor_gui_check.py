@@ -110,7 +110,8 @@ def run_checks():
     # ---- unknown editor: None AND no stray window. open_editor can only tell a bogus ui_type
     # from a real one by assigning it, so the window is already open by then — it must unwind
     # the window it opened rather than strand a duplicate viewport behind the caller's
-    # "could not open" message (channels_slots / rizom_bridge_slots branch on the None).
+    # "could not open" message (tentacle's Channels and RizomUV Bridge tools branch on
+    # the None).
     n_before = len(wm.windows)
     win = btk.open_editor("No Such Editor")
     check("unknown editor -> None", win is None, f"{win}")

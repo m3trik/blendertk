@@ -65,6 +65,11 @@ try:
         "template_modes parses BRIDGE_MODES",
         MayaBridge.template_modes(_TEMPLATE_DIR / "import.py") == ("send_to",),
     )
+    # tentacle's Maya Bridge lists, reads and opens the engine's folder.
+    check(
+        "TEMPLATE_DIR is the engine's template folder",
+        MayaBridge.TEMPLATE_DIR == _TEMPLATE_DIR,
+    )
     # The allowed-list must cover every mode a spec actually serves: the helpers filter
     # declarations against it and silently fall back to entry [0], so a `save_as`
     # template left out of it reads as an interactive send -- which then routes through

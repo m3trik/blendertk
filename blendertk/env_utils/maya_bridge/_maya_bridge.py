@@ -18,9 +18,10 @@ and ``save_as`` (:meth:`~pythontk.ScriptLaunchBridge.save_as`) runs ``mayapy`` h
 ``templates/_save_scene.py`` and returns a written ``.ma`` -- same FBX, same material sidecar, no
 second export path.
 
-Co-located with its panel (``maya_bridge_slots.MayaBridgeSlots`` + ``maya_bridge.ui``) under
-``env_utils``; discovered by ``BlenderUiHandler``. ``import bpy`` and the Qt-only ``parameters``
-import are deferred so the engine surface resolves under headless ``blender --background`` (no Qt).
+Its panel is tentacle's Maya Bridge (a Blender tool, ``slots/tools/maya_bridge.py``), which reads
+:meth:`MayaBridge.params_registry` and :attr:`MayaBridge.TEMPLATE_DIR` off this engine. ``import
+bpy`` and the Qt-only ``parameters`` import are deferred so the engine surface resolves under
+headless ``blender --background`` (no Qt).
 Windows-focused (Maya install layout).
 """
 
@@ -166,6 +167,9 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
 
     spec = _SPEC
     run_spec = _RUN_SPEC
+    #: The template folder (``templates/*.py``, both specs' ``template_dir``): what
+    #: tentacle's Maya Bridge lists, reads each template's rows from, and opens.
+    TEMPLATE_DIR = _TEMPLATE_DIR
     # Both carriers: Maya reads USD natively through mayaUsd (the receiving
     # templates route on the payload's extension). FBX first -- the shipped
     # default; USD is the opt-in parallel, refused for linked duplicates (the
@@ -224,18 +228,28 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
         return str(candidate) if candidate.is_file() else None
 
     # ------------------------------------------------------------------ parameter bindings
+    @classmethod
+    def params_registry(cls):
+        """The parameter registry (``parameters.Parameters``, a
+        ``uitk.bridge.ParamRegistry``): what tentacle's Maya Bridge builds its rows
+        from, and :meth:`params_defaults` / :meth:`render_context` read. Imported on
+        use: the registry is uitk's, and headless ``blender --background`` ships no
+        Qt, so both readers fall back without it. Mirror of mayatk's
+        ``BlenderBridge.params_registry``."""
+        from blendertk.env_utils.maya_bridge import parameters as _params
+
+        return _params.Parameters
+
     def params_defaults(self) -> Dict[str, Any]:
         try:
-            from blendertk.env_utils.maya_bridge import parameters as _params
+            registry = self.params_registry()
         except ImportError:  # no Qt -- see DEFAULTS
             return dict(DEFAULTS)
-        return _params.Parameters.defaults()
+        return registry.defaults()
 
     def render_context(self, params: Dict[str, Any]) -> Dict[str, str]:
         try:
-            from blendertk.env_utils.maya_bridge import parameters as _params
-
-            context = _params.Parameters.render_context(params)
+            context = self.params_registry().render_context(params)
         except ImportError:  # no Qt -- pythontk's plain Python-literal formatting
             context = super().render_context(params)
         # Mirror of mtk.BlenderBridge: the launched child must be able to import

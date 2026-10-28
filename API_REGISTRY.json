@@ -8848,7 +8848,7 @@
         {
           "name": "MayaBridge",
           "summary": "Export the Blender selection and run a chosen Maya import template.",
-          "line": 151,
+          "line": 152,
           "bases": [
             "BlenderExportMixin",
             "pythontk.ScriptLaunchBridge"
@@ -8860,7 +8860,7 @@
               "kind": "property",
               "signature": "(self) -> Optional[str]",
               "summary": "",
-              "line": 187,
+              "line": 191,
               "deprecated": false
             },
             {
@@ -8869,7 +8869,7 @@
               "kind": "property",
               "signature": "(self) -> Optional[str]",
               "summary": "The ``mayapy`` interpreter for the blocking ``save_as`` run.",
-              "line": 195,
+              "line": 199,
               "deprecated": false
             },
             {
@@ -8878,7 +8878,16 @@
               "kind": "staticmethod",
               "signature": "(maya_exe: str) -> Optional[str]",
               "summary": "Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.",
-              "line": 211,
+              "line": 215,
+              "deprecated": false
+            },
+            {
+              "name": "params_registry",
+              "qualname": "MayaBridge.params_registry",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "The parameter registry (``parameters.Parameters``, a",
+              "line": 232,
               "deprecated": false
             },
             {
@@ -8887,7 +8896,7 @@
               "kind": "method",
               "signature": "(self) -> Dict[str, Any]",
               "summary": "",
-              "line": 227,
+              "line": 243,
               "deprecated": false
             },
             {
@@ -8896,7 +8905,7 @@
               "kind": "method",
               "signature": "(self, params: Dict[str, Any]) -> Dict[str, str]",
               "summary": "",
-              "line": 234,
+              "line": 250,
               "deprecated": false
             },
             {
@@ -8905,7 +8914,7 @@
               "kind": "staticmethod",
               "signature": "() -> List[Path]",
               "summary": "User-visible templates in ``templates/`` (skips underscore-prefixed).",
-              "line": 685,
+              "line": 699,
               "deprecated": false
             },
             {
@@ -8914,7 +8923,7 @@
               "kind": "classmethod",
               "signature": "(cls, template_path: Path) -> Tuple[str, ...]",
               "summary": "Modes a template declares via ``BRIDGE_MODES``;",
-              "line": 702,
+              "line": 716,
               "deprecated": false
             },
             {
@@ -8923,7 +8932,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> List[Tuple[str, str]]",
               "summary": "``[(stem, mode), ...]`` for every (template, mode) pairing.",
-              "line": 709,
+              "line": 723,
               "deprecated": false
             }
           ]
@@ -8936,7 +8945,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 48,
+          "line": 49,
           "deprecated": false
         }
       ]
@@ -9274,69 +9283,6 @@
           "deprecated": false
         }
       ]
-    },
-    {
-      "relpath": "env_utils/maya_bridge/maya_bridge_slots.py",
-      "summary": "Slots for the Maya bridge panel.",
-      "functions": [],
-      "classes": [
-        {
-          "name": "MayaBridgeSlots",
-          "summary": "Slots wired to ``maya_bridge.ui`` via :class:`BridgeSlotsBase`.",
-          "line": 34,
-          "bases": [
-            "BlenderBridgeSlotsBase"
-          ],
-          "members": [
-            {
-              "name": "params_module",
-              "qualname": "MayaBridgeSlots.params_module",
-              "kind": "property",
-              "signature": "(self)",
-              "summary": "",
-              "line": 74,
-              "deprecated": false
-            },
-            {
-              "name": "template_dir",
-              "qualname": "MayaBridgeSlots.template_dir",
-              "kind": "property",
-              "signature": "(self) -> Path",
-              "summary": "",
-              "line": 78,
-              "deprecated": false
-            },
-            {
-              "name": "make_bridge",
-              "qualname": "MayaBridgeSlots.make_bridge",
-              "kind": "method",
-              "signature": "(self) -> MayaBridge",
-              "summary": "",
-              "line": 81,
-              "deprecated": false
-            },
-            {
-              "name": "list_template_modes",
-              "qualname": "MayaBridgeSlots.list_template_modes",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "",
-              "line": 84,
-              "deprecated": false
-            },
-            {
-              "name": "b000",
-              "qualname": "MayaBridgeSlots.b000",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Send the selected objects to Maya with the chosen template.",
-              "line": 88,
-              "deprecated": false
-            }
-          ]
-        }
-      ],
-      "constants": []
     },
     {
       "relpath": "env_utils/maya_bridge/parameters.py",
@@ -22052,7 +21998,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "Resolved RizomUV executable path (cached), or None.",
-              "line": 158,
+              "line": 169,
               "deprecated": false
             },
             {
@@ -22061,7 +22007,7 @@
               "kind": "property",
               "signature": "(self) -> 'tuple[int, ...]'",
               "summary": "The installed Rizom version, parsed from the install-dir name (mirror of mayatk).",
-              "line": 176,
+              "line": 187,
               "deprecated": false
             },
             {
@@ -22070,7 +22016,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "Lazy temp FBX path for the round-trip (POSIX string).",
-              "line": 229,
+              "line": 240,
               "deprecated": false
             },
             {
@@ -22079,7 +22025,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "The prepared Lua script file path as a POSIX string.",
-              "line": 243,
+              "line": 254,
               "deprecated": false
             },
             {
@@ -22088,16 +22034,16 @@
               "kind": "method",
               "signature": "(self, fbx_path, objects=None, load_uvs=True, import_groups=True, load_uvw_props=True, load_textures=True)",
               "summary": "Render the RizomUV Lua load-script (``ZomLoad`` + optional ``ZomLoadTexture`` block).",
-              "line": 288,
+              "line": 299,
               "deprecated": false
             },
             {
-              "name": "send",
-              "qualname": "RizomUVBridge.send",
+              "name": "send_to_rizomuv",
+              "qualname": "RizomUVBridge.send_to_rizomuv",
               "kind": "method",
-              "signature": "(self, objects, load_uvs=True, import_groups=True, load_uvw_props=True, load_textures=True, params=None)",
+              "signature": "(self, objects, params=None)",
               "summary": "Export ``objects`` to FBX and open them in a fresh RizomUV session (one-way).",
-              "line": 316,
+              "line": 327,
               "deprecated": false
             },
             {
@@ -22106,7 +22052,52 @@
               "kind": "method",
               "signature": "(self, objects, uv_script=None, preset=None, params=None, select_objects=None, skip_instances=True)",
               "summary": "Run the full export -> RizomUV -> re-import -> transfer-UVs-back workflow.",
-              "line": 383,
+              "line": 391,
+              "deprecated": false
+            },
+            {
+              "name": "params_registry",
+              "qualname": "RizomUVBridge.params_registry",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "The parameter registry (``parameters.Parameters``, a",
+              "line": 619,
+              "deprecated": false
+            },
+            {
+              "name": "referenced_keys",
+              "qualname": "RizomUVBridge.referenced_keys",
+              "kind": "method",
+              "signature": "(self, script_text: str) -> 'set[str]'",
+              "summary": "The parameter keys *script_text* exposes on the installed RizomUV.",
+              "line": 628,
+              "deprecated": false
+            },
+            {
+              "name": "list_template_modes",
+              "qualname": "RizomUVBridge.list_template_modes",
+              "kind": "method",
+              "signature": "(self) -> 'list[tuple[str, str]]'",
+              "summary": "``[(preset, \"\"), ...]`` for every bundled preset the installed RizomUV runs.",
+              "line": 644,
+              "deprecated": false
+            },
+            {
+              "name": "run_preset",
+              "qualname": "RizomUVBridge.run_preset",
+              "kind": "method",
+              "signature": "(self, objects, preset: str, params=None)",
+              "summary": "Run *preset* on *objects*: what the RizomUV Bridge's Process does.",
+              "line": 662,
+              "deprecated": false
+            },
+            {
+              "name": "pack_into_existing",
+              "qualname": "RizomUVBridge.pack_into_existing",
+              "kind": "method",
+              "signature": "(self, objects, params=None)",
+              "summary": "Pack *objects* into the empty space of the layout their material(s) define.",
+              "line": 684,
               "deprecated": false
             },
             {
@@ -22115,7 +22106,7 @@
               "kind": "staticmethod",
               "signature": "(objects) -> 'tuple[list, list]'",
               "summary": "Expand *objects* to every mesh object sharing their assigned materials.",
-              "line": 607,
+              "line": 730,
               "deprecated": false
             }
           ]
@@ -22250,78 +22241,6 @@
           "deprecated": false
         }
       ]
-    },
-    {
-      "relpath": "uv_utils/rizom_bridge/rizom_bridge_slots.py",
-      "summary": "Slots for the RizomUV bridge panel.",
-      "functions": [],
-      "classes": [
-        {
-          "name": "RizomBridgeSlots",
-          "summary": "Slots wired to ``rizom_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.",
-          "line": 76,
-          "bases": [
-            "BlenderBridgeSlotsBase"
-          ],
-          "members": [
-            {
-              "name": "params_module",
-              "qualname": "RizomBridgeSlots.params_module",
-              "kind": "property",
-              "signature": "(self)",
-              "summary": "",
-              "line": 181,
-              "deprecated": false
-            },
-            {
-              "name": "template_dir",
-              "qualname": "RizomBridgeSlots.template_dir",
-              "kind": "property",
-              "signature": "(self) -> Path",
-              "summary": "",
-              "line": 185,
-              "deprecated": false
-            },
-            {
-              "name": "make_bridge",
-              "qualname": "RizomBridgeSlots.make_bridge",
-              "kind": "method",
-              "signature": "(self) -> RizomUVBridge",
-              "summary": "",
-              "line": 188,
-              "deprecated": false
-            },
-            {
-              "name": "list_template_modes",
-              "qualname": "RizomBridgeSlots.list_template_modes",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Return ``[(stem, \"\"), ...]`` for every bundled ``.lua`` script.",
-              "line": 200,
-              "deprecated": false
-            },
-            {
-              "name": "b000",
-              "qualname": "RizomBridgeSlots.b000",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Run the chosen preset: round-trip, or one-way send when ``send`` is picked.",
-              "line": 225,
-              "deprecated": false
-            },
-            {
-              "name": "open_uv_editor",
-              "qualname": "RizomBridgeSlots.open_uv_editor",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Open Blender's UV Editor in a new window.",
-              "line": 300,
-              "deprecated": false
-            }
-          ]
-        }
-      ],
-      "constants": []
     },
     {
       "relpath": "uv_utils/texture_combine/texture_combine.py",

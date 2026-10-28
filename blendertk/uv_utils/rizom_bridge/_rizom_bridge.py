@@ -5,9 +5,9 @@
 Two flows, mirroring mayatk (``btk.RizomUVBridge`` ↔ ``mtk.RizomUVBridge`` at the name+behavior
 level, not signatures — Maya uses ``cmds`` string-node idioms, Blender uses ``bpy`` object refs):
 
-* **send** (one-way): export the selection to FBX, write a small RizomUV Lua load-script, launch
-  RizomUV detached with ``-cfi <script>``. Nothing round-trips back — the artist saves inside
-  RizomUV. Unchanged from the original port.
+* **send_to_rizomuv** (one-way): export the selection to FBX, write a small RizomUV Lua
+  load-script, launch RizomUV detached with ``-cfi <script>``. Nothing round-trips back — the
+  artist saves inside RizomUV. Unchanged from the original port.
 * **process_with_rizomuv** (round-trip): export *copies* of the selection to a temp FBX, run the
   chosen preset (``pack`` / ``unwrap_hard`` / ``unwrap_organic`` / ``optimize``) headlessly via
   ``-cfi``, re-import the RizomUV-written FBX, and transfer the new UVs back onto the originals.
@@ -118,6 +118,17 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
     #: shows ``APP.not_found_message`` when it is unmet. Class-body ``APP = APP``
     #: binds the module-level spec (class bodies fall back to globals on the RHS).
     APP = APP
+
+    #: The bundled Lua presets (``scripts/*.lua``): what tentacle's RizomUV Bridge
+    #: lists and opens as its templates. Not the ``templates/`` folder, which holds
+    #: what a preset is spliced into (the run wrappers and the shared includes).
+    SCRIPT_DIR = _SCRIPT_DIR
+    #: The preset that opens the selection in RizomUV one way
+    #: (:meth:`send_to_rizomuv`) instead of a round trip.
+    SEND_PRESET = "send"
+    #: The preset that packs the selection INTO the layout its material(s) define
+    #: (:meth:`pack_into_existing`).
+    PACK_INTO_EXISTING_PRESET = "pack_into_existing"
 
     # Suffix appended to the temporary export copies so the FBX re-import maps cleanly back onto
     # the originals (and never collides with a real object name).
@@ -313,16 +324,12 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         textures = self._texture_loads(objects) if load_textures else ""
         return f"{load}\n\n{textures}\n" if textures else f"{load}\n"
 
-    def send(
-        self,
-        objects,
-        load_uvs=True,
-        import_groups=True,
-        load_uvw_props=True,
-        load_textures=True,
-        params=None,
-    ):
+    def send_to_rizomuv(self, objects, params=None):
         """Export ``objects`` to FBX and open them in a fresh RizomUV session (one-way).
+
+        Mirror of mayatk's ``send_to_rizomuv``: *params*' load options shape the load
+        script (:meth:`build_send_script`) -- ``LOAD_UVS``, ``LOAD_UVW_PROPS``,
+        ``IMPORT_GROUPS`` and ``LOAD_TEXTURES``, each on when absent.
 
         Per-send unique FBX + Lua paths so a second send doesn't clobber a still-open earlier
         session (RizomUV's ``-cfi`` watches the script). Both come from ``ptk.TempArtifacts`` with
@@ -352,13 +359,14 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         fbx_path = send_store.path(extension=".fbx")
         btk.FbxUtils.export_selection_fbx(filepath=fbx_path, objects=objects)
 
+        options = params or {}
         script = self.build_send_script(
             fbx_path,
             objects=objects,
-            load_uvs=load_uvs,
-            import_groups=import_groups,
-            load_uvw_props=load_uvw_props,
-            load_textures=load_textures,
+            load_uvs=options.get("LOAD_UVS", True),
+            import_groups=options.get("IMPORT_GROUPS", True),
+            load_uvw_props=options.get("LOAD_UVW_PROPS", True),
+            load_textures=options.get("LOAD_TEXTURES", True),
         )
         script_path = send_store.path(extension=".lua")
         with open(script_path, "w", encoding="utf-8") as f:
@@ -602,6 +610,121 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         moving = {obj.data: None for obj in cls._as_mesh_objects(objects)}
         moving.update(shell_subset)
         return moving
+
+    # ------------------------------------------------------------------
+    # The panel's surface (tentacle's RizomUV Bridge calls these)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def params_registry(cls):
+        """The parameter registry (``parameters.Parameters``, a
+        ``uitk.bridge.ParamRegistry``): what tentacle's RizomUV Bridge builds its
+        rows from. Imported on use, as the round trip always did: the registry is
+        uitk's."""
+        from blendertk.uv_utils.rizom_bridge import parameters as _params
+
+        return _params.Parameters
+
+    def referenced_keys(self, script_text: str) -> "set[str]":
+        """The parameter keys *script_text* exposes on the installed RizomUV.
+
+        Includes expand first, then what this version cannot run is stripped (the
+        send's own step), then the ``__KEY__`` scan: a token that lives only inside
+        an include (``__PACK_BLOCK__``) is not in the raw preset, so stripping first
+        left it for the scan to re-surface. The rows a preset shows in the panel
+        are these -- never a knob the send would silently drop.
+        """
+        registry = self.params_registry()
+        return registry.referenced_keys(
+            registry.strip_unsupported(
+                registry.expand_includes(script_text), self.rizom_version
+            )
+        )
+
+    def list_template_modes(self) -> "list[tuple[str, str]]":
+        """``[(preset, ""), ...]`` for every bundled preset the installed RizomUV runs.
+
+        Rizom has no per-template mode, so each mode is ``""`` (the panel's combo
+        shows the bare stem). A preset whose ``@min_rizom`` marker is above the
+        installed version is left out: the gate :meth:`process_with_rizomuv`
+        enforces (``unwrap_hybrid`` needs 2022's segmenter pair).
+        """
+        version = self.rizom_version
+        registry = self.params_registry()
+        pairs = []
+        for path in sorted(self.SCRIPT_DIR.glob("*.lua")):
+            required = registry.preset_min_version(path.read_text(encoding="utf-8"))
+            if required and version < required:
+                continue
+            pairs.append((path.stem, ""))
+        return pairs
+
+    def run_preset(self, objects, preset: str, params=None):
+        """Run *preset* on *objects*: what the RizomUV Bridge's Process does.
+
+        ``send`` opens them in RizomUV one way (:meth:`send_to_rizomuv`),
+        ``pack_into_existing`` packs them into their material's layout
+        (:meth:`pack_into_existing`), and any other preset is the headless round
+        trip (:meth:`process_with_rizomuv`).
+
+        Parameters:
+            objects: What to run on, as the panel's Scope resolved it
+                (an Edit Mode face selection names the UV shells to move).
+            preset: A bundled preset's name (a ``scripts/*.lua`` stem).
+            params: Placeholder values (the panel's parameter rows).
+        """
+        count = self._object_count(objects)
+        self.logger.info(f"--- {preset} on {count} object(s) ---")
+        if preset == self.SEND_PRESET:
+            return self.send_to_rizomuv(objects, params=params)
+        if preset == self.PACK_INTO_EXISTING_PRESET:
+            return self.pack_into_existing(objects, params=params)
+        return self.process_with_rizomuv(objects, preset=preset, params=params)
+
+    def pack_into_existing(self, objects, params=None):
+        """Pack *objects* into the empty space of the layout their material(s) define.
+
+        The processed set widens to every mesh sharing those materials
+        (:meth:`expand_by_materials`: the material defines "the map"), and only
+        *objects* move: their islands, or just the shells an Edit Mode face
+        selection touches. The layout's other shells stay where they are
+        and are packed around, at its texel density. Mirror of mayatk's.
+
+        Logs a warning and runs nothing when there is no layout to pack into: no
+        other mesh shares the materials, and no shell selection leaves part of an
+        object behind.
+
+        Parameters:
+            objects: The meshes to pack in
+                (an Edit Mode face selection names the UV shells to move).
+            params: Placeholder values (see :meth:`process_with_rizomuv`).
+        """
+        all_objects, new_objects = self.expand_by_materials(objects)
+        # An Edit Mode face selection leaves its meshes' other shells in the
+        # layout; process_with_rizomuv refuses one that leaves none.
+        partial = bool(self._shell_subset(objects)[0])
+        if len(all_objects) <= len(new_objects) and not partial:
+            self.logger.warning(
+                "No other meshes share the selection's material(s) -- there is no "
+                "existing layout to pack into. Use the 'pack' preset instead."
+            )
+            return None
+        self.logger.info(
+            "Packing the selection into the layout of the "
+            f"{len(all_objects)} mesh(es) sharing its material(s)."
+        )
+        return self.process_with_rizomuv(
+            all_objects,
+            preset=self.PACK_INTO_EXISTING_PRESET,
+            params=params,
+            select_objects=new_objects,
+        )
+
+    @staticmethod
+    def _object_count(objects) -> int:
+        """The objects sent: a face selection rides on its object, so there is
+        no component entry to fold (mirror of mayatk's, which folds them)."""
+        return len(ptk.make_iterable(objects))
 
     @staticmethod
     def expand_by_materials(objects) -> "tuple[list, list]":

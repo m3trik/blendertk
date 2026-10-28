@@ -2,7 +2,7 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (751)
+## Moved out (765)
 
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b000` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
@@ -345,6 +345,12 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `env_utils/hierarchy_sync/tree_utils.py::TreePathMatcher.get_selected_tree_items` → `tentacle.slots.tools._hierarchy_sync.tree_matcher.TreePathMatcher` (from 0.23.0)
 - `env_utils/hierarchy_sync/tree_utils.py::TreePathMatcher.log_matching_debug` → `tentacle.slots.tools._hierarchy_sync.tree_matcher.TreePathMatcher` (from 0.23.0)
 - `env_utils/hierarchy_sync/tree_utils.py::TreePathMatcher.log_tree_index_debug` → `tentacle.slots.tools._hierarchy_sync.tree_matcher.TreePathMatcher` (from 0.23.0)
+- `env_utils/maya_bridge/maya_bridge_slots.py::MayaBridgeSlots` → `tentacle.slots.tools.maya_bridge.MayaBridgeSlots` (from 0.23.0)
+- `env_utils/maya_bridge/maya_bridge_slots.py::MayaBridgeSlots.b000` → `tentacle.slots.tools.maya_bridge.MayaBridgeSlots` (from 0.23.0)
+- `env_utils/maya_bridge/maya_bridge_slots.py::MayaBridgeSlots.list_template_modes` → `tentacle.slots.tools.maya_bridge.MayaBridgeSlots` (from 0.23.0)
+- `env_utils/maya_bridge/maya_bridge_slots.py::MayaBridgeSlots.make_bridge` → `tentacle.slots.tools.maya_bridge.MayaBridgeSlots` (from 0.23.0)
+- `env_utils/maya_bridge/maya_bridge_slots.py::MayaBridgeSlots.params_module` → `tentacle.slots.tools.maya_bridge.MayaBridgeSlots` (from 0.23.0)
+- `env_utils/maya_bridge/maya_bridge_slots.py::MayaBridgeSlots.template_dir` → `tentacle.slots.tools.maya_bridge.MayaBridgeSlots` (from 0.23.0)
 - `env_utils/reference_manager.py::ReferenceManagerSlots` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
 - `env_utils/reference_manager.py::ReferenceManagerSlots.cmb000_init` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
 - `env_utils/reference_manager.py::ReferenceManagerSlots.copy_path_selected` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
@@ -681,6 +687,14 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `ui_utils/calculator.py::CalculatorSlots.on_equal` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
 - `ui_utils/calculator.py::CalculatorSlots.on_input` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
 - `ui_utils/calculator.py::CalculatorSlots.sec_to_frames` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
+- `uv_utils/rizom_bridge/_rizom_bridge.py::RizomUVBridge.send` → `blendertk.RizomUVBridge.send_to_rizomuv` (from 0.23.0)
+- `uv_utils/rizom_bridge/rizom_bridge_slots.py::RizomBridgeSlots` → `tentacle.slots.tools.rizom_bridge.RizomBridgeSlots` (from 0.23.0)
+- `uv_utils/rizom_bridge/rizom_bridge_slots.py::RizomBridgeSlots.b000` → `tentacle.slots.tools.rizom_bridge.RizomBridgeSlots` (from 0.23.0)
+- `uv_utils/rizom_bridge/rizom_bridge_slots.py::RizomBridgeSlots.list_template_modes` → `tentacle.slots.tools.rizom_bridge.RizomBridgeSlots` (from 0.23.0)
+- `uv_utils/rizom_bridge/rizom_bridge_slots.py::RizomBridgeSlots.make_bridge` → `tentacle.slots.tools.rizom_bridge.RizomBridgeSlots` (from 0.23.0)
+- `uv_utils/rizom_bridge/rizom_bridge_slots.py::RizomBridgeSlots.open_uv_editor` → `tentacle.slots.tools.rizom_bridge.RizomBridgeSlots` (from 0.23.0)
+- `uv_utils/rizom_bridge/rizom_bridge_slots.py::RizomBridgeSlots.params_module` → `tentacle.slots.tools.rizom_bridge.RizomBridgeSlots` (from 0.23.0)
+- `uv_utils/rizom_bridge/rizom_bridge_slots.py::RizomBridgeSlots.template_dir` → `tentacle.slots.tools.rizom_bridge.RizomBridgeSlots` (from 0.23.0)
 - `uv_utils/shell_xform.py::ShellXformSlots` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
 - `uv_utils/shell_xform.py::ShellXformSlots.align_u_avg` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
 - `uv_utils/shell_xform.py::ShellXformSlots.align_u_max` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
@@ -756,7 +770,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (310)
+## Added (317)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -862,6 +876,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `env_utils/hierarchy_sync/hierarchy_sync_session.py::HierarchySyncSession.scene_path() -> str`
 - `env_utils/hierarchy_sync/hierarchy_sync_session.py::HierarchySyncSession.select_nodes(nodes: Sequence[Any]) -> int`
 - `env_utils/hierarchy_sync/hierarchy_sync_session.py::HierarchySyncSession.workspace() -> str`
+- `env_utils/maya_bridge/_maya_bridge.py::MayaBridge.params_registry(cls)`
 - `env_utils/reference_manager.py::ReferenceManager(class)`
 - `env_utils/reference_manager.py::ReferenceManager.add_reference(self, namespace: str, file_path: str) -> bool`
 - `env_utils/reference_manager.py::ReferenceManager.bake_project_root(self) -> Optional[str]`
@@ -1058,6 +1073,12 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/_uv_utils.py::UvUtils.move_to_uv_space(objects, u, v, relative=True)`
 - `uv_utils/_uv_utils.py::UvUtils.orient_shells(objects, to_edge=False)`
 - `uv_utils/_uv_utils.py::UvUtils.rotate_uvs(objects, angle)`
+- `uv_utils/rizom_bridge/_rizom_bridge.py::RizomUVBridge.list_template_modes(self) -> 'list[tuple[str, str]]'`
+- `uv_utils/rizom_bridge/_rizom_bridge.py::RizomUVBridge.pack_into_existing(self, objects, params=None)`
+- `uv_utils/rizom_bridge/_rizom_bridge.py::RizomUVBridge.params_registry(cls)`
+- `uv_utils/rizom_bridge/_rizom_bridge.py::RizomUVBridge.referenced_keys(self, script_text: str) -> 'set[str]'`
+- `uv_utils/rizom_bridge/_rizom_bridge.py::RizomUVBridge.run_preset(self, objects, preset: str, params=None)`
+- `uv_utils/rizom_bridge/_rizom_bridge.py::RizomUVBridge.send_to_rizomuv(self, objects, params=None)`
 - `uv_utils/texture_combine/texture_combine.py::TextureCombine.leaf_name(cls, node) -> str`
 - `uv_utils/texture_combine/texture_combine.py::TextureCombine.material_faces(cls, inputs: CombineInputs, material) -> List[str]`
 - `uv_utils/texture_combine/texture_combine.py::TextureCombine.select(cls, nodes) -> int`

@@ -90,7 +90,6 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`env_utils/material_records.py`](#env_utils--material_records) — The ``materials`` record's Blender producer -- mirror of mayatk's
 - [`env_utils/maya_bridge/_maya_bridge.py`](#env_utils--maya_bridge--_maya_bridge) — Maya bridge engine -- export the Blender selection and run a chosen import template in Maya.
 - [`env_utils/maya_bridge/_scene_import.py`](#env_utils--maya_bridge--_scene_import) — Import a Maya scene (.ma/.mb) into Blender via a headless-Maya round-trip
-- [`env_utils/maya_bridge/maya_bridge_slots.py`](#env_utils--maya_bridge--maya_bridge_slots) — Slots for the Maya bridge panel.
 - [`env_utils/maya_bridge/parameters.py`](#env_utils--maya_bridge--parameters) — Registry of user-tunable Maya-bridge parameters exposed to the panel.
 - [`env_utils/maya_bridge/templates/_bake_scene.py`](#env_utils--maya_bridge--templates--_bake_scene) — Import a converted intermediate (USD or FBX) headlessly and save it as a ``.blend`` so a
 - [`env_utils/maya_bridge/templates/_import_scene.py`](#env_utils--maya_bridge--templates--_import_scene) — Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
@@ -192,7 +191,6 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`uv_utils/_uv_utils.py`](#uv_utils--_uv_utils) — UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
 - [`uv_utils/rizom_bridge/_rizom_bridge.py`](#uv_utils--rizom_bridge--_rizom_bridge) — RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 - [`uv_utils/rizom_bridge/parameters.py`](#uv_utils--rizom_bridge--parameters) — Registry of user-tunable RizomUV parameters exposed to the bridge UI.
-- [`uv_utils/rizom_bridge/rizom_bridge_slots.py`](#uv_utils--rizom_bridge--rizom_bridge_slots) — Slots for the RizomUV bridge panel.
 - [`uv_utils/texture_combine/texture_combine.py`](#uv_utils--texture_combine--texture_combine) — Several materials into ONE: one atlas, one material, in place -- no duplicated meshes.
 - [`uv_utils/texture_transfer.py`](#uv_utils--texture_transfer) — Transfer a mesh's textures from one UV layout to another -- no rays, no bake.
 - [`xform_utils/_xform_utils.py`](#xform_utils--_xform_utils) — Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,
@@ -1608,11 +1606,12 @@ The ``materials`` record's Blender producer -- mirror of mayatk's
 
 Maya bridge engine -- export the Blender selection and run a chosen import template in Maya.
 
-- [`DEFAULTS`](blendertk/blendertk/env_utils/maya_bridge/_maya_bridge.py#L48) — constant
-- **[`class MayaBridge(BlenderExportMixin, pythontk.ScriptLaunchBridge)`](blendertk/blendertk/env_utils/maya_bridge/_maya_bridge.py#L151)** — Export the Blender selection and run a chosen Maya import template.
+- [`DEFAULTS`](blendertk/blendertk/env_utils/maya_bridge/_maya_bridge.py#L49) — constant
+- **[`class MayaBridge(BlenderExportMixin, pythontk.ScriptLaunchBridge)`](blendertk/blendertk/env_utils/maya_bridge/_maya_bridge.py#L152)** — Export the Blender selection and run a chosen Maya import template.
   - `MayaBridge.maya_path(self) -> Optional[str]` *(property)*
   - `MayaBridge.headless_app_path(self) -> Optional[str]` *(property)* — The ``mayapy`` interpreter for the blocking ``save_as`` run.
   - `MayaBridge.mayapy_from_maya_exe(maya_exe: str) -> Optional[str]` *(static)* — Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.
+  - `MayaBridge.params_registry(cls)` *(class)* — The parameter registry (``parameters.Parameters``, a
   - `MayaBridge.params_defaults(self) -> Dict[str, Any]`
   - `MayaBridge.render_context(self, params: Dict[str, Any]) -> Dict[str, str]`
   - `MayaBridge.list_templates() -> List[Path]` *(static)* — User-visible templates in ``templates/`` (skips underscore-prefixed).
@@ -1660,18 +1659,6 @@ Import a Maya scene (.ma/.mb) into Blender via a headless-Maya round-trip
   - `MayaSceneImport.mayapy_from_maya_exe(maya_exe: str) -> Optional[str]` *(static)* — Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.
   - `MayaSceneImport.scene_has_complex_animation(src_path: str) -> bool` *(static)* — Cheap pre-conversion probe: does the scene declare *driven* animation the
   - `MayaSceneImport.find_scenes(root_dir: str, recursive: bool = False, extensions: Optional[Sequence[str]] = None) -> List[str]` *(static)* — Every importable Maya scene (``.ma`` / ``.mb``) under *root_dir* — sorted abs paths.
-
-<a id="env_utils--maya_bridge--maya_bridge_slots"></a>
-### `env_utils/maya_bridge/maya_bridge_slots.py`
-
-Slots for the Maya bridge panel.
-
-- **[`class MayaBridgeSlots(BlenderBridgeSlotsBase)`](blendertk/blendertk/env_utils/maya_bridge/maya_bridge_slots.py#L34)** — Slots wired to ``maya_bridge.ui`` via :class:`BridgeSlotsBase`.
-  - `MayaBridgeSlots.params_module(self)` *(property)*
-  - `MayaBridgeSlots.template_dir(self) -> Path` *(property)*
-  - `MayaBridgeSlots.make_bridge(self) -> MayaBridge`
-  - `MayaBridgeSlots.list_template_modes(self)`
-  - `MayaBridgeSlots.b000(self)` — Send the selected objects to Maya with the chosen template.
 
 <a id="env_utils--maya_bridge--parameters"></a>
 ### `env_utils/maya_bridge/parameters.py`
@@ -3589,8 +3576,13 @@ RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
   - `RizomUVBridge.export_path(self)` *(property)* — Lazy temp FBX path for the round-trip (POSIX string).
   - `RizomUVBridge.script_path(self)` *(property)* — The prepared Lua script file path as a POSIX string.
   - `RizomUVBridge.build_send_script(self, fbx_path, objects=None, load_uvs=True, import_groups=True, load_uvw_props=True, load_textures=True)` — Render the RizomUV Lua load-script (``ZomLoad`` + optional ``ZomLoadTexture`` block).
-  - `RizomUVBridge.send(self, objects, load_uvs=True, import_groups=True, load_uvw_props=True, load_textures=True, params=None)` — Export ``objects`` to FBX and open them in a fresh RizomUV session (one-way).
+  - `RizomUVBridge.send_to_rizomuv(self, objects, params=None)` — Export ``objects`` to FBX and open them in a fresh RizomUV session (one-way).
   - `RizomUVBridge.process_with_rizomuv(self, objects, uv_script=None, preset=None, params=None, select_objects=None, skip_instances=True)` — Run the full export -> RizomUV -> re-import -> transfer-UVs-back workflow.
+  - `RizomUVBridge.params_registry(cls)` *(class)* — The parameter registry (``parameters.Parameters``, a
+  - `RizomUVBridge.referenced_keys(self, script_text: str) -> 'set[str]'` — The parameter keys *script_text* exposes on the installed RizomUV.
+  - `RizomUVBridge.list_template_modes(self) -> 'list[tuple[str, str]]'` — ``[(preset, ""), ...]`` for every bundled preset the installed RizomUV runs.
+  - `RizomUVBridge.run_preset(self, objects, preset: str, params=None)` — Run *preset* on *objects*: what the RizomUV Bridge's Process does.
+  - `RizomUVBridge.pack_into_existing(self, objects, params=None)` — Pack *objects* into the empty space of the layout their material(s) define.
   - `RizomUVBridge.expand_by_materials(objects) -> 'tuple[list, list]'` *(static)* — Expand *objects* to every mesh object sharing their assigned materials.
 
 <a id="uv_utils--rizom_bridge--parameters"></a>
@@ -3610,19 +3602,6 @@ Registry of user-tunable RizomUV parameters exposed to the bridge UI.
   - `Parameters.derived_values(values: 'dict[str, Any]') -> 'dict[str, float]'` *(static)* — Return the computed pack-gutter tokens (see :data:`DERIVED_KEYS`).
   - `Parameters.render_context(cls, values: 'dict[str, Any]') -> 'dict[str, str]'` *(class)* — Format *values* for placeholder substitution using Lua literals.
   - `Parameters.strip_unsupported(script_text: str, version: 'tuple[int, ...]') -> str` *(static)* — Drop every line that references a placeholder requiring a newer Rizom.
-
-<a id="uv_utils--rizom_bridge--rizom_bridge_slots"></a>
-### `uv_utils/rizom_bridge/rizom_bridge_slots.py`
-
-Slots for the RizomUV bridge panel.
-
-- **[`class RizomBridgeSlots(BlenderBridgeSlotsBase)`](blendertk/blendertk/uv_utils/rizom_bridge/rizom_bridge_slots.py#L76)** — Slots wired to ``rizom_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
-  - `RizomBridgeSlots.params_module(self)` *(property)*
-  - `RizomBridgeSlots.template_dir(self) -> Path` *(property)*
-  - `RizomBridgeSlots.make_bridge(self) -> RizomUVBridge`
-  - `RizomBridgeSlots.list_template_modes(self)` — Return ``[(stem, ""), ...]`` for every bundled ``.lua`` script.
-  - `RizomBridgeSlots.b000(self)` — Run the chosen preset: round-trip, or one-way send when ``send`` is picked.
-  - `RizomBridgeSlots.open_uv_editor(self)` — Open Blender's UV Editor in a new window.
 
 <a id="uv_utils--texture_combine--texture_combine"></a>
 ### `uv_utils/texture_combine/texture_combine.py`

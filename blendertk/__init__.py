@@ -79,7 +79,7 @@ DEFAULT_INCLUDE = {
     # Texture Combine engine -- mirror of mayatk's (its panel is tentacle's shared tool).
     "uv_utils.texture_combine.texture_combine": ["TextureCombine", "CombineInputs"],
     # RizomUV bridge engine — mirror of mayatk's ``uv_utils.rizom_bridge._rizom_bridge.RizomUVBridge``
-    # (the ``RizomBridgeSlots`` panel class is discovered by the handler, not registered).
+    # (its panel is tentacle's shared RizomUV Bridge tool).
     "uv_utils.rizom_bridge._rizom_bridge": [
         "RizomUVBridge",
     ],
@@ -118,8 +118,8 @@ DEFAULT_INCLUDE = {
     "env_utils.script_output": [
         "ScriptConsole",
     ],
-    # Maya bridge engine — one-way send of the selection to a fresh Maya (the ``MayaBridgeSlots``
-    # panel class is discovered by BlenderUiHandler, not registered). Counterpart of mayatk's
+    # Maya bridge engine — one-way send of the selection to a fresh Maya (its panel is
+    # tentacle's Blender-only Maya Bridge tool). Counterpart of mayatk's
     # ``BlenderBridge``.
     "env_utils.maya_bridge._maya_bridge": [
         "MayaBridge",
@@ -789,6 +789,16 @@ MOVED_NAMES = {
         "tentacle.slots.tools._app_bridge.host_bridge.HostBridge.clear_bake_source",
         "0.23.0",
     ),
+    "RizomBridgeSlots": (
+        "tentacle.slots.tools.rizom_bridge.RizomBridgeSlots",
+        "0.23.0",
+    ),
+    "MayaBridgeSlots": (
+        "tentacle.slots.tools.maya_bridge.MayaBridgeSlots",
+        "0.23.0",
+    ),
+    # RizomUVBridge.send took mayatk's name (no alias: the panel was its one caller).
+    "send": ("blendertk.RizomUVBridge.send_to_rizomuv", "0.23.0"),
 }
 
 bootstrap_package(

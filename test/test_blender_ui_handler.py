@@ -48,8 +48,6 @@ def _sandbox_qsettings():
 
 # Co-located tool panels that BlenderUiHandler must discover from the blendertk package.
 PANELS = [
-    "rizom_bridge",
-    "maya_bridge",
     "shot_sequencer",
 ]
 
@@ -243,8 +241,6 @@ try:
     # 2. Loading a panel whose Slots.__init__ is bpy-free wires the co-located <Tool>Slots
     #    FROM blendertk (not tentacle) and stamps the blendertk source tag (hide-button style).
     for panel, slot_cls in (
-        ("rizom_bridge", "RizomBridgeSlots"),  # engine/slots init is bpy-free
-        ("maya_bridge", "MayaBridgeSlots"),  # engine/slots init is bpy-free
     ):
         ui = sb.get_ui(panel)
         check(f"{panel} ui loads", ui is not None)
@@ -270,7 +266,7 @@ try:
 
     check(
         "blendertk-tagged panels default to sticky (hide button)",
-        handler.default_persistence(sb.get_ui("rizom_bridge"))
+        handler.default_persistence(sb.get_ui("shot_sequencer"))
         == _UiHandler.PERSISTENCE_STICKY,
     )
     check(
@@ -280,15 +276,15 @@ try:
     )
     check(
         "a UI Browser override outranks the blendertk default",
-        handler.resolve_persistence(sb.get_ui("rizom_bridge"), context_default=None)
+        handler.resolve_persistence(sb.get_ui("shot_sequencer"), context_default=None)
         == _UiHandler.PERSISTENCE_STICKY
         and (
-            handler.set_persistence_override("rizom_bridge", _UiHandler.PERSISTENCE_TRANSIENT)
-            or handler.resolve_persistence(sb.get_ui("rizom_bridge"))
+            handler.set_persistence_override("shot_sequencer", _UiHandler.PERSISTENCE_TRANSIENT)
+            or handler.resolve_persistence(sb.get_ui("shot_sequencer"))
         )
         == _UiHandler.PERSISTENCE_TRANSIENT,
     )
-    handler.set_persistence_override("rizom_bridge", None)  # leave the store clean
+    handler.set_persistence_override("shot_sequencer", None)  # leave the store clean
 
     # maya_bridge: render_template substitutes the FBX path + params (Qt path; needs no bpy, so it
     # belongs here rather than in the headless test_maya_bridge harness which lacks Qt).
@@ -378,23 +374,6 @@ except Exception as e:
 # uitk.bridge, so this cannot live in the headless-Blender bridge suite).
 # ---------------------------------------------------------------------------
 try:
-    from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
-    from blendertk.env_utils.maya_bridge.maya_bridge_slots import MayaBridgeSlots
-    from blendertk.uv_utils.rizom_bridge.rizom_bridge_slots import RizomBridgeSlots
-
-    # Every bridge slot must inherit the ONE resolver. MayaBridgeSlots and
-    # RizomBridgeSlots subclassed uitk's BridgeSlotsBase directly, which resolves
-    # every scope to an EMPTY set -- the send then reports "nothing selected"
-    # forever. Pin the inheritance, not merely the presence of the parameter.
-    for _cls in (
-        MayaBridgeSlots,
-        RizomBridgeSlots,
-    ):
-        check(
-            f"{_cls.__name__} inherits the shared scope resolver",
-            _cls.resolve_scope_objects is BlenderBridgeSlotsBase.resolve_scope_objects,
-        )
-
     import importlib as _il
 
     _scope_specs = []
@@ -476,63 +455,6 @@ try:
 except Exception as e:
     traceback.print_exc()
     check("scope precedence raised", False, repr(e))
-
-# ---------------------------------------------------------------------------
-# A panel's scope ships the subtree it names. Every Blender bridge panel
-# resolves its Scope through BlenderBridgeSlotsBase.scoped_objects, so a group
-# selected there reached the RizomUV send (whose engine does not close the
-# scope itself) as the Empty alone. Against a stand-in bpy: the closure reads
-# only parent / children_recursive. Added: 2026-09-27
-# ---------------------------------------------------------------------------
-try:
-    import types as _types
-    from unittest import mock as _mock
-
-    from blendertk.uv_utils.rizom_bridge.rizom_bridge_slots import RizomBridgeSlots
-
-    class _Node:
-        def __init__(self, name, parent=None):
-            self.name, self.parent, self._kids = name, parent, []
-            if parent is not None:
-                parent._kids.append(self)
-
-        @property
-        def children_recursive(self):
-            out = []
-            for kid in self._kids:
-                out += [kid] + kid.children_recursive
-            return out
-
-    _g = _Node("g")
-    _s = _Node("s", _g)
-    _Node("a", _g)
-    _Node("b", _s)
-    _scoped = object.__new__(RizomBridgeSlots)
-    _scoped._bridge = _types.SimpleNamespace(
-        logger=_types.SimpleNamespace(warning=lambda *_a, **_k: None)
-    )
-    # Selected answers the group; Visible Only answers the objects on screen.
-    _scoped.resolve_scope_objects = lambda scope: (
-        [_g] if scope == "selected" else [_g, _s]
-    )
-    _stand_in = _types.SimpleNamespace(data=_types.SimpleNamespace(objects={}))
-    with _mock.patch.dict(sys.modules, {"bpy": _stand_in}):
-        _sel = {o.name for o in _scoped.scoped_objects({"SCOPE": "selected"})}
-        _vis = {o.name for o in _scoped.scoped_objects({"SCOPE": "visible"})}
-    check(
-        "a panel's Selected scope ships the group's whole subtree",
-        _sel == {"g", "s", "a", "b"},
-        str(sorted(_sel)),
-    )
-    check(
-        "...while Visible Only re-adds no child it left out",
-        _vis == {"g", "s"},
-        str(sorted(_vis)),
-    )
-except Exception as e:
-    traceback.print_exc()
-    check("scope closure raised", False, repr(e))
-
 
 passed = sum(1 for line in lines if line.startswith("OK"))
 for line in lines:

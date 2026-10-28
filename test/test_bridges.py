@@ -429,7 +429,6 @@ try:
 
     # (The Marmoset Send is tentacle's shared panel now; its test pins it.)
     for _subpath, _module, _slots_cls in (
-        (("uv_utils", "rizom_bridge"), "rizom_bridge_slots.py", "RizomBridgeSlots"),
     ):
         check(
             f"{_slots_cls}.b000 runs in the dispatcher's CancelScope (@Cancelable)",
