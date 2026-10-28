@@ -19,8 +19,8 @@ Maya→Blender orchestration mappings:
   (``obj.copy()`` shares data), placed via the member's transform, member
   subtree deleted, root renamed to the member's name.
 - locked/referenced      → library-linked / library-override objects.
-- undo chunk             → none here; the calling slot wraps the run in
-  ``@btk.undoable`` (blendertk convention: undo at the slot boundary).
+- undo chunk             → ``run_once`` is one undo step
+  (``CoreUtils.undoable``); a direct ``run`` takes its caller's.
 """
 
 from __future__ import annotations
@@ -159,8 +159,8 @@ class AutoInstancer(ptk.LoggingMixin, _AutoInstancerInternal):
 
     Destructive operations (deleting originals) only happen after the
     replacement has been fully assembled; a failure on one member leaves
-    that member untouched and continues with the rest. Wrap the run in
-    ``btk.undoable`` at the calling layer for a single undo step.
+    that member untouched and continues with the rest. :meth:`run_once` is
+    one undo step; wrap a direct :meth:`run` in ``CoreUtils.undoable``.
     """
 
     def __init__(
@@ -1085,11 +1085,13 @@ class AutoInstancer(ptk.LoggingMixin, _AutoInstancerInternal):
             )
 
     @classmethod
+    @CoreUtils.undoable
     def run_once(
         cls,
         objects: Optional[Sequence[object]] = None,
         *,
         return_summary: bool = False,
+        select: bool = False,
         **config,
     ) -> Union[List[object], Tuple[List[object], Dict[str, object]]]:
         """One-shot: build an ``AutoInstancer`` from ``config`` and run it.
@@ -1100,9 +1102,24 @@ class AutoInstancer(ptk.LoggingMixin, _AutoInstancerInternal):
         and ``return_summary`` are the :meth:`run` arguments — ``objects`` falls back to
         the selection then the whole scene. With ``return_summary=True`` returns
         ``(created, summary)`` (the run's :attr:`last_run_summary`), else just ``created``.
+
+        With ``select``, what the run made that still exists -- a later pass
+        (combining what was not instanced) can remove an instance it made --
+        is selected and is all that is returned. One undo step (twin of
+        mayatk's ``AutoInstancer.run_once``).
         """
         instancer = cls(**config)
         created = instancer.run(objects)
+        if select:
+            import bpy
+
+            def alive(o):
+                try:  # a removed object's wrapper raises ReferenceError
+                    return o is not None and o.name in bpy.data.objects
+                except ReferenceError:
+                    return False
+
+            created = CoreUtils.select([o for o in created if alive(o)])
         if return_summary:
             return created, instancer.last_run_summary
         return created

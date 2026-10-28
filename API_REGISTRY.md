@@ -806,7 +806,7 @@ Scene auto-instancer: convert geometrically identical meshes to instances.
   - `AutoInstancer.verbose(self)` *(property)*
   - `AutoInstancer.run(self, objects: Optional[Sequence[object]] = None) -> List[object]` — Discover and instance matching meshes.
   - `AutoInstancer.find_instance_groups(self, objects: Optional[Sequence[object]] = None, check_hierarchy: Optional[bool] = None) -> List[InstanceGroup]` — Find groups of identical objects.
-  - `AutoInstancer.run_once(cls, objects: Optional[Sequence[object]] = None, *, return_summary: bool = False, **config) -> Union[List[object], Tuple[List[object], Dict[str, object]]]` *(class)* — One-shot: build an ``AutoInstancer`` from ``config`` and run it.
+  - `AutoInstancer.run_once(cls, objects: Optional[Sequence[object]] = None, *, return_summary: bool = False, select: bool = False, **config) -> Union[List[object], Tuple[List[object], Dict[str, object]]]` *(class)* — One-shot: build an ``AutoInstancer`` from ``config`` and run it.
 
 <a id="core_utils--auto_instancer--assembly_reconstructor"></a>
 ### `core_utils/auto_instancer/assembly_reconstructor.py`
@@ -933,13 +933,29 @@ Blender's lengths and angles, converted by the kind of value that holds them.
 
 Display utilities — the exploded-view toggle (mirror of mayatk's
 
-- **[`class DisplayUtils(_DisplayUtilsInternal)`](blendertk/blendertk/display_utils/_display_utils.py#L35)** — Namespace mirror of mayatk's ``DisplayUtils`` (helpers also exposed module-level).
+- **[`class DisplayUtils(_DisplayUtilsInternal)`](blendertk/blendertk/display_utils/_display_utils.py#L90)** — Namespace mirror of mayatk's ``DisplayUtils`` (helpers also exposed module-level).
   - `DisplayUtils.is_exploded(objects)` *(static)* — True when any of the given objects carries an exploded-view origin stamp.
   - `DisplayUtils.explode_view(objects, step=1.2, margin=0.05, max_iterations=50)` *(static)* — Push the given objects apart for inspection — each moves away from the group's bbox
   - `DisplayUtils.unexplode_view(objects)` *(static)* — Restore the exact pre-explode locations stamped by :func:`explode_view`.
   - `DisplayUtils.unexplode_all()` *(static)* — Restore every exploded object in the scene, regardless of selection (mirror of mayatk's
   - `DisplayUtils.get_visible_geometry(objects=None)` *(static)* — Mesh objects visible in the current view layer — mirror of mayatk's
   - `DisplayUtils.set_viewport_overlay(**flags)` *(static)* — Set ``View3DOverlay`` properties on every 3D viewport of the file -- each
+  - `DisplayUtils.set_visibility(elements, visibility=True, include_ancestors=True, affect_layers=True)` *(static)* — Show or hide *elements* in the window's view layer (the eye,
+  - `DisplayUtils.hide_objects(objects=None)` *(static)* — Hide *objects* in the window's view layer (the eye, Blender's H).
+  - `DisplayUtils.show_objects(objects=None)` *(static)* — Show hidden *objects* in the window's view layer.
+  - `DisplayUtils.toggle_xray(objects=None)` *(static)* — Uniform x-ray (``show_in_front``) toggle: any off turns them all on;
+  - `DisplayUtils.clear_xray()` *(static)* — Turn x-ray off on every object in the scene ("Un-Xray All").
+  - `DisplayUtils.toggle_xray_others(objects=None)` *(static)* — Uniform x-ray toggle over every mesh in the scene EXCEPT *objects*
+  - `DisplayUtils.cycle_component_ids()` *(static)* — Toggle the 3D viewports' index overlay (``show_extra_indices``: the
+  - `DisplayUtils.cycle_normals_display()` *(static)* — Step the 3D viewports' normals overlay: face, vertex, off (shown in
+  - `DisplayUtils.toggle_soft_edge_display()` *(static)* — Toggle the 3D viewports' sharp-edge overlay (``show_edge_sharp``).
+  - `DisplayUtils.toggle_material_override()` *(static)* — Toggle the 3D viewports' solid colour between Material and a flat
+  - `DisplayUtils.set_wireframe(objects=None, state=True)` *(static)* — Draw *objects* as wireframe, or textured again (*state* False:
+  - `DisplayUtils.toggle_wireframe(objects=None)` *(static)* — Toggle *objects* between wireframe and textured, together: the active
+  - `DisplayUtils.toggle_wireframe_inactive()` *(static)* — Draw every unselected mesh in the scene as wireframe, or textured
+  - `DisplayUtils.toggle_template(objects=None)` *(static)* — Template *objects*: wireframe, not rendered, not selectable -- Maya's
+  - `DisplayUtils.toggle_uv_checker()` *(static)* — Toggle a checker in the UV editors: a generated ``UV_GRID`` image
+  - `DisplayUtils.toggle_uv_distortion()` *(static)* — Step the UV editors' stretch overlay: angle, area, off.
 
 <a id="display_utils--color_id"></a>
 ### `display_utils/color_id.py`
@@ -1348,6 +1364,7 @@ blendertk environment / scene-library utilities — the engine behind the Refere
   - `EnvUtils.new_scene()` *(static)* — Discard the current file and start an empty, unsaved scene (Maya's ``file -new``).
   - `EnvUtils.scene_has_content()` *(static)* — True if the open file holds authored data — anything beyond Blender's *default
   - `EnvUtils.scene_has_unsaved_changes()` *(static)* — True if replacing the open file (open / close / new) would lose work.
+  - `EnvUtils.scene_status(scene=None)` *(static)* — The scene's modelling and session state as plain values: what a
   - `EnvUtils.scene_settings(scene=None)` *(static)* — The live scene's time setup as the bridges' ``scene`` record (see
   - `EnvUtils.apply_scene_settings(settings, scene=None)` *(static)* — Apply a ``scene`` record (any subset of :attr:`SCENE_SETTINGS_KEYS`) to the live
   - `EnvUtils.format_scene_name(name, case=None, suffix='')` *(static)* — Apply a naming convention to a base scene name — ``case`` via :meth:`pythontk.StrUtils.set_case`
@@ -1903,7 +1920,7 @@ Push the Blender selection to a live browser / WebXR preview.
 
 Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 
-- **[`class LightUtils(_LightUtilsInternal)`](blendertk/blendertk/light_utils/_light_utils.py#L122)** — Namespace mirror of mayatk's ``light_utils`` (helpers also exposed module-level).
+- **[`class LightUtils(_LightUtilsInternal)`](blendertk/blendertk/light_utils/_light_utils.py#L145)** — Namespace mirror of mayatk's ``light_utils`` (helpers also exposed module-level).
   - `LightUtils.set_world_hdri(filepath=None, strength=None, rotation=0.0, visible=True, intensity=None, exposure=None)` *(static)* — Set (or update) the world environment from an HDR image.
   - `LightUtils.get_world_hdri()` *(static)* — The current world-HDRI state as a dict (``filepath``/``strength``/``intensity``/
   - `LightUtils.set_world_ray_visibility(diffuse=None, glossy=None)` *(static)* — Toggle whether the world environment contributes to **diffuse** / **glossy** lighting — the
@@ -1912,7 +1929,7 @@ Light utilities — the world-environment (HDRI) helpers behind the HDR Manager 
   - `LightUtils.get_world_importance_resolution()` *(static)* — The world's importance-sampling map resolution when in **manual** mode, else ``None``
   - `LightUtils.clear_world_hdri()` *(static)* — Remove the btk-managed HDRI environment (env / mapping / coord nodes) from the world.
   - `LightUtils.world_emits(world=_SCENE_WORLD) -> bool` *(static)* — True when *world* can light a render/bake (a non-black background).
-  - `LightUtils.lights_from_geometry(objects, power=100.0, color=(1.0, 1.0, 1.0), direction='auto', offset=0.01, spread=None, prefix=_FIXTURE_LIGHT_PREFIX, diffuse_only=False, *, kelvin=None, toward=None)` *(static)* — Create a real area light matched to each light-fixture *mesh*.
+  - `LightUtils.lights_from_geometry(objects=None, power=100.0, color=(1.0, 1.0, 1.0), direction='auto', offset=0.01, spread=None, prefix=_FIXTURE_LIGHT_PREFIX, diffuse_only=True, *, kelvin=None, toward=None, intensity=None, cluster='object')` *(static)* — Create a real area light matched to each light-fixture *mesh*.
   - `LightUtils.remove_lights(prefix=_FIXTURE_LIGHT_PREFIX)` *(static)* — Delete the light objects :meth:`lights_from_geometry` created;
   - `LightUtils.set_world_environment(cls, hdri=None, strength=1.0, color=None, rotation=0.0) -> str` *(class)* — Light the world with an equirect HDRI, or a flat ambient colour.
   - `LightUtils.lights_from_records(records)` *(static)* — Turn plain light records into real lights, reusing each one's placed Empty.
@@ -2767,15 +2784,17 @@ Texture Path Editor engine (Blender): the file's texture paths and the commands
 
 Node / datablock utilities — instancing via shared object data.
 
-- **[`class NodeUtils(_NodeUtilsInternal)`](blendertk/blendertk/node_utils/_node_utils.py#L123)** — Namespace mirror of mayatk's ``NodeUtils`` (instance helpers also exposed module-level).
+- **[`class NodeUtils(_NodeUtilsInternal)`](blendertk/blendertk/node_utils/_node_utils.py#L125)** — Namespace mirror of mayatk's ``NodeUtils`` (instance helpers also exposed module-level).
   - `NodeUtils.get_maya_node_type(obj) -> Optional[str]` *(static)* — The Maya node *obj* stands for: ``"locator"``, ``"group"`` or ``None``.
   - `NodeUtils.set_maya_node_type(objects, node_type: str, look: bool = True) -> List[Any]` *(static)* — Stamp Empties as the Maya node *node_type* they stand for.
   - `NodeUtils.is_locator(objects, filter: bool = False)` *(static)* — Whether each of *objects* (refs or names) is a locator.
   - `NodeUtils.expand_sets(objects) -> List[Any]` *(static)* — *objects* with every collection replaced by the objects in it.
   - `NodeUtils.is_group(objects, filter: bool = False)` *(static)* — Whether each of *objects* (refs or names) is a group.
+  - `NodeUtils.selection_summary(limit=10)` *(static)* — What is selected, as plain values: what a status readout (tentacle's
   - `NodeUtils.get_instances(objects=None)` *(static)* — Return objects that share their data with another object (Maya-style instances).
-  - `NodeUtils.replace_with_instances(objects, freeze_transforms=False, center_pivot=False, delete_history=False, retain_bbox_scale=False, retain_bbox_per_axis=False)` *(static)* — Make ``objects[1:]`` instances of ``objects[0]`` by sharing its data — Blender's linked
-  - `NodeUtils.uninstance(objects, freeze=False)` *(static)* — Break the instance link — make each object's data single-user (mirror of ``mtk.uninstance``).
+  - `NodeUtils.select_instances(objects=None, whole_scene=False)` *(static)* — Select *objects* together with every object sharing their data, or
+  - `NodeUtils.replace_with_instances(objects=None, freeze_transforms=False, center_pivot=False, delete_history=False, retain_bbox_scale=False, retain_bbox_per_axis=False)` *(static)* — Make ``objects[1:]`` instances of ``objects[0]`` by sharing its data — Blender's linked
+  - `NodeUtils.uninstance(objects=None, freeze=False)` *(static)* — Break the instance link — make each object's data single-user (mirror of ``mtk.uninstance``).
   - `NodeUtils.get_parent(obj, all=False)` *(static)* — The object's parent — mirror of ``mtk.get_parent``.
   - `NodeUtils.get_children(obj, recursive=False)` *(static)* — The object's children — mirror of ``mtk.get_children``.
   - `NodeUtils.get_shape(obj)` *(static)* — The object's data datablock (mesh/curve/…) — the Blender analogue of Maya's shape node

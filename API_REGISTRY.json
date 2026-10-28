@@ -4221,9 +4221,9 @@
               "name": "run_once",
               "qualname": "AutoInstancer.run_once",
               "kind": "classmethod",
-              "signature": "(cls, objects: Optional[Sequence[object]] = None, *, return_summary: bool = False, **config) -> Union[List[object], Tuple[List[object], Dict[str, object]]]",
+              "signature": "(cls, objects: Optional[Sequence[object]] = None, *, return_summary: bool = False, select: bool = False, **config) -> Union[List[object], Tuple[List[object], Dict[str, object]]]",
               "summary": "One-shot: build an ``AutoInstancer`` from ``config`` and run it.",
-              "line": 1088,
+              "line": 1089,
               "deprecated": false
             }
           ]
@@ -4862,7 +4862,7 @@
         {
           "name": "DisplayUtils",
           "summary": "Namespace mirror of mayatk's ``DisplayUtils`` (helpers also exposed module-level).",
-          "line": 35,
+          "line": 90,
           "bases": [
             "_DisplayUtilsInternal"
           ],
@@ -4873,7 +4873,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "True when any of the given objects carries an exploded-view origin stamp.",
-              "line": 39,
+              "line": 94,
               "deprecated": false
             },
             {
@@ -4882,7 +4882,7 @@
               "kind": "staticmethod",
               "signature": "(objects, step=1.2, margin=0.05, max_iterations=50)",
               "summary": "Push the given objects apart for inspection — each moves away from the group's bbox",
-              "line": 44,
+              "line": 99,
               "deprecated": false
             },
             {
@@ -4891,7 +4891,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Restore the exact pre-explode locations stamped by :func:`explode_view`.",
-              "line": 101,
+              "line": 156,
               "deprecated": false
             },
             {
@@ -4900,7 +4900,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Restore every exploded object in the scene, regardless of selection (mirror of mayatk's",
-              "line": 118,
+              "line": 173,
               "deprecated": false
             },
             {
@@ -4909,7 +4909,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Mesh objects visible in the current view layer — mirror of mayatk's",
-              "line": 126,
+              "line": 181,
               "deprecated": false
             },
             {
@@ -4918,7 +4918,151 @@
               "kind": "staticmethod",
               "signature": "(**flags)",
               "summary": "Set ``View3DOverlay`` properties on every 3D viewport of the file -- each",
-              "line": 141,
+              "line": 196,
+              "deprecated": false
+            },
+            {
+              "name": "set_visibility",
+              "qualname": "DisplayUtils.set_visibility",
+              "kind": "staticmethod",
+              "signature": "(elements, visibility=True, include_ancestors=True, affect_layers=True)",
+              "summary": "Show or hide *elements* in the window's view layer (the eye,",
+              "line": 246,
+              "deprecated": false
+            },
+            {
+              "name": "hide_objects",
+              "qualname": "DisplayUtils.hide_objects",
+              "kind": "staticmethod",
+              "signature": "(objects=None)",
+              "summary": "Hide *objects* in the window's view layer (the eye, Blender's H).",
+              "line": 295,
+              "deprecated": false
+            },
+            {
+              "name": "show_objects",
+              "qualname": "DisplayUtils.show_objects",
+              "kind": "staticmethod",
+              "signature": "(objects=None)",
+              "summary": "Show hidden *objects* in the window's view layer.",
+              "line": 315,
+              "deprecated": false
+            },
+            {
+              "name": "toggle_xray",
+              "qualname": "DisplayUtils.toggle_xray",
+              "kind": "staticmethod",
+              "signature": "(objects=None)",
+              "summary": "Uniform x-ray (``show_in_front``) toggle: any off turns them all on;",
+              "line": 336,
+              "deprecated": false
+            },
+            {
+              "name": "clear_xray",
+              "qualname": "DisplayUtils.clear_xray",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "Turn x-ray off on every object in the scene (\"Un-Xray All\").",
+              "line": 348,
+              "deprecated": false
+            },
+            {
+              "name": "toggle_xray_others",
+              "qualname": "DisplayUtils.toggle_xray_others",
+              "kind": "staticmethod",
+              "signature": "(objects=None)",
+              "summary": "Uniform x-ray toggle over every mesh in the scene EXCEPT *objects*",
+              "line": 362,
+              "deprecated": false
+            },
+            {
+              "name": "cycle_component_ids",
+              "qualname": "DisplayUtils.cycle_component_ids",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "Toggle the 3D viewports' index overlay (``show_extra_indices``: the",
+              "line": 384,
+              "deprecated": false
+            },
+            {
+              "name": "cycle_normals_display",
+              "qualname": "DisplayUtils.cycle_normals_display",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "Step the 3D viewports' normals overlay: face, vertex, off (shown in",
+              "line": 396,
+              "deprecated": false
+            },
+            {
+              "name": "toggle_soft_edge_display",
+              "qualname": "DisplayUtils.toggle_soft_edge_display",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "Toggle the 3D viewports' sharp-edge overlay (``show_edge_sharp``).",
+              "line": 421,
+              "deprecated": false
+            },
+            {
+              "name": "toggle_material_override",
+              "qualname": "DisplayUtils.toggle_material_override",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "Toggle the 3D viewports' solid colour between Material and a flat",
+              "line": 431,
+              "deprecated": false
+            },
+            {
+              "name": "set_wireframe",
+              "qualname": "DisplayUtils.set_wireframe",
+              "kind": "staticmethod",
+              "signature": "(objects=None, state=True)",
+              "summary": "Draw *objects* as wireframe, or textured again (*state* False:",
+              "line": 451,
+              "deprecated": false
+            },
+            {
+              "name": "toggle_wireframe",
+              "qualname": "DisplayUtils.toggle_wireframe",
+              "kind": "staticmethod",
+              "signature": "(objects=None)",
+              "summary": "Toggle *objects* between wireframe and textured, together: the active",
+              "line": 465,
+              "deprecated": false
+            },
+            {
+              "name": "toggle_wireframe_inactive",
+              "qualname": "DisplayUtils.toggle_wireframe_inactive",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "Draw every unselected mesh in the scene as wireframe, or textured",
+              "line": 484,
+              "deprecated": false
+            },
+            {
+              "name": "toggle_template",
+              "qualname": "DisplayUtils.toggle_template",
+              "kind": "staticmethod",
+              "signature": "(objects=None)",
+              "summary": "Template *objects*: wireframe, not rendered, not selectable -- Maya's",
+              "line": 501,
+              "deprecated": false
+            },
+            {
+              "name": "toggle_uv_checker",
+              "qualname": "DisplayUtils.toggle_uv_checker",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "Toggle a checker in the UV editors: a generated ``UV_GRID`` image",
+              "line": 539,
+              "deprecated": false
+            },
+            {
+              "name": "toggle_uv_distortion",
+              "qualname": "DisplayUtils.toggle_uv_distortion",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "Step the UV editors' stretch overlay: angle, area, off.",
+              "line": 571,
               "deprecated": false
             }
           ]
@@ -7692,12 +7836,21 @@
               "deprecated": false
             },
             {
+              "name": "scene_status",
+              "qualname": "EnvUtils.scene_status",
+              "kind": "staticmethod",
+              "signature": "(scene=None)",
+              "summary": "The scene's modelling and session state as plain values: what a",
+              "line": 801,
+              "deprecated": false
+            },
+            {
               "name": "scene_settings",
               "qualname": "EnvUtils.scene_settings",
               "kind": "staticmethod",
               "signature": "(scene=None)",
               "summary": "The live scene's time setup as the bridges' ``scene`` record (see",
-              "line": 798,
+              "line": 857,
               "deprecated": false
             },
             {
@@ -7706,7 +7859,7 @@
               "kind": "staticmethod",
               "signature": "(settings, scene=None)",
               "summary": "Apply a ``scene`` record (any subset of :attr:`SCENE_SETTINGS_KEYS`) to the live",
-              "line": 823,
+              "line": 882,
               "deprecated": false
             },
             {
@@ -7715,7 +7868,7 @@
               "kind": "staticmethod",
               "signature": "(name, case=None, suffix='')",
               "summary": "Apply a naming convention to a base scene name — ``case`` via :meth:`pythontk.StrUtils.set_case`",
-              "line": 870,
+              "line": 929,
               "deprecated": false
             },
             {
@@ -7724,7 +7877,7 @@
               "kind": "staticmethod",
               "signature": "(directory, name, case=None, suffix='', subfolder='')",
               "summary": "The absolute ``.blend`` path :meth:`save_scene_as` would write — the pure",
-              "line": 888,
+              "line": 947,
               "deprecated": false
             },
             {
@@ -7733,7 +7886,7 @@
               "kind": "staticmethod",
               "signature": "(directory, name, case=None, suffix='', subfolder='', overwrite=True)",
               "summary": "Save the current scene as a .blend under ``directory`` with naming conventions applied —",
-              "line": 924,
+              "line": 983,
               "deprecated": false
             },
             {
@@ -7742,7 +7895,7 @@
               "kind": "staticmethod",
               "signature": "(file_path=None, *, selection_only=False, materials=True, smoothing=True, normals=True, groups=True)",
               "summary": "Export the scene as a Wavefront OBJ — mirror of mayatk's ``export_scene_as_obj``.",
-              "line": 955,
+              "line": 1014,
               "deprecated": false
             },
             {
@@ -7751,7 +7904,7 @@
               "kind": "staticmethod",
               "signature": "(path, new_base)",
               "summary": "Rename a .blend on disk (and its ``.blend1`` backup) — mirror of mayatk's ``rename_scene``.",
-              "line": 1019,
+              "line": 1078,
               "deprecated": false
             },
             {
@@ -7760,7 +7913,7 @@
               "kind": "staticmethod",
               "signature": "(path, permanent: bool = False)",
               "summary": "Move a .blend (and its ``.blend1`` backup) to the trash — mirror of mayatk's",
-              "line": 1060,
+              "line": 1119,
               "deprecated": false
             },
             {
@@ -7769,7 +7922,7 @@
               "kind": "staticmethod",
               "signature": "(library, mode)",
               "summary": "Set the display override for a linked library's objects — mirror of mayatk's",
-              "line": 1101,
+              "line": 1160,
               "deprecated": false
             },
             {
@@ -7778,7 +7931,7 @@
               "kind": "staticmethod",
               "signature": "(library)",
               "summary": "Return the active display mode (``\"off\"`` / ``\"reference\"`` / ``\"template\"``) for a linked",
-              "line": 1126,
+              "line": 1185,
               "deprecated": false
             }
           ]
@@ -11387,7 +11540,7 @@
         {
           "name": "LightUtils",
           "summary": "Namespace mirror of mayatk's ``light_utils`` (helpers also exposed module-level).",
-          "line": 122,
+          "line": 145,
           "bases": [
             "_LightUtilsInternal"
           ],
@@ -11398,7 +11551,7 @@
               "kind": "staticmethod",
               "signature": "(filepath=None, strength=None, rotation=0.0, visible=True, intensity=None, exposure=None)",
               "summary": "Set (or update) the world environment from an HDR image.",
-              "line": 126,
+              "line": 149,
               "deprecated": false
             },
             {
@@ -11407,7 +11560,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The current world-HDRI state as a dict (``filepath``/``strength``/``intensity``/",
-              "line": 202,
+              "line": 225,
               "deprecated": false
             },
             {
@@ -11416,7 +11569,7 @@
               "kind": "staticmethod",
               "signature": "(diffuse=None, glossy=None)",
               "summary": "Toggle whether the world environment contributes to **diffuse** / **glossy** lighting — the",
-              "line": 240,
+              "line": 263,
               "deprecated": false
             },
             {
@@ -11425,7 +11578,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The world's diffuse/glossy ray-visibility as ``{diffuse, glossy}``, or ``None`` (no world /",
-              "line": 261,
+              "line": 284,
               "deprecated": false
             },
             {
@@ -11434,7 +11587,7 @@
               "kind": "staticmethod",
               "signature": "(resolution)",
               "summary": "Set the world environment's importance-sampling **map resolution** — the Cycles analogue of",
-              "line": 273,
+              "line": 296,
               "deprecated": false
             },
             {
@@ -11443,7 +11596,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The world's importance-sampling map resolution when in **manual** mode, else ``None``",
-              "line": 297,
+              "line": 320,
               "deprecated": false
             },
             {
@@ -11452,7 +11605,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Remove the btk-managed HDRI environment (env / mapping / coord nodes) from the world.",
-              "line": 310,
+              "line": 333,
               "deprecated": false
             },
             {
@@ -11461,16 +11614,16 @@
               "kind": "staticmethod",
               "signature": "(world=_SCENE_WORLD) -> bool",
               "summary": "True when *world* can light a render/bake (a non-black background).",
-              "line": 330,
+              "line": 353,
               "deprecated": false
             },
             {
               "name": "lights_from_geometry",
               "qualname": "LightUtils.lights_from_geometry",
               "kind": "staticmethod",
-              "signature": "(objects, power=100.0, color=(1.0, 1.0, 1.0), direction='auto', offset=0.01, spread=None, prefix=_FIXTURE_LIGHT_PREFIX, diffuse_only=False, *, kelvin=None, toward=None)",
+              "signature": "(objects=None, power=100.0, color=(1.0, 1.0, 1.0), direction='auto', offset=0.01, spread=None, prefix=_FIXTURE_LIGHT_PREFIX, diffuse_only=True, *, kelvin=None, toward=None, intensity=None, cluster='object')",
               "summary": "Create a real area light matched to each light-fixture *mesh*.",
-              "line": 380,
+              "line": 404,
               "deprecated": false
             },
             {
@@ -11479,7 +11632,7 @@
               "kind": "staticmethod",
               "signature": "(prefix=_FIXTURE_LIGHT_PREFIX)",
               "summary": "Delete the light objects :meth:`lights_from_geometry` created;",
-              "line": 515,
+              "line": 555,
               "deprecated": false
             },
             {
@@ -11488,7 +11641,7 @@
               "kind": "classmethod",
               "signature": "(cls, hdri=None, strength=1.0, color=None, rotation=0.0) -> str",
               "summary": "Light the world with an equirect HDRI, or a flat ambient colour.",
-              "line": 531,
+              "line": 571,
               "deprecated": false
             },
             {
@@ -11497,7 +11650,7 @@
               "kind": "staticmethod",
               "signature": "(records)",
               "summary": "Turn plain light records into real lights, reusing each one's placed Empty.",
-              "line": 587,
+              "line": 627,
               "deprecated": false
             },
             {
@@ -11506,7 +11659,7 @@
               "kind": "staticmethod",
               "signature": "(multiplier, lights=None)",
               "summary": "Multiply the energy of light objects, returning ``{name: new_energy}``.",
-              "line": 808,
+              "line": 848,
               "deprecated": false
             },
             {
@@ -11515,7 +11668,7 @@
               "kind": "staticmethod",
               "signature": "(multiplier, objects=None)",
               "summary": "Set Emission Strength on every material whose Emission Color is textured.",
-              "line": 854,
+              "line": 894,
               "deprecated": false
             }
           ]
@@ -17006,7 +17159,7 @@
         {
           "name": "NodeUtils",
           "summary": "Namespace mirror of mayatk's ``NodeUtils`` (instance helpers also exposed module-level).",
-          "line": 123,
+          "line": 125,
           "bases": [
             "_NodeUtilsInternal"
           ],
@@ -17017,7 +17170,7 @@
               "kind": "staticmethod",
               "signature": "(obj) -> Optional[str]",
               "summary": "The Maya node *obj* stands for: ``\"locator\"``, ``\"group\"`` or ``None``.",
-              "line": 147,
+              "line": 149,
               "deprecated": false
             },
             {
@@ -17026,7 +17179,7 @@
               "kind": "staticmethod",
               "signature": "(objects, node_type: str, look: bool = True) -> List[Any]",
               "summary": "Stamp Empties as the Maya node *node_type* they stand for.",
-              "line": 174,
+              "line": 176,
               "deprecated": false
             },
             {
@@ -17035,7 +17188,7 @@
               "kind": "staticmethod",
               "signature": "(objects, filter: bool = False)",
               "summary": "Whether each of *objects* (refs or names) is a locator.",
-              "line": 206,
+              "line": 208,
               "deprecated": false
             },
             {
@@ -17044,7 +17197,7 @@
               "kind": "staticmethod",
               "signature": "(objects) -> List[Any]",
               "summary": "*objects* with every collection replaced by the objects in it.",
-              "line": 224,
+              "line": 226,
               "deprecated": false
             },
             {
@@ -17053,7 +17206,16 @@
               "kind": "staticmethod",
               "signature": "(objects, filter: bool = False)",
               "summary": "Whether each of *objects* (refs or names) is a group.",
-              "line": 256,
+              "line": 258,
+              "deprecated": false
+            },
+            {
+              "name": "selection_summary",
+              "qualname": "NodeUtils.selection_summary",
+              "kind": "staticmethod",
+              "signature": "(limit=10)",
+              "summary": "What is selected, as plain values: what a status readout (tentacle's",
+              "line": 277,
               "deprecated": false
             },
             {
@@ -17062,25 +17224,34 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Return objects that share their data with another object (Maya-style instances).",
-              "line": 275,
+              "line": 345,
+              "deprecated": false
+            },
+            {
+              "name": "select_instances",
+              "qualname": "NodeUtils.select_instances",
+              "kind": "staticmethod",
+              "signature": "(objects=None, whole_scene=False)",
+              "summary": "Select *objects* together with every object sharing their data, or",
+              "line": 369,
               "deprecated": false
             },
             {
               "name": "replace_with_instances",
               "qualname": "NodeUtils.replace_with_instances",
               "kind": "staticmethod",
-              "signature": "(objects, freeze_transforms=False, center_pivot=False, delete_history=False, retain_bbox_scale=False, retain_bbox_per_axis=False)",
+              "signature": "(objects=None, freeze_transforms=False, center_pivot=False, delete_history=False, retain_bbox_scale=False, retain_bbox_per_axis=False)",
               "summary": "Make ``objects[1:]`` instances of ``objects[0]`` by sharing its data — Blender's linked",
-              "line": 298,
+              "line": 392,
               "deprecated": false
             },
             {
               "name": "uninstance",
               "qualname": "NodeUtils.uninstance",
               "kind": "staticmethod",
-              "signature": "(objects, freeze=False)",
+              "signature": "(objects=None, freeze=False)",
               "summary": "Break the instance link — make each object's data single-user (mirror of ``mtk.uninstance``).",
-              "line": 378,
+              "line": 490,
               "deprecated": false
             },
             {
@@ -17089,7 +17260,7 @@
               "kind": "staticmethod",
               "signature": "(obj, all=False)",
               "summary": "The object's parent — mirror of ``mtk.get_parent``.",
-              "line": 583,
+              "line": 703,
               "deprecated": false
             },
             {
@@ -17098,7 +17269,7 @@
               "kind": "staticmethod",
               "signature": "(obj, recursive=False)",
               "summary": "The object's children — mirror of ``mtk.get_children``.",
-              "line": 596,
+              "line": 716,
               "deprecated": false
             },
             {
@@ -17107,7 +17278,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "The object's data datablock (mesh/curve/…) — the Blender analogue of Maya's shape node",
-              "line": 604,
+              "line": 724,
               "deprecated": false
             },
             {
@@ -17116,7 +17287,7 @@
               "kind": "staticmethod",
               "signature": "(objects, parent, keep_transform=True)",
               "summary": "Parent ``objects`` under ``parent`` (``None`` to unparent) — mirror of ``mtk.reparent``.",
-              "line": 611,
+              "line": 731,
               "deprecated": false
             }
           ]

@@ -852,7 +852,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (396)
+## Added (415)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -960,6 +960,22 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `core_utils/_core_utils.py::CoreUtils.selected(func: Callable) -> Callable`
 - `core_utils/_core_utils.py::CoreUtils.suspended_refresh()`
 - `core_utils/preview.py::Preview.apply_result_selection(widget, results)`
+- `display_utils/_display_utils.py::DisplayUtils.clear_xray()`
+- `display_utils/_display_utils.py::DisplayUtils.cycle_component_ids()`
+- `display_utils/_display_utils.py::DisplayUtils.cycle_normals_display()`
+- `display_utils/_display_utils.py::DisplayUtils.hide_objects(objects=None)`
+- `display_utils/_display_utils.py::DisplayUtils.set_visibility(elements, visibility=True, include_ancestors=True, affect_layers=True)`
+- `display_utils/_display_utils.py::DisplayUtils.set_wireframe(objects=None, state=True)`
+- `display_utils/_display_utils.py::DisplayUtils.show_objects(objects=None)`
+- `display_utils/_display_utils.py::DisplayUtils.toggle_material_override()`
+- `display_utils/_display_utils.py::DisplayUtils.toggle_soft_edge_display()`
+- `display_utils/_display_utils.py::DisplayUtils.toggle_template(objects=None)`
+- `display_utils/_display_utils.py::DisplayUtils.toggle_uv_checker()`
+- `display_utils/_display_utils.py::DisplayUtils.toggle_uv_distortion()`
+- `display_utils/_display_utils.py::DisplayUtils.toggle_wireframe(objects=None)`
+- `display_utils/_display_utils.py::DisplayUtils.toggle_wireframe_inactive()`
+- `display_utils/_display_utils.py::DisplayUtils.toggle_xray(objects=None)`
+- `display_utils/_display_utils.py::DisplayUtils.toggle_xray_others(objects=None)`
 - `display_utils/color_id.py::ColorId.get_color(cls, obj, check_material_color: bool = False, check_vertex_color: bool = False, check_wireframe_color: bool = False, check_outliner_color: bool = False, check_set: bool = False) -> Optional[Color]`
 - `display_utils/color_id.py::ColorId.lead_object()`
 - `display_utils/color_id.py::ColorId.scene_objects() -> List`
@@ -1001,6 +1017,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `edit_utils/snap.py::Snap.snap_to_grid(objects=None, grid_size=1.0, axes='xyz')`
 - `edit_utils/snap.py::Snap.snap_to_surface(source_meshes, target_mesh, offset=None, threshold=None, invert=False)`
 - `edit_utils/snap.py::Snap.source_and_target()`
+- `env_utils/_env_utils.py::EnvUtils.scene_status(scene=None)`
 - `env_utils/handoff_export.py::BridgeHost(class)`
 - `env_utils/handoff_export.py::BridgeHost.install_package(spec: str) -> None`
 - `env_utils/handoff_export.py::BridgeHost.resolve_scope(scope: str, bridge=None) -> List[Any]`
@@ -1175,6 +1192,8 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/texture_path_editor.py::TexturePathEditor.stored_path(self, node) -> str`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.texture_dir(self) -> str`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.unresolved_file_nodes(self, file_nodes)`
+- `node_utils/_node_utils.py::NodeUtils.select_instances(objects=None, whole_scene=False)`
+- `node_utils/_node_utils.py::NodeUtils.selection_summary(limit=10)`
 - `node_utils/attributes/channels/_channels.py::Channels.can_freeze_selection(cls, attr_names)`
 - `node_utils/attributes/channels/_channels.py::Channels.collect_value_strings(cls, objects, attr_names)`
 - `node_utils/attributes/channels/_channels.py::Channels.copy_attr_values(self, objects, attr_names)`
@@ -1288,7 +1307,7 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/emissive_groups.py::EmissiveGroups.validate`
 - `ui_utils/blender_ui_handler.py::BlenderUiHandler.default_persistence`
 
-## Signature changed (17)
+## Signature changed (21)
 
 - `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.edit_frame_based`
   - was: `(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None) -> List[Target]`
@@ -1299,6 +1318,9 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `anim_utils/blendshape_animator/creator.py::Creator.create_frame_based_tween`
   - was: `(self, target_frame: int) -> Optional[Target]`
   - now: `(self, target_frame: int, group_name: str = Targets.GROUP_NAME, name_prefix: str = 'tween') -> Optional[Target]`
+- `core_utils/auto_instancer/_auto_instancer.py::AutoInstancer.run_once`
+  - was: `(cls, objects: Optional[Sequence[object]] = None, *, return_summary: bool = False, **config) -> Union[List[object], Tuple[List[object], Dict[str, object]]]`
+  - now: `(cls, objects: Optional[Sequence[object]] = None, *, return_summary: bool = False, select: bool = False, **config) -> Union[List[object], Tuple[List[object], Dict[str, object]]]`
 - `display_utils/color_id.py::ColorId.apply_color`
   - was: `(cls, objects: Sequence, color: Optional[Color] = None, apply_to_material: bool = False, apply_to_object: bool = False, apply_to_vertex: bool = False, apply_to_outliner: bool = False, set_per_color: bool = False) -> None`
   - now: `(cls, objects: Sequence, color: Optional[Color] = None, apply_to_material: bool = False, apply_to_vertex: bool = False, apply_to_wireframe: bool = False, apply_to_outliner: bool = False, set_per_color: bool = False, apply_to_object: bool = False) -> None`
@@ -1317,9 +1339,18 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.perform_export`
   - was: `(self, export_dir: str, objects: Optional[Union[List, Callable]] = None, preset_name: Optional[str] = None, output_name: Optional[str] = None, export_visible: bool = True, create_log_file: bool = False, *, log_level: Optional[str] = None, log_handler: Optional[object] = None, tasks: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None, progress_callback: Optional[Callable[[int, int, Optional[str]], Any]] = None) -> bool`
   - now: `(self, export_dir: str, objects: Optional[Union[List, Callable]] = None, preset_file: Optional[str] = None, output_name: Optional[str] = None, export_visible: bool = True, create_log_file: bool = False, *, log_level: Optional[str] = None, log_handler: Optional[object] = None, tasks: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None, progress_callback: Optional[Callable[[int, int, Optional[str]], Any]] = None) -> bool`
+- `light_utils/_light_utils.py::LightUtils.lights_from_geometry`
+  - was: `(objects, power=100.0, color=(1.0, 1.0, 1.0), direction='auto', offset=0.01, spread=None, prefix=_FIXTURE_LIGHT_PREFIX, diffuse_only=False, *, kelvin=None, toward=None)`
+  - now: `(objects=None, power=100.0, color=(1.0, 1.0, 1.0), direction='auto', offset=0.01, spread=None, prefix=_FIXTURE_LIGHT_PREFIX, diffuse_only=True, *, kelvin=None, toward=None, intensity=None, cluster='object')`
 - `mat_utils/_mat_utils.py::MatUpdater.update_materials`
   - was: `(cls, materials=None, config=None, verbose=False, progress_callback=None)`
   - now: `(cls, materials=None, config=None, verbose=False, progress_callback=None, shader_type=None)`
+- `node_utils/_node_utils.py::NodeUtils.replace_with_instances`
+  - was: `(objects, freeze_transforms=False, center_pivot=False, delete_history=False, retain_bbox_scale=False, retain_bbox_per_axis=False)`
+  - now: `(objects=None, freeze_transforms=False, center_pivot=False, delete_history=False, retain_bbox_scale=False, retain_bbox_per_axis=False)`
+- `node_utils/_node_utils.py::NodeUtils.uninstance`
+  - was: `(objects, freeze=False)`
+  - now: `(objects=None, freeze=False)`
 - `node_utils/attributes/channels/_channels.py::Channels.create_attribute`
   - was: `(cls, objects, name, attr_type, min_val=None, max_val=None, default_val=0.0)`
   - now: `(cls, objects, name, attr_type, min_val=None, max_val=None, default_val=0.0, keyable=True, enum_names='')`

@@ -54,7 +54,12 @@ try:
     )
 
     # guard: <2 objects -> no-op, returns []
-    check("replace_with_instances <2 -> []", btk.replace_with_instances([A]) == [])
+    try:
+        btk.replace_with_instances([A])
+        raised = False
+    except ValueError:
+        raised = True
+    check("replace_with_instances <2 -> ValueError (mayatk's twin)", raised)
 
     # get_instances(None): scene-wide shared datablocks (A,B,C all share -> all 3)
     inst = btk.get_instances(objects=None)
@@ -442,6 +447,81 @@ try:
         and kept.empty_display_type == "ARROWS"
         and kept.empty_display_size == 1.0,
         f"{kept.empty_display_size}",
+    )
+
+    # --- the selection paths the Duplicate menu calls (tentacle, through self.tk) ---
+    reset()
+    S1, S2 = cube("S1", (0, 0, 0)), cube("S2", (3, 0, 0))
+    btk.CoreUtils.select([])
+    check("replace_with_instances(None), nothing selected -> []",
+          btk.NodeUtils.replace_with_instances() == [])
+    btk.CoreUtils.select([S2, S1])
+    bpy.context.view_layer.objects.active = S1  # the active object is the source
+    made = btk.NodeUtils.replace_with_instances()
+    check("replace_with_instances(None): the active object is the source",
+          made == [S2] and S2.data == S1.data, str(made))
+    S3 = cube("S3", (6, 0, 0))
+    btk.CoreUtils.select([S3])
+    check("select_instances: a lone object -> [], selection kept",
+          btk.NodeUtils.select_instances() == [] and S3.select_get())
+    btk.CoreUtils.select([S1])
+    picked = btk.NodeUtils.select_instances()
+    check("select_instances: the object and its instances",
+          set(picked) == {S1, S2} and S2.select_get(), str(picked))
+    btk.CoreUtils.select([S3])
+    picked = btk.NodeUtils.select_instances(whole_scene=True)
+    check("select_instances(whole_scene=True): every instanced object",
+          set(picked) == {S1, S2} and not S3.select_get(), str(picked))
+    btk.CoreUtils.select([])
+    check("uninstance(None), nothing selected -> []", btk.NodeUtils.uninstance() == [])
+    btk.CoreUtils.select([S2])
+    check("uninstance(None) takes the selection",
+          btk.NodeUtils.uninstance() == [S2] and S2.data != S1.data)
+
+    # --- selection_summary: what tentacle's HUD lists -----------------------------
+    reset()
+    H1, H2 = cube("H1", (0, 0, 0)), cube("H2", (3, 0, 0))
+    btk.CoreUtils.select([])
+    check("selection_summary: nothing selected -> None", btk.NodeUtils.selection_summary() is None)
+    btk.CoreUtils.select([H1])
+    summary = btk.NodeUtils.selection_summary()
+    check(
+        "selection_summary: a cube's counts",
+        summary["mode"] == "object" and summary["count"] == 1
+        and summary["objects"] == [("H1", "mesh")]
+        and (summary["faces"], summary["tris"], summary["uvs"]) == (6, 12, 24)
+        and summary["instances"] == 0,
+        str(summary),
+    )
+    H2.data = H1.data
+    check("selection_summary: instances share the data",
+          btk.NodeUtils.selection_summary()["instances"] == 2)
+    btk.CoreUtils.select([H1, H2])
+    check("selection_summary: past the limit, no names",
+          btk.NodeUtils.selection_summary(limit=1)["objects"] == [])
+    bpy.ops.object.empty_add()
+    btk.CoreUtils.select([bpy.context.view_layer.objects.active])
+    summary = btk.NodeUtils.selection_summary()
+    check("selection_summary: no mesh -> no counts",
+          summary["faces"] is None and summary["uvs"] is None, str(summary))
+    btk.CoreUtils.select([H1])
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_mode(type="VERT")
+    bpy.ops.mesh.select_all(action="DESELECT")
+    import bmesh
+
+    edit = bmesh.from_edit_mesh(H1.data)
+    edit.verts.ensure_lookup_table()
+    for i in range(3):
+        edit.verts[i].select = True
+    bmesh.update_edit_mesh(H1.data)
+    summary = btk.NodeUtils.selection_summary()
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check(
+        "selection_summary: Edit Mode counts the components",
+        (summary["mode"], summary["component"], summary["selected"], summary["total"])
+        == ("component", "Verts", 3, 8),
+        str(summary),
     )
 
 except Exception as e:

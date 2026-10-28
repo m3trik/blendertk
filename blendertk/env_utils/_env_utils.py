@@ -794,6 +794,65 @@ class EnvUtils(_EnvUtilsInternal):
         "frame_current",
     )
 
+    #: The frame rate a new Blender scene gets (factory startup).
+    DEFAULT_FPS = 24
+
+    @staticmethod
+    def scene_status(scene=None):
+        """The scene's modelling and session state as plain values: what a
+        status readout (tentacle's HUD) shows and warns on. Twin of mayatk's
+        ``EnvUtils.scene_status``; a fact Blender has no answer for is ``None``
+        (``xform_constraint``, ``time_unit``).
+
+        Returns:
+            dict: ``symmetry`` (the active mesh's mirror axes, upper case, or
+            None), ``xform_constraint`` (None), ``workspace`` (the current
+            workspace's folder name, or None), ``units`` (the unit system and
+            length unit), ``fps`` (effective: fps / fps_base), ``time_unit``
+            (None), ``default_fps`` (the rate is :attr:`DEFAULT_FPS`),
+            ``autosave`` (auto-save is on), ``autosave_scene`` (the open
+            .blend is in the temporary / autosave folder), ``saved`` (the
+            .blend is a file on disk).
+        """
+        import tempfile
+
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        scene = scene or bpy.context.scene
+        active = CoreUtils.active_object()
+        symmetry = None
+        if active is not None and active.type == "MESH":
+            axes = "".join(
+                axis.upper()
+                for axis in "xyz"
+                if getattr(active.data, f"use_mirror_{axis}", False)
+            )
+            symmetry = axes or None
+        units = scene.unit_settings
+        fps = EnvUtils.scene_settings(scene)["fps"]
+        prefs = bpy.context.preferences.filepaths
+        path = bpy.data.filepath
+        temp = prefs.temporary_directory or tempfile.gettempdir()
+        return {
+            "symmetry": symmetry,
+            "xform_constraint": None,
+            "workspace": CoreUtils.get_env_info("workspace_dir") or None,
+            "units": (
+                f"{units.system.lower()} {units.length_unit.lower()}"
+                if units.system != "NONE"
+                else "none"
+            ),
+            "fps": fps,
+            "time_unit": None,
+            # Effective: a 23.98 scene (fps 24, base 1.001) is not the default.
+            "default_fps": fps == EnvUtils.DEFAULT_FPS,
+            "autosave": bool(prefs.use_auto_save_temporary_files),
+            "autosave_scene": bool(path) and ptk.FileUtils.is_under(path, temp),
+            "saved": bool(path) and os.path.isfile(path),
+        }
+
     @staticmethod
     def scene_settings(scene=None):
         """The live scene's time setup as the bridges' ``scene`` record (see

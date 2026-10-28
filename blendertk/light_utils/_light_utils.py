@@ -16,6 +16,8 @@ import os
 
 import pythontk as ptk
 
+from blendertk.core_utils._core_utils import CoreUtils
+
 # Fixed node names — the update-in-place handles for the world-HDRI rig.
 _ENV_NODE = "btk_hdri_env"
 _MAPPING_NODE = "btk_hdri_mapping"
@@ -76,6 +78,27 @@ class _LightUtilsInternal(object):
 
         corners = _LightUtilsInternal._world_corners(obj)
         return sum(corners, Vector((0.0, 0.0, 0.0))) / len(corners)
+
+    @staticmethod
+    def _scene_center():
+        """World bounding-box centre of the scene's meshes, or the origin: what
+        an ``auto`` aim points at (mayatk's ``_scene_center``), so a ceiling
+        plate faces down and a wall plate inward with no per-object setup --
+        a coplanar set's own centre lies in its own plane."""
+        import bpy
+        from mathutils import Vector
+
+        corners = [
+            corner
+            for o in bpy.context.scene.objects
+            if o.type == "MESH"
+            for corner in _LightUtilsInternal._world_corners(o)
+        ]
+        if not corners:
+            return Vector((0.0, 0.0, 0.0))
+        low = [min(c[i] for c in corners) for i in range(3)]
+        high = [max(c[i] for c in corners) for i in range(3)]
+        return Vector([(a + b) / 2.0 for a, b in zip(low, high)])
 
     @staticmethod
     def _world_extents(obj):
@@ -377,15 +400,16 @@ class LightUtils(_LightUtilsInternal):
     # ------------------------------------------------------------------ fixture lights
 
     @staticmethod
+    @CoreUtils.undoable
     def lights_from_geometry(
-        objects,
+        objects=None,
         power=100.0,
         color=(1.0, 1.0, 1.0),
         direction="auto",
         offset=0.01,
         spread=None,
         prefix=_FIXTURE_LIGHT_PREFIX,
-        diffuse_only=False,
+        diffuse_only=True,
         *,
         # Keyword-only, and appended rather than grouped beside the parameters they
         # read with (*kelvin* with *color*, *toward* with *direction*): inserting
@@ -393,8 +417,14 @@ class LightUtils(_LightUtilsInternal):
         # signature, and the ``*`` keeps that true if anything is added later.
         kelvin=None,
         toward=None,
+        intensity=None,
+        cluster="object",
     ):
         """Create a real area light matched to each light-fixture *mesh*.
+
+        Takes mayatk's call too -- ``lights_from_geometry(None, intensity=,
+        kelvin=, offset=, cluster=)``, what a panel shared by both hosts
+        passes -- and is one undo step.
 
         An emissive map is an **appearance**, not a light source: it makes a fixture look
         lit without emitting anything an artist can aim, colour-temperature or re-time, and
@@ -417,8 +447,10 @@ class LightUtils(_LightUtilsInternal):
         those, or author real lights upstream.
 
         Parameters:
-            objects: Fixture meshes (refs or names).
+            objects: Fixture meshes (refs or names); ``None``: the selection.
             power: Radiant power per light, in Watts.
+            intensity: (keyword-only) mayatk's name for the light's intensity:
+                given, it is the *power* (Watts here; Maya's is unitless).
             color: Light RGB (a tint on top of *kelvin* when both are given).
             kelvin: (keyword-only) Colour temperature. ``None`` leaves the light white.
                 Office troffers are 3500-4100K, which against a warm interior is the
@@ -429,16 +461,20 @@ class LightUtils(_LightUtilsInternal):
                 per-object setup. Pass an explicit ``(x, y, z)`` to force one direction
                 for all of them.
             toward: (keyword-only) World point the plates should face. Defaults to the
-                centre of *objects*, which is **ambiguous for a coplanar set** — a
-                ceiling grid's own centre lies in the ceiling — and resolves to "down".
-                Pass the room's centre (e.g. the centre of every mesh being baked) to
-                make ceiling AND wall fixtures aim correctly in the same call.
+                centre of the scene's meshes (mayatk's rule): the room, so ceiling AND
+                wall fixtures aim correctly in the same call. (The centre of *objects*
+                alone is **ambiguous for a coplanar set** — a ceiling grid's own centre
+                lies in the ceiling.)
             offset: Metres of clearance between the fixture's surface and the light.
             spread: Beam spread in degrees (``None`` keeps Blender's 180° default).
             prefix: Name prefix, also the handle :meth:`remove_lights` deletes by.
-            diffuse_only: Drop the light's specular contribution. Useful for a *lightmap*
-                bake, where a baked specular highlight would be locked to the baking
-                viewpoint and read as a smudge from every other angle.
+            diffuse_only: Drop the light's specular contribution (the default, as
+                mayatk's ``emit_specular`` defaults off): a baked specular highlight is
+                locked to the baking viewpoint and reads as a smudge from every other
+                angle. The light stays an ordinary one to switch it back on.
+            cluster: (keyword-only) mayatk's face-cluster mode (``"shell"`` /
+                ``"object"`` / ``"face"``), accepted for signature parity: Blender's
+                emitters are whole meshes, which is mayatk's ``"object"`` for a mesh.
 
         Returns:
             (list) names of the light objects created.
@@ -446,6 +482,10 @@ class LightUtils(_LightUtilsInternal):
         import bpy
         from mathutils import Vector
 
+        if objects is None:
+            objects = CoreUtils.selected_objects()
+        if intensity is not None:
+            power = intensity
         meshes = []
         for o in _LightUtilsInternal._as_objects(objects):
             if o is not None and o.type == "MESH":
@@ -455,7 +495,7 @@ class LightUtils(_LightUtilsInternal):
 
         centers = {o.name: _LightUtilsInternal._world_center(o) for o in meshes}
         if toward is None:
-            reference = sum(centers.values(), Vector((0.0, 0.0, 0.0))) / len(centers)
+            reference = _LightUtilsInternal._scene_center()
         else:
             reference = Vector(toward)
 

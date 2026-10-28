@@ -806,6 +806,40 @@ try:
         os.remove(p)
     os.rmdir(tmp_dir)
 
+    # --- lights_from_geometry the way the Lighting menu calls it (mayatk's call) ---
+    from mathutils import Vector
+
+    for o in list(bpy.data.objects):
+        bpy.data.objects.remove(o, do_unlink=True)
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(0, 0, 0))
+    lf_plate = bpy.context.view_layer.objects.active  # a floor-level fixture plate
+    lf_plate.scale = (2.0, 0.5, 0.02)
+    bpy.ops.mesh.primitive_plane_add(size=8, location=(0, 0, 6))  # the ceiling
+    bpy.context.view_layer.update()
+    btk.CoreUtils.select([])
+    check(
+        "lights_from_geometry(None), nothing selected -> []",
+        btk.LightUtils.lights_from_geometry() == [],
+    )
+    btk.CoreUtils.select([lf_plate])
+    made = btk.LightUtils.lights_from_geometry(None, intensity=250.0, cluster="shell")
+    lamp = bpy.data.objects.get(made[0]) if made else None
+    check(
+        "...the selection; intensity is its power; specular off by default",
+        lamp is not None
+        and abs(lamp.data.energy - 250.0) < 1e-6
+        and lamp.data.specular_factor == 0.0,
+        str(made),
+    )
+    bpy.context.view_layer.update()
+    aim = lamp.matrix_world.to_quaternion() @ Vector((0, 0, -1)) if lamp else Vector()
+    check(
+        "...aimed at the scene's centre: UP from a floor plate under a ceiling",
+        aim.z > 0.9,
+        f"aim.z={aim.z:.3f}",
+    )
+    btk.LightUtils.remove_lights()
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

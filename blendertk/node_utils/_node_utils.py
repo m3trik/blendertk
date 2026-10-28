@@ -17,6 +17,8 @@ from typing import Any, List, Optional
 
 import pythontk as ptk
 
+from blendertk.core_utils._core_utils import CoreUtils
+
 
 @dataclass
 class _PreservedInstances:
@@ -272,6 +274,74 @@ class NodeUtils(_NodeUtilsInternal):
         return NodeUtils._is_maya_node_type(objects, "group", filter)
 
     @staticmethod
+    def selection_summary(limit=10):
+        """What is selected, as plain values: what a status readout (tentacle's
+        HUD) lists. Twin of mayatk's ``NodeUtils.selection_summary``.
+
+        Parameters:
+            limit (int): Name the objects only up to this many.
+
+        Returns:
+            (dict/None): None with nothing selected. With the active mesh in
+            Edit Mode ``{"mode": "component", "component": "Verts" | "Edges" |
+            "Faces", "selected": int, "total": int}``; else ``{"mode":
+            "object", "count": int, "objects": [(name, type), ...]`` (empty
+            past *limit*) ``, "instances": int`` (objects sharing the
+            selection's data) ``, "normals_locked": False, "faces", "tris",
+            "uvs"}``: ints, None when no mesh is selected. Counted at C speed
+            (``foreach_get``): a Python loop per polygon would stall on a dense
+            scan.
+        """
+        import bpy
+        import numpy as np
+
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        active = CoreUtils.active_object()
+        if active is not None and active.type == "MESH" and active.mode == "EDIT":
+            active.update_from_editmode()  # sync the *_sel totals from the edit mesh
+            mesh = active.data
+            vert, edge, face = bpy.context.tool_settings.mesh_select_mode
+            if face:
+                label, picked, total = "Faces", mesh.total_face_sel, len(mesh.polygons)
+            elif edge:
+                label, picked, total = "Edges", mesh.total_edge_sel, len(mesh.edges)
+            else:
+                label, picked, total = "Verts", mesh.total_vert_sel, len(mesh.vertices)
+            return {"mode": "component", "component": label, "selected": picked,
+                    "total": total}
+
+        selection = CoreUtils.selected_objects()
+        if not selection:
+            return None
+        meshes = [o for o in selection if o.type == "MESH"]
+        faces = tris = uvs = 0
+        for o in meshes:
+            mesh = o.data
+            n = len(mesh.polygons)
+            faces += n
+            if n:
+                loop_total = np.empty(n, dtype=np.int32)
+                mesh.polygons.foreach_get("loop_total", loop_total)
+                tris += int(np.clip(loop_total - 2, 0, None).sum())
+            if mesh.uv_layers.active:
+                uvs += len(mesh.uv_layers.active.data)
+        return {
+            "mode": "object",
+            "count": len(selection),
+            "objects": (
+                [(o.name, o.type.lower()) for o in selection]
+                if len(selection) <= limit
+                else []
+            ),
+            "instances": len(NodeUtils.get_instances(selection)),
+            "normals_locked": False,
+            "faces": faces if meshes else None,
+            "tris": tris if meshes else None,
+            "uvs": uvs if meshes else None,
+        }
+
+    @staticmethod
     def get_instances(objects=None):
         """Return objects that share their data with another object (Maya-style instances).
 
@@ -295,8 +365,32 @@ class NodeUtils(_NodeUtilsInternal):
         return [o for o in scene_objs if o.data in datas and counts[o.data] > 1]
 
     @staticmethod
+    @CoreUtils.undoable
+    def select_instances(objects=None, whole_scene=False):
+        """Select *objects* together with every object sharing their data, or
+        every instanced object in the scene. Twin of mayatk's
+        ``NodeUtils.select_instances``.
+
+        Parameters:
+            objects: Objects; ``None``: the selection.
+            whole_scene (bool): Select every instanced object in the scene instead.
+
+        Returns:
+            list: What was selected; ``[]`` -- the selection left as it was --
+            when nothing given has an instance.
+        """
+        if whole_scene:
+            instances = NodeUtils.get_instances(None)
+        else:
+            if objects is None:
+                objects = CoreUtils.selected_objects()
+            instances = NodeUtils.get_instances(objects) if objects else []
+        return CoreUtils.select(instances) if instances else []
+
+    @staticmethod
+    @CoreUtils.undoable
     def replace_with_instances(
-        objects,
+        objects=None,
         freeze_transforms=False,
         center_pivot=False,
         delete_history=False,
@@ -316,13 +410,30 @@ class NodeUtils(_NodeUtilsInternal):
         is rotation-independent; prefer the
         uniform default unless source and target share proportions, since a per-axis fit reaches the
         target's box by distorting the shared data. Returns the instanced targets.
+
+        ``objects=None`` is the selection with the active object as the source
+        -- Link Object Data's (Ctrl+L) rule -- out of Edit Mode first; nothing
+        selected returns ``[]``. Fewer than two objects raises ``ValueError``
+        (twin of mayatk's); a refused Object Mode, ``RuntimeError``.
         """
         import bpy
         import blendertk as btk  # public API (already loaded at call time); avoids the bool-param shadow
 
-        objs = [o for o in ptk.make_iterable(objects) if o]
+        if objects is None:
+            objs = CoreUtils.selected_objects()
+            if not objs:
+                return []
+            active = CoreUtils.active_object()
+            if active in objs:  # == compares the datablock (wrappers are fresh)
+                objs = [active] + [o for o in objs if o != active]
+            CoreUtils.ensure_object_mode()
+        else:
+            objs = [o for o in ptk.make_iterable(objects) if o]
         if len(objs) < 2:
-            return []
+            raise ValueError(
+                "Convert to Instances needs at least two objects: the source "
+                "(the active object) and one or more targets."
+            )
         source, targets = objs[0], objs[1:]
         # Pre-clean only the SOURCE — its data is what the targets adopt. Freezing/centering a
         # target would mutate (and, for freeze, relocate to the origin) geometry about to be discarded.
@@ -375,8 +486,12 @@ class NodeUtils(_NodeUtilsInternal):
         return instanced
 
     @staticmethod
-    def uninstance(objects, freeze=False):
+    @CoreUtils.undoable
+    def uninstance(objects=None, freeze=False):
         """Break the instance link — make each object's data single-user (mirror of ``mtk.uninstance``).
+
+        ``objects=None`` is the selection, out of Edit Mode first (an edited
+        mesh's data cannot be swapped under it); nothing selected returns ``[]``.
 
         Blender: replace a shared datablock with an independent copy. Returns the objects changed.
 
@@ -387,6 +502,11 @@ class NodeUtils(_NodeUtilsInternal):
         (``transform_apply`` refuses multi-user meshes outright), which is why the two steps
         belong together: ``uninstance(objs, freeze=True)`` is the engine-safe finish.
         """
+        if objects is None:
+            objects = CoreUtils.selected_objects()
+            if not objects:
+                return []
+            CoreUtils.ensure_object_mode()
         result, processed = [], []
         for o in (
             x

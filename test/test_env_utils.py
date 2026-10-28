@@ -198,6 +198,37 @@ try:
         btk.EnvUtils.set_current_workspace(_prev_pin)
         shutil.rmtree(_ws_dir, ignore_errors=True)
 
+    # ---- scene_status: the facts tentacle's HUD shows and warns on ----------------
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_cube_add()
+    st_cube = bpy.context.view_layer.objects.active
+    st_cube.data.use_mirror_x = True
+    status = btk.EnvUtils.scene_status()
+    check(
+        "scene_status: mayatk's keys",
+        set(status)
+        == {"symmetry", "xform_constraint", "workspace", "units", "fps",
+            "time_unit", "default_fps", "autosave", "autosave_scene", "saved"},
+        str(sorted(status)),
+    )
+    check("scene_status: the active mesh's mirror axis", status["symmetry"] == "X",
+          str(status["symmetry"]))
+    check(
+        "scene_status: an untitled scene is unsaved, not an autosave",
+        status["saved"] is False and status["autosave_scene"] is False,
+    )
+    bpy.context.scene.render.fps, bpy.context.scene.render.fps_base = 24, 1.0
+    check("scene_status: 24 fps is the default", btk.EnvUtils.scene_status()["default_fps"])
+    bpy.context.scene.render.fps_base = 1.001  # 23.98: not the default
+    check("scene_status: 23.98 fps is not", not btk.EnvUtils.scene_status()["default_fps"])
+    bpy.context.scene.render.fps_base = 1.0
+    check(
+        "scene_status: autosave mirrors the preference",
+        status["autosave"]
+        == bpy.context.preferences.filepaths.use_auto_save_temporary_files,
+    )
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

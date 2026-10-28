@@ -574,6 +574,18 @@ try:
     check("InstancingStrategy: a node without a mesh counts 0",
           strat._get_triangle_count(object()) == 0)
 
+    # ------------------------------------------------------------- run_once(select=True)
+    reset()
+    a = wedge("SEL1", (0, 0, 0))
+    b = wedge("SEL2", (6, 0, 0))
+    btk.CoreUtils.select([])
+    made = btk.AutoInstancer.run_once(  # dynamic: instanced however simple
+        [a, b], is_static=False, combine_non_instanced=False, select=True, verbose=False
+    )
+    check("run_once(select=True) selects and returns what it made",
+          bool(made) and set(bpy.context.view_layer.objects.selected) == set(made),
+          str(made))
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())
