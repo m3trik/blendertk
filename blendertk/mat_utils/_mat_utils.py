@@ -1239,9 +1239,9 @@ class _FileRenameUndo:
 
 
 # ---------------------------------------------------------------------------------------------
-# Texture path management (backs the Texture Path Editor panel) — mirror of mayatk's
-# texture_path_editor. Blender image datablocks carry the path (``img.filepath``), so this is the
-# datablock analogue of Maya's file-node re-pathing; all headless-testable (no bpy.ops).
+# Texture path management (behind ``TexturePathEditor``, the Texture Path Editor's engine) —
+# mirror of the file-node re-pathing mayatk's engine does. Blender image datablocks carry the path
+# (``img.filepath``), so this is the datablock analogue; all headless-testable (no bpy.ops).
 # ---------------------------------------------------------------------------------------------
 
 

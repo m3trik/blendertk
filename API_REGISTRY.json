@@ -23,7 +23,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 439,
+          "line": 443,
           "deprecated": false
         }
       ]
@@ -7551,7 +7551,7 @@
         {
           "name": "EnvUtils",
           "summary": "Namespace mirror of mayatk's ``EnvUtils`` (helpers also exposed module-level).",
-          "line": 137,
+          "line": 138,
           "bases": [
             "_EnvUtilsInternal"
           ],
@@ -7562,7 +7562,7 @@
               "kind": "staticmethod",
               "signature": "(root_dir, recursive=True, filter_text='')",
               "summary": "Every ``.blend`` file under ``root_dir`` (recursively by default), optionally name-filtered.",
-              "line": 141,
+              "line": 142,
               "deprecated": false
             },
             {
@@ -7571,7 +7571,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Every linked library as a record: ``{name, library, filepath, abspath, exists}``.",
-              "line": 178,
+              "line": 179,
               "deprecated": false
             },
             {
@@ -7580,7 +7580,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Set of normalized absolute paths of the ``.blend`` files currently linked as",
-              "line": 198,
+              "line": 199,
               "deprecated": false
             },
             {
@@ -7589,7 +7589,7 @@
               "kind": "staticmethod",
               "signature": "(path)",
               "summary": "True iff ``path`` is already linked as a library.",
-              "line": 208,
+              "line": 209,
               "deprecated": false
             },
             {
@@ -7598,7 +7598,7 @@
               "kind": "staticmethod",
               "signature": "(path, link=True, instance=True, target_collection=None, relative=False)",
               "summary": "Link (or append, ``link=False``) every collection from ``path`` and instance them into the",
-              "line": 216,
+              "line": 217,
               "deprecated": false
             },
             {
@@ -7607,7 +7607,7 @@
               "kind": "staticmethod",
               "signature": "(library)",
               "summary": "Reload a library from disk (``library`` is a datablock or its name).",
-              "line": 267,
+              "line": 268,
               "deprecated": false
             },
             {
@@ -7616,7 +7616,7 @@
               "kind": "staticmethod",
               "signature": "(library)",
               "summary": "Remove a library and everything linked from it (datablock or name).",
-              "line": 281,
+              "line": 282,
               "deprecated": false
             },
             {
@@ -7625,7 +7625,7 @@
               "kind": "staticmethod",
               "signature": "(library, scene_data='merge')",
               "summary": "Make every datablock linked from ``library`` **local** (a native, editable copy) and drop the",
-              "line": 309,
+              "line": 310,
               "deprecated": false
             },
             {
@@ -7634,7 +7634,7 @@
               "kind": "staticmethod",
               "signature": "(root=None)",
               "summary": "Pin (or clear, with None) the session's current workspace — the Blender analogue of",
-              "line": 448,
+              "line": 451,
               "deprecated": false
             },
             {
@@ -7643,7 +7643,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "The active ``pythontk.Workspace``, or None.",
-              "line": 457,
+              "line": 460,
               "deprecated": false
             },
             {
@@ -7652,7 +7652,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "Absolute root of the current workspace, or '' — what ``get_env_info(\"workspace\")``",
-              "line": 482,
+              "line": 485,
               "deprecated": false
             },
             {
@@ -7661,7 +7661,7 @@
               "kind": "staticmethod",
               "signature": "(scene: str, source: Optional[str] = None) -> Optional[str]",
               "summary": "Moved to :meth:`DataNodes.set_scene_source`, which records the stand-in",
-              "line": 494,
+              "line": 497,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -7671,7 +7671,7 @@
               "kind": "staticmethod",
               "signature": "(scene: Optional[str] = None) -> Optional[str]",
               "summary": "Moved to :meth:`DataNodes.twin_save_target`.",
-              "line": 505,
+              "line": 508,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -7681,7 +7681,7 @@
               "kind": "staticmethod",
               "signature": "(scene: Optional[str] = None) -> Optional[str]",
               "summary": "Moved to :meth:`DataNodes.scene_source`.",
-              "line": 515,
+              "line": 518,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -7691,7 +7691,7 @@
               "kind": "staticmethod",
               "signature": "() -> Optional[str]",
               "summary": "Moved to :meth:`DataNodes.scene_project_root`.",
-              "line": 525,
+              "line": 528,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -7701,7 +7701,7 @@
               "kind": "staticmethod",
               "signature": "() -> Optional[ptk.Workspace]",
               "summary": "Moved to :meth:`DataNodes.scene_workspace`.",
-              "line": 535,
+              "line": 538,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -7711,7 +7711,7 @@
               "kind": "staticmethod",
               "signature": "(subfolder: str = '', create: bool = False) -> str",
               "summary": "Moved to :meth:`DataNodes.scene_source_images_dir`.",
-              "line": 545,
+              "line": 548,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -7721,7 +7721,7 @@
               "kind": "staticmethod",
               "signature": "(suffix: str) -> str",
               "summary": "A file named for the open .blend, beside it: ``<blend dir>/<stem><suffix>``.",
-              "line": 552,
+              "line": 555,
               "deprecated": false
             },
             {
@@ -7730,7 +7730,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "The current workspace's texture folder — its ``sourceImages`` rule → an existing",
-              "line": 570,
+              "line": 573,
               "deprecated": false
             },
             {
@@ -7739,7 +7739,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "Where this scene's map files can be found NOW, most specific first.",
-              "line": 581,
+              "line": 584,
               "deprecated": false
             },
             {
@@ -7748,7 +7748,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "The current workspace's scene folder (``scene`` rule → existing ``scenes`` → the root),",
-              "line": 615,
+              "line": 618,
               "deprecated": false
             },
             {
@@ -7757,7 +7757,7 @@
               "kind": "staticmethod",
               "signature": "(root)",
               "summary": "The scene-rule folder of a *marked* workspace at ``root`` (absolute), or '' when",
-              "line": 622,
+              "line": 625,
               "deprecated": false
             },
             {
@@ -7766,7 +7766,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Saved workspace-template names (the Workspace Editor's Save Template entries) —",
-              "line": 635,
+              "line": 638,
               "deprecated": false
             },
             {
@@ -7775,7 +7775,7 @@
               "kind": "staticmethod",
               "signature": "(name=None)",
               "summary": "File rules for building a NEW workspace: the *name*d (default: active / last-saved)",
-              "line": 641,
+              "line": 644,
               "deprecated": false
             },
             {
@@ -7784,7 +7784,7 @@
               "kind": "staticmethod",
               "signature": "(name, rules=None)",
               "summary": "Save *rules* as workspace template *name* and make it the active default for new",
-              "line": 648,
+              "line": 651,
               "deprecated": false
             },
             {
@@ -7793,7 +7793,7 @@
               "kind": "staticmethod",
               "signature": "(name)",
               "summary": "Delete the user template *name* (the store keeps the active pointer consistent).",
-              "line": 662,
+              "line": 665,
               "deprecated": false
             },
             {
@@ -7802,7 +7802,7 @@
               "kind": "staticmethod",
               "signature": "(root, rules=None, create_dirs=True)",
               "summary": "Create a marked workspace at ``root`` — the Blender counterpart of Maya's File ▸",
-              "line": 668,
+              "line": 671,
               "deprecated": false
             },
             {
@@ -7811,7 +7811,7 @@
               "kind": "staticmethod",
               "signature": "(root=None)",
               "summary": "Mark ``root`` (default: the current workspace folder) as a shared Maya/Blender project",
-              "line": 680,
+              "line": 683,
               "deprecated": false
             },
             {
@@ -7820,7 +7820,7 @@
               "kind": "staticmethod",
               "signature": "(root_dir, recursive=False)",
               "summary": "Project folders under ``root_dir`` — marked workspaces (a ``workspace.mel`` at their",
-              "line": 694,
+              "line": 697,
               "deprecated": false
             },
             {
@@ -7829,7 +7829,7 @@
               "kind": "staticmethod",
               "signature": "(path)",
               "summary": "Open a .blend file (replaces the current file — Maya's ``file -open``).",
-              "line": 714,
+              "line": 717,
               "deprecated": false
             },
             {
@@ -7838,7 +7838,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Discard the current file and start an empty, unsaved scene (Maya's ``file -new``).",
-              "line": 727,
+              "line": 730,
               "deprecated": false
             },
             {
@@ -7847,7 +7847,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "True if the open file holds authored data — anything beyond Blender's *default",
-              "line": 743,
+              "line": 746,
               "deprecated": false
             },
             {
@@ -7856,7 +7856,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "True if replacing the open file (open / close / new) would lose work.",
-              "line": 760,
+              "line": 763,
               "deprecated": false
             },
             {
@@ -7865,7 +7865,7 @@
               "kind": "staticmethod",
               "signature": "(scene=None)",
               "summary": "The live scene's time setup as the bridges' ``scene`` record (see",
-              "line": 801,
+              "line": 804,
               "deprecated": false
             },
             {
@@ -7874,7 +7874,7 @@
               "kind": "staticmethod",
               "signature": "(settings, scene=None)",
               "summary": "Apply a ``scene`` record (any subset of :attr:`SCENE_SETTINGS_KEYS`) to the live",
-              "line": 826,
+              "line": 829,
               "deprecated": false
             },
             {
@@ -7883,7 +7883,7 @@
               "kind": "staticmethod",
               "signature": "(name, case=None, suffix='')",
               "summary": "Apply a naming convention to a base scene name — ``case`` via :meth:`pythontk.StrUtils.set_case`",
-              "line": 873,
+              "line": 876,
               "deprecated": false
             },
             {
@@ -7892,7 +7892,7 @@
               "kind": "staticmethod",
               "signature": "(directory, name, case=None, suffix='', subfolder='')",
               "summary": "The absolute ``.blend`` path :meth:`save_scene_as` would write — the pure",
-              "line": 891,
+              "line": 894,
               "deprecated": false
             },
             {
@@ -7901,7 +7901,7 @@
               "kind": "staticmethod",
               "signature": "(directory, name, case=None, suffix='', subfolder='', overwrite=True)",
               "summary": "Save the current scene as a .blend under ``directory`` with naming conventions applied —",
-              "line": 927,
+              "line": 930,
               "deprecated": false
             },
             {
@@ -7910,7 +7910,7 @@
               "kind": "staticmethod",
               "signature": "(file_path=None, *, selection_only=False, materials=True, smoothing=True, normals=True, groups=True)",
               "summary": "Export the scene as a Wavefront OBJ — mirror of mayatk's ``export_scene_as_obj``.",
-              "line": 958,
+              "line": 961,
               "deprecated": false
             },
             {
@@ -7919,7 +7919,7 @@
               "kind": "staticmethod",
               "signature": "(path, new_base)",
               "summary": "Rename a .blend on disk (and its ``.blend1`` backup) — mirror of mayatk's ``rename_scene``.",
-              "line": 1022,
+              "line": 1025,
               "deprecated": false
             },
             {
@@ -7928,7 +7928,7 @@
               "kind": "staticmethod",
               "signature": "(path, permanent: bool = False)",
               "summary": "Move a .blend (and its ``.blend1`` backup) to the trash — mirror of mayatk's",
-              "line": 1063,
+              "line": 1066,
               "deprecated": false
             },
             {
@@ -7937,7 +7937,7 @@
               "kind": "staticmethod",
               "signature": "(library, mode)",
               "summary": "Set the display override for a linked library's objects — mirror of mayatk's",
-              "line": 1104,
+              "line": 1107,
               "deprecated": false
             },
             {
@@ -7946,7 +7946,7 @@
               "kind": "staticmethod",
               "signature": "(library)",
               "summary": "Return the active display mode (``\"off\"`` / ``\"reference\"`` / ``\"template\"``) for a linked",
-              "line": 1129,
+              "line": 1132,
               "deprecated": false
             }
           ]
@@ -10194,195 +10194,340 @@
     },
     {
       "relpath": "env_utils/reference_manager.py",
-      "summary": "Reference Manager tool panel — Switchboard slot wiring for the co-located ``reference_manager.ui``.",
+      "summary": "Reference Manager engine -- the workspace's scene files, the scene's references",
       "functions": [],
       "classes": [
         {
-          "name": "ReferenceManagerSlots",
-          "summary": "Switchboard slot wiring for the Reference Manager panel.",
-          "line": 76,
+          "name": "ReferenceManager",
+          "summary": "Blender's Reference Manager engine: the workspace's scene files, the file's",
+          "line": 102,
           "bases": [
-            "pythontk.LoggingMixin"
+            "pythontk.LoggingMixin",
+            "_ReferenceManagerInternal"
           ],
           "members": [
             {
-              "name": "scene_notes",
-              "qualname": "ReferenceManagerSlots.scene_notes",
+              "name": "current_workspace",
+              "qualname": "ReferenceManager.current_workspace",
               "kind": "property",
-              "signature": "(self)",
-              "summary": "The Notes column's store (:class:`pythontk.SceneNotes`: one file per",
-              "line": 248,
+              "signature": "(self) -> str",
+              "summary": "The session's workspace root (``EnvUtils.workspace_root``: the pin, else",
+              "line": 179,
               "deprecated": false
             },
             {
-              "name": "header_init",
-              "qualname": "ReferenceManagerSlots.header_init",
+              "name": "current_working_dir",
+              "qualname": "ReferenceManager.current_working_dir",
+              "kind": "property",
+              "signature": "(self) -> str",
+              "summary": "The folder being browsed (the session's workspace until one is set;",
+              "line": 192,
+              "deprecated": false
+            },
+            {
+              "name": "recursive_search",
+              "qualname": "ReferenceManager.recursive_search",
+              "kind": "property",
+              "signature": "(self) -> bool",
+              "summary": "Whether workspace discovery searches below the root's immediate children.",
+              "line": 209,
+              "deprecated": false
+            },
+            {
+              "name": "ignore_empty_workspaces",
+              "qualname": "ReferenceManager.ignore_empty_workspaces",
+              "kind": "property",
+              "signature": "(self) -> bool",
+              "summary": "Whether a workspace holding no scene is left out of discovery.",
+              "line": 219,
+              "deprecated": false
+            },
+            {
+              "name": "workspace_files",
+              "qualname": "ReferenceManager.workspace_files",
+              "kind": "property",
+              "signature": "(self) -> dict",
+              "summary": "``{workspace: [scene paths]}`` for the workspaces under the browsed folder.",
+              "line": 229,
+              "deprecated": false
+            },
+            {
+              "name": "find_available_workspaces",
+              "qualname": "ReferenceManager.find_available_workspaces",
               "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Header refresh button, Naming presets, Filter/Display toggles, bulk Operations, help text.",
-              "line": 436,
+              "signature": "(self, root_dir: Optional[str] = None) -> list",
+              "summary": "The workspaces under *root_dir* (default: the browsed folder) as",
+              "line": 235,
               "deprecated": false
             },
             {
-              "name": "txt000_init",
-              "qualname": "ReferenceManagerSlots.txt000_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Root Directory — browse + recent-dir history + Open / Set-To-Current actions (mirror of Maya).",
-              "line": 716,
-              "deprecated": false
-            },
-            {
-              "name": "cmb000_init",
-              "qualname": "ReferenceManagerSlots.cmb000_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Workspace combo — project folders under the root (replaces Maya's workspace combo).",
-              "line": 816,
-              "deprecated": false
-            },
-            {
-              "name": "txt001_init",
-              "qualname": "ReferenceManagerSlots.txt001_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Filter field — enable toggle + ignore-case + target combo, plus live re-filter (mirror of Maya).",
-              "line": 821,
-              "deprecated": false
-            },
-            {
-              "name": "tbl000_init",
-              "qualname": "ReferenceManagerSlots.tbl000_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Table setup: (re)wire signals every show, one-time context-menu build, then populate.",
-              "line": 849,
-              "deprecated": false
-            },
-            {
-              "name": "new_workspace",
-              "qualname": "ReferenceManagerSlots.new_workspace",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Create a marked workspace under the root (rules from the active template — see",
-              "line": 1380,
-              "deprecated": false
-            },
-            {
-              "name": "mark_workspace",
-              "qualname": "ReferenceManagerSlots.mark_workspace",
+              "name": "invalidate_workspace_files",
+              "qualname": "ReferenceManager.invalidate_workspace_files",
               "kind": "method",
               "signature": "(self)",
-              "summary": "Promote the current workspace folder to a shared Maya/Blender project — writes a",
-              "line": 1400,
+              "summary": "Scan for workspaces and rebuild the file cache (mirror of mayatk's).",
+              "line": 250,
+              "deprecated": false
+            },
+            {
+              "name": "current_references",
+              "qualname": "ReferenceManager.current_references",
+              "kind": "property",
+              "signature": "(self) -> List[_LibraryRef]",
+              "summary": "The file's directly linked libraries, as references ([] without Blender).",
+              "line": 274,
+              "deprecated": false
+            },
+            {
+              "name": "bake_source",
+              "qualname": "ReferenceManager.bake_source",
+              "kind": "classmethod",
+              "signature": "(cls, linked_path) -> Optional[str]",
+              "summary": "The foreign scene *linked_path* was baked from, or None if it is not a bake",
+              "line": 288,
+              "deprecated": false
+            },
+            {
+              "name": "row_key",
+              "qualname": "ReferenceManager.row_key",
+              "kind": "classmethod",
+              "signature": "(cls, linked_path) -> str",
+              "summary": "Normalized path of the row a library reading *linked_path* stands for: its",
+              "line": 300,
+              "deprecated": false
+            },
+            {
+              "name": "add_reference",
+              "qualname": "ReferenceManager.add_reference",
+              "kind": "method",
+              "signature": "(self, namespace: str, file_path: str) -> bool",
+              "summary": "Link *file_path*'s collections (``EnvUtils.link_blend_file``) -- the Blender",
+              "line": 307,
+              "deprecated": false
+            },
+            {
+              "name": "remove_references",
+              "qualname": "ReferenceManager.remove_references",
+              "kind": "method",
+              "signature": "(self, namespaces=None) -> list",
+              "summary": "Remove the libraries named *namespaces* (all when None) and everything",
+              "line": 329,
+              "deprecated": false
+            },
+            {
+              "name": "import_references",
+              "qualname": "ReferenceManager.import_references",
+              "kind": "method",
+              "signature": "(self, namespaces=None, namespace_mode='remove', scene_data='merge') -> int",
+              "summary": "Make the libraries named *namespaces* (all when None) local -- Blender's",
+              "line": 344,
+              "deprecated": false
+            },
+            {
+              "name": "update_references",
+              "qualname": "ReferenceManager.update_references",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Reload every library from disk -- one reading a bake in temp re-homed first",
+              "line": 366,
+              "deprecated": false
+            },
+            {
+              "name": "get_reference_display_mode",
+              "qualname": "ReferenceManager.get_reference_display_mode",
+              "kind": "method",
+              "signature": "(self, ref) -> str",
+              "summary": "``\"off\"`` / ``\"reference\"`` / ``\"template\"`` for *ref*'s objects (\"off\"",
+              "line": 374,
+              "deprecated": false
+            },
+            {
+              "name": "set_reference_display_mode",
+              "qualname": "ReferenceManager.set_reference_display_mode",
+              "kind": "method",
+              "signature": "(self, ref, mode: str) -> bool",
+              "summary": "Set *ref*'s display override (:attr:`DISPLAY_MODES`).",
+              "line": 379,
+              "deprecated": false
+            },
+            {
+              "name": "follow_bake_sources",
+              "qualname": "ReferenceManager.follow_bake_sources",
+              "kind": "method",
+              "signature": "(self) -> list",
+              "summary": "Relink every library that reads a bake in temp (made before 2026-10-13,",
+              "line": 384,
               "deprecated": false
             },
             {
               "name": "purge_unused_bakes",
-              "qualname": "ReferenceManagerSlots.purge_unused_bakes",
+              "qualname": "ReferenceManager.purge_unused_bakes",
               "kind": "method",
-              "signature": "(self, dry_run=False)",
-              "summary": "Remove the bakes in the open file's project that no file links",
-              "line": 1486,
+              "signature": "(self, dry_run: bool = False) -> list",
+              "summary": "Remove the bakes in the project that no file links",
+              "line": 422,
               "deprecated": false
             },
             {
-              "name": "open_selected",
-              "qualname": "ReferenceManagerSlots.open_selected",
+              "name": "is_foreign",
+              "qualname": "ReferenceManager.is_foreign",
+              "kind": "classmethod",
+              "signature": "(cls, path) -> bool",
+              "summary": "True if *path* is a foreign (Maya / FBX / USD) scene -- a row baked to a",
+              "line": 431,
+              "deprecated": false
+            },
+            {
+              "name": "needs_conversion",
+              "qualname": "ReferenceManager.needs_conversion",
+              "kind": "classmethod",
+              "signature": "(cls, path) -> bool",
+              "summary": "True if bringing *path* in runs a conversion in the other DCC (a headless",
+              "line": 440,
+              "deprecated": false
+            },
+            {
+              "name": "scene_has_complex_animation",
+              "qualname": "ReferenceManager.scene_has_complex_animation",
+              "kind": "classmethod",
+              "signature": "(cls, path: str) -> bool",
+              "summary": "True if the foreign scene *path* declares driven animation a raw import",
+              "line": 453,
+              "deprecated": false
+            },
+            {
+              "name": "find_foreign_scenes",
+              "qualname": "ReferenceManager.find_foreign_scenes",
+              "kind": "classmethod",
+              "signature": "(cls, root_dir: str, recursive: bool = False, extensions=None) -> List[str]",
+              "summary": "The foreign scenes under *root_dir* (``MayaSceneImport.find_scenes``).",
+              "line": 459,
+              "deprecated": false
+            },
+            {
+              "name": "bake_scene",
+              "qualname": "ReferenceManager.bake_scene",
+              "kind": "method",
+              "signature": "(self, path: str, **kwargs) -> str",
+              "summary": "Bake the foreign scene *path* to a cached ``.blend`` and return it",
+              "line": 467,
+              "deprecated": false
+            },
+            {
+              "name": "import_scene",
+              "qualname": "ReferenceManager.import_scene",
+              "kind": "method",
+              "signature": "(self, path: str, **kwargs) -> list",
+              "summary": "Import the foreign scene *path* as local data with no link behind it",
+              "line": 473,
+              "deprecated": false
+            },
+            {
+              "name": "bake_project_root",
+              "qualname": "ReferenceManager.bake_project_root",
+              "kind": "method",
+              "signature": "(self) -> Optional[str]",
+              "summary": "The project a reference's bake goes in: the open file's",
+              "line": 478,
+              "deprecated": false
+            },
+            {
+              "name": "foreign_scratch_path",
+              "qualname": "ReferenceManager.foreign_scratch_path",
+              "kind": "staticmethod",
+              "signature": "(path: str) -> str",
+              "summary": "The deterministic scratch ``.blend`` a foreign row opens as",
+              "line": 504,
+              "deprecated": false
+            },
+            {
+              "name": "discard_stale_scratches",
+              "qualname": "ReferenceManager.discard_stale_scratches",
               "kind": "method",
               "signature": "(self)",
-              "summary": "Open the right-clicked row's file (replaces the current file;",
-              "line": 2066,
+              "summary": "Discard every untouched scratch twin that is no longer the open file (one",
+              "line": 511,
+              "deprecated": false
+            },
+            {
+              "name": "current_scene",
+              "qualname": "ReferenceManager.current_scene",
+              "kind": "method",
+              "signature": "(self) -> str",
+              "summary": "The open .blend's path;",
+              "line": 517,
+              "deprecated": false
+            },
+            {
+              "name": "scene_modified",
+              "qualname": "ReferenceManager.scene_modified",
+              "kind": "method",
+              "signature": "(self) -> bool",
+              "summary": "True if replacing the open file would lose work",
+              "line": 523,
+              "deprecated": false
+            },
+            {
+              "name": "save_open_scene",
+              "qualname": "ReferenceManager.save_open_scene",
+              "kind": "method",
+              "signature": "(self) -> Optional[bool]",
+              "summary": "Flush the open file to its own path so its unsaved edits reach disk.",
+              "line": 532,
               "deprecated": false
             },
             {
               "name": "save_scene",
-              "qualname": "ReferenceManagerSlots.save_scene",
+              "qualname": "ReferenceManager.save_scene",
               "kind": "method",
-              "signature": "(self)",
-              "summary": "Save the current scene into the workspace with the naming conventions",
-              "line": 2250,
+              "signature": "(self, path: str) -> str",
+              "summary": "Save the open file as *path* (``wm.save_as_mainfile``);",
+              "line": 550,
               "deprecated": false
             },
             {
-              "name": "rename_selected",
-              "qualname": "ReferenceManagerSlots.rename_selected",
+              "name": "new_scene",
+              "qualname": "ReferenceManager.new_scene",
               "kind": "method",
-              "signature": "(self)",
-              "summary": "Rename the right-clicked row's .blend on disk.",
-              "line": 2287,
+              "signature": "(self) -> bool",
+              "summary": "Discard the open file and start an empty one (Maya's ``file -new``) -- the",
+              "line": 561,
               "deprecated": false
             },
             {
-              "name": "delete_selected",
-              "qualname": "ReferenceManagerSlots.delete_selected",
+              "name": "is_current",
+              "qualname": "ReferenceManager.is_current",
               "kind": "method",
-              "signature": "(self)",
-              "summary": "Delete the right-clicked row's .blend (confirmed): to the trash, or -- a drive",
-              "line": 2360,
+              "signature": "(self, path, current=None) -> bool",
+              "summary": "True if *path*'s scene is the open one: the file itself, or -- a foreign",
+              "line": 572,
               "deprecated": false
             },
             {
-              "name": "open_location_selected",
-              "qualname": "ReferenceManagerSlots.open_location_selected",
+              "name": "open_scene",
+              "qualname": "ReferenceManager.open_scene",
               "kind": "method",
-              "signature": "(self)",
-              "summary": "Reveal the right-clicked row's file in the OS file manager.",
-              "line": 2399,
+              "signature": "(self, file_path: str, set_workspace: bool = True) -> bool",
+              "summary": "Open *file_path* (replaces the file), pinning the session's workspace to",
+              "line": 586,
               "deprecated": false
             },
             {
-              "name": "copy_path_selected",
-              "qualname": "ReferenceManagerSlots.copy_path_selected",
+              "name": "rename_scene_file",
+              "qualname": "ReferenceManager.rename_scene_file",
               "kind": "method",
-              "signature": "(self)",
-              "summary": "Copy the right-clicked row's full path to the clipboard (mirror of mayatk).",
-              "line": 2410,
+              "signature": "(self, old_path: str, new_path: str, folder=None)",
+              "summary": "Rename the scene file *old_path* to *new_path* (same folder) on disk, its",
+              "line": 650,
               "deprecated": false
             },
             {
-              "name": "toggle_reference_selected",
-              "qualname": "ReferenceManagerSlots.toggle_reference_selected",
+              "name": "remove_scene_file",
+              "qualname": "ReferenceManager.remove_scene_file",
               "kind": "method",
-              "signature": "(self)",
-              "summary": "Reference / Unreference the right-clicked row — the row-menu twin of the link icon",
-              "line": 2557,
-              "deprecated": false
-            },
-            {
-              "name": "unlink_import_selected",
-              "qualname": "ReferenceManagerSlots.unlink_import_selected",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Unlink and Import the right-clicked row — Maya's 'Unlink and Import', covering both cases.",
-              "line": 2569,
-              "deprecated": false
-            },
-            {
-              "name": "reload_all",
-              "qualname": "ReferenceManagerSlots.reload_all",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Reload every linked library from disk (Maya's Update References).",
-              "line": 2603,
-              "deprecated": false
-            },
-            {
-              "name": "make_local_all",
-              "qualname": "ReferenceManagerSlots.make_local_all",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Make every linked library's data local (Maya's Unlink-and-Import All).",
-              "line": 2613,
-              "deprecated": false
-            },
-            {
-              "name": "remove_all",
-              "qualname": "ReferenceManagerSlots.remove_all",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Remove every linked library and its data (Maya's Un-Reference All).",
-              "line": 2649,
+              "signature": "(self, path: str, permanent: bool = False, use_folder: bool = False) -> Optional[bool]",
+              "summary": "Remove one scene with its ``.blend1`` backup: to the trash, or --",
+              "line": 665,
               "deprecated": false
             }
           ]
@@ -16989,240 +17134,321 @@
     },
     {
       "relpath": "mat_utils/texture_path_editor.py",
-      "summary": "Texture Path Editor tool panel — Switchboard slot wiring for the co-located",
+      "summary": "Texture Path Editor engine (Blender): the file's texture paths and the commands",
       "functions": [],
       "classes": [
         {
-          "name": "TexturePathEditorSlots",
-          "summary": "Switchboard slot wiring for the Texture Path Editor panel.",
-          "line": 42,
+          "name": "TexturePathEditor",
+          "summary": "The Texture Path Editor's scene half: images, their paths, and the commands",
+          "line": 38,
           "bases": [
             "pythontk.LoggingMixin"
           ],
           "members": [
             {
-              "name": "header_init",
-              "qualname": "TexturePathEditorSlots.header_init",
+              "name": "texture_dir",
+              "qualname": "TexturePathEditor.texture_dir",
               "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Build the header menu (General / Path Management / Selection) + help text.",
-              "line": 136,
+              "signature": "(self) -> str",
+              "summary": "The project's texture folder -- Blender analogue of Maya's sourceimages:",
+              "line": 116,
               "deprecated": false
             },
             {
-              "name": "tb_set_texture_directory_init",
-              "qualname": "TexturePathEditorSlots.tb_set_texture_directory_init",
+              "name": "resolve_path",
+              "qualname": "TexturePathEditor.resolve_path",
               "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Populate the Set Directory option-box: the relocate-mode combobox and the Allow",
-              "line": 489,
+              "signature": "(self, path: str, file_node=None)",
+              "summary": "``(exists, absolute path)`` for a stored or typed *path* -- a linked",
+              "line": 166,
               "deprecated": false
             },
             {
-              "name": "tb_normalize_paths_init",
-              "qualname": "TexturePathEditorSlots.tb_normalize_paths_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Populate the Normalize Paths option-box with the external-mode combobox.",
-              "line": 520,
+              "name": "is_absolute_path",
+              "qualname": "TexturePathEditor.is_absolute_path",
+              "kind": "staticmethod",
+              "signature": "(path: str) -> bool",
+              "summary": "Whether *path* is stored absolute (not a ``//`` .blend-relative path).",
+              "line": 178,
               "deprecated": false
             },
             {
-              "name": "tb_resolve_missing_textures_init",
-              "qualname": "TexturePathEditorSlots.tb_resolve_missing_textures_init",
+              "name": "rows",
+              "qualname": "TexturePathEditor.rows",
               "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Populate the Resolve Missing option-box with the strategy checkboxes.",
-              "line": 539,
+              "signature": "(self, exclude_arnold: bool = False)",
+              "summary": "One row per FILE image (a TILED set: one, its ``<UDIM>`` pattern).",
+              "line": 186,
               "deprecated": false
             },
             {
-              "name": "tbl000_init",
-              "qualname": "TexturePathEditorSlots.tbl000_init",
+              "name": "file_nodes",
+              "qualname": "TexturePathEditor.file_nodes",
               "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Build the row context menu once, then (re)populate the table.",
-              "line": 574,
+              "signature": "(self, exclude_arnold: bool = False)",
+              "summary": "Every FILE image (and TILED set) by name -- the \"all\" scope.",
+              "line": 223,
               "deprecated": false
             },
             {
-              "name": "setup_formatting",
-              "qualname": "TexturePathEditorSlots.setup_formatting",
+              "name": "node_exists",
+              "qualname": "TexturePathEditor.node_exists",
               "kind": "method",
-              "signature": "(self, widget, records)",
-              "summary": "Mark the path cell invalid (red) when its file is missing;",
-              "line": 778,
+              "signature": "(self, node) -> bool",
+              "summary": "Whether the image *node* names is still in the file.",
+              "line": 231,
               "deprecated": false
             },
             {
-              "name": "open_source_images",
-              "qualname": "TexturePathEditorSlots.open_source_images",
+              "name": "stored_path",
+              "qualname": "TexturePathEditor.stored_path",
+              "kind": "method",
+              "signature": "(self, node) -> str",
+              "summary": "The image's stored ``filepath``, ``\"\"`` when it is gone.",
+              "line": 235,
+              "deprecated": false
+            },
+            {
+              "name": "selected_file_nodes",
+              "qualname": "TexturePathEditor.selected_file_nodes",
               "kind": "method",
               "signature": "(self)",
-              "summary": "Open the project's textures directory in the file explorer.",
-              "line": 1170,
+              "summary": "The images the selected objects' materials read.",
+              "line": 239,
               "deprecated": false
             },
             {
-              "name": "reload_scene_textures",
-              "qualname": "TexturePathEditorSlots.reload_scene_textures",
-              "kind": "method",
-              "signature": "(self)",
+              "name": "reload_textures",
+              "qualname": "TexturePathEditor.reload_textures",
+              "kind": "staticmethod",
+              "signature": "() -> None",
               "summary": "Force Blender to re-read every image from disk.",
-              "line": 1186,
+              "line": 266,
               "deprecated": false
             },
             {
-              "name": "tb_set_texture_directory",
-              "qualname": "TexturePathEditorSlots.tb_set_texture_directory",
+              "name": "set_texture_directory",
+              "qualname": "TexturePathEditor.set_texture_directory",
               "kind": "method",
-              "signature": "(self, widget=None)",
-              "summary": "Repath images (selection or all) so their files live under a chosen directory.",
-              "line": 1193,
-              "deprecated": false
-            },
-            {
-              "name": "tb_find_and_copy_textures",
-              "qualname": "TexturePathEditorSlots.tb_find_and_copy_textures",
-              "kind": "method",
-              "signature": "(self, widget=None)",
-              "summary": "Open the Find & Copy panel over the current scope.",
-              "line": 1254,
-              "deprecated": false
-            },
-            {
-              "name": "tb_normalize_paths",
-              "qualname": "TexturePathEditorSlots.tb_normalize_paths",
-              "kind": "method",
-              "signature": "(self, widget=None)",
-              "summary": "Rewrite (selected, or all) paths relative to the saved .blend;",
-              "line": 1287,
+              "signature": "(self, file_nodes, target_dir: str, relocate_mode: str = 'rewrite', allow_missing: bool = False) -> int",
+              "summary": "Repath each image so its file lives directly under *target_dir*.",
+              "line": 292,
               "deprecated": false
             },
             {
               "name": "make_paths_absolute",
-              "qualname": "TexturePathEditorSlots.make_paths_absolute",
+              "qualname": "TexturePathEditor.make_paths_absolute",
+              "kind": "method",
+              "signature": "(self, file_nodes) -> int",
+              "summary": "Rewrite ``//``-relative paths to absolute -- inverse of Normalize Paths.",
+              "line": 359,
+              "deprecated": false
+            },
+            {
+              "name": "normalize_paths",
+              "qualname": "TexturePathEditor.normalize_paths",
+              "kind": "method",
+              "signature": "(self, file_nodes, external_mode: str = 'rewrite') -> int",
+              "summary": "Rewrite (selected) paths relative to the saved .blend (``//`` paths).",
+              "line": 385,
+              "deprecated": false
+            },
+            {
+              "name": "resolve_missing_textures",
+              "qualname": "TexturePathEditor.resolve_missing_textures",
+              "kind": "method",
+              "signature": "(self, modes, file_nodes=None) -> int",
+              "summary": "Rebind missing textures to files found under the texture folder.",
+              "line": 424,
+              "deprecated": false
+            },
+            {
+              "name": "unresolved_file_nodes",
+              "qualname": "TexturePathEditor.unresolved_file_nodes",
+              "kind": "method",
+              "signature": "(self, file_nodes)",
+              "summary": "The images whose stored path does not resolve -- what a Find & Copy",
+              "line": 472,
+              "deprecated": false
+            },
+            {
+              "name": "find_and_copy_textures",
+              "qualname": "TexturePathEditor.find_and_copy_textures",
+              "kind": "method",
+              "signature": "(self, file_nodes, answers, lightmaps=(), dry_run=False, progress=None) -> bool",
+              "summary": "Collect sources, relocate them into one directory, repath the images.",
+              "line": 480,
+              "deprecated": false
+            },
+            {
+              "name": "set_texture_path",
+              "qualname": "TexturePathEditor.set_texture_path",
+              "kind": "method",
+              "signature": "(self, file_node, path: str, relative: bool = False) -> str",
+              "summary": "Point *file_node*'s image at *path* -- Browse for File, or a typed path.",
+              "line": 696,
+              "deprecated": false
+            },
+            {
+              "name": "is_file_rename",
+              "qualname": "TexturePathEditor.is_file_rename",
+              "kind": "method",
+              "signature": "(self, stored: str, typed: str, file_node=None) -> bool",
+              "summary": "Whether a typed path renames *stored*'s file rather than repointing.",
+              "line": 725,
+              "deprecated": false
+            },
+            {
+              "name": "apply_path_edit",
+              "qualname": "TexturePathEditor.apply_path_edit",
+              "kind": "method",
+              "signature": "(self, file_node, typed: str, shader=None, sync=None) -> str",
+              "summary": "A path typed into *file_node*'s row: rename its file, or repoint it",
+              "line": 755,
+              "deprecated": false
+            },
+            {
+              "name": "rename_texture",
+              "qualname": "TexturePathEditor.rename_texture",
+              "kind": "method",
+              "signature": "(self, context, new_name: str, sync=None) -> bool",
+              "summary": "Rename the texture file *context* names to *new_name* (mirror of mayatk's).",
+              "line": 794,
+              "deprecated": false
+            },
+            {
+              "name": "can_rename_shader",
+              "qualname": "TexturePathEditor.can_rename_shader",
+              "kind": "method",
+              "signature": "(self, shader) -> bool",
+              "summary": "Whether *shader* is one local material -- what a material cell may rename.",
+              "line": 849,
+              "deprecated": false
+            },
+            {
+              "name": "rename_shader",
+              "qualname": "TexturePathEditor.rename_shader",
+              "kind": "method",
+              "signature": "(self, shader, new_name: str, sync=None) -> str",
+              "summary": "Rename the material *shader*;",
+              "line": 864,
+              "deprecated": false
+            },
+            {
+              "name": "rename_file_node",
+              "qualname": "TexturePathEditor.rename_file_node",
+              "kind": "method",
+              "signature": "(self, file_node, new_name: str, shader=None, sync=None) -> str",
+              "summary": "Rename *file_node*'s image datablock;",
+              "line": 885,
+              "deprecated": false
+            },
+            {
+              "name": "select_objects",
+              "qualname": "TexturePathEditor.select_objects",
+              "kind": "method",
+              "signature": "(self, shaders=(), lightmaps=()) -> int",
+              "summary": "Select the objects using the materials *shaders* and those *lightmaps*",
+              "line": 988,
+              "deprecated": false
+            },
+            {
+              "name": "select_file_nodes",
+              "qualname": "TexturePathEditor.select_file_nodes",
+              "kind": "method",
+              "signature": "(self, file_nodes) -> int",
+              "summary": "Select the Image Texture nodes bound to *file_nodes*' images (Maya's file",
+              "line": 1012,
+              "deprecated": false
+            },
+            {
+              "name": "graph_file_nodes",
+              "qualname": "TexturePathEditor.graph_file_nodes",
+              "kind": "method",
+              "signature": "(self, file_nodes) -> None",
+              "summary": "Graph the materials reading *file_nodes*' images in the Shader Editor",
+              "line": 1018,
+              "deprecated": false
+            },
+            {
+              "name": "delete_consequences",
+              "qualname": "TexturePathEditor.delete_consequences",
+              "kind": "method",
+              "signature": "(self, file_nodes)",
+              "summary": "What removing *file_nodes*' images would leave behind, as sentences: the",
+              "line": 1030,
+              "deprecated": false
+            },
+            {
+              "name": "delete_file_nodes",
+              "qualname": "TexturePathEditor.delete_file_nodes",
+              "kind": "method",
+              "signature": "(self, file_nodes) -> int",
+              "summary": "Remove *file_nodes*' image datablocks from the .blend (one undo step).",
+              "line": 1044,
+              "deprecated": false
+            },
+            {
+              "name": "lightmap_dependencies",
+              "qualname": "TexturePathEditor.lightmap_dependencies",
               "kind": "method",
               "signature": "(self)",
-              "summary": "Rewrite (selected, or all) ``//`` relative paths to absolute — inverse of",
-              "line": 1325,
+              "summary": "The file's lightmap dependency records (``LightmapRecords``);",
+              "line": 1077,
               "deprecated": false
             },
             {
-              "name": "tb_resolve_missing_textures",
-              "qualname": "TexturePathEditorSlots.tb_resolve_missing_textures",
+              "name": "lightmap_labels",
+              "qualname": "TexturePathEditor.lightmap_labels",
               "kind": "method",
-              "signature": "(self, widget=None)",
-              "summary": "Search a folder for replacements for missing (selected, or all) textures.",
-              "line": 1359,
+              "signature": "(self, dep)",
+              "summary": "``(material, node)`` labels for a lightmap row (mirror of mayatk's): the",
+              "line": 1086,
               "deprecated": false
             },
             {
-              "name": "select_textures_for_objects",
-              "qualname": "TexturePathEditorSlots.select_textures_for_objects",
+              "name": "normalize_lightmaps",
+              "qualname": "TexturePathEditor.normalize_lightmaps",
               "kind": "method",
-              "signature": "(self)",
-              "summary": "Select rows whose image is used by a material on the scene selection.",
-              "line": 1408,
+              "signature": "(self, lightmaps, relative: bool) -> int",
+              "summary": "Re-spell the scoped lightmap markers' folders: ``//``-relative inside the",
+              "line": 1116,
               "deprecated": false
             },
             {
-              "name": "select_broken_paths",
-              "qualname": "TexturePathEditorSlots.select_broken_paths",
+              "name": "repath_lightmap",
+              "qualname": "TexturePathEditor.repath_lightmap",
               "kind": "method",
-              "signature": "(self)",
-              "summary": "Select rows whose texture file is missing.",
-              "line": 1432,
+              "signature": "(self, dep, folder: str) -> bool",
+              "summary": "Point every marker naming *dep*'s map at *folder* (files untouched;",
+              "line": 1135,
               "deprecated": false
             },
             {
-              "name": "select_absolute_paths",
-              "qualname": "TexturePathEditorSlots.select_absolute_paths",
+              "name": "rename_lightmap",
+              "qualname": "TexturePathEditor.rename_lightmap",
               "kind": "method",
-              "signature": "(self)",
-              "summary": "Select rows whose path is absolute (not a // project-relative path).",
-              "line": 1446,
+              "signature": "(self, dep, new_name: str) -> None",
+              "summary": "Rename a lightmap's file and re-stamp the markers that bind it by name.",
+              "line": 1152,
               "deprecated": false
             },
             {
-              "name": "row_browse_for_file",
-              "qualname": "TexturePathEditorSlots.row_browse_for_file",
+              "name": "lightmap_revert_scope",
+              "qualname": "TexturePathEditor.lightmap_revert_scope",
               "kind": "method",
-              "signature": "(self, selection=None)",
-              "summary": "Open a file dialog and repath the selected row's image (single selection only).",
-              "line": 1492,
+              "signature": "(self, deps)",
+              "summary": "``(objects, kept)``: the objects reverting *deps* would clear, and the",
+              "line": 1182,
               "deprecated": false
             },
             {
-              "name": "row_rename_file",
-              "qualname": "TexturePathEditorSlots.row_rename_file",
+              "name": "revert_lightmaps",
+              "qualname": "TexturePathEditor.revert_lightmaps",
               "kind": "method",
-              "signature": "(self, selection=None)",
-              "summary": "Rename one row's texture file, edited in its own cell.",
-              "line": 1767,
-              "deprecated": false
-            },
-            {
-              "name": "select_material",
-              "qualname": "TexturePathEditorSlots.select_material",
-              "kind": "method",
-              "signature": "(self, selection=None)",
-              "summary": "Select scene objects using the materials of the selected rows.",
-              "line": 2009,
-              "deprecated": false
-            },
-            {
-              "name": "select_file_node",
-              "qualname": "TexturePathEditorSlots.select_file_node",
-              "kind": "method",
-              "signature": "(self, selection=None)",
-              "summary": "Select the Image Texture node(s) bound to the selected row's texture(s).",
-              "line": 2049,
-              "deprecated": false
-            },
-            {
-              "name": "row_show_in_hypershade",
-              "qualname": "TexturePathEditorSlots.row_show_in_hypershade",
-              "kind": "method",
-              "signature": "(self, selection=None)",
-              "summary": "Graph the selected row's material(s) in the Shader Editor (Hypershade analogue).",
-              "line": 2067,
-              "deprecated": false
-            },
-            {
-              "name": "delete_file_node",
-              "qualname": "TexturePathEditorSlots.delete_file_node",
-              "kind": "method",
-              "signature": "(self, selection=None)",
-              "summary": "Remove the selected texture datablock(s) from the .blend;",
-              "line": 2081,
-              "deprecated": false
-            },
-            {
-              "name": "handle_cell_edit",
-              "qualname": "TexturePathEditorSlots.handle_cell_edit",
-              "kind": "method",
-              "signature": "(self, row, col)",
-              "summary": "Editing a path cell repaths that row's texture -- or, when only its file name",
-              "line": 2223,
-              "deprecated": false
-            },
-            {
-              "name": "refresh_texture_table",
-              "qualname": "TexturePathEditorSlots.refresh_texture_table",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Manual refresh trigger from the header refresh button.",
-              "line": 2970,
-              "deprecated": false
-            },
-            {
-              "name": "cleanup_scene_callbacks",
-              "qualname": "TexturePathEditorSlots.cleanup_scene_callbacks",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Clean up scene-change subscriptions via ScriptJobManager.",
-              "line": 3033,
+              "signature": "(self, objects)",
+              "summary": "The Lightmap Baker's Revert Selected on *objects* (markers cleared, the",
+              "line": 1195,
               "deprecated": false
             }
           ]

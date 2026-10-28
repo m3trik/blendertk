@@ -5,7 +5,8 @@
 Maya *file references* map onto Blender **linked libraries** (``bpy.data.libraries`` — File ▸ Link).
 This module is the Qt-free, bpy-only engine (unit-testable headless): discover ``.blend`` files under
 a folder, list the libraries already linked, link a ``.blend``'s collections (or append a copy), and
-reload / remove a library. The Switchboard slot (``reference_manager.py``) is the thin Qt driver.
+reload / remove a library. ``ReferenceManager`` (``reference_manager.py``) composes these for a
+browser; its panel is tentacle's shared Reference Manager.
 
 ``import bpy`` is deferred into the call bodies (importing the package surface must not need a
 running Blender — the no-import-side-effects rule).
@@ -341,7 +342,9 @@ class EnvUtils(_EnvUtilsInternal):
                 f"Invalid scene_data {scene_data!r}; expected one of "
                 f"{EnvUtils.SCENE_DATA_MODES} or a callable"
             )
-        source = os.path.basename(lib.filepath)  # the library goes with the move
+        # the library goes with the move; bpy.path: a '//'-relative path is a UNC
+        # share to os.path on Windows, whose basename is empty
+        source = bpy.path.basename(lib.filepath)
         # Its path records are spelled from ITS project, read before it goes.
         source_project = DataNodes.project_root_of(bpy.path.abspath(lib.filepath))
         carriers = DataNodes.carriers_in(lib)

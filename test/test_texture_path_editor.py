@@ -1,7 +1,6 @@
-"""blendertk Texture Path Editor engine headless test — verifies the bpy-side functions that back
-the co-located ``texture_path_editor`` panel, and the slot's handlers with Qt stood in for (the Qt
-slot itself can't run headless: Blender ships no Qt binding; its widgets and wiring are covered by
-``test_texture_path_editor_panel.py`` under the .venv).
+"""blendertk Texture Path Editor engine headless test — verifies the bpy-side functions and
+``TexturePathEditor``, the engine behind tentacle's shared Texture Path Editor panel (the panel
+itself is tested with a fake toolkit in tentacle's ``test/test_texture_path_editor_panel.py``).
 
 Run: blender --background --factory-startup --python blendertk/test/test_texture_path_editor.py
 """
@@ -473,10 +472,19 @@ try:
           all(getattr(n, "image", None) is None for n in survivors if n))
     check("...and the file on disk untouched", os.path.exists(sel_path), sel_path)
 
-    # 12. Lightmap rows in the panel (mirror of mayatk's TestFindAndCopyLightmaps'
-    # scope tests). The Qt table is stubbed: the slot's row helpers are bpy-only.
-    from types import SimpleNamespace
-    from blendertk.mat_utils.texture_path_editor import TexturePathEditorSlots
+    # 12. Lightmap dependencies through the editor's engine (mirror of mayatk's
+    # TestFindAndCopyLightmaps). The rows, their scope and the Find & Copy form
+    # are tentacle's shared panel (its test_texture_path_editor_panel.py).
+    from blendertk.mat_utils.texture_path_editor import TexturePathEditor
+    from blendertk.mat_utils.texture_path_editor import _file_name
+
+    # A Blender-relative path is a UNC share to ntpath, whose basename is '' on Windows.
+    check(
+        "a '//'-relative image path names its file",
+        _file_name("//textures/rock_Normal.png") == "rock_Normal.png"
+        and _file_name(r"C:\tex\a.png") == "a.png"
+        and _file_name(None) == "",
+    )
     from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
 
     bpy.ops.mesh.primitive_cube_add()
@@ -490,46 +498,14 @@ try:
     open(lm_map, "wb").close()
     LightmapBaker().commit_lightmap({lm_cube.name: lm_map})
 
-    slot = TexturePathEditorSlots.__new__(TexturePathEditorSlots)
-    slot._lightmap_rows = {}
-    slot._find_copy_lightmaps = []
-    slot._find_copy_images = []
-    deps = slot._lightmap_records().lightmap_dependencies()
+    editor = TexturePathEditor()
+    deps = editor.lightmap_dependencies()
     dep = deps[0] if deps else None
-    check("the panel lists the committed lightmap as a dependency", dep is not None, f"{deps}")
-    row_path = slot._lightmap_row_path(dep) if dep else ""
-    check("a lightmap row shows the marker's recorded folder + map",
-          row_path.endswith("/ROOM_ENV_LightMap.exr"), row_path)
-    mat_label, node_label = slot._lightmap_row_labels(dep) if dep else ("", "")
+    check("the editor lists the committed lightmap as a dependency", dep is not None, f"{deps}")
+    mat_label, node_label = editor.lightmap_labels(dep) if dep else ("", "")
     check("a lightmap row is labelled by the material and the map stem, not the objects",
           mat_label == "ROOM_ENV" and node_label == "ROOM_ENV_LightMap",
           f"{mat_label!r} / {node_label!r}")
-
-    slot._lightmap_rows = {row_path: dep}
-    entry = SimpleNamespace(values={"material": mat_label, "path": row_path, "image": ""})
-    slot.ui = SimpleNamespace(tbl000=SimpleNamespace(get_selection=lambda **kw: [entry]))
-    check("a selected lightmap row is a scope of its own", slot._get_scope_lightmaps() == [dep])
-    images, label = slot._get_scope_images()
-    check("...that the image commands see as nothing to do", images == [] and "lightmap" in label, label)
-    check("...and that Browse/Select resolve to the record",
-          slot._lightmaps_from_selection([entry]) == [dep] and slot._images_from_selection([entry]) == [])
-    slot.ui = SimpleNamespace(tbl000=SimpleNamespace(get_selection=lambda **kw: []))
-    check("no selection scopes to every lightmap row shown", slot._get_scope_lightmaps() == [dep])
-
-    fields = {f["name"]: f for f in slot._find_and_copy_fields([], [], tmp, lightmaps=[dep])}
-    check("Find & Copy has no lightmap opt-out row -- the scope decides",
-          "include_lightmaps" not in fields, f"{sorted(fields)}")
-    os.remove(lm_map)
-    missing_dep = slot._lightmap_records().lightmap_dependencies(search_dirs=[], walk=False)[0]
-    fields = {f["name"]: f for f in slot._find_and_copy_fields([], [], tmp, lightmaps=[missing_dep])}
-    check("a missing lightmap switches the search folder on and is named in its hint",
-          fields["source_dir"]["enabled"] and "ROOM_ENV_LightMap.exr" in fields["source_dir"]["hint"],
-          f"{fields['source_dir']}")
-    slot._find_copy_lightmaps = [missing_dep]
-    check("the accept button counts the lightmaps",
-          slot._find_and_copy_ok_text({"mode": "Copy"}) == "Copy 0 texture(s) + 1 lightmap(s)"
-          or slot._find_and_copy_ok_text({"mode": "Copy"}) == "Copy 1 lightmap(s)",
-          slot._find_and_copy_ok_text({"mode": "Copy"}))
 
     # A lightmap row IS its file: the reflection probe's row names no object,
     # so a Find & Copy scoped by the rows' objects relocated nothing for it, and
@@ -539,14 +515,17 @@ try:
         LightmapRecords as _ProbeRecords,
     )
 
-    open(lm_map, "wb").close()
     probe_src = os.path.join(lm_dir, "room_Probe.exr")
     open(probe_src, "wb").close()
     _ProbeRecords.commit_probe(probe_src, (0.0, 0.0, 0.0))
     probe_deps = {d["map"]: d for d in _ProbeRecords.lightmap_dependencies()}
     probe_dest = os.path.join(tmp, "probe_dest")
     os.makedirs(probe_dest, exist_ok=True)
-    slot._relocate_lightmaps([probe_deps["room_Probe.exr"]], "", probe_dest, "copy")
+    editor.find_and_copy_textures(
+        [],
+        {"source_dir": "", "dest_dir": probe_dest, "mode": "Copy"},
+        lightmaps=[probe_deps["room_Probe.exr"]],
+    )
     after = {d["map"]: d for d in _ProbeRecords.lightmap_dependencies()}
     check("Find & Copy of the probe's row relocates the probe",
           os.path.isfile(os.path.join(probe_dest, "room_Probe.exr"))
@@ -560,7 +539,11 @@ try:
           after.get("ROOM_ENV_LightMap.exr"))
     map_dest = os.path.join(tmp, "map_dest")
     os.makedirs(map_dest, exist_ok=True)
-    slot._relocate_lightmaps([after["ROOM_ENV_LightMap.exr"]], "", map_dest, "copy")
+    editor.find_and_copy_textures(
+        [],
+        {"source_dir": "", "dest_dir": map_dest, "mode": "Copy"},
+        lightmaps=[after["ROOM_ENV_LightMap.exr"]],
+    )
     check("...and a map's row never drags the probe along",
           os.path.isfile(os.path.join(map_dest, "ROOM_ENV_LightMap.exr"))
           and not os.path.exists(os.path.join(map_dest, "room_Probe.exr")),
@@ -1048,115 +1031,65 @@ try:
             LightmapRecords.rename_lightmap("nothing.exr", "x.exr") == 0,
         )
 
-    # -- the panel, driven through its own handlers (Qt stubbed) ---------------
-    class _Cell:
-        """A table cell: its text, and the name it held (UserRole)."""
+    # -- the editor's engine: what the shared panel's cells and row menu call --
+    #: Keep Names In Sync's affixes as the panel hands them over:
+    #: (material affix, image affix).
+    SYNC = (("", "_MAT"), ("", ""))
 
-        def __init__(self, text, role=None):
-            self.value, self.role = text, role
+    class _Said:
+        """A lent logger: what the editor reports, as (level, message)."""
 
-        def text(self):
-            return self.value
+        def __init__(self):
+            self.lines = []
 
-        def setText(self, value):
-            self.value = value
+        def __getattr__(self, level):
+            return lambda message, *_a, **_k: self.lines.append((level, str(message)))
 
-        def data(self, _role):
-            return self.role
+        def log_group(self, title, items, level="info"):
+            self.lines.append((level, "\n".join([str(title), *map(str, items)])))
 
-        def setData(self, _role, value):
-            self.role = value
+    def _editor():
+        editor = TexturePathEditor()
+        said = _Said()
+        editor.active_logger = said
+        return editor, said
 
-    def _panel(sync=None, material_affix=("", "_MAT"), image_suffix=""):
-        """A TexturePathEditorSlots with no window: the header menu holds the
-        Keep Names In Sync toggle (``sync`` True / False) and its option box."""
-        slot = TexturePathEditorSlots.__new__(TexturePathEditorSlots)
-        said = []
-        slot.sb = SimpleNamespace(
-            QtCore=SimpleNamespace(
-                Qt=SimpleNamespace(UserRole=256),
-                QTimer=SimpleNamespace(singleShot=lambda *_a: None),
-            ),
-            message_box=lambda text, *buttons, **kw: (said.append(text) or "Yes"),
-        )
-        menu = SimpleNamespace()
-        if sync is not None:
-            flyout = SimpleNamespace(
-                txt_shader_affix=SimpleNamespace(
-                    option_box=SimpleNamespace(
-                        resolve_affix=lambda default: material_affix
-                    )
-                ),
-                txt_file_node_suffix=SimpleNamespace(text=lambda: image_suffix),
-            )
-            menu.chk_sync_names = SimpleNamespace(
-                isChecked=lambda: sync, option_box=SimpleNamespace(menu=flyout)
-            )
-        slot.ui = SimpleNamespace(
-            header=SimpleNamespace(menu=menu),
-            tbl000=SimpleNamespace(init_slot=lambda: None),
-        )
-        slot._lightmap_rows = {}
-        slot._previous_paths = {}
-        slot._footer_controller = None
-        slot._image_to_mats = btk.get_image_material_map()
-        return slot, said
+    def _context(image_name, material="rock_MAT"):
+        return {"file_node": image_name, "shader_node": material}
 
-    def _edit_cell(slot, image_name, col, text, material="rock_MAT"):
-        """Type *text* into an image row's cell *col* and commit it, as the
-        table does (``handle_cell_edit``): name cells keep the old name in
-        UserRole, the path cell none."""
-        img = bpy.data.images[image_name]
-        cells = {
-            0: _Cell(material, material),
-            1: _Cell(img.filepath),
-            2: _Cell(img.name, img.name),
-        }
-        cells[col].setText(text)
-        slot.ui.tbl000 = SimpleNamespace(
-            item=lambda _row, column: cells.get(column),
-            blockSignals=lambda _on: False,
-            apply_formatting=lambda: None,
-            init_slot=lambda: None,
-        )
-        slot.handle_cell_edit(0, col)
-        return cells
-
-    def _context(image_name):
-        return {"image": image_name, "material": "rock_MAT", "materials": ["rock_MAT"]}
-
-    def _panel_is_file_rename():
+    def _editor_is_file_rename():
         folder, _mat = _case("panel_is_rename")
-        slot, _said = _panel()
+        editor, _said = _editor()
         stored = os.path.join(folder, "rock_Normal.png")
         check(
             "a path edit to a free name in the same folder is a rename",
-            slot._is_file_rename(stored, os.path.join(folder, "new.png")),
+            editor.is_file_rename(stored, os.path.join(folder, "new.png")),
         )
         check(
             "...a path to an existing file is a repoint",
-            not slot._is_file_rename(stored, os.path.join(folder, "taken.png")),
+            not editor.is_file_rename(stored, os.path.join(folder, "taken.png")),
         )
         check(
             "...and so is a path into another folder",
-            not slot._is_file_rename(stored, os.path.join(folder, "sub", "new.png")),
+            not editor.is_file_rename(stored, os.path.join(folder, "sub", "new.png")),
         )
 
-    def _panel_path_edit_outside_the_project():
+    def _editor_path_edit_outside_the_project():
         """Outside the project a name-only path edit repoints: another project
         may read that file, so it keeps its name."""
         folder, _mat = _case("panel_outside", project=False)
         elsewhere = os.path.join(tmp, "rename", "panel_outside_project")
         os.makedirs(elsewhere, exist_ok=True)
         btk.EnvUtils.set_current_workspace(elsewhere)
-        slot, _said = _panel()
+        editor, _said = _editor()
         typed = os.path.join(folder, "stone_Normal.png")
-        _edit_cell(slot, "rock_Normal.png", 1, typed)
+        outcome = editor.apply_path_edit("rock_Normal.png", typed)
         check(
             "a path edit outside the project renames nothing on disk",
-            "rock_Normal.png" in _listing(folder)
+            outcome == "repathed"
+            and "rock_Normal.png" in _listing(folder)
             and "stone_Normal.png" not in _listing(folder),
-            f"{_listing(folder)}",
+            f"{outcome} {_listing(folder)}",
         )
         check(
             "...and repoints the image",
@@ -1164,22 +1097,25 @@ try:
             _path("rock_Normal.png"),
         )
 
-    def _panel_path_edit_renames():
+    def _editor_path_edit_renames():
         folder, _mat = _case("panel_path_rename")
-        slot, _said = _panel()
-        _edit_cell(slot, "rock_Normal.png", 1, os.path.join(folder, "stone_Normal.png"))
+        editor, _said = _editor()
+        outcome = editor.apply_path_edit(
+            "rock_Normal.png", os.path.join(folder, "stone_Normal.png")
+        )
         check(
             "a name-only path edit inside the project renames the file",
-            "stone_Normal.png" in _listing(folder)
+            outcome == "renamed"
+            and "stone_Normal.png" in _listing(folder)
             and "rock_Normal.png" not in _listing(folder)
             and _same(_path("rock_Normal.png"), os.path.join(folder, "stone_Normal.png")),
-            f"{_listing(folder)}",
+            f"{outcome} {_listing(folder)}",
         )
 
-    def _panel_rename_file():
+    def _editor_rename_file():
         folder, _mat = _case("panel_rename")
-        slot, _said = _panel(sync=False)
-        ok = slot._rename_texture(_context("rock_Normal.png"), "stone_Normal.png")
+        editor, _said = _editor()
+        ok = editor.rename_texture(_context("rock_Normal.png"), "stone_Normal.png")
         check(
             "Rename File renames on disk and repoints",
             ok
@@ -1188,44 +1124,25 @@ try:
             f"{ok} {_listing(folder)}",
         )
         check("...with sync off the material stays", "rock_MAT" in bpy.data.materials)
-        ok = slot._rename_texture(_context("rock_Normal.png"), "taken.png")
+        try:
+            editor.rename_texture(_context("rock_Normal.png"), "taken.png")
+            refused = ""
+        except (ValueError, OSError) as error:
+            refused = str(error)
         check(
-            "a refused name changes nothing and says so",
-            not ok
-            and "stone_Normal.png" in _listing(folder)
-            and any("taken.png" in text for text in _said),
-            f"{ok} {_said[-1:] if _said else ''}",
+            "a refused name changes nothing and says why",
+            "taken.png" in refused and "stone_Normal.png" in _listing(folder),
+            refused,
         )
 
-    def _panel_rename_file_opens_the_cell():
-        """Rename File edits the path cell on just the file name."""
-        _folder, _mat = _case("panel_edit_as")
-        slot, _said = _panel()
-        opened = []
-        slot.ui.tbl000 = SimpleNamespace(
-            edit_cell_as=lambda row, col, text, commit: opened.append((row, col, text))
-        )
-        entry = SimpleNamespace(
-            row=3, values={"material": "rock_MAT", "path": "", "image": "rock_Normal.png"}
-        )
-        slot.row_rename_file([entry])
-        check(
-            "Rename File opens the path cell on the file name",
-            opened == [(3, 1, "rock_Normal.png")],
-            f"{opened}",
-        )
-
-    def _panel_browse_for_folder():
-        """Browse warned and did nothing with several rows."""
+    def _editor_browse_for_folder():
+        """Browse on several rows: each repointed to its same-named file there."""
         folder, _mat = _case("panel_folder")
         moved = os.path.join(folder, "moved")
         os.makedirs(moved)
         _write(moved, "rock_Normal.png")
-        slot, _said = _panel()
-        slot.sb.dir_dialog = lambda **kwargs: moved
-        slot._browse_for_folder(
-            [bpy.data.images["rock_Normal.png"], bpy.data.images["rock_Base_Color"]], []
-        )
+        editor, _said = _editor()
+        editor.set_texture_directory(["rock_Normal.png", "rock_Base_Color"], moved)
         check(
             "Browse on several rows repoints each to its same-named file there",
             _same(_path("rock_Normal.png"), os.path.join(moved, "rock_Normal.png")),
@@ -1240,9 +1157,9 @@ try:
             _path("rock_Base_Color"),
         )
 
-    def _panel_delete_lightmap_row():
-        """Remove Texture returned silently on a lightmap row; it reverts the
-        objects the map binds, confirmed, and the map stays on disk."""
+    def _editor_revert_lightmap_row():
+        """A lightmap row's delete reverts the objects the map binds; the map
+        stays on disk."""
         folder, _mat = _case("panel_delete")
         _baked(folder)
         dep = next(
@@ -1250,26 +1167,25 @@ try:
             for d in LightmapRecords.lightmap_dependencies(walk=False)
             if d["map"] == "rock_Lightmap_1.exr"
         )
-        slot, said = _panel()
-        slot._lightmap_rows = {"x/rock_Lightmap_1.exr": dep}
-        slot.delete_file_node([{"path": "x/rock_Lightmap_1.exr"}])
+        editor, _said = _editor()
+        objects, kept = editor.lightmap_revert_scope([dep])
         check(
-            "delete on a lightmap row asks once, naming the map",
-            len([t for t in said if "rock_Lightmap_1.exr" in t]) >= 1
-            and "Revert to Source" in said[0],
-            f"{said}",
+            "a lightmap row's revert scope is the objects its marker binds",
+            objects == ["rock_GEO"] and kept == [],
+            f"{objects} {kept}",
         )
+        editor.revert_lightmaps(objects)
         check(
-            "...and clears the marker, leaving the map on disk",
+            "...and reverting clears the marker, leaving the map on disk",
             not LightmapRecords.lightmap_info("rock_GEO")
             and "rock_Lightmap_1.exr" in _listing(folder),
             f"{LightmapRecords.lightmap_info('rock_GEO')}",
         )
 
-    def _panel_sync_whole_material():
+    def _editor_sync_whole_material():
         folder, _mat = _case("panel_sync")
-        slot, _said = _panel(sync=True)
-        slot._rename_texture(_context("rock_Normal.png"), "stone_Normal.png")
+        editor, _said = _editor()
+        editor.rename_texture(_context("rock_Normal.png"), "stone_Normal.png", sync=SYNC)
         check(
             "with sync on a new base renames the whole material",
             "stone_MAT" in bpy.data.materials
@@ -1283,11 +1199,11 @@ try:
             f"{_listing(folder)}",
         )
 
-    def _panel_sync_new_map_type():
+    def _editor_sync_new_map_type():
         """The base is unchanged by a new map type: the file is renamed alone."""
         folder, _mat = _case("panel_sync_map_type")
-        slot, said = _panel(sync=True)
-        ok = slot._rename_texture(_context("rock_Normal.png"), "rock_Bump.png")
+        editor, said = _editor()
+        ok = editor.rename_texture(_context("rock_Normal.png"), "rock_Bump.png", sync=SYNC)
         check(
             "with sync on a new map type renames that file alone",
             ok
@@ -1296,15 +1212,19 @@ try:
             and "rock_Base_Color.1001.png" in _listing(folder),
             f"{ok} {_listing(folder)}",
         )
-        check("...and says so", any("renamed alone" in t for t in said), f"{said}")
+        check(
+            "...and says so",
+            any("renamed alone" in message for _level, message in said.lines),
+            f"{said.lines}",
+        )
 
-    def _panel_sync_other_set():
+    def _editor_sync_other_set():
         folder, mat = _case("panel_sync_other")
         cube = _image("env_cube.dds", folder, "env_cube.dds")
         _write(folder, "env_cube.dds", b"CUBE")
         mat.node_tree.nodes.new("ShaderNodeTexImage").image = cube
-        slot, _said = _panel(sync=True)
-        slot._rename_texture(_context("env_cube.dds"), "studio_env.dds")
+        editor, _said = _editor()
+        editor.rename_texture(_context("env_cube.dds"), "studio_env.dds", sync=SYNC)
         check(
             "with sync on another set's map is renamed alone",
             "studio_env.dds" in _listing(folder)
@@ -1313,14 +1233,13 @@ try:
             f"{_listing(folder)}",
         )
 
-    def _panel_sync_image_cells():
+    def _editor_sync_image_cells():
         folder, mat = _case("panel_sync_cells")
         cube = _image("env_cube.dds", folder, "env_cube.dds")
         _write(folder, "env_cube.dds", b"CUBE")
         mat.node_tree.nodes.new("ShaderNodeTexImage").image = cube
-        slot, _said = _panel(sync=True)
-        slot._image_to_mats = btk.get_image_material_map()
-        _edit_cell(slot, "env_cube.dds", 2, "studio_env")
+        editor, _said = _editor()
+        editor.rename_file_node("env_cube.dds", "studio_env", shader="rock_MAT", sync=SYNC)
         check(
             "another set's image renamed in its cell is renamed alone",
             "studio_env" in bpy.data.images
@@ -1328,7 +1247,9 @@ try:
             and "env_cube.dds" in _listing(folder),
             f"{[i.name for i in bpy.data.images]}",
         )
-        _edit_cell(slot, "rock_Normal.png", 2, "stone_Normal.png")
+        editor.rename_file_node(
+            "rock_Normal.png", "stone_Normal.png", shader="rock_MAT", sync=SYNC
+        )
         check(
             "an image of the set given a new base renames the whole material",
             "stone_MAT" in bpy.data.materials
@@ -1337,189 +1258,46 @@ try:
             f"{_listing(folder)}",
         )
 
-    def _panel_material_cell():
+    def _editor_material_cell():
         folder, _mat = _case("panel_material")
-        slot, _said = _panel(sync=False)
-        _edit_cell(slot, "rock_Normal.png", 0, "boulder_MAT")
+        editor, _said = _editor()
+        editor.rename_shader("rock_MAT", "boulder_MAT")
         check(
             "with sync off the material cell renames the material alone",
-            "boulder_MAT" in bpy.data.materials
-            and "rock_Normal.png" in _listing(folder),
+            "boulder_MAT" in bpy.data.materials and "rock_Normal.png" in _listing(folder),
             f"{[m.name for m in bpy.data.materials]}",
         )
-        slot, _said = _panel(sync=True)
-        _edit_cell(slot, "rock_Normal.png", 0, "stone_MAT", material="boulder_MAT")
+        editor.rename_shader("boulder_MAT", "stone_MAT", sync=SYNC)
         check(
             "with sync on it renames the material's set to the new base",
-            "stone_MAT" in bpy.data.materials
-            and "stone_Normal.png" in _listing(folder),
+            "stone_MAT" in bpy.data.materials and "stone_Normal.png" in _listing(folder),
             f"{_listing(folder)}",
         )
 
-    def _panel_sync_readers():
-        slot, _said = _panel()
-        check("an unbuilt menu reads Keep Names In Sync off", not slot._sync_names_enabled())
-        shader, image = slot._sync_affixes()
+    def _editor_rows():
+        """A row per image: its one material is the cell that renames it; an
+        image several materials read names none (the cell is locked)."""
+        folder, mat = _case("panel_rows")
+        shared = _image("shared.png", folder, "taken.png")
+        mat.node_tree.nodes.new("ShaderNodeTexImage").image = shared
+        other = btk.create_mat("standard", name="other_MAT")
+        other.node_tree.nodes.new("ShaderNodeTexImage").image = shared
+        editor, _said = _editor()
+        rows = {row["file_node"]: row for row in editor.rows()}
         check(
-            "...with the convention's material affix and no image suffix",
-            shader == ptk.NamingConvention.affix_parts("material") and image == ("", ""),
-            f"{shader} {image}",
-        )
-        slot, _said = _panel(sync=True, material_affix=("M_", ""), image_suffix="img")
-        check(
-            "the option box gives the affixes",
-            slot._sync_names_enabled()
-            and slot._sync_affixes() == (("M_", ""), ("", "_img")),
-            f"{slot._sync_affixes()}",
-        )
-
-    def _panel_truncate_length():
-        slot, _said = _panel()
-        calls = []
-        table = SimpleNamespace(set_column_truncation=lambda col, **kw: calls.append(kw))
-        slot.ui.header.menu.chk_truncate_paths = SimpleNamespace(
-            isChecked=lambda: True,
-            option_box=SimpleNamespace(
-                menu=SimpleNamespace(spn_truncate_length=SimpleNamespace(value=lambda: 140))
-            ),
-        )
-        slot._apply_path_truncation(table)
-        check(
-            "the Truncate Texture Paths option box sets the length",
-            calls and calls[0]["length"] == 140,
-            f"{calls}",
+            "an image of one material: that material, editable",
+            rows["rock_Normal.png"]["shader_node"] == "rock_MAT"
+            and rows["rock_Normal.png"]["shader_editable"]
+            and rows["rock_Normal.png"]["exists"],
+            f"{rows.get('rock_Normal.png')}",
         )
         check(
-            "...96 by default, the File Node column hidden",
-            TexturePathEditorSlots._PATH_TRUNCATE_LENGTH == 96,
+            "an image of two materials: both listed, none renamed by its cell",
+            rows["shared.png"]["shader_node"] == ""
+            and not rows["shared.png"]["shader_editable"]
+            and sorted(rows["shared.png"]["materials"]) == ["other_MAT", "rock_MAT"],
+            f"{rows.get('shared.png')}",
         )
-
-    def _panel_undo_refresh():
-        """An undone rename left the rows naming what was gone: the table
-        followed file loads, never Ctrl+Z. It refreshes on Undo / Redo now --
-        only while shown, since every undo in the file fires them."""
-        slot, _said = _panel()
-        queued, refreshed = [], []
-        slot.sb.QtCore.QTimer = SimpleNamespace(
-            singleShot=lambda _ms, fn: queued.append(fn)
-        )
-        slot._refresh_pending = False
-        slot._refresh_table_content = refreshed.append
-        hidden = SimpleNamespace(isVisible=lambda: False)
-        shown = SimpleNamespace(isVisible=lambda: True)
-        for widget, visible_only in ((hidden, True), (shown, True), (hidden, False)):
-            slot._on_scene_change(widget, visible_only=visible_only)
-            while queued:
-                queued.pop(0)()
-        check(
-            "an undo refreshes a shown table only; a load refreshes regardless",
-            refreshed == [shown, hidden],
-            f"{refreshed}",
-        )
-        refreshed.clear()
-        slot._on_scene_change(hidden, visible_only=True)
-        slot._on_scene_change(hidden)
-        check("one refresh per idle", len(queued) == 1, f"{queued}")
-        while queued:
-            queued.pop(0)()
-        check(
-            "...and a waiting undo does not swallow a load",
-            refreshed == [hidden],
-            f"{refreshed}",
-        )
-        events = []
-        manager = SimpleNamespace(
-            subscribe=lambda event, _cb, owner=None: events.append(event),
-            connect_cleanup=lambda *_a, **_kw: None,
-        )
-        with _mock.patch.object(btk.ScriptJobManager, "instance", return_value=manager):
-            slot._setup_scene_change_callback(shown)
-        check(
-            "Undo and Redo are subscribed",
-            "Undo" in events and "Redo" in events,
-            f"{events}",
-        )
-
-    def _panel_fact_columns():
-        folder, _mat = _case("panel_facts")
-        png = write_png(os.path.join(folder, "facts_DIFF.png"))
-        tip = TexturePathEditorSlots._format_fact
-        size = ptk.ImgUtils.texture_facts(png)
-        check(
-            "File Size reads the bytes, sorted by the number",
-            tip("bytes", size)[2] == os.path.getsize(png),
-            f"{tip('bytes', size)}",
-        )
-        check(
-            "Dimensions reads the header",
-            tip("dimensions", size)[0] == "4 x 4",
-            f"{tip('dimensions', size)}",
-        )
-        check("no file reads as empty", tip("mode", {})[0] == "", f"{tip('mode', {})}")
-        slot, _said = _panel()
-        filled = {}
-        hidden = {2, 4, 5}
-        row_cells = {1: _Cell(png), 2: _Cell("facts_DIFF.png", "facts_DIFF.png")}
-        widget = SimpleNamespace(
-            horizontalHeader=lambda: SimpleNamespace(
-                isSectionHidden=lambda column: column in hidden
-            ),
-            columnCount=lambda: 6,
-            rowCount=lambda: 1,
-            item=lambda _row, column: row_cells.get(column),
-            isSortingEnabled=lambda: False,
-            setSortingEnabled=lambda _on: None,
-            blockSignals=lambda _on: False,
-            set_sorted_cell=lambda row, column, text, key: (
-                filled.__setitem__(column, text)
-                or SimpleNamespace(setToolTip=lambda _tip: None)
-            ),
-        )
-        slot._fill_info_columns(widget)
-        check(
-            "only the fact columns that show are read",
-            sorted(filled) == [3] and filled[3].endswith("bytes"),
-            f"{filled}",
-        )
-
-    def _panel_fits_the_row_menu():
-        slot, _said = _panel()
-        buttons = {
-            name: SimpleNamespace(
-                text="", enabled=True, setText=None, setEnabled=None, name=name
-            )
-            for name in ("delete_file_node", "row_browse_for_file", "row_rename_file")
-        }
-        for button in buttons.values():
-            button.setText = lambda text, b=button: setattr(b, "text", text)
-            button.setEnabled = lambda on, b=button: setattr(b, "enabled", on)
-        slot.sb.QtWidgets = SimpleNamespace(QPushButton=object)
-        lightmap = SimpleNamespace(values={"material": "", "path": "x/a.exr", "image": ""})
-        image = SimpleNamespace(values={"material": "m", "path": "y/b.png", "image": "b"})
-        slot._lightmap_rows = {"x/a.exr": {"map": "a.exr"}}
-        for label, rows, browse, rename, delete in (
-            ("an image row", [image], "Browse for File...", True, "Remove Texture"),
-            (
-                "an image and a lightmap row",
-                [image, lightmap],
-                "Browse for Folder...",
-                False,
-                "Remove Texture",
-            ),
-            ("a lightmap row", [lightmap], "Browse for File...", True, "Revert to Source..."),
-        ):
-            widget = SimpleNamespace(
-                get_selection=lambda columns=None, include_current=True, r=rows: r,
-                menu=SimpleNamespace(findChild=lambda _type, name: buttons.get(name)),
-            )
-            slot._fit_row_menu(widget)
-            check(
-                f"the row menu fits {label}",
-                buttons["row_browse_for_file"].text == browse
-                and buttons["row_rename_file"].enabled is rename
-                and buttons["delete_file_node"].text == delete,
-                f"{[(b.name, b.text, b.enabled) for b in buttons.values()]}",
-            )
 
     def _linked_refuses():
         """What a linked library brings is its library's: a rename here would leave
@@ -1579,18 +1357,22 @@ try:
             "objects": ["crate_GEO"],
             "path": os.path.join(lib_dir, "crate_Lightmap.exr"),
         }
-        slot, said = _panel()
-        renamed = slot._rename_texture({"lightmap": dep}, "box_Lightmap.exr")
-        reverted = slot._remove_lightmaps([dep])
+        editor, _said = _editor()
+        try:
+            editor.rename_texture({"lightmap": dep}, "box_Lightmap.exr")
+            renamed = "renamed"
+        except ValueError as error:
+            renamed = str(error)
+        objects, kept = editor.lightmap_revert_scope([dep])
         check(
-            "the panel refuses to rename or revert a linked library's lightmap",
-            renamed is False
-            and reverted == 0
-            and sum("linked" in text for text in said) == 2
+            "the editor refuses to rename or revert a linked library's lightmap",
+            "linked" in renamed
+            and objects == []
+            and kept == ["crate_GEO"]
             and _listing(lib_dir) == before
             and LightmapRecords._marker_info("crate_GEO").get("map")
             == "crate_Lightmap.exr",
-            f"{said}",
+            f"{renamed} {objects} {kept}",
         )
 
     # 15. UDIM tile sets get rows (2026-10-05). get_image_records listed FILE
@@ -1761,20 +1543,17 @@ try:
             f"n={n} {_abspath(lost)}",
         )
 
-    def _udim_panel():
+    def _udim_editor():
         folder = _udim_case("panel")
         img = _tiled(folder)
-        slot, said = _panel()
+        editor, _said = _editor()
         check(
-            "the panel reads a set whose tiles are there as resolving",
-            slot._path_resolves(img),
+            "the editor reads a set whose tiles are there as resolving",
+            editor.unresolved_file_nodes([img.name]) == [],
         )
-        slot.sb.file_dialog = lambda **kwargs: os.path.join(
-            folder, "rock_Base_Color.1002.png"
+        editor.set_texture_path(
+            img.name, os.path.join(folder, "rock_Base_Color.1002.png"), relative=True
         )
-        slot.ui.tbl000 = SimpleNamespace(init_slot=lambda: None)
-        entry = {"image": img.name, "path": img.filepath}
-        slot._do_browse_for_file([entry])
         check(
             "Browse for File on a set, picking one tile, keeps the set",
             img.filepath.endswith("rock_Base_Color.<UDIM>.png"),
@@ -1803,38 +1582,25 @@ try:
             f"n={n} {_abspath(img)}",
         )
 
-    def _panel_allow_missing_option():
+    def _editor_allow_missing_option():
         folder = _udim_case("allow_missing_panel")
         img = bpy.data.images.load(write_png(os.path.join(folder, "wood_DIFF.png")))
         empty = os.path.join(folder, "empty")
         os.makedirs(empty)
-
-        def button(allow):
-            return SimpleNamespace(
-                option_box=SimpleNamespace(
-                    menu=SimpleNamespace(
-                        cmb_relocate_mode=SimpleNamespace(currentIndex=lambda: 0),
-                        chk_allow_missing=SimpleNamespace(isChecked=lambda: allow),
-                    )
-                )
-            )
-
-        slot, said = _panel()
-        slot.ui.tbl000 = SimpleNamespace(
-            init_slot=lambda: None, get_selection=lambda **kwargs: []
-        )
-        slot.sb.dir_dialog = lambda **kwargs: empty
-        slot.tb_set_texture_directory(button(False))
+        editor, said = _editor()
+        n = editor.set_texture_directory([img.name], empty)
         check(
-            "the panel's Set Directory leaves it, and says why",
-            _same(_abspath(img), os.path.join(folder, "wood_DIFF.png"))
-            and any("Allow Missing Targets" in text for text in said),
-            f"{said}",
+            "the editor's Set Directory leaves it, and says why",
+            n == 0
+            and _same(_abspath(img), os.path.join(folder, "wood_DIFF.png"))
+            and any("Allow Missing Targets" in message for _level, message in said.lines),
+            f"{said.lines}",
         )
-        slot.tb_set_texture_directory(button(True))
+        editor.set_texture_directory([img.name], empty, allow_missing=True)
         check(
-            "...and repoints it with Allow Missing Targets on",
-            _same(_abspath(img), os.path.join(empty, "wood_DIFF.png")),
+            "...and repoints it with Allow Missing Targets on, recording the old path",
+            _same(_abspath(img), os.path.join(empty, "wood_DIFF.png"))
+            and bool(editor.previous_paths.get(img.name)),
             _abspath(img),
         )
 
@@ -1855,23 +1621,18 @@ try:
         ("sync takes the lightmap", _sync_takes_the_lightmap),
         ("sync without records", _sync_without_records),
         ("rename_lightmap", _rename_lightmap_restamps),
-        ("panel is file rename", _panel_is_file_rename),
-        ("panel path edit outside the project", _panel_path_edit_outside_the_project),
-        ("panel path edit renames", _panel_path_edit_renames),
-        ("panel rename file", _panel_rename_file),
-        ("panel rename file opens the cell", _panel_rename_file_opens_the_cell),
-        ("panel browse for folder", _panel_browse_for_folder),
-        ("panel delete lightmap row", _panel_delete_lightmap_row),
-        ("panel sync whole material", _panel_sync_whole_material),
-        ("panel sync new map type", _panel_sync_new_map_type),
-        ("panel sync other set", _panel_sync_other_set),
-        ("panel sync image cells", _panel_sync_image_cells),
-        ("panel material cell", _panel_material_cell),
-        ("panel sync readers", _panel_sync_readers),
-        ("panel truncate length", _panel_truncate_length),
-        ("panel undo refresh", _panel_undo_refresh),
-        ("panel fact columns", _panel_fact_columns),
-        ("panel fits the row menu", _panel_fits_the_row_menu),
+        ("editor is file rename", _editor_is_file_rename),
+        ("editor path edit outside the project", _editor_path_edit_outside_the_project),
+        ("editor path edit renames", _editor_path_edit_renames),
+        ("editor rename file", _editor_rename_file),
+        ("editor browse for folder", _editor_browse_for_folder),
+        ("editor revert lightmap row", _editor_revert_lightmap_row),
+        ("editor sync whole material", _editor_sync_whole_material),
+        ("editor sync new map type", _editor_sync_new_map_type),
+        ("editor sync other set", _editor_sync_other_set),
+        ("editor sync image cells", _editor_sync_image_cells),
+        ("editor material cell", _editor_material_cell),
+        ("editor rows", _editor_rows),
         ("linked refuses", _linked_refuses),
         ("udim rows", _udim_rows),
         ("udim resolve missing", _udim_resolve_missing_never_flattens),
@@ -1879,9 +1640,9 @@ try:
         ("udim set lands whole or not", _udim_set_lands_whole_or_not),
         ("udim normalize", _udim_normalize),
         ("udim find and copy", _udim_find_and_copy),
-        ("udim panel", _udim_panel),
+        ("udim editor", _udim_editor),
         ("set directory allow missing", _set_directory_allow_missing),
-        ("panel allow missing option", _panel_allow_missing_option),
+        ("editor allow missing option", _editor_allow_missing_option),
     ):
         _section(_name, _body)
     btk.EnvUtils.set_current_workspace(None)

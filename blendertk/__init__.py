@@ -92,6 +92,8 @@ DEFAULT_INCLUDE = {
     # explode/unexplode engine module-level in ``_display_utils`` above.
     "display_utils.exploded_view": ["ExplodedView"],
     "env_utils._env_utils": "*",
+    # Reference Manager's engine over linked libraries (its panel is tentacle's shared tool).
+    "env_utils.reference_manager": ["ReferenceManager"],
     # FBX import/export — mirror of mayatk's ``env_utils.fbx_utils.FbxUtils`` (``btk.FbxUtils`` ↔
     # ``mtk.FbxUtils``). Scope-limited to the class on purpose: ``FbxUtils.export`` is a generic name
     # that would collide flat with ``UsdUtils.export`` under "*" — the source-side fix for the
@@ -228,6 +230,8 @@ DEFAULT_INCLUDE = {
         "StyleSetter",
     ],
     "mat_utils._mat_utils": "*",
+    # Texture Path Editor's engine (its panel is tentacle's shared tool).
+    "mat_utils.texture_path_editor": ["TexturePathEditor"],
     # Structural mirror of ``mtk.ArnoldBridge`` — a documented no-op on Blender, kept
     # registered (not just importable) so duck-typed code across the twins needs no branch.
     "mat_utils.arnold_bridge": "ArnoldBridge",
@@ -746,6 +750,14 @@ MOVED_NAMES = {
     ),
     "ShotsController": (
         "tentacle.slots.tools._shots.controller.ShotsController",
+        "0.23.0",
+    ),
+    "ReferenceManagerSlots": (
+        "tentacle.slots.tools.reference_manager.ReferenceManagerSlots",
+        "0.23.0",
+    ),
+    "TexturePathEditorSlots": (
+        "tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots",
         "0.23.0",
     ),
 }

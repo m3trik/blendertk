@@ -2,7 +2,7 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (673)
+## Moved out (720)
 
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b000` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
@@ -345,6 +345,27 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `env_utils/hierarchy_sync/tree_utils.py::TreePathMatcher.get_selected_tree_items` → `tentacle.slots.tools._hierarchy_sync.tree_matcher.TreePathMatcher` (from 0.23.0)
 - `env_utils/hierarchy_sync/tree_utils.py::TreePathMatcher.log_matching_debug` → `tentacle.slots.tools._hierarchy_sync.tree_matcher.TreePathMatcher` (from 0.23.0)
 - `env_utils/hierarchy_sync/tree_utils.py::TreePathMatcher.log_tree_index_debug` → `tentacle.slots.tools._hierarchy_sync.tree_matcher.TreePathMatcher` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.cmb000_init` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.copy_path_selected` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.delete_selected` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.header_init` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.make_local_all` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.mark_workspace` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.new_workspace` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.open_location_selected` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.open_selected` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.purge_unused_bakes` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.reload_all` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.remove_all` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.rename_selected` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.save_scene` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.scene_notes` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.tbl000_init` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.toggle_reference_selected` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.txt000_init` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.txt001_init` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
+- `env_utils/reference_manager.py::ReferenceManagerSlots.unlink_import_selected` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
 - `env_utils/scene_exporter/scene_exporter_slots.py::SceneExporterSlots` → `tentacle.slots.tools.scene_exporter.SceneExporterSlots` (from 0.23.0)
 - `env_utils/scene_exporter/scene_exporter_slots.py::SceneExporterSlots.b000` → `tentacle.slots.tools.scene_exporter.SceneExporterSlots` (from 0.23.0)
 - `env_utils/scene_exporter/scene_exporter_slots.py::SceneExporterSlots.b006` → `tentacle.slots.tools.scene_exporter.SceneExporterSlots` (from 0.23.0)
@@ -500,6 +521,32 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/shader_templates.py::ShaderTemplatesSlots.source_images_dir` → `tentacle.slots.tools.shader_templates.ShaderTemplatesSlots` (from 0.23.0)
 - `mat_utils/shader_templates.py::ShaderTemplatesSlots.template_name` → `tentacle.slots.tools.shader_templates.ShaderTemplatesSlots` (from 0.23.0)
 - `mat_utils/shader_templates.py::ShaderTemplatesSlots.workspace_dir` → `tentacle.slots.tools.shader_templates.ShaderTemplatesSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.cleanup_scene_callbacks` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.delete_file_node` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.handle_cell_edit` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.header_init` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.make_paths_absolute` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.open_source_images` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.refresh_texture_table` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.reload_scene_textures` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.row_browse_for_file` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.row_rename_file` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.row_show_in_hypershade` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.select_absolute_paths` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.select_broken_paths` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.select_file_node` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.select_material` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.select_textures_for_objects` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.setup_formatting` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.tb_find_and_copy_textures` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.tb_normalize_paths` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.tb_normalize_paths_init` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.tb_resolve_missing_textures` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.tb_resolve_missing_textures_init` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.tb_set_texture_directory` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.tb_set_texture_directory_init` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `mat_utils/texture_path_editor.py::TexturePathEditorSlots.tbl000_init` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
 - `node_utils/attributes/channels/_channels.py::Channels.copy_values` → `blendertk.Channels.copy_attr_values` (from 0.23.0)
 - `node_utils/attributes/channels/_channels.py::Channels.paste_values` → `blendertk.Channels.paste_attr_values` (from 0.23.0)
 - `node_utils/attributes/channels/channels_slots.py::ChannelsSlots` → `tentacle.slots.tools.channels.ChannelsSlots` (from 0.23.0)
@@ -678,7 +725,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (233)
+## Added (305)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -784,6 +831,43 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `env_utils/hierarchy_sync/hierarchy_sync_session.py::HierarchySyncSession.scene_path() -> str`
 - `env_utils/hierarchy_sync/hierarchy_sync_session.py::HierarchySyncSession.select_nodes(nodes: Sequence[Any]) -> int`
 - `env_utils/hierarchy_sync/hierarchy_sync_session.py::HierarchySyncSession.workspace() -> str`
+- `env_utils/reference_manager.py::ReferenceManager(class)`
+- `env_utils/reference_manager.py::ReferenceManager.add_reference(self, namespace: str, file_path: str) -> bool`
+- `env_utils/reference_manager.py::ReferenceManager.bake_project_root(self) -> Optional[str]`
+- `env_utils/reference_manager.py::ReferenceManager.bake_scene(self, path: str, **kwargs) -> str`
+- `env_utils/reference_manager.py::ReferenceManager.bake_source(cls, linked_path) -> Optional[str]`
+- `env_utils/reference_manager.py::ReferenceManager.current_references(self) -> List[_LibraryRef]`
+- `env_utils/reference_manager.py::ReferenceManager.current_scene(self) -> str`
+- `env_utils/reference_manager.py::ReferenceManager.current_working_dir(self) -> str`
+- `env_utils/reference_manager.py::ReferenceManager.current_workspace(self) -> str`
+- `env_utils/reference_manager.py::ReferenceManager.discard_stale_scratches(self)`
+- `env_utils/reference_manager.py::ReferenceManager.find_available_workspaces(self, root_dir: Optional[str] = None) -> list`
+- `env_utils/reference_manager.py::ReferenceManager.find_foreign_scenes(cls, root_dir: str, recursive: bool = False, extensions=None) -> List[str]`
+- `env_utils/reference_manager.py::ReferenceManager.follow_bake_sources(self) -> list`
+- `env_utils/reference_manager.py::ReferenceManager.foreign_scratch_path(path: str) -> str`
+- `env_utils/reference_manager.py::ReferenceManager.get_reference_display_mode(self, ref) -> str`
+- `env_utils/reference_manager.py::ReferenceManager.ignore_empty_workspaces(self) -> bool`
+- `env_utils/reference_manager.py::ReferenceManager.import_references(self, namespaces=None, namespace_mode='remove', scene_data='merge') -> int`
+- `env_utils/reference_manager.py::ReferenceManager.import_scene(self, path: str, **kwargs) -> list`
+- `env_utils/reference_manager.py::ReferenceManager.invalidate_workspace_files(self)`
+- `env_utils/reference_manager.py::ReferenceManager.is_current(self, path, current=None) -> bool`
+- `env_utils/reference_manager.py::ReferenceManager.is_foreign(cls, path) -> bool`
+- `env_utils/reference_manager.py::ReferenceManager.needs_conversion(cls, path) -> bool`
+- `env_utils/reference_manager.py::ReferenceManager.new_scene(self) -> bool`
+- `env_utils/reference_manager.py::ReferenceManager.open_scene(self, file_path: str, set_workspace: bool = True) -> bool`
+- `env_utils/reference_manager.py::ReferenceManager.purge_unused_bakes(self, dry_run: bool = False) -> list`
+- `env_utils/reference_manager.py::ReferenceManager.recursive_search(self) -> bool`
+- `env_utils/reference_manager.py::ReferenceManager.remove_references(self, namespaces=None) -> list`
+- `env_utils/reference_manager.py::ReferenceManager.remove_scene_file(self, path: str, permanent: bool = False, use_folder: bool = False) -> Optional[bool]`
+- `env_utils/reference_manager.py::ReferenceManager.rename_scene_file(self, old_path: str, new_path: str, folder=None)`
+- `env_utils/reference_manager.py::ReferenceManager.row_key(cls, linked_path) -> str`
+- `env_utils/reference_manager.py::ReferenceManager.save_open_scene(self) -> Optional[bool]`
+- `env_utils/reference_manager.py::ReferenceManager.save_scene(self, path: str) -> str`
+- `env_utils/reference_manager.py::ReferenceManager.scene_has_complex_animation(cls, path: str) -> bool`
+- `env_utils/reference_manager.py::ReferenceManager.scene_modified(self) -> bool`
+- `env_utils/reference_manager.py::ReferenceManager.set_reference_display_mode(self, ref, mode: str) -> bool`
+- `env_utils/reference_manager.py::ReferenceManager.update_references(self)`
+- `env_utils/reference_manager.py::ReferenceManager.workspace_files(self) -> dict`
 - `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.edit_fbx_preset(self, preset: Optional[str] = None) -> None`
 - `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.fbx_preset_metadata(self, preset: Optional[str]) -> Dict[str, str]`
 - `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.objects_to_export(export_mode: str = 'visible') -> List`
@@ -851,6 +935,41 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/shader_templates.py::ShaderTemplates.save_template(cls, nodes, file_path, exclude_types=None, logger=None) -> None`
 - `mat_utils/shader_templates.py::ShaderTemplates.store(cls) -> 'ptk.PresetStore'`
 - `mat_utils/shader_templates.py::ShaderTemplates.suggested_name(cls, nodes) -> str`
+- `mat_utils/texture_path_editor.py::TexturePathEditor(class)`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.apply_path_edit(self, file_node, typed: str, shader=None, sync=None) -> str`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.can_rename_shader(self, shader) -> bool`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.delete_consequences(self, file_nodes)`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.delete_file_nodes(self, file_nodes) -> int`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.file_nodes(self, exclude_arnold: bool = False)`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.find_and_copy_textures(self, file_nodes, answers, lightmaps=(), dry_run=False, progress=None) -> bool`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.graph_file_nodes(self, file_nodes) -> None`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.is_absolute_path(path: str) -> bool`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.is_file_rename(self, stored: str, typed: str, file_node=None) -> bool`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.lightmap_dependencies(self)`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.lightmap_labels(self, dep)`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.lightmap_revert_scope(self, deps)`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.make_paths_absolute(self, file_nodes) -> int`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.node_exists(self, node) -> bool`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.normalize_lightmaps(self, lightmaps, relative: bool) -> int`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.normalize_paths(self, file_nodes, external_mode: str = 'rewrite') -> int`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.reload_textures() -> None`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.rename_file_node(self, file_node, new_name: str, shader=None, sync=None) -> str`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.rename_lightmap(self, dep, new_name: str) -> None`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.rename_shader(self, shader, new_name: str, sync=None) -> str`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.rename_texture(self, context, new_name: str, sync=None) -> bool`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.repath_lightmap(self, dep, folder: str) -> bool`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.resolve_missing_textures(self, modes, file_nodes=None) -> int`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.resolve_path(self, path: str, file_node=None)`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.revert_lightmaps(self, objects)`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.rows(self, exclude_arnold: bool = False)`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.select_file_nodes(self, file_nodes) -> int`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.select_objects(self, shaders=(), lightmaps=()) -> int`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.selected_file_nodes(self)`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.set_texture_directory(self, file_nodes, target_dir: str, relocate_mode: str = 'rewrite', allow_missing: bool = False) -> int`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.set_texture_path(self, file_node, path: str, relative: bool = False) -> str`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.stored_path(self, node) -> str`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.texture_dir(self) -> str`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.unresolved_file_nodes(self, file_nodes)`
 - `node_utils/attributes/channels/_channels.py::Channels.can_freeze_selection(cls, attr_names)`
 - `node_utils/attributes/channels/_channels.py::Channels.collect_value_strings(cls, objects, attr_names)`
 - `node_utils/attributes/channels/_channels.py::Channels.copy_attr_values(self, objects, attr_names)`

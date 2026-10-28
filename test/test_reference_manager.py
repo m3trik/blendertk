@@ -1,6 +1,7 @@
-"""blendertk Reference Manager engine headless test — verifies the bpy-side library functions that
-back the co-located ``reference_manager`` panel (the Qt slot can't run headless: no Qt binding in
-Blender; panel structure/wiring is covered by ``test_blender_ui_handler.py`` under the .venv).
+"""blendertk Reference Manager engine headless test — verifies the bpy-side library functions and
+the ``ReferenceManager`` engine behind tentacle's shared Reference Manager panel (the panel's own
+behavior -- its menus, the selection -> reference diff, the prompts, the progress footer, the
+notes -- is tentacle's ``test/test_reference_manager_panel.py``).
 
 Run: blender --background --factory-startup --python blendertk/test/test_reference_manager.py
 """
@@ -223,24 +224,6 @@ try:
         "format_scene_name pascal capitalizes first letter",
         btk.format_scene_name("myScene", "pascal") == "MyScene",
     )
-    from blendertk.env_utils.reference_manager import _CASE_STYLES
-
-    _valid_cases = {
-        "upper",
-        "lower",
-        "capitalize",
-        "swapcase",
-        "title",
-        "pascal",
-        "camel",
-        "None",
-    }
-    check(
-        "RM case-style combo values are all set_case-valid (no silent no-ops)",
-        all(c in _valid_cases for c in _CASE_STYLES),
-        str(_CASE_STYLES),
-    )
-
     # 12. save_scene_as — saves the current scene under a workspace with naming applied.
     bpy.ops.wm.read_factory_settings(use_empty=True)
     ws_dir = os.path.join(tmp, "proj")
@@ -470,406 +453,192 @@ try:
     btk.link_blend_file(lib_path, link=True)
     check("a linked library counts as content", btk.scene_has_content())
 
-    # --- Slot bulk-operation routing (stub ui/sb; bypass the Qt-heavy __init__) ---------------
-    from blendertk.env_utils.reference_manager import ReferenceManagerSlots
-
-    class _SB:
-        def __init__(self, ui, confirm="Yes"):
-            self.loaded_ui = type("L", (), {"reference_manager": ui})()
-            self.messages = []
-            self._confirm = confirm
-
-        def message_box(self, msg, *buttons):
-            self.messages.append(msg)
-            return self._confirm if buttons else None
-
-    def make_slots(confirm="Yes"):
-        ui = type("U", (), {})()  # no tbl000 → _refresh is a harmless no-op
-        sb = _SB(ui, confirm)
-        s = ReferenceManagerSlots.__new__(ReferenceManagerSlots)
-        s.sb = sb
-        s.ui = ui
-        s._recursive = True
-        return s, sb
-
-    # reload_all over a live linked library — success is logged, not popped up (the toast was
-    # dropped as a pure success confirmation), so capture the ring buffer to verify the reload ran.
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-    btk.link_blend_file(lib_path, link=True)
-    s, sb = make_slots()
-    ReferenceManagerSlots.set_log_level("DEBUG")
-    ReferenceManagerSlots.enable_log_buffer()
-    ReferenceManagerSlots.clear_log_buffer()
-    s.reload_all()
-    check(
-        "slot reload_all reports a reload",
-        "Reloaded" in ReferenceManagerSlots.dump_log(),
-        ReferenceManagerSlots.dump_log() or str(sb.messages),
+    # --- The engine: ReferenceManager (tentacle's shared panel composes it) ------------------
+    # The panel's own behavior is tentacle's (test/test_reference_manager_panel.py); these
+    # checks pin the host half it calls. Reached by module path: the root export is the
+    # package's DEFAULT_INCLUDE entry.
+    from blendertk.env_utils import reference_manager as _rm_mod
+    from blendertk.env_utils.reference_manager import ReferenceManager
+    from blendertk.env_utils.maya_bridge import _scene_import as _si_mod
+    from blendertk.env_utils.maya_bridge._scene_import import (
+        MayaSceneImport,
+        BAKE_SOURCE_EXTENSIONS,
+        BAKE_SOURCE_SUFFIX,
     )
+    import pythontk as _ptk_types
 
-    # make_local_all (confirm Yes) → library gone, data local
-    s, sb = make_slots("Yes")
-    s.make_local_all()
-    check(
-        "slot make_local_all localizes + drops the library",
-        not btk.is_blend_linked(lib_path),
-    )
+    def _norm(p):
+        return os.path.normcase(os.path.normpath(p))
 
-    # remove_all (confirm Yes) on a fresh link → no libraries left
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-    btk.link_blend_file(lib_path, link=True)
-    s, sb = make_slots("Yes")
-    s.remove_all()
-    check(
-        "slot remove_all removes every library",
-        len(btk.list_libraries()) == 0,
-        str(btk.list_libraries()),
-    )
+    rm = ReferenceManager()
 
-    # remove_all declined (confirm No) leaves the library intact
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-    btk.link_blend_file(lib_path, link=True)
-    s, sb = make_slots("No")
-    s.remove_all()
-    check(
-        "slot remove_all (declined) keeps the library", len(btk.list_libraries()) == 1
-    )
-
-    # reload_all with nothing linked → friendly message, no crash
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-    s, sb = make_slots()
-    s.reload_all()
-    check(
-        "slot reload_all with no libraries reports it",
-        any("No linked" in m for m in sb.messages),
-        str(sb.messages),
-    )
-
-    # The discard guard routes through the engine's corrected test (see check 19) — no prompt when
-    # there is nothing to lose — and when there IS, it OFFERS TO SAVE (Save / Discard / Cancel,
-    # the mirror of the mayatk panel) rather than the old "close anyway?" yes/no.
-    _orig_unsaved = btk.scene_has_unsaved_changes
-    _orig_env = btk.EnvUtils
-    try:
-        btk.scene_has_unsaved_changes = lambda: False
-        s, sb = make_slots("Cancel")
-        check(
-            "panel: silent when the scene holds nothing to lose",
-            s._confirm_discard_unsaved() and not sb.messages,
-            str(sb.messages),
-        )
-
-        btk.scene_has_unsaved_changes = lambda: True
-        s, sb = make_slots("Cancel")
-        declined = s._confirm_discard_unsaved()
-        check(
-            "panel: prompts to save and honors 'Cancel' when there IS unsaved work",
-            (not declined) and any("do you want to save" in m for m in sb.messages),
-            str(sb.messages),
-        )
-
-        # 'Discard' throws the work away and lets the caller proceed — no save attempted.
-        s, sb = make_slots("Discard")
-        s.save_scene = lambda: check("panel: 'Discard' must not save", False)
-        check("panel: 'Discard' proceeds without saving", s._confirm_discard_unsaved())
-
-        # 'Save' on a file that exists on disk flushes it in place, then proceeds.
-        s, sb = make_slots("Save")
-        s._current_scene_path = lambda: os.path.join(tmp, "on_disk.blend")
-        btk.EnvUtils = type("_E", (), {"_save_open_file": staticmethod(lambda: True)})
-        check(
-            "panel: 'Save' flushes an on-disk file and proceeds",
-            s._confirm_discard_unsaved(),
-        )
-        btk.EnvUtils = type("_E", (), {"_save_open_file": staticmethod(lambda: False)})
-        s, sb = make_slots("Save")
-        s._current_scene_path = lambda: os.path.join(tmp, "on_disk.blend")
-        check(
-            "panel: a failed save aborts the caller (the work is still unsaved)",
-            not s._confirm_discard_unsaved(),
-        )
-        btk.EnvUtils = _orig_env
-
-        # 'Save' on a never-saved file routes to the panel's own Save Scene name prompt; the
-        # dirty flag — not save_scene's (absent) return value — decides whether to proceed.
-        s, sb = make_slots("Save")
-        s._current_scene_path = lambda: ""
-        named = []
-        s.save_scene = lambda: (
-            named.append(True),
-            setattr(btk, "scene_has_unsaved_changes", lambda: False),
-        )
-        check(
-            "panel: 'Save' on a never-saved file asks the panel to name + save it",
-            s._confirm_discard_unsaved() and named,
-        )
-        btk.scene_has_unsaved_changes = lambda: True
-        s, sb = make_slots("Save")
-        s._current_scene_path = lambda: ""
-        s.save_scene = lambda: None  # user backed out of the name prompt
-        check(
-            "panel: backing out of the name prompt aborts",
-            not s._confirm_discard_unsaved(),
-        )
-    finally:
-        btk.scene_has_unsaved_changes = _orig_unsaved
-        btk.EnvUtils = _orig_env
-
-    # The row context menu reads 'Reopen' on the file that is already open — the click reloads
-    # from disk (and drops the session's edits), so it must not read the same as any other row.
-    class _Btn:
-        def __init__(self):
-            self._t = "Open"
-
-        def setText(self, t):
-            self._t = t
-
-    class _Tbl:
-        # has_menu mirrors uitk's MenuMixin: the labeller must gate on it, because merely
-        # reaching for `.menu` would BUILD a menu on a table that has none.
-        has_menu = True
-
-        def __init__(self, btn):
-            self.menu = type("_M", (), {})()
-            self.menu.row_open = btn
-
-    open_here = os.path.join(tmp, "here.blend")
-    btn = _Btn()
-    s, _sb = make_slots()
-    s.ui.tbl000 = _Tbl(btn)
-    s._context_paths = lambda: [open_here]
-    s._is_current = lambda p, current=None: p == open_here
-    s._label_open_action()
-    check(
-        "panel: context menu reads 'Reopen' for the open scene",
-        btn._t == "Reopen",
-        btn._t,
-    )
-    s._context_paths = lambda: [os.path.join(tmp, "elsewhere.blend")]
-    s._label_open_action()
-    check(
-        "panel: context menu reads 'Open' for any other row", btn._t == "Open", btn._t
-    )
-
-    # A table with no menu built yet must not have one CONSTRUCTED just to label it.
-    class _NoMenuTbl:
-        has_menu = False
-
-        @property
-        def menu(self):
-            check("panel: labelling must not build the menu", False)
-            return None
-
-    s.ui.tbl000 = _NoMenuTbl()
-    s._label_open_action()
-    check("panel: a menuless table is left alone", True)
-
-    # Selection IS the reference set (mirror of mayatk's handle_item_selection): selecting a
-    # row links its .blend, deselecting removes it, and a library whose file is no row here
-    # is never touched. Regression: the panel wired no itemSelectionChanged at all, so
-    # selecting a file referenced nothing (the user-reported parity gap). Stub table, real
-    # bpy linking.
-    class _Qt:
-        UserRole = 256
-        ItemIsSelectable = 1
-
-    class _Item:
-        def __init__(self, path, selectable=True):
-            self.path, self.selected = path, False
-            self._flags = _Qt.ItemIsSelectable if selectable else 0
-
-        def data(self, role):
-            return self.path
-
-        def flags(self):
-            return self._flags
-
-        def isSelected(self):
-            return self.selected
-
-        def setSelected(self, on):
-            self.selected = on
-
-    class _Actions:
-        def __init__(self):
-            self.states = {}
-
-        def set(self, row, col, state):
-            self.states[(row, col)] = state
-
-    class _Idx:
-        def __init__(self, row):
-            self._row = row
-
-        def isValid(self):
-            return self._row is not None
-
-        def row(self):
-            return self._row
-
-    class _SelTbl:
-        has_menu = False
-
-        def __init__(self, items):
-            self.items, self.actions = items, _Actions()
-
-        def rowCount(self):
-            return len(self.items)
-
-        def item(self, row, col):
-            return self.items[row]
-
-        def indexAt(self, pos):
-            return _Idx(pos if pos is not None and pos < len(self.items) else None)
-
+    # References: every linked library, as a reference keyed by its file.
     bpy.ops.wm.read_factory_settings(use_empty=True)
     other_lib = os.path.join(tmp, "libs", "other_ws.blend")
     shutil.copy2(lib_path, other_lib)
-    btk.link_blend_file(other_lib, link=True)  # linked, but no row lists it
-    rows = [_Item(lib_path), _Item(os.path.join(tmp, "scene.ma"), selectable=False)]
-    s, sb = make_slots()
-    s.sb.QtCore = type("_QtCore", (), {"Qt": _Qt})
-    s.ui.tbl000 = _SelTbl(rows)
-    s._syncing_selection = False
-    s._context_menu_row = None
-    s.ui.footer = type("_F", (), {"setText": lambda self, t: setattr(self, "t", t)})()
-    s._listing = (2, 0)
-    rows[0].selected = True
-    s._on_selection_changed()
+    check("engine: nothing linked -> no references", rm.current_references == [])
     check(
-        "panel: the footer count follows a selection link (no rebuild)",
-        getattr(s.ui.footer, "t", "") == "2 file(s); 2 linked.",
-        getattr(s.ui.footer, "t", None),
+        "engine: add_reference links a .blend",
+        rm.add_reference("kit", lib_path) is True and btk.is_blend_linked(lib_path),
+    )
+    btk.link_blend_file(other_lib, link=True)
+    _refs = rm.current_references
+    _by_row = {rm.row_key(r.path): r for r in _refs}
+    check(
+        "engine: current_references wraps each library (path / namespace / label)",
+        set(_by_row) == {_norm(lib_path), _norm(other_lib)}
+        and all(r.namespace == r.library.name == r.label for r in _refs),
+        str([(r.namespace, r.path) for r in _refs]),
+    )
+    _n_libs = len(bpy.data.libraries)
+    check(
+        "engine: add_reference of a linked file links nothing more",
+        rm.add_reference("kit", lib_path) is True
+        and len(bpy.data.libraries) == _n_libs,
     )
     check(
-        "panel: selecting a row links its .blend",
-        btk.is_blend_linked(lib_path),
+        "engine: add_reference of a missing file -> False",
+        rm.add_reference("gone", os.path.join(tmp, "gone.blend")) is False,
+    )
+    _kit = _by_row.get(_norm(lib_path))
+    check(
+        "engine: a display override round-trips through a reference",
+        _kit is not None
+        and rm.set_reference_display_mode(_kit, "template")
+        and rm.get_reference_display_mode(_kit) == "template",
+    )
+    if _kit is not None:
+        rm.set_reference_display_mode(_kit, "off")
+    with _rm_mock.patch.object(
+        _EU, "reload_library", wraps=_EU.reload_library
+    ) as _reloads:
+        rm.update_references()
+    check(
+        "engine: update_references reloads every library",
+        _reloads.call_count == len(bpy.data.libraries) == 2,
+        f"calls={_reloads.call_count}",
+    )
+    _failed = rm.remove_references([_kit.namespace]) if _kit is not None else None
+    check(
+        "engine: remove_references removes only the named library",
+        _failed == []
+        and not btk.is_blend_linked(lib_path)
+        and btk.is_blend_linked(other_lib),
         str(btk.list_libraries()),
     )
+    # A removal that left its collection-instance Empty behind piled one up per
+    # click (the panel's row selection is the reference set); the other library's stays.
+    _instancers = [o for o in bpy.data.objects if o.instance_type == "COLLECTION"]
     check(
-        "panel: ...and its link icon reads referenced",
-        s.ui.tbl000.actions.states.get((0, s.COL_REF)) == "referenced",
-        str(s.ui.tbl000.actions.states),
+        "engine: ...and only its collection instance with it",
+        len(_instancers) == 1 and _instancers[0].instance_collection is not None,
+        str([(o.name, o.instance_collection) for o in _instancers]),
     )
-    rows[0].selected = False
-    s._on_selection_changed()
-    check("panel: deselecting the row removes it", not btk.is_blend_linked(lib_path))
+    _made = rm.import_references()
     check(
-        "panel: a library no row lists survives a selection change",
-        btk.is_blend_linked(other_lib),
+        "engine: import_references makes every library local and drops it",
+        _made >= 1 and len(bpy.data.libraries) == 0,
+        f"made={_made} libs={btk.list_libraries()}",
     )
-    # Selection IS the reference set, so every row click links and every deselect
-    # removes: a removal that left its collection-instance Empty behind piled one up
-    # per click. The unlisted library's own Empty stays.
-    instancers = [o for o in bpy.data.objects if o.instance_type == "COLLECTION"]
+    _raised = False
+    try:
+        rm.import_references(namespace_mode="keep")
+    except ValueError:
+        _raised = True
     check(
-        "panel: deselecting takes the row's collection instance with it, no other",
-        len(instancers) == 1 and instancers[0].instance_collection is not None,
-        str([(o.name, o.instance_collection) for o in instancers]),
+        "engine: Blender has one namespace mode; another raises",
+        _raised and ReferenceManager.NAMESPACE_MODES == ("remove",),
     )
-    s._syncing_selection = True  # a rebuild's clear() must never read as "unlink"
-    rows[0].selected = True
-    s._on_selection_changed()
-    check(
-        "panel: a programmatic selection change links nothing",
-        not btk.is_blend_linked(lib_path),
-    )
-    s._syncing_selection = False
-    # The sync drives the selection FROM the libraries (selectable rows only).
+    bpy.ops.wm.read_factory_settings(use_empty=True)
     btk.link_blend_file(lib_path, link=True)
-    rows[0].selected = False
-    s._sync_reference_state(s.ui.tbl000)
+    btk.link_blend_file(other_lib, link=True)
     check(
-        "panel: the reference sync selects a linked row",
-        rows[0].selected and not rows[1].selected and not s._syncing_selection,
-    )
-    # The row context menu acts on the right-clicked row, never on the selection.
-    s._capture_context_row(1)
-    check(
-        "panel: the context menu targets the right-clicked row",
-        s._context_paths() == [rows[1].path],
-        str(s._context_paths()),
-    )
-    s._capture_context_row(None)
-    check("panel: right-clicking empty space targets nothing", s._context_paths() == [])
-
-    # Folder-structure filter must resolve {scenes} (regression: the filter passed no scenes= to
-    # replace_placeholders, so a "{scenes}/…" pattern — now the header default — matched nothing
-    # and silently hid every file, exactly the "panel shows nothing" symptom).
-    s, _fsb = make_slots()
-    fs_ws = os.path.join(tmp, "fs_ws")
-    os.makedirs(os.path.join(fs_ws, "scenes", "hero"), exist_ok=True)
-    in_scenes = os.path.join(fs_ws, "scenes", "hero", "hero.blend")
-    loose = os.path.join(fs_ws, "loose.blend")
-    open(in_scenes, "w").close()
-    open(loose, "w").close()
-    kept = s._filter_by_folder_structure(
-        [in_scenes, loose], fs_ws, "{scenes}/{name}", ""
-    )
-    check(
-        "folder-structure filter resolves {scenes} (keeps scenes/<name>, drops loose)",
-        [os.path.normcase(p) for p in kept] == [os.path.normcase(in_scenes)],
-        str(kept),
+        "engine: remove_references() removes every library",
+        rm.remove_references() == [] and len(btk.list_libraries()) == 0,
+        str(btk.list_libraries()),
     )
 
-    # Delete confirmation must NAME the file(s): the row label can hide the suffix/extension,
-    # so a bare count gave no way to confirm which file was about to be removed -- and it
-    # says where they go: the trash, or (a drive with none) permanently.
-    _trash_name = ptk.FileUtils.trash_name()
-    _one = ReferenceManagerSlots._delete_prompt(["C:/proj/scenes/hero_lod0.blend"])
+    # The open file: unsaved-work test, in-place save, save as, close.
+    bpy.ops.wm.read_factory_settings(use_empty=True)
     check(
-        "delete prompt names a single file in full, and the trash it goes to",
-        "hero_lod0.blend" in _one and _trash_name in _one and "permanent" not in _one,
-        _one,
-    )
-    _multi = ReferenceManagerSlots._delete_prompt(
-        ["C:/proj/a.blend", "C:/proj/b.blend"]
+        "engine: a pristine empty scene has nothing to lose",
+        rm.scene_modified() is False,
     )
     check(
-        "delete prompt lists every file in a multi-selection",
-        "2 file(s)" in _multi and "a.blend" in _multi and "b.blend" in _multi,
-        _multi,
+        "engine: a never-saved file cannot be saved in place (None)",
+        rm.save_open_scene() is None,
     )
-    _gone = ReferenceManagerSlots._delete_prompt(
-        ["C:/proj/a.blend"], permanent=["C:/proj/a.blend"]
+    _on_disk = os.path.join(tmp, "on_disk.blend")
+    check(
+        "engine: save_scene writes the open file there and follows it",
+        rm.save_scene(_on_disk) == os.path.normpath(_on_disk)
+        and os.path.isfile(_on_disk)
+        and _norm(rm.current_scene()) == _norm(_on_disk),
+        rm.current_scene(),
+    )
+    with (
+        _rm_mock.patch.object(_EU, "scene_has_unsaved_changes", return_value=False),
+        _rm_mock.patch.object(_EU, "_save_open_file") as _flush,
+    ):
+        check(
+            "engine: a clean on-disk file is up to date, nothing saved",
+            rm.save_open_scene() is True and not _flush.called,
+        )
+    with (
+        _rm_mock.patch.object(_EU, "scene_has_unsaved_changes", return_value=True),
+        _rm_mock.patch.object(_EU, "_save_open_file", return_value=True) as _flush,
+    ):
+        check(
+            "engine: a modified on-disk file is flushed in place",
+            rm.scene_modified() is True
+            and rm.save_open_scene() is True
+            and _flush.called,
+        )
+    with (
+        _rm_mock.patch.object(_EU, "scene_has_unsaved_changes", return_value=True),
+        _rm_mock.patch.object(_EU, "_save_open_file", return_value=False),
+    ):
+        _raised = False
+        try:
+            rm.save_open_scene()
+        except RuntimeError:
+            _raised = True
+        check("engine: a failed in-place save raises (the work is unsaved)", _raised)
+
+    # Rename: same folder, the open file reopened on its new path; a clash refuses.
+    _ren_dir = os.path.join(tmp, "ren")
+    os.makedirs(_ren_dir, exist_ok=True)
+    _ren_old = os.path.join(_ren_dir, "shot_a.blend")
+    _ren_new = os.path.join(_ren_dir, "shot_b.blend")
+    bpy.ops.wm.save_as_mainfile(filepath=_ren_old)
+    _got = rm.rename_scene_file(_ren_old, _ren_new, folder="shot_b")
+    check(
+        "engine: rename_scene_file renames the open file and reopens it",
+        bool(_got)
+        and _norm(_got) == _norm(_ren_new)
+        and os.path.isfile(_ren_new)
+        and not os.path.exists(_ren_old)
+        and _norm(bpy.data.filepath) == _norm(_ren_new),
+        f"{_got} open={bpy.data.filepath}",
+    )
+    _taken = os.path.join(_ren_dir, "taken.blend")
+    open(_taken, "w").close()
+    check(
+        "engine: a name clash refuses the rename (None), nothing moved",
+        rm.rename_scene_file(_ren_new, _taken) is None and os.path.isfile(_ren_new),
     )
     check(
-        "a drive with no trash: the prompt says the delete is permanent",
-        "permanently" in _gone and "cannot be undone" in _gone,
-        _gone,
+        "engine: new_scene starts an empty, unsaved file",
+        rm.new_scene() is True and rm.current_scene() == "",
+        rm.current_scene(),
     )
-    _mixed = ReferenceManagerSlots._delete_prompt(
-        ["C:/proj/a.blend", "D:/share/b.blend"], permanent=["D:/share/b.blend"]
-    )
-    check(
-        "a mixed selection marks the file that goes for good",
-        "b.blend (permanently" in _mixed and "a.blend (permanently" not in _mixed,
-        _mixed,
-    )
-    _cap = ReferenceManagerSlots.DELETE_PROMPT_MAX_NAMES
-    _long = ReferenceManagerSlots._delete_prompt(
-        [f"C:/proj/f{i}.blend" for i in range(_cap + 3)]
-    )
-    check(
-        "delete prompt caps the listing and folds the rest",
-        f"f{_cap}.blend" not in _long and "and 3 more" in _long,
-        _long,
-    )
-    # The prompt is what delete_selected actually shows (declined -> nothing deleted).
+
+    # Delete: to the trash; for good when asked; untouched (None) when the trash refuses.
+    # The trash is a scratch folder here -- never this machine's.
     _del_ws = os.path.join(tmp, "del_ws")
     os.makedirs(_del_ws, exist_ok=True)
     _victim = os.path.join(_del_ws, "victim_lod0.blend")
     open(_victim, "w").close()
-    s, sb = make_slots("No")
-    s._context_paths = lambda: [_victim]
-    s.delete_selected()
-    check(
-        "delete_selected shows the file name and honors 'No'",
-        os.path.exists(_victim) and any("victim_lod0.blend" in m for m in sb.messages),
-        str(sb.messages),
-    )
-    # 'Yes' sends it to the trash; a drive with no trash is asked about as permanent; a
-    # trash that then refuses asks again, as permanent, before anything is lost.
     _bin2 = os.path.join(tmp, "rm_bin2")
     os.makedirs(_bin2, exist_ok=True)
 
@@ -878,178 +647,126 @@ try:
         os.replace(path, target)
         return target
 
-    s, sb = make_slots("Yes")
-    s._context_paths = lambda: [_victim]
     with (
         _rm_mock.patch.object(ptk.FileUtils, "can_trash", return_value=True),
         _rm_mock.patch.object(ptk.FileUtils, "move_to_trash", side_effect=_to_bin2),
     ):
-        s.delete_selected()
+        _gone = rm.remove_scene_file(_victim)
     check(
-        "delete_selected sends the file to the trash",
-        not os.path.exists(_victim)
-        and os.path.isfile(os.path.join(_bin2, "victim_lod0.blend"))
-        and _trash_name in sb.messages[0],
-        str(sb.messages),
+        "engine: remove_scene_file sends the file to the trash",
+        _gone is True
+        and not os.path.exists(_victim)
+        and os.path.isfile(os.path.join(_bin2, "victim_lod0.blend")),
+        str(_gone),
     )
     open(_victim, "w").close()
-    s, sb = make_slots("Yes")
-    s._context_paths = lambda: [_victim]
-    with (
-        _rm_mock.patch.object(ptk.FileUtils, "can_trash", return_value=False),
-        _rm_mock.patch.object(ptk.FileUtils, "move_to_trash") as _never,
-    ):
-        s.delete_selected()
+    with _rm_mock.patch.object(ptk.FileUtils, "move_to_trash") as _never:
+        _gone = rm.remove_scene_file(_victim, permanent=True)
     check(
-        "no trash: asked as permanent, then deleted outright",
-        not os.path.exists(_victim)
-        and "permanently" in sb.messages[0]
-        and not _never.called,
-        str(sb.messages),
+        "engine: permanent deletes outright, the trash never asked",
+        _gone is True and not os.path.exists(_victim) and not _never.called,
     )
     open(_victim, "w").close()
-    s, sb = make_slots("Yes")
-    _answers = iter(["Yes", "No"])
-    sb.message_box = lambda msg, *b: (sb.messages.append(msg), next(_answers, None))[1]
-    s._context_paths = lambda: [_victim]
-    with (
-        _rm_mock.patch.object(ptk.FileUtils, "can_trash", return_value=True),
-        _rm_mock.patch.object(ptk.FileUtils, "move_to_trash", return_value=None),
-    ):
-        s.delete_selected()
+    with _rm_mock.patch.object(ptk.FileUtils, "move_to_trash", return_value=None):
+        _gone = rm.remove_scene_file(_victim)
     check(
-        "a trash that refuses asks again as permanent; 'No' keeps the file",
-        os.path.isfile(_victim)
-        and len(sb.messages) >= 2
-        and "permanently" in sb.messages[1],
-        str(sb.messages),
+        "engine: a trash that refuses leaves the file untouched (None)",
+        _gone is None and os.path.isfile(_victim),
+        str(_gone),
+    )
+    check(
+        "engine: a missing file -> False",
+        rm.remove_scene_file(os.path.join(_del_ws, "gone.blend")) is False,
     )
 
-    # --- Include Types / foreign classification (mirror of mayatk's, inverted) ----------------
-    from blendertk.env_utils.maya_bridge._scene_import import (
-        MayaSceneImport,
-        BAKE_SOURCE_EXTENSIONS,
-        BAKE_SOURCE_SUFFIX,
+    # Workspaces: marked ones and folders holding .blend, an empty marked one only
+    # when asked for; each lists its scenes, a marked project's scenes/ included.
+    _ws_root = os.path.join(tmp, "ws_root")
+    _ws_full = os.path.join(_ws_root, "full")
+    _ws_empty = os.path.join(_ws_root, "empty_marked")
+    _ws_marked = os.path.join(_ws_root, "marked")
+    os.makedirs(_ws_full, exist_ok=True)
+    os.makedirs(_ws_empty, exist_ok=True)
+    os.makedirs(os.path.join(_ws_marked, "scenes"), exist_ok=True)
+    open(os.path.join(_ws_full, "full.blend"), "w").close()
+    open(os.path.join(_ws_marked, "scenes", "m.blend"), "w").close()
+    ptk.Workspace.create(_ws_empty, create_dirs=False)
+    ptk.Workspace.create(_ws_marked, create_dirs=False)
+    _ws_rm = ReferenceManager()
+    _ws_rm.current_working_dir = _ws_root
+    _found = {_norm(p) for _n, p in _ws_rm.find_available_workspaces(_ws_root)}
+    check(
+        "engine: workspaces = folders holding .blend + marked projects with scenes",
+        _found == {_norm(_ws_full), _norm(_ws_marked)},
+        str(_found),
+    )
+    check(
+        "engine: each workspace lists its scenes (a marked project's scenes/ too)",
+        [
+            _norm(p)
+            for k, v in _ws_rm.workspace_files.items()
+            if _norm(k) == _norm(_ws_marked)
+            for p in v
+        ]
+        == [_norm(os.path.join(_ws_marked, "scenes", "m.blend"))],
+        str(_ws_rm.workspace_files),
+    )
+    _ws_rm.ignore_empty_workspaces = False
+    _found = {_norm(p) for _n, p in _ws_rm.find_available_workspaces(_ws_root)}
+    check(
+        "engine: Ignore Empty Workspaces off lists the empty marked project too",
+        _found == {_norm(_ws_full), _norm(_ws_marked), _norm(_ws_empty)},
+        str(_found),
     )
 
-    import pythontk as _ptk_types
-
+    # Foreign rows: the classification the panel's Include Types and actions read.
     check(
-        "_is_foreign classifies ma/mb/fbx + every USD spelling foreign, blend native",
+        "engine: ma/mb/fbx + every USD spelling are foreign, blend native",
         all(
-            ReferenceManagerSlots._is_foreign(f"x{e}")
+            ReferenceManager.is_foreign(f"x{e}")
             for e in (".ma", ".mb", ".fbx", *_ptk_types.USD_EXTENSIONS)
         )
-        and not ReferenceManagerSlots._is_foreign("x.blend"),
+        and not ReferenceManager.is_foreign("x.blend")
+        and not ReferenceManager.is_foreign(""),
     )
     check(
-        "Include Types row is the five shared types, in the shared order",
-        ReferenceManagerSlots._INCLUDE_TYPES == ("ma", "mb", "fbx", "usd", "blend"),
-        str(ReferenceManagerSlots._INCLUDE_TYPES),
+        "engine: NATIVE + FOREIGN partition the Include Types' extensions",
+        set(ReferenceManager.NATIVE_EXTENSIONS)
+        | set(ReferenceManager.FOREIGN_EXTENSIONS)
+        == {".ma", ".mb", ".fbx", ".blend", *_ptk_types.USD_EXTENSIONS}
+        and not set(ReferenceManager.NATIVE_EXTENSIONS)
+        & set(ReferenceManager.FOREIGN_EXTENSIONS),
     )
     check(
-        "NATIVE + FOREIGN partition covers exactly the Include Types row",
-        set(ReferenceManagerSlots.NATIVE_EXTENSIONS)
-        | set(ReferenceManagerSlots.FOREIGN_EXTENSIONS)
-        == {
-            e
-            for t in ReferenceManagerSlots._INCLUDE_TYPES
-            for e in ReferenceManagerSlots._type_extensions(t)
-        }
-        and not set(ReferenceManagerSlots.NATIVE_EXTENSIONS)
-        & set(ReferenceManagerSlots.FOREIGN_EXTENSIONS),
+        "engine: the include defaults are the native type",
+        set(ReferenceManager.INCLUDE_DEFAULTS)
+        == set(ReferenceManager.NATIVE_EXTENSIONS)
+        == {".blend"},
     )
     check(
-        "the usd toggle lists every USD spelling",
-        ReferenceManagerSlots._type_extensions("usd") == _ptk_types.USD_EXTENSIONS
-        and ReferenceManagerSlots._type_extensions("fbx") == (".fbx",),
-    )
-
-    class _Check:
-        def __init__(self, on):
-            self._on = on
-
-        def isChecked(self):
-            return self._on
-
-    _usd_menu = type(
-        "M",
-        (),
-        {
-            f"chk_include_{t}": _Check(t == "usd")
-            for t in ReferenceManagerSlots._INCLUDE_TYPES
-        },
-    )()
-    _s_usd, _ = make_slots()
-    _s_usd.ui = type("U", (), {"header": type("H", (), {"menu": _usd_menu})()})()
-    check(
-        "_included_extensions expands a checked usd toggle to all four spellings",
-        _s_usd._included_extensions() == set(_ptk_types.USD_EXTENSIONS),
-        str(_s_usd._included_extensions()),
+        "engine: the foreign set matches the bridge's bakeable sources",
+        set(ReferenceManager.FOREIGN_EXTENSIONS) == set(BAKE_SOURCE_EXTENSIONS),
     )
     check(
-        "include defaults are this panel's native type",
-        set(ReferenceManagerSlots._INCLUDE_DEFAULTS)
-        == set(ReferenceManagerSlots.NATIVE_EXTENSIONS),
+        "engine: every foreign row imports without a link",
+        set(ReferenceManager.IMPORT_EXTENSIONS)
+        == set(ReferenceManager.FOREIGN_EXTENSIONS),
     )
     check(
-        "foreign set matches the bridge's bakeable sources",
-        set(ReferenceManagerSlots.FOREIGN_EXTENSIONS) == set(BAKE_SOURCE_EXTENSIONS),
-    )
-    s, _ = make_slots()  # stub ui has no header menu -> defaults
-    check(
-        "_included_extensions falls back to defaults without a menu",
-        s._included_extensions() == set(ReferenceManagerSlots._INCLUDE_DEFAULTS),
-    )
-
-    # Conversion route: FBX is the default, USD is opt-in. A missing menu must fall
-    # back to the SAME route the engine defaults to, not the opposite one.
-    check(
-        "_foreign_route falls back to fbx without a menu", s._foreign_route() == "fbx"
-    )
-    for _text, _expected in (
-        ("Convert via FBX", "fbx"),
-        ("Convert via USD", "usd"),
-        ("", "fbx"),
-    ):
-        _combo = type("C", (), {"currentText": lambda self, t=_text: t})()
-        _menu = type("M", (), {"cmb_conversion_route": _combo})()
-        s2, _ = make_slots()
-        s2.ui = type("U", (), {"header": type("H", (), {"menu": _menu})()})()
-        check(
-            f"_foreign_route({_text!r}) -> {_expected}",
-            s2._foreign_route() == _expected,
-        )
-    # uitk persists a combo by INDEX, so the item list is append-only and the default
-    # moves via setCurrentIndex. Tie the two together: reordering the items without
-    # moving the index must fail here, not silently re-default every profile to USD.
-    # Anchored on the objectName — this panel builds several combos, and an
-    # unanchored match would pin whichever one came first in the file. The kwarg
-    # ORDER matters too: set_attributes applies kwargs in order, so setCurrentIndex
-    # must follow addItems or it selects into an empty model.
-    import ast as _ast
-    import re as _re
-    from blendertk.env_utils import reference_manager as _rm_mod
-
-    with open(_rm_mod.__file__, encoding="utf-8") as _fh:
-        _rm_src = _fh.read()
-    _blk = _re.search(
-        # [^\n]* tolerates a trailing comment after setCurrentIndex.
-        r"addItems=(\[[^\]]*\]),\s*setCurrentIndex=(\d+),[^\n]*\s*"
-        r'setObjectName="cmb_conversion_route"',
-        _rm_src,
+        "engine: only a Maya scene converts (an .fbx / USD row is the bake's own input)",
+        ReferenceManager.needs_conversion("a.ma")
+        and ReferenceManager.needs_conversion("a.MB")
+        and not any(
+            ReferenceManager.needs_conversion(f"a{e}")
+            for e in (".fbx", ".blend", *_ptk_types.USD_EXTENSIONS)
+        ),
     )
     check(
-        "route combo declares addItems -> setCurrentIndex -> objectName",
-        _blk is not None,
+        "engine: three ways a rig can travel; Save writes .blend",
+        ReferenceManager.RIG_MODES == ("rig", "bake", "raw")
+        and ReferenceManager.SCENE_SAVE_EXTENSION == ".blend"
+        and ReferenceManager.PRESET_DIR == "blendertk/reference_manager",
     )
-    if _blk:
-        _route_items = _ast.literal_eval(_blk.group(1))
-        check(
-            "route combo default index is the FBX item",
-            "FBX" in _route_items[int(_blk.group(2))],
-            f"{_route_items} idx={_blk.group(2)}",
-        )
 
     # find_scenes honors the extensions narrowing (drives the Include Types discovery).
     scan_ws = os.path.join(tmp, "scan_ws")
@@ -1070,6 +787,14 @@ try:
         "find_scenes extensions= narrows to the checked types",
         fbx_scan == {"c.fbx"},
         str(fbx_scan),
+    )
+    check(
+        "engine: find_foreign_scenes is the bridge's scan",
+        {
+            os.path.basename(p)
+            for p in ReferenceManager.find_foreign_scenes(scan_ws, extensions=[".fbx"])
+        }
+        == fbx_scan,
     )
     for fname in ("e.usd", "f.usda", "g.usdc", "h.usdz"):
         open(os.path.join(scan_ws, fname), "w").close()
@@ -1098,6 +823,12 @@ try:
     )
     check(
         "bake_source(non-bake) -> None", MayaSceneImport.bake_source(lib_path) is None
+    )
+    check(
+        "engine: a bake's row is the scene it was baked from (row_key)",
+        ReferenceManager.row_key(fake_bake) == _norm(os.path.join(scan_ws, "a.ma"))
+        and ReferenceManager.row_key(lib_path) == _norm(lib_path)
+        and ReferenceManager.bake_source("") is None,
     )
 
     # --- End-to-end: .fbx source -> cached .blend bake -> link -> row resolution --------------
@@ -1137,15 +868,19 @@ try:
             and not os.path.exists(baked + BAKE_SOURCE_SUFFIX),
             str(MayaSceneImport.bake_info(baked)),
         )
+        check(
+            "engine: bake_project_root is the open file's project",
+            _norm(rm.bake_project_root() or "") == _norm(bake_proj),
+            str(rm.bake_project_root()),
+        )
         _stamp = os.stat(baked).st_mtime_ns
         check(
-            "an unchanged source reuses its project bake with no child",
-            MayaSceneImport().bake_scene(fbx_src) == baked
-            and os.stat(baked).st_mtime_ns == _stamp,
+            "engine: an unchanged source reuses its project bake with no child",
+            rm.bake_scene(fbx_src) == baked and os.stat(baked).st_mtime_ns == _stamp,
         )
-        n_baked = btk.link_blend_file(baked, link=True, relative=True)
         check(
-            "baked .blend links like a native library", n_baked >= 1, f"count={n_baked}"
+            "engine: add_reference links the bake like a native library",
+            rm.add_reference("kit_export", baked) is True,
         )
         _blib = next(
             (
@@ -1167,7 +902,7 @@ try:
             MayaSceneImport().purge_unused_bakes(bake_proj) == []
             and os.path.isfile(baked),
         )
-        # A file saved before 2026-10-13 links a bake in TEMP: the panel's refresh
+        # A file saved before 2026-10-13 links a bake in TEMP: the engine's follow
         # relinks it onto the project's bake of its source.
         _old_store = ptk.TempArtifacts("btk_rm_rehome_test", policy="scoped")
         _old = _old_store.path(extension=".blend")
@@ -1176,11 +911,10 @@ try:
             json.dump({"source": fbx_src}, _fh)
         btk.remove_library(_blib)
         btk.link_blend_file(_old, link=True)
-        s, _ = make_slots()
-        _moved = s._rehome_temp_bakes()
+        _moved = rm.follow_bake_sources()
         _rlib = next(iter(bpy.data.libraries), None)
         check(
-            "a library reading a temp bake is relinked onto the project's bake",
+            "engine: a library reading a temp bake is relinked onto the project's bake",
             len(_moved) == 1
             and _rlib is not None
             and os.path.normcase(os.path.normpath(bpy.path.abspath(_rlib.filepath)))
@@ -1189,18 +923,21 @@ try:
             getattr(_rlib, "filepath", None),
         )
         _old_store.cleanup()
-        s, _ = make_slots()
-        lib = s._library_for_path(fbx_src)  # resolve the SOURCE row through the sidecar
+        _bref = [
+            r for r in rm.current_references if rm.row_key(r.path) == _norm(fbx_src)
+        ]
         check(
-            "_library_for_path resolves the foreign row via its bake", lib is not None
+            "engine: the foreign row resolves to its library through the bake",
+            len(_bref) == 1,
+            str([(r.namespace, r.path) for r in rm.current_references]),
         )
-        if (
-            lib is not None
-        ):  # second toggle click: remove by the source path, row reads unreferenced
-            btk.remove_library(lib)
+        if _bref:  # second toggle click: removed by the source row's key
+            rm.remove_references([_bref[0].namespace])
             check(
-                "foreign row un-references through the same path",
-                s._library_for_path(fbx_src) is None,
+                "engine: the foreign row un-references through the same key",
+                not any(
+                    rm.row_key(r.path) == _norm(fbx_src) for r in rm.current_references
+                ),
             )
         bpy.ops.wm.save_mainfile()
         _purged = MayaSceneImport().purge_unused_bakes(bake_proj)
@@ -1241,322 +978,61 @@ try:
             os.path.normcase(MayaSceneImport.bake_source(usd_baked) or "")
             == os.path.normcase(usd_src),
         )
-        n_usd = btk.link_blend_file(usd_baked, link=True)
-        check("baked USD links like a native library", n_usd >= 1, f"count={n_usd}")
-        s, _ = make_slots()
-        lib = s._library_for_path(usd_src)
-        check("_library_for_path resolves the USD row via its bake", lib is not None)
-        if lib is not None:
-            btk.remove_library(lib)
+        check(
+            "engine: the baked USD links like a native library",
+            rm.add_reference("kit_export", usd_baked) is True,
+        )
+        _uref = [
+            r for r in rm.current_references if rm.row_key(r.path) == _norm(usd_src)
+        ]
+        check("engine: the USD row resolves through its bake", len(_uref) == 1)
+        if _uref:
+            rm.remove_references([_uref[0].namespace])
             check(
-                "USD row un-references through the same path",
-                s._library_for_path(usd_src) is None,
+                "engine: the USD row un-references through the same key",
+                not any(
+                    rm.row_key(r.path) == _norm(usd_src) for r in rm.current_references
+                ),
             )
     finally:
         bpy.ops.wm.read_factory_settings(use_empty=True)
         shutil.rmtree(usd_proj, ignore_errors=True)
 
-    # --- Notes: ONE project-level store both DCCs' panels share (2026-10-13) -------
-    # This panel kept notes in its own settings (keyed by path) and mayatk's in a
-    # sidecar beside every scene: neither DCC saw the other's.
-    SceneNotes = ptk.SceneNotes  # hoisted from the two DCC twins
-
-    notes_proj = os.path.join(tmp, "notes_proj")
-    ptk.Workspace.create(notes_proj)
-    noted = os.path.join(notes_proj, "scenes", "hero.blend")
-    open(noted, "w").close()
-    s, _ = make_slots()
-    s.scene_notes.set(noted, "lighting pass")
-    check(
-        "a note lands in <project>/data/scene_notes.json keyed project-relative",
-        ptk.FileUtils.read_json(os.path.join(notes_proj, "data", "scene_notes.json"))
-        == {"version": 1, "notes": {"scenes/hero.blend": "lighting pass"}},
-    )
-    check(
-        "the store reads the same note back in a fresh store (mayatk's reads it too)",
-        SceneNotes().get(noted) == "lighting pass",
-    )
-    renamed = os.path.join(notes_proj, "scenes", "hero_v2.blend")
-    os.replace(noted, renamed)
-    s._carry_note(noted, renamed)
-    check(
-        "a rename carries the note; a delete drops it",
-        SceneNotes().get(renamed) == "lighting pass" and SceneNotes().get(noted) == "",
-    )
-    s._carry_note(renamed)
-    check("a delete drops the note", SceneNotes().get(renamed) == "")
-    # The settings notes migrate into the project store.
-    legacy_scene = os.path.join(notes_proj, "scenes", "old.blend")
-    open(legacy_scene, "w").close()
-
-    class _Settings(dict):
-        def value(self, key):
-            return self.get(key)
-
-        def setValue(self, key, value):
-            self[key] = value
-
-    s.ui.settings = _Settings(
-        reference_notes={os.path.normpath(legacy_scene).lower(): "from settings"}
-    )
-    s._migrate_settings_notes()
-    check(
-        "a note kept in the panel settings moves into the project store",
-        SceneNotes().get(legacy_scene) == "from settings"
-        and s.ui.settings["reference_notes"] == {},
-        str(s.ui.settings),
-    )
-    # An UNMARKED project's note lands in the store the listing reads: the
-    # migration runs on the first listing (the workspace combo populated),
-    # never in __init__, where the session root was the bare root folder.
-    import inspect as _inspect_rm
-
-    check(
-        "the settings notes migrate on the first listing, not in __init__",
-        "_migrate_settings_notes" not in _inspect_rm.getsource(
-            ReferenceManagerSlots.__init__
-        )
-        and "self._migrate_settings_notes()"
-        in _inspect_rm.getsource(ReferenceManagerSlots._refresh_table_content),
-    )
-    loose_root = os.path.join(tmp, "notes_root")
-    loose_ws = os.path.join(loose_root, "loose")
-    os.makedirs(loose_ws, exist_ok=True)
-    loose_scene = os.path.join(loose_ws, "shot.blend")
-    open(loose_scene, "w").close()
-
-    class _Combo:
-        def count(self):
-            return 1
-
-        def currentData(self):
-            return loose_ws
-
-    class _Root:
-        def text(self):
-            return loose_root
-
-    s, _ = make_slots()
-    s.ui.cmb000, s.ui.txt000 = _Combo(), _Root()
-    s.ui.settings = _Settings(
-        reference_notes={os.path.normpath(loose_scene).lower(): "loose note"}
-    )
-    s._migrate_settings_notes()
-    s._migrate_settings_notes()  # once: the second call finds nothing pending
-    _listing_store = SceneNotes()
-    _listing_store.session_root = loose_ws
-    check(
-        "an unmarked project's migrated note is in the store the listing reads",
-        _listing_store.get(loose_scene) == "loose note"
-        and s._note(loose_scene) == "loose note",
-        str(s.ui.settings),
-    )
-
+    # Rig logic the conversion prompt asks about: a .ma is line-scanned.
     complex_ma = os.path.join(tmp, "anim.ma")
     with open(complex_ma, "w") as f:
         f.write('//Maya ASCII 2025 scene\ncreateNode pointConstraint -n "pc1";\n')
     static_ma = os.path.join(tmp, "static.ma")
     with open(static_ma, "w") as f:
         f.write('//Maya ASCII 2025 scene\ncreateNode transform -n "cube";\n')
-    # --- _resolve_rig_mode: ONE prompt for how rig logic travels (schema 15.1) ---
-    # Standard Qt button names only (message_box's contract): Yes = transfer the
-    # rig, No = bake to keys, Ignore = import raw, Cancel = abort.
-    for button, mode in (
-        ("Yes", "rig"),
-        ("No", "bake"),
-        ("Ignore", "raw"),
-        ("Cancel", None),
-    ):
-        check(
-            f"_resolve_rig_mode: {button} -> {mode!r}",
-            make_slots(button)[0]._resolve_rig_mode(complex_ma) == mode,
-        )
     check(
-        "_resolve_rig_mode: static scene -> 'auto' (no prompt)",
-        make_slots("Yes")[0]._resolve_rig_mode(static_ma) == "auto",
-    )
-    _s, _sb = make_slots("Yes")
-    check(
-        "_resolve_conversion hands the engine {via, rig_mode} on the FBX route",
-        _s._resolve_conversion(complex_ma) == {"via": "fbx", "rig_mode": "rig"},
+        "engine: a Maya scene with a constraint has rig logic to ask about",
+        bool(ReferenceManager.scene_has_complex_animation(complex_ma)),
     )
     check(
-        "_resolve_rig_mode prompt names all three outcomes",
-        _sb.messages
-        and all(w in _sb.messages[-1] for w in ("Transfer", "Bake", "raw")),
-        _sb.messages[-1] if _sb.messages else "no prompt",
-    )
-    _s2, _ = make_slots("No")
-    _s2._foreign_route = lambda: "usd"
-    check(
-        "_resolve_conversion: rig_mode applies to the USD route too",
-        _s2._resolve_conversion(complex_ma) == {"via": "usd", "rig_mode": "bake"},
+        "engine: a static scene has none (nothing to ask)",
+        not ReferenceManager.scene_has_complex_animation(static_ma),
     )
 
-    # --- no separate Rig setting: the prompt IS the decision, asked only when relevant ---
-    _s3, _sb3 = make_slots("Yes")
-    check(
-        "_resolve_rig_mode: a static scene asks nothing",
-        _s3._resolve_rig_mode(static_ma) == "auto" and not _sb3.messages,
-        _sb3.messages,
-    )
-    check(
-        "no header Rig combo left to consult",
-        not hasattr(_s3, "_rig_mode"),
-    )
-
-    # --- foreign conversions report into the footer and stop on Esc ---------------------------
-    # A production conversion runs for minutes (a headless Maya, then a headless Blender). The
-    # panel hands the engine a progress callback from its footer and treats OperationCancelled
-    # as a stop, never a failure. Engine stubbed; the switchboard fake records the footer calls.
-    import contextlib as _cl
-    import pythontk as _ptk_rm
-    from blendertk.env_utils.maya_bridge import _scene_import as _si_mod
-
-    class _ProgressSB(_SB):
-        def __init__(self, ui, confirm="Yes"):
-            super().__init__(ui, confirm)
-            self.progress_calls, self.bar, self.busy = [], [], 0
-
-        def busy_cursor(self):
-            @_cl.contextmanager
-            def _busy():
-                self.busy += 1
-                yield
-
-            return _busy()
-
-        def progress(self, ui=None, total=None, text="", busy=None):
-            @_cl.contextmanager
-            def _ctx():
-                self.progress_calls.append((ui, total, text))
-                yield (
-                    lambda value=None, message=None: (
-                        self.bar.append((value, message)) or True
-                    )
-                )
-
-            return _ctx()
-
-        @staticmethod
-        def progress_adapter(update):
-            return lambda current, total, message: update(current, message)
-
-    class _Footer:
-        def __init__(self):
-            self.texts = []
-
-        def setText(self, text, level=None):
-            self.texts.append((text, level))
-
-    def make_progress_slots():
-        ui = type("U", (), {})()
-        ui.footer = _Footer()
-        sb = _ProgressSB(ui)
-        s = ReferenceManagerSlots.__new__(ReferenceManagerSlots)
-        s.sb, s.ui, s._recursive = sb, ui, True
-        return s, sb
-
-    _prog_src = os.path.join(tmp, "progress_scene.ma")
-    with open(_prog_src, "w") as f:
-        f.write("//Maya ASCII 2025 scene\n")
-    _orig_bake = _si_mod.MayaSceneImport.bake_scene
-    _bake_log = {}
-
-    def _stub_bake(self, path, progress=None, **conv):
-        _bake_log["progress"] = progress
-        if progress is not None:
-            progress(40, 100, "Maya: Baking driven animation")
-        if _bake_log.get("cancel"):
-            raise _ptk_rm.OperationCancelled("stub stop")
-        return _bake_log["out"]
-
-    try:
-        _si_mod.MayaSceneImport.bake_scene = _stub_bake
-        s, sb = make_progress_slots()
-        _bake_log.update(cancel=True, out=None)
-        _linked = s._reference_foreign_paths([_prog_src])
-        check(
-            "reference: the engine gets the footer's progress callback",
-            callable(_bake_log.get("progress"))
-            and bool(sb.progress_calls)
-            and sb.progress_calls[0][0] is s.ui
-            and sb.progress_calls[0][1] == 100
-            and "progress_scene.ma" in sb.progress_calls[0][2],
-            str(sb.progress_calls),
-        )
-        check(
-            "reference: engine progress reaches the footer bar",
-            (40, "Maya: Baking driven animation") in sb.bar,
-            str(sb.bar),
-        )
-        check(
-            "reference: an Esc stop is a stop, not a failure (footer says so, no error box)",
-            _linked is False
-            and not sb.messages
-            and sb.busy == 1
-            and any(
-                "Stopped referencing progress_scene.ma" in t
-                for t, _ in s.ui.footer.texts
-            ),
-            f"linked={_linked} messages={sb.messages} footer={s.ui.footer.texts}",
-        )
-        bpy.ops.wm.read_factory_settings(use_empty=True)
-        s, sb = make_progress_slots()
-        _bake_log.update(cancel=False, out=lib_path)
-        _linked = s._reference_foreign_paths([_prog_src])
-        check(
-            "reference: a finished conversion links its bake",
-            _linked is True and not sb.messages and btk.is_blend_linked(lib_path),
-            f"linked={_linked} messages={sb.messages}",
-        )
-        bpy.ops.wm.read_factory_settings(use_empty=True)
-    finally:
-        _si_mod.MayaSceneImport.bake_scene = _orig_bake
-
-    # --- Unlink and Import on a not-linked USD row imports it directly: no Maya, no bake,
-    # and nothing to ask (only a Maya scene converts, so only it can prompt).
+    # --- Unlink and Import on a not-linked USD row imports it directly: no Maya, no bake ---
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    s, sb = make_progress_slots()
-    s._import_foreign_paths([usd_src])
+    rm.import_scene(usd_src)
     check(
-        "a USD row imports directly as local data, asking nothing",
-        any(o.type == "MESH" and o.library is None for o in bpy.data.objects)
-        and not sb.messages,
-        f"objects={[o.name for o in bpy.data.objects]} messages={sb.messages}",
+        "engine: a USD row imports directly as local data",
+        any(o.type == "MESH" and o.library is None for o in bpy.data.objects),
+        f"objects={[o.name for o in bpy.data.objects]}",
     )
     bpy.ops.wm.read_factory_settings(use_empty=True)
     # A USD row involves no Maya, so a missing file must not be reported as one.
-    s, sb = make_progress_slots()
-    s._import_foreign_paths([os.path.join(tmp, "gone.usda")])
-    check(
-        "a missing USD row's import names the file and blames no Maya",
-        bool(sb.messages)
-        and "gone.usda" in sb.messages[-1]
-        and "Maya" not in sb.messages[-1],
-        str(sb.messages),
-    )
-
-    # The box renders rich text, and pxr quotes prim paths as "</...>": unescaped,
-    # the part of the error that named the problem vanished (a file name's "&" too).
-    _stock_import_scene = _si_mod.MayaSceneImport.import_scene
-
-    def _failing_import(self, path, *args, **kwargs):
-        raise RuntimeError("layer </World/Crate> could not be read & skipped")
-
-    _si_mod.MayaSceneImport.import_scene = _failing_import
+    _missing = None
     try:
-        s, sb = make_progress_slots()
-        s._import_foreign_paths([os.path.join(tmp, "R&D set.usda")])
-    finally:
-        _si_mod.MayaSceneImport.import_scene = _stock_import_scene
+        rm.import_scene(os.path.join(tmp, "gone.usda"))
+    except Exception as e:  # noqa: BLE001 - what the panel shows is its text
+        _missing = e
     check(
-        "an import error reaches the box as text, not markup",
-        bool(sb.messages)
-        and "&lt;/World/Crate&gt;" in sb.messages[-1]
-        and "read &amp; skipped" in sb.messages[-1]
-        and "R&amp;D set.usda" in sb.messages[-1],
-        str(sb.messages),
+        "engine: a missing USD row's import raises and blames no Maya",
+        _missing is not None and "Maya" not in str(_missing),
+        repr(_missing),
     )
 
     # --- an .fbx row imported in place goes through the consumer its bake runs ------------
@@ -1582,30 +1058,23 @@ try:
     _si_mod.MayaSceneImport.import_scene = _recording_import
     try:
         bpy.ops.wm.read_factory_settings(use_empty=True)
-        s, sb = make_progress_slots()
-        s._import_foreign_paths([fbx_src])
+        rm.import_scene(fbx_src)
     finally:
         _si_mod.MayaSceneImport.import_scene = _real_import_scene
     check(
-        "an .fbx row's Unlink and Import takes the bake's consumer, asking nothing",
+        "engine: an .fbx row's import takes the bake's consumer",
         _import_calls == [os.path.basename(fbx_src)]
-        and any(o.type == "MESH" for o in bpy.data.objects)
-        and not sb.messages,
-        f"calls={_import_calls} messages={sb.messages}",
+        and any(o.type == "MESH" for o in bpy.data.objects),
+        f"calls={_import_calls}",
     )
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
     # --- foreign scratch: <temp root>/btk_opened/btk_opened_<hash>/<stem>_<ext>.blend -------
     # A .ma opens as `<stem>_ma.blend` (provenance in the name, never shadowing a sibling
     # `<stem>.blend`); same-named scenes in different projects must not share a scratch.
-
-    _scr_a = ReferenceManagerSlots._foreign_scratch_path(
-        os.path.join(tmp, "projA", "shot.ma")
-    )
-    _scr_b = ReferenceManagerSlots._foreign_scratch_path(
-        os.path.join(tmp, "projB", "shot.ma")
-    )
-    _scr_fbx = ReferenceManagerSlots._foreign_scratch_path(
+    _scr_a = ReferenceManager.foreign_scratch_path(os.path.join(tmp, "projA", "shot.ma"))
+    _scr_b = ReferenceManager.foreign_scratch_path(os.path.join(tmp, "projB", "shot.ma"))
+    _scr_fbx = ReferenceManager.foreign_scratch_path(
         os.path.join(tmp, "projA", "shot.FBX")
     )
     check(
@@ -1614,14 +1083,12 @@ try:
         and os.path.basename(_scr_fbx) == "shot_fbx.blend",
         f"{_scr_a} / {_scr_fbx}",
     )
-    import pythontk as _ptk
-
     check(
         "scratch dir is a TempArtifacts-swept `btk_opened_*` dir in its store's "
         "folder under the temp root",
         os.path.basename(os.path.dirname(_scr_a)).startswith("btk_opened_")
         and os.path.normcase(os.path.dirname(os.path.dirname(_scr_a)))
-        == os.path.normcase(os.path.join(_ptk.TempArtifacts.root(), "btk_opened")),
+        == os.path.normcase(os.path.join(ptk.TempArtifacts.root(), "btk_opened")),
         _scr_a,
     )
     check(
@@ -1630,67 +1097,95 @@ try:
     )
     check(
         "scratch path is deterministic (a second Open click must resolve the same file)",
-        ReferenceManagerSlots._foreign_scratch_path(
-            os.path.join(tmp, "projA", "shot.ma")
-        )
+        ReferenceManager.foreign_scratch_path(os.path.join(tmp, "projA", "shot.ma"))
         == _scr_a,
     )
 
-    # --- scratch discard on close / next open: the slot hands the current file to the twins
-    # store (ptk.ScratchTwins owns untouched-vs-saved; pinned in pythontk's own tests).
-    import pythontk as ptk
-    import blendertk.env_utils.reference_manager as _rm
-
-    _twins = _rm._scratch_twins()
+    # --- scratch discard on close / next open: the engine hands the current file to the
+    # twins store (ptk.ScratchTwins owns untouched-vs-saved; pinned in pythontk's own tests).
+    _twins = _rm_mod._scratch_twins()
     _bake = os.path.join(tmp, "bake.blend")
     with open(_bake, "wb") as fh:
         fh.write(b"bake")
     _scr = _twins.create(os.path.join(tmp, "projA", "shot.ma"), _bake)
     check(
-        "the slot's twins store is one process-wide ptk.ScratchTwins",
-        _twins is _rm._scratch_twins()
+        "the engine's twins store is one process-wide ptk.ScratchTwins",
+        _twins is _rm_mod._scratch_twins()
         and isinstance(_twins, ptk.ScratchTwins)
         and os.path.isfile(_scr),
     )
-    s, _ = make_slots()
-    s._discard_stale_scratches()  # current file (empty scene) is not the twin -> discarded
+    rm.discard_stale_scratches()  # the open file (an empty scene) is not the twin
     check(
-        "_discard_stale_scratches removes an untouched twin once the scene moved on",
+        "engine: discard_stale_scratches removes an untouched twin once the scene moved on",
         not os.path.exists(_scr) and not _twins.is_twin(_scr),
     )
 
-    # --- workspace resolution for an opened scene: marked project > selected > own folder ---
+    # --- open_scene pins the scene's project: marked project > browsed folder > own folder ---
     _proj = os.path.join(tmp, "proj_marked")
     os.makedirs(os.path.join(_proj, "scenes"), exist_ok=True)
     ptk.Workspace.create(_proj, create_dirs=False)
-    _loose = os.path.join(tmp, "loose", "sub")
+    _loose_root = os.path.join(tmp, "loose")
+    _loose = os.path.join(_loose_root, "sub")
     os.makedirs(_loose, exist_ok=True)
-    s, _ = make_slots()
-    s._workspace_dir = lambda: os.path.join(tmp, "loose")
-    check(
-        "_workspace_for: the marked project containing the scene wins",
-        os.path.normcase(s._workspace_for(os.path.join(_proj, "scenes", "a.ma")))
-        == os.path.normcase(_proj),
-    )
-    check(
-        "_workspace_for: the panel's selected workspace when the scene lies under it",
-        os.path.normcase(s._workspace_for(os.path.join(_loose, "b.ma")))
-        == os.path.normcase(os.path.join(tmp, "loose")),
-    )
-    s._workspace_dir = lambda: ""
-    check(
-        "_workspace_for: else the scene's own folder",
-        os.path.normcase(s._workspace_for(os.path.join(_loose, "b.ma")))
-        == os.path.normcase(_loose),
-    )
-    check("_workspace_for: nothing for an empty path", s._workspace_for("") == "")
+    _a_blend = os.path.join(_proj, "scenes", "a.blend")
+    _b_blend = os.path.join(_loose, "b.blend")
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.wm.save_as_mainfile(filepath=_a_blend)
+    bpy.ops.wm.save_as_mainfile(filepath=_b_blend)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
     _prev_pin = btk.current_workspace()
-    s._pin_workspace_for(os.path.join(_proj, "scenes", "a.ma"))
-    _ws = btk.current_workspace()
+    _browse_rm = ReferenceManager()
+    _browse_rm.current_working_dir = _loose_root
+
+    def _pinned():
+        _ws = btk.current_workspace()
+        return _norm(_ws.root) if _ws is not None else ""
+
     check(
-        "_pin_workspace_for pins the session workspace (no more 'temp workspace' after a foreign open)",
-        _ws is not None and os.path.normcase(_ws.root) == os.path.normcase(_proj),
-        f"{_ws}",
+        "engine: open_scene pins the marked project containing the scene",
+        _browse_rm.open_scene(_a_blend) is True and _pinned() == _norm(_proj),
+        _pinned(),
+    )
+    check(
+        "engine: ...else the browsed folder when the scene lies under it",
+        _browse_rm.open_scene(_b_blend) is True and _pinned() == _norm(_loose_root),
+        _pinned(),
+    )
+    _plain_rm = ReferenceManager()  # nothing browsed
+    check(
+        "engine: ...else the scene's own folder",
+        _plain_rm.open_scene(_b_blend) is True and _pinned() == _norm(_loose),
+        _pinned(),
+    )
+    btk.set_current_workspace(_proj)
+    _plain_rm.open_scene(_b_blend, set_workspace=False)
+    check(
+        "engine: set_workspace=False leaves the session's workspace alone",
+        _pinned() == _norm(_proj),
+        _pinned(),
+    )
+    check(
+        "engine: is_current knows the open file",
+        _plain_rm.is_current(_b_blend) and not _plain_rm.is_current(_a_blend),
+    )
+    check(
+        "engine: current_workspace is the session's pin",
+        _norm(_plain_rm.current_workspace or "") == _norm(_proj),
+        _plain_rm.current_workspace,
+    )
+    _raised = False
+    try:
+        _plain_rm.open_scene(os.path.join(tmp, "missing.blend"))
+    except FileNotFoundError:
+        _raised = True
+    check("engine: opening a missing file raises FileNotFoundError", _raised)
+    btk.set_current_workspace(None)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _bare_rm = ReferenceManager()
+    check(
+        "engine: no pin, no saved file -> no workspace to browse (no Documents fallback)",
+        _bare_rm.current_workspace == "" and _bare_rm.current_working_dir == "",
+        f"{_bare_rm.current_workspace!r} / {_bare_rm.current_working_dir!r}",
     )
     btk.set_current_workspace(_prev_pin.root if _prev_pin else None)
 
@@ -1710,17 +1205,14 @@ try:
     _si_mod.MayaSceneImport._write_bake_record({_si_mod.BAKE_INFO_SOURCE: _src})
     bpy.ops.wm.save_as_mainfile(filepath=_opened_bake)
     bpy.ops.wm.read_factory_settings(use_empty=True)
+    _bake_projects = []
 
-    def _bake_to_opened(self, path, progress=None, **conv):
+    def _bake_to_opened(path, project=None):  # the panel's bake, stubbed
+        _bake_projects.append(project)
         return _opened_bake
 
-    _stock_bake = _si_mod.MayaSceneImport.bake_scene
-    _si_mod.MayaSceneImport.bake_scene = _bake_to_opened
-    try:
-        s, sb = make_progress_slots()
-        s._open_foreign_as_new(_src)
-    finally:
-        _si_mod.MayaSceneImport.bake_scene = _stock_bake
+    _open_rm = ReferenceManager(bake_for_reference=_bake_to_opened)
+    _opened = _open_rm.open_scene(_src)
     _v3d_overlays = [
         sp.overlay
         for scr in bpy.data.screens
@@ -1736,14 +1228,24 @@ try:
     )
     check(
         "open as new: the open file is the source's scratch twin in temp",
-        os.path.normcase(bpy.data.filepath)
-        == os.path.normcase(ReferenceManagerSlots._foreign_scratch_path(_src)),
-        f"{bpy.data.filepath} messages={sb.messages}",
+        _opened is True
+        and os.path.normcase(bpy.data.filepath)
+        == os.path.normcase(ReferenceManager.foreign_scratch_path(_src)),
+        f"{_opened} {bpy.data.filepath}",
+    )
+    check(
+        "open as new: the bake goes in the SOURCE's project",
+        [_norm(p or "") for p in _bake_projects] == [_norm(_src_proj)],
+        str(_bake_projects),
     )
     check(
         "open as new: the twin carries no bake record (it is not a bake)",
         _si_mod.BAKE_INFO_TEXT not in bpy.data.texts,
         str(list(bpy.data.texts.keys())),
+    )
+    check(
+        "open as new: is_current reads the foreign row as the open scene",
+        _open_rm.is_current(_src),
     )
     check(
         "open as new: the bake's project is the pinned source project, not the scratch's folder",
@@ -1761,11 +1263,17 @@ try:
         str(btk.DataNodes.scene_project_root()),
     )
     btk.set_current_workspace(_prev_pin.root if _prev_pin else None)
-    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _scr_open = bpy.data.filepath
+    check(
+        "engine: new_scene closes it, its untouched twin discarded",
+        _open_rm.new_scene() is True
+        and bpy.data.filepath == ""
+        and not os.path.exists(_scr_open),
+        _scr_open,
+    )
     _twins.discard_except("")
     # No twin can be written: refuse, never open the project's bake itself
     # (a save would then write into the bake cache).
-    from blendertk.env_utils import reference_manager as _rm_mod
 
     class _NoTwins:
         def create(self, *_a):
@@ -1776,18 +1284,19 @@ try:
 
     _stock_twins = _rm_mod._scratch_twins
     _rm_mod._scratch_twins = lambda: _NoTwins()
-    _si_mod.MayaSceneImport.bake_scene = _bake_to_opened
+    _no_twin = None
     try:
-        s, sb = make_progress_slots()
-        s._open_foreign_as_new(_src)
+        _open_rm.open_scene(_src)
+    except OSError as e:
+        _no_twin = str(e)
     finally:
-        _si_mod.MayaSceneImport.bake_scene = _stock_bake
         _rm_mod._scratch_twins = _stock_twins
     check(
-        "open as new: no twin -> refused with a message, the bake never opened",
-        os.path.normcase(bpy.data.filepath) != os.path.normcase(_opened_bake)
-        and any("disk full" in str(m) for m in sb.messages),
-        f"{bpy.data.filepath} messages={sb.messages}",
+        "open as new: no twin -> OSError naming why, the bake never opened",
+        _no_twin is not None
+        and "disk full" in _no_twin
+        and os.path.normcase(bpy.data.filepath) != os.path.normcase(_opened_bake),
+        f"{bpy.data.filepath} error={_no_twin}",
     )
     bpy.ops.wm.read_factory_settings(use_empty=True)
     # A library path re-spelled for the open file never raises across drives.
@@ -1822,11 +1331,10 @@ try:
         btk.link_blend_file(_xr_old, link=True)
         _si_mod.MayaSceneImport.bake_source = classmethod(lambda cls, p: _src)
         _si_mod.MayaSceneImport.rehome_bake = lambda self, p, project=None: _xr_target
-        s, _ = make_slots()
-        _xr_moved = s._rehome_temp_bakes()
+        _xr_moved = ReferenceManager().follow_bake_sources()
         _xr_lib = next(iter(bpy.data.libraries), None)
         check(
-            "re-home: a bake on another drive than the open file relinks (absolute)",
+            "engine: re-home of a bake on another drive than the open file (absolute)",
             len(_xr_moved) == 1
             and _xr_lib is not None
             and os.path.normcase(bpy.path.abspath(_xr_lib.filepath))
@@ -1841,38 +1349,6 @@ try:
         bpy.ops.wm.read_factory_settings(use_empty=True)
         _xr_store.cleanup()
         shutil.rmtree(_xr_dir, ignore_errors=True)
-
-    # Save To Workspace: the footer tooltip previews the very path the save writes. Two
-    # ways they parted: the save kept a "{scene}" typo literally (a "{scene}" folder)
-    # while the tooltip read it as "{scenes}"; and a doubled-suffix scene prefilled a
-    # name still ending in the suffix, which the save's own strip then shortened
-    # (previewed scenes/villain_v01/villain_v01.blend, saved scenes/villain/...).
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-    _ws_save = os.path.join(tmp, "ws_save")
-    os.makedirs(_ws_save, exist_ok=True)
-    s, sb = make_slots()
-    s._workspace_dir = lambda: _ws_save
-    s._naming_options = lambda: ("None", "_v01", "{scene}/{name}")
-    s._current_scene_file = lambda: os.path.join(tmp, "villain_v01_v01.blend")
-    s._refresh = lambda: None
-    _previews = []
-    sb.tooltip = type(
-        "_Tip", (), {"fmt": staticmethod(lambda **kw: _previews.append(kw) or "")}
-    )()
-    sb.input_dialog = lambda title, label, default: default  # accept the prefill
-    s._save_scene_preview()
-    s.save_scene()
-    _expected = os.path.join(_ws_save, "scenes", "villain", "villain_v01.blend")
-    check(
-        "panel: Save reads a {scene} typo as {scenes}, as its tooltip does",
-        os.path.isfile(_expected),
-        str(sorted(os.listdir(_ws_save))),
-    )
-    check(
-        "panel: the Save tooltip previews the path the save wrote",
-        any(_expected in text for p in _previews for _k, text in p.get("rows") or ()),
-        str(_previews),
-    )
 
 except Exception as e:
     traceback.print_exc()

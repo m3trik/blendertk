@@ -465,9 +465,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `find_shadows()`
 - `main()`
 
-### `env_utils/reference_manager.py` — Reference Manager tool panel — Switchboard slot wiring for the co-located ``reference_manager.ui``.
-- `class ReferenceManagerSlots(pythontk.LoggingMixin)`
-  - methods: scene_notes, header_init, txt000_init, cmb000_init, txt001_init, tbl000_init, new_workspace, mark_workspace, purge_unused_bakes, open_selected, save_scene, rename_selected, delete_selected, open_location_selected, copy_path_selected, toggle_reference_selected, unlink_import_selected, reload_all, make_local_all, remove_all
+### `env_utils/reference_manager.py` — Reference Manager engine -- the workspace's scene files, the scene's references
+- `class ReferenceManager(pythontk.LoggingMixin, _ReferenceManagerInternal)`
+  - methods: current_workspace, current_working_dir, recursive_search, ignore_empty_workspaces, workspace_files, find_available_workspaces, invalidate_workspace_files, current_references, bake_source, row_key, add_reference, remove_references, import_references, update_references, get_reference_display_mode, set_reference_display_mode, follow_bake_sources, purge_unused_bakes, is_foreign, needs_conversion, scene_has_complex_animation, find_foreign_scenes, bake_scene, import_scene, bake_project_root, foreign_scratch_path, discard_stale_scratches, current_scene, scene_modified, save_open_scene, save_scene, new_scene, is_current, open_scene, rename_scene_file, remove_scene_file
 
 ### `env_utils/scene_exporter/_scene_exporter.py` — Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 - `class SceneExporter(pythontk.SceneExporterBase)`
@@ -742,9 +742,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class TextureBaker(pythontk.LoggingMixin)`
   - methods: bake, render_panorama, denoise_image, denoise_images, resolve_meshes, texture_set, texture_set_stem, image_sources, default_output_dir
 
-### `mat_utils/texture_path_editor.py` — Texture Path Editor tool panel — Switchboard slot wiring for the co-located
-- `class TexturePathEditorSlots(pythontk.LoggingMixin)`
-  - methods: header_init, tb_set_texture_directory_init, tb_normalize_paths_init, tb_resolve_missing_textures_init, tbl000_init, setup_formatting, open_source_images, reload_scene_textures, tb_set_texture_directory, tb_find_and_copy_textures, tb_normalize_paths, make_paths_absolute, tb_resolve_missing_textures, select_textures_for_objects, select_broken_paths, select_absolute_paths, row_browse_for_file, row_rename_file, select_material, select_file_node, row_show_in_hypershade, delete_file_node, handle_cell_edit, refresh_texture_table, cleanup_scene_callbacks
+### `mat_utils/texture_path_editor.py` — Texture Path Editor engine (Blender): the file's texture paths and the commands
+- `class TexturePathEditor(pythontk.LoggingMixin)`
+  - methods: texture_dir, resolve_path, is_absolute_path, rows, file_nodes, node_exists, stored_path, selected_file_nodes, reload_textures, set_texture_directory, make_paths_absolute, normalize_paths, resolve_missing_textures, unresolved_file_nodes, find_and_copy_textures, set_texture_path, is_file_rename, apply_path_edit, rename_texture, can_rename_shader, rename_shader, rename_file_node, select_objects, select_file_nodes, graph_file_nodes, delete_consequences, delete_file_nodes, lightmap_dependencies, lightmap_labels, normalize_lightmaps, repath_lightmap, rename_lightmap, lightmap_revert_scope, revert_lightmaps
 
 ### `node_utils/_node_utils.py` — Node / datablock utilities — instancing via shared object data.
 - `class NodeUtils(_NodeUtilsInternal)`

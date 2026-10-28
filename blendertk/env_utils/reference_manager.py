@@ -1,1473 +1,409 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Reference Manager tool panel — Switchboard slot wiring for the co-located ``reference_manager.ui``.
+"""Reference Manager engine -- the workspace's scene files, the scene's references
+(linked libraries) and the scene-file operations a browser runs on them.
 
-Faithful Blender counterpart of mayatk's Reference Manager: a **workspace scene-file manager**, not
-just a library linker. Mirrors the Maya panel's whole surface — a **Root Directory** (``txt000``), a
-**Workspace** combo of project folders under it (``cmb000``), a **Filter** (``txt001``), and the
-5-column scene-file **table** (``tbl000``) — **FILES | reference-toggle | open | display-mode |
-NOTES** with the same clickable action-icon columns as Maya — plus open / save / rename / delete
-scene, reference link / make-local / reload / relocate / remove, and per-reference **display modes**.
+:class:`ReferenceManager` mirrors mayatk's ``ReferenceManager`` by name and behavior,
+over Blender's model:
 
-Mapping (Maya → Blender), all backed by :mod:`blendertk.EnvUtils`:
-  * scene file (``.ma`` / ``.mb``) → ``.blend``; *open scene* → ``wm.open_mainfile``; *save scene*
-    (naming conventions) → ``wm.save_as_mainfile`` via ``save_scene_as``; rename / delete → on disk.
-  * Maya **workspace** (project dir) → a project folder under the root (``find_workspaces``).
-  * Maya **file reference** → a linked **library** (File ▸ Link), or **Append** for a local copy;
-    *import references* → ``make_library_local``; *update* → reload; *un-reference* → remove.
-  * per-reference **display override** (normal / reference / template) → the linked objects'
-    ``display_type`` + ``hide_select`` (``set_reference_display_mode``).
-  * **Notes** column → per-file comments kept with the project (``ptk.SceneNotes``: one
-    ``<data>/scene_notes.json`` both DCCs' panels share);
-    hidden by default with a *Show Notes Column* toggle, like Maya.
-  * Naming presets (**case** / **suffix** / **subfolder** structure) drive *Save Scene*.
-  * **Filter / Display** (header menu) → filter by name / notes (ignore-case + a target combo) or by
-    suffix / folder-structure; optionally hide the suffix / extension in the displayed name.
-  * **Workspace history** → the last workspace chosen per root directory is remembered (QSettings).
+* Maya file reference -> a linked **library** (File > Link).
+  :attr:`ReferenceManager.current_references` wraps each as a :class:`_LibraryRef`
+  (``path``, ``namespace`` = the library's name, ``label``); importing a reference makes
+  its library local (``EnvUtils.make_library_local``); a display override sets its
+  objects' ``display_type`` + ``hide_select``.
+* Maya scene file -> ``.blend``. A foreign (Maya / FBX / USD) row is baked to a cached
+  ``.blend`` through the maya_bridge before it can be linked or opened.
+* Maya project -> a workspace folder (marked by a ``workspace.mel``, or a folder that
+  holds .blend files); the session's project is ``EnvUtils.set_current_workspace``'s pin.
 
-As in Maya, the table's **selection is the reference set**: clicking a file's row links it, clicking
-it again removes the library (foreign and current-scene rows are non-selectable; their link icon
-toggles them), and the row context menu acts on the right-clicked row, never the selection.
-
-The three action-icon columns mirror Maya's: click the **link** icon to link/unlink a file, the
-**open** icon to open the scene (a foreign scene is baked and opened as a new file; the current
-scene is highlighted + italicized), and the tri-state **display** icon to cycle Normal → Reference
-→ Template. The row **context menu** is a flat 1:1 mirror of Maya's — Open / Rename / Delete /
-Reference-Unreference / Unlink-and-Import / Open File Location — where **Unlink and Import** makes a
-linked reference local *or* converts + imports a foreign (Maya / FBX / USD) scene.
-
-Intentionally **not** mirrored (genuinely Maya-only): namespaces and assemblies
-(``AssemblyManager`` / ``convert_references_to_assemblies`` — no Blender analogue).
-
-Self-contained (``ptk.LoggingMixin`` only); ``import bpy`` and the Qt-only ``uitk`` helpers are
-deferred into the call bodies (headless Blender ships no Qt; the workspace .venv ships no bpy, so the
-table degrades gracefully — file list without live linked-status — when bpy is absent).
+Its panel is tentacle's shared Reference Manager (``slots/tools/reference_manager.py``),
+which composes one and passes its progress, bake and report collaborators in.
+``import bpy`` is deferred into the call bodies and every read degrades without it
+(the Qt-only harness loads the panel with no Blender running).
 """
 
-import contextlib
-import html
 import os
+from typing import Callable, ContextManager, List, Optional
 
 import pythontk as ptk
 
-import blendertk as btk
+from blendertk.env_utils._env_utils import EnvUtils
 
-# Naming-convention case styles for Save Scene (header menu). These are exactly the tokens
-# pythontk.StrUtils.set_case honors — using "camel case"/"snake case" here would be a silent no-op.
-_CASE_STYLES = ("None", "camel", "pascal", "title", "upper", "lower", "capitalize")
-# Max per-root workspace selections remembered (mirror of mayatk's workspace history cap).
-_WORKSPACE_HISTORY_MAX = 20
-# Scratch twins of foreign scenes opened "as new" (see _open_foreign_as_new): one per
-# source under the system temp dir, age-swept, discarded on close/next open while still
-# untouched. Process-wide, like the open file itself; lazily built (no temp-dir lookup at
-# import).
+# Scratch twins of foreign scenes opened "as new" (see ReferenceManager.open_scene): one
+# per source under the system temp dir, age-swept, discarded on close/next open while
+# still untouched. Process-wide, like the open file itself; lazily built (no temp-dir
+# lookup at import). Mirror of mayatk's.
 _OPENED_SCRATCH_PREFIX = "btk_opened"
 _opened_scratches = None
 
 
 def _scratch_twins():
-    """The panel's ``ptk.ScratchTwins`` store (``<temp>/btk_opened_<hash>/<stem>_<ext>.blend``)."""
+    """The ``ptk.ScratchTwins`` store (``<temp>/btk_opened_<hash>/<stem>_<ext>.blend``)."""
     global _opened_scratches
     if _opened_scratches is None:
         _opened_scratches = ptk.ScratchTwins(_OPENED_SCRATCH_PREFIX, extension=".blend")
     return _opened_scratches
 
 
-class ReferenceManagerSlots(ptk.LoggingMixin):
-    """Switchboard slot wiring for the Reference Manager panel."""
+def _bpy():
+    """``bpy``, or None outside a running Blender."""
+    try:
+        import bpy
+    except ImportError:
+        return None
+    return bpy
 
-    # Table columns — Name | Reference-toggle | Open | Display-mode | Notes (1:1 with mayatk).
-    COL_NAME = 0
-    COL_REF = 1
-    COL_OPEN = 2
-    COL_DISPLAY = 3
-    COL_NOTES = 4
-    # On-screen order (logical indices): Name | Notes | Display | Reference | Open.
-    VISUAL_COLUMN_ORDER = (COL_NAME, COL_NOTES, COL_DISPLAY, COL_REF, COL_OPEN)
 
-    # Action-icon colours, mirrored from the Maya panel.
-    ACTION_COLOR = {
-        "off": "#555555",
-        "referenced": "#6b8fa3",
-        "current": "#6898b8",
-        "ref_lock": "#d4a84a",
-        "template": "#6b8fa3",
-        "unavailable": "#3a3a3a",
-    }
-    # Display-mode click cycle: Normal → Reference → Template → Normal.
-    _DISPLAY_MODE_CYCLE = {
-        "off": "reference",
-        "reference": "template",
-        "template": "off",
-    }
+class _LibraryRef:
+    """A linked library as a reference: what mayatk's file reference answers.
 
-    # File-type classification for this panel (mirror of mayatk, inverted). NATIVE types list
-    # + link directly (Blender links .blend); FOREIGN types are cross-DCC rows converted through
-    # the maya_bridge before they can be linked. The header's Include Types row toggles each
-    # type; _INCLUDE_TYPES is the column order (shared across both panels).
-    _INCLUDE_TYPES = ("ma", "mb", "fbx", "usd", "blend")
-    NATIVE_EXTENSIONS = (".blend",)
-    # Foreign types the bridge can bake into a linkable .blend. .ma/.mb go through a headless
-    # Maya first; .fbx and USD are already the bake's own input, so they need no Maya at all.
-    FOREIGN_EXTENSIONS = (".ma", ".mb", ".fbx", *ptk.USD_EXTENSIONS)
-    # An include type that lists more than its own spelling: a USD layer or package is any
-    # of .usd/.usda/.usdc/.usdz. Every other type lists just ``.<type>``.
-    _INCLUDE_TYPE_EXTENSIONS = {"usd": ptk.USD_EXTENSIONS}
-    # Default-checked include types for this panel — its own native scene type.
-    _INCLUDE_DEFAULTS = (".blend",)
-    # Max file names listed verbatim in the delete confirmation (the rest fold into
-    # an "...and N more" line).
-    DELETE_PROMPT_MAX_NAMES = 10
+    ``namespace`` is the library's name -- the key :meth:`ReferenceManager.remove_references`
+    and :meth:`ReferenceManager.import_references` select by (Blender has no namespaces:
+    a library's datablocks carry no prefix).
+    """
 
-    def __init__(self, switchboard, log_level="WARNING"):
-        self.sb = switchboard
-        self.ui = self.sb.loaded_ui.reference_manager
-        self.logger.setLevel(log_level)
-        self.logger.set_log_prefix("[reference_manager] ")
-        self._recursive = (
-            True  # search sub-folders too by default — mirrors Maya's chk000 (checked)
-        )
-        self._scene_notes = ptk.SceneNotes()
-        self._suppress_note_save = False  # guard programmatic table edits
-        self._listing = None  # (files shown, files hidden by the filter) for the footer
-        # Guard programmatic selection changes (a rebuild's clear(), the reference->selection
-        # sync) so they never read as the user's selection -> reference edit.
-        self._syncing_selection = False
-        # The right-clicked row the context-menu actions act on (mirror of mayatk's).
-        self._context_menu_row = None
-        self._setup_footer_actions()
+    __slots__ = ("library",)
 
-    def _setup_footer_actions(self):
-        """Build the footer actions once, then (re)wire their signals to THIS instance.
-
-        A 1:1 mirror of mayatk's footer: **Save To Workspace** (the panel's primary
-        action) plus **Un-Reference All** (here Blender's ``remove_all``). The naming
-        conventions Save applies stay in the header menu: Rename and the list filters
-        read them too. Construction is guarded because the footer QWidget persists
-        across a slots reload while this instance rebuilds — an unguarded rebuild
-        would duplicate the buttons.
-        """
-        footer = getattr(self.ui, "footer", None)
-        if footer is None or not hasattr(footer, "add_widget"):
-            return
-        if not getattr(footer, "_rm_actions_built", False):
-            footer._rm_actions_built = True
-            self._build_footer_actions(footer)
-        self._wire_footer_signals(footer)
-
-    def _build_footer_actions(self, footer):
-        """One-time footer construction, left to right: Un-Reference All, then Save
-        To Workspace as the outermost, primary action."""
-        arrow = self.sb.QtGui.QCursor(self.sb.QtCore.Qt.ArrowCursor)
-        height = max(footer.height() - 2, 1)
-
-        # Add order IS the left-to-right order: add_widget(side="right") inserts
-        # each widget just before the size grip.
-        unref_btn = self.sb.QtWidgets.QPushButton("Un-Reference All", footer)
-        unref_btn.setToolTip("Remove all references (linked libraries) from the scene.")
-        unref_btn.setCursor(arrow)
-        unref_btn.setFixedHeight(height)
-        footer.add_widget(unref_btn, side="right", background=True)
-        footer._rm_unref_btn = unref_btn
-
-        save_btn = self.sb.QtWidgets.QPushButton("Save To Workspace", footer)
-        save_btn.setObjectName("btn_save_footer")
-        save_btn.setCursor(arrow)
-        save_btn.setFixedHeight(height)
-        # Static fallback only — _wire_footer_signals binds the live tooltip that
-        # shows the exact path Save would write.
-        save_btn.setToolTip(
-            "Save the current scene into the workspace using the header menu's "
-            "Naming options."
-        )
-        footer.add_widget(save_btn, side="right", background=True)
-        footer._rm_save_btn = save_btn
-
-    def _wire_footer_signals(self, footer):
-        """(Re)wire the footer actions + live tooltips to this instance (idempotent)."""
-        save_btn = getattr(footer, "_rm_save_btn", None)
-        if save_btn is not None:
-            self._rewire_signal(save_btn, save_btn.clicked, self.save_scene, "save")
-            # Live tooltip: hovering Save shows the full path it would write, per
-            # the current scene + naming options (re-binding replaces the provider).
-            self.sb.tooltip.bind(save_btn, self._save_scene_preview)
-        unref_btn = getattr(footer, "_rm_unref_btn", None)
-        if unref_btn is not None:
-            self._rewire_signal(unref_btn, unref_btn.clicked, self.remove_all, "unref")
-
-    # ------------------------------------------------------------------ bpy availability
-    @staticmethod
-    def _has_bpy():
-        try:
-            import bpy  # noqa: F401
-
-            return True
-        except Exception:
-            return False
-
-    def _scenes_folder(self, workspace) -> str:
-        """The workspace's ``scene`` rule folder — the ``{scenes}`` placeholder value.
-        Falls back to the literal ``"scenes"`` (same lookup as ``save_scene_as`` and the
-        folder-structure filter). Shared by the filter and the live preview."""
-        try:
-            scene_rule = ptk.Workspace.load(workspace).rules.get("scene")
-        except Exception:
-            scene_rule = None
-        return scene_rule if scene_rule and not os.path.isabs(scene_rule) else "scenes"
-
-    def _naming_menu(self):
-        """The header menu — home of the naming fields (case / suffix / folder
-        structure), which Save, Rename and the list filters all read. ``None``
-        until the header is built. Mirror of mayatk's."""
-        header = getattr(self.ui, "header", None)
-        return getattr(header, "menu", None)
-
-    def _naming_options(self):
-        """``(case_style, suffix, structure_pattern)`` as set in the header menu's
-        Naming section — the single read every consumer goes through; defaults when the
-        menu isn't built yet. Both text fields come back trimmed, as the filter
-        read (``_filter_options``) always trimmed them. Mirror of mayatk's."""
-        menu = self._naming_menu()
-        case_w = getattr(menu, "cmb_case_style", None) if menu else None
-        suffix_w = getattr(menu, "txt_suffix", None) if menu else None
-        txt = getattr(menu, "txt_subfolder_structure", None) if menu else None
-        return (
-            case_w.currentText() if case_w is not None else "None",
-            suffix_w.text().strip() if suffix_w is not None else "",
-            txt.text().strip() if txt is not None else "",
-        )
-
-    @staticmethod
-    def _path_key(path):
-        """The panel's case-insensitive key for a file path — ONE spelling shared by
-        the notes store, the linked-library map and the open-scene match, so a
-        path looked up by one always finds what another recorded."""
-        return os.path.normpath(path).lower()
+    def __init__(self, library):
+        self.library = library
 
     @property
-    def scene_notes(self):
-        """The Notes column's store (:class:`pythontk.SceneNotes`: one file per
-        project, shared with mayatk's panel), its unmarked projects resolved
-        under the workspace being browsed."""
-        notes = self.__dict__.get("_scene_notes")
-        if notes is None:
-            notes = self._scene_notes = ptk.SceneNotes()
-        try:
-            notes.session_root = self._workspace_dir() or None
-        except Exception:  # noqa: BLE001 - a panel without its workspace widgets
-            notes.session_root = None
-        return notes
+    def namespace(self) -> str:
+        return self.library.name
 
-    def _note(self, path):
-        """*path*'s note ('' without one; never raises into a listing)."""
-        try:
-            return self.scene_notes.get(path)
-        except Exception:  # noqa: BLE001 - a note never fails the listing
-            return ""
+    @property
+    def label(self) -> str:
+        """Human name for a message (mirror of mayatk's)."""
+        return self.library.name
 
-    def _migrate_settings_notes(self):
-        """Move the notes this panel kept in its settings (before 2026-10-13,
-        keyed by path) into each scene's project store; a note whose scene is
-        gone or whose project cannot be written stays in the settings.
+    @property
+    def path(self) -> str:
+        """The library's file, absolute (a ``//``-relative path resolved)."""
+        return EnvUtils._abspath(self.library.filepath)
 
-        Run by the listing (:meth:`_refresh_table_content`), so it resolves an
-        unmarked project under the same session root the listing reads its
-        notes with -- in ``__init__`` the workspace combo is not populated
-        yet, and the bare root folder stood in for it."""
-        try:
-            legacy = dict(self.ui.settings.value("reference_notes") or {})
-        except (TypeError, ValueError):
-            return
-        if not legacy:
-            return
-        kept = self.scene_notes.import_notes(legacy)
-        self.ui.settings.setValue("reference_notes", kept)
 
-    def _carry_note(self, old, new=None):
-        """Move *old*'s note to *new* (a rename) or drop it (*new* None: a delete).
-
-        Notes are keyed by the scene's project-relative path, so without this a
-        renamed file loses its note and a deleted one leaves a stale entry behind
-        (mayatk's panel carries them the same way)."""
-        if new:
-            self.scene_notes.move(old, new)
-        else:
-            self.scene_notes.remove(old)
-
-    def _current_scene_file(self):
-        """RAW path of the currently-open .blend ('' — needs bpy). Unlike
-        :meth:`_current_scene_path` — a LOWERCASED comparison key for row
-        matching — this keeps the authored casing: it feeds displayed and
-        prepopulated names, where ``Hero.blend`` must not become ``hero``."""
-        if not self._has_bpy():
-            return ""
-        import bpy
-
-        return bpy.data.filepath or ""
-
-    def _default_save_name(self, case_style, suffix) -> str:
-        """The name Save would prepopulate: the open scene's base, less every
-        trailing *suffix* (so it isn't double-appended), case-formatted. Empty with
-        no scene. Mirror of mayatk's. Reads the RAW path — the old read through
-        ``_current_scene_path`` prepopulated the name lowercased.
-
-        EVERY trailing suffix: Save strips one from whatever its prompt returns, so
-        a prefill still ending in it (a doubled ``_v01_v01``) would save under
-        another ``{name}`` than the one both previews show."""
-        current = self._current_scene_file()
-        if not current:
-            return ""
-        base = os.path.splitext(os.path.basename(current))[0]
-        stripped = ptk.StrUtils.strip_suffix(base, [suffix])
-        while stripped != base:
-            base, stripped = stripped, ptk.StrUtils.strip_suffix(stripped, [suffix])
-        return btk.format_scene_name(base, case_style)
+class _ReferenceManagerInternal(object):
+    """Internal helpers for ReferenceManager."""
 
     @staticmethod
-    def _corrected_structure(pattern):
-        """*pattern* with the common ``{scene}`` typo read as ``{scenes}`` — the one
-        spelling Save writes and both previews show (mayatk auto-corrects it the
-        same way). Left as typed, ``replace_placeholders`` keeps the unknown
-        ``{scene}`` verbatim and the save made a literal ``{scene}`` folder."""
-        return pattern.replace("{scene}", "{scenes}")
+    def _bake_source_key(linked_path) -> Optional[str]:
+        """:meth:`ReferenceManager.bake_source`, normalized for comparison."""
+        source = ReferenceManager.bake_source(linked_path)
+        return os.path.normcase(os.path.normpath(source)) if source else None
 
-    def _save_scene_preview(self) -> str:
-        """Live tooltip for the footer Save button — the exact path Save would
-        write for the current scene under the current naming options (the same
-        ``scene_save_path`` computation ``save_scene_as`` executes)."""
-        import html
+    @staticmethod
+    def _importer():
+        """The maya_bridge's scene importer class (deferred: the bridge is heavy)."""
+        from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
 
-        case_style, suffix, structure_text = self._naming_options()
-        notes = []
-        if "{scene}" in structure_text:
-            notes.append("<b>{scene}</b> is not valid — did you mean <b>{scenes}</b>?")
-        pattern = self._corrected_structure(structure_text)
-        name = self._default_save_name(case_style, suffix) or "<scene name>"
-        workspace = self._workspace_dir()
-        path = None
-        if workspace and os.path.isdir(workspace):
-            try:
-                path = btk.EnvUtils.scene_save_path(
-                    workspace, name, case=case_style, suffix=suffix, subfolder=pattern
-                )
-            except ValueError as e:
-                notes.append(html.escape(str(e)))
-        else:
-            notes.append("Set a valid workspace folder first.")
-        return self.sb.tooltip.fmt(
-            title="Save To Workspace",
-            body="Save the current scene into the workspace using the header "
-            "menu's Naming options: case / suffix / folder structure.",
-            rows=[("saves →", f"<b>{html.escape(path)}</b>")] if path else None,
-            notes=notes or None,
-        )
+        return MayaSceneImport
 
-    def _folder_structure_preview(self) -> str:
-        """Live tooltip for ``txt_subfolder_structure`` — resolve the placeholders
-        against the current workspace + scene so the hover shows the real Save dir
-        (mirror of mayatk). Side-effect-free: the ``{scene}`` typo is corrected
-        locally and surfaced as a note rather than mutating state."""
-        case_style, suffix, pattern = self._naming_options()
 
-        workspace = self._workspace_dir() or ""
-        workspace_name = (
-            os.path.basename(os.path.normpath(workspace))
-            if workspace
-            else "<workspace>"
-        )
+class ReferenceManager(ptk.LoggingMixin, _ReferenceManagerInternal):
+    """Blender's Reference Manager engine: the workspace's scene files, the file's
+    linked libraries, and the scene-file operations a browser runs on them.
 
-        # {name} = the current .blend base, formatted the way Save would —
-        # the same derivation Save's prompt prepopulates (_default_save_name).
-        name_val = self._default_save_name(case_style, suffix) or "<scene name>"
+    Mirror of mayatk's ``ReferenceManager`` (see the module docstring for the mapping).
+    No UI: a panel composes one, handing it its collaborators (:meth:`__init__`), and
+    calls its API.
+    """
 
-        notes = ["e.g. {scenes} · {scenes}/{name} · {scenes}/{name}/versions"]
-        if "{scene}" in pattern:
-            notes.append("<b>{scene}</b> is not valid — did you mean <b>{scenes}</b>?")
-        resolve_pattern = self._corrected_structure(pattern)
+    #: Workspace-scan globs: the scenes a workspace lists.
+    SCENE_FILE_TYPES = ("*.blend",)
+    #: Extensions linked natively.
+    NATIVE_EXTENSIONS = (".blend",)
+    #: Foreign (cross-DCC) rows: baked to a ``.blend`` through the maya_bridge before
+    #: they can be linked or opened (:meth:`bake_scene`). ``.ma``/``.mb`` go through a
+    #: headless Maya first; ``.fbx`` and USD are already the bake's own input.
+    FOREIGN_EXTENSIONS = (".ma", ".mb", ".fbx", *ptk.USD_EXTENSIONS)
+    #: Rows Unlink and Import brings in with no reference behind them.
+    IMPORT_EXTENSIONS = FOREIGN_EXTENSIONS
+    #: The Include Types a browser lists by default: Blender's own scene type.
+    INCLUDE_DEFAULTS = (".blend",)
+    #: What Save writes (:meth:`save_scene`).
+    SCENE_SAVE_EXTENSION = ".blend"
+    #: What an unlink does with the imported reference's namespace: Blender has none (a
+    #: made-local library merges into the file's own name space, a clash taking a
+    #: ``.001`` suffix), so there is nothing to choose between.
+    NAMESPACE_MODES = ("remove",)
+    #: What an unlink does with a library's scene data (see :meth:`import_references`).
+    SCENE_DATA_MODES = EnvUtils.SCENE_DATA_MODES
+    #: Display override modes (:meth:`set_reference_display_mode`).
+    DISPLAY_MODES = ("off", "reference", "template")
+    #: How a foreign scene's rig logic can travel (``bake_scene`` / ``import_scene``
+    #: ``rig_mode``) -- the choices a browser offers when the scene has some.
+    RIG_MODES = ("rig", "bake", "raw")
+    #: Where a browser's header presets (naming / filter settings) are saved.
+    PRESET_DIR = "blendertk/reference_manager"
 
-        context = {
-            "scenes": self._scenes_folder(workspace) if workspace else "scenes",
-            "name": name_val,
-            "workspace": workspace_name,
-            "suffix": suffix,
-        }
+    _progress = None
+    _report = None
+
+    def __init__(
+        self,
+        log_level="WARNING",
+        *,
+        progress: Optional[Callable[[str], ContextManager]] = None,
+        bake_for_reference: Optional[Callable[..., Optional[str]]] = None,
+        report: Optional[Callable[[str], None]] = None,
+    ):
+        """Build the engine (mirror of mayatk's; a panel passes the same
+        collaborators to either host).
+
+        Parameters:
+            log_level: The logger's level.
+            progress: ``progress(text)`` -> a context manager yielding a
+                ``progress(current, total, message)`` callback (or None): the scope a
+                long engine-side step runs in. Accepted for the shared signature: no
+                engine-side step here is long enough to need one.
+            bake_for_reference: Replaces :meth:`_bake_for_reference` --
+                ``(path, project=None) -> bake path or None`` -- the bake a foreign
+                row's open reads (a panel runs it in its progress, asking how a rig
+                travels, and shows its errors).
+            report: ``report(message)``: puts an outcome the user must see in front
+                of them (a panel's message box). Default: logged only.
+        """
+        super().__init__()
+        self.set_log_level(log_level)
+        self._progress = progress
+        self._report = report
+        if bake_for_reference is not None:
+            self._bake_for_reference = bake_for_reference
+        self._workspace_files = None
+        self._recursive_search = True
+        self._ignore_empty_workspaces = True
+        self._current_working_dir = None
+
+    # ------------------------------------------------------------------ workspace
+    @property
+    def current_workspace(self) -> str:
+        """The session's workspace root (``EnvUtils.workspace_root``: the pin, else
+        the open file's), or '' with neither. Unlike mayatk's -- Maya always has a
+        project, its default one at worst -- there is no Documents fallback: a
+        browser scans the folder it is given for workspaces, recursively, and a
+        whole personal folder is no project."""
         try:
-            rel = ptk.StrUtils.replace_placeholders(resolve_pattern, **context)
-            final = os.path.join(workspace, rel) if workspace else rel
-        except ValueError:
-            final = None
+            root = EnvUtils.workspace_root()
+        except Exception:  # noqa: BLE001 - no Blender (the Qt-only harness)
+            root = ""
+        return os.path.normpath(root) if root and os.path.isdir(root) else ""
 
-        # Fold the field's help text into the live tooltip (binding replaces the
-        # static setToolTip): purpose + what each placeholder means + its value.
-        return self.sb.tooltip.placeholder_preview(
-            resolve_pattern,
-            context,
-            title="Folder Structure",
-            body="Where scenes live, panel-wide: <b>Save To Workspace</b> writes "
-            "here and <b>Filter by Folder Structure</b> matches against it.",
-            descriptions={
-                "scenes": "workspace scenes folder (scene file rule)",
-                "name": "scene name — excludes the suffix",
-                "workspace": "workspace folder name",
-                "suffix": "the Suffix field above",
-            },
-            final=final,
-            final_label="save dir →",
-            notes=notes,
-        )
+    @property
+    def current_working_dir(self) -> str:
+        """The folder being browsed (the session's workspace until one is set; ''
+        with neither)."""
+        if self._current_working_dir is None or not os.path.isdir(
+            self._current_working_dir
+        ):
+            self._current_working_dir = self.current_workspace or None
+        return self._current_working_dir or ""
 
-    def _wire_structure_tooltip(self, menu) -> None:
-        """Bind the live folder-structure preview once the menu widget's ``.tooltip``
-        proxy is stamped. Menu registration is deferred (coalesced next-tick drain),
-        so bind on the following tick with a small bounded retry (mirror of mayatk)."""
-        from qtpy import QtCore
+    @current_working_dir.setter
+    def current_working_dir(self, value):
+        """Set the folder being browsed and rescan its workspaces."""
+        if os.path.isdir(value):
+            self._current_working_dir = value
+            self.invalidate_workspace_files()
 
-        def _bind(attempts_left=5):
-            txt = getattr(menu, "txt_subfolder_structure", None)
-            proxy = getattr(txt, "tooltip", None) if txt is not None else None
-            if proxy is not None:
-                proxy.bind(self._folder_structure_preview)
-            elif attempts_left > 0:
-                QtCore.QTimer.singleShot(0, lambda: _bind(attempts_left - 1))
+    @property
+    def recursive_search(self) -> bool:
+        """Whether workspace discovery searches below the root's immediate children."""
+        return self._recursive_search
 
-        QtCore.QTimer.singleShot(0, _bind)
+    @recursive_search.setter
+    def recursive_search(self, value):
+        self._recursive_search = value
+        self.invalidate_workspace_files()
 
-    # ------------------------------------------------------------------ header
-    def header_init(self, widget):
-        """Header refresh button, Naming presets, Filter/Display toggles, bulk Operations, help text.
+    @property
+    def ignore_empty_workspaces(self) -> bool:
+        """Whether a workspace holding no scene is left out of discovery."""
+        return self._ignore_empty_workspaces
 
-        Items + layout are a 1:1 mirror of mayatk's header (Naming / Filter-Display / Operations).
-        Workspace management (New / Mark As Workspace) and Recursive scanning live on the Root
-        Directory field's option box — Maya keeps neither in this header.
-        """
-        # Gesture-scoped window: pin button + auto-hide on key_show release. Runs on every call
-        # (declarative, cheap) and the signal is re-wired idempotently because the header QWidget
-        # can outlive this slots instance — a bare .connect() on a second call (a genuine reload,
-        # or the offscreen test harness's documented "drive *_init explicitly" pattern) would
-        # leave a stale connection bound to a dead ``self`` alongside the live one. Goes through
-        # ``_rewire_signal`` (drops only OUR prior connection): a blanket ``disconnect()`` makes
-        # libpyside warn "Failed to disconnect (None) from signal" on the first, unconnected call.
-        widget.config_buttons("refresh", "menu", "collapse", "pin")
-        # Tap-to-pin: letting the marking-menu key go right after this panel opens pins it,
-        # same as a click on the pin button would — the user came here to work, not to peek.
-        # Holding the key still auto-hides on release, so a glance costs nothing. Explicit
-        # per-tool opt-in (an assignment, not the process-wide UiHandler.pin_on_tap default)
-        # so it survives regardless of that preference. Mirror of mayatk's reference_manager.
-        widget.pin_on_tap = True
-        self._rewire_signal(
-            widget, widget.refresh_requested, self._refresh, "hdr_refresh"
-        )
+    @ignore_empty_workspaces.setter
+    def ignore_empty_workspaces(self, value):
+        self._ignore_empty_workspaces = value
+        self.invalidate_workspace_files()
 
-        # One-time menu build: repeated calls (see above) must not re-append every Naming /
-        # Filter / Include-Types control — the user-reported duplicate header controls. Only the
-        # widget CONSTRUCTION is guarded; config_buttons + the signal above stay outside so a
-        # reload still re-targets them at the current ``self``.
-        if widget.is_initialized:
-            self._wire_naming_fields(widget.menu)  # a reload: re-target this instance
-            return
-        # Save / load the naming + filter settings as named presets (mirror of Maya).
-        widget.menu.add_presets = True
-        widget.menu.presets.preset_dir = "blendertk/reference_manager"
+    @property
+    def workspace_files(self) -> dict:
+        """``{workspace: [scene paths]}`` for the workspaces under the browsed folder."""
+        if self._workspace_files is None:
+            self.invalidate_workspace_files()
+        return self._workspace_files
 
-        # Naming: panel-wide conventions (mirror of Maya). Save applies all three;
-        # Rename applies case + suffix; the Filter options below match against
-        # suffix + folder structure.
-        widget.menu.add("Separator", setTitle="Naming:")
-        widget.menu.add(
-            "QComboBox",
-            addItems=list(_CASE_STYLES),
-            setObjectName="cmb_case_style",
-            setToolTip="Case convention applied to the file name on Save and Rename.",
-        )
-        widget.menu.add(
-            "QLineEdit",
-            setObjectName="txt_suffix",
-            setPlaceholderText="Suffix (e.g. _v01)…",
-            setToolTip="Suffix appended to the file name on Save and Rename (excluded "
-            "from case formatting) — also what Filter by Suffix and Hide Suffix match.",
-        )
-        widget.menu.add(
-            "QLineEdit",
-            setObjectName="txt_subfolder_structure",
-            setText="{scenes}",
-            setPlaceholderText="Folder Structure (e.g. {scenes}/{name})…",
-        )
-        self._wire_naming_fields(widget.menu)
+    def find_available_workspaces(self, root_dir: Optional[str] = None) -> list:
+        """The workspaces under *root_dir* (default: the browsed folder) as
+        ``(name, path)`` -- marked ones (a ``workspace.mel``) and folders holding
+        .blend files (``EnvUtils.find_workspaces``). Mirror of mayatk's."""
+        if root_dir is None:
+            root_dir = self.current_working_dir
+        if not root_dir or not os.path.isdir(root_dir):
+            return []
+        found = []
+        for path in EnvUtils.find_workspaces(root_dir, recursive=self.recursive_search):
+            if self.ignore_empty_workspaces and not self._scene_files(path):
+                continue
+            found.append((os.path.basename(os.path.normpath(path)) or path, path))
+        return found
 
-        # Filter / Display options (mirror of Maya's header filter checkboxes). Each re-filters the
-        # list; Show Notes Column is a view-only toggle (Notes hidden by default, like Maya).
-        # (Ignore-Case + filter target + the enable toggle live on the Filter field's option box.)
-        widget.menu.add("Separator", setTitle="Filter / Display:")
-        widget.menu.add(
-            "QCheckBox",
-            setText="Filter by Suffix",
-            setObjectName="chk_filter_suffix",
-            setChecked=False,
-            setToolTip="Show only files whose name ends with the Suffix above.",
-        ).toggled.connect(lambda *_: self._refresh())
-        widget.menu.add(
-            "QCheckBox",
-            setText="Filter by Folder Structure",
-            setObjectName="chk_filter_folder_structure",
-            setChecked=False,
-            setToolTip="Show only files whose location matches the Folder Structure above.",
-        ).toggled.connect(lambda *_: self._refresh())
-        widget.menu.add(
-            "QCheckBox",
-            setText="Hide Suffix",
-            setObjectName="chk_hide_suffix",
-            setChecked=False,
-            setToolTip="Hide the suffix from the displayed file name.",
-        ).toggled.connect(lambda *_: self._refresh())
-        widget.menu.add(
-            "QCheckBox",
-            setText="Hide Extension",
-            setObjectName="chk_hide_extension",
-            setChecked=False,
-            setToolTip="Hide the .blend extension from the displayed file name.",
-        ).toggled.connect(lambda *_: self._refresh())
-        widget.menu.add(
-            "QCheckBox",
-            setText="Show Notes Column",
-            setObjectName="chk_show_notes_column",
-            setChecked=False,
-            setToolTip="Show the Notes column (per-file comments / metadata). Hidden by default.",
-        ).toggled.connect(lambda *_: self._apply_notes_column_visibility())
+    def invalidate_workspace_files(self):
+        """Scan for workspaces and rebuild the file cache (mirror of mayatk's)."""
+        self._workspace_files = {}
+        for _name, path in self.find_available_workspaces():
+            if os.path.isdir(path):
+                self._workspace_files[path] = self._scene_files(path)
 
-        # Foreign-scene conversion route (mirror across both panels). FBX (default):
-        # instancing is native to the format on BOTH sides, so shared mesh data
-        # survives with no sidecar replay in the path — and when FBX's texture
-        # manifest does fail, the loss is VISIBLE (classic-model materials) and
-        # structurally harmless. USD: richer material graphs plus native animation
-        # and visibility, but instance relationships are rebuilt from the conversion
-        # sidecar, and that rebuild currently fails SILENTLY (see .claude/BACKLOG.md)
-        # — a scene that looks correct but no longer shares data. Opt in per scene.
-        #
-        # Item order is APPEND-ONLY: uitk persists a combo by INDEX, so reordering
-        # would retroactively flip every stored pick. The default moves via
-        # setCurrentIndex, never by moving items. The objectName was renamed off
-        # `cmb_foreign_route` when the default changed, deliberately orphaning the
-        # old key so the new default reaches profiles that had already stored one.
-        widget.menu.add("Separator", setTitle="Foreign Scenes:")
-        widget.menu.add(
-            "QComboBox",
-            addItems=["Convert via USD", "Convert via FBX"],
-            setCurrentIndex=1,  # FBX
-            setObjectName="cmb_conversion_route",
-            setToolTip=(
-                "Intermediate used when opening / importing / referencing a foreign "
-                "scene.\n"
-                "FBX (default): instancing is carried by the format itself, so a "
-                "scene keeps its shared mesh data without a rebuild step.\n"
-                "USD: richer materials, plus animation and visibility arrive "
-                "natively — but instances are rebuilt from a sidecar. Prefer it for "
-                "look-heavy scenes, and check instancing survived."
-            ),
-        )
+    @staticmethod
+    def _scene_files(workspace: str) -> List[str]:
+        """Every .blend under *workspace*, its scene-rule folder included even when
+        that lies outside it (a shared project's ``scenes/``)."""
+        files = EnvUtils.find_blend_files(workspace, recursive=True)
+        scene_dir = EnvUtils.workspace_scenes_dir(workspace)
+        if scene_dir:
+            seen = {os.path.normcase(p) for p in files}
+            files += [
+                p
+                for p in EnvUtils.find_blend_files(scene_dir, recursive=True)
+                if os.path.normcase(p) not in seen
+            ]
+        return files
 
-        # No Rig setting: how a scene's rig logic travels is asked per scene, and
-        # only when it has some (_resolve_rig_mode). Mirror of Maya.
-        # Include Types — a single horizontal row of per-type toggles (mirror across both
-        # panels). Replaces the old single "Include Maya Scenes" toggle: .blend lists + links
-        # natively; .ma/.mb/.fbx/USD list as foreign rows baked to a .blend before linking.
-        self._add_include_types_row(widget.menu)
-        # (The naming fields' re-filter-on-edit wiring lives with them in
-        # _wire_naming_fields.)
-
-        # Bulk operations — a 1:1 mirror of Maya's Operations group. Maya's two are
-        # Convert-to-Assembly / Unlink-and-Import-All; Convert-to-Assembly has no Blender analogue
-        # (dropped, ledgered), the other maps to Make Local All. Un-Reference All (Remove All) is
-        # footer-only on both panels.
-        # Per-library Reload lives in the row menu; workspace management (New / Mark As Workspace)
-        # lives on the Root Directory option box — Maya keeps neither in this header. Save To
-        # Workspace is footer-only on both panels.
-        widget.menu.add("Separator", setTitle="Operations:")
-        widget.menu.add(
-            "QPushButton",
-            setText="Unlink and Import All",
-            setObjectName="btn_unlink_import_all",
-            setToolTip="Make every linked library's data local (Maya's Unlink and Import All).",
-        ).clicked.connect(self.make_local_all)
-        # Un-Reference All lives on the footer only (_setup_footer_actions).
-
-        widget.set_help_text(
-            self.sb.tooltip.fmt(
-                title="Reference Manager",
-                body="A workspace scene-file manager: browse a project's .blend files, open / save / "
-                "rename / delete them, and link them as references (Blender libraries).",
-                steps=[
-                    "Set a <b>Root Directory</b> (▸ to browse / recent); pick a <b>Workspace</b>.",
-                    "Click the row's <b>link</b> icon to link/unlink, the <b>open</b> icon to open the "
-                    "scene, the <b>display</b> icon to cycle Normal → Reference → Template.",
-                    "<b>Double-click</b> the name to rename; right-click for the action menu "
-                    "(Open, Rename, Delete, Reference / Unreference, Unlink and Import, …).",
-                    "<b>Double-click</b> the <b>Notes</b> column to annotate a file (saved with the project).",
-                ],
-                sections=[
-                    (
-                        "Columns",
-                        [
-                            "<b>FILES</b> | link | open | display | <b>NOTES</b>. The current scene's row "
-                            "is highlighted + italic.",
-                        ],
-                    ),
-                    (
-                        "Footer",
-                        [
-                            "<b>Un-Reference All</b> removes every linked library.",
-                            "<b>Save To Workspace</b> saves the current scene into the "
-                            "workspace using the <b>Naming</b> options; hovering the "
-                            "button previews the exact path it would write.",
-                        ],
-                    ),
-                    (
-                        "Header menu",
-                        [
-                            "<b>Naming</b> (case / suffix / folder structure) is "
-                            "panel-wide: Save and Rename apply it, and the filters "
-                            "below match against it.",
-                            "<b>Filter by Suffix / Folder Structure</b> narrow the list; <b>Hide Suffix / "
-                            "Extension</b> shorten the displayed name; <b>Show Notes Column</b> reveals Notes.",
-                            "<b>Include Types</b> (ma / mb / fbx / usd / blend) picks which file types "
-                            "list; .blend links natively, a foreign (ma / mb / fbx / usd) row's link "
-                            "icon bakes it to a cached .blend and links that — right-click <b>Unlink "
-                            "and Import</b> for a local copy instead.",
-                            "<b>Operations</b>: <b>Unlink and Import All</b>.",
-                        ],
-                    ),
-                    (
-                        "Root Directory (▸ option box)",
-                        [
-                            "Browse / recent-dir history; <b>Open Directory</b>; <b>Set To Current "
-                            "Workspace</b>; <b>Recursive Search</b> (scan sub-folders, on by default); "
-                            "<b>New Workspace</b> / <b>Mark As Workspace</b> "
-                            "(write a shared Maya/Blender workspace.mel project).",
-                        ],
-                    ),
-                    (
-                        "Filter field (▸ option box)",
-                        [
-                            "Toggle the filter on/off; <b>Ignore Case</b>; choose what it matches — "
-                            "<b>Files</b>, <b>Notes</b>, or both.",
-                        ],
-                    ),
-                ],
-            )
-        )
-
-    def _add_include_types_row(self, menu):
-        """Add the Include Types row — one checkbox per file type, side-by-side under a titled
-        separator (mirror across both panels). Uses ``Menu.add_row`` so the single-column menu is
-        not reflowed; each checkbox is exposed as ``menu.chk_include_<type>`` and re-filters on toggle.
-
-        This panel's native scene type (.blend) defaults on; foreign types default off.
-        """
-        tooltip = {
-            "ma": "List the workspace's Maya ASCII scenes (.ma) — referenced via a headless-Maya convert + .blend bake.",
-            "mb": "List the workspace's Maya binary scenes (.mb) — referenced via a headless-Maya convert + .blend bake.",
-            "fbx": "List the workspace's FBX files (.fbx) — referenced via a .blend bake (no Maya needed).",
-            "usd": "List the workspace's USD layers and packages (.usd / .usda / .usdc / .usdz) — "
-            "referenced via a .blend bake (no Maya needed).",
-            "blend": "List the workspace's Blender scenes (.blend) — linked natively.",
-        }
-        items = [
-            (
-                "QCheckBox",
-                {
-                    "setObjectName": f"chk_include_{t}",
-                    "setText": t,
-                    "setChecked": bool(
-                        set(self._type_extensions(t)) & set(self._INCLUDE_DEFAULTS)
-                    ),
-                    "setToolTip": tooltip[t],
-                },
-            )
-            for t in self._INCLUDE_TYPES
+    # ------------------------------------------------------------------ references
+    @property
+    def current_references(self) -> List[_LibraryRef]:
+        """The file's directly linked libraries, as references ([] without Blender).
+        A library linked only through another (``Library.parent``) is that one's
+        content, as a nested reference is in Maya: it is no row's to remove."""
+        bpy = _bpy()
+        if bpy is None:
+            return []
+        return [
+            _LibraryRef(lib)
+            for lib in bpy.data.libraries
+            if getattr(lib, "parent", None) is None
         ]
-        for cb in menu.add_row(items, title="Include Types:", justify="expand"):
-            cb.toggled.connect(lambda *_: self._refresh())
 
     @classmethod
-    def _type_extensions(cls, include_type):
-        """Every extension the Include Types toggle *include_type* lists (``usd`` -> the
-        four USD spellings; any other type -> ``.<type>``). Mirror of mayatk's."""
-        return tuple(
-            cls._INCLUDE_TYPE_EXTENSIONS.get(include_type, (f".{include_type}",))
-        )
-
-    def _included_extensions(self):
-        """The set of extensions (``.ma`` … ``.blend``) whose Include Types checkbox is checked.
-
-        Defensive: the header menu may not be built yet during a sibling ``*_init``; falls back to
-        the panel defaults so an early refresh still lists this panel's native scenes.
-        """
-        header = getattr(self.ui, "header", None)
-        menu = getattr(header, "menu", None) if header else None
-        if menu is None:
-            return set(self._INCLUDE_DEFAULTS)
-        included = set()
-        for t in self._INCLUDE_TYPES:
-            chk = getattr(menu, f"chk_include_{t}", None)
-            if chk is not None and chk.isChecked():
-                included.update(self._type_extensions(t))
-        return included
-
-    # ------------------------------------------------------------------ fields
-    def txt000_init(self, widget):
-        """Root Directory — browse + recent-dir history + Open / Set-To-Current actions (mirror of Maya)."""
-        if not getattr(widget, "is_initialized", False):
-            # Recent-directory history dropdown (Maya's directory pin). The key is
-            # deliberately the SAME string mayatk passes -- uitk host-namespaces it
-            # ("..._blender" here, "..._maya" there), so the mirrored panels keep
-            # separate lists without either side inventing a per-DCC key.
-            try:
-                widget.option_box.pin(
-                    settings_key="reference_manager_directories",
-                    single_click_restore=True,
-                )
-            except Exception:
-                pass
-            # Directory picker — folded into the option menu as "Set Directory…"
-            # rather than a standalone folder icon (mirror of Maya's b000 row).
-            from uitk.widgets.optionBox.options.browse import BrowseOption
-
-            self._browse_option = BrowseOption(
-                wrapped_widget=widget,
-                mode="directory",
-                title="Select Root Directory",
-                tooltip="Browse for a root folder containing project workspaces.",
-            )
-            widget.option_box.menu.add(
-                "QPushButton",
-                setText="Set Directory…",
-                setObjectName="btn_set_dir",
-                setToolTip="Browse for a root folder containing project workspaces.",
-            ).clicked.connect(lambda *_: self._browse_option.browse())
-            widget.option_box.menu.add(
-                "QPushButton",
-                setText="Open Directory",
-                setObjectName="btn_open_dir",
-                setToolTip="Open the root directory in the file manager.",
-            ).clicked.connect(self._open_root_dir)
-            widget.option_box.menu.add(
-                "QPushButton",
-                setText="Set To Current Workspace",
-                setObjectName="btn_set_current_ws",
-                setToolTip="Set the root to the folder of the currently-open file.",
-            ).clicked.connect(self._set_root_to_current)
-            # Recursive Search — same control, same placement, same default (on) as Maya's chk000.
-            widget.option_box.menu.add(
-                "QCheckBox",
-                setText="Recursive Search",
-                setObjectName="chk_recursive",
-                setChecked=True,
-                setToolTip="Also search sub-folders (off = the workspace folder only).",
-            ).toggled.connect(self._on_recursive_toggled)
-            # Workspace management (Blender-only; Maya handles projects via its own Project
-            # window, so these have no place in the mirrored header) — lives here on the Root
-            # Directory field's option box, beside the other root/workspace actions.
-            widget.option_box.menu.add(
-                "QPushButton",
-                setText="New Workspace…",
-                setObjectName="btn_new_workspace",
-                setToolTip="Create a project workspace under the root — writes a workspace.mel\n"
-                "(shared Maya/Blender project) plus the standard subfolders.",
-            ).clicked.connect(self.new_workspace)
-            widget.option_box.menu.add(
-                "QPushButton",
-                setText="Mark As Workspace",
-                setObjectName="btn_mark_workspace",
-                setToolTip="Write a workspace.mel describing the current workspace folder's existing\n"
-                "layout, making it a shared Maya/Blender project (no files are moved).",
-            ).clicked.connect(self.mark_workspace)
-        if hasattr(widget, "set_validator"):
-            widget.set_validator("dir")
-        last = self.ui.settings.value("root_dir") or ""
-        if last:
-            widget.setText(last)
-        widget.textChanged.connect(self._on_root_changed)
-        widget.returnPressed.connect(self._populate_workspaces)
-
-    def _open_root_dir(self):
-        """Reveal the root directory in the OS file manager (Maya's 'Open Directory')."""
-        root = self._root_dir()
-        if not (root and os.path.isdir(root)):
-            self.sb.message_box("Set a valid root directory first.")
-            return
+    def bake_source(cls, linked_path) -> Optional[str]:
+        """The foreign scene *linked_path* was baked from, or None if it is not a bake
+        -- how a library reading a bake maps back to the row the user sees."""
+        if not linked_path:
+            return None
         try:
-            ptk.FileUtils.reveal_in_file_manager(root)
-        except (FileNotFoundError, OSError) as e:
-            self.sb.message_box(str(e))
+            importer = cls._importer()
+        except ImportError:  # bridge unavailable: no row can be bake-backed
+            return None
+        return importer.bake_source(linked_path)
 
-    def _set_root_to_current(self):
-        """Set the root to the current workspace — the marked (workspace.mel) project root when
-        the open .blend belongs to one, else the .blend's own folder (Maya's 'Set To Current
-        Workspace')."""
-        import bpy
-
-        fp = bpy.data.filepath
-        if not fp:
-            self.sb.message_box("Save the current file first — it has no folder yet.")
-            return
-        self.ui.txt000.setText(
-            btk.workspace_root(fp) or os.path.dirname(os.path.abspath(fp))
+    @classmethod
+    def row_key(cls, linked_path) -> str:
+        """Normalized path of the row a library reading *linked_path* stands for: its
+        bake's source, else the file itself (mirror of mayatk's)."""
+        return cls._bake_source_key(linked_path) or os.path.normcase(
+            os.path.normpath(linked_path)
         )
 
-    def cmb000_init(self, widget):
-        """Workspace combo — project folders under the root (replaces Maya's workspace combo)."""
-        widget.currentIndexChanged.connect(self._on_workspace_changed)
-        self._populate_workspaces()
+    def add_reference(self, namespace: str, file_path: str) -> bool:
+        """Link *file_path*'s collections (``EnvUtils.link_blend_file``) -- the Blender
+        reference. *namespace* is accepted for mayatk's signature: a library takes its
+        file's name. A bake (a foreign row's) is a project file, linked ``//``-relative
+        so the file keeps it when the project moves.
 
-    def txt001_init(self, widget):
-        """Filter field — enable toggle + ignore-case + target combo, plus live re-filter (mirror of Maya)."""
-        if not getattr(widget, "is_initialized", False):
-            widget.option_box.clear_option = True
-            widget.option_box.set_toggle(
-                icon="filter",
-                tooltip_on="Filter enabled. Click to disable.",
-                tooltip_off="Filter disabled. Click to enable.",
-                initial=True,
-                gate_wrapped=True,  # grey out the field while the filter is off
-                on_toggled=lambda *_: self._refresh(),
-                settings_key="reference_manager_filter",
-            )
-            widget.option_box.menu.add(
-                "QCheckBox",
-                setText="Ignore Case",
-                setObjectName="chk_ignore_case",
-                setChecked=True,
-                setToolTip="Match the filter text case-insensitively.",
-            ).toggled.connect(lambda *_: self._refresh())
-            widget.option_box.menu.add(
-                "QComboBox",
-                setObjectName="cmb_filter_target",
-                addItems=["Filter: All", "Filter: Files", "Filter: Notes"],
-                setToolTip="What the filter text matches against: file names, notes, or both.",
-            ).currentIndexChanged.connect(lambda *_: self._refresh())
-        widget.textChanged.connect(lambda *_: self._refresh())
-
-    def tbl000_init(self, widget):
-        """Table setup: (re)wire signals every show, one-time context-menu build, then populate.
-
-        ``_wire_table_signals`` runs unconditionally because the ``tbl000`` QWidget can outlive
-        this slots instance (a reload leaves ``is_initialized`` stamped on the persisted widget)
-        — without the re-wire, ``itemDoubleClicked`` / ``itemChanged`` / the row action-column
-        handlers / the context-menu actions stay bound to a dead ``self`` and silently no-op.
-        The context menu's ITEMS (the ``Separator`` / ``QPushButton`` widgets) stay in the
-        one-time block since they mutate the widget, which persists — building them twice is
-        the user-reported duplicate context-menu entries. Mirror of channels' ``tbl000_init`` /
-        ``_wire_table_signals`` (and the mayatk panel).
-
-        Order matters: the one-time construction runs BEFORE ``_wire_table_signals`` (mirror
-        of mayatk, where ``actions.add`` must not size a column ``setColumnCount`` hasn't
-        created yet — a native crash on Qt 6.5). Here the columns arrive later via
-        ``TableWidget.add`` and ``TableActions._reapply`` re-applies the sizing then.
+        Returns:
+            (bool): True once *file_path* is linked, also when it already was.
         """
-        # Selection IS the reference set (mirror of mayatk): a click toggles one row's
-        # selection -- and so its link -- without dropping the others. Idempotent, so set
-        # every init: a widget built before this rule existed must pick it up too.
-        QAbstractItemView = self.sb.QtWidgets.QAbstractItemView
-        widget.setSelectionBehavior(QAbstractItemView.SelectRows)
-        widget.setSelectionMode(QAbstractItemView.MultiSelection)
-        if not widget.is_initialized:
-            widget.is_initialized = True
-            widget.refresh_on_show = True
-
-            # Flat context menu — a 1:1 mirror of the mayatk panel's, label- and order-for-order.
-            # The Blender-specific extras (Append / Reload / Relocate / Remove / per-reference
-            # Display) are dropped for parity: the link icon toggles reference/remove, the display
-            # icon cycles the override, and 'Unlink and Import' folds in the old 'Import (convert)'.
-            widget.menu.add(
-                "QPushButton",
-                setText="Open",
-                setObjectName="row_open",
-                setToolTip="Open this file (a foreign scene is baked, then opened as a new\n"
-                "file) — reads it back from disk when it is already the open scene (the action\n"
-                "reads 'Reopen' then).",
-            )
-            widget.menu.add(
-                "QPushButton",
-                setText="Rename",
-                setObjectName="row_rename",
-                setToolTip="Rename this .blend on disk.",
-            )
-            widget.menu.add(
-                "QPushButton",
-                setText="Delete",
-                setObjectName="row_delete",
-                setToolTip="Delete this .blend from disk.",
-            )
-            widget.menu.add(
-                "QPushButton",
-                setText="Reference / Unreference",
-                setObjectName="row_toggle_reference",
-                setToolTip="Toggle the reference (linked library) state of this file.",
-            )
-            widget.menu.add(
-                "QPushButton",
-                setText="Unlink and Import",
-                setObjectName="row_unlink_import",
-                setToolTip="Make an already-linked reference's data local, or, for a foreign\n"
-                "(Maya / FBX / USD) scene, convert + import its contents as local data.",
-            )
-            widget.menu.add(
-                "QPushButton",
-                setText="Open File Location",
-                setObjectName="row_location",
-                setToolTip="Reveal this file in the OS file manager.",
-            )
-            widget.menu.add(
-                "QPushButton",
-                setText="Copy Path",
-                setObjectName="row_copy_path",
-                setToolTip="Copy the file's full path to the clipboard.",
-            )
-
-        self._wire_table_signals(widget)
-        self._refresh_table_content(widget)
-
-    @staticmethod
-    def _rewire_signal(widget, signal, slot, key):
-        """Connect *signal* to *slot*, first dropping ONLY this panel's prior connection for *key*.
-
-        A blanket ``signal.disconnect()`` (no args) would also strip the widget's OWN internal
-        connections (e.g. the table wires ``customContextMenuRequested`` → ``_show_context_menu``
-        in its ``__init__``), so re-wiring stores the ``QMetaObject.Connection`` per (widget, key)
-        and drops exactly the dead one — the QWidget can outlive this slots instance across a
-        reload. Mirror of the mayatk panel.
-
-        The stored connection is dropped through the STATIC ``QObject.disconnect``, which is the
-        API that takes a ``Connection``: the signal-instance form expects a *slot* and, handed a
-        Connection it can't match, emits a ``RuntimeWarning`` ("Failed to disconnect (…) from
-        signal …") instead of raising — a warning no ``except`` can swallow. A Connection also
-        goes falsy the moment it breaks (PySide drops the binding when the receiving slots
-        instance is collected), so a dead one is skipped outright.
-        """
-        from qtpy import QtCore
-
-        conns = getattr(widget, "_rm_signal_conns", None)
-        if conns is None:
-            conns = {}
-            widget._rm_signal_conns = conns
-        old = conns.get(key)
-        if old:
-            try:
-                QtCore.QObject.disconnect(old)
-            except (RuntimeError, TypeError):
-                pass
-        conns[key] = signal.connect(slot)
-
-    def _wire_table_signals(self, widget):
-        """(Re)wire tbl000's signals + action-column / context-menu handlers to this instance.
-
-        Idempotent and safe to call on every ``tbl000_init`` (the QWidget can outlive the slots
-        instance). ``_setup_action_columns`` / ``register_menu_action`` are themselves idempotent
-        (dict-keyed — each call overwrites the prior entry, no accumulation); the raw Qt signals
-        re-wire through ``_rewire_signal`` (precise per-connection disconnect). Mirror of the
-        mayatk panel.
-        """
-        self._setup_action_columns(widget)
-        self._rewire_signal(
-            widget, widget.itemDoubleClicked, self._on_item_double_clicked, "dbl"
-        )
-        self._rewire_signal(widget, widget.itemChanged, self._on_item_changed, "chg")
-        self._rewire_signal(
-            widget, widget.itemSelectionChanged, self._on_selection_changed, "sel"
-        )
-        self._rewire_signal(
-            widget, widget.customContextMenuRequested, self._capture_context_row, "ctx"
-        )
-
-        for obj_name, handler in (
-            ("row_open", self.open_selected),
-            ("row_rename", self.rename_selected),
-            ("row_delete", self.delete_selected),
-            ("row_toggle_reference", self.toggle_reference_selected),
-            ("row_unlink_import", self.unlink_import_selected),
-            ("row_location", self.open_location_selected),
-            ("row_copy_path", self.copy_path_selected),
-        ):
-            widget.register_menu_action(obj_name, (lambda h: lambda *_: h())(handler))
-
-    def _label_open_action(self, *_):
-        """Read the context menu's Open action as 'Reopen' when the right-clicked file is the
-        open one.
-
-        Opening the file you are already in is a reload-from-disk, not an open; saying so is the
-        only signal that the click will discard whatever is unsaved (the prompt then asks about).
-        Runs from :meth:`_capture_context_row` (``customContextMenuRequested``), which fires in
-        the same event-loop tick as the table's own ``menu.show()`` — ``show()`` only schedules
-        the paint, so the relabel lands before the popup is drawn whichever slot Qt calls
-        first. The menu's width is set by its longest entry ('Reference / Unreference'), so 'Reopen' never needs a re-layout.
-
-        Guarded on ``has_menu``, not ``getattr(table, "menu", None)``: uitk's ``MenuMixin``
-        builds the menu lazily on first ``.menu`` access, so the convenient getattr would
-        CREATE one on a table that has none. Mirror of the mayatk panel's.
-        """
-        table = self.ui.tbl000
-        if not getattr(table, "has_menu", False):
-            return
-        btn = getattr(table.menu, "row_open", None)
-        if btn is None:
-            return
-        paths = self._context_paths()
-        btn.setText("Reopen" if paths and self._is_current(paths[0]) else "Open")
-
-    def _setup_action_columns(self, widget):
-        """Register the Reference / Open / Display-mode clickable icon columns (mirror of Maya)."""
-        clr = self.ACTION_COLOR
-        widget.actions.add(
-            self.COL_REF,
-            states={
-                "unreferenced": {
-                    "icon": "link",
-                    "color": clr["off"],
-                    "tooltip": "Not referenced — click to add reference",
-                    "action": self._toggle_reference_at_row,
-                },
-                "referenced": {
-                    "icon": "link",
-                    "color": clr["referenced"],
-                    "tooltip": "Referenced — click to remove reference",
-                    "action": self._toggle_reference_at_row,
-                },
-            },
-        )
-        widget.actions.add(
-            self.COL_OPEN,
-            states={
-                "default": {
-                    "icon": "open_external",
-                    "color": clr["off"],
-                    "tooltip": "Open this scene.",
-                    "action": self._open_scene_at_row,
-                },
-                "current": {
-                    "icon": "open_external",
-                    "color": clr["current"],
-                    "tooltip": "Current scene.",
-                    "action": self._open_scene_at_row,
-                },
-            },
-        )
-        widget.actions.add(
-            self.COL_DISPLAY,
-            states={
-                "off": {
-                    "icon": "grid",
-                    "color": clr["off"],
-                    "tooltip": "Display: Normal — click to lock (Reference).",
-                    "action": self._cycle_display_mode_at_row,
-                },
-                "reference": {
-                    "icon": "lock",
-                    "color": clr["ref_lock"],
-                    "tooltip": "Display: Reference (locked) — click for Template (wire).",
-                    "action": self._cycle_display_mode_at_row,
-                },
-                "template": {
-                    "icon": "grid",
-                    "color": clr["template"],
-                    "tooltip": "Display: Template (wire + locked) — click to restore Normal.",
-                    "action": self._cycle_display_mode_at_row,
-                },
-                "unavailable": {
-                    "icon": "grid",
-                    "color": clr["unavailable"],
-                    "tooltip": "Display overrides apply only to linked references.",
-                },
-            },
-        )
-
-    def _on_item_double_clicked(self, item):
-        """Double-click the name → rename; the Notes cell → inline edit (mirror of Maya's editItem).
-
-        Renames the double-clicked row directly (not the selection) so it also works on the current
-        scene, whose name cell is intentionally non-selectable.
-        """
-        if item is None:
-            return
-        if item.column() == self.COL_NAME:
-            path = self._row_path(item.row())
-            # A foreign (Maya) row is import-only — don't rename the source .blend/.ma on disk.
-            if path and not self._is_foreign(path):
-                self._rename_path(path)
-        elif item.column() == self.COL_NOTES:
-            self.ui.tbl000.editItem(item)
-
-    # ------------------------------------------------------------------ row action handlers
-    def _row_path(self, row):
-        """Absolute .blend path stored on the name cell of ``row`` (or None)."""
-        item = self.ui.tbl000.item(row, self.COL_NAME)
-        return item.data(self.sb.QtCore.Qt.UserRole) if item else None
-
-    def _toggle_reference_at_row(self, row, col):
-        """Link an unreferenced file, or remove the library of an already-linked one (Maya toggle).
-
-        A file is either **open** or **referenced**, never both: referencing the currently-open
-        scene first closes it (a new empty scene), since a file can't be referenced into itself.
-
-        Foreign rows toggle identically (parity rule): the click bakes the source to a
-        cached .blend and links THAT, and a second click removes the same library —
-        ``_library_for_path`` resolves a source row through its bake sidecar, so the
-        round trip works even in a session that did not perform the bake.
-        """
-        path = self._row_path(row)
-        if not path:
-            return
-        lib = self._library_for_path(path)
-        if lib is not None:
-            btk.remove_library(lib)
-        else:
-            # Referencing the open scene into itself is invalid — close it first (guarded).
-            if self._is_current(path) and not self._close_scene():
-                return  # user declined discarding unsaved changes
-            if self._is_foreign(path):
-                if not self._reference_foreign_paths([path]):
-                    return
-            else:
-                try:
-                    btk.link_blend_file(path, link=True)
-                except (RuntimeError, OSError) as e:
-                    self.sb.message_box(str(e))
-                    return
-        self._refresh()
-
-    def _open_scene_at_row(self, row, col):
-        """Toggle Open at ``row``: open the scene, or **close** it (new empty scene) if it is
-        already the current scene — a second click on the open row's Open icon closes it, the
-        mirror of the reference icon's toggle.
-
-        Open and Reference are mutually exclusive, but opening enforces that for free: loading a
-        file replaces the whole session, so a reference to it (a library link in the *previous*
-        scene) is discarded and the file becomes the open scene — no explicit un-reference needed
-        (which would also wrongly persist if the user then declines the unsaved-changes prompt).
-        """
-        path = self._row_path(row)
-        if not path:
-            return
-        if self._is_current(path):
-            if self._close_scene():
-                self.logger.info("Closed the scene (new empty scene).")
-        else:
-            self._open_path(path)
-        self._refresh()
-
-    def _is_current(self, path, current=None):
-        """True if *path*'s scene is the one currently open (filepath-authoritative).
-
-        A native row matches when the open .blend IS that file; a foreign row matches when the
-        open .blend is that row's deterministic 'opened as new' scratch bake (see
-        :meth:`_foreign_scratch_path`) — so a second Open click on either closes it. Pass a
-        pre-computed *current* (normalized, from :meth:`_current_scene_path`) to reuse one bpy
-        read across a whole table rebuild.
-        """
-        if not path:
+        if not (file_path and os.path.isfile(file_path)):
+            self.logger.error(f"File not found: {file_path}")
             return False
-        cur = current if current is not None else self._current_scene_path()
-        if not cur:
-            return False
-        target = self._foreign_scratch_path(path) if self._is_foreign(path) else path
-        return self._path_key(target) == cur
-
-    @staticmethod
-    def _foreign_scratch_path(path):
-        """Deterministic scratch .blend a foreign row is baked+opened into (see
-        :meth:`_open_foreign_as_new`): ``<temp>/btk_opened_<hash>/<stem>_<ext>.blend`` —
-        ``scene.ma`` opens as ``scene_ma.blend``, so the title bar and the Save-As default
-        say what it was converted from, and it can never shadow a sibling ``scene.blend``;
-        the hash of the source's full path keeps same-named scenes in different projects
-        apart (a flat ``<stem>`` made both rows claim 'current'). ``ptk.ScratchTwins``
-        owns the naming, the age sweep and the discard; mirror of mayatk's (``.ma`` there).
-        """
-        return _scratch_twins().path_for(path)
-
-    def _discard_stale_scratches(self):
-        """Discard every untouched scratch twin that is no longer the open file — the
-        current file was replaced (closed, or another scene opened over it). A twin the
-        user saved into is kept (``ptk.ScratchTwins.discard_except``)."""
-        current = ""
-        if self._has_bpy():
-            import bpy
-
-            current = bpy.data.filepath
-        _scratch_twins().discard_except(current)
-
-    def _workspace_for(self, path):
-        """The workspace *path*'s scene belongs to — the root to pin as the session workspace
-        when it is opened (Blender's analogue of Maya's set-project-on-open, which mayatk's
-        panel does with ``find_workspace_using_path``). The marked (``workspace.mel``)
-        project containing the file wins; else the panel's selected workspace when the
-        file lies under it (an unmarked project folder with a ``scenes/`` subfolder); else
-        the file's own folder (``ptk.Workspace.for_path``). '' when nothing resolves.
-        """
-        if not path:
-            return ""
-        ws = ptk.Workspace.find_containing(path)
-        if ws is not None:
-            return ws.root
-        selected = self._workspace_dir()
-        if selected and os.path.isdir(selected) and ptk.is_under(path, selected):
-            return selected
-        ws = ptk.Workspace.for_path(path)
-        return ws.root if ws is not None else ""
-
-    def _pin_workspace_for(self, path):
-        """Pin the session workspace to :meth:`_workspace_for` *path* (no-op when nothing
-        resolves), so texture / scene-dir lookups and Save Scene follow the opened scene
-        instead of wherever its .blend happens to live (a foreign scene opens from a temp
-        scratch: without the pin it resolved to a 'temp workspace')."""
-        root = self._workspace_for(path)
-        if root:
-            btk.set_current_workspace(root)
-            self.logger.info(f"Workspace: {root}")
-        return root
-
-    def _confirm_discard_unsaved(self):
-        """True if it's OK to replace the current scene: nothing unsaved, the user saved, or
-        the user chose to discard. .venv-safe: without bpy there is nothing to lose.
-
-        False cancels the caller's operation — either the user picked Cancel (which is also
-        what Esc / the close box map to), or they picked Save and the save did not complete.
-        Mirror of the mayatk panel's prompt.
-
-        Asks the engine rather than reading ``bpy.data.is_dirty`` directly: the flag follows the
-        undo stack, so one viewport click marks a brand-new empty scene dirty and this prompt
-        fired with nothing to lose (see ``btk.scene_has_unsaved_changes``).
-        """
-        if not self._has_bpy():
+        row = self.row_key(file_path)
+        if any(self.row_key(ref.path) == row for ref in self.current_references):
             return True
-        if not btk.scene_has_unsaved_changes():
-            return True
-        choice = self.sb.message_box(
-            "The current scene has changes, do you want to save?",
-            "Save",
-            "Discard",
-            "Cancel",
-        )
-        if choice == "Save":
-            return self._save_current_scene()
-        return choice == "Discard"
+        baked = bool(self.bake_source(file_path))
+        linked = EnvUtils.link_blend_file(file_path, link=True, relative=baked)
+        if linked and baked:
+            # A Maya DAG draws a dashed parent line per object (see the bridge's note).
+            self._importer().hide_relationship_lines()
+        return bool(linked)
 
-    def _save_current_scene(self):
-        """Save the open file in place — or, when it has never been saved, through this panel's
-        Save Scene prompt (which asks for a name and applies the header's naming conventions).
-        True once the file is clean on disk. Mirror of the mayatk panel's.
-        """
-        if self._current_scene_path():
-            if btk.EnvUtils._save_open_file():
-                return True
-            self.sb.message_box("Failed to save the scene.")
-            return False
-        self.save_scene()  # prompts for a name; reports its own failures
-        return not btk.scene_has_unsaved_changes()
+    def remove_references(self, namespaces=None) -> list:
+        """Remove the libraries named *namespaces* (all when None) and everything
+        linked from them. Returns the references that could NOT be removed (mirror
+        of mayatk's)."""
+        refs = self.current_references
+        if namespaces is not None:
+            wanted = set(ptk.make_iterable(namespaces))
+            refs = [ref for ref in refs if ref.namespace in wanted]
+        failed = []
+        for ref in refs:
+            if not EnvUtils.remove_library(ref.library):
+                self.logger.warning(f"Failed to remove library '{ref.label}'.")
+                failed.append(ref)
+        return failed
 
-    def _close_scene(self):
-        """Close the current scene (a new empty scene — Maya's file-new), guarding unsaved
-        changes. A foreign row's untouched scratch copy is removed with it (one the user
-        saved into is kept — see :meth:`_discard_stale_scratches`). Returns True if the
-        scene was closed, False if the user declined."""
-        if not self._confirm_discard_unsaved():
-            return False
-        if btk.new_scene():
-            self._discard_stale_scratches()
-            return True
-        self.sb.message_box("Failed to close the scene.")
-        return False
-
-    def _cycle_display_mode_at_row(self, row, col):
-        """Cycle the linked reference's display: Normal → Reference → Template → Normal."""
-        path = self._row_path(row)
-        lib = self._library_for_path(path) if path else None
-        table = self.ui.tbl000
-        if (
-            lib is None
-        ):  # not linked (or removed between sync and click) — reset the cell silently
-            table.actions.set(row, self.COL_DISPLAY, "unavailable")
-            return
-        new_mode = self._DISPLAY_MODE_CYCLE.get(
-            btk.get_reference_display_mode(lib), "off"
-        )
-        if not btk.set_reference_display_mode(lib, new_mode):
-            self.sb.message_box(
-                "Display override had no effect — the reference has no objects to update."
+    def import_references(
+        self, namespaces=None, namespace_mode="remove", scene_data="merge"
+    ) -> int:
+        """Make the libraries named *namespaces* (all when None) local -- Blender's
+        unlink and import (``EnvUtils.make_library_local``; *scene_data* as there and
+        as mayatk's). *namespace_mode*: :attr:`NAMESPACE_MODES`. Returns the number of
+        datablocks made local."""
+        if namespace_mode not in self.NAMESPACE_MODES:
+            raise ValueError(
+                f"Invalid namespace_mode {namespace_mode!r}; "
+                f"expected one of {self.NAMESPACE_MODES}"
             )
-            return
-        table.actions.set(row, self.COL_DISPLAY, new_mode)
+        refs = self.current_references
+        if namespaces is not None:
+            wanted = set(ptk.make_iterable(namespaces))
+            refs = [ref for ref in refs if ref.namespace in wanted]
+        total = 0
+        for ref in refs:
+            total += EnvUtils.make_library_local(ref.library, scene_data=scene_data)
+        self.logger.info(f"Made {total} datablock(s) local.")
+        return total
 
-    # ------------------------------------------------------------------ workspace + refresh
-    def _on_root_changed(self, text):
-        self.ui.settings.setValue("root_dir", text.strip())
-        self._populate_workspaces()
+    def update_references(self):
+        """Reload every library from disk -- one reading a bake in temp re-homed first
+        (:meth:`follow_bake_sources`). Mirror of mayatk's."""
+        moved = {ref.namespace for ref in self.follow_bake_sources()}
+        for ref in self.current_references:
+            if ref.namespace not in moved:
+                EnvUtils.reload_library(ref.library)
 
-    def _on_recursive_toggled(self, state):
-        self._recursive = bool(state)
-        self._refresh()
+    def get_reference_display_mode(self, ref) -> str:
+        """``"off"`` / ``"reference"`` / ``"template"`` for *ref*'s objects ("off"
+        when they disagree; mirror of mayatk's)."""
+        return EnvUtils.get_reference_display_mode(ref.library)
 
-    def _root_dir(self):
-        field = getattr(
-            self.ui, "txt000", None
-        )  # may not exist yet during sibling *_init
-        return field.text().strip() if field is not None else ""
+    def set_reference_display_mode(self, ref, mode: str) -> bool:
+        """Set *ref*'s display override (:attr:`DISPLAY_MODES`). True if any object
+        was updated."""
+        return EnvUtils.set_reference_display_mode(ref.library, mode)
 
-    def _populate_workspaces(self):
-        """Fill the workspace combo with project folders under the root, then refresh the table."""
-        combo = getattr(self.ui, "cmb000", None)
-        if combo is None:
-            return
-        root = self._root_dir()
-        workspaces = btk.find_workspaces(root) if root else []
-        prev = combo.currentData() if combo.count() else None
-        # One add() call — ComboBox.add clears by default, so a per-item loop would wipe each prior.
-        items = [(os.path.basename(p.rstrip("/\\")) or p, p) for p in workspaces]
-        combo.blockSignals(True)
-        try:
-            combo.add(items)
-            # Prefer the last workspace remembered for this root; else keep the in-session selection.
-            if not self._restore_workspace_index(combo) and prev:
-                for i in range(combo.count()):
-                    if combo.itemData(i) == prev:
-                        combo.setCurrentIndex(i)
-                        break
-        finally:
-            combo.blockSignals(False)
-        self._refresh()
-
-    def _on_workspace_changed(self, *_):
-        """Remember the chosen workspace for the current root, then refresh the table."""
-        combo = getattr(self.ui, "cmb000", None)
-        if combo is not None and combo.currentIndex() >= 0:
-            self._save_workspace_selection(self._root_dir(), combo.currentText())
-        self._refresh()
-
-    # ------------------------------------------------------------------ workspace history (per root)
-    def _get_workspace_history(self):
-        """Load the per-root last-selected-workspace map from panel settings."""
-        return dict(self.ui.settings.value("workspace_history") or {})
-
-    def _save_workspace_selection(self, root_dir, workspace_name):
-        """Remember which workspace was last selected for ``root_dir`` (capped LRU)."""
-        if not (root_dir and workspace_name):
-            return
-        history = self._get_workspace_history()
-        history[os.path.normcase(os.path.normpath(root_dir))] = workspace_name
-        if len(history) > _WORKSPACE_HISTORY_MAX:
-            history = dict(list(history.items())[-_WORKSPACE_HISTORY_MAX:])
-        self.ui.settings.setValue("workspace_history", history)
-
-    def _restore_workspace_index(self, combo):
-        """Select the workspace last used for the current root, if it's still present. True if restored."""
-        root = self._root_dir()
-        if not root:
-            return False
-        saved = self._get_workspace_history().get(
-            os.path.normcase(os.path.normpath(root))
-        )
-        if saved:
-            for i in range(combo.count()):
-                if combo.itemText(i) == saved:
-                    combo.setCurrentIndex(i)
-                    return True
-        return False
-
-    def _workspace_dir(self):
-        """The current workspace folder (combo selection), falling back to the root directory."""
-        combo = getattr(self.ui, "cmb000", None)
-        if combo is not None and combo.count() and combo.currentData():
-            return combo.currentData()
-        return self._root_dir()
-
-    def new_workspace(self):
-        """Create a marked workspace under the root (rules from the active template — see
-        the Workspace Editor) — the counterpart of Maya's File ▸ Project Window ▸ New."""
-        root = self._root_dir()
-        if not (root and os.path.isdir(root)):
-            self.sb.message_box("Set a valid root directory first.")
-            return
-        name = self.sb.input_dialog("New Workspace", "Workspace folder name:", "")
-        name = (name or "").strip()
-        if not name:
-            return
-        try:
-            ws = btk.create_workspace(os.path.join(root, name))
-        except OSError as e:
-            self.sb.message_box(str(e))
-            return
-        self._populate_workspaces()
-        if ws:
-            self._select_workspace(ws.root)
-
-    def mark_workspace(self):
-        """Promote the current workspace folder to a shared Maya/Blender project — writes a
-        workspace.mel describing its existing layout (no files are moved)."""
-        ws_dir = self._workspace_dir()
-        if not (ws_dir and os.path.isdir(ws_dir)):
-            self.sb.message_box("Pick a workspace (or set a root directory) first.")
-            return
-        try:
-            ws = btk.promote_workspace(ws_dir)
-        except OSError as e:
-            self.sb.message_box(str(e))
-            return
-        if ws is None:
-            self.sb.message_box("Could not mark the workspace.")
-            return
-        self._populate_workspaces()
-        self._select_workspace(ws.root)
-
-    def _select_workspace(self, path):
-        """Select the workspace combo entry whose data is ``path`` (after a repopulate)."""
-        combo = getattr(self.ui, "cmb000", None)
-        if combo is None:
-            return
-        target = os.path.normcase(os.path.normpath(path))
-        for i in range(combo.count()):
-            data = combo.itemData(i)
-            if data and os.path.normcase(os.path.normpath(data)) == target:
-                combo.setCurrentIndex(i)
-                break
-
-    def _refresh(self):
-        table = getattr(self.ui, "tbl000", None)
-        if table:
-            table.init_slot()
-
-    def _bake_project_root(self):
-        """The project a foreign row's bake goes in: the open file's
-        (``DataNodes.scene_project_root``), else the workspace being browsed;
-        None when neither resolves -- the engine then refuses the bake (a bake a
-        saved file links is a project file, never a temp one) and the panel
-        shows its reason like any other bake error."""
-        try:
-            root = btk.DataNodes.scene_project_root() or self._workspace_dir()
-        except Exception:  # noqa: BLE001 - a panel without its workspace widgets
-            root = None
-        return root if root and os.path.isdir(root) else None
-
-    def _rehome_temp_bakes(self):
-        """Relink every library that reads a bake in temp (made before
-        2026-10-13, which the temp sweep reclaims) onto the project's bake of
-        its source (``MayaSceneImport.rehome_bake``), ``//``-relative. Returns
-        the libraries moved. Mirror of mayatk's ``_follow_bake_sources``
-        re-home."""
-        if not self._has_bpy():
+    def follow_bake_sources(self) -> list:
+        """Relink every library that reads a bake in temp (made before 2026-10-13,
+        which the temp sweep reclaims) onto the project's bake of its source
+        (``MayaSceneImport.rehome_bake``), ``//``-relative. Returns the references
+        moved. Mirror of mayatk's (a foreign row's bake is only re-homed here:
+        following its source means a Maya conversion)."""
+        bpy = _bpy()
+        if bpy is None:
             return []
-        import bpy
-
-        from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
+        from blendertk.node_utils.data_nodes import DataNodes
 
         moved = []
         engine = None
-        for lib in list(bpy.data.libraries):
-            path = bpy.path.abspath(lib.filepath) if lib.filepath else ""
+        for ref in self.current_references:
+            path = ref.path
             if not (path and ptk.TempArtifacts.contains(path)):
                 continue
-            if not MayaSceneImport.bake_source(path):
+            if not self.bake_source(path):
                 continue
-            project = btk.DataNodes.scene_project_root() or self._workspace_dir()
+            project = self.bake_project_root()
             if not project:
                 continue
-            engine = engine or MayaSceneImport()
+            engine = engine or self._importer()()
             try:
                 target = engine.rehome_bake(path, project=project)
             except (OSError, RuntimeError) as e:
@@ -1476,1202 +412,278 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             if not target:
                 continue
             # //-relative where a relative path reaches it (never across drives).
-            lib.filepath = btk.DataNodes._blend_relpath(target)
-            lib.reload()
-            moved.append(lib)
+            ref.library.filepath = DataNodes._blend_relpath(target)
+            ref.library.reload()
+            moved.append(ref)
         if moved:
             self.logger.info(f"Moved {len(moved)} linked bake(s) out of temp.")
         return moved
 
-    def purge_unused_bakes(self, dry_run=False):
-        """Remove the bakes in the open file's project that no file links
-        (``MayaSceneImport.purge_unused_bakes``: the project's files are scanned
-        as bytes, none is opened). Returns the paths removed. Mirror of mayatk's."""
-        from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
-
-        project = btk.DataNodes.scene_project_root() or self._workspace_dir()
-        return MayaSceneImport().purge_unused_bakes(project=project, dry_run=dry_run)
-
-    def _refresh_table_content(self, widget):
-        """Scan the workspace, apply the header filter / display options, and (re)build the
-        File · Status · Notes table (mirror of mayatk's filtered file list)."""
-        from qtpy import QtWidgets
-
-        # A library reading a bake in temp moves into the project first (mirror of
-        # mayatk's refresh, which re-homes before it lists).
-        self._rehome_temp_bakes()
-        # The notes this panel kept in its settings move into the project
-        # stores under the session root the listing reads them with.
-        self._migrate_settings_notes()
-
-        workspace = self._workspace_dir()
-        opt = self._filter_options()
-
-        # Native scenes (.blend) — listed + linked directly, gated on the Include Types row.
-        # Text filtering is applied below (not via find_blend_files) so it can honor the
-        # ignore-case toggle and match against Notes as well as file names.
-        included = opt["included_ext"]
-        files = []
-        if ".blend" in included:
-            files = btk.find_blend_files(workspace, recursive=self._recursive)
-            if workspace:
-                # A marked (workspace.mel) project keeps scenes in its scene-rule folder — always
-                # include it (deduped) so shared Maya/Blender projects list out of the box, and so a
-                # scene rule pointing OUTSIDE the workspace root (which the recursive root scan would
-                # miss) still lists. Mirror of mayatk, which always scans a workspace's scenes/
-                # regardless of the Recursive toggle.
-                scene_dir = btk.workspace_scenes_dir(workspace)
-                if scene_dir:
-                    seen = {os.path.normcase(p) for p in files}
-                    files += [
-                        p
-                        for p in btk.find_blend_files(scene_dir, recursive=True)
-                        if os.path.normcase(p) not in seen
-                    ]
-        # Cross-DCC: also list the workspace's foreign scenes for each checked foreign type
-        # (.ma/.mb/.fbx/USD). A foreign row's link icon bakes it to a cached .blend and links
-        # that, so it carries the same referenced/unreferenced states as a native row; only
-        # Open stays unavailable. Discovery uses the importer's own scan, restricted to the
-        # checked extensions.
-        foreign_ext = {e for e in self.FOREIGN_EXTENSIONS if e in included}
-        if foreign_ext and workspace:
-            from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
-
-            seen = {os.path.normcase(p) for p in files}
-            files += [
-                p
-                for p in MayaSceneImport.find_scenes(
-                    workspace, recursive=self._recursive, extensions=sorted(foreign_ext)
-                )
-                if os.path.normcase(p) not in seen
-            ]
-        raw_count = len(
-            files
-        )  # pre-filter, for the "hidden by filter" empty-state message
-        files = self._apply_file_filters(files, workspace, opt)
-        libs_by_path = self._linked_libraries_by_path()
-        current = self._current_scene_path()
-
-        self._suppress_note_save = True
-        # The rebuild's clear() drops the selection: it must not read as "unlink everything".
-        self._syncing_selection = True
-        widget.setUpdatesEnabled(False)
-        widget.clear()
-        qt = self.sb.QtCore.Qt
-        try:
-            placeholder = None
-            filter_active = (
-                opt["filter_suffix"]
-                or opt["filter_structure"]
-                or bool(opt["filter_text"])
-            )
-            if not workspace:
-                placeholder = "Set a root directory / workspace above…"
-            elif not files:
-                # Distinguish an empty workspace from one whose files an active filter
-                # (or a restored preset) hid entirely — the latter otherwise reads as
-                # "the panel is broken" (a real support case).
-                placeholder = (
-                    f"All {raw_count} file(s) hidden by the active filter — "
-                    "check the header menu (Filter by Suffix / Folder Structure) or the filter field."
-                    if raw_count and filter_active
-                    else "No .blend files found"
-                )
-
-            if placeholder is not None:
-                rows = [[(placeholder, ""), "", "", "", ""]]
-            else:
-                rows = [
-                    [
-                        (self._row_label(p, opt), p),
-                        "",
-                        "",
-                        "",
-                        self._note(p),
-                    ]
-                    for p in files
-                ]
-            # Columns: FILES | reference-toggle | open | display-mode | NOTES (1:1 with Maya).
-            widget.add(rows, headers=["FILES:", "", "", "", "NOTES:"])
-
-            if placeholder is None:
-                for row, path in enumerate(files):
-                    name_item = widget.item(row, self.COL_NAME)
-                    note_item = widget.item(row, self.COL_NOTES)
-
-                    # Currentness matches the Open toggle exactly (native file, or a foreign row's
-                    # open scratch bake). Reuse the single `current` snapshot — no per-row bpy read.
-                    is_current = self._is_current(path, current)
-                    # A foreign row's Open bakes the scene and opens it as a new file (see
-                    # _open_foreign_as_new), so it carries the same visible/clickable Open states
-                    # as a native row — including the 'current' highlight when its scratch is open.
-                    widget.actions.set(
-                        row, self.COL_OPEN, "current" if is_current else "default"
-                    )
-
-                    if name_item:
-                        name_item.setFlags(name_item.flags() & ~qt.ItemIsEditable)
-                        # The row label can hide the suffix/extension, and a long name
-                        # elides in the column, so the tooltip names the file in full
-                        # (widget.add defaults it to the truncated label).
-                        name_item.setToolTip(os.path.basename(path))
-                        if (
-                            is_current
-                        ):  # current scene: italic + not selectable (mirror of Maya)
-                            font = name_item.font()
-                            font.setItalic(True)
-                            name_item.setFont(font)
-                            name_item.setFlags(name_item.flags() & ~qt.ItemIsSelectable)
-                        elif self._is_foreign(path):
-                            # A foreign row links its BAKE, never its own path, so it stays
-                            # out of the selection -> reference sync (mirror of mayatk); its
-                            # link icon toggles it.
-                            name_item.setFlags(name_item.flags() & ~qt.ItemIsSelectable)
-                    if note_item and path:
-                        note_item.setData(
-                            qt.UserRole, path
-                        )  # carry the path for note edits
-                # After the flags above: the sync selects only rows left selectable.
-                self._sync_reference_state(widget, libs_by_path)
-
-            header = widget.horizontalHeader()
-            header.setStretchLastSection(False)
-            header.setSectionResizeMode(self.COL_NAME, QtWidgets.QHeaderView.Stretch)
-            header.setSectionResizeMode(self.COL_NOTES, QtWidgets.QHeaderView.Stretch)
-            # Pin the three icon action columns (Display / Reference / Open) to the
-            # right, NOTES in the middle. Visual-only — logical indices are
-            # unchanged, so every COL_* reference stays valid. Re-applied each
-            # populate because ``widget.add`` (setColumnCount(0)) resets the
-            # header's visual section order; idempotent either way. Mirror of mayatk.
-            for visual, logical in enumerate(self.VISUAL_COLUMN_ORDER):
-                header.moveSection(header.visualIndex(logical), visual)
-            # Leave the three action columns on the Fixed, row-height-square sizing that
-            # TableActions.add()/_reapply() applied. Overriding them to ResizeToContents
-            # collapses each icon-only column to ~0 px — and to nothing in the empty /
-            # placeholder state (no icon set) — so the clickable link / open / display
-            # columns vanish. Fixed squares keep them always visible, mirroring mayatk.
-        finally:
-            widget.setUpdatesEnabled(True)
-            self._suppress_note_save = False
-            self._syncing_selection = False
-
-        self._apply_notes_column_visibility()
-
-        self._listing = (len(files), raw_count - len(files)) if workspace else None
-        self._update_footer(libs_by_path)
-
-    def _update_footer(self, libs_by_path):
-        """The footer's listing summary -- files shown, libraries linked, files the filter
-        hid -- from the last populate's counts and the live *libs_by_path*. Re-run after a
-        selection link / unlink, which changes the count without a rebuild."""
-        footer = getattr(self.ui, "footer", None)
-        if footer is None:
-            return
-        listing = getattr(self, "_listing", None)
-        if listing is None:
-            footer.setText("Set a root directory.")
-            return
-        shown, hidden = listing
-        # Distinct libraries: a bake-backed one is keyed twice (bake + source).
-        n_linked = len({lib.name for lib in libs_by_path.values()})
-        msg = f"{shown} file(s); {n_linked} linked."
-        if hidden > 0:
-            msg += f" ({hidden} hidden by filter)"
-        footer.setText(msg)
-
-    def _current_scene_path(self):
-        """Normalized path of the currently-open .blend (or '' — needs bpy)."""
-        if not self._has_bpy():
-            return ""
-        import bpy
-
-        fp = bpy.data.filepath
-        return self._path_key(fp) if fp else ""
-
-    # ------------------------------------------------------------------ filter / display options
-    def _filter_options(self):
-        """Snapshot the filter / display widgets (defensive: menus may not be built yet).
-
-        Suffix / folder-structure / hide / notes options live on the header menu; the text-filter
-        controls (enable toggle, ignore-case, target) live on the Filter field's option box — the
-        same split as the Maya panel.
-        """
-        menu = self._naming_menu()  # the header menu: naming + display options
-        filt = getattr(self.ui, "txt001", None)
-        fbox = getattr(filt, "option_box", None) if filt is not None else None
-        fmenu = (
-            getattr(fbox, "menu", None) if fbox is not None else None
-        )  # text-filter options
-
-        def chk(m, name, default=False):
-            w = getattr(m, name, None) if m else None
-            return w.isChecked() if w is not None else default
-
-        # The filter on/off toggle gates only the text filter (suffix/structure always apply).
-        enabled = True
-        if fbox is not None:
-            try:
-                from uitk.widgets.optionBox.options.toggle import ToggleOption
-
-                toggle = fbox.find_option(ToggleOption)
-                enabled = toggle.is_on if toggle is not None else True
-            except Exception:
-                enabled = True
-
-        target_w = getattr(fmenu, "cmb_filter_target", None) if fmenu else None
-        _case, suffix, structure_pattern = self._naming_options()
-        return {
-            "suffix": suffix,
-            "structure_pattern": structure_pattern,
-            "filter_suffix": chk(menu, "chk_filter_suffix"),
-            "filter_structure": chk(menu, "chk_filter_folder_structure"),
-            "hide_suffix": chk(menu, "chk_hide_suffix"),
-            "hide_extension": chk(menu, "chk_hide_extension"),
-            "included_ext": self._included_extensions(),
-            "ignore_case": chk(fmenu, "chk_ignore_case", True),
-            "target": target_w.currentText() if target_w is not None else "Filter: All",
-            "filter_text": (filt.text().strip() if filt is not None else "")
-            if enabled
-            else "",
-        }
-
-    def _apply_file_filters(self, files, workspace, opt):
-        """Apply the suffix / folder-structure / text filters to the file list (mirror of Maya)."""
-        suffix = opt["suffix"]
-        # Filter by suffix — keep files whose name (sans extension) ends with the suffix.
-        if opt["filter_suffix"] and suffix:
-            files = [
-                f
-                for f in files
-                if os.path.splitext(os.path.basename(f))[0].endswith(suffix)
-            ]
-
-        # Filter by folder structure — keep files whose location matches the resolved subfolder pattern.
-        if opt["filter_structure"] and opt["structure_pattern"] and workspace:
-            files = self._filter_by_folder_structure(
-                files, workspace, opt["structure_pattern"], suffix
-            )
-
-        # Text filter — match file names and/or notes per the target (honoring ignore-case).
-        text = opt["filter_text"]
-        if text:
-            include_files = opt["target"] in ("Filter: All", "Filter: Files")
-            include_notes = opt["target"] in ("Filter: All", "Filter: Notes")
-            patterns = text.replace(";", ",")  # ptk.filter_list splits on "," only
-            name_matches = set()
-            if include_files:
-                names = [os.path.basename(f) for f in files]
-                name_matches = set(
-                    ptk.filter_list(names, inc=patterns, ignore_case=opt["ignore_case"])
-                )
-            kept = []
-            for f in files:
-                ok = include_files and os.path.basename(f) in name_matches
-                if not ok and include_notes:
-                    note = self._note(f)
-                    ok = bool(note) and self._note_matches(
-                        note, patterns, opt["ignore_case"]
-                    )
-                if ok:
-                    kept.append(f)
-            files = kept
-        return files
-
-    def _filter_by_folder_structure(self, files, workspace, pattern, suffix):
-        """Keep files whose directory matches the subfolder pattern ({scenes} / {name} / {workspace} / {suffix})."""
-        workspace_name = os.path.basename(os.path.normpath(workspace))
-        # Resolve {scenes} to the workspace's scene-rule folder — same lookup + fallback as
-        # save_scene_as (and Maya's cmds.workspace(fileRuleEntry="scene")); without this a
-        # "{scenes}/…" pattern (now the default) never matches and hides every file.
-        scenes_folder = self._scenes_folder(workspace)
-        kept = []
-        for f in files:
-            try:
-                rel_dir = os.path.relpath(os.path.dirname(f), workspace)
-            except ValueError:  # different drive on Windows
-                continue
-            base = os.path.splitext(os.path.basename(f))[0]
-            name_for_path = (
-                base[: -len(suffix)] if suffix and base.endswith(suffix) else base
-            )
-            try:
-                expected = ptk.StrUtils.replace_placeholders(
-                    pattern,
-                    scenes=scenes_folder,
-                    name=name_for_path,
-                    workspace=workspace_name,
-                    suffix=suffix,
-                )
-            except (
-                ValueError
-            ):  # malformed pattern (e.g. unbalanced brace) — don't crash the refresh
-                continue
-            rel_parts = os.path.normcase(os.path.normpath(rel_dir)).split(os.sep)
-            exp_parts = os.path.normcase(os.path.normpath(expected)).split(os.sep)
-            # Match if the file's directory ends with the expected structure (file may sit deeper).
-            if (
-                len(rel_parts) >= len(exp_parts)
-                and rel_parts[-len(exp_parts) :] == exp_parts
-            ):
-                kept.append(f)
-        return kept
-
-    @staticmethod
-    def _note_matches(note, patterns, ignore_case):
-        """True if the note (or any comma/semicolon segment of it) matches the filter (mirror of Maya)."""
-        segments = [note]
-        for delim in (",", ";"):
-            expanded = []
-            for s in segments:
-                expanded.extend(p.strip() for p in s.split(delim) if p.strip())
-            segments = expanded
-        return bool(
-            ptk.filter_list([note] + segments, inc=patterns, ignore_case=ignore_case)
+    def purge_unused_bakes(self, dry_run: bool = False) -> list:
+        """Remove the bakes in the project that no file links
+        (``MayaSceneImport.purge_unused_bakes``). Returns the paths removed."""
+        return self._importer()().purge_unused_bakes(
+            project=self.bake_project_root(), dry_run=dry_run
         )
 
-    def _format_display_name(self, path, opt):
-        """Displayed file name with the suffix / extension optionally stripped (mirror of Maya).
-
-        The suffix comes off the END of the stem only, never as a substring: the
-        field holds a naming token ('_LOC'), and removing it wherever it appears
-        rewrites the middle of a name — 'ITA_LOCKHANDLE.blend' listed as
-        'ITAKHANDLE'. Splitting the extension off first keeps the token at the
-        tail while the column is showing it, and `endswith` matches the suffix
-        FILTER above, so a row shown for its suffix hides that same one.
-        """
-        stem, ext = os.path.splitext(os.path.basename(path))
-        suffix = opt["suffix"] if opt["hide_suffix"] else ""
-        if suffix and stem.endswith(suffix):
-            stem = stem[: -len(suffix)]
-        return stem if opt["hide_extension"] else f"{stem}{ext}"
-
-    def _row_label(self, path, opt):
-        """Display label for a file row — the bare (optionally suffix/extension-stripped) file name.
-
-        No cross-DCC origin tag is appended: the user can reveal the extension (Hide Extension off)
-        to tell a foreign .ma/.mb/.fbx/USD row from a native .blend, so a redundant '(Maya)' suffix is
-        omitted (mirror of the Maya panel, which likewise drops its '(Blender)' tag)."""
-        return self._format_display_name(path, opt)
-
+    # ------------------------------------------------------------------ foreign rows
     @classmethod
-    def _is_foreign(cls, path):
-        """True if *path* is a foreign (cross-DCC) scene for this panel — an import-only row."""
+    def is_foreign(cls, path) -> bool:
+        """True if *path* is a foreign (Maya / FBX / USD) scene -- a row baked to a
+        ``.blend`` before it can be linked or opened."""
         return (
-            bool(path) and os.path.splitext(path)[1].lower() in cls.FOREIGN_EXTENSIONS
+            bool(path)
+            and os.path.splitext(str(path))[1].lower() in cls.FOREIGN_EXTENSIONS
         )
-
-    def _apply_notes_column_visibility(self):
-        """Show/hide the Notes column (index 2) per the header toggle — hidden by default, like Maya.
-
-        View-only: the notes data is still loaded and remains filterable while the column is hidden.
-        """
-        header = getattr(self.ui, "header", None)
-        menu = getattr(header, "menu", None) if header else None
-        chk = getattr(menu, "chk_show_notes_column", None) if menu else None
-        show = chk.isChecked() if chk is not None else False
-        table = getattr(self.ui, "tbl000", None)
-        if table is not None:
-            table.setColumnHidden(self.COL_NOTES, not show)
-
-    def _wire_naming_fields(self, menu):
-        """(Re)wire the header menu's naming fields to THIS instance: an edit
-        re-filters, and the Folder Structure field shows its live preview. Runs
-        on every ``header_init``: the header outlives a slots reload."""
-        for key, name in (
-            ("suffix", "txt_suffix"),
-            ("structure", "txt_subfolder_structure"),
-        ):
-            w = getattr(menu, name, None)
-            if w is not None:
-                self._rewire_signal(
-                    w, w.textChanged, self._on_naming_field_changed, key
-                )
-        self._wire_structure_tooltip(menu)
-
-    def _on_naming_field_changed(self, *args):
-        """Re-filter when a naming field changes while a dependent filter / display
-        option is on (mirror of Maya — ``*args`` absorbs ``textChanged``'s payload)."""
-        header = getattr(self.ui, "header", None)
-        menu = getattr(header, "menu", None) if header else None
-        if not menu:
-            return
-        for name in (
-            "chk_filter_suffix",
-            "chk_hide_suffix",
-            "chk_filter_folder_structure",
-        ):
-            chk = getattr(menu, name, None)
-            if chk is not None and chk.isChecked():
-                self._refresh()
-                return
-
-    def _on_item_changed(self, item):
-        """Persist a Notes-column edit, keyed by the row's file path."""
-        if self._suppress_note_save or item is None or item.column() != self.COL_NOTES:
-            return
-        path = item.data(self.sb.QtCore.Qt.UserRole)
-        if not path:
-            return
-        text = item.text().strip()
-        try:
-            self.scene_notes.set(path, text)
-        except OSError as e:
-            store = self.scene_notes.store_path(path)
-            self.logger.warning(f"Could not save the note to {store or path}: {e}")
-
-    # ------------------------------------------------------------------ selection = references
-    def _on_selection_changed(self):
-        """The table's selection IS the scene's reference set (mirror of mayatk's
-        ``handle_item_selection``): selecting a row links its .blend, deselecting it removes
-        that library.
-
-        Diffed per file path, over the rows the table lists: a library whose file is not a
-        row here (another workspace, a filtered-out file, Hierarchy Sync's sandbox) is
-        never touched by a click on an unrelated row. Foreign and current-scene rows are
-        non-selectable, so they never enter the diff -- a foreign row links its BAKE, whose
-        path is no row's, and its link icon toggles it.
-        """
-        if self._syncing_selection or not self._has_bpy():
-            return
-        table = self.ui.tbl000
-        qt = self.sb.QtCore.Qt
-        rows, selected = set(), {}
-        for row in range(table.rowCount()):
-            item = table.item(row, self.COL_NAME)
-            path = item.data(qt.UserRole) if item else None
-            if not path:
-                continue
-            key = self._path_key(path)
-            rows.add(key)
-            if item.isSelected() and item.flags() & qt.ItemIsSelectable:
-                selected[key] = path
-        # By the library's OWN file only -- not _linked_libraries_by_path, which also keys a
-        # bake by its source row: a foreign row is never selected, so that key would read
-        # as "deselected" and unlink every foreign reference on any click.
-        linked = {}
-        for rec in btk.list_libraries():
-            if rec["abspath"]:
-                linked[self._path_key(rec["abspath"])] = rec["library"]
-
-        for key in rows - set(selected):
-            if key in linked:
-                btk.remove_library(linked[key])
-        for key, path in selected.items():
-            if key in linked:
-                continue
-            try:
-                btk.link_blend_file(path, link=True)
-            except (RuntimeError, OSError) as e:
-                self.sb.message_box(str(e))
-        # Re-read: a failed link must not stay selected; the icons and the count follow.
-        self._update_footer(self._sync_reference_state(table))
-
-    def _linked_libraries_by_path(self):
-        """``{path key: library}`` for every linked library -- keyed by its file, and a
-        bake-backed one ALSO by the foreign scene it was baked from (the row the user sees).
-        Empty without bpy (the .venv lists files with no live state)."""
-        libs = {}
-        if not self._has_bpy():
-            return libs
-        for rec in btk.list_libraries():
-            abspath = rec.get("abspath")
-            if not abspath:
-                continue
-            libs[self._path_key(abspath)] = rec["library"]
-            source = self._bake_source(abspath)
-            if source:
-                libs[self._path_key(source)] = rec["library"]
-        return libs
-
-    def _sync_reference_state(self, widget, libs_by_path=None):
-        """Mirror the live libraries onto every row: the link icon, the display-mode icon,
-        and -- selection being the reference set -- the selection itself (selectable rows
-        only). Programmatic, so the selection -> reference handler ignores it. Returns the
-        ``{path key: library}`` map it applied."""
-        if libs_by_path is None:
-            libs_by_path = self._linked_libraries_by_path()
-        qt = self.sb.QtCore.Qt
-        was_syncing, self._syncing_selection = self._syncing_selection, True
-        try:
-            for row in range(widget.rowCount()):
-                item = widget.item(row, self.COL_NAME)
-                path = item.data(qt.UserRole) if item else None
-                if not path:
-                    continue
-                lib = libs_by_path.get(self._path_key(path))
-                widget.actions.set(
-                    row,
-                    self.COL_REF,
-                    "unreferenced" if lib is None else "referenced",
-                )
-                widget.actions.set(
-                    row,
-                    self.COL_DISPLAY,
-                    (
-                        "unavailable"
-                        if lib is None
-                        else btk.get_reference_display_mode(lib)
-                    ),
-                )
-                if item.flags() & qt.ItemIsSelectable:
-                    item.setSelected(lib is not None)
-        finally:
-            self._syncing_selection = was_syncing
-        return libs_by_path
-
-    # ------------------------------------------------------------------ context-menu row
-    def _capture_context_row(self, pos):
-        """Store the right-clicked row so the context-menu actions act on IT, not on the
-        selection (which is the reference set); then label its Open action. Mirror of
-        mayatk's ``_capture_context_row``."""
-        idx = self.ui.tbl000.indexAt(pos)
-        self._context_menu_row = idx.row() if idx.isValid() else None
-        self._label_open_action()
-
-    def _context_paths(self):
-        """The file behind the right-clicked row, as a one-item list ([] when none)."""
-        table = self.ui.tbl000
-        row = self._context_menu_row
-        if row is None or not 0 <= row < table.rowCount():
-            return []
-        item = table.item(row, self.COL_NAME)
-        path = item.data(self.sb.QtCore.Qt.UserRole) if item else None
-        return [path] if path else []
-
-    def _library_for_path(self, path):
-        """The linked library datablock whose file is ``path`` (or None).
-
-        A foreign row's library is the file's *bake*, not the row's own path, so each
-        candidate is also matched through its bake sidecar (see ``bake_source``).
-        """
-        return self._linked_libraries_by_path().get(self._path_key(path))
-
-    @staticmethod
-    def _bake_source(linked_path):
-        """The foreign scene *linked_path* was baked from, or None if it is not a bake."""
-        try:
-            from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
-        except ImportError:  # bridge unavailable — no row can be bake-backed
-            return None
-        return MayaSceneImport.bake_source(linked_path)
-
-    def _context_libraries(self):
-        return [
-            lib
-            for lib in map(self._library_for_path, self._context_paths())
-            if lib is not None
-        ]
-
-    # ------------------------------------------------------------------ scene file ops
-    def open_selected(self):
-        """Open the right-clicked row's file (replaces the current file; confirms if unsaved)."""
-        paths = self._context_paths()
-        if not paths:
-            self.sb.message_box("Select a file in the list first.")
-            return
-        self._open_path(paths[0])
-
-    def _open_path(self, path):
-        """Open ``path`` (replaces the current file), confirming first if there are unsaved changes.
-
-        A foreign (Maya / FBX / USD) scene has no ``.blend`` to open, so it is baked and its bake is
-        opened as a new, unsaved file (see :meth:`_open_foreign_as_new`).
-        """
-        if not self._confirm_discard_unsaved():
-            return
-        if self._is_foreign(path):
-            self._open_foreign_as_new(path)
-            return
-        if btk.open_scene(path):
-            self.logger.info(f"Opened scene: {os.path.basename(path)}")
-            self._discard_stale_scratches()
-            self._pin_workspace_for(path)
-        else:
-            self.sb.message_box("Failed to open the file.")
-
-    def _foreign_route(self):
-        """The conversion route from the header menu — ``"fbx"`` (default) / ``"usd"``.
-
-        USD is returned only when explicitly selected, so a missing/unbuilt menu
-        falls back to the same route the engine defaults to.
-        """
-        menu = getattr(getattr(self.ui, "header", None), "menu", None)
-        combo = getattr(menu, "cmb_conversion_route", None) if menu else None
-        if combo is not None and "USD" in combo.currentText():
-            return "usd"
-        return "fbx"
-
-    def _resolve_conversion(self, path):
-        """Route + rig-mode decision for converting *path*.
-
-        Returns the kwargs to hand ``import_scene`` / ``bake_scene`` (``via`` +
-        ``rig_mode``), or ``None`` if the user cancelled. The prompt exists for
-        scenes whose driven animation a raw import would lose, and it applies to
-        BOTH routes: the rig can be carried or baked whichever carrier travels.
-        """
-        rig_mode = self._resolve_rig_mode(path)
-        if rig_mode is None:
-            return None
-        return {"via": self._foreign_route(), "rig_mode": rig_mode}
-
-    def _resolve_rig_mode(self, path):
-        """Decide how a foreign scene's rig logic travels (schema 15.1). When the
-        scene declares *driven* animation a raw import would lose, prompt
-        Transfer rig / Bake / Raw -- the conversion-time counterpart of the
-        unsaved-changes confirmation. Returns the ``rig_mode`` to hand the
-        engine -- ``"rig"`` / ``"bake"`` / ``"raw"`` / ``"auto"`` (no driven
-        animation detected, or a non-scannable source: nothing to ask) -- or
-        ``None`` if the user cancelled.
-
-        ``message_box`` takes standard Qt button names only, so the three
-        outcomes ride Yes (transfer) / No (bake) / Ignore (raw) with the text
-        saying which is which. ``.ma`` is line-scanned, ``.mb`` byte-scanned; an
-        ``.fbx`` or USD source is already baked and falls through to ``"auto"``."""
-        from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
-
-        if not MayaSceneImport.scene_has_complex_animation(path):
-            return "auto"
-        choice = self.sb.message_box(
-            f"<hl>{os.path.basename(path)}</hl> has driven animation "
-            "(constraints, IK, set-driven keys, matrix rigs) that a raw import "
-            "would lose.<br><br><b>Yes</b> = Transfer the rig as editable "
-            "relationships where Blender can build them, baking the rest.<br>"
-            "<b>No</b> = Bake everything to keyframes.<br>"
-            "<b>Ignore</b> = Import raw (driven animation is lost).",
-            "Yes",
-            "No",
-            "Ignore",
-            "Cancel",
-        )
-        return {"Yes": "rig", "No": "bake", "Ignore": "raw"}.get(choice)
-
-    @contextlib.contextmanager
-    def _conversion_progress(self, text):
-        """Footer progress for one foreign-scene conversion; yields the engine's
-        ``progress(current, total, message)`` callback.
-
-        A conversion blocks for as long as the scene takes -- minutes for a production
-        assembly, where a headless Maya converts and then a headless Blender bakes. The
-        engine streams both children's progress markers into this callback
-        (``pythontk.ProgressRelay``); every tick pumps the UI, so the panel repaints
-        instead of freezing, and an Esc-hold on the bar stops the running child
-        (``pythontk.OperationCancelled``). The busy cursor is the switchboard's owned
-        scope, not a raw override pair: these run from row-icon clicks too, outside
-        slot dispatch.
-        """
-        with self.sb.busy_cursor():
-            with self.sb.progress(
-                ui=self.ui, total=100, text=text, busy=True
-            ) as update:
-                yield self.sb.progress_adapter(update)
-
-    def _footer_status(self, text, level="warning"):
-        """Leave *text* in the footer's status label (no-op without a footer)."""
-        footer = getattr(self.ui, "footer", None)
-        if footer is not None:
-            footer.setText(text, level=level)
-
-    def _open_foreign_as_new(self, path):
-        """Bake a foreign (Maya / FBX / USD) scene to a .blend and open it as a new, unsaved file.
-
-        The 'open' counterpart of the link icon's bake-and-reference: a fresh headless Maya
-        converts the scene to FBX (default) or USD per the header-menu route, and a headless
-        Blender bakes that to a cached .blend (an .fbx or USD source skips Maya). That cached bake is
-        copied to a scratch .blend (``<stem>_<ext>.blend`` in a swept temp dir — see
-        :meth:`_foreign_scratch_path`) which is opened — so the user edits a throwaway document
-        and saves it wherever they like, and the cache the link icon reuses is never touched.
-        The session workspace is pinned to the SOURCE scene's project (not the scratch's temp
-        folder), so the opened scene resolves textures / scene dir / Save Scene exactly as the
-        Maya coworker's does. A first bake of a .ma/.mb runs a headless Maya and then a
-        headless Blender for as long as the scene takes, so both report into the footer
-        (:meth:`_conversion_progress`) and an Esc-hold stops them.
-        """
-        if not self._has_bpy():
-            self.sb.message_box("Opening a foreign scene needs a running Blender.")
-            return
-        # Resolve route + bake-vs-raw (may prompt on the FBX route) before the progress
-        # starts, so the modal shows a normal cursor.
-        conv = self._resolve_conversion(path)
-        if conv is None:
-            return  # user cancelled
-        from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
-
-        name = os.path.basename(path)
-        project = self._bake_project_root()
-        try:
-            with self._conversion_progress(f"Opening {name}") as progress:
-                baked = MayaSceneImport().bake_scene(
-                    path, progress=progress, project=project, **conv
-                )
-        except ptk.OperationCancelled:
-            self._footer_status(f"Stopped opening {name}.")
-            return
-        except FileNotFoundError as e:
-            # The error names what is missing -- Maya, the bake's Blender, or the
-            # scene itself (an .fbx / USD source needs no Maya at all).
-            self._error_box("Can't open", name, e)
-            return
-        except Exception as e:  # noqa: BLE001 — surface the bake error to the user
-            self.logger.warning(f"Foreign scene bake failed for {path}: {e}")
-            self._error_box("Open failed for", name, e)
-            return
-
-        # Deterministic scratch twin so a second Open click resolves this row as 'current'
-        # and closes it (see _is_current / _foreign_scratch_path). Never the project's
-        # bake itself: a save of it would write into the bake cache every linking
-        # file reads.
-        try:
-            scratch = _scratch_twins().create(path, baked)
-        except OSError as e:
-            self._error_box(
-                "Can't open", name, f"no scratch copy could be written ({e})"
-            )
-            return
-        if btk.open_scene(scratch):
-            # A copy of the bake opened as a document of its own is no bake: its
-            # record goes (else it rides along into whatever the user saves).
-            MayaSceneImport._strip_bake_record()
-            self._discard_stale_scratches()
-            # The scratch stands in for its source: the pin the source lies under holds
-            # it, so a lightmap bake's project is the source's, not the temp folder
-            # (DataNodes.scene_project_root).
-            btk.DataNodes.set_scene_source(scratch, path)
-            self._pin_workspace_for(path)
-            # Held past UiState's re-apply of the saved overlays, which the load queued.
-            MayaSceneImport.hide_relationship_lines()
-            self.sb.message_box(
-                f"Opened <hl>{os.path.basename(path)}</hl> as a new scene "
-                f"(<hl>{os.path.basename(scratch)}</hl>, baked from the foreign source — "
-                "save it into the workspace to keep it)."
-            )
-        else:
-            self.sb.message_box("Failed to open the baked scene.")
-
-    def save_scene(self):
-        """Save the current scene into the workspace with the naming conventions
-        set in the header menu's Naming section."""
-        workspace = self._workspace_dir()
-        if not (workspace and os.path.isdir(workspace)):
-            self.sb.message_box("Set a valid workspace folder first.")
-            return
-        case_style, suffix, structure_text = self._naming_options()
-        # Pre-populate with the current scene's name (suffix stripped, case applied) — the
-        # mirror of mayatk's prompt. A foreign scene opened as new is its ``<stem>_<ext>``
-        # scratch name, so the default keeps the provenance (``scene_ma``).
-        default_name = self._default_save_name(case_style, suffix)
-        name = self.sb.input_dialog(
-            "Save Scene", "Enter a name for the scene:", default_name
-        )
-        # The conventions append the suffix; one typed into the name would double.
-        name = ptk.StrUtils.strip_suffix(name or "", [suffix])
-        if not name:
-            return
-        if "{scene}" in structure_text:
-            self.logger.warning(
-                "Folder Structure: '{scene}' is not a placeholder; saving as "
-                "'{scenes}' (the path the Save button previews)."
-            )
-        path = btk.save_scene_as(
-            workspace,
-            name,
-            case=case_style,
-            suffix=suffix,
-            subfolder=self._corrected_structure(structure_text),
-        )
-        if path:
-            self.logger.info(f"Saved scene: {os.path.basename(path)}")
-        else:
-            self.sb.message_box("Failed to save the scene.")
-        self._refresh()
-
-    def rename_selected(self):
-        """Rename the right-clicked row's .blend on disk."""
-        paths = self._context_paths()
-        if not paths:
-            self.sb.message_box("Select a file to rename.")
-            return
-        self._rename_path(paths[0])
-
-    def _rename_path(self, old):
-        """Prompt for a new name and rename ``old`` on disk, then refresh."""
-        base = os.path.splitext(os.path.basename(old))[0]
-        new_base = self.sb.input_dialog("Rename Scene", "Enter the new name:", base)
-        if not new_base or new_base == base:
-            return
-        new_path = btk.rename_scene_file(old, new_base)
-        if new_path:
-            self._carry_note(old, new_path)
-            self.logger.info(f"Renamed to: {os.path.basename(new_path)}")
-        else:
-            self.sb.message_box(
-                "Rename failed — a file with that name may already exist, or the open "
-                "file could not be saved."
-            )
-        self._refresh()
 
     @classmethod
-    def _delete_prompt(cls, paths, permanent=()) -> str:
-        """Confirmation text for deleting *paths* (mirror of mayatk's).
+    def needs_conversion(cls, path) -> bool:
+        """True if bringing *path* in runs a conversion in the other DCC (a headless
+        Maya for a ``.ma``/``.mb``); an ``.fbx`` or USD source is the bake's own
+        input, so it converts nothing and has nothing to ask."""
+        try:
+            from blendertk.env_utils.maya_bridge._scene_import import (
+                SUPPORTED_EXTENSIONS as MAYA_SCENES,
+            )
+        except ImportError:
+            MAYA_SCENES = (".ma", ".mb")
+        return bool(path) and os.path.splitext(str(path))[1].lower() in MAYA_SCENES
 
-        Names each file in full: the row label can hide the suffix/extension, so a
-        count alone ("Delete 1 file(s)?") gives no way to confirm WHICH file is about
-        to be removed. And it says where each goes: the platform's trash
-        (``ptk.FileUtils.trash_name``), or, for *permanent* -- the ones no trash would
-        take -- gone for good, which it says cannot be undone.
+    @classmethod
+    def scene_has_complex_animation(cls, path: str) -> bool:
+        """True if the foreign scene *path* declares driven animation a raw import
+        would lose (``MayaSceneImport.scene_has_complex_animation``)."""
+        return cls._importer().scene_has_complex_animation(path)
 
-        Parameters:
-            paths (list): Full paths of the files queued for deletion.
-            permanent (list): Those of *paths* that would be deleted for good.
+    @classmethod
+    def find_foreign_scenes(
+        cls, root_dir: str, recursive: bool = False, extensions=None
+    ) -> List[str]:
+        """The foreign scenes under *root_dir* (``MayaSceneImport.find_scenes``)."""
+        return cls._importer().find_scenes(
+            root_dir, recursive=recursive, extensions=extensions
+        )
+
+    def bake_scene(self, path: str, **kwargs) -> str:
+        """Bake the foreign scene *path* to a cached ``.blend`` and return it
+        (``MayaSceneImport.bake_scene``: ``via``, ``rig_mode``, ``progress``,
+        ``project``, ...)."""
+        return self._importer()().bake_scene(path, **kwargs)
+
+    def import_scene(self, path: str, **kwargs) -> list:
+        """Import the foreign scene *path* as local data with no link behind it
+        (``MayaSceneImport.import_scene``). Returns what it brought in."""
+        return self._importer()().import_scene(path, **kwargs)
+
+    def bake_project_root(self) -> Optional[str]:
+        """The project a reference's bake goes in: the open file's
+        (``DataNodes.scene_project_root``), else the folder being browsed; None when
+        neither resolves (the bake then refuses: a bake a saved file links is a
+        project file, never a temp one)."""
+        try:
+            from blendertk.node_utils.data_nodes import DataNodes
+
+            root = DataNodes.scene_project_root()
+        except Exception:  # noqa: BLE001 - no Blender (the Qt-only harness)
+            root = None
+        root = root or self._current_working_dir
+        return root if root and os.path.isdir(root) else None
+
+    def _bake_for_reference(self, file_path: str, project=None) -> Optional[str]:
+        """The cached ``.blend`` a foreign row's open reads, or None with a warning.
+        A hook: a panel runs it in its progress (``bake_for_reference=``)."""
+        try:
+            return self.bake_scene(
+                file_path, project=project or self.bake_project_root()
+            )
+        except Exception as e:  # noqa: BLE001 - reported; nothing is opened
+            self.logger.warning(f"Could not bake {file_path}: {e}")
+            return None
+
+    @staticmethod
+    def foreign_scratch_path(path: str) -> str:
+        """The deterministic scratch ``.blend`` a foreign row opens as
+        (``<temp>/btk_opened_<hash>/<stem>_<ext>.blend``: ``scene.ma`` opens as
+        ``scene_ma.blend``, so the title bar says what it was converted from).
+        ``ptk.ScratchTwins`` owns the naming, the age sweep and the discard."""
+        return _scratch_twins().path_for(path)
+
+    def discard_stale_scratches(self):
+        """Discard every untouched scratch twin that is no longer the open file (one
+        the user saved into is kept: ``ptk.ScratchTwins.discard_except``)."""
+        _scratch_twins().discard_except(self.current_scene())
+
+    # ------------------------------------------------------------------ scene files
+    def current_scene(self) -> str:
+        """The open .blend's path; '' when it has never been saved, or without
+        Blender. Authored casing kept."""
+        bpy = _bpy()
+        return (bpy.data.filepath or "") if bpy is not None else ""
+
+    def scene_modified(self) -> bool:
+        """True if replacing the open file would lose work
+        (``EnvUtils.scene_has_unsaved_changes``: the dirty flag follows the undo
+        stack, so an empty never-saved scene does not count). False without
+        Blender."""
+        if _bpy() is None:
+            return False
+        return EnvUtils.scene_has_unsaved_changes()
+
+    def save_open_scene(self) -> Optional[bool]:
+        """Flush the open file to its own path so its unsaved edits reach disk.
+
+        Returns True when the file on disk is up to date, and None when the file has
+        never been saved (a browser then saves it under a new name instead).
+
+        Raises:
+            RuntimeError: The save failed.
+        """
+        if not self.current_scene():
+            return None
+        if not self.scene_modified():
+            return True
+        if not EnvUtils._save_open_file():
+            raise RuntimeError("The open file could not be saved.")
+        self.logger.info(f"Saved the open file: {self.current_scene()}")
+        return True
+
+    def save_scene(self, path: str) -> str:
+        """Save the open file as *path* (``wm.save_as_mainfile``); the session follows
+        it. Returns the saved path; raises RuntimeError on failure."""
+        bpy = _bpy()
+        if bpy is None:
+            raise RuntimeError("Saving a scene needs a running Blender.")
+        bpy.ops.wm.save_as_mainfile(filepath=path)
+        path = os.path.normpath(path)
+        self.logger.info(f"Saved scene to: {path}")
+        return path
+
+    def new_scene(self) -> bool:
+        """Discard the open file and start an empty one (Maya's ``file -new``) -- the
+        'close' counterpart of :meth:`open_scene`. Callers guard unsaved changes first.
+        An untouched scratch twin the file was goes with it. True on success."""
+        if not EnvUtils.new_scene():
+            self.logger.error("Failed to start a new scene.")
+            return False
+        self.logger.info("Started a new (empty) scene.")
+        self.discard_stale_scratches()
+        return True
+
+    def is_current(self, path, current=None) -> bool:
+        """True if *path*'s scene is the open one: the file itself, or -- a foreign
+        row -- its scratch twin (so a second Open click on either closes it). Pass
+        *current* (normalized) to reuse one read across a listing. Mirror of mayatk's."""
+        if not path:
+            return False
+        if current is None:
+            scene = self.current_scene()
+            current = os.path.normcase(os.path.normpath(scene)) if scene else ""
+        if not current:
+            return False
+        target = self.foreign_scratch_path(path) if self.is_foreign(path) else path
+        return os.path.normcase(os.path.normpath(target)) == current
+
+    def open_scene(self, file_path: str, set_workspace: bool = True) -> bool:
+        """Open *file_path* (replaces the file), pinning the session's workspace to
+        the scene's project (``ptk.Workspace.for_scene``, the folder being browsed as
+        the session root).
+
+        A foreign row has no ``.blend`` to open: its bake (:meth:`_bake_for_reference`,
+        baked into the SOURCE's project -- the opened file is what reads it) is copied
+        to a scratch twin (:meth:`foreign_scratch_path`) that is opened as a new file
+        standing in for its source (``DataNodes.set_scene_source``), so the project's
+        bake itself is never edited. Mirror of mayatk's.
 
         Returns:
-            str: HTML prompt naming the file(s).
+            (bool): True once opened; False when a foreign row's bake did not come
+            (reported by the bake).
+
+        Raises:
+            FileNotFoundError: *file_path* does not exist.
+            OSError: A foreign row's scratch copy could not be written.
+            RuntimeError: Blender could not open it.
         """
-        trash = ptk.FileUtils.trash_name()
-        gone = {os.path.normcase(os.path.abspath(p)) for p in permanent}
-        marks = [os.path.normcase(os.path.abspath(p)) in gone for p in paths]
-        names = [os.path.basename(p) for p in paths]
-        if len(names) == 1:
-            if marks[0]:
-                return (
-                    f"Delete <hl>{names[0]}</hl> permanently?<br>The {trash} "
-                    "will not take it, so this cannot be undone."
-                )
-            return f"Move <hl>{names[0]}</hl> to the {trash}?"
-        mixed = any(marks) and not all(marks)
-        shown = list(zip(names, marks))[: cls.DELETE_PROMPT_MAX_NAMES]
-        listed = "<br>".join(
-            f"&bull; {n}" + (f" (permanently: no {trash})" if mark and mixed else "")
-            for n, mark in shown
-        )
-        if len(names) > len(shown):
-            listed += f"<br>&bull; ...and {len(names) - len(shown)} more"
-        if all(marks):
-            return (
-                f"Delete {len(names)} file(s) permanently?<br>{listed}<br>The "
-                f"{trash} will not take them, so this cannot be undone."
+        source = file_path
+        if self.is_foreign(file_path):
+            home = ptk.Workspace.for_scene(
+                file_path, session_root=self._current_working_dir or None
             )
-        if mixed:
-            return (
-                f"Delete {len(names)} file(s)?<br>{listed}<br>The rest go to the "
-                f"{trash}; the marked ones cannot be undone."
+            baked = self._bake_for_reference(
+                file_path, project=home.root if home is not None else None
             )
-        return f"Move {len(names)} file(s) to the {trash}?<br>{listed}"
-
-    def delete_selected(self):
-        """Delete the right-clicked row's .blend (confirmed): to the trash, or -- a drive
-        with none, confirmed as permanent -- for good. A trash that refuses one after
-        all asks again, as permanent, before anything is lost (mirror of mayatk's)."""
-        paths = [p for p in self._context_paths() if os.path.isfile(p)]
-        if not paths:
-            self.sb.message_box("Select a file to delete.")
-            return
-        permanent = [p for p in paths if not ptk.FileUtils.can_trash(p)]
-        prompt = self._delete_prompt(paths, permanent)
-        if self.sb.message_box(prompt, "Yes", "No") != "Yes":
-            return
-        done = 0
-        refused = []
-        for p in paths:
-            if btk.delete_scene_file(p, permanent=p in permanent):
-                self._carry_note(p)
-                done += 1
-            elif p not in permanent and os.path.isfile(p):
-                refused.append(p)  # the trash would not take it: untouched
-        declined = 0
-        if refused:
-            again = self._delete_prompt(refused, refused)
-            if self.sb.message_box(again, "Yes", "No") == "Yes":
-                for p in refused:
-                    if btk.delete_scene_file(p, permanent=True):
-                        self._carry_note(p)
-                        done += 1
-            else:
-                declined = len(refused)  # kept on purpose, not a failure
-        if declined:
-            paths = [p for p in paths if p not in refused]
-        self.logger.info(f"Deleted {done} of {len(paths)} file(s).")
-        if done < len(paths):
-            self.sb.message_box(
-                f"Deleted <hl>{done}</hl> of {len(paths)} — some file(s) could not be removed."
-            )
-        self._refresh()
-
-    def open_location_selected(self):
-        """Reveal the right-clicked row's file in the OS file manager."""
-        paths = self._context_paths()
-        if not paths:
-            self.sb.message_box("Select a file in the list first.")
-            return
-        try:
-            ptk.FileUtils.reveal_in_file_manager(paths[0])
-        except (FileNotFoundError, OSError) as e:
-            self.sb.message_box(str(e))
-
-    def copy_path_selected(self):
-        """Copy the right-clicked row's full path to the clipboard (mirror of mayatk)."""
-        paths = self._context_paths()
-        if not paths:
-            self.sb.message_box("Select a file in the list first.")
-            return
-        path = os.path.normpath(paths[0])
-        self.sb.QtWidgets.QApplication.clipboard().setText(path)
-        footer = getattr(self.ui, "footer", None)
-        if footer is not None and hasattr(footer, "setStatusText"):
-            footer.setStatusText(f"Copied: {path}", level="success")
-            self.sb.defer_with_timer(lambda: footer.setStatusText(""), ms=3000)
-
-    # ------------------------------------------------------------------ cross-DCC import
-    def _error_box(self, lead: str, name: str, error) -> None:
-        """Report *error* for the scene file *name*, in a message box.
-
-        Escaped: the box renders rich text, and an error's own text is not
-        markup -- pxr quotes prim paths as ``</>``, a repr reads ``<...>`` --
-        so unescaped, the part that named the problem vanished.
-        """
-        self.sb.message_box(
-            f"{lead} <hl>{html.escape(name)}</hl>:<br>{html.escape(str(error))}"
-        )
-
-    def _import_foreign_paths(self, paths):
-        """Import each foreign scene in *paths* as LOCAL data (blocking).
-
-        Folded into the row menu's 'Unlink and Import' (see :meth:`unlink_import_selected`) as
-        the make-local counterpart for a not-yet-linked foreign row, through
-        ``btk.MayaSceneImport.import_scene``. A ``.ma``/``.mb`` converts first — a fresh
-        mayapy writes FBX, which is imported and cleaned up (the same bridge the Scene
-        menu's 'Import Maya Scene' uses); a conversion reports into the footer
-        (:meth:`_conversion_progress`, Esc-hold stops it) and a missing Maya install surfaces
-        as a clear message rather than a raw traceback. An ``.fbx`` or USD source is imported
-        directly — no Maya — by the same consumer the link icon's bake runs, so the row lands
-        here exactly as it does linked.
-        """
-        paths = [p for p in (paths or []) if p and self._is_foreign(p)]
-        if not paths:
-            return
-        if not self._has_bpy():
-            self.sb.message_box("Importing a foreign scene needs a running Blender.")
-            return
-        from blendertk.env_utils.maya_bridge._scene_import import (
-            SUPPORTED_EXTENSIONS as MAYA_SCENES,
-            MayaSceneImport,
-        )
-
-        # Resolve route + bake-vs-raw per scene (may prompt on the FBX route) BEFORE any
-        # progress starts. Only a Maya scene converts, so only it can ask anything; a
-        # cancelled scene is dropped.
-        plan = []
-        for path in paths:
-            if os.path.splitext(path)[1].lower() not in MAYA_SCENES:
-                plan.append((path, {}))
-            else:
-                conv = self._resolve_conversion(path)
-                if conv is not None:
-                    plan.append((path, conv))
-        if not plan:
-            return
-
-        total, done = 0, 0
-        for path, conv in plan:
-            name = os.path.basename(path)
-            try:
-                with self._conversion_progress(f"Importing {name}") as progress:
-                    total += len(
-                        MayaSceneImport().import_scene(path, progress=progress, **conv)
-                    )
-                done += 1
-            except ptk.OperationCancelled:
-                self._footer_status(f"Stopped importing {name}.")
-                break
-            except FileNotFoundError as e:
-                # The error names what is missing. A missing Maya fails every
-                # conversion after this one, so stop; an .fbx / USD source needs no
-                # Maya, so all it can be missing is its own file -- carry on.
-                self._error_box("Can't import", name, e)
-                if os.path.splitext(path)[1].lower() not in MAYA_SCENES:
-                    continue
-                return
-            except Exception as e:  # noqa: BLE001 — surface the conversion error to the user
-                self.logger.warning(f"Foreign scene import failed for {path}: {e}")
-                self._error_box("Import failed for", name, e)
-        self.logger.info(f"Imported {total} object(s) from {done} foreign scene(s).")
-        self._refresh()
-
-    def _reference_foreign_paths(self, paths):
-        """Bake each foreign scene in *paths* to a cached .blend and link it. True on success.
-
-        Blender can only link a ``.blend``, so a foreign row is referenced through a bake
-        (headless Maya → USD/FBX intermediate → headless Blender → cached .blend; an .fbx
-        or USD source is already the intermediate) rather
-        than directly.
-        Both stages are cached, so re-linking the same unchanged scene is instant; a first
-        run reports into the footer (:meth:`_conversion_progress`, Esc-hold stops it).
-        """
-        paths = [p for p in (paths or []) if p and self._is_foreign(p)]
-        if not paths:
-            return False
-        if not self._has_bpy():
-            self.sb.message_box("Referencing a foreign scene needs a running Blender.")
-            return False
-        from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
-
-        # Resolve route + bake-vs-raw per scene (may prompt on the FBX route) BEFORE any
-        # progress starts; a cancelled scene is dropped from the batch.
-        plan = []
-        for path in paths:
-            conv = self._resolve_conversion(path)
-            if conv is not None:
-                plan.append((path, conv))
-        if not plan:
-            return False
-        project = self._bake_project_root()
-
-        linked = 0
-        for path, conv in plan:
-            name = os.path.basename(path)
-            try:
-                with self._conversion_progress(f"Referencing {name}") as progress:
-                    baked = MayaSceneImport().bake_scene(
-                        path, progress=progress, project=project, **conv
-                    )
-                # A project file: linked ``//``-relative, so the scene keeps it
-                # when the project moves.
-                linked += btk.link_blend_file(baked, link=True, relative=True)
-            except ptk.OperationCancelled:
-                self._footer_status(f"Stopped referencing {name}.")
-                break
-            except FileNotFoundError as e:
-                # The error names what is missing -- Maya, the bake's Blender, or the
-                # scene itself (an .fbx / USD source needs no Maya at all).
-                self._error_box("Can't reference", name, e)
+            if not baked:
                 return False
-            except Exception as e:  # noqa: BLE001 — surface the bake error to the user
-                self.logger.warning(f"Foreign scene bake failed for {path}: {e}")
-                self._error_box("Reference failed for", name, e)
-                return False
-        if linked:
-            # A Maya DAG draws a dashed parent line per object (see the engine's note).
-            MayaSceneImport.hide_relationship_lines()
-        return bool(linked)
+            try:
+                file_path = _scratch_twins().create(source, baked)
+            except OSError as e:
+                raise OSError(
+                    f"the working copy of its bake could not be written ({e})"
+                ) from e
+        if not os.path.isfile(file_path):
+            raise FileNotFoundError(f"Scene file not found: {file_path}")
+        if not EnvUtils.open_scene(file_path):
+            raise RuntimeError(f"Failed to open {os.path.basename(file_path)}.")
+        self.logger.info(f"Opened scene: {file_path}")
+        if file_path != source:
+            from blendertk.node_utils.data_nodes import DataNodes
 
-    # ------------------------------------------------------------------ reference ops
-    def toggle_reference_selected(self):
-        """Reference / Unreference the right-clicked row — the row-menu twin of the link icon
-        (Maya's 'Reference / Unreference'), so it runs the icon's own toggle
-        (:meth:`_toggle_reference_at_row`): an already-linked file has its library removed;
-        a native file is linked (closing it first when it is the open scene); a foreign
-        (Maya / FBX / USD) file is baked and its bake linked.
+            importer = self._importer()
+            # A copy of the bake opened as a document of its own is no bake: its
+            # record goes (else it rides along into whatever the user saves).
+            importer._strip_bake_record()
+            # The scratch stands in for its source: a lightmap bake's project is the
+            # source's, not the temp folder (DataNodes.scene_project_root).
+            DataNodes.set_scene_source(file_path, source)
+        self.discard_stale_scratches()
+        if set_workspace:
+            home = ptk.Workspace.for_scene(
+                source, session_root=self._current_working_dir or None
+            )
+            if home is not None:
+                EnvUtils.set_current_workspace(home.root)
+                self.logger.info(f"Workspace: {home.root}")
+        if file_path != source:
+            # Held past UiState's re-apply of the saved overlays, which the load queued.
+            self._importer().hide_relationship_lines()
+        return True
+
+    def rename_scene_file(self, old_path: str, new_path: str, folder=None):
+        """Rename the scene file *old_path* to *new_path* (same folder) on disk, its
+        ``.blend1`` backup along (``EnvUtils.rename_scene_file``): renaming the OPEN
+        file is save-then-reopen. Returns the final path, or None when the rename was
+        refused (a name clash, or the open file could not be saved).
+
+        *folder* (the per-scene folder's new name, mayatk's ``{name}`` structure) is
+        accepted for mayatk's signature; Blender's rename leaves the folder as it is.
         """
-        if not self._context_paths():
-            self.sb.message_box("Select a file in the list first.")
-            return
-        self._toggle_reference_at_row(self._context_menu_row, self.COL_REF)
+        new_base = os.path.splitext(os.path.basename(new_path))[0]
+        renamed = EnvUtils.rename_scene_file(old_path, new_base)
+        if renamed:
+            self.logger.info(f"Renamed {old_path} to {renamed}")
+        return renamed
 
-    def unlink_import_selected(self):
-        """Unlink and Import the right-clicked row — Maya's 'Unlink and Import', covering both cases.
+    def remove_scene_file(
+        self, path: str, permanent: bool = False, use_folder: bool = False
+    ) -> Optional[bool]:
+        """Remove one scene with its ``.blend1`` backup: to the trash, or --
+        *permanent* -- for good (``EnvUtils.delete_scene_file``).
 
-        An already-linked reference has its data made local (unlink + import); a not-yet-linked
-        foreign (Maya / FBX / USD) row is converted and its contents imported as local data (the old
-        'Import (convert)' behaviour, folded in here for parity with the Maya panel).
+        Returns:
+            True when it is gone; ``None`` when the trash would not take it (nothing
+            touched); False when it could not be removed. *use_folder* is accepted
+            for mayatk's signature (an emptied per-scene folder stays here).
         """
-        paths = self._context_paths()
-        if not paths:
-            self.sb.message_box("Select a file in the list first.")
-            return
-        libs = self._context_libraries()
-        foreign = [
-            p
-            for p in paths
-            if self._is_foreign(p) and self._library_for_path(p) is None
-        ]
-        if not libs and not foreign:
-            self.sb.message_box(
-                "Select a linked reference (to make local) or a foreign scene (to import)."
+        if EnvUtils.delete_scene_file(path, permanent=permanent):
+            where = (
+                "Deleted" if permanent else f"Moved to the {ptk.FileUtils.trash_name()}"
             )
-            return
-        if libs:
-            total = sum(
-                btk.make_library_local(lib, scene_data=self._ask_scene_data)
-                for lib in libs
-            )
-            self.logger.info(f"Made {total} datablock(s) local.")
-        if foreign:
-            self._import_foreign_paths(foreign)  # logs its own summary + refreshes
-        else:
-            self._refresh()
-
-    # ------------------------------------------------------------------ bulk ops (header menu)
-    def reload_all(self):
-        """Reload every linked library from disk (Maya's Update References)."""
-        recs = btk.list_libraries()
-        if not recs:
-            self.sb.message_box("No linked libraries to reload.")
-            return
-        done = sum(1 for rec in recs if btk.reload_library(rec["library"]))
-        self.logger.info(f"Reloaded {done} of {len(recs)} library(ies).")
-        self._refresh()
-
-    def make_local_all(self):
-        """Make every linked library's data local (Maya's Unlink-and-Import All)."""
-        recs = btk.list_libraries()
-        if not recs:
-            self.sb.message_box("No linked libraries to make local.")
-            return
-        if (
-            self.sb.message_box(f"Make {len(recs)} library(ies) local?", "Yes", "No")
-            != "Yes"
-        ):
-            return
-        total = sum(
-            btk.make_library_local(rec["library"], scene_data=self._ask_scene_data)
-            for rec in recs
-        )
-        self.logger.info(f"Made {total} datablock(s) local.")
-        self._refresh()
-
-    def _ask_scene_data(self, summary, name):
-        """The make-local question for a library that brings scene data of its
-        own (``make_library_local``'s *scene_data*): merge it, drop it, or leave
-        the library linked.  Asked only when a merge would keep something.
-        Mirror of mayatk's unlink question."""
-        lines = "".join(f"<br>&nbsp;&nbsp;&bull; {line}" for line in summary)
-        answer = self.sb.message_box(
-            f"<hl>{name}</hl> brings scene data of its own:{lines}<br><br>"
-            "<b>Yes</b> merges it into this file's -- nothing is lost, and anything "
-            "renamed or re-slotted on the way is logged.<br>"
-            "<b>No</b> drops it with the library's data nodes.<br>"
-            "<b>Cancel</b> leaves this library linked.",
-            "Yes",
-            "No",
-            "Cancel",
-        )
-        return {"Yes": "merge", "No": "discard"}.get(answer)
-
-    def remove_all(self):
-        """Remove every linked library and its data (Maya's Un-Reference All)."""
-        recs = btk.list_libraries()
-        if not recs:
-            self.sb.message_box("No linked libraries to remove.")
-            return
-        if (
-            self.sb.message_box(
-                f"Remove ALL {len(recs)} linked library(ies)?", "Yes", "No"
-            )
-            != "Yes"
-        ):
-            return
-        done = sum(1 for rec in recs if btk.remove_library(rec["library"]))
-        self.logger.info(f"Removed {done} of {len(recs)} library(ies).")
-        if done < len(recs):
-            self.sb.message_box(
-                f"Removed <hl>{done}</hl> of {len(recs)} — some library(ies) could not be removed."
-            )
-        self._refresh()
+            self.logger.info(f"{where}: {path}")
+            return True
+        if not permanent and os.path.isfile(path):
+            return None  # the trash would not take it: untouched
+        return False
 
 
 # -----------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
-
-    ui = BlenderUiHandler.instance().get("reference_manager", reload=True)
-    ui.show(pos="screen", app_exec=True)
+# Notes
+# -----------------------------------------------------------------------------
