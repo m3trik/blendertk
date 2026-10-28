@@ -577,7 +577,7 @@ try:
     a, fa = keyed_at([(1, 0), (5, 1)], "A")
     b = bpy.data.objects.new("B", None)
     bpy.context.collection.objects.link(b)
-    action = btk.copy_keys(a)
+    action = btk.copy_keys(a, mode="action")
     pasted = btk.paste_keys([b], action)
     fb = next(fc for fc in btk.get_fcurves([b]) if fc.array_index == 0)
     check(
@@ -602,7 +602,7 @@ try:
     a, fa = keyed_at([(10, 0), (14, 1)], "A")
     b = bpy.data.objects.new("B", None)
     bpy.context.collection.objects.link(b)
-    action = btk.copy_keys(a)
+    action = btk.copy_keys(a, mode="action")
     btk.paste_keys([b], action, target_time=100)
     fb = next(fc for fc in btk.get_fcurves([b]) if fc.array_index == 0)
     check(
@@ -784,6 +784,178 @@ try:
         r == 42 and bpy.context.scene.frame_current == 42,
         f"r={r}",
     )
+    bpy.context.scene.frame_set(1)
+
+    # ==== the composed Animation panel's calls: mayatk's names and signatures ====
+    def select_only(*objs):
+        btk.CoreUtils.select(list(objs), mode="replace")
+        bpy.context.view_layer.objects.active = objs[0]
+
+    check("ShotStore is mayatk's name for the store class", btk.ShotStore is btk.BlenderShotStore)
+
+    # invert_keys: None is the selection; mayatk's mode and time names
+    reset()
+    o, fc = keyed_at([(10, 0), (20, 1)], "Inv")
+    select_only(o)
+    btk.invert_keys(None, mode="horizontal")
+    check("invert_keys(None, mode='horizontal') mirrors the selection in place",
+          frames(fc) == [10.0, 20.0] and fc.keyframe_points[0].co.y == 1.0, frames(fc))
+    btk.invert_keys([o], mode="horizontal", time=30, relative=False)
+    check("invert_keys time= is start_frame: the copy starts there",
+          frames(fc) == [10.0, 20.0, 30.0, 40.0], frames(fc))
+
+    # adjust_key_spacing: time is frame
+    reset()
+    o, fc = keyed_at([(1, 0), (10, 1)], "Spc")
+    btk.adjust_key_spacing([o], spacing=5, time=5, relative=False)
+    check("adjust_key_spacing time= is frame", frames(fc) == [1.0, 15.0], frames(fc))
+
+    # intermediate keys: ignore + an open range end
+    reset()
+    o, fc = keyed_at([(1, 0), (5, 4)], "Mid")
+    o.hide_viewport = False
+    o.keyframe_insert("hide_viewport", frame=1)
+    o.keyframe_insert("hide_viewport", frame=5)
+    added = btk.add_intermediate_keys([o], time_range=(None, 3), percent=100, ignore="visibility")
+    vis = next(f for f in btk.get_fcurves([o]) if f.data_path == "hide_viewport")
+    check("add_intermediate_keys: ignore='visibility' and a None start",
+          frames(fc) == [1.0, 2.0, 5.0] and frames(vis) == [1.0, 5.0], f"{added} {frames(fc)}")
+    removed = btk.remove_intermediate_keys([o], time_range=(None, None), ignore="visibility")
+    check("remove_intermediate_keys: None bounds are each curve's own ends",
+          removed == 1 and frames(fc) == [1.0, 5.0], f"{removed} {frames(fc)}")
+
+    # snap_keys_to_frames: None is the SELECTION (snap_keys' None is the scene)
+    reset()
+    a, fa = keyed_at([(1.4, 0), (5, 1)], "SnapSel")
+    b, fb = keyed_at([(2.4, 0), (6, 1)], "SnapOther")
+    select_only(a)
+    n = btk.snap_keys_to_frames(None)
+    check("snap_keys_to_frames(None) snaps the selection only",
+          n == 1 and frames(fa) == [1.0, 5.0] and frames(fb) == [2.4, 6.0], f"{n}")
+
+    # repair_fractional_keys: None is the scene; reports what is left off-frame
+    rep = btk.repair_fractional_keys(None)
+    check("repair_fractional_keys(None) sweeps the scene",
+          rep["snapped"] == 1 and rep["off_frame"] == 0 and frames(fb) == [2.0, 6.0], rep)
+    reset()
+    bare = bpy.data.objects.new("Bare", None)
+    bpy.context.collection.objects.link(bare)
+    check("repair_fractional_keys on an unanimated object finds no curves",
+          btk.repair_fractional_keys([bare]) == {"curves": 0, "snapped": 0, "off_frame": 0})
+
+    # tie / untie
+    reset()
+    o, fc = keyed_at([(5, 0), (10, 1)], "Tie")
+    sc = bpy.context.scene
+    sc.frame_start, sc.frame_end = 1, 20
+    tied = btk.tie_keyframes([o])
+    untied = btk.untie_keyframes([o])
+    check("untie_keyframes removes what tie_keyframes inserted",
+          tied == 2 and untied == 2 and frames(fc) == [5.0, 10.0], f"{tied} {untied}")
+
+    # copy_keys: None is the active object; auto = selected keys, else the pose
+    reset()
+    o, fc = keyed_at([(1, 0), (10, 5)], "Copy")
+    select_only(o)
+    sc.frame_set(1)
+    pose = btk.copy_keys(None, "auto")
+    check("copy_keys(None, 'auto') with no key picked is the current-frame pose",
+          isinstance(pose, dict) and pose["mode"] == "current_frame", pose)
+    check("copied_key_counts counts a pose's values",
+          btk.copied_key_counts(pose) == {"keys": 1, "attributes": 1, "objects": 1})
+    fc.keyframe_points[1].select_control_point = True
+    picked = btk.copy_keys(None, "auto")
+    check("copy_keys(None, 'auto') prefers the picked keys",
+          picked and picked["mode"] == "selected"
+          and btk.copied_key_counts(picked)["keys"] == 1, picked)
+    fc.select = False
+    check("copy_keys 'channel_box' reads only the selected channels",
+          btk.copy_keys(o, "channel_box") is None)
+
+    # transfer_keyframes(None): the active onto the other selected
+    reset()
+    src, sfc = keyed_at([(1, 0), (10, 5)], "XSrc")
+    tgt = bpy.data.objects.new("XTgt", None)
+    bpy.context.collection.objects.link(tgt)
+    select_only(src)
+    try:
+        btk.transfer_keyframes(None)
+        refused = False
+    except ValueError:
+        refused = True
+    check("transfer_keyframes(None) refuses a source with no target", refused)
+    btk.CoreUtils.select([src, tgt], mode="replace")
+    bpy.context.view_layer.objects.active = src
+    moved = btk.transfer_keyframes(None, transfer_tangents=False)
+    check("transfer_keyframes(None) copies the active onto the other selected",
+          moved == [tgt] and btk.get_fcurves([tgt]), moved)
+
+    # set_key_interpolation
+    reset()
+    o, fc = keyed_at([(1, 0), (5, 1), (10, 0)], "Interp")
+    select_only(o)
+    try:
+        btk.set_key_interpolation(None, keys="selected")
+        refused = False
+    except ValueError:
+        refused = True
+    check("set_key_interpolation keys='selected' refuses with nothing picked", refused)
+    fc.keyframe_points[1].select_control_point = True
+    r = btk.set_key_interpolation(None, interpolation="linear", keys="auto")
+    kinds = [k.interpolation for k in fc.keyframe_points]
+    check("set_key_interpolation auto sets the picked keys only",
+          r == {"curves": 1, "objects": 1} and kinds == ["BEZIER", "LINEAR", "BEZIER"], kinds)
+    btk.set_key_interpolation([o], interpolation="stepped", keys="all")
+    check("set_key_interpolation all steps every key",
+          {k.interpolation for k in fc.keyframe_points} == {"CONSTANT"})
+
+    # repair_corrupted_curves: mayatk's keyword names
+    reset()
+    o, fc = keyed_at([(1, 0), (10, 1)], "Corrupt")
+    fc.keyframe_points[0].co.y = 1e9
+    r = btk.repair_corrupted_curves([o], delete_corrupted=False, time_range_threshold=1e6)
+    check("repair_corrupted_curves takes mayatk's names",
+          r["corrupted_found"] == 1 and frames(fc) == [10.0], r)
+
+    # optimize_keys: mayatk's progress callback
+    reset()
+    o, fc = keyed_at([(0, 1), (10, 1), (20, 1), (30, 5)], "Opt")
+    heard = []
+    btk.optimize_keys([o], progress_callback=lambda *a: heard.append(a), recursive=True, quiet=True)
+    check("optimize_keys reports progress per object", heard == [(0, 1, "Opt")], heard)
+
+    # stagger: a fraction of the block's duration; touching implies grouping
+    reset()
+    a, fa = keyed_at([(0, 0), (10, 1)], "SA")
+    b, fb = keyed_at([(0, 0), (10, 1)], "SB")
+    btk.StaggerKeys.stagger_keys([a, b], spacing=0.5, avoid_overlap=True, verbose=True)
+    check("stagger_keys spacing 0.5 leaves a half-block gap",
+          frames(fb) == [15.0, 25.0], f"a={frames(fa)} b={frames(fb)}")
+    reset()
+    a, fa = keyed_at([(0, 0), (10, 1)], "TA")
+    b, fb = keyed_at([(10, 0), (20, 1)], "TB")
+    # Staggered apart, B would move to 15; grouped with A (they touch), it stays.
+    btk.StaggerKeys.stagger_keys([a, b], spacing=5, merge_touching=True)
+    check("stagger_keys merge_touching groups touching blocks without group_overlapping",
+          frames(fa) == [0.0, 10.0] and frames(fb) == [10.0, 20.0],
+          f"{frames(fa)} {frames(fb)}")
+
+    # scale_keys takes mayatk's flags
+    reset()
+    o, fc = keyed_at([(0, 0), (10, 1)], "Scl")
+    n = btk.ScaleKeys.scale_keys(
+        objects=[o], factor=2.0, keys="auto", channel_box_attrs_only=False,
+        prevent_overlap=True, verbose=True,
+    )
+    check("scale_keys accepts mayatk's flags", n and frames(fc) == [0.0, 20.0], n)
+
+    # SegmentKeys.format_scene_info_html: mayatk's report entry point
+    html = btk.SegmentKeys.format_scene_info_html([o], traversal="upstream")
+    csv = btk.SegmentKeys.format_scene_info_html([o], csv_output=True)
+    check("SegmentKeys.format_scene_info_html renders HTML and CSV",
+          "Scl" in html and "Scl" in csv and "," in csv)
+    check("SegmentKeys.format_scene_info_html is empty with nothing animated",
+          btk.SegmentKeys.format_scene_info_html([bpy.data.objects.new("None", None)]) == "")
     bpy.context.scene.frame_set(1)
 
 except Exception:

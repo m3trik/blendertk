@@ -294,6 +294,7 @@ DEFAULT_INCLUDE = {
     "anim_utils.shots._shots": [
         "BlenderShotStore",
         "BlenderScenePersistence",
+        "ShotStore",
     ],
     # Shot detection — ``Detection`` (mirror of mayatk's ``anim_utils.shots._detection``):
     # auto / selected-key shot-region discovery over the scene's fcurves.

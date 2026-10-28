@@ -21,6 +21,10 @@ import pythontk as ptk
 # ``btk`` via their own package-surface entries — not through this import.)
 from blendertk.anim_utils.stagger_keys import StaggerKeys
 
+# Eager: ``CoreUtils.undoable`` decorates the key edits while the class body runs
+# (core_utils imports nothing from anim_utils, so this is cycle-safe).
+from blendertk.core_utils._core_utils import CoreUtils
+
 
 _VISIBILITY_PATHS = ("hide_viewport", "hide_render")
 
@@ -239,6 +243,21 @@ class _AnimUtilsInternal(object):
     def _is_visibility_fcurve(fc):
         """True when ``fc`` drives an object's viewport/render visibility."""
         return fc.data_path in _VISIBILITY_PATHS
+
+    @staticmethod
+    def _ignore_filter(ignore=None, ignore_visibility=False):
+        """``fc -> bool``: whether an fcurve is one mayatk's ``ignore`` leaves out --
+        a data path named in it, or (``"visibility"`` named, or *ignore_visibility*)
+        a ``hide_viewport`` / ``hide_render`` curve."""
+        names = {str(n).lower() for n in ptk.make_iterable(ignore or [])}
+        hide = ignore_visibility or "visibility" in names
+
+        def ignored(fc):
+            if hide and _AnimUtilsInternal._is_visibility_fcurve(fc):
+                return True
+            return fc.data_path.lower() in names
+
+        return ignored
 
     @staticmethod
     def _when_frames(when, lo, hi, offset):
@@ -1644,6 +1663,7 @@ class AnimUtils(_AnimUtilsInternal):
         _AnimUtilsInternal._shift_fcurves(_AnimUtilsInternal._fcurves(objects), offset)
 
     @staticmethod
+    @CoreUtils.undoable
     def move_keys_to_frame(
         objects,
         frame=None,
@@ -1652,6 +1672,7 @@ class AnimUtils(_AnimUtilsInternal):
         align="auto",
         on_replace=None,
         on_move=None,
+        channel_box_attrs_only=False,  # mayatk's: Blender has no Channel Box
     ):
         """Move the objects' keys so they align to ``frame`` (default: the current frame).
 
@@ -1752,6 +1773,7 @@ class AnimUtils(_AnimUtilsInternal):
         return len(pairs)
 
     @staticmethod
+    @CoreUtils.undoable
     def adjust_key_spacing(
         objects,
         spacing=1,
@@ -1762,6 +1784,7 @@ class AnimUtils(_AnimUtilsInternal):
         exact_gap=False,
         on_replace=None,
         on_move=None,
+        time=None,  # mayatk's name for *frame*
     ):
         """Add (+) or remove (−) ``spacing`` frames of space at ``frame`` (default: the current
         frame) — every key at/after ``frame`` shifts by ``spacing``; mirror of
@@ -1788,6 +1811,8 @@ class AnimUtils(_AnimUtilsInternal):
         """
         import bpy
 
+        if time is not None:
+            frame = time
         scene = bpy.context.scene
         if frame is None:
             adjusted = scene.frame_current
@@ -1875,6 +1900,7 @@ class AnimUtils(_AnimUtilsInternal):
         return moved
 
     @staticmethod
+    @CoreUtils.undoable
     def align_selected_keyframes(
         objects, target_frame=None, use_earliest=True, on_replace=None, on_move=None
     ):
@@ -1942,6 +1968,7 @@ class AnimUtils(_AnimUtilsInternal):
         return moved
 
     @staticmethod
+    @CoreUtils.undoable
     def set_visibility_keys(
         objects,
         visible=True,
@@ -1997,14 +2024,22 @@ class AnimUtils(_AnimUtilsInternal):
         return keyed
 
     @staticmethod
+    @CoreUtils.undoable
     def add_intermediate_keys(
-        objects, step=1.0, time_range=None, ignore_visibility=False, percent=None
+        objects,
+        step=1.0,
+        time_range=None,
+        ignore_visibility=False,
+        percent=None,
+        ignore=None,
     ):
         """Insert sampled keys every ``step`` frames between each fcurve's first and last key
         (existing keys untouched) — mirror of ``mtk.add_intermediate_keys``. Returns keys added.
 
-        * ``time_range`` — a ``(start, end)`` window; only frames inside it get keys.
+        * ``time_range`` — a ``(start, end)`` window; only frames inside it get keys. Either
+          end ``None`` is the curve's own first / last key (mayatk's).
         * ``ignore_visibility`` — skip ``hide_viewport``/``hide_render`` curves (leave vis keys alone).
+        * ``ignore`` — mayatk's: data paths to leave out; ``"visibility"`` names the hide curves.
         * ``percent`` — 0-100; when given, overrides ``step`` and mirrors ``mtk.add_intermediate_keys``'s
           density control: each curve's OWN interior integer frames (strictly between its first/last
           key, or the ``time_range`` bounds) are evenly subsampled down to that fraction, so the
@@ -2012,9 +2047,10 @@ class AnimUtils(_AnimUtilsInternal):
         """
         import bisect
 
+        ignored = _AnimUtilsInternal._ignore_filter(ignore, ignore_visibility)
         added = 0
         for fc in _AnimUtilsInternal._fcurves(objects):
-            if ignore_visibility and _AnimUtilsInternal._is_visibility_fcurve(fc):
+            if ignored(fc):
                 continue
             pts = fc.keyframe_points
             if len(pts) < 2:
@@ -2022,6 +2058,8 @@ class AnimUtils(_AnimUtilsInternal):
             existing = sorted(k.co.x for k in pts)
             start, end = existing[0], existing[-1]
             lo, hi = time_range if time_range is not None else (start, end)
+            lo = start if lo is None else lo
+            hi = end if hi is None else hi
 
             if percent is not None:
                 # Clamp to this curve's own keyed extent — an unbounded ``time_range`` side
@@ -2063,8 +2101,9 @@ class AnimUtils(_AnimUtilsInternal):
         return added
 
     @staticmethod
+    @CoreUtils.undoable
     def remove_intermediate_keys(
-        objects, time_range=None, ignore_visibility=False, on_delete=None
+        objects, time_range=None, ignore_visibility=False, on_delete=None, ignore=None
     ):
         """Remove every key strictly between each fcurve's first and last (keeps only the
         endpoints) — mirror of ``mtk.remove_intermediate_keys``. Returns keys removed.
@@ -2074,12 +2113,14 @@ class AnimUtils(_AnimUtilsInternal):
           ``(start + 0.001, end - 0.001)``.  The shot sequencer hands the key selection's own
           span here, and the selection's first and last keys are the ones it keeps.
         * ``ignore_visibility`` — skip ``hide_viewport``/``hide_render`` curves.
+        * ``ignore`` — mayatk's: data paths to leave out; ``"visibility"`` names the hide curves.
         * ``on_delete(fcurve, frames)`` — hears the frames of the keys removed, per fcurve
           (what the shot system releases its claims on).
         """
+        ignored = _AnimUtilsInternal._ignore_filter(ignore, ignore_visibility)
         removed = 0
         for fc in _AnimUtilsInternal._fcurves(objects):
-            if ignore_visibility and _AnimUtilsInternal._is_visibility_fcurve(fc):
+            if ignored(fc):
                 continue
             pts = fc.keyframe_points
             if len(pts) <= 2:
@@ -2091,7 +2132,8 @@ class AnimUtils(_AnimUtilsInternal):
                 x = pts[i].co.x
                 if (
                     time_range is None
-                    or time_range[0] + 1e-3 < x < time_range[1] - 1e-3
+                    or (time_range[0] is None or time_range[0] + 1e-3 < x)
+                    and (time_range[1] is None or x < time_range[1] - 1e-3)
                 ):
                     gone.append(float(x))
                     pts.remove(pts[i], fast=True)
@@ -2102,7 +2144,7 @@ class AnimUtils(_AnimUtilsInternal):
         return removed
 
     @staticmethod
-    def select_keys(objects, time=None, add_to_selection=False):
+    def select_keys(objects, time=None, add_to_selection=False, channel_box_only=False):
         """Select keyframe points (``select_control_point`` — visible in the Dope Sheet /
         Graph Editor) — mirror of ``mtk.select_keys``.
 
@@ -2110,8 +2152,8 @@ class AnimUtils(_AnimUtilsInternal):
         current-frame-relative scopes shared with :func:`delete_keys` (Maya's cmb041/cmb004 lists):
         ``"current"``, ``"before"``, ``"before|current"``, ``"after"``, ``"after|current"``.
         ``add_to_selection`` keeps out-of-scope keys selected rather than deselecting them. Returns
-        the number of keys selected. Maya's ``channel_box_only`` has no Blender analogue (no Channel
-        Box — see ``parity_map.py``)."""
+        the number of keys selected. Maya's ``channel_box_only`` is accepted for parity: Blender
+        has no Channel Box (see ``parity_map.py``)."""
         predicate = None
         current = None
         if isinstance(time, str):
@@ -2137,8 +2179,9 @@ class AnimUtils(_AnimUtilsInternal):
         return selected
 
     @staticmethod
+    @CoreUtils.undoable
     def invert_keys(
-        objects,
+        objects=None,
         mode="time",
         value_pivot=0.0,
         start_frame=None,
@@ -2147,6 +2190,7 @@ class AnimUtils(_AnimUtilsInternal):
         selected_only=False,
         on_replace=None,
         on_move=None,
+        time=None,
     ):
         """Mirror keys to reverse motion — Blender analogue of Maya's invert (modes mirror its X/Y/both
         time/value/both, plus the reversed-copy semantics of Maya's ``time``/``relative``/
@@ -2179,7 +2223,16 @@ class AnimUtils(_AnimUtilsInternal):
         key, so it replaces none.  *on_move* is then called as ``on_move(fcurve, pairs)``
         with the ``(old, new)`` frames of the keys the edit moved: every mirrored key in
         place, every source of a copy that deletes them, none of a copy that keeps them.
-        Mirror of mayatk's ``invert_keys``."""
+        Mirror of mayatk's ``invert_keys``, whose vocabulary it also takes: *objects*
+        ``None`` is the selection, *mode* ``"horizontal"`` / ``"vertical"`` is ``"time"`` /
+        ``"value"``, and *time* is *start_frame*: the reversed copy starts there (the mirror
+        of the source's LAST key). Mayatk prefers a Graph Editor key selection on its own;
+        here that is ``selected_only``."""
+        if objects is None:
+            objects = CoreUtils.selected_objects()
+        if time is not None:
+            start_frame = time
+        mode = {"horizontal": "time", "vertical": "value"}.get(mode, mode)
         do_time = mode in ("time", "both")
         do_value = mode in ("value", "both")
         if selected_only:
@@ -2321,6 +2374,65 @@ class AnimUtils(_AnimUtilsInternal):
                 )
 
     @staticmethod
+    @CoreUtils.undoable
+    def snap_keys_to_frames(
+        objects=None,
+        method="nearest",
+        selected_only=False,
+        time_range=None,
+        include_driven=False,
+        through_blends=True,
+        on_move=None,
+    ):
+        """Snap keys to whole frames -- mayatk's ``snap_keys_to_frames`` by name, signature
+        and scope: *objects* ``None`` is the SELECTION (:meth:`snap_keys`' own ``None`` is the
+        whole scene). ``include_driven`` / ``through_blends`` are Maya's (driven-key curves,
+        animation-layer blends), accepted for parity: Blender has neither to reach.
+
+        Returns:
+            int: The keys snapped.
+        """
+        if objects is None:
+            objects = CoreUtils.selected_objects()
+        if not objects:
+            return 0
+        return AnimUtils.snap_keys(
+            objects,
+            selected_only=selected_only,
+            time_range=time_range,
+            method=method,
+            on_move=on_move,
+        )
+
+    @staticmethod
+    @CoreUtils.undoable
+    def repair_fractional_keys(objects=None, method="nearest", recursive=True, on_move=None):
+        """Snap every key on a fractional frame back onto a whole one, over the Repair
+        pass's scope: *objects*, or every scene object for ``None`` -- mirror of mayatk's.
+        A Blender object keys its own action, so ``recursive`` (Maya's descendants) is
+        accepted for parity. A key whose whole frame is taken stays put
+        (:meth:`snap_keys`' contract).
+
+        Returns:
+            dict: ``{"curves": int, "snapped": int, "off_frame": int}`` -- the fcurves
+            scanned, the keys snapped, and the keys still off a whole frame.
+        """
+        import bpy
+
+        pool = list(bpy.data.objects) if objects is None else ptk.make_iterable(objects)
+        curves = AnimUtils.get_fcurves(pool)
+        if not curves:
+            return {"curves": 0, "snapped": 0, "off_frame": 0}
+        snapped = AnimUtils.snap_keys(pool, method=method, on_move=on_move)
+        off = sum(
+            1
+            for fc in curves
+            for k in fc.keyframe_points
+            if abs(k.co.x - round(k.co.x)) > 1e-6
+        )
+        return {"curves": len(curves), "snapped": snapped or 0, "off_frame": off}
+
+    @staticmethod
     def snap_keys(
         objects=None,
         selected_only=False,
@@ -2402,6 +2514,68 @@ class AnimUtils(_AnimUtilsInternal):
             _AnimUtilsInternal._report_edit(fc, [], pairs, None, on_move)
         return snapped
 
+    #: :meth:`set_key_interpolation`'s types: mayatk's names -> the fcurve enum.
+    _KEY_INTERPOLATIONS = {"stepped": "CONSTANT", "linear": "LINEAR", "smooth": "BEZIER"}
+
+    @staticmethod
+    @CoreUtils.undoable
+    def set_key_interpolation(objects=None, interpolation="stepped", keys="auto", tangent="out"):
+        """Set the interpolation of the chosen keys -- mirror of mayatk's (the Animation
+        panel's Step Tangents).
+
+        Parameters:
+            objects: The objects whose keys to set; ``None`` is the selection.
+            interpolation (str): ``"stepped"``, ``"linear"`` or ``"smooth"`` (Bezier).
+            keys: Which keys: ``"auto"`` (the selected keys, else those on the current
+                frame, else every key), ``"selected"`` (refused when none are),
+                ``"current_time"`` (those on the current frame), ``"all"`` / ``None``,
+                or a frame.
+            tangent (str): Maya's side, accepted for parity: a Blender key's
+                interpolation is the segment LEAVING it (Maya's out side).
+
+        Returns:
+            dict: ``{"curves": int, "objects": int}`` counts.
+
+        Raises:
+            ValueError: ``keys="selected"`` with no key selected, or an unknown type.
+        """
+        import bpy
+
+        value = AnimUtils._KEY_INTERPOLATIONS.get(interpolation)
+        if value is None:
+            raise ValueError(f"Unknown interpolation: {interpolation!r}")
+        if objects is None:
+            objects = CoreUtils.selected_objects()
+        frame = bpy.context.scene.frame_current
+        pairs = [
+            (o, fc, k)
+            for o in ptk.make_iterable(objects)
+            for fc in AnimUtils.get_fcurves([o])
+            for k in fc.keyframe_points
+        ]
+        selected = [p for p in pairs if p[2].select_control_point]
+        if keys == "selected":
+            if not selected:
+                raise ValueError("No keys selected in the Dope Sheet / Graph Editor.")
+            picked = selected
+        elif keys == "auto":
+            picked = (
+                selected or [p for p in pairs if abs(p[2].co.x - frame) < 1e-3] or pairs
+            )
+        elif keys in (None, "all"):
+            picked = pairs
+        else:
+            at = frame if keys in ("current_time", "current_frame") else float(keys)
+            picked = [p for p in pairs if abs(p[2].co.x - at) < 1e-3]
+        curves, owners = {}, {}
+        for o, fc, k in picked:
+            k.interpolation = value
+            curves[fc.as_pointer()] = fc
+            owners[o.as_pointer()] = o
+        for fc in curves.values():
+            fc.update()
+        return {"curves": len(curves), "objects": len(owners)}
+
     @staticmethod
     def set_interpolation(objects, interpolation="CONSTANT", handle=None):
         """Set fcurve key ``interpolation`` (``CONSTANT`` / ``LINEAR`` / ``BEZIER`` / ``SINE`` …) on
@@ -2475,7 +2649,8 @@ class AnimUtils(_AnimUtilsInternal):
         return written
 
     @staticmethod
-    def delete_keys(objects, time=None, on_delete=None):
+    @CoreUtils.undoable
+    def delete_keys(objects, time=None, on_delete=None, channel_box_only=False):
         """Remove animation from the given objects — mirror of ``mtk.delete_keys``.
 
         ``time`` is ``None`` (default, backward-compatible) to clear all animation outright
@@ -2487,7 +2662,9 @@ class AnimUtils(_AnimUtilsInternal):
 
         ``on_delete(fcurve, frames)`` hears the frames of the keys removed, per fcurve (what the
         shot system releases its claims on) -- for a clear, every key of the action, BEFORE it
-        goes, while the fcurves still resolve to their owner."""
+        goes, while the fcurves still resolve to their owner.
+
+        ``channel_box_only`` is mayatk's, accepted for parity: Blender has no Channel Box."""
         if time is None:
             cleared = []
             for o in ptk.make_iterable(objects):
@@ -2545,29 +2722,55 @@ class AnimUtils(_AnimUtilsInternal):
         return scene.frame_start, scene.frame_end
 
     @staticmethod
-    def copy_keys(source, mode="action"):
+    def copy_keys(objects=None, mode="auto"):
         """Return a copy-buffer for :func:`paste_keys` — mirror of ``mtk.AnimUtils.copy_keys`` (same
-        mode vocabulary, minus Maya's Channel-Box mode, which has no Blender analogue).
+        mode vocabulary).
 
-        * ``"action"`` (default) — the whole Action datablock driving ``source``, Blender's native
+        *objects* is the source: an object, or objects whose ACTIVE member (else the first) is
+        copied; ``None`` copies the active object. (mayatk copies every selected object and
+        pastes by name; a Blender buffer is one object's, pasted onto any.)
+
+        * ``"auto"`` (default) — mayatk's cascade: the selected keys when there are any,
+          else every animated property's value at the current frame.
+        * ``"action"`` — the whole Action datablock driving the source, Blender's native
           "everything, as one object" copy; :func:`paste_keys` links an independent copy of it.
         * ``"current_frame"`` — a pose snapshot: every animated property's evaluated value at the
           current frame (Maya's Current Frame mode — values only, no key timing carried).
         * ``"selected"`` — only the keyframe points selected in the Dope Sheet / Graph Editor, per
           fcurve, each with its own frame + value.
+        * ``"channel_box"`` — the current-frame snapshot of the channels selected in the
+          animation editors' channel list (``fcurve.select``): Blender's stand-in for Maya's
+          Channel Box.
 
         Returns ``None`` when there is nothing to copy for the given source/mode."""
+        if objects is None:
+            source = CoreUtils.active_object()
+        elif isinstance(objects, (list, tuple)):
+            active = CoreUtils.active_object()
+            if any(o == active for o in objects):
+                source = active
+            else:
+                source = objects[0] if objects else None
+        else:
+            source = objects
+        if source is None:
+            return None
+        if mode == "auto":
+            return AnimUtils.copy_keys(source, "selected") or AnimUtils.copy_keys(
+                source, "current_frame"
+            )
         if mode == "action":
             ad = getattr(source, "animation_data", None)
             return ad.action if ad else None
 
         import bpy
 
-        if mode == "current_frame":
+        if mode in ("current_frame", "channel_box"):
             frame = bpy.context.scene.frame_current
             values = {
                 (fc.data_path, fc.array_index): fc.evaluate(frame)
                 for fc in AnimUtils.get_fcurves([source])
+                if mode == "current_frame" or fc.select
             }
             return (
                 {"mode": "current_frame", "frame": frame, "values": values}
@@ -2616,6 +2819,34 @@ class AnimUtils(_AnimUtilsInternal):
         raise ValueError(f"Unknown copy_keys mode: {mode!r}")
 
     @staticmethod
+    def copied_key_counts(copied_data):
+        """What a :meth:`copy_keys` buffer holds, for a panel's report -- mirror of mayatk's.
+        An action counts its keyframes and curves, a pose its values (one key each).
+
+        Returns:
+            dict: ``{"keys": int, "attributes": int, "objects": int}``.
+        """
+        counts = {"keys": 0, "attributes": 0, "objects": 0}
+        if not copied_data:
+            return counts
+        if isinstance(copied_data, dict):
+            if copied_data.get("mode") == "selected":
+                keys = copied_data.get("keys", {})
+                counts["keys"] = sum(len(v) for v in keys.values())
+                counts["attributes"] = len(keys)
+            else:
+                counts["keys"] = counts["attributes"] = len(copied_data.get("values", {}))
+            counts["objects"] = 1
+            return counts
+        slots = getattr(copied_data, "slots", None)
+        fcurves = _AnimUtilsInternal._slot_fcurves(copied_data, slots[0] if slots else None)
+        counts["keys"] = sum(len(fc.keyframe_points) for fc in fcurves)
+        counts["attributes"] = len(fcurves)
+        counts["objects"] = 1
+        return counts
+
+    @staticmethod
+    @CoreUtils.undoable
     def paste_keys(objects, buffer, target_time=None, on_replace=None):
         """Paste a copy-buffer from :func:`copy_keys` onto ``objects`` — mirror of
         ``mtk.AnimUtils.paste_keys``.
@@ -2678,8 +2909,14 @@ class AnimUtils(_AnimUtilsInternal):
         return pasted
 
     @staticmethod
+    @CoreUtils.undoable
     def transfer_keyframes(
-        objects, relative=False, optimize=False, on_replace=None, on_delete=None
+        objects=None,
+        relative=False,
+        optimize=False,
+        on_replace=None,
+        on_delete=None,
+        transfer_tangents=True,
     ):
         """Transfer keyframes from the first object (source) onto the rest (targets) — mirror of
         ``mtk.AnimUtils.transfer_keyframes`` (``source = objects[0]``, targets = the remainder, same
@@ -2690,7 +2927,9 @@ class AnimUtils(_AnimUtilsInternal):
         cross-talks between targets) — rather than a parallel keyframe-copy path.
 
         Parameters:
-            objects: ``[source, *targets]``.
+            objects: ``[source, *targets]``; ``None`` is the active object onto the other
+                selected ones (mayatk's ``None``: the selection, first selected the source),
+                refused with ``ValueError`` when there is no source or no target.
             relative (bool): if True, each target keeps its OWN current pose as the animation's
                 base: for every fcurve (matched by ``data_path``/``array_index``) the pasted values
                 are shifted so the value at the SOURCE's own earliest keyed frame lands on the
@@ -2701,6 +2940,8 @@ class AnimUtils(_AnimUtilsInternal):
                 source's literal values). If False (default), values are copied verbatim (absolute)
                 — the prior/only Blender behavior.
             optimize (bool): if True, run :func:`optimize_keys` on the source before transferring.
+            transfer_tangents (bool): mayatk's, accepted for parity: an action copy always
+                carries its handles.
             on_replace: as :func:`paste_keys`'s -- each target's own keys are replaced by the
                 source's action (bar one it holds at that frame with that value; with
                 ``relative``, the offset value the target ends with).
@@ -2710,6 +2951,15 @@ class AnimUtils(_AnimUtilsInternal):
         Returns the targets that received keys (empty list if the source has no keys, or there are
         no targets).
         """
+        if objects is None:
+            active = CoreUtils.active_object()
+            targets = [o for o in CoreUtils.selected_objects() if o != active]
+            if active is None or not targets:
+                raise ValueError(
+                    "Transfer Keys needs a source and a target: select the target "
+                    "object(s), then make the source active."
+                )
+            objects = [active] + targets
         objects = [o for o in ptk.make_iterable(objects) if o]
         if len(objects) < 2:
             return []
@@ -3011,6 +3261,7 @@ class AnimUtils(_AnimUtilsInternal):
         return simplified
 
     @staticmethod
+    @CoreUtils.undoable
     def optimize_keys(
         objects=None,
         value_tolerance=0.001,
@@ -3020,6 +3271,11 @@ class AnimUtils(_AnimUtilsInternal):
         stats=None,
         max_error=None,
         on_delete=None,
+        progress_callback=None,
+        # mayatk's, accepted for parity: a Blender object's own action is what is
+        # optimized, and nothing is printed.
+        recursive=True,
+        quiet=False,
     ):
         """Remove redundant animation data — mirror of ``mtk.AnimUtils.optimize_keys``.
 
@@ -3045,6 +3301,8 @@ class AnimUtils(_AnimUtilsInternal):
         ``on_delete(fcurve, frames)`` hears the frames of the keys removed, per fcurve (what
         the shot system releases its claims on) -- ``frames`` ``None`` for a static curve
         removed outright, BEFORE it goes, while the fcurve still resolves to its owner.
+        ``progress_callback(done, total, name)`` hears each animated object as it starts
+        (mayatk's).
         """
         extremes = value_tolerance < 0
         if extremes:
@@ -3058,7 +3316,10 @@ class AnimUtils(_AnimUtilsInternal):
         s = {"curves_before": 0, "curves_after": 0, "keys_before": 0, "keys_after": 0}
         if extremes:
             s.update({"reduced": 0, "reduce_keys_removed": 0, "reduce_max_error": 0.0})
-        for o, action, slot in _AnimUtilsInternal._owned_actions(pool):
+        owned = _AnimUtilsInternal._owned_actions(pool)
+        for i, (o, action, slot) in enumerate(owned):
+            if progress_callback is not None:
+                progress_callback(i, len(owned), o.name)
             for fc in list(_AnimUtilsInternal._slot_fcurves(action, slot)):
                 pts = fc.keyframe_points
                 s["curves_before"] += 1
@@ -3104,6 +3365,7 @@ class AnimUtils(_AnimUtilsInternal):
         return s
 
     @staticmethod
+    @CoreUtils.undoable
     def repair_corrupted_curves(
         objects=None,
         *,
@@ -3113,6 +3375,11 @@ class AnimUtils(_AnimUtilsInternal):
         time_threshold=100000.0,
         value_threshold=1000000.0,
         on_delete=None,
+        # mayatk's names (either spelling is taken); recursive / quiet for parity.
+        delete_corrupted=None,
+        time_range_threshold=None,
+        recursive=True,
+        quiet=False,
     ):
         """Detect and repair corrupted animation fcurves — mirror of
         ``mtk.Diagnostics.repair_corrupted_curves``.
@@ -3135,6 +3402,11 @@ class AnimUtils(_AnimUtilsInternal):
         """
         import bpy
         import math
+
+        if delete_corrupted is not None:
+            delete_unfixable = delete_corrupted
+        if time_range_threshold is not None:
+            time_threshold = time_range_threshold
 
         def _bad_value(v):
             return fix_infinite and (
@@ -3203,6 +3475,18 @@ class AnimUtils(_AnimUtilsInternal):
         return result
 
     @staticmethod
+    @CoreUtils.undoable
+    def untie_keyframes(objects=None, on_delete=None):
+        """Remove the bookend keys :meth:`tie_keyframes` inserted -- mayatk's
+        ``untie_keyframes``: ``tie_keyframes(objects, untie=True)``.
+
+        Returns:
+            int: The keys removed.
+        """
+        return AnimUtils.tie_keyframes(objects, untie=True, on_delete=on_delete)
+
+    @staticmethod
+    @CoreUtils.undoable
     def tie_keyframes(
         objects=None, untie=False, frame_range=None, absolute=False, on_delete=None
     ):

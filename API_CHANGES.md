@@ -855,10 +855,15 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (566)
+## Added (572)
 
+- `anim_utils/_anim_utils.py::AnimUtils.copied_key_counts(copied_data)`
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
+- `anim_utils/_anim_utils.py::AnimUtils.repair_fractional_keys(objects=None, method='nearest', recursive=True, on_move=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.set_key_interpolation(objects=None, interpolation='stepped', keys='auto', tangent='out')`
+- `anim_utils/_anim_utils.py::AnimUtils.snap_keys_to_frames(objects=None, method='nearest', selected_only=False, time_range=None, include_driven=False, through_blends=True, on_move=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.untie_keyframes(objects=None, on_delete=None)`
 - `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.apply_tweens(self, tweens: Optional[List[Target]] = None, skip_duplicates: bool = True, validate_topology: bool = False) -> List[Tuple[Target, ApplyStatus]]`
 - `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.base_mesh(self) -> Optional[str]`
 - `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.blendshape(self) -> Optional[str]`
@@ -880,6 +885,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `anim_utils/playblast_exporter.py::PlayblastExporter.scene_name() -> str`
 - `anim_utils/playblast_exporter.py::PlayblastExporter.sequence_fps(self) -> float`
 - `anim_utils/playblast_exporter.py::PlayblastExporter.sequence_name(self) -> str`
+- `anim_utils/segment_keys.py::SegmentKeys.format_scene_info_html(cls, objects=None, detailed: bool = True, csv_output: bool = False, by_time: bool = False, ignore_holds: bool = True, traversal: Optional[str] = None, progress_callback=None) -> str`
 - `anim_utils/shots/_shots.py::BlenderShotStore.fcurve_for_key(key: str)`
 - `anim_utils/shots/_shots.py::BlenderShotStore.is_transform_path(data_path: str) -> bool`
 - `anim_utils/shots/shot_manifest/manifest_host.py::ManifestHost.behaviors_cls()`
@@ -1461,8 +1467,41 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/emissive_groups.py::EmissiveGroups.validate`
 - `ui_utils/blender_ui_handler.py::BlenderUiHandler.default_persistence`
 
-## Signature changed (47)
+## Signature changed (60)
 
+- `anim_utils/_anim_utils.py::AnimUtils.add_intermediate_keys`
+  - was: `(objects, step=1.0, time_range=None, ignore_visibility=False, percent=None)`
+  - now: `(objects, step=1.0, time_range=None, ignore_visibility=False, percent=None, ignore=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.adjust_key_spacing`
+  - was: `(objects, spacing=1, frame=None, relative=False, preserve_keys=False, selected_keys_only=False, exact_gap=False, on_replace=None, on_move=None)`
+  - now: `(objects, spacing=1, frame=None, relative=False, preserve_keys=False, selected_keys_only=False, exact_gap=False, on_replace=None, on_move=None, time=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.copy_keys`
+  - was: `(source, mode='action')`
+  - now: `(objects=None, mode='auto')`
+- `anim_utils/_anim_utils.py::AnimUtils.delete_keys`
+  - was: `(objects, time=None, on_delete=None)`
+  - now: `(objects, time=None, on_delete=None, channel_box_only=False)`
+- `anim_utils/_anim_utils.py::AnimUtils.invert_keys`
+  - was: `(objects, mode='time', value_pivot=0.0, start_frame=None, relative=True, delete_original=False, selected_only=False, on_replace=None, on_move=None)`
+  - now: `(objects=None, mode='time', value_pivot=0.0, start_frame=None, relative=True, delete_original=False, selected_only=False, on_replace=None, on_move=None, time=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.move_keys_to_frame`
+  - was: `(objects, frame=None, retain_spacing=True, selected_keys_only=False, align='auto', on_replace=None, on_move=None)`
+  - now: `(objects, frame=None, retain_spacing=True, selected_keys_only=False, align='auto', on_replace=None, on_move=None, channel_box_attrs_only=False)`
+- `anim_utils/_anim_utils.py::AnimUtils.optimize_keys`
+  - was: `(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None, max_error=None, on_delete=None)`
+  - now: `(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None, max_error=None, on_delete=None, progress_callback=None, recursive=True, quiet=False)`
+- `anim_utils/_anim_utils.py::AnimUtils.remove_intermediate_keys`
+  - was: `(objects, time_range=None, ignore_visibility=False, on_delete=None)`
+  - now: `(objects, time_range=None, ignore_visibility=False, on_delete=None, ignore=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.repair_corrupted_curves`
+  - was: `(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0, on_delete=None)`
+  - now: `(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0, on_delete=None, delete_corrupted=None, time_range_threshold=None, recursive=True, quiet=False)`
+- `anim_utils/_anim_utils.py::AnimUtils.select_keys`
+  - was: `(objects, time=None, add_to_selection=False)`
+  - now: `(objects, time=None, add_to_selection=False, channel_box_only=False)`
+- `anim_utils/_anim_utils.py::AnimUtils.transfer_keyframes`
+  - was: `(objects, relative=False, optimize=False, on_replace=None, on_delete=None)`
+  - now: `(objects=None, relative=False, optimize=False, on_replace=None, on_delete=None, transfer_tangents=True)`
 - `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.edit_frame_based`
   - was: `(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None) -> List[Target]`
   - now: `(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None, group_name: Optional[str] = None, name_prefix: Optional[str] = None) -> List[Target]`
@@ -1472,6 +1511,12 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `anim_utils/blendshape_animator/creator.py::Creator.create_frame_based_tween`
   - was: `(self, target_frame: int) -> Optional[Target]`
   - now: `(self, target_frame: int, group_name: str = Targets.GROUP_NAME, name_prefix: str = 'tween') -> Optional[Target]`
+- `anim_utils/scale_keys.py::ScaleKeys.scale_keys`
+  - was: `(objects, factor, pivot=None, mode='uniform', absolute=False, group_mode='single_group', snap_mode='none', samples=64, include_rotation=False, split_static=True, merge_touching=False, on_replace=None, on_move=None)`
+  - now: `(objects, factor, pivot=None, mode='uniform', absolute=False, group_mode='single_group', snap_mode='none', samples=64, include_rotation=False, split_static=True, merge_touching=False, on_replace=None, on_move=None, keys=None, channel_box_attrs_only=False, prevent_overlap=False, verbose=False)`
+- `anim_utils/stagger_keys.py::StaggerKeys.stagger_keys`
+  - was: `(objects, start_frame=None, spacing=5, use_intervals=False, invert=False, group_overlapping=False, merge_touching=False, smooth_tangents=False, on_replace=None, on_move=None)`
+  - now: `(objects, start_frame=None, spacing=5, use_intervals=False, invert=False, group_overlapping=False, merge_touching=False, smooth_tangents=False, on_replace=None, on_move=None, avoid_overlap=False, channel_box_attrs_only=False, verbose=False)`
 - `core_utils/auto_instancer/_auto_instancer.py::AutoInstancer.run_once`
   - was: `(cls, objects: Optional[Sequence[object]] = None, *, return_summary: bool = False, **config) -> Union[List[object], Tuple[List[object], Dict[str, object]]]`
   - now: `(cls, objects: Optional[Sequence[object]] = None, *, return_summary: bool = False, select: bool = False, **config) -> Union[List[object], Tuple[List[object], Dict[str, object]]]`

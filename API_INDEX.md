@@ -7,7 +7,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `anim_utils/_anim_utils.py` — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 - `class AnimUtils(_AnimUtilsInternal)`
-  - methods: normalize_optimize_level, resolve_optimize_level, key_arrays, key_times, key_interpolations, get_key_curves, shift_key_values, window_indices, shift_keys_in_window, remap_keys_in_window, step_last_key_in_window, evaluable_override, remove_fcurve, get_fcurves, get_animated_extent, has_nla_or_data_animation, scene_has_animation, get_current_frame, set_current_frame, shift_keys, move_keys_to_frame, adjust_key_spacing, align_selected_keyframes, set_visibility_keys, add_intermediate_keys, remove_intermediate_keys, select_keys, invert_keys, snap_keys, set_interpolation, set_stepped, step_visibility_keys, replay_visibility, delete_keys, fit_playback_range, copy_keys, paste_keys, transfer_keyframes, reduce_to_extremes, get_redundant_flat_keys, euler_filter, simplify_curve, optimize_keys, repair_corrupted_curves, tie_keyframes, bake_keys, bake_blend_shapes, get_animation_info, format_animation_info_csv, format_animation_info_html, configure_render_output, clear_key_selection, get_selected_key_times, get_timeline_selection, create_preview_layer, remove_preview_layer, interpolation_value
+  - methods: normalize_optimize_level, resolve_optimize_level, key_arrays, key_times, key_interpolations, get_key_curves, shift_key_values, window_indices, shift_keys_in_window, remap_keys_in_window, step_last_key_in_window, evaluable_override, remove_fcurve, get_fcurves, get_animated_extent, has_nla_or_data_animation, scene_has_animation, get_current_frame, set_current_frame, shift_keys, move_keys_to_frame, adjust_key_spacing, align_selected_keyframes, set_visibility_keys, add_intermediate_keys, remove_intermediate_keys, select_keys, invert_keys, snap_keys_to_frames, repair_fractional_keys, snap_keys, set_key_interpolation, set_interpolation, set_stepped, step_visibility_keys, replay_visibility, delete_keys, fit_playback_range, copy_keys, copied_key_counts, paste_keys, transfer_keyframes, reduce_to_extremes, get_redundant_flat_keys, euler_filter, simplify_curve, optimize_keys, repair_corrupted_curves, untie_keyframes, tie_keyframes, bake_keys, bake_blend_shapes, get_animation_info, format_animation_info_csv, format_animation_info_html, configure_render_output, clear_key_selection, get_selected_key_times, get_timeline_selection, create_preview_layer, remove_preview_layer, interpolation_value
 
 ### `anim_utils/blendshape_animator/_blendshape_animator.py` — Main workflow facade for shape-key morph creation, editing, and export — mirror of mayatk's
 - `class BlendshapeAnimator(pythontk.LoggingMixin)`
@@ -51,7 +51,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `anim_utils/segment_keys.py` — Animation-segment collection over Blender fcurves (mirror of ``mtk.SegmentKeys``).
 - `class SegmentKeys(_SegmentKeysInternal)`
-  - methods: collect_segments, shift_curves
+  - methods: format_scene_info_html, collect_segments, shift_curves
 
 ### `anim_utils/shots/_detection.py` — Shot-region detection — Blender scene acquisition over the pure engine math.
 - `class Detection(_DetectionInternal)`

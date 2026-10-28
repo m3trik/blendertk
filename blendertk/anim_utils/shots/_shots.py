@@ -106,7 +106,7 @@ _BONE_PATH = re.compile(r'^pose\.bones\["((?:[^"\\]|\\.)*)"\]')
 #: ``|`` -- matched zero-width, so a name holding ``|`` yields every candidate.
 _SLOT_FIELD = re.compile(r"\|(?=(\d*)\|)")
 
-__all__ = ["BlenderShotStore", "BlenderScenePersistence", "Detection"]
+__all__ = ["BlenderShotStore", "BlenderScenePersistence", "Detection", "ShotStore"]
 
 # ---------------------------------------------------------------------------
 # Persistence backend
@@ -1993,3 +1993,8 @@ class BlenderShotStore(ptk.ShotStore, _BlenderShotStoreInternal):
                 kt, kv = AnimUtils.key_arrays(fc)
                 entries.extend((kt[i], kv[i], obj.name) for i in range(n) if sel[i])
         return entries
+
+
+#: mayatk's name for the host's shot store: what a panel shared by both hosts reaches
+#: (``self.tk.ShotStore``).
+ShotStore = BlenderShotStore

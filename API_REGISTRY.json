@@ -23,7 +23,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 449,
+          "line": 450,
           "deprecated": false
         }
       ]
@@ -36,7 +36,7 @@
         {
           "name": "AnimUtils",
           "summary": "Namespace mirror (helpers also exposed module-level).",
-          "line": 1091,
+          "line": 1110,
           "bases": [
             "_AnimUtilsInternal"
           ],
@@ -47,7 +47,7 @@
               "kind": "classmethod",
               "signature": "(cls, level)",
               "summary": "The canonical :attr:`OPTIMIZE_LEVELS` key *level* names, or None for OFF.",
-              "line": 1151,
+              "line": 1170,
               "deprecated": false
             },
             {
@@ -56,7 +56,7 @@
               "kind": "classmethod",
               "signature": "(cls, level)",
               "summary": "Resolve an optimization level into :meth:`optimize_keys` kwargs.",
-              "line": 1179,
+              "line": 1198,
               "deprecated": false
             },
             {
@@ -65,7 +65,7 @@
               "kind": "staticmethod",
               "signature": "(fc)",
               "summary": "``(times, values)`` of *fc*'s keyframe points as plain float lists (time order).",
-              "line": 1216,
+              "line": 1235,
               "deprecated": false
             },
             {
@@ -74,7 +74,7 @@
               "kind": "staticmethod",
               "signature": "(fc)",
               "summary": "Key times of *fc* as a plain float list (time order).",
-              "line": 1226,
+              "line": 1245,
               "deprecated": false
             },
             {
@@ -83,7 +83,7 @@
               "kind": "staticmethod",
               "signature": "(fc)",
               "summary": "Per-key ``interpolation`` enum ints of *fc* (see :meth:`interpolation_value`).",
-              "line": 1231,
+              "line": 1250,
               "deprecated": false
             },
             {
@@ -92,7 +92,7 @@
               "kind": "staticmethod",
               "signature": "(fcurves) -> list",
               "summary": "Read fcurves as host-free :class:`pythontk.KeyCurve` s (mirror of mayatk).",
-              "line": 1248,
+              "line": 1267,
               "deprecated": false
             },
             {
@@ -101,7 +101,7 @@
               "kind": "staticmethod",
               "signature": "(edits) -> int",
               "summary": "Offset key VALUES in place: ``{fcurve: [(time, delta), ...]}`` (mirror of mayatk).",
-              "line": 1334,
+              "line": 1353,
               "deprecated": false
             },
             {
@@ -110,7 +110,7 @@
               "kind": "staticmethod",
               "signature": "(times, lo, hi, inclusive_hi: bool = True)",
               "summary": "``(i0, i1)`` slice bounds of the keys of sorted *times* inside ``[lo, hi]``.",
-              "line": 1371,
+              "line": 1390,
               "deprecated": false
             },
             {
@@ -119,7 +119,7 @@
               "kind": "staticmethod",
               "signature": "(fc, lo, hi, delta: float, inclusive_hi: bool = True) -> int",
               "summary": "Translate *fc*'s keys (and both handles) inside ``[lo, hi]`` by *delta*.",
-              "line": 1389,
+              "line": 1408,
               "deprecated": false
             },
             {
@@ -128,7 +128,7 @@
               "kind": "staticmethod",
               "signature": "(fc, lo, hi, old_start, old_end, new_start, new_end) -> int",
               "summary": "Linearly remap *fc*'s keys (and handles) in ``[lo, hi]`` from one span to another.",
-              "line": 1403,
+              "line": 1422,
               "deprecated": false
             },
             {
@@ -137,7 +137,7 @@
               "kind": "staticmethod",
               "signature": "(fc, lo, hi) -> bool",
               "summary": "Set the LAST key of *fc* inside ``[lo, hi]`` to ``CONSTANT`` interpolation.",
-              "line": 1418,
+              "line": 1437,
               "deprecated": false
             },
             {
@@ -146,7 +146,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Yield with *objects* evaluated by the depsgraph at ANY frame: revealed",
-              "line": 1435,
+              "line": 1454,
               "deprecated": false
             },
             {
@@ -155,7 +155,7 @@
               "kind": "staticmethod",
               "signature": "(action, slot, fc) -> bool",
               "summary": "Remove *fc* from *action*, slot-aware (the legacy flat list, or the",
-              "line": 1478,
+              "line": 1497,
               "deprecated": false
             },
             {
@@ -164,7 +164,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "All fcurves across the given objects' actions (slot-aware;",
-              "line": 1489,
+              "line": 1508,
               "deprecated": false
             },
             {
@@ -173,7 +173,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "``(start, end)`` of EVERYTHING that animates *objects* over time, or ``None``.",
-              "line": 1514,
+              "line": 1533,
               "deprecated": false
             },
             {
@@ -182,7 +182,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "True when *objects* carry animation :meth:`get_fcurves` cannot see:",
-              "line": 1545,
+              "line": 1564,
               "deprecated": false
             },
             {
@@ -191,7 +191,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "True if the blend file contains any action carrying fcurves (keyed motion).",
-              "line": 1559,
+              "line": 1578,
               "deprecated": false
             },
             {
@@ -200,7 +200,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The scene's current frame (``scene.frame_current``): the read",
-              "line": 1578,
+              "line": 1597,
               "deprecated": false
             },
             {
@@ -209,7 +209,7 @@
               "kind": "staticmethod",
               "signature": "(time=None, update=True, relative=False, snap_mode=None, invert_snap=False)",
               "summary": "Set the scene's current frame, with optional relative offset and clean-number snapping —",
-              "line": 1591,
+              "line": 1610,
               "deprecated": false
             },
             {
@@ -218,25 +218,25 @@
               "kind": "staticmethod",
               "signature": "(objects, offset)",
               "summary": "Shift every key of the given objects by ``offset`` frames.",
-              "line": 1642,
+              "line": 1661,
               "deprecated": false
             },
             {
               "name": "move_keys_to_frame",
               "qualname": "AnimUtils.move_keys_to_frame",
               "kind": "staticmethod",
-              "signature": "(objects, frame=None, retain_spacing=True, selected_keys_only=False, align='auto', on_replace=None, on_move=None)",
+              "signature": "(objects, frame=None, retain_spacing=True, selected_keys_only=False, align='auto', on_replace=None, on_move=None, channel_box_attrs_only=False)",
               "summary": "Move the objects' keys so they align to ``frame`` (default: the current frame).",
-              "line": 1647,
+              "line": 1667,
               "deprecated": false
             },
             {
               "name": "adjust_key_spacing",
               "qualname": "AnimUtils.adjust_key_spacing",
               "kind": "staticmethod",
-              "signature": "(objects, spacing=1, frame=None, relative=False, preserve_keys=False, selected_keys_only=False, exact_gap=False, on_replace=None, on_move=None)",
+              "signature": "(objects, spacing=1, frame=None, relative=False, preserve_keys=False, selected_keys_only=False, exact_gap=False, on_replace=None, on_move=None, time=None)",
               "summary": "Add (+) or remove (−) ``spacing`` frames of space at ``frame`` (default: the current",
-              "line": 1755,
+              "line": 1777,
               "deprecated": false
             },
             {
@@ -245,7 +245,7 @@
               "kind": "staticmethod",
               "signature": "(objects, target_frame=None, use_earliest=True, on_replace=None, on_move=None)",
               "summary": "Shift each object's SELECTED keyframes (``select_control_point``, e.g.",
-              "line": 1878,
+              "line": 1904,
               "deprecated": false
             },
             {
@@ -254,43 +254,61 @@
               "kind": "staticmethod",
               "signature": "(objects, visible=True, frame=None, when='current', offset=0, group_overlapping=False, on_replace=None)",
               "summary": "Key viewport + render visibility (``hide_viewport``/``hide_render``) — mirror of",
-              "line": 1945,
+              "line": 1972,
               "deprecated": false
             },
             {
               "name": "add_intermediate_keys",
               "qualname": "AnimUtils.add_intermediate_keys",
               "kind": "staticmethod",
-              "signature": "(objects, step=1.0, time_range=None, ignore_visibility=False, percent=None)",
+              "signature": "(objects, step=1.0, time_range=None, ignore_visibility=False, percent=None, ignore=None)",
               "summary": "Insert sampled keys every ``step`` frames between each fcurve's first and last key",
-              "line": 2000,
+              "line": 2028,
               "deprecated": false
             },
             {
               "name": "remove_intermediate_keys",
               "qualname": "AnimUtils.remove_intermediate_keys",
               "kind": "staticmethod",
-              "signature": "(objects, time_range=None, ignore_visibility=False, on_delete=None)",
+              "signature": "(objects, time_range=None, ignore_visibility=False, on_delete=None, ignore=None)",
               "summary": "Remove every key strictly between each fcurve's first and last (keeps only the",
-              "line": 2066,
+              "line": 2105,
               "deprecated": false
             },
             {
               "name": "select_keys",
               "qualname": "AnimUtils.select_keys",
               "kind": "staticmethod",
-              "signature": "(objects, time=None, add_to_selection=False)",
+              "signature": "(objects, time=None, add_to_selection=False, channel_box_only=False)",
               "summary": "Select keyframe points (``select_control_point`` — visible in the Dope Sheet /",
-              "line": 2105,
+              "line": 2147,
               "deprecated": false
             },
             {
               "name": "invert_keys",
               "qualname": "AnimUtils.invert_keys",
               "kind": "staticmethod",
-              "signature": "(objects, mode='time', value_pivot=0.0, start_frame=None, relative=True, delete_original=False, selected_only=False, on_replace=None, on_move=None)",
+              "signature": "(objects=None, mode='time', value_pivot=0.0, start_frame=None, relative=True, delete_original=False, selected_only=False, on_replace=None, on_move=None, time=None)",
               "summary": "Mirror keys to reverse motion — Blender analogue of Maya's invert (modes mirror its X/Y/both",
-              "line": 2140,
+              "line": 2183,
+              "deprecated": false
+            },
+            {
+              "name": "snap_keys_to_frames",
+              "qualname": "AnimUtils.snap_keys_to_frames",
+              "kind": "staticmethod",
+              "signature": "(objects=None, method='nearest', selected_only=False, time_range=None, include_driven=False, through_blends=True, on_move=None)",
+              "summary": "Snap keys to whole frames -- mayatk's ``snap_keys_to_frames`` by name, signature",
+              "line": 2378,
+              "deprecated": false
+            },
+            {
+              "name": "repair_fractional_keys",
+              "qualname": "AnimUtils.repair_fractional_keys",
+              "kind": "staticmethod",
+              "signature": "(objects=None, method='nearest', recursive=True, on_move=None)",
+              "summary": "Snap every key on a fractional frame back onto a whole one, over the Repair",
+              "line": 2409,
               "deprecated": false
             },
             {
@@ -299,7 +317,16 @@
               "kind": "staticmethod",
               "signature": "(objects=None, selected_only=False, time_range=None, method='nearest', on_move=None)",
               "summary": "Snap keys to whole frames (or \"clean\" numbers) — mirror of ``mtk.snap_keys_to_frames``.",
-              "line": 2324,
+              "line": 2436,
+              "deprecated": false
+            },
+            {
+              "name": "set_key_interpolation",
+              "qualname": "AnimUtils.set_key_interpolation",
+              "kind": "staticmethod",
+              "signature": "(objects=None, interpolation='stepped', keys='auto', tangent='out')",
+              "summary": "Set the interpolation of the chosen keys -- mirror of mayatk's (the Animation",
+              "line": 2522,
               "deprecated": false
             },
             {
@@ -308,7 +335,7 @@
               "kind": "staticmethod",
               "signature": "(objects, interpolation='CONSTANT', handle=None)",
               "summary": "Set fcurve key ``interpolation`` (``CONSTANT`` / ``LINEAR`` / ``BEZIER`` / ``SINE`` …) on",
-              "line": 2406,
+              "line": 2580,
               "deprecated": false
             },
             {
@@ -317,7 +344,7 @@
               "kind": "staticmethod",
               "signature": "(objects, stepped=True)",
               "summary": "Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.",
-              "line": 2423,
+              "line": 2597,
               "deprecated": false
             },
             {
@@ -326,7 +353,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Force CONSTANT interpolation on the ``hide_viewport`` / ``hide_render``",
-              "line": 2428,
+              "line": 2602,
               "deprecated": false
             },
             {
@@ -335,16 +362,16 @@
               "kind": "staticmethod",
               "signature": "(obj, keys, frame_offset=0.0)",
               "summary": "Key a carried visibility curve onto *obj* as its ``hide_viewport`` +",
-              "line": 2450,
+              "line": 2624,
               "deprecated": false
             },
             {
               "name": "delete_keys",
               "qualname": "AnimUtils.delete_keys",
               "kind": "staticmethod",
-              "signature": "(objects, time=None, on_delete=None)",
+              "signature": "(objects, time=None, on_delete=None, channel_box_only=False)",
               "summary": "Remove animation from the given objects — mirror of ``mtk.delete_keys``.",
-              "line": 2478,
+              "line": 2653,
               "deprecated": false
             },
             {
@@ -353,16 +380,25 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Set the scene frame range to the keyed extent of ``objects`` (or every scene object).",
-              "line": 2531,
+              "line": 2708,
               "deprecated": false
             },
             {
               "name": "copy_keys",
               "qualname": "AnimUtils.copy_keys",
               "kind": "staticmethod",
-              "signature": "(source, mode='action')",
+              "signature": "(objects=None, mode='auto')",
               "summary": "Return a copy-buffer for :func:`paste_keys` — mirror of ``mtk.AnimUtils.copy_keys`` (same",
-              "line": 2548,
+              "line": 2725,
+              "deprecated": false
+            },
+            {
+              "name": "copied_key_counts",
+              "qualname": "AnimUtils.copied_key_counts",
+              "kind": "staticmethod",
+              "signature": "(copied_data)",
+              "summary": "What a :meth:`copy_keys` buffer holds, for a panel's report -- mirror of mayatk's.",
+              "line": 2822,
               "deprecated": false
             },
             {
@@ -371,16 +407,16 @@
               "kind": "staticmethod",
               "signature": "(objects, buffer, target_time=None, on_replace=None)",
               "summary": "Paste a copy-buffer from :func:`copy_keys` onto ``objects`` — mirror of",
-              "line": 2619,
+              "line": 2850,
               "deprecated": false
             },
             {
               "name": "transfer_keyframes",
               "qualname": "AnimUtils.transfer_keyframes",
               "kind": "staticmethod",
-              "signature": "(objects, relative=False, optimize=False, on_replace=None, on_delete=None)",
+              "signature": "(objects=None, relative=False, optimize=False, on_replace=None, on_delete=None, transfer_tangents=True)",
               "summary": "Transfer keyframes from the first object (source) onto the rest (targets) — mirror of",
-              "line": 2681,
+              "line": 2913,
               "deprecated": false
             },
             {
@@ -389,7 +425,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, value_tolerance=0.001, stats=None, max_error=None, on_delete=None)",
               "summary": "Reduce baked fcurves to their shape-defining keys and refit the handles —",
-              "line": 2785,
+              "line": 3035,
               "deprecated": false
             },
             {
@@ -398,7 +434,7 @@
               "kind": "staticmethod",
               "signature": "(objects, value_tolerance=1e-05, remove=False, time_range=None, selected_only=False)",
               "summary": "Interior keys of a flat run — mirror of ``mtk.AnimUtils.get_redundant_flat_keys``.",
-              "line": 2841,
+              "line": 3091,
               "deprecated": false
             },
             {
@@ -407,7 +443,7 @@
               "kind": "staticmethod",
               "signature": "(objects) -> list",
               "summary": "Unwrap Euler rotation curves -- mirror of ``mtk.AnimUtils.euler_filter``.",
-              "line": 2898,
+              "line": 3148,
               "deprecated": false
             },
             {
@@ -416,25 +452,34 @@
               "kind": "staticmethod",
               "signature": "(objects, value_tolerance=0.001, time_range=None, selected_only=False, on_delete=None)",
               "summary": "Drop the keys that do not contribute to a curve's shape — mirror of",
-              "line": 2933,
+              "line": 3183,
               "deprecated": false
             },
             {
               "name": "optimize_keys",
               "qualname": "AnimUtils.optimize_keys",
               "kind": "staticmethod",
-              "signature": "(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None, max_error=None, on_delete=None)",
+              "signature": "(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None, max_error=None, on_delete=None, progress_callback=None, recursive=True, quiet=False)",
               "summary": "Remove redundant animation data — mirror of ``mtk.AnimUtils.optimize_keys``.",
-              "line": 3014,
+              "line": 3265,
               "deprecated": false
             },
             {
               "name": "repair_corrupted_curves",
               "qualname": "AnimUtils.repair_corrupted_curves",
               "kind": "staticmethod",
-              "signature": "(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0, on_delete=None)",
+              "signature": "(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0, on_delete=None, delete_corrupted=None, time_range_threshold=None, recursive=True, quiet=False)",
               "summary": "Detect and repair corrupted animation fcurves — mirror of",
-              "line": 3107,
+              "line": 3369,
+              "deprecated": false
+            },
+            {
+              "name": "untie_keyframes",
+              "qualname": "AnimUtils.untie_keyframes",
+              "kind": "staticmethod",
+              "signature": "(objects=None, on_delete=None)",
+              "summary": "Remove the bookend keys :meth:`tie_keyframes` inserted -- mayatk's",
+              "line": 3479,
               "deprecated": false
             },
             {
@@ -443,7 +488,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, untie=False, frame_range=None, absolute=False, on_delete=None)",
               "summary": "Add (tie) or remove (untie) bookend keys at the playback-range boundaries — mirror of",
-              "line": 3206,
+              "line": 3490,
               "deprecated": false
             },
             {
@@ -452,7 +497,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, frame_range=None, step=1, only_selected=False, visual_keying=True, clear_constraints=False, clear_parents=False, use_current_action=True, bake_types=None)",
               "summary": "Bake animation to plain keyframes — the Blender analogue of Maya's Smart Bake (wraps the",
-              "line": 3269,
+              "line": 3553,
               "deprecated": false
             },
             {
@@ -461,7 +506,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, frame_range=None, step=1)",
               "summary": "Bake driven/animated blend-shape (shape-key) weights to explicit keyframes — the Blender",
-              "line": 3341,
+              "line": 3625,
               "deprecated": false
             },
             {
@@ -470,7 +515,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, by_time=False, ignore_holds=False)",
               "summary": "Per-object animation summary — mirror of ``mtk`` get-animation-info.",
-              "line": 3418,
+              "line": 3702,
               "deprecated": false
             },
             {
@@ -479,7 +524,7 @@
               "kind": "staticmethod",
               "signature": "(records)",
               "summary": "Render :func:`get_animation_info` records as CSV (paste into a spreadsheet) — mirror of",
-              "line": 3469,
+              "line": 3753,
               "deprecated": false
             },
             {
@@ -488,7 +533,7 @@
               "kind": "staticmethod",
               "signature": "(records)",
               "summary": "Render :func:`get_animation_info` records as an HTML table for the text-view dialog.",
-              "line": 3499,
+              "line": 3783,
               "deprecated": false
             },
             {
@@ -497,7 +542,7 @@
               "kind": "staticmethod",
               "signature": "(scene, file_format='PNG', container=None, codec=None, quality=None)",
               "summary": "Apply playblast/render output settings to ``scene.render`` — the engine behind the rendering",
-              "line": 3525,
+              "line": 3809,
               "deprecated": false
             },
             {
@@ -506,7 +551,7 @@
               "kind": "staticmethod",
               "signature": "() -> None",
               "summary": "Deselect every key, whatever is or is not selected.",
-              "line": 3566,
+              "line": 3850,
               "deprecated": false
             },
             {
@@ -515,7 +560,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Graph Editor / Dope Sheet key selection, per fcurve.",
-              "line": 3614,
+              "line": 3898,
               "deprecated": false
             },
             {
@@ -524,7 +569,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The timeline's preview range, or ``None`` when it is off.",
-              "line": 3648,
+              "line": 3932,
               "deprecated": false
             },
             {
@@ -533,7 +578,7 @@
               "kind": "staticmethod",
               "signature": "(sources, gate=None, name='previewLayer')",
               "summary": "Play foreign actions on objects through throwaway NLA tracks.",
-              "line": 3665,
+              "line": 3949,
               "deprecated": false
             },
             {
@@ -542,7 +587,7 @@
               "kind": "staticmethod",
               "signature": "(handle) -> bool",
               "summary": "Tear down :meth:`create_preview_layer`'s tracks and restore the active action.",
-              "line": 3743,
+              "line": 4027,
               "deprecated": false
             },
             {
@@ -551,7 +596,7 @@
               "kind": "staticmethod",
               "signature": "(name: str) -> int",
               "summary": "Int value of a ``Keyframe.interpolation`` enum item (bulk reads return ints).",
-              "line": 230,
+              "line": 234,
               "deprecated": false
             }
           ]
@@ -1334,7 +1379,7 @@
         {
           "name": "ScaleKeys",
           "summary": "Namespace mirror of mayatk's ``ScaleKeys`` (``scale_keys`` also exposed module-level).",
-          "line": 108,
+          "line": 111,
           "bases": [
             "_ScaleKeysInternal"
           ],
@@ -1343,9 +1388,9 @@
               "name": "scale_keys",
               "qualname": "ScaleKeys.scale_keys",
               "kind": "staticmethod",
-              "signature": "(objects, factor, pivot=None, mode='uniform', absolute=False, group_mode='single_group', snap_mode='none', samples=64, include_rotation=False, split_static=True, merge_touching=False, on_replace=None, on_move=None)",
+              "signature": "(objects, factor, pivot=None, mode='uniform', absolute=False, group_mode='single_group', snap_mode='none', samples=64, include_rotation=False, split_static=True, merge_touching=False, on_replace=None, on_move=None, keys=None, channel_box_attrs_only=False, prevent_overlap=False, verbose=False)",
               "summary": "Scale (retime) keyframes uniformly or via motion-aware speed normalization — mirror of",
-              "line": 112,
+              "line": 116,
               "deprecated": false
             }
           ]
@@ -1367,12 +1412,21 @@
           ],
           "members": [
             {
+              "name": "format_scene_info_html",
+              "qualname": "SegmentKeys.format_scene_info_html",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None, detailed: bool = True, csv_output: bool = False, by_time: bool = False, ignore_holds: bool = True, traversal: Optional[str] = None, progress_callback=None) -> str",
+              "summary": "The Get Animation Info report -- mirror of mayatk's: one row per animated",
+              "line": 221,
+              "deprecated": false
+            },
+            {
               "name": "collect_segments",
               "qualname": "SegmentKeys.collect_segments",
               "kind": "classmethod",
               "signature": "(cls, objects: Union[str, List[str]], ignore: Optional[Union[str, List[str]]] = None, split_static: bool = False, selected_keys_only: bool = False, channel_box_attrs: Optional[List[str]] = None, static_tolerance: float = 0.0001, time_range: Optional[Tuple[Optional[float], Optional[float]]] = None, ignore_visibility_holds: bool = False, ignore_holds: bool = False, exclude_next_start: bool = True, motion_only: bool = False, motion_rate: float = 0.001, transform_only: bool = False) -> List[Dict[str, Any]]",
               "summary": "Collect animation segments from *objects* (names in ``bpy.data.objects``).",
-              "line": 221,
+              "line": 258,
               "deprecated": false
             },
             {
@@ -1381,7 +1435,7 @@
               "kind": "staticmethod",
               "signature": "(curves: List[Any], offset: float, time_range: Optional[Tuple[float, float]] = None, remove_flat_at_dest: bool = False, on_replace=None, on_move=None) -> None",
               "summary": "Shift the keys of *curves* (optionally within *time_range*) by *offset* frames.",
-              "line": 415,
+              "line": 452,
               "deprecated": false
             }
           ]
@@ -3197,7 +3251,7 @@
         {
           "name": "StaggerKeys",
           "summary": "Namespace mirror of mayatk's ``StaggerKeys`` (``stagger_keys`` also exposed module-level).",
-          "line": 25,
+          "line": 28,
           "bases": [
             "_StaggerKeysInternal"
           ],
@@ -3206,9 +3260,9 @@
               "name": "stagger_keys",
               "qualname": "StaggerKeys.stagger_keys",
               "kind": "staticmethod",
-              "signature": "(objects, start_frame=None, spacing=5, use_intervals=False, invert=False, group_overlapping=False, merge_touching=False, smooth_tangents=False, on_replace=None, on_move=None)",
+              "signature": "(objects, start_frame=None, spacing=5, use_intervals=False, invert=False, group_overlapping=False, merge_touching=False, smooth_tangents=False, on_replace=None, on_move=None, avoid_overlap=False, channel_box_attrs_only=False, verbose=False)",
               "summary": "Re-time selected objects so their animations play one after another (mirror of ``mtk``",
-              "line": 29,
+              "line": 33,
               "deprecated": false
             }
           ]

@@ -218,6 +218,43 @@ class SegmentKeys(_SegmentKeysInternal):
     """
 
     @classmethod
+    def format_scene_info_html(
+        cls,
+        objects=None,
+        detailed: bool = True,
+        csv_output: bool = False,
+        by_time: bool = False,
+        ignore_holds: bool = True,
+        traversal: Optional[str] = None,
+        progress_callback=None,
+    ) -> str:
+        """The Get Animation Info report -- mirror of mayatk's: one row per animated
+        object (its range, channels and keys), as HTML, or as CSV with *csv_output*.
+
+        Parameters:
+            objects: The objects to report; ``None`` is the whole scene.
+            detailed: mayatk's, accepted for parity (the report is always per object).
+            csv_output: Comma-separated rows instead of the HTML table.
+            by_time: Order by start frame instead of by name.
+            ignore_holds: Report where each object MOVES, not its raw key extent.
+            traversal: mayatk's dependency-graph widening, accepted for parity.
+            progress_callback: Called as ``(done, total, text)`` once the report is built.
+
+        Returns:
+            str: The report; empty when nothing in scope is animated.
+        """
+        records = AnimUtils.get_animation_info(
+            objects, by_time=by_time, ignore_holds=ignore_holds
+        )
+        if progress_callback is not None:
+            progress_callback(len(records), len(records), "Get Animation Info")
+        if not records:
+            return ""
+        if csv_output:
+            return AnimUtils.format_animation_info_csv(records)
+        return AnimUtils.format_animation_info_html(records)
+
+    @classmethod
     def collect_segments(
         cls,
         objects: Union[str, List[str]],

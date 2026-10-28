@@ -192,14 +192,14 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L449) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L450) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
 
 Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 
-- **[`class AnimUtils(_AnimUtilsInternal)`](blendertk/blendertk/anim_utils/_anim_utils.py#L1091)** — Namespace mirror (helpers also exposed module-level).
+- **[`class AnimUtils(_AnimUtilsInternal)`](blendertk/blendertk/anim_utils/_anim_utils.py#L1110)** — Namespace mirror (helpers also exposed module-level).
   - `AnimUtils.normalize_optimize_level(cls, level)` *(class)* — The canonical :attr:`OPTIMIZE_LEVELS` key *level* names, or None for OFF.
   - `AnimUtils.resolve_optimize_level(cls, level)` *(class)* — Resolve an optimization level into :meth:`optimize_keys` kwargs.
   - `AnimUtils.key_arrays(fc)` *(static)* — ``(times, values)`` of *fc*'s keyframe points as plain float lists (time order).
@@ -220,30 +220,35 @@ Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror 
   - `AnimUtils.get_current_frame()` *(static)* — The scene's current frame (``scene.frame_current``): the read
   - `AnimUtils.set_current_frame(time=None, update=True, relative=False, snap_mode=None, invert_snap=False)` *(static)* — Set the scene's current frame, with optional relative offset and clean-number snapping —
   - `AnimUtils.shift_keys(objects, offset)` *(static)* — Shift every key of the given objects by ``offset`` frames.
-  - `AnimUtils.move_keys_to_frame(objects, frame=None, retain_spacing=True, selected_keys_only=False, align='auto', on_replace=None, on_move=None)` *(static)* — Move the objects' keys so they align to ``frame`` (default: the current frame).
-  - `AnimUtils.adjust_key_spacing(objects, spacing=1, frame=None, relative=False, preserve_keys=False, selected_keys_only=False, exact_gap=False, on_replace=None, on_move=None)` *(static)* — Add (+) or remove (−) ``spacing`` frames of space at ``frame`` (default: the current
+  - `AnimUtils.move_keys_to_frame(objects, frame=None, retain_spacing=True, selected_keys_only=False, align='auto', on_replace=None, on_move=None, channel_box_attrs_only=False)` *(static)* — Move the objects' keys so they align to ``frame`` (default: the current frame).
+  - `AnimUtils.adjust_key_spacing(objects, spacing=1, frame=None, relative=False, preserve_keys=False, selected_keys_only=False, exact_gap=False, on_replace=None, on_move=None, time=None)` *(static)* — Add (+) or remove (−) ``spacing`` frames of space at ``frame`` (default: the current
   - `AnimUtils.align_selected_keyframes(objects, target_frame=None, use_earliest=True, on_replace=None, on_move=None)` *(static)* — Shift each object's SELECTED keyframes (``select_control_point``, e.g.
   - `AnimUtils.set_visibility_keys(objects, visible=True, frame=None, when='current', offset=0, group_overlapping=False, on_replace=None)` *(static)* — Key viewport + render visibility (``hide_viewport``/``hide_render``) — mirror of
-  - `AnimUtils.add_intermediate_keys(objects, step=1.0, time_range=None, ignore_visibility=False, percent=None)` *(static)* — Insert sampled keys every ``step`` frames between each fcurve's first and last key
-  - `AnimUtils.remove_intermediate_keys(objects, time_range=None, ignore_visibility=False, on_delete=None)` *(static)* — Remove every key strictly between each fcurve's first and last (keeps only the
-  - `AnimUtils.select_keys(objects, time=None, add_to_selection=False)` *(static)* — Select keyframe points (``select_control_point`` — visible in the Dope Sheet /
-  - `AnimUtils.invert_keys(objects, mode='time', value_pivot=0.0, start_frame=None, relative=True, delete_original=False, selected_only=False, on_replace=None, on_move=None)` *(static)* — Mirror keys to reverse motion — Blender analogue of Maya's invert (modes mirror its X/Y/both
+  - `AnimUtils.add_intermediate_keys(objects, step=1.0, time_range=None, ignore_visibility=False, percent=None, ignore=None)` *(static)* — Insert sampled keys every ``step`` frames between each fcurve's first and last key
+  - `AnimUtils.remove_intermediate_keys(objects, time_range=None, ignore_visibility=False, on_delete=None, ignore=None)` *(static)* — Remove every key strictly between each fcurve's first and last (keeps only the
+  - `AnimUtils.select_keys(objects, time=None, add_to_selection=False, channel_box_only=False)` *(static)* — Select keyframe points (``select_control_point`` — visible in the Dope Sheet /
+  - `AnimUtils.invert_keys(objects=None, mode='time', value_pivot=0.0, start_frame=None, relative=True, delete_original=False, selected_only=False, on_replace=None, on_move=None, time=None)` *(static)* — Mirror keys to reverse motion — Blender analogue of Maya's invert (modes mirror its X/Y/both
+  - `AnimUtils.snap_keys_to_frames(objects=None, method='nearest', selected_only=False, time_range=None, include_driven=False, through_blends=True, on_move=None)` *(static)* — Snap keys to whole frames -- mayatk's ``snap_keys_to_frames`` by name, signature
+  - `AnimUtils.repair_fractional_keys(objects=None, method='nearest', recursive=True, on_move=None)` *(static)* — Snap every key on a fractional frame back onto a whole one, over the Repair
   - `AnimUtils.snap_keys(objects=None, selected_only=False, time_range=None, method='nearest', on_move=None)` *(static)* — Snap keys to whole frames (or "clean" numbers) — mirror of ``mtk.snap_keys_to_frames``.
+  - `AnimUtils.set_key_interpolation(objects=None, interpolation='stepped', keys='auto', tangent='out')` *(static)* — Set the interpolation of the chosen keys -- mirror of mayatk's (the Animation
   - `AnimUtils.set_interpolation(objects, interpolation='CONSTANT', handle=None)` *(static)* — Set fcurve key ``interpolation`` (``CONSTANT`` / ``LINEAR`` / ``BEZIER`` / ``SINE`` …) on
   - `AnimUtils.set_stepped(objects, stepped=True)` *(static)* — Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.
   - `AnimUtils.step_visibility_keys(objects)` *(static)* — Force CONSTANT interpolation on the ``hide_viewport`` / ``hide_render``
   - `AnimUtils.replay_visibility(obj, keys, frame_offset=0.0)` *(static)* — Key a carried visibility curve onto *obj* as its ``hide_viewport`` +
-  - `AnimUtils.delete_keys(objects, time=None, on_delete=None)` *(static)* — Remove animation from the given objects — mirror of ``mtk.delete_keys``.
+  - `AnimUtils.delete_keys(objects, time=None, on_delete=None, channel_box_only=False)` *(static)* — Remove animation from the given objects — mirror of ``mtk.delete_keys``.
   - `AnimUtils.fit_playback_range(objects=None)` *(static)* — Set the scene frame range to the keyed extent of ``objects`` (or every scene object).
-  - `AnimUtils.copy_keys(source, mode='action')` *(static)* — Return a copy-buffer for :func:`paste_keys` — mirror of ``mtk.AnimUtils.copy_keys`` (same
+  - `AnimUtils.copy_keys(objects=None, mode='auto')` *(static)* — Return a copy-buffer for :func:`paste_keys` — mirror of ``mtk.AnimUtils.copy_keys`` (same
+  - `AnimUtils.copied_key_counts(copied_data)` *(static)* — What a :meth:`copy_keys` buffer holds, for a panel's report -- mirror of mayatk's.
   - `AnimUtils.paste_keys(objects, buffer, target_time=None, on_replace=None)` *(static)* — Paste a copy-buffer from :func:`copy_keys` onto ``objects`` — mirror of
-  - `AnimUtils.transfer_keyframes(objects, relative=False, optimize=False, on_replace=None, on_delete=None)` *(static)* — Transfer keyframes from the first object (source) onto the rest (targets) — mirror of
+  - `AnimUtils.transfer_keyframes(objects=None, relative=False, optimize=False, on_replace=None, on_delete=None, transfer_tangents=True)` *(static)* — Transfer keyframes from the first object (source) onto the rest (targets) — mirror of
   - `AnimUtils.reduce_to_extremes(objects=None, value_tolerance=0.001, stats=None, max_error=None, on_delete=None)` *(static)* — Reduce baked fcurves to their shape-defining keys and refit the handles —
   - `AnimUtils.get_redundant_flat_keys(objects, value_tolerance=1e-05, remove=False, time_range=None, selected_only=False)` *(static)* — Interior keys of a flat run — mirror of ``mtk.AnimUtils.get_redundant_flat_keys``.
   - `AnimUtils.euler_filter(objects) -> list` *(static)* — Unwrap Euler rotation curves -- mirror of ``mtk.AnimUtils.euler_filter``.
   - `AnimUtils.simplify_curve(objects, value_tolerance=0.001, time_range=None, selected_only=False, on_delete=None)` *(static)* — Drop the keys that do not contribute to a curve's shape — mirror of
-  - `AnimUtils.optimize_keys(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None, max_error=None, on_delete=None)` *(static)* — Remove redundant animation data — mirror of ``mtk.AnimUtils.optimize_keys``.
-  - `AnimUtils.repair_corrupted_curves(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0, on_delete=None)` *(static)* — Detect and repair corrupted animation fcurves — mirror of
+  - `AnimUtils.optimize_keys(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None, max_error=None, on_delete=None, progress_callback=None, recursive=True, quiet=False)` *(static)* — Remove redundant animation data — mirror of ``mtk.AnimUtils.optimize_keys``.
+  - `AnimUtils.repair_corrupted_curves(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0, on_delete=None, delete_corrupted=None, time_range_threshold=None, recursive=True, quiet=False)` *(static)* — Detect and repair corrupted animation fcurves — mirror of
+  - `AnimUtils.untie_keyframes(objects=None, on_delete=None)` *(static)* — Remove the bookend keys :meth:`tie_keyframes` inserted -- mayatk's
   - `AnimUtils.tie_keyframes(objects=None, untie=False, frame_range=None, absolute=False, on_delete=None)` *(static)* — Add (tie) or remove (untie) bookend keys at the playback-range boundaries — mirror of
   - `AnimUtils.bake_keys(objects=None, frame_range=None, step=1, only_selected=False, visual_keying=True, clear_constraints=False, clear_parents=False, use_current_action=True, bake_types=None)` *(static)* — Bake animation to plain keyframes — the Blender analogue of Maya's Smart Bake (wraps the
   - `AnimUtils.bake_blend_shapes(objects=None, frame_range=None, step=1)` *(static)* — Bake driven/animated blend-shape (shape-key) weights to explicit keyframes — the Blender
@@ -388,8 +393,8 @@ Playblast capture and export for Blender -- mirror of mayatk's
 
 Dedicated scale-keys module to keep AnimUtils lean and testable (mirror of mayatk's
 
-- **[`class ScaleKeys(_ScaleKeysInternal)`](blendertk/blendertk/anim_utils/scale_keys.py#L108)** — Namespace mirror of mayatk's ``ScaleKeys`` (``scale_keys`` also exposed module-level).
-  - `ScaleKeys.scale_keys(objects, factor, pivot=None, mode='uniform', absolute=False, group_mode='single_group', snap_mode='none', samples=64, include_rotation=False, split_static=True, merge_touching=False, on_replace=None, on_move=None)` *(static)* — Scale (retime) keyframes uniformly or via motion-aware speed normalization — mirror of
+- **[`class ScaleKeys(_ScaleKeysInternal)`](blendertk/blendertk/anim_utils/scale_keys.py#L111)** — Namespace mirror of mayatk's ``ScaleKeys`` (``scale_keys`` also exposed module-level).
+  - `ScaleKeys.scale_keys(objects, factor, pivot=None, mode='uniform', absolute=False, group_mode='single_group', snap_mode='none', samples=64, include_rotation=False, split_static=True, merge_touching=False, on_replace=None, on_move=None, keys=None, channel_box_attrs_only=False, prevent_overlap=False, verbose=False)` *(static)* — Scale (retime) keyframes uniformly or via motion-aware speed normalization — mirror of
 
 <a id="anim_utils--segment_keys"></a>
 ### `anim_utils/segment_keys.py`
@@ -397,6 +402,7 @@ Dedicated scale-keys module to keep AnimUtils lean and testable (mirror of mayat
 Animation-segment collection over Blender fcurves (mirror of ``mtk.SegmentKeys``).
 
 - **[`class SegmentKeys(_SegmentKeysInternal)`](blendertk/blendertk/anim_utils/segment_keys.py#L214)** — Collect per-object animation segments from Blender fcurves.
+  - `SegmentKeys.format_scene_info_html(cls, objects=None, detailed: bool = True, csv_output: bool = False, by_time: bool = False, ignore_holds: bool = True, traversal: Optional[str] = None, progress_callback=None) -> str` *(class)* — The Get Animation Info report -- mirror of mayatk's: one row per animated
   - `SegmentKeys.collect_segments(cls, objects: Union[str, List[str]], ignore: Optional[Union[str, List[str]]] = None, split_static: bool = False, selected_keys_only: bool = False, channel_box_attrs: Optional[List[str]] = None, static_tolerance: float = 0.0001, time_range: Optional[Tuple[Optional[float], Optional[float]]] = None, ignore_visibility_holds: bool = False, ignore_holds: bool = False, exclude_next_start: bool = True, motion_only: bool = False, motion_rate: float = 0.001, transform_only: bool = False) -> List[Dict[str, Any]]` *(class)* — Collect animation segments from *objects* (names in ``bpy.data.objects``).
   - `SegmentKeys.shift_curves(curves: List[Any], offset: float, time_range: Optional[Tuple[float, float]] = None, remove_flat_at_dest: bool = False, on_replace=None, on_move=None) -> None` *(static)* — Shift the keys of *curves* (optionally within *time_range*) by *offset* frames.
 
@@ -666,8 +672,8 @@ Persistence and restore engine for SmartBake's nondestructive manifest — mirro
 
 Dedicated stagger-keys module to keep AnimUtils lean and testable (mirror of mayatk's
 
-- **[`class StaggerKeys(_StaggerKeysInternal)`](blendertk/blendertk/anim_utils/stagger_keys.py#L25)** — Namespace mirror of mayatk's ``StaggerKeys`` (``stagger_keys`` also exposed module-level).
-  - `StaggerKeys.stagger_keys(objects, start_frame=None, spacing=5, use_intervals=False, invert=False, group_overlapping=False, merge_touching=False, smooth_tangents=False, on_replace=None, on_move=None)` *(static)* — Re-time selected objects so their animations play one after another (mirror of ``mtk``
+- **[`class StaggerKeys(_StaggerKeysInternal)`](blendertk/blendertk/anim_utils/stagger_keys.py#L28)** — Namespace mirror of mayatk's ``StaggerKeys`` (``stagger_keys`` also exposed module-level).
+  - `StaggerKeys.stagger_keys(objects, start_frame=None, spacing=5, use_intervals=False, invert=False, group_overlapping=False, merge_touching=False, smooth_tangents=False, on_replace=None, on_move=None, avoid_overlap=False, channel_box_attrs_only=False, verbose=False)` *(static)* — Re-time selected objects so their animations play one after another (mirror of ``mtk``
 
 <a id="audio_utils--_audio_utils"></a>
 ### `audio_utils/_audio_utils.py`

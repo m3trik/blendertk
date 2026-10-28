@@ -2072,7 +2072,7 @@ try:
     dst, _dst_fc = _fresh((0, 5))
     log, hooks = _hooks()
     err = _try(
-        btk.paste_keys, [dst], btk.copy_keys(src), on_replace=hooks["on_replace"]
+        btk.paste_keys, [dst], btk.copy_keys(src, mode="action"), on_replace=hooks["on_replace"]
     )
     check(
         "paste_keys(action): the target's keys the new action does not hold are replaced",
@@ -2383,7 +2383,7 @@ try:
         f"curves={[fc.data_path for fc in vis_curves]}",
     )
 
-    action = btk.copy_keys(a)
+    action = btk.copy_keys(a, mode="action")
     btk.paste_keys(b, action)
     check(
         "copy/paste keys independent copy",
