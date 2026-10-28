@@ -127,7 +127,7 @@ jobs:
           test_rizom_construction
           test_script_output
           test_shot_sequencer_panel
-          test_shots_slots
+          test_shot_sequencer_hooks
           test_workspace
           "
           rc=0

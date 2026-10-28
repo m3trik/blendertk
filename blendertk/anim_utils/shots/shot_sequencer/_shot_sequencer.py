@@ -245,7 +245,7 @@ class _ShotSequencerInternal(object):
 
 
 # The helper base goes FIRST: listed after pythontk's class, anything it defines
-# under a hook name is shadowed by the no-op default (test_shots_slots.py).
+# under a hook name is shadowed by the no-op default (test_shot_sequencer_hooks.py).
 class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
     """Manages a :class:`BlenderShotStore` and provides ripple editing and
     keyframe manipulation on top of it.

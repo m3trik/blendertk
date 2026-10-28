@@ -36,7 +36,7 @@ MONO = os.path.dirname(REPO)
 # / ``check_definitions`` build their tooltips with ``TooltipFormat`` (lazily
 # imported, Qt-free by design), and the block at "task/check definitions" below
 # renders every one of them. Same convention as the other uitk-touching suites
-# (test_smart_bake, test_hierarchy_sync, test_shots_slots, ...).
+# (test_smart_bake, test_hierarchy_sync, ...).
 for p in (REPO, os.path.join(MONO, "pythontk"), os.path.join(MONO, "uitk")):
     if p not in sys.path:
         sys.path.insert(0, p)

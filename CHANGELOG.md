@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-28 -- Shots panel moved to tentacle (`anim_utils/shots/` -- `shots_slots.py` removed -- `shot_sequencer/shot_lane.py`, `shot_sequencer_slots.py`, `__init__.py`).** Mirror of mayatk's: the Sequencer's shot deletion asks `ShotReport.removal_question`. `MOVED_NAMES` (0.23.0).
+  - Test(s): `test_shots_slots.py` -> `test_shot_sequencer_hooks.py` (the adapter hooks; CI list updated).
 - **2026-10-28 -- Unity Bridge panel moved to tentacle; `BridgeHost` (`env_utils/unity_bridge/`, `env_utils/handoff_export.py`, `mat_utils/bake_sets.py`, `ui_utils/blender_bridge_slots_base.py`, `__init__.py`).** Mirror of mayatk's `BridgeHost` (Blender's closure is `BlenderExportMixin.scope_closure`, its install `CoreUtils.ensure_packages`), `BakeSet.member_names()` / `select()` (through `CoreUtils.select`), `BakeSourceSet` root-exposed, `UnityBridge.params_registry()`; `BlenderBridgeSlotsBase` delegates to them. `MOVED_NAMES` (0.23.0).
   - Test(s): `test_unity_bridge.py` (`BridgeHost`), `test_bridges.py` (`member_names` / `select`); the handler test's Unity mode checks moved to tentacle.
 - **2026-10-28 -- Hierarchy Sync panel moved to tentacle; new `HierarchySyncSession` (`env_utils/hierarchy_sync/`, `ui_utils/_ui_utils.py`, `__init__.py`).** Mirror of mayatk's session (one undo step per click; a dry run records none). A diff-log link naming a `Grp|Child` path selects the leaf object. Changed for users, as in Maya: tree renames and drag-reparents are undoable, Diff's auto-select gains Maya's fallbacks, Pull reports in the footer. `MOVED_NAMES` (0.23.0).

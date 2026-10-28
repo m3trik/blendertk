@@ -282,8 +282,8 @@ DEFAULT_INCLUDE = {
     # Shots — Blender acquisition + persistence adapter over pythontk's shots
     # engine (``core_utils.engines.shots``).  The shot model / planner / detection
     # math is shared upstream; only ``BlenderShotStore`` (scene hooks) and
-    # ``BlenderScenePersistence`` (scene-property JSON) live here.  The co-located
-    # Shots panel is discovered by ``BlenderUiHandler``, not registered here.
+    # ``BlenderScenePersistence`` (scene-property JSON) live here.  The Shots panel
+    # is tentacle's shared tool.
     "anim_utils.shots._shots": [
         "BlenderShotStore",
         "BlenderScenePersistence",
@@ -299,8 +299,7 @@ DEFAULT_INCLUDE = {
     # the shared planner; the Sequencer panel is co-located and discovered.
     "anim_utils.shots.shot_sequencer._shot_sequencer": ["ShotSequencer"],
     # Shot Manifest adapter — Blender scene hooks over the shared manifest engine
-    # (CSV → shots + fade/audio behaviors).  Co-located panel discovered by
-    # BlenderUiHandler, not registered here.
+    # (CSV → shots + fade/audio behaviors); its panel is tentacle's shared tool.
     "anim_utils.shots.shot_manifest._shot_manifest": ["BlenderShotManifest"],
     "anim_utils.shots.shot_manifest.manifest_host": ["ManifestHost"],
     # Key stash — key clips parked out of the working animation (Blender adapter
@@ -739,6 +738,14 @@ MOVED_NAMES = {
     ),
     "UnityPanelMixin": (
         "tentacle.slots.tools._unity_bridge._unity_panel.UnityPanelMixin",
+        "0.23.0",
+    ),
+    "ShotsSlots": (
+        "tentacle.slots.tools.shots.ShotsSlots",
+        "0.23.0",
+    ),
+    "ShotsController": (
+        "tentacle.slots.tools._shots.controller.ShotsController",
         "0.23.0",
     ),
 }
