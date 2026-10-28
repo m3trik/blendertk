@@ -7551,7 +7551,7 @@
         {
           "name": "EnvUtils",
           "summary": "Namespace mirror of mayatk's ``EnvUtils`` (helpers also exposed module-level).",
-          "line": 138,
+          "line": 132,
           "bases": [
             "_EnvUtilsInternal"
           ],
@@ -7562,7 +7562,7 @@
               "kind": "staticmethod",
               "signature": "(root_dir, recursive=True, filter_text='')",
               "summary": "Every ``.blend`` file under ``root_dir`` (recursively by default), optionally name-filtered.",
-              "line": 142,
+              "line": 136,
               "deprecated": false
             },
             {
@@ -7571,7 +7571,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Every linked library as a record: ``{name, library, filepath, abspath, exists}``.",
-              "line": 179,
+              "line": 173,
               "deprecated": false
             },
             {
@@ -7580,7 +7580,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Set of normalized absolute paths of the ``.blend`` files currently linked as",
-              "line": 199,
+              "line": 193,
               "deprecated": false
             },
             {
@@ -7589,7 +7589,7 @@
               "kind": "staticmethod",
               "signature": "(path)",
               "summary": "True iff ``path`` is already linked as a library.",
-              "line": 209,
+              "line": 203,
               "deprecated": false
             },
             {
@@ -7598,7 +7598,7 @@
               "kind": "staticmethod",
               "signature": "(path, link=True, instance=True, target_collection=None, relative=False)",
               "summary": "Link (or append, ``link=False``) every collection from ``path`` and instance them into the",
-              "line": 217,
+              "line": 211,
               "deprecated": false
             },
             {
@@ -7607,7 +7607,7 @@
               "kind": "staticmethod",
               "signature": "(library)",
               "summary": "Reload a library from disk (``library`` is a datablock or its name).",
-              "line": 268,
+              "line": 262,
               "deprecated": false
             },
             {
@@ -7616,7 +7616,7 @@
               "kind": "staticmethod",
               "signature": "(library)",
               "summary": "Remove a library and everything linked from it (datablock or name).",
-              "line": 282,
+              "line": 276,
               "deprecated": false
             },
             {
@@ -7625,7 +7625,7 @@
               "kind": "staticmethod",
               "signature": "(library, scene_data='merge')",
               "summary": "Make every datablock linked from ``library`` **local** (a native, editable copy) and drop the",
-              "line": 310,
+              "line": 304,
               "deprecated": false
             },
             {
@@ -7634,7 +7634,7 @@
               "kind": "staticmethod",
               "signature": "(root=None)",
               "summary": "Pin (or clear, with None) the session's current workspace — the Blender analogue of",
-              "line": 451,
+              "line": 445,
               "deprecated": false
             },
             {
@@ -7643,7 +7643,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "The active ``pythontk.Workspace``, or None.",
-              "line": 460,
+              "line": 454,
               "deprecated": false
             },
             {
@@ -7652,7 +7652,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "Absolute root of the current workspace, or '' — what ``get_env_info(\"workspace\")``",
-              "line": 485,
+              "line": 479,
               "deprecated": false
             },
             {
@@ -7661,7 +7661,7 @@
               "kind": "staticmethod",
               "signature": "(scene: str, source: Optional[str] = None) -> Optional[str]",
               "summary": "Moved to :meth:`DataNodes.set_scene_source`, which records the stand-in",
-              "line": 497,
+              "line": 491,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -7671,7 +7671,7 @@
               "kind": "staticmethod",
               "signature": "(scene: Optional[str] = None) -> Optional[str]",
               "summary": "Moved to :meth:`DataNodes.twin_save_target`.",
-              "line": 508,
+              "line": 502,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -7681,7 +7681,7 @@
               "kind": "staticmethod",
               "signature": "(scene: Optional[str] = None) -> Optional[str]",
               "summary": "Moved to :meth:`DataNodes.scene_source`.",
-              "line": 518,
+              "line": 512,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -7691,7 +7691,7 @@
               "kind": "staticmethod",
               "signature": "() -> Optional[str]",
               "summary": "Moved to :meth:`DataNodes.scene_project_root`.",
-              "line": 528,
+              "line": 522,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -7701,7 +7701,7 @@
               "kind": "staticmethod",
               "signature": "() -> Optional[ptk.Workspace]",
               "summary": "Moved to :meth:`DataNodes.scene_workspace`.",
-              "line": 538,
+              "line": 532,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -7711,7 +7711,7 @@
               "kind": "staticmethod",
               "signature": "(subfolder: str = '', create: bool = False) -> str",
               "summary": "Moved to :meth:`DataNodes.scene_source_images_dir`.",
-              "line": 548,
+              "line": 542,
               "deprecated": true,
               "remove_in": "0.23.0"
             },
@@ -7721,7 +7721,7 @@
               "kind": "staticmethod",
               "signature": "(suffix: str) -> str",
               "summary": "A file named for the open .blend, beside it: ``<blend dir>/<stem><suffix>``.",
-              "line": 555,
+              "line": 549,
               "deprecated": false
             },
             {
@@ -7730,7 +7730,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "The current workspace's texture folder — its ``sourceImages`` rule → an existing",
-              "line": 573,
+              "line": 567,
               "deprecated": false
             },
             {
@@ -7739,7 +7739,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "Where this scene's map files can be found NOW, most specific first.",
-              "line": 584,
+              "line": 578,
               "deprecated": false
             },
             {
@@ -7748,7 +7748,7 @@
               "kind": "staticmethod",
               "signature": "(path=None)",
               "summary": "The current workspace's scene folder (``scene`` rule → existing ``scenes`` → the root),",
-              "line": 618,
+              "line": 612,
               "deprecated": false
             },
             {
@@ -7757,7 +7757,7 @@
               "kind": "staticmethod",
               "signature": "(root)",
               "summary": "The scene-rule folder of a *marked* workspace at ``root`` (absolute), or '' when",
-              "line": 625,
+              "line": 619,
               "deprecated": false
             },
             {
@@ -7766,7 +7766,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Saved workspace-template names (the Workspace Editor's Save Template entries) —",
-              "line": 638,
+              "line": 632,
               "deprecated": false
             },
             {
@@ -7775,7 +7775,7 @@
               "kind": "staticmethod",
               "signature": "(name=None)",
               "summary": "File rules for building a NEW workspace: the *name*d (default: active / last-saved)",
-              "line": 644,
+              "line": 638,
               "deprecated": false
             },
             {
@@ -7784,7 +7784,7 @@
               "kind": "staticmethod",
               "signature": "(name, rules=None)",
               "summary": "Save *rules* as workspace template *name* and make it the active default for new",
-              "line": 651,
+              "line": 645,
               "deprecated": false
             },
             {
@@ -7793,7 +7793,7 @@
               "kind": "staticmethod",
               "signature": "(name)",
               "summary": "Delete the user template *name* (the store keeps the active pointer consistent).",
-              "line": 665,
+              "line": 659,
               "deprecated": false
             },
             {
@@ -7802,7 +7802,7 @@
               "kind": "staticmethod",
               "signature": "(root, rules=None, create_dirs=True)",
               "summary": "Create a marked workspace at ``root`` — the Blender counterpart of Maya's File ▸",
-              "line": 671,
+              "line": 665,
               "deprecated": false
             },
             {
@@ -7811,7 +7811,7 @@
               "kind": "staticmethod",
               "signature": "(root=None)",
               "summary": "Mark ``root`` (default: the current workspace folder) as a shared Maya/Blender project",
-              "line": 683,
+              "line": 677,
               "deprecated": false
             },
             {
@@ -7820,7 +7820,7 @@
               "kind": "staticmethod",
               "signature": "(root_dir, recursive=False)",
               "summary": "Project folders under ``root_dir`` — marked workspaces (a ``workspace.mel`` at their",
-              "line": 697,
+              "line": 691,
               "deprecated": false
             },
             {
@@ -7829,7 +7829,7 @@
               "kind": "staticmethod",
               "signature": "(path)",
               "summary": "Open a .blend file (replaces the current file — Maya's ``file -open``).",
-              "line": 717,
+              "line": 711,
               "deprecated": false
             },
             {
@@ -7838,7 +7838,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Discard the current file and start an empty, unsaved scene (Maya's ``file -new``).",
-              "line": 730,
+              "line": 724,
               "deprecated": false
             },
             {
@@ -7847,7 +7847,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "True if the open file holds authored data — anything beyond Blender's *default",
-              "line": 746,
+              "line": 740,
               "deprecated": false
             },
             {
@@ -7856,7 +7856,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "True if replacing the open file (open / close / new) would lose work.",
-              "line": 763,
+              "line": 757,
               "deprecated": false
             },
             {
@@ -7865,7 +7865,7 @@
               "kind": "staticmethod",
               "signature": "(scene=None)",
               "summary": "The live scene's time setup as the bridges' ``scene`` record (see",
-              "line": 804,
+              "line": 798,
               "deprecated": false
             },
             {
@@ -7874,7 +7874,7 @@
               "kind": "staticmethod",
               "signature": "(settings, scene=None)",
               "summary": "Apply a ``scene`` record (any subset of :attr:`SCENE_SETTINGS_KEYS`) to the live",
-              "line": 829,
+              "line": 823,
               "deprecated": false
             },
             {
@@ -7883,7 +7883,7 @@
               "kind": "staticmethod",
               "signature": "(name, case=None, suffix='')",
               "summary": "Apply a naming convention to a base scene name — ``case`` via :meth:`pythontk.StrUtils.set_case`",
-              "line": 876,
+              "line": 870,
               "deprecated": false
             },
             {
@@ -7892,7 +7892,7 @@
               "kind": "staticmethod",
               "signature": "(directory, name, case=None, suffix='', subfolder='')",
               "summary": "The absolute ``.blend`` path :meth:`save_scene_as` would write — the pure",
-              "line": 894,
+              "line": 888,
               "deprecated": false
             },
             {
@@ -7901,7 +7901,7 @@
               "kind": "staticmethod",
               "signature": "(directory, name, case=None, suffix='', subfolder='', overwrite=True)",
               "summary": "Save the current scene as a .blend under ``directory`` with naming conventions applied —",
-              "line": 930,
+              "line": 924,
               "deprecated": false
             },
             {
@@ -7910,7 +7910,7 @@
               "kind": "staticmethod",
               "signature": "(file_path=None, *, selection_only=False, materials=True, smoothing=True, normals=True, groups=True)",
               "summary": "Export the scene as a Wavefront OBJ — mirror of mayatk's ``export_scene_as_obj``.",
-              "line": 961,
+              "line": 955,
               "deprecated": false
             },
             {
@@ -7919,7 +7919,7 @@
               "kind": "staticmethod",
               "signature": "(path, new_base)",
               "summary": "Rename a .blend on disk (and its ``.blend1`` backup) — mirror of mayatk's ``rename_scene``.",
-              "line": 1025,
+              "line": 1019,
               "deprecated": false
             },
             {
@@ -7928,7 +7928,7 @@
               "kind": "staticmethod",
               "signature": "(path, permanent: bool = False)",
               "summary": "Move a .blend (and its ``.blend1`` backup) to the trash — mirror of mayatk's",
-              "line": 1066,
+              "line": 1060,
               "deprecated": false
             },
             {
@@ -7937,7 +7937,7 @@
               "kind": "staticmethod",
               "signature": "(library, mode)",
               "summary": "Set the display override for a linked library's objects — mirror of mayatk's",
-              "line": 1107,
+              "line": 1101,
               "deprecated": false
             },
             {
@@ -7946,7 +7946,7 @@
               "kind": "staticmethod",
               "signature": "(library)",
               "summary": "Return the active display mode (``\"off\"`` / ``\"reference\"`` / ``\"template\"``) for a linked",
-              "line": 1132,
+              "line": 1126,
               "deprecated": false
             }
           ]
@@ -11602,114 +11602,6 @@
       "constants": []
     },
     {
-      "relpath": "env_utils/workspace_editor.py",
-      "summary": "blendertk Workspace Editor — the minimal take on Maya's File ▸ Project Window: one",
-      "functions": [],
-      "classes": [
-        {
-          "name": "WorkspaceEditorSlots",
-          "summary": "Switchboard slot wiring for the Workspace Editor (Project Window) panel.",
-          "line": 46,
-          "bases": [
-            "pythontk.LoggingMixin"
-          ],
-          "members": [
-            {
-              "name": "header_init",
-              "qualname": "WorkspaceEditorSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Rule add, view toggle, reset/clear, template combo, help text.",
-              "line": 61,
-              "deprecated": false
-            },
-            {
-              "name": "txt000_init",
-              "qualname": "WorkspaceEditorSlots.txt000_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Project Root — one full path (browse + open-folder option-box actions).",
-              "line": 182,
-              "deprecated": false
-            },
-            {
-              "name": "tbl000_init",
-              "qualname": "WorkspaceEditorSlots.tbl000_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "",
-              "line": 211,
-              "deprecated": false
-            },
-            {
-              "name": "add_rule",
-              "qualname": "WorkspaceEditorSlots.add_rule",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Append an empty, editable rule row (saves once both cells are filled).",
-              "line": 443,
-              "deprecated": false
-            },
-            {
-              "name": "reset_row",
-              "qualname": "WorkspaceEditorSlots.reset_row",
-              "kind": "method",
-              "signature": "(self, row)",
-              "summary": "Reset *row*'s location to the active template's default for its rule.",
-              "line": 461,
-              "deprecated": false
-            },
-            {
-              "name": "remove_row",
-              "qualname": "WorkspaceEditorSlots.remove_row",
-              "kind": "method",
-              "signature": "(self, row)",
-              "summary": "Remove *row* and delete its rule from workspace.mel.",
-              "line": 474,
-              "deprecated": false
-            },
-            {
-              "name": "reset_rules",
-              "qualname": "WorkspaceEditorSlots.reset_rules",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Restore the default file rules — the active template's — and save.",
-              "line": 486,
-              "deprecated": false
-            },
-            {
-              "name": "clear_rules",
-              "qualname": "WorkspaceEditorSlots.clear_rules",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Remove every file rule and save (hand-written marker lines survive).",
-              "line": 491,
-              "deprecated": false
-            },
-            {
-              "name": "create_project",
-              "qualname": "WorkspaceEditorSlots.create_project",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Build the project at the current root — marker + the active template's rule",
-              "line": 497,
-              "deprecated": false
-            },
-            {
-              "name": "open_folder",
-              "qualname": "WorkspaceEditorSlots.open_folder",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Open the project root in the system file browser.",
-              "line": 518,
-              "deprecated": false
-            }
-          ]
-        }
-      ],
-      "constants": []
-    },
-    {
       "relpath": "light_utils/_light_utils.py",
       "summary": "Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel",
       "functions": [],
@@ -13267,7 +13159,7 @@
         {
           "name": "ArnoldBridge",
           "summary": "Structural mirror of mayatk's ``ArnoldBridge`` -- no-op on Blender (see module docstring).",
-          "line": 35,
+          "line": 34,
           "bases": [
             "pythontk.LoggingMixin"
           ],
@@ -13278,7 +13170,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> List[str]",
               "summary": "No material needs a bridge before a Blender render: always ``[]``.",
-              "line": 56,
+              "line": 55,
               "deprecated": false
             },
             {
@@ -13287,7 +13179,7 @@
               "kind": "method",
               "signature": "(self, materials: Optional[Union[str, List[str]]] = None, objects: Optional[Union[str, List[str]]] = None, force: bool = False) -> List[str]",
               "summary": "",
-              "line": 60,
+              "line": 59,
               "deprecated": false
             },
             {
@@ -13296,7 +13188,7 @@
               "kind": "method",
               "signature": "(self, materials: Optional[Union[str, List[str]]] = None, objects: Optional[Union[str, List[str]]] = None) -> List[str]",
               "summary": "",
-              "line": 69,
+              "line": 68,
               "deprecated": false
             },
             {
@@ -13305,7 +13197,7 @@
               "kind": "method",
               "signature": "(self, materials: Optional[Union[str, List[str]]] = None, objects: Optional[Union[str, List[str]]] = None) -> List[str]",
               "summary": "",
-              "line": 77,
+              "line": 76,
               "deprecated": false
             },
             {
@@ -13314,7 +13206,7 @@
               "kind": "method",
               "signature": "(self, materials) -> Iterator[List[str]]",
               "summary": "Bridge nothing for the block: there is no Arnold graph to add (see",
-              "line": 86,
+              "line": 85,
               "deprecated": false
             },
             {
@@ -13323,7 +13215,7 @@
               "kind": "method",
               "signature": "(self, material) -> Optional[str]",
               "summary": "",
-              "line": 91,
+              "line": 90,
               "deprecated": false
             },
             {
@@ -13332,7 +13224,7 @@
               "kind": "method",
               "signature": "(self, material) -> bool",
               "summary": "",
-              "line": 94,
+              "line": 93,
               "deprecated": false
             },
             {
@@ -13341,36 +13233,25 @@
               "kind": "staticmethod",
               "signature": "(plug: str) -> str",
               "summary": "*plug* itself: no bridge follows a material here (see the module docstring).",
-              "line": 98,
-              "deprecated": false
-            }
-          ]
-        },
-        {
-          "name": "ArnoldBridgeSlots",
-          "summary": "Switchboard slots for the ``arnold_bridge.ui`` panel -- every control disabled.",
-          "line": 103,
-          "bases": [
-            "pythontk.LoggingMixin",
-            "pythontk.HelpMixin"
-          ],
-          "members": [
-            {
-              "name": "header_init",
-              "qualname": "ArnoldBridgeSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Configure the help text (no menu actions -- the panel is inert).",
-              "line": 127,
+              "line": 97,
               "deprecated": false
             },
             {
-              "name": "cmb000_init",
-              "qualname": "ArnoldBridgeSlots.cmb000_init",
+              "name": "base_materials",
+              "qualname": "ArnoldBridge.base_materials",
+              "kind": "staticmethod",
+              "signature": "() -> List[str]",
+              "summary": "No material is a bridge's base here: always ``[]``.",
+              "line": 102,
+              "deprecated": false
+            },
+            {
+              "name": "select_bridged",
+              "qualname": "ArnoldBridge.select_bridged",
               "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Populate with mayatk's scope labels for visual parity (the combo itself stays",
-              "line": 140,
+              "signature": "(self) -> List[str]",
+              "summary": "Nothing is bridged here: selects nothing and returns ``[]``.",
+              "line": 106,
               "deprecated": false
             }
           ]

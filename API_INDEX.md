@@ -504,10 +504,6 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `env_utils/webxr_preview.py` — Push the Blender selection to a live browser / WebXR preview.
 - `class WebXrPreview(BlenderExportMixin, pythontk.PreviewBridge)`
 
-### `env_utils/workspace_editor.py` — blendertk Workspace Editor — the minimal take on Maya's File ▸ Project Window: one
-- `class WorkspaceEditorSlots(pythontk.LoggingMixin)`
-  - methods: header_init, txt000_init, tbl000_init, add_rule, reset_row, remove_row, reset_rules, clear_rules, create_project, open_folder
-
 ### `light_utils/_light_utils.py` — Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 - `class LightUtils(_LightUtilsInternal)`
   - methods: set_world_hdri, get_world_hdri, set_world_ray_visibility, get_world_ray_visibility, set_world_importance_resolution, get_world_importance_resolution, clear_world_hdri, world_emits, lights_from_geometry, remove_lights, set_world_environment, lights_from_records, scale_light_energy, set_emission_strength
@@ -542,9 +538,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `mat_utils/arnold_bridge.py` — Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_bridge``.
 - `class ArnoldBridge(pythontk.LoggingMixin)`
-  - methods: unrenderable_materials, add, remove, rebuild, temporary, get_bridge, has_bridge, authored_plug
-- `class ArnoldBridgeSlots(pythontk.LoggingMixin, pythontk.HelpMixin)`
-  - methods: header_init, cmb000_init
+  - methods: unrenderable_materials, add, remove, rebuild, temporary, get_bridge, has_bridge, authored_plug, base_materials, select_bridged
 
 ### `mat_utils/bake_sets.py` — Scene-stored bake sets: named object sets the bake tools read (Blender).
 - `class BakeSet`

@@ -48,12 +48,10 @@ def _sandbox_qsettings():
 
 # Co-located tool panels that BlenderUiHandler must discover from the blendertk package.
 PANELS = [
-    "workspace_editor",
     "rizom_bridge",
     "maya_bridge",
     "marmoset_bridge",
     "substance_bridge",
-    "arnold_bridge",
     "shot_sequencer",
 ]
 
@@ -248,10 +246,6 @@ try:
     #    FROM blendertk (not tentacle) and stamps the blendertk source tag (hide-button style).
     for panel, slot_cls in (
         ("rizom_bridge", "RizomBridgeSlots"),  # engine/slots init is bpy-free
-        (
-            "workspace_editor",
-            "WorkspaceEditorSlots",
-        ),  # pythontk.Workspace engine — bpy-free
         ("maya_bridge", "MayaBridgeSlots"),  # engine/slots init is bpy-free
         (
             "marmoset_bridge",
@@ -384,135 +378,6 @@ try:
     finally:
         med.close()
         Macros._editor = None
-
-    # workspace_editor: the minimal Project Window — one root field, RULE/LOCATION table with
-    # per-row reset/remove action columns, and rule edits that write through to workspace.mel in
-    # real time (no Accept). Qt-only (pythontk.Workspace engine), so exercise the whole loop here.
-    # The uitk conftest sandboxes UITK_PRESETS_ROOT, so the template store never touches live data.
-    import tempfile as _tempfile
-    import shutil as _shutil
-    import pythontk as _ptk
-    import blendertk as _btk
-
-    we_ui = sb.get_ui("workspace_editor")
-    we = getattr(we_ui, "slots", None)
-    if we is not None:
-        # Offscreen load skips the *_init entry points — drive them explicitly.
-        we.header_init(we_ui.header)
-        we.txt000_init(we_ui.txt000)
-        we.tbl000_init(we_ui.tbl000)
-        check(
-            "workspace_editor header menu: Add Rule in, retired verbs (incl. Set As "
-            "Current) out",
-            hasattr(we_ui.header.menu, "btn_add_rule")
-            and not hasattr(we_ui.header.menu, "btn_set_current")
-            and not hasattr(we_ui.header.menu, "btn_remove_rule")
-            and not hasattr(we_ui.header.menu, "btn_save_template")
-            and not hasattr(we_ui.header.menu, "btn_delete_template"),
-        )
-        check(
-            "workspace_editor opens persistent (hide button, not gesture-scoped pin)",
-            "hide" in set(getattr(we_ui.header, "buttons", {}))
-            and "pin" not in set(getattr(we_ui.header, "buttons", {})),
-            f"{sorted(getattr(we_ui.header, 'buttons', {}))}",
-        )
-        check(
-            "workspace_editor template combo is PresetManager-wired",
-            we._preset_mgr is not None
-            and getattr(we_ui.header.menu, "cmb_template", None) is not None,
-        )
-        we_tmp = _tempfile.mkdtemp(prefix="btk_we_ui_test_")
-        try:
-            we_proj = os.path.join(we_tmp, "rt_proj")
-            we_marker = os.path.join(we_proj, "workspace.mel")
-            we_ui.txt000.setText(we_proj)
-            check(
-                "workspace_editor fresh path seeds the template, writes nothing",
-                not os.path.exists(we_marker)
-                and we_ui.tbl000.rowCount() == len(_ptk.DEFAULT_FILE_RULES),
-                f"rows={we_ui.tbl000.rowCount()}",
-            )
-            check(
-                "workspace_editor rows carry the reset + remove action icons",
-                we_ui.tbl000.actions.get(0, 2) == "reset"
-                and we_ui.tbl000.actions.get(0, 3) == "remove",
-            )
-            from qtpy import QtWidgets as _QtW
-
-            _hdr = we_ui.tbl000.horizontalHeader()
-            check(
-                "workspace_editor LOCATION stretches; action icons pinned right (fixed)",
-                _hdr.sectionResizeMode(1) == _QtW.QHeaderView.Stretch
-                and _hdr.sectionResizeMode(2) == _QtW.QHeaderView.Fixed
-                and _hdr.sectionResizeMode(3) == _QtW.QHeaderView.Fixed,
-            )
-            r_scene = next(
-                r for r in range(we_ui.tbl000.rowCount()) if we._key_at(r) == "scene"
-            )
-            we_ui.tbl000.item(r_scene, 1).setText("shots")  # itemChanged → write
-            we_rules = (
-                _ptk.Workspace.parse_workspace_mel(we_marker)
-                if os.path.isfile(we_marker)
-                else {}
-            )
-            check(
-                "workspace_editor first rule edit creates the project (real-time Accept)",
-                we_rules.get("scene") == "shots"
-                and os.path.isdir(os.path.join(we_proj, "shots")),
-                f"{we_rules}",
-            )
-            # Selecting/creating a project root auto-pins it as the current workspace
-            # (there's no Set As Current button — the root selection does it).
-            _cur = _btk.current_workspace()
-            check(
-                "workspace_editor auto-sets the built project as current workspace",
-                _cur is not None
-                and os.path.normcase(os.path.normpath(_cur.root))
-                == os.path.normcase(os.path.normpath(we_proj)),
-                f"{_cur}",
-            )
-            we.reset_row(r_scene)
-            check(
-                "workspace_editor row reset restores the template default and saves",
-                _ptk.Workspace.parse_workspace_mel(we_marker).get("scene")
-                == _ptk.DEFAULT_FILE_RULES["scene"],
-            )
-            r_images = next(
-                r for r in range(we_ui.tbl000.rowCount()) if we._key_at(r) == "images"
-            )
-            we.remove_row(r_images)
-            check(
-                "workspace_editor row remove deletes the rule from workspace.mel",
-                "images" not in _ptk.Workspace.parse_workspace_mel(we_marker),
-            )
-            we.clear_rules()
-            check(
-                "workspace_editor Clear Settings removes every rule (marker survives)",
-                os.path.isfile(we_marker)
-                and _ptk.Workspace.parse_workspace_mel(we_marker) == {},
-            )
-            we.reset_rules()
-            check(
-                "workspace_editor Reset Settings restores the defaults and saves",
-                _ptk.Workspace.parse_workspace_mel(we_marker)
-                == _ptk.DEFAULT_FILE_RULES,
-            )
-            # A combo-saved template (PresetManager wraps the rules with "_meta") must
-            # round-trip through the headless btk API with the block stripped.
-            we._preset_mgr.save("suite_tpl")
-            check(
-                "workspace_editor combo-saved template round-trips via the headless API",
-                _btk.workspace_template_rules("suite_tpl") == _ptk.DEFAULT_FILE_RULES,
-            )
-            _btk.delete_workspace_template("suite_tpl")
-        finally:
-            we_ui.txt000.clear()
-            _btk.set_current_workspace(None)  # clear the auto-set session pin
-            _shutil.rmtree(we_tmp, ignore_errors=True)
-    else:
-        check(
-            "workspace_editor exposes slots for the real-time check", False, "no slots"
-        )
 
 except Exception as e:
     traceback.print_exc()

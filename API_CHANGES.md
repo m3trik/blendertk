@@ -2,7 +2,7 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (720)
+## Moved out (734)
 
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b000` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
@@ -400,6 +400,17 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `env_utils/unity_bridge/unity_bridge_slots.py::UnityBridgeSlots.b000` → `tentacle.slots.tools.unity_bridge.UnityBridgeSlots` (from 0.23.0)
 - `env_utils/unity_bridge/unity_bridge_slots.py::UnityBridgeSlots.make_bridge` → `tentacle.slots.tools.unity_bridge.UnityBridgeSlots` (from 0.23.0)
 - `env_utils/unity_bridge/unity_bridge_slots.py::UnityBridgeSlots.params_module` → `tentacle.slots.tools.unity_bridge.UnityBridgeSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.add_rule` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.clear_rules` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.create_project` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.header_init` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.open_folder` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.remove_row` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.reset_row` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.reset_rules` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.tbl000_init` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.txt000_init` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
 - `light_utils/hdr_manager.py::HdrManagerSlots` → `tentacle.slots.tools.hdr_manager.HdrManagerSlots` (from 0.23.0)
 - `light_utils/hdr_manager.py::HdrManagerSlots.add_hdr` → `tentacle.slots.tools.hdr_manager.HdrManagerSlots` (from 0.23.0)
 - `light_utils/hdr_manager.py::HdrManagerSlots.clear_network` → `tentacle.slots.tools.hdr_manager.HdrManagerSlots` (from 0.23.0)
@@ -449,6 +460,9 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.track_selected` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
 - `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.txt000_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
 - `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.txt_output_dir_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `mat_utils/arnold_bridge.py::ArnoldBridgeSlots` → `tentacle.slots.tools.arnold_bridge.ArnoldBridgeSlots` (from 0.23.0)
+- `mat_utils/arnold_bridge.py::ArnoldBridgeSlots.cmb000_init` → `tentacle.slots.tools.arnold_bridge.ArnoldBridgeSlots` (from 0.23.0)
+- `mat_utils/arnold_bridge.py::ArnoldBridgeSlots.header_init` → `tentacle.slots.tools.arnold_bridge.ArnoldBridgeSlots` (from 0.23.0)
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots` → `tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.b000` → `tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.b001` → `tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
@@ -725,7 +739,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (305)
+## Added (307)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -896,6 +910,8 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/_mat_utils.py::MatUpdater.selected_materials(cls, shader_type=None)`
 - `mat_utils/_mat_utils.py::MatUpdater.shader_type_choices()`
 - `mat_utils/_mat_utils.py::MatUpdater.texture_root()`
+- `mat_utils/arnold_bridge.py::ArnoldBridge.base_materials() -> List[str]`
+- `mat_utils/arnold_bridge.py::ArnoldBridge.select_bridged(self) -> List[str]`
 - `mat_utils/bake_sets.py::BakeSet.member_names(cls) -> List[str]`
 - `mat_utils/bake_sets.py::BakeSet.select(cls) -> List[Any]`
 - `mat_utils/emissive_groups.py::BlenderEmissiveGroups(class)`

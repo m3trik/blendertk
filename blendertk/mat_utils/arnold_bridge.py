@@ -10,12 +10,11 @@ separate shader graphs off the same shading engine.
 Blender has no such split: Cycles and EEVEE both read the *same* Principled BSDF node graph, and
 this codebase ships no Arnold-for-Blender integration at all (no MtoA-equivalent addon, no
 ``aiStandardSurface`` node type). There is nothing to attach and nothing to preview under, so
-this is a deliberately inert, disabled panel -- copied 1:1 from mayatk's ``.ui`` per this repo's
-port convention ("if something is not applicable, disable the widget with a tooltip note"),
-wired to no-op slots that explain why rather than silently doing nothing.
+the Arnold Preview Shader panel (tentacle's ``slots/tools/arnold_bridge.py``) is Maya's alone:
+Blender never offers it (``tentacle.slots.tools.HOSTS``).
 
-``ArnoldBridge`` itself has no scene-mutating implementation for the same reason: there is no
-Blender-side operation for it to perform. It exists for structural/API parity only.
+``ArnoldBridge`` has no scene-mutating implementation for the same reason: there is no
+Blender-side operation for it to perform. It exists for API parity only.
 """
 
 import contextlib
@@ -99,59 +98,11 @@ class ArnoldBridge(ptk.LoggingMixin):
         """*plug* itself: no bridge follows a material here (see the module docstring)."""
         return plug
 
+    @staticmethod
+    def base_materials() -> List[str]:
+        """No material is a bridge's base here: always ``[]``."""
+        return []
 
-class ArnoldBridgeSlots(ptk.LoggingMixin, ptk.HelpMixin):
-    """Switchboard slots for the ``arnold_bridge.ui`` panel -- every control disabled.
-
-    The ``.ui`` is copied verbatim from mayatk (structural parity per this repo's port
-    convention); every functional widget is disabled with a tooltip explaining why, and the
-    header help text carries the same explanation. See :data:`_NOT_AVAILABLE`.
-    """
-
-    def __init__(self, switchboard, log_level: str = "WARNING"):
-        super().__init__()
-        self.logger.setLevel(log_level)
-        self.sb = switchboard
-        self.ui = self.sb.loaded_ui.arnold_bridge
-
-        self.ui.cmb000.setEnabled(False)
-        self.ui.cmb000.setToolTip(_NOT_AVAILABLE)
-        self.ui.chk000.setEnabled(False)
-        self.ui.chk000.setToolTip(_NOT_AVAILABLE)
-        self.ui.b000.setEnabled(False)
-        self.ui.b000.setToolTip(_NOT_AVAILABLE)
-        self.ui.b001.setEnabled(False)
-        self.ui.b001.setToolTip(_NOT_AVAILABLE)
-
-    # ------------------------------------------------------------------ header
-    def header_init(self, widget) -> None:
-        """Configure the help text (no menu actions -- the panel is inert)."""
-        widget.set_help_text(
-            self.sb.tooltip.fmt(
-                title="Arnold Preview Shader",
-                body="Not available in Blender.",
-                sections=[
-                    ("Why", [_NOT_AVAILABLE]),
-                ],
-            )
-        )
-
-    # -------------------------------------------------------------------- combo
-    def cmb000_init(self, widget) -> None:
-        """Populate with mayatk's scope labels for visual parity (the combo itself stays
-        disabled -- see class docstring; there is nothing to scope)."""
-        widget.clear()
-        widget.addItems(["Selected Objects", "All Scene Materials"])
-        widget.setCurrentIndex(0)
-
-    # ------------------------------------------------------------------ actions
-    # b000 (Add Network) / b001 (Remove Network) are disabled in __init__; no handlers needed.
-
-
-# -----------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
-
-    ui = BlenderUiHandler.instance().get("arnold_bridge", reload=True)
-    ui.show(pos="screen", app_exec=True)
+    def select_bridged(self) -> List[str]:
+        """Nothing is bridged here: selects nothing and returns ``[]``."""
+        return []

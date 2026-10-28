@@ -108,7 +108,6 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`env_utils/upstream_patches.py`](#env_utils--upstream_patches) — Defects in Blender's own Python that blendertk corrects, each with the probe
 - [`env_utils/usd.py`](#env_utils--usd) — USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.usd``
 - [`env_utils/webxr_preview.py`](#env_utils--webxr_preview) — Push the Blender selection to a live browser / WebXR preview.
-- [`env_utils/workspace_editor.py`](#env_utils--workspace_editor) — blendertk Workspace Editor — the minimal take on Maya's File ▸ Project Window: one
 - [`light_utils/_light_utils.py`](#light_utils--_light_utils) — Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 - [`light_utils/hdr_manager.py`](#light_utils--hdr_manager) — Blender world-HDRI environment manager.
 - [`light_utils/lightmap_baker/_probe_placement.py`](#light_utils--lightmap_baker--_probe_placement) — Where a lightmap bake's reflection probe stands -- Blender's scene for the placement.
@@ -1417,7 +1416,7 @@ Target Weld — interactive drag-a-vertex-onto-another merge tool.
 
 blendertk environment / scene-library utilities — the engine behind the Reference Manager panel.
 
-- **[`class EnvUtils(_EnvUtilsInternal)`](blendertk/blendertk/env_utils/_env_utils.py#L138)** — Namespace mirror of mayatk's ``EnvUtils`` (helpers also exposed module-level).
+- **[`class EnvUtils(_EnvUtilsInternal)`](blendertk/blendertk/env_utils/_env_utils.py#L132)** — Namespace mirror of mayatk's ``EnvUtils`` (helpers also exposed module-level).
   - `EnvUtils.find_blend_files(root_dir, recursive=True, filter_text='')` *(static)* — Every ``.blend`` file under ``root_dir`` (recursively by default), optionally name-filtered.
   - `EnvUtils.list_libraries()` *(static)* — Every linked library as a record: ``{name, library, filepath, abspath, exists}``.
   - `EnvUtils.linked_blend_paths()` *(static)* — Set of normalized absolute paths of the ``.blend`` files currently linked as
@@ -2012,23 +2011,6 @@ Push the Blender selection to a live browser / WebXR preview.
 
 - **[`class WebXrPreview(BlenderExportMixin, pythontk.PreviewBridge)`](blendertk/blendertk/env_utils/webxr_preview.py#L40)** — Live browser / WebXR preview of the Blender selection.
 
-<a id="env_utils--workspace_editor"></a>
-### `env_utils/workspace_editor.py`
-
-blendertk Workspace Editor — the minimal take on Maya's File ▸ Project Window: one
-
-- **[`class WorkspaceEditorSlots(pythontk.LoggingMixin)`](blendertk/blendertk/env_utils/workspace_editor.py#L46)** — Switchboard slot wiring for the Workspace Editor (Project Window) panel.
-  - `WorkspaceEditorSlots.header_init(self, widget)` — Rule add, view toggle, reset/clear, template combo, help text.
-  - `WorkspaceEditorSlots.txt000_init(self, widget)` — Project Root — one full path (browse + open-folder option-box actions).
-  - `WorkspaceEditorSlots.tbl000_init(self, widget)`
-  - `WorkspaceEditorSlots.add_rule(self)` — Append an empty, editable rule row (saves once both cells are filled).
-  - `WorkspaceEditorSlots.reset_row(self, row)` — Reset *row*'s location to the active template's default for its rule.
-  - `WorkspaceEditorSlots.remove_row(self, row)` — Remove *row* and delete its rule from workspace.mel.
-  - `WorkspaceEditorSlots.reset_rules(self)` — Restore the default file rules — the active template's — and save.
-  - `WorkspaceEditorSlots.clear_rules(self)` — Remove every file rule and save (hand-written marker lines survive).
-  - `WorkspaceEditorSlots.create_project(self)` — Build the project at the current root — marker + the active template's rule
-  - `WorkspaceEditorSlots.open_folder(self)` — Open the project root in the system file browser.
-
 <a id="light_utils--_light_utils"></a>
 ### `light_utils/_light_utils.py`
 
@@ -2241,7 +2223,7 @@ Material utilities — mirror of mayatk's ``MatUtils`` public names where the co
 
 Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_bridge``.
 
-- **[`class ArnoldBridge(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/arnold_bridge.py#L35)** — Structural mirror of mayatk's ``ArnoldBridge`` -- no-op on Blender (see module docstring).
+- **[`class ArnoldBridge(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/arnold_bridge.py#L34)** — Structural mirror of mayatk's ``ArnoldBridge`` -- no-op on Blender (see module docstring).
   - `ArnoldBridge.unrenderable_materials(cls) -> List[str]` *(class)* — No material needs a bridge before a Blender render: always ``[]``.
   - `ArnoldBridge.add(self, materials: Optional[Union[str, List[str]]] = None, objects: Optional[Union[str, List[str]]] = None, force: bool = False) -> List[str]`
   - `ArnoldBridge.remove(self, materials: Optional[Union[str, List[str]]] = None, objects: Optional[Union[str, List[str]]] = None) -> List[str]`
@@ -2250,9 +2232,8 @@ Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_b
   - `ArnoldBridge.get_bridge(self, material) -> Optional[str]`
   - `ArnoldBridge.has_bridge(self, material) -> bool`
   - `ArnoldBridge.authored_plug(plug: str) -> str` *(static)* — *plug* itself: no bridge follows a material here (see the module docstring).
-- **[`class ArnoldBridgeSlots(pythontk.LoggingMixin, pythontk.HelpMixin)`](blendertk/blendertk/mat_utils/arnold_bridge.py#L103)** — Switchboard slots for the ``arnold_bridge.ui`` panel -- every control disabled.
-  - `ArnoldBridgeSlots.header_init(self, widget) -> None` — Configure the help text (no menu actions -- the panel is inert).
-  - `ArnoldBridgeSlots.cmb000_init(self, widget) -> None` — Populate with mayatk's scope labels for visual parity (the combo itself stays
+  - `ArnoldBridge.base_materials() -> List[str]` *(static)* — No material is a bridge's base here: always ``[]``.
+  - `ArnoldBridge.select_bridged(self) -> List[str]` — Nothing is bridged here: selects nothing and returns ``[]``.
 
 <a id="mat_utils--bake_sets"></a>
 ### `mat_utils/bake_sets.py`

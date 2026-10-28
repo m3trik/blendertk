@@ -760,6 +760,14 @@ MOVED_NAMES = {
         "tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots",
         "0.23.0",
     ),
+    "ArnoldBridgeSlots": (
+        "tentacle.slots.tools.arnold_bridge.ArnoldBridgeSlots",
+        "0.23.0",
+    ),
+    "WorkspaceEditorSlots": (
+        "tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots",
+        "0.23.0",
+    ),
 }
 
 bootstrap_package(

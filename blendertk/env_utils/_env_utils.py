@@ -74,12 +74,6 @@ class _EnvUtilsInternal(object):
         return patterns or [filter_text]
 
     @staticmethod
-    def _workspace_template_store():
-        """The shared ``ptk.WorkspaceTemplates`` preset store — what the Workspace Editor's
-        template combo is wired to (mayatk reads the same one)."""
-        return ptk.WorkspaceTemplates.store()
-
-    @staticmethod
     def _is_unsaved_work(is_dirty, is_saved, has_content):
         """Decide whether replacing the open file would lose work, from the three facts
         :meth:`EnvUtils.scene_has_unsaved_changes` gathers (kept pure so it is testable headless,
