@@ -86,7 +86,7 @@ class Preview:
         if select_result_checkbox is not None and result_provider is not None:
             # Live: a toggle (de)selects the current result at once, never a re-run.
             select_result_checkbox.toggled.connect(self._apply_select_result)
-        # The co-located ``.ui`` files ship the commit button ``enabled=false`` (the old gated
+        # The tools' ``.ui`` files ship the commit button ``enabled=false`` (the old gated
         # contract). Previewing is optional here — ``commit`` runs the op once on the live
         # selection when no preview is running — so the button is asserted live rather than
         # left to whatever each ``.ui`` carries (otherwise it is dead: a preview could never be

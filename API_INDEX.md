@@ -271,7 +271,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class EditUtils(_EditUtilsInternal)`
   - methods: hook_bind_inverse, hook_curve_point, decimate, dissolve_coplanar, triangulate, tris_to_quads, subdivide_mesh, boolean_op, set_subdivision, apply_subdivision, set_shading, average_normals, select_edges_by_angle, set_edge_hardness, clear_custom_split_normals, add_custom_split_normals, has_custom_split_normals, flip_normals, recalculate_normals, propagate_normals, conform_normals, extract_reversed_faces, clean_geometry, crease_edges, mirror, mirror_instance, cut_along_axis, wedge, snap_closest_verts, snap_to_grid, snap_to_surface, get_standoff_distances, get_similar_mesh, ungroup_objects, separate_objects, combine_objects, detach_components, get_overlapping_faces, get_overlapping_duplicates, loft
 
-### `edit_utils/bevel.py` — Bevel tool — engine + Switchboard slot wiring for the co-located ``bevel.ui``.
+### `edit_utils/bevel.py` — Bevel tool engine.
 - `class Bevel`
   - methods: bevel
 
@@ -303,12 +303,12 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class CutOnAxis`
   - methods: perform_cut_on_axis
 
-### `edit_utils/duplicate_grid.py` — Grid array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_grid``.
+### `edit_utils/duplicate_grid.py` — Grid array duplication — mirror of mayatk's ``edit_utils.duplicate_grid``.
 - constants: GRID_MAX_COPIES
 - `class DuplicateGrid`
   - methods: duplicate_grid
 
-### `edit_utils/duplicate_linear.py` — Linear array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_linear``.
+### `edit_utils/duplicate_linear.py` — Linear array duplication — mirror of mayatk's ``edit_utils.duplicate_linear``.
 - `class DuplicateLinear`
   - methods: duplicate_linear
 
@@ -577,7 +577,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `mat_utils/_mat_utils.py` — Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
 - constants: SHADER_TEMPLATES
 - `class MatUpdater(pythontk.LoggingMixin, _MatUtilsInternal)`
-  - methods: update_materials
+  - methods: shader_type_choices, texture_root, selected_materials, materials_using_textures, update_materials
 - `class MatUtils(_MatUtilsInternal)`
   - methods: get_node_tree, get_mats, create_mat, assign_mat, find_by_mat_id, find_unassigned, select_by_material, reload_textures, get_scene_mats, is_mat_assigned, get_mat_swatch_icon, get_texture_paths, get_texture_info, get_mat_info, format_mat_info_html, format_texture_info_html, find_materials_with_duplicate_textures, reassign_duplicate_materials, delete_unused_materials, image_texture_nodes, select_image_nodes, graph_materials, get_image_records, image_paths_scope, repath_image, to_project_relative, resolve_missing_textures, normalize_texture_paths, get_image_material_map, materials_for_textures, fix_color_spaces, set_texture_directory, plan_find_and_copy_textures, find_and_copy_textures, rename_texture_file, sync_material_names, format_texture_paths_html, get_shader_templates, apply_shader_template, create_shader_template, serialize_material, restore_material, resolve_pbr_plan, create_pbr_material, create_pbr_materials, update_materials
 
@@ -604,9 +604,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `mat_utils/game_shader.py` — Game Shader — auto-build a Principled-BSDF material from a set of PBR textures.
 - `class GameShader(pythontk.LoggingMixin, _GameShaderInternal)`
-  - methods: create_network
-- `class GameShaderSlots(GameShader)`
-  - methods: workspace_dir, source_images_dir, header_init, lbl_graph_material, mat_name, mat_prefix, mat_suffix, normal_map_type, output_extension, cmb002_init, opacity_mode, cmb003_init, txt000_init, txt002_init, b000
+  - methods: shader_type_choices, create_network, assign_network
 
 ### `mat_utils/image_to_plane/_image_to_plane.py` — Map image files to textured planes in Blender — port of mayatk's ``mat_utils.image_to_plane``.
 - `class ImageToPlane(pythontk.LoggingMixin)`
@@ -692,10 +690,6 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `mat_utils/mat_manifest.py` — Material-to-texture manifest for bridge workflows -- mirror of mayatk's ``mat_utils.mat_manifest``.
 - `class MatManifest(pythontk.HelpMixin)`
   - methods: build, restore
-
-### `mat_utils/mat_updater.py` — Material Updater tool panel — Switchboard slot wiring for the co-located ``mat_updater.ui``.
-- `class MatUpdaterSlots(MatUpdater)`
-  - methods: header_init, selection_mode, move_to_folder, cmb001_init, b001
 
 ### `mat_utils/render_opacity/render_effects.py` — Render Effects — Blender per-object render-effect channels for engine-ready control (mirror of
 - `class RenderEffects(pythontk.LoggingMixin)`

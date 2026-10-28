@@ -17,23 +17,22 @@ collapses to a single material.
 The node-graph build itself is ``blendertk.MatUtils.create_pbr_material`` (in ``_mat_utils.py``) —
 this module owns the profile/pipeline/reporting layer around it, exactly as mayatk splits
 ``GameShader`` from its ``connect_*`` wiring. Distinct from Shader Templates (parameter presets):
-this builds the *texture* network. Served by ``BlenderUiHandler``
-(``marking_menu.show("game_shader")``); Qt-only imports are deferred.
+this builds the *texture* network. The panel is tentacle's ``slots/tools/game_shader.py``: one
+Slots class for both hosts, over this class as ``btk.GameShader``.
 
 **Map pipeline needs an image library.** Blender bundles numpy but not Pillow, so
 ``btk.ensure_image_deps()`` provisions it on demand (the same call the Material Updater makes).
 Without it the profile/format steps are skipped with a warning and the existing textures are wired
 as-is — degraded, never a hard failure.
 
-**One documented divergence from the Maya panel.** Maya's ``cmb004`` (shader type: Stingray PBS /
-Standard Surface / OpenPBR) is absent here, not disabled — it picks a Maya shader NODE, and Blender
-has exactly one surface node which (probed on 5.1.2) is already the OpenPBR model: Principled's
-inputs map onto OpenPBR's nodedef, and Blender's own USD/MaterialX export emits
-``ND_open_pbr_surface_surfaceshader`` for it. What the Maya combo really selects is the downstream
-*target*, which on this panel is the Output Template combo (``cmb002``: Unity URP / HDRP / Unreal /
-glTF / Godot). A Blender "shader type" combo would therefore be a second control for the same
-decision, with two of its three items naming Maya shaders that are never created — so it is omitted
-rather than faked.
+**No shader type.** mayatk's ``create_network`` builds one of three Maya shader NODES
+(``shader_type``: Stingray PBS / Standard Surface / OpenPBR), and Blender has exactly one surface
+node, which (probed on 5.1.2) is already the OpenPBR model: Principled's inputs map onto OpenPBR's
+nodedef, and Blender's own USD/MaterialX export emits ``ND_open_pbr_surface_surfaceshader`` for it.
+What the Maya choice really selects is the downstream *target*, which here is the Output Template
+(``config``: Unity URP / HDRP / Unreal / glTF / Godot). So ``shader_type_choices()`` is empty and the
+shared panel hides its Shader Type combo: a second control for the same decision, two of its three
+items naming Maya shaders that are never created, would be a fake one.
 """
 
 import logging
@@ -42,7 +41,6 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 import pythontk as ptk
 
-import blendertk as btk
 from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.mat_utils._mat_utils import MatUtils
 
@@ -136,6 +134,15 @@ class GameShader(ptk.LoggingMixin, _GameShaderInternal):
         "Displacement": "→ output Displacement",
     }
 
+    @staticmethod
+    def shader_type_choices():
+        """None: Blender has one surface shader, the Principled BSDF (already the OpenPBR
+        model, see the module notes), so :meth:`create_network` takes no ``shader_type`` and
+        the shared panel hides its Shader Type combo. Mirror of mayatk's (Stingray PBS /
+        Standard Surface / Open PBR)."""
+        return []
+
+    @CoreUtils.undoable
     def create_network(
         self,
         textures: List[str],
@@ -308,6 +315,43 @@ class GameShader(ptk.LoggingMixin, _GameShaderInternal):
             progress_callback(100, "Completed")
         return mat
 
+    @CoreUtils.undoable
+    def assign_network(self, network, objects) -> bool:
+        """Assign the one material a :meth:`create_network` call built to *objects*.
+
+        The Game Shader panel's Assign to Selection step. Mirror of mayatk's.
+
+        Parameters:
+            network: The ``create_network`` result: a material, or a list of them, one
+                per texture set.
+            objects: The objects to assign it to (whole-object assignment).
+
+        Returns:
+            bool: True when the material was assigned. Nothing built, nothing selected,
+            several materials built (no ONE material to assign) or a failed assignment
+            returns False; all but the first are logged.
+        """
+        made = [m for m in ptk.make_iterable(network) if m is not None]
+        if not made:
+            return False
+        if not objects:
+            self.logger.warning("Assign to Selection: nothing was selected.")
+            return False
+        if len(made) > 1:
+            self.logger.warning(
+                f"Assign to Selection skipped: {len(made)} materials were built. "
+                "Set a Material Name to merge them into one."
+            )
+            return False
+        material = made[0]
+        try:
+            MatUtils.assign_mat(objects, material)
+        except Exception as e:
+            self.logger.error(f"Assign to Selection failed: {material.name}: {e}")
+            return False
+        self.logger.success(f"Assigned {material.name} to {len(objects)} object(s).")
+        return True
+
     def _create_single_network(
         self,
         textures: List[str],
@@ -441,355 +485,3 @@ class GameShader(ptk.LoggingMixin, _GameShaderInternal):
                 f"{link} — {connected} connected, {failed} failed, {tail}"
             )
         return mat
-
-
-class GameShaderSlots(GameShader):
-    """Switchboard slot wiring for the Game Shader panel."""
-
-    def __init__(self, switchboard, log_level="WARNING"):
-        super().__init__()
-
-        self.sb = switchboard
-        self.ui = self.sb.loaded_ui.game_shader
-        self.set_log_level(log_level)
-
-        # Don't keep this window glued above other tools — user can use the
-        # pin button to toggle stay-on-top when needed.
-        if hasattr(self.ui, "set_flags"):
-            self.ui.set_flags(WindowStaysOnTopHint=False)
-
-        self.image_files = None
-        self.last_created_materials = []
-
-        self.ui.txt001.setText(
-            "Pick PBR texture files to auto-build a Principled material."
-        )
-
-        # Route the shared logger into the txt001 QTextBrowser with HTML colorization.
-        # setup_logging_redirect is what enables clickable <a href="action://…"> links.
-        self.logger.set_text_handler(self.sb.registered_widgets.TextEditLogHandler)
-        self.logger.setup_logging_redirect(self.ui.txt001)
-
-        # Dispatch action:// links (e.g. graph the created material).
-        if hasattr(self.ui.txt001, "anchorClicked"):
-            self.ui.txt001.anchorClicked.connect(self._on_log_link_clicked)
-
-    def _on_log_link_clicked(self, url) -> None:
-        """Dispatch clickable ``action://`` links from the log panel."""
-        from blendertk.ui_utils._ui_utils import UiUtils
-
-        UiUtils.dispatch_log_link(url, self.logger)
-
-    # The current workspace / its texture folder (Maya `sourceimages` analogue) — rule-fed for
-    # marked workspace.mel projects, "textures" convention for plain Blender folders.
-    # Resolved lazily: needs bpy (so panel load stays bpy-free) and tracks the current file.
-    @property
-    def workspace_dir(self) -> str:
-        return btk.get_env_info("workspace")
-
-    @property
-    def source_images_dir(self) -> str:
-        return btk.source_images_dir()
-
-    def header_init(self, widget):
-        """Initialize the header widget."""
-        widget.menu.add(
-            self.sb.registered_widgets.Label,
-            setObjectName="lbl_graph_material",
-            setText="Open in Editor",
-            setToolTip="Open the created material in the Shader Editor.",
-        )
-        widget.menu.add(
-            "QCheckBox",
-            setText="Assign to Selection",
-            setObjectName="chk_assign_to_selection",
-            setChecked=False,
-            setToolTip="Assign the created material to the objects selected "
-            "when Create Network is pressed.\n"
-            "Skipped when the textures build several materials — set a "
-            "Material Name to merge them into one.",
-        )
-        widget.set_help_text(
-            self.sb.tooltip.fmt(
-                title="Game Shader",
-                body="Auto-build a Principled-BSDF material from a set of PBR texture files — "
-                "each map is classified by filename and wired into the right input with the "
-                "needed conversion nodes (Normal Map, glossiness→roughness, AO multiply, packed "
-                "ORM split).",
-                steps=[
-                    "Set <b>Material Name</b> and an optional <b>Prefix / Suffix</b> "
-                    "(affix-mode option box selects placement).",
-                    "Pick an <b>Output Template</b> — the preset's tooltip describes its target "
-                    "workflow (Unity URP/HDRP, Unreal, glTF, Godot …).",
-                    "Pick the <b>Normal Map</b> direction (OpenGL / DirectX) and the output "
-                    "<b>Ext</b> ('Profile default' defers per-map format to the template).",
-                    "Press <b>Create Network</b> and select texture files; results stream into "
-                    "the log panel.",
-                ],
-                notes=[
-                    "Filenames must carry map types (BaseColor / Normal / Roughness / Metallic / "
-                    "AO / Emissive / Opacity / ORM / MSAO / Metallic_Smoothness …).",
-                    "Several texture sets in one selection build <b>one material per set</b>; "
-                    "set a <b>Material Name</b> to merge them into one.",
-                    "The template can <i>write new maps</i> (packing / format conversion) — that "
-                    "step needs Pillow, installed into Blender's Python on first use.",
-                    "Distinct from Shader Templates — that sets <i>parameters</i>; this wires "
-                    "<i>textures</i>.",
-                    "Click the material name in the log (or <b>Open in Editor</b>) to inspect "
-                    "the resulting node graph.",
-                    "Check <b>Assign to Selection</b> in the header menu to assign the new "
-                    "material to the selected objects.",
-                ],
-            )
-        )
-
-    def lbl_graph_material(self):
-        """Graph the most recently created material in the Shader Editor."""
-        if self.last_created_materials:
-            btk.graph_materials(self.last_created_materials)
-        else:
-            self.logger.warning("No material has been created yet.")
-
-    @property
-    def mat_name(self) -> str:
-        """Get the material name from the user input text field.
-
-        Returns:
-            (str)
-        """
-        return self.ui.txt000.text().strip()
-
-    @property
-    def mat_prefix(self) -> str:
-        """Return the affix text when it resolves as a prefix, else empty string."""
-        if not hasattr(self.ui, "txt002"):
-            return ""
-        prefix, _ = self.ui.txt002.option_box.resolve_affix(default="prefix")
-        return prefix
-
-    @property
-    def mat_suffix(self) -> str:
-        """Return the affix text when it resolves as a suffix, else empty string."""
-        if not hasattr(self.ui, "txt002"):
-            return ""
-        _, suffix = self.ui.txt002.option_box.resolve_affix(default="prefix")
-        return suffix
-
-    @property
-    def normal_map_type(self) -> str:
-        """Get the normal map direction from the comboBox's current text.
-
-        Returns:
-            (str)
-        """
-        return self.ui.cmb001.currentText() or "OpenGL"
-
-    @property
-    def output_extension(self) -> str:
-        """Selected output extension, or '' when 'Profile default' is chosen.
-
-        An empty string signals the caller to defer per-map format to the selected
-        workflow profile's template rather than forcing one container for all maps.
-
-        Returns:
-            (str) The file extension in lowercase (e.g., 'png', 'jpg'), or ''.
-        """
-        text = self.ui.cmb003.currentText().lower()
-        return "" if text.startswith("profile") else text
-
-    def cmb002_init(self, widget):
-        """Initialize Presets"""
-        if not widget.is_initialized:
-            # Names + tooltips come from the OutputTemplates SSoT, shared with the
-            # converter / compositor / mat_updater / scene exporter, so none of
-            # them depends on the preset dict's internal shape.
-            from qtpy import QtCore
-
-            widget.clear()
-            for name, description in ptk.OutputTemplates.profile_choices():
-                widget.addItem(name)
-                if description:
-                    widget.setItemData(
-                        widget.count() - 1, description, QtCore.Qt.ToolTipRole
-                    )
-
-    @property
-    def opacity_mode(self) -> Optional[str]:
-        """The opacity graph the panel asks for.
-
-        Returns:
-            str | None: ``"transparent"`` (alpha blend), ``"masked"`` (alpha
-            cutout), or ``"none"`` -- opacity ruled out, which retires the
-            set's opacity sources instead of letting them pick the graph.
-            None for Auto: a usable opacity source then builds as transparent,
-            as it always has.
-        """
-        if hasattr(self.ui, "cmb005"):
-            text = self.ui.cmb005.currentText().lower()
-            if "masked" in text:
-                return "masked"
-            if "transparent" in text:
-                return "transparent"
-            if "none" in text:
-                return "none"
-        return None
-
-    def cmb003_init(self, widget):
-        """Initialize Output Format.
-
-        Selecting 'Profile default' defers each map's container/bit-depth to the
-        selected workflow profile's output template; a concrete format forces that
-        container for all maps.
-        """
-        if not widget.is_initialized:
-            # format_choices appends the sentinel LAST, preserving the existing
-            # format indices — combobox state is persisted by index, so moving it
-            # to the front would silently shift every saved selection by one.
-            widget.add(
-                ptk.OutputTemplates.format_choices(
-                    sentinel=ptk.OutputTemplates.PROFILE_DEFAULT_LABEL
-                )
-            )
-
-    def txt000_init(self, widget):
-        """Material-name field — clearable back to the auto-derived name."""
-        widget.option_box.clear_option = True
-
-    def txt002_init(self, widget):
-        """Add a prefix/suffix/auto-mode picker to the affix field."""
-        widget.option_box.set_affix(
-            default="prefix",
-            on_change=lambda _mode, w=widget: self._apply_affix_placeholder(w),
-            settings_key="game_shader_affix",  # ``txt002`` alone is too generic
-            convention_key="material",  # fourth state: the shared convention
-        )
-        self._apply_affix_placeholder(widget)
-
-    @staticmethod
-    def _apply_affix_placeholder(widget):
-        mode = widget.option_box.affix_mode
-        if mode == "prefix":
-            widget.setPlaceholderText("Prefix")
-            widget.setToolTip(
-                "Prefix prepended to the material name.\n"
-                'Example: "MAT_" + "brick" → "MAT_brick".'
-            )
-        elif mode == "suffix":
-            widget.setPlaceholderText("Suffix")
-            widget.setToolTip(
-                "Suffix appended to the material name.\n"
-                'Example: "brick" + "_MAT" → "brick_MAT".'
-            )
-        elif mode == "convention":
-            # The field is showing (and locked to) the shared convention, so
-            # the placeholder would never be seen — name the source instead, so
-            # a user wondering why they cannot type has the answer in the tip.
-            widget.setPlaceholderText("Scene Convention")
-            widget.setToolTip(
-                "Following the shared naming convention for materials.\n"
-                "Edit it in the Naming panel (Suffix By Type); every tool set "
-                "to this mode follows.\n"
-                "Click the button beside the field to type your own instead."
-            )
-        else:  # auto
-            widget.setPlaceholderText("Affix")
-            widget.setToolTip(
-                "Affix — placement inferred from '_' position.\n"
-                "  '_MAT' → suffix (appended)\n"
-                "  'MAT_' → prefix (prepended)"
-            )
-
-    def _assign_to_selection(self, materials, selection) -> None:
-        """Assign the one material just built to ``selection``.
-
-        Parameters:
-            materials: The materials ``create_network`` built.
-            selection: The objects selected before the build.
-        """
-        if not materials:
-            return
-        if not selection:
-            self.logger.warning("Assign to Selection: nothing was selected.")
-            return
-        if len(materials) > 1:
-            self.logger.warning(
-                f"Assign to Selection skipped: {len(materials)} materials were built. "
-                "Set a Material Name to merge them into one."
-            )
-            return
-        material = materials[0]
-        try:
-            MatUtils.assign_mat(selection, material)
-        except Exception as e:
-            self.logger.error(f"Assign to Selection failed: {material.name}: {e}")
-            return
-        self.logger.success(f"Assigned {material.name} to {len(selection)} object(s).")
-
-    def b000(self):
-        """Create Network — pick PBR texture files and build Principled material(s) from them."""
-        # Snapshot before the file dialog, so the assignment targets what was
-        # selected when the button was pressed.
-        selection = (
-            list(CoreUtils.selected_objects())
-            if self.ui.header.menu.chk_assign_to_selection.isChecked()
-            else None
-        )
-
-        image_files = self.sb.file_dialog(
-            file_types=[f"*.{ext}" for ext in ptk.ImgUtils.texture_file_types],
-            title="Select one or more image files to open.",
-            start_dir=self.source_images_dir,
-        )
-        if not image_files:
-            return
-
-        self.image_files = image_files
-        self.ui.txt001.clear()
-
-        template_name = self.ui.cmb002.currentText()
-
-        # 'Profile default' (empty ext) → let the workflow profile drive per-map
-        # format; a concrete ext overrides it for all maps.
-        ext = self.output_extension
-        output_profile = template_name if not ext else None
-
-        def progress_adapter(p, m):
-            # Surface progress in the footer and keep the UI responsive during the
-            # long network build.
-            self.ui.footer.setText(f"{m} ({int(p)}%)" if m else f"{int(p)}%")
-            self.sb.QtWidgets.QApplication.instance().processEvents()
-
-        results = self.create_network(
-            self.image_files,
-            self.mat_name,
-            prefix=self.mat_prefix,
-            suffix=self.mat_suffix,
-            config=template_name,
-            normal_type=self.normal_map_type,
-            opacity_mode=self.opacity_mode,
-            cleanup_base_color=False,  # Can be exposed in UI later if needed
-            output_extension=ext or None,
-            output_profile=output_profile,
-            progress_callback=progress_adapter,
-        )
-
-        made = [m for m in ptk.make_iterable(results) if m is not None]
-        self.last_created_materials = made
-
-        if selection is not None:
-            self._assign_to_selection(made, selection)
-
-        if not made:
-            self.sb.message_box(
-                "<hl>No PBR textures recognized</hl><br>Filenames must carry map types "
-                "(BaseColor, Normal, Roughness, Metallic…)."
-            )
-
-
-# -----------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
-
-    ui = BlenderUiHandler.instance().get("game_shader", reload=True)
-    ui.show(pos="screen", app_exec=True)

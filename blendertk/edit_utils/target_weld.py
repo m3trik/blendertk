@@ -525,7 +525,7 @@ class _TargetWeldInternal(object):
 
 
 class TargetWeld(_TargetWeldInternal):
-    """Namespace class (mirror of the co-located-tool convention; Maya's counterpart is the
+    """Namespace class (a tool's API is a class; Maya's counterpart is the
     native ``targetWeldCtx`` context, so only the entry point and pure helpers are public)."""
 
     @staticmethod

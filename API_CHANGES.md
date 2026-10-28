@@ -2,7 +2,7 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (236)
+## Moved out (258)
 
 - `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots` → `tentacle.slots.tools.key_stash.KeyStashSlots` (from 0.23.0)
 - `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots.b000` → `tentacle.slots.tools.key_stash.KeyStashSlots` (from 0.23.0)
@@ -165,9 +165,31 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.txt000_init` → `tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.weights_all_off` → `tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.weights_all_on` → `tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
+- `mat_utils/game_shader.py::GameShaderSlots` → `tentacle.slots.tools.game_shader.GameShaderSlots` (from 0.23.0)
+- `mat_utils/game_shader.py::GameShaderSlots.b000` → `tentacle.slots.tools.game_shader.GameShaderSlots` (from 0.23.0)
+- `mat_utils/game_shader.py::GameShaderSlots.cmb002_init` → `tentacle.slots.tools.game_shader.GameShaderSlots` (from 0.23.0)
+- `mat_utils/game_shader.py::GameShaderSlots.cmb003_init` → `tentacle.slots.tools.game_shader.GameShaderSlots` (from 0.23.0)
+- `mat_utils/game_shader.py::GameShaderSlots.header_init` → `tentacle.slots.tools.game_shader.GameShaderSlots` (from 0.23.0)
+- `mat_utils/game_shader.py::GameShaderSlots.lbl_graph_material` → `tentacle.slots.tools.game_shader.GameShaderSlots` (from 0.23.0)
+- `mat_utils/game_shader.py::GameShaderSlots.mat_name` → `tentacle.slots.tools.game_shader.GameShaderSlots` (from 0.23.0)
+- `mat_utils/game_shader.py::GameShaderSlots.mat_prefix` → `tentacle.slots.tools.game_shader.GameShaderSlots` (from 0.23.0)
+- `mat_utils/game_shader.py::GameShaderSlots.mat_suffix` → `tentacle.slots.tools.game_shader.GameShaderSlots` (from 0.23.0)
+- `mat_utils/game_shader.py::GameShaderSlots.normal_map_type` → `tentacle.slots.tools.game_shader.GameShaderSlots` (from 0.23.0)
+- `mat_utils/game_shader.py::GameShaderSlots.opacity_mode` → `tentacle.slots.tools.game_shader.GameShaderSlots` (from 0.23.0)
+- `mat_utils/game_shader.py::GameShaderSlots.output_extension` → `tentacle.slots.tools.game_shader.GameShaderSlots` (from 0.23.0)
+- `mat_utils/game_shader.py::GameShaderSlots.source_images_dir` → `tentacle.slots.tools.game_shader.GameShaderSlots` (from 0.23.0)
+- `mat_utils/game_shader.py::GameShaderSlots.txt000_init` → `tentacle.slots.tools.game_shader.GameShaderSlots` (from 0.23.0)
+- `mat_utils/game_shader.py::GameShaderSlots.txt002_init` → `tentacle.slots.tools.game_shader.GameShaderSlots` (from 0.23.0)
+- `mat_utils/game_shader.py::GameShaderSlots.workspace_dir` → `tentacle.slots.tools.game_shader.GameShaderSlots` (from 0.23.0)
 - `mat_utils/image_to_plane/image_to_plane_slots.py::ImageToPlaneSlots` → `tentacle.slots.tools.image_to_plane.ImageToPlaneSlots` (from 0.23.0)
 - `mat_utils/image_to_plane/image_to_plane_slots.py::ImageToPlaneSlots.header_init` → `tentacle.slots.tools.image_to_plane.ImageToPlaneSlots` (from 0.23.0)
 - `mat_utils/image_to_plane/image_to_plane_slots.py::ImageToPlaneSlots.txt_suffix_init` → `tentacle.slots.tools.image_to_plane.ImageToPlaneSlots` (from 0.23.0)
+- `mat_utils/mat_updater.py::MatUpdaterSlots` → `tentacle.slots.tools.mat_updater.MatUpdaterSlots` (from 0.23.0)
+- `mat_utils/mat_updater.py::MatUpdaterSlots.b001` → `tentacle.slots.tools.mat_updater.MatUpdaterSlots` (from 0.23.0)
+- `mat_utils/mat_updater.py::MatUpdaterSlots.cmb001_init` → `tentacle.slots.tools.mat_updater.MatUpdaterSlots` (from 0.23.0)
+- `mat_utils/mat_updater.py::MatUpdaterSlots.header_init` → `tentacle.slots.tools.mat_updater.MatUpdaterSlots` (from 0.23.0)
+- `mat_utils/mat_updater.py::MatUpdaterSlots.move_to_folder` → `tentacle.slots.tools.mat_updater.MatUpdaterSlots` (from 0.23.0)
+- `mat_utils/mat_updater.py::MatUpdaterSlots.selection_mode` → `tentacle.slots.tools.mat_updater.MatUpdaterSlots` (from 0.23.0)
 - `nurbs_utils/curve_to_tube.py::CurveToTubeSlots` → `tentacle.slots.tools.curve_to_tube.CurveToTubeSlots` (from 0.23.0)
 - `nurbs_utils/curve_to_tube.py::CurveToTubeSlots.b001_init` → `tentacle.slots.tools.curve_to_tube.CurveToTubeSlots` (from 0.23.0)
 - `nurbs_utils/curve_to_tube.py::CurveToTubeSlots.header_init` → `tentacle.slots.tools.curve_to_tube.CurveToTubeSlots` (from 0.23.0)
@@ -241,7 +263,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/shell_xform.py::ShellXformSlots.tb008` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
 - `uv_utils/shell_xform.py::ShellXformSlots.tb008_init` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
 
-## Added (77)
+## Added (83)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -284,6 +306,10 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `edit_utils/snap.py::Snap.snap_to_grid(objects=None, grid_size=1.0, axes='xyz')`
 - `edit_utils/snap.py::Snap.snap_to_surface(source_meshes, target_mesh, offset=None, threshold=None, invert=False)`
 - `edit_utils/snap.py::Snap.source_and_target()`
+- `mat_utils/_mat_utils.py::MatUpdater.materials_using_textures(paths, shader_type=None)`
+- `mat_utils/_mat_utils.py::MatUpdater.selected_materials(cls, shader_type=None)`
+- `mat_utils/_mat_utils.py::MatUpdater.shader_type_choices()`
+- `mat_utils/_mat_utils.py::MatUpdater.texture_root()`
 - `mat_utils/emissive_groups.py::BlenderEmissiveGroups(class)`
 - `mat_utils/emissive_groups.py::BlenderEmissiveGroups.add_members(self, store: str, face_map: FaceMap) -> None`
 - `mat_utils/emissive_groups.py::BlenderEmissiveGroups.carrier_weights(self, prefix: str) -> List[str]`
@@ -308,6 +334,8 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/emissive_groups.py::BlenderEmissiveGroups.uv_triangles(self, obj: str, indices: List[int], uv_set: Optional[str]) -> list`
 - `mat_utils/emissive_groups.py::BlenderEmissiveGroups.weight_exists(self, attr: str) -> bool`
 - `mat_utils/emissive_groups.py::BlenderEmissiveGroups.write_colors(self, obj: str, channels, color_set: str) -> None`
+- `mat_utils/game_shader.py::GameShader.assign_network(self, network, objects) -> bool`
+- `mat_utils/game_shader.py::GameShader.shader_type_choices()`
 - `mat_utils/render_opacity/render_effects.py::RenderEffects.ensure_highlight_props(cls, obj, color=None, dim_color=None)`
 - `mat_utils/render_opacity/render_effects.py::RenderEffects.ensure_opacity_prop(cls, obj, value=1.0)`
 - `mat_utils/render_opacity/render_effects.py::RenderEffects.set_key(obj, data_path, frame, value, interp, index=-1)`
@@ -361,7 +389,7 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/emissive_groups.py::EmissiveGroups.transfer_out`
 - `mat_utils/emissive_groups.py::EmissiveGroups.validate`
 
-## Signature changed (7)
+## Signature changed (8)
 
 - `display_utils/color_id.py::ColorId.apply_color`
   - was: `(cls, objects: Sequence, color: Optional[Color] = None, apply_to_material: bool = False, apply_to_object: bool = False, apply_to_vertex: bool = False, apply_to_outliner: bool = False, set_per_color: bool = False) -> None`
@@ -378,6 +406,9 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `edit_utils/bridge.py::Bridge.bridge`
   - was: `(objects=None, divisions=0, smoothing_angle=None, offset=0, merge=False)`
   - now: `(objects=None, divisions=0, smoothing_angle=None, offset=0, merge=False, *, curve_type=None, taper=None, twist=None, cleanup_curves=False)`
+- `mat_utils/_mat_utils.py::MatUpdater.update_materials`
+  - was: `(cls, materials=None, config=None, verbose=False, progress_callback=None)`
+  - now: `(cls, materials=None, config=None, verbose=False, progress_callback=None, shader_type=None)`
 - `rig_utils/wheel_rig.py::WheelRig.rig_rotation`
   - was: `(self, movement_axis: str = 'LOC_Z', rotation_index: int = None, wheel_height: float = 1.0, wheels: list = None, use_world_space: bool = False) -> list`
   - now: `(self, movement_axis: str = 'translateZ', rotation_axis=None, wheel_height: float = 1.0, wheels: list = None, use_world_space: bool = False) -> list`

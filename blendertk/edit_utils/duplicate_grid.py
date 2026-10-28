@@ -1,14 +1,12 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Grid array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_grid``.
+"""Grid array duplication — mirror of mayatk's ``edit_utils.duplicate_grid``.
 
 ``duplicate_grid`` lays copies out in a 3D grid via ``mathutils`` translation matrices (the
-source keeps the origin cell); ``DuplicateGridSlots`` is the Switchboard wiring for the
-co-located ``duplicate_grid.ui`` panel, discovered + served by ``BlenderUiHandler``
-(``marking_menu.show("duplicate_grid")``).
+source keeps the origin cell). The panel is tentacle's shared Duplicate Grid tool
+(``slots/tools/duplicate_grid.py``).
 
-``import bpy`` / ``mathutils`` (and the Qt-only ``uitk`` helpers) are deferred into the call
-bodies (no import side effects; headless Blender ships no Qt binding).
+``import bpy`` / ``mathutils`` are deferred into the call bodies (no import side effects).
 """
 
 import itertools
@@ -20,16 +18,16 @@ from blendertk.edit_utils._edit_utils import EditUtils
 
 
 # Maya prompts before huge grids; headless we also hard-cap (a 50³ drag would hang) — the
-# slots' BULK_THRESHOLD confirmation below sits well under this, so the cap is a last-resort
-# backstop for a build the user already confirmed (or a scripted call with no UI at all).
+# panel's BULK_THRESHOLD confirmation (tentacle's Duplicate Grid) sits well under this, so
+# the cap is a last-resort backstop for a build the user already confirmed (or a scripted
+# call with no UI at all).
 GRID_MAX_COPIES = 10000
 
 
 class DuplicateGrid:
     """Grid-array duplication engine — mirror of mayatk's ``DuplicateGrid``.
 
-    Reached as ``btk.DuplicateGrid.duplicate_grid`` (class-only; the co-located
-    ``DuplicateGridSlots`` panel is discovered by ``BlenderUiHandler``, so the module is not
+    Reached as ``btk.DuplicateGrid.duplicate_grid`` (class-only: the module is not
     wildcard-scanned onto the flat ``btk.*`` namespace)."""
 
     @staticmethod

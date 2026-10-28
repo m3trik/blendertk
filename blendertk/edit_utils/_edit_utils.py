@@ -46,8 +46,8 @@ _AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
 
 # ----------------------------------------------------------------------------
 # Object-array primitives — shared by the duplicate_linear / _radial / _grid tools
-# (each ships its own co-located panel, but they all build copies the same way, so
-# these stay here in the shared edit engine rather than duplicated per tool).
+# (each has its own panel, but they all build copies the same way, so these stay
+# here in the shared edit engine rather than duplicated per tool).
 # ----------------------------------------------------------------------------
 
 

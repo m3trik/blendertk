@@ -1121,9 +1121,8 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         timer runs the slots in, which surfaced as "many operations report *nothing selected* although an
         object is selected". See :func:`_active_view_layer`.
 
-        Shared by the co-located tool Slots (curtain / mirror / duplicate …) so they resolve the
-        selection without depending on tentacle's ``SlotsBlender`` base — keeping blendertk free of
-        any back-dependency on tentacle, exactly as mayatk's co-located slots stay tentacle-free.
+        What tentacle's shared tool Slots read through ``self.tk`` (curtain / mirror /
+        duplicate …), so blendertk answers the selection without any dependency on tentacle.
         """
         vl = _CoreUtilsInternal._active_view_layer()
         if vl is None:

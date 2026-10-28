@@ -13,20 +13,12 @@ Divergences (documented for parity — see ``tentacle/docs/PARITY_PORTING_PLAN.m
     cross-section (folding in Maya's per-locator ``circle``); ``bevel_resolution`` = profile
     smoothness. Maya's two-phase build (``__init__`` then ``create_pipe_geometry`` to loft segments)
     collapses to one step — the curve built in ``__init__`` *is* the whole pipe.
-  * Blender has **no ordered selection** (Maya's ``ls(orderedSelection=True)``); the Slots order the
-    selected handles by name so the chain is user-controllable (``handle_01``, ``handle_02``, …).
+  * Blender has **no ordered selection** (Maya's ``ls(orderedSelection=True)``);
+    :meth:`DynamicPipe.from_selection` orders the selected handles by name so the chain is
+    user-controllable (``handle_01``, ``handle_02``, ...).
   * ``import bpy`` is deferred into the call bodies.
 
-The co-located ``DynamicPipeSlots`` panel is discovered by ``BlenderUiHandler``
-(``marking_menu.show("dynamic_pipe")``); like mayatk's, it is shelf/handler-launched and is **not**
-wired to a tentacle nav button — Maya does not expose ``dynamic_pipe`` through tentacle either
-(see ``tentacle/docs/archive/BLENDER_FEATURE_GAPS.md``), so adding one would be a divergence, not parity.
-
-The ``.ui`` is now byte-for-byte mayatk's (see the mayatk/blendertk parity sweep); mayatk's copy
-carries a stale ``windowTitle``/header ("Create Shader Network" / "CREATE STINGRAY SHADER" — a
-leftover from ``mat_utils/game_shader.ui``, not a `dynamic_pipe`-authored string). That looks like an
-upstream mayatk bug rather than an intentional label; ported verbatim per the parity mandate since
-mayatk is read-only source of truth for this pass — flag for a mayatk-side fix in a follow-up.
+The panel is tentacle's shared Dynamic Pipe tool (``slots/tools/dynamic_pipe.py``).
 """
 
 import pythontk as ptk

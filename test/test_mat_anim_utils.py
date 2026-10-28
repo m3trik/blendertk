@@ -888,6 +888,48 @@ try:
         and btk.materials_for_textures([]) == [],
     )
 
+    # MatUpdater's scope + choices: what the shared tentacle panel calls (mayatk's names).
+    from blendertk.mat_utils._mat_utils import MatUpdater as _MU
+
+    hit = _MU.materials_using_textures([os.path.join(mu_tmp, "MUBrowse_Diffuse.png")])
+    check(
+        "MatUpdater.materials_using_textures: the panel's Browse scope",
+        [m.name for m in hit] == ["MU_Browse"],
+        f"{[m.name for m in hit]}",
+    )
+    mu_obj = bpy.data.objects.new("MU_SelObj", bpy.data.meshes.new("MU_SelMesh"))
+    bpy.context.scene.collection.objects.link(mu_obj)
+    mu_obj.data.materials.append(mat_b)
+    bpy.ops.object.select_all(action="DESELECT")
+    check("MatUpdater.selected_materials: nothing selected -> []", _MU.selected_materials() == [])
+    mu_obj.select_set(True)
+    picked = _MU.selected_materials(shader_type=None)
+    check(
+        "MatUpdater.selected_materials: the selected object's materials",
+        picked == [mat_b],
+        f"{[m.name for m in picked]}",
+    )
+    bpy.ops.object.select_all(action="DESELECT")
+    check(
+        "MatUpdater: nothing to retype to, no source-file transfer",
+        _MU.shader_type_choices() == [] and _MU.TRANSFER_MODES == (),
+    )
+    check(
+        "MatUpdater.texture_root is the workspace",
+        _MU.texture_root() == (btk.get_env_info("workspace") or ""),
+        _MU.texture_root(),
+    )
+    refused = ""
+    try:
+        _MU.update_materials(materials=[bare], shader_type="stingray")
+    except ValueError as exc:
+        refused = str(exc)
+    check("update_materials refuses a shader_type", "Principled" in refused, refused)
+    check(
+        "update_materials(shader_type=None) runs (mayatk's signature)",
+        _MU.update_materials(materials=[bare], shader_type=None) == {},
+    )
+
     # Dry run reports a plan and does NOT touch the image path (no PIL / no install needed).
     mat_dry, img_dry = mat_with_texture(
         "MU_Dry", os.path.join(mu_tmp, "MUDry_Diffuse.png")

@@ -42,8 +42,8 @@ process every time). No exceptions for speed.
 As in mayatk ([mayatk/CLAUDE.md](../mayatk/CLAUDE.md) owns the rule): every panel moves to tentacle
 with its tool, and blendertk keeps the host operations, no UI. Until a panel moves, it keeps mayatk's
 contract: `<tool>.ui` + `<Tool>Slots`
-next to the engine, in the module dir of the domain they act on (curtain / mirror / cut_on_axis /
-duplicate_* → `edit_utils/`; hdr_manager → `light_utils/`; reference_manager → `env_utils/`);
+next to the engine, in the module dir of the domain they act on (e.g. reference_manager →
+`env_utils/`);
 `<Tool>Slots` is tentacle-independent (base `ptk.LoggingMixin`, `__init__(self, switchboard,
 log_level="WARNING")` sets `self.sb`, selection via `btk.selected_objects`, engine called directly);
 only the **navigation** menus (`blender#startmenu.ui`) and their slots live in tentacle, exposing a

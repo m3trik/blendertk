@@ -65,15 +65,15 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`display_utils/exploded_view.py`](#display_utils--exploded_view) — Exploded View: spread meshes apart from their shared center, and back.
 - [`display_utils/outliner_tint.py`](#display_utils--outliner_tint) — Per-object **outliner text colour** for Blender — the true analogue of Maya's
 - [`edit_utils/_edit_utils.py`](#edit_utils--_edit_utils) — Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
-- [`edit_utils/bevel.py`](#edit_utils--bevel) — Bevel tool — engine + Switchboard slot wiring for the co-located ``bevel.ui``.
+- [`edit_utils/bevel.py`](#edit_utils--bevel) — Bevel tool engine.
 - [`edit_utils/bridge.py`](#edit_utils--bridge) — Bridge: connect two open edge loops with new faces — mirror of mayatk's
 - [`edit_utils/components.py`](#edit_utils--components) — Component-level mesh operations — mirror of mayatk's ``core_utils.components``.
 - [`edit_utils/curtain/_curtain.py`](#edit_utils--curtain--_curtain) — Procedural draped-cloth (curtain) generator for Blender -- mirror of mayatk's
 - [`edit_utils/curtain/_curtain_drape.py`](#edit_utils--curtain--_curtain_drape) — Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.
 - [`edit_utils/curtain/curtain_slots.py`](#edit_utils--curtain--curtain_slots) — Curtain panel — the Switchboard slots for ``curtain.ui`` (Blender).
 - [`edit_utils/cut_on_axis.py`](#edit_utils--cut_on_axis) — Cut On Axis: slice meshes along an axis -- mirror of mayatk's
-- [`edit_utils/duplicate_grid.py`](#edit_utils--duplicate_grid) — Grid array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_grid``.
-- [`edit_utils/duplicate_linear.py`](#edit_utils--duplicate_linear) — Linear array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_linear``.
+- [`edit_utils/duplicate_grid.py`](#edit_utils--duplicate_grid) — Grid array duplication — mirror of mayatk's ``edit_utils.duplicate_grid``.
+- [`edit_utils/duplicate_linear.py`](#edit_utils--duplicate_linear) — Linear array duplication — mirror of mayatk's ``edit_utils.duplicate_linear``.
 - [`edit_utils/duplicate_radial.py`](#edit_utils--duplicate_radial) — Radial array duplication — mirror of mayatk's ``edit_utils.duplicate_radial``.
 - [`edit_utils/dynamic_pipe.py`](#edit_utils--dynamic_pipe) — Dynamic Pipe tool — Blender port of mayatk's ``edit_utils.dynamic_pipe``.
 - [`edit_utils/macros/_macros.py`](#edit_utils--macros--_macros) — Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
@@ -149,7 +149,6 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`mat_utils/marmoset_bridge/templates/lookdev.py`](#mat_utils--marmoset_bridge--templates--lookdev) — Open the model in Toolbag, apply a Sky preset, and frame the model.
 - [`mat_utils/marmoset_bridge/toolbag_log.py`](#mat_utils--marmoset_bridge--toolbag_log) — Marmoset Toolbag log-file resolution, classification, and live tailing.
 - [`mat_utils/mat_manifest.py`](#mat_utils--mat_manifest) — Material-to-texture manifest for bridge workflows -- mirror of mayatk's ``mat_utils.mat_manifest``.
-- [`mat_utils/mat_updater.py`](#mat_utils--mat_updater) — Material Updater tool panel — Switchboard slot wiring for the co-located ``mat_updater.ui``.
 - [`mat_utils/render_opacity/render_effects.py`](#mat_utils--render_opacity--render_effects) — Render Effects — Blender per-object render-effect channels for engine-ready control (mirror of
 - [`mat_utils/render_opacity/render_effects_slots.py`](#mat_utils--render_opacity--render_effects_slots) — Switchboard slots for the Render Effects panel (``render_effects.ui``).
 - [`mat_utils/shader_templates.py`](#mat_utils--shader_templates) — Shader Templates tool panel — Switchboard slot wiring for the co-located
@@ -1275,9 +1274,9 @@ Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tri
 <a id="edit_utils--bevel"></a>
 ### `edit_utils/bevel.py`
 
-Bevel tool — engine + Switchboard slot wiring for the co-located ``bevel.ui``.
+Bevel tool engine.
 
-- **[`class Bevel`](blendertk/blendertk/edit_utils/bevel.py#L24)** — Native ``bmesh.ops.bevel`` engine (mirror of mayatk's ``Bevel``).
+- **[`class Bevel`](blendertk/blendertk/edit_utils/bevel.py#L21)** — Native ``bmesh.ops.bevel`` engine (mirror of mayatk's ``Bevel``).
   - `Bevel.bevel(objects=None, width=0.1, segments=1, profile=0.5, clamp_overlap=True, affect='EDGES', offset_type='OFFSET')` *(static)* — Bevel the selected edges (or vertices) of the given mesh objects.
 
 <a id="edit_utils--bridge"></a>
@@ -1349,18 +1348,18 @@ Cut On Axis: slice meshes along an axis -- mirror of mayatk's
 <a id="edit_utils--duplicate_grid"></a>
 ### `edit_utils/duplicate_grid.py`
 
-Grid array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_grid``.
+Grid array duplication — mirror of mayatk's ``edit_utils.duplicate_grid``.
 
-- [`GRID_MAX_COPIES`](blendertk/blendertk/edit_utils/duplicate_grid.py#L25) — constant
-- **[`class DuplicateGrid`](blendertk/blendertk/edit_utils/duplicate_grid.py#L28)** — Grid-array duplication engine — mirror of mayatk's ``DuplicateGrid``.
+- [`GRID_MAX_COPIES`](blendertk/blendertk/edit_utils/duplicate_grid.py#L24) — constant
+- **[`class DuplicateGrid`](blendertk/blendertk/edit_utils/duplicate_grid.py#L27)** — Grid-array duplication engine — mirror of mayatk's ``DuplicateGrid``.
   - `DuplicateGrid.duplicate_grid(objects, dimensions=(2, 2, 1), spacing=0.0, mode='instance')` *(static)* — Duplicate object(s) into a 3D grid — mirror of mayatk's ``DuplicateGrid.duplicate_grid``.
 
 <a id="edit_utils--duplicate_linear"></a>
 ### `edit_utils/duplicate_linear.py`
 
-Linear array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_linear``.
+Linear array duplication — mirror of mayatk's ``edit_utils.duplicate_linear``.
 
-- **[`class DuplicateLinear`](blendertk/blendertk/edit_utils/duplicate_linear.py#L23)** — Linear-array duplication engine — mirror of mayatk's ``DuplicateLinear``.
+- **[`class DuplicateLinear`](blendertk/blendertk/edit_utils/duplicate_linear.py#L21)** — Linear-array duplication engine — mirror of mayatk's ``DuplicateLinear``.
   - `DuplicateLinear.duplicate_linear(objects, num_copies, translate=(0, 0, 0), rotate=(0, 0, 0), scale=(1, 1, 1), weight_bias=0.5, weight_curve=4, pivot='object', calculation_mode='weighted', instance=True)` *(static)* — Duplicate object(s) along a linear path — mirror of mayatk's
 
 <a id="edit_utils--duplicate_radial"></a>
@@ -1377,7 +1376,7 @@ Radial array duplication — mirror of mayatk's ``edit_utils.duplicate_radial``.
 
 Dynamic Pipe tool — Blender port of mayatk's ``edit_utils.dynamic_pipe``.
 
-- **[`class DynamicPipe(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/dynamic_pipe.py#L37)** — Build a pipe-style mesh driven by a chain of handle objects (Empties/locators) — Blender
+- **[`class DynamicPipe(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/dynamic_pipe.py#L29)** — Build a pipe-style mesh driven by a chain of handle objects (Empties/locators) — Blender
   - `DynamicPipe.from_selection(cls, **kwargs) -> 'DynamicPipe'` *(class)* — A pipe through the selected handle objects (Empties), chained in
 
 <a id="edit_utils--macros--_macros"></a>
@@ -1546,7 +1545,7 @@ Target Weld — interactive drag-a-vertex-onto-another merge tool.
 - [`PICK_RADIUS`](blendertk/blendertk/edit_utils/target_weld.py#L58) — constant
 - [`MARKER_SIZE`](blendertk/blendertk/edit_utils/target_weld.py#L59) — constant
 - [`HALO_SIZE`](blendertk/blendertk/edit_utils/target_weld.py#L60) — constant
-- **[`class TargetWeld(_TargetWeldInternal)`](blendertk/blendertk/edit_utils/target_weld.py#L527)** — Namespace class (mirror of the co-located-tool convention;
+- **[`class TargetWeld(_TargetWeldInternal)`](blendertk/blendertk/edit_utils/target_weld.py#L527)** — Namespace class (a tool's API is a class;
   - `TargetWeld.activate(merge_to_center: bool = False) -> bool` *(static)* — Public entry point — start the interactive Target Weld tool (see :meth:`target_weld`).
   - `TargetWeld.project_points(mvp: np.ndarray, coords: np.ndarray, width: float, height: float) -> Tuple[np.ndarray, np.ndarray]` *(static)* — Project ``coords`` (N,3) through the 4x4 ``mvp`` into pixel space.
   - `TargetWeld.pick_screen_point(mouse_xy: Sequence[float], points_xy: np.ndarray, depths: np.ndarray, radius: float = PICK_RADIUS, exclude: Optional[int] = None) -> Optional[int]` *(static)* — Index of the best pick candidate within ``radius`` px of ``mouse_xy``, or ``None``.
@@ -2439,8 +2438,12 @@ Material utilities — mirror of mayatk's ``MatUtils`` public names where the co
 
 - [`SHADER_TEMPLATES`](blendertk/blendertk/mat_utils/_mat_utils.py#L1258) — constant
 - **[`class MatUpdater(pythontk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1370)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
-  - `MatUpdater.update_materials(cls, materials=None, config=None, verbose=False, progress_callback=None)` *(class)* — Reprocess the textures of ``materials`` and repath their image nodes to the results.
-- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1645)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
+  - `MatUpdater.shader_type_choices()` *(static)* — No retype targets: Blender has one surface shader (Principled BSDF), so there is
+  - `MatUpdater.texture_root()` *(static)* — Where a run resolves a relative Output Folder and discovers sibling maps
+  - `MatUpdater.selected_materials(cls, shader_type=None)` *(class)* — The materials a run over the selection acts on: those on the selected objects
+  - `MatUpdater.materials_using_textures(paths, shader_type=None)` *(static)* — The scene materials whose shader graph reads an image at one of *paths* (the
+  - `MatUpdater.update_materials(cls, materials=None, config=None, verbose=False, progress_callback=None, shader_type=None)` *(class)* — Reprocess the textures of ``materials`` and repath their image nodes to the results.
+- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1716)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
   - `MatUtils.get_node_tree(idblock, create: bool = False)` *(static)* — The node tree *idblock* renders through, or ``None``.
   - `MatUtils.get_mats(objects)` *(static)* — Unique materials assigned to the given object(s), in slot order.
   - `MatUtils.create_mat(mat_type='standard', name='')` *(static)* — Create a new material (mirror of ``mtk.MatUtils.create_mat``).
@@ -2566,24 +2569,10 @@ Emissive Groups' Blender half: one boolean FACE attribute per group on its
 
 Game Shader — auto-build a Principled-BSDF material from a set of PBR textures.
 
-- **[`class GameShader(pythontk.LoggingMixin, _GameShaderInternal)`](blendertk/blendertk/mat_utils/game_shader.py#L120)** — Build Principled-BSDF texture networks from PBR map sets (Blender mirror of mayatk's ``GameShader``…
+- **[`class GameShader(pythontk.LoggingMixin, _GameShaderInternal)`](blendertk/blendertk/mat_utils/game_shader.py#L118)** — Build Principled-BSDF texture networks from PBR map sets (Blender mirror of mayatk's ``GameShader``…
+  - `GameShader.shader_type_choices()` *(static)* — None: Blender has one surface shader, the Principled BSDF (already the OpenPBR
   - `GameShader.create_network(self, textures: List[str], name: str = '', prefix: str = '', suffix: str = '', config: Union[str, Dict[str, Any]] = None, progress_callback: Callable = None, **kwargs) -> Union[Optional[object], List[Optional[object]]]` — Create a PBR shader network with textures.
-- **[`class GameShaderSlots(GameShader)`](blendertk/blendertk/mat_utils/game_shader.py#L446)** — Switchboard slot wiring for the Game Shader panel.
-  - `GameShaderSlots.workspace_dir(self) -> str` *(property)*
-  - `GameShaderSlots.source_images_dir(self) -> str` *(property)*
-  - `GameShaderSlots.header_init(self, widget)` — Initialize the header widget.
-  - `GameShaderSlots.lbl_graph_material(self)` — Graph the most recently created material in the Shader Editor.
-  - `GameShaderSlots.mat_name(self) -> str` *(property)* — Get the material name from the user input text field.
-  - `GameShaderSlots.mat_prefix(self) -> str` *(property)* — Return the affix text when it resolves as a prefix, else empty string.
-  - `GameShaderSlots.mat_suffix(self) -> str` *(property)* — Return the affix text when it resolves as a suffix, else empty string.
-  - `GameShaderSlots.normal_map_type(self) -> str` *(property)* — Get the normal map direction from the comboBox's current text.
-  - `GameShaderSlots.output_extension(self) -> str` *(property)* — Selected output extension, or '' when 'Profile default' is chosen.
-  - `GameShaderSlots.cmb002_init(self, widget)` — Initialize Presets
-  - `GameShaderSlots.opacity_mode(self) -> Optional[str]` *(property)* — The opacity graph the panel asks for.
-  - `GameShaderSlots.cmb003_init(self, widget)` — Initialize Output Format.
-  - `GameShaderSlots.txt000_init(self, widget)` — Material-name field — clearable back to the auto-derived name.
-  - `GameShaderSlots.txt002_init(self, widget)` — Add a prefix/suffix/auto-mode picker to the affix field.
-  - `GameShaderSlots.b000(self)` — Create Network — pick PBR texture files and build Principled material(s) from them.
+  - `GameShader.assign_network(self, network, objects) -> bool` — Assign the one material a :meth:`create_network` call built to *objects*.
 
 <a id="mat_utils--image_to_plane--_image_to_plane"></a>
 ### `mat_utils/image_to_plane/_image_to_plane.py`
@@ -2854,18 +2843,6 @@ Material-to-texture manifest for bridge workflows -- mirror of mayatk's ``mat_ut
 - **[`class MatManifest(pythontk.HelpMixin)`](blendertk/blendertk/mat_utils/mat_manifest.py#L47)** — Builds and restores a material-to-texture manifest for bridge workflows.
   - `MatManifest.build(cls, objects: List) -> Dict[str, Any]` *(class)* — Build a manifest from the materials assigned to *objects*.
   - `MatManifest.restore(cls, mat_name: str, manifest: Dict[str, Any], source_mat_name: Optional[str] = None) -> int` *(class)* — Reconnect image textures to the material named *mat_name* from a manifest.
-
-<a id="mat_utils--mat_updater"></a>
-### `mat_utils/mat_updater.py`
-
-Material Updater tool panel — Switchboard slot wiring for the co-located ``mat_updater.ui``.
-
-- **[`class MatUpdaterSlots(MatUpdater)`](blendertk/blendertk/mat_utils/mat_updater.py#L34)** — Switchboard slot wiring for the Material Updater panel.
-  - `MatUpdaterSlots.header_init(self, widget)` — Format global options in the header menu (mirror of the Maya panel's, minus the
-  - `MatUpdaterSlots.selection_mode(self)` *(property)*
-  - `MatUpdaterSlots.move_to_folder(self)` *(property)*
-  - `MatUpdaterSlots.cmb001_init(self, widget)` — Initialize Presets (mirror of mayatk's ``cmb001_init``).
-  - `MatUpdaterSlots.b001(self)` — Update Materials
 
 <a id="mat_utils--render_opacity--render_effects"></a>
 ### `mat_utils/render_opacity/render_effects.py`

@@ -253,8 +253,8 @@ DEFAULT_INCLUDE = {
     # is tentacle's). Mirror of mayatk's ``mat_utils.emissive_groups``.
     "mat_utils.emissive_groups": ["EmissiveGroups", "BlenderEmissiveGroups"],
     # Game Shader — the workflow-profile / map-pipeline / reporting layer around
-    # ``MatUtils.create_pbr_material`` (``GameShaderSlots`` panel discovered by the handler, not
-    # registered). Mirror of mayatk's ``mat_utils.game_shader`` (``btk.GameShader`` ↔
+    # ``MatUtils.create_pbr_material`` (its panel is tentacle's shared Game Shader tool).
+    # Mirror of mayatk's ``mat_utils.game_shader`` (``btk.GameShader`` ↔
     # ``mtk.GameShader``, both exposing ``create_network``).
     "mat_utils.game_shader": ["GameShader"],
     # Marmoset Bridge — mirror of mayatk's ``mat_utils.marmoset_bridge._marmoset_bridge``
@@ -610,6 +610,14 @@ MOVED_NAMES = {
     ),
     "SmartBakeSlots": (
         "tentacle.slots.tools.smart_bake.SmartBakeSlots",
+        "0.23.0",
+    ),
+    "GameShaderSlots": (
+        "tentacle.slots.tools.game_shader.GameShaderSlots",
+        "0.23.0",
+    ),
+    "MatUpdaterSlots": (
+        "tentacle.slots.tools.mat_updater.MatUpdaterSlots",
         "0.23.0",
     ),
 }

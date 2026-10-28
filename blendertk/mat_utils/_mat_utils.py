@@ -1384,9 +1384,73 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
     land on disk (via the Output Folder) for downstream game-engine export.
     """
 
+    #: The source-file transfers a run applies once an Output Folder is set: none. The shared
+    #: factory writes processed maps straight to the Output Folder and the materials are
+    #: repathed to them, so there is no copy / move of the sources to choose (mayatk's
+    #: ``("copy", "move")``; the shared panel disables its Transfer Mode here).
+    TRANSFER_MODES = ()
+
+    @staticmethod
+    def shader_type_choices():
+        """No retype targets: Blender has one surface shader (Principled BSDF), so there is
+        nothing to retype a material to and :meth:`update_materials` refuses a
+        ``shader_type``. Mirror of mayatk's (its converter's targets)."""
+        return []
+
+    @staticmethod
+    def texture_root():
+        """Where a run resolves a relative Output Folder and discovers sibling maps
+        (``discover_sourceimages``): the current workspace (session pin -> the marked root
+        holding the .blend -> the .blend's own folder), Blender's nearest analogue of Maya's
+        project sourceimages. Mirror of mayatk's.
+
+        Returns:
+            str: the folder; '' when there is none, or no bpy (a headless import: the
+            shared panel reads it as it loads).
+        """
+        try:
+            from blendertk.core_utils._core_utils import CoreUtils
+
+            return CoreUtils.get_env_info("workspace") or ""
+        except ImportError:
+            return ""
+
+    @classmethod
+    def selected_materials(cls, shader_type=None):
+        """The materials a run over the selection acts on: those on the selected objects
+        (the Material Updater panel's *Selected Objects* scope). Mirror of mayatk's;
+        ``shader_type`` is its signature and filters nothing here (every material is one the
+        run can repath).
+
+        Returns:
+            list: the materials, or ``[]`` with a warning naming the fix.
+        """
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        selection = CoreUtils.selected_objects()
+        if not selection:
+            cls.logger.warning("Nothing selected.")
+            return []
+        materials = MatUtils.get_mats(selection)
+        if not materials:
+            cls.logger.warning("No materials found on the selected objects.")
+        return materials
+
+    @staticmethod
+    def materials_using_textures(paths, shader_type=None):
+        """The scene materials whose shader graph reads an image at one of *paths* (the
+        Material Updater panel's *Browse...* scope): :meth:`MatUtils.materials_for_textures`.
+        Mirror of mayatk's; ``shader_type`` is its signature and filters nothing here."""
+        return MatUtils.materials_for_textures(paths)
+
     @classmethod
     def update_materials(
-        cls, materials=None, config=None, verbose=False, progress_callback=None
+        cls,
+        materials=None,
+        config=None,
+        verbose=False,
+        progress_callback=None,
+        shader_type=None,
     ):
         """Reprocess the textures of ``materials`` and repath their image nodes to the results.
 
@@ -1399,10 +1463,17 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
                 explicit ``discover_dir`` is already given.
             verbose: INFO-level logging (else WARNING).
             progress_callback: ``cb(current, total, message)`` invoked per material in the loop.
+            shader_type: mayatk's retype target, taken for its signature (the shared panel
+                passes it) and refused when set: Blender has one surface shader.
 
         Returns:
             dict: ``{material_name: {"updated": int, "skipped": int, "files": [str, ...]}}``.
         """
+        if shader_type:
+            raise ValueError(
+                f"shader_type={shader_type!r}: Blender has one surface shader (Principled "
+                "BSDF), so there is nothing to retype a material to."
+            )
         import bpy
 
         from blendertk.core_utils._core_utils import CoreUtils
@@ -1425,7 +1496,7 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
         # absent, not become the workspace itself.
         if move_to:
             resolved = ptk.FileUtils.resolve_output_dir(
-                move_to, CoreUtils.get_env_info("workspace")
+                move_to, cls.texture_root()
             )
             if resolved:
                 move_to = resolved
@@ -1436,7 +1507,7 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
         # ``sourceimages`` project-folder convention, so the nearest analogue is the .blend's own
         # directory (the same "workspace" concept already used above for move_to_folder).
         if cfg.pop("discover_sourceimages", False) and not cfg.get("discover_dir"):
-            workspace = CoreUtils.get_env_info("workspace")
+            workspace = cls.texture_root()
             if workspace:
                 cfg["discover_dir"] = workspace
             else:

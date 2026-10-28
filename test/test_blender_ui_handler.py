@@ -58,7 +58,6 @@ PANELS = [
     "workspace_editor",
     "texture_path_editor",
     "shader_templates",
-    "mat_updater",
     "rizom_bridge",
     "texture_combine",
     "maya_bridge",
@@ -66,7 +65,6 @@ PANELS = [
     "marmoset_bridge",
     "substance_bridge",
     "arnold_bridge",
-    "game_shader",
     "hierarchy_sync",
     "scene_exporter",
     "channels",
@@ -273,10 +271,6 @@ try:
             "shader_templates",
             "ShaderTemplatesSlots",
         ),  # bpy-free init -> loadable under .venv
-        (
-            "mat_updater",
-            "MatUpdaterSlots",
-        ),  # engine defers bpy; cmb001_init is bpy-free
         ("rizom_bridge", "RizomBridgeSlots"),  # engine/slots init is bpy-free
         (
             "workspace_editor",
@@ -295,10 +289,6 @@ try:
             "substance_bridge",
             "SubstanceBridgeSlots",
         ),  # BridgeSlotsBase init is bpy-free (engine defers bpy)
-        (
-            "game_shader",
-            "GameShaderSlots",
-        ),  # cmb001_init bpy-free (static OpenGL/DirectX list)
         (
             "channels",
             "ChannelsSlots",

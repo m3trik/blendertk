@@ -5002,7 +5002,7 @@
               "kind": "staticmethod",
               "signature": "(objects, mode: str = 'replace') -> list",
               "summary": "Set the object selection (Blender's counterpart of ``cmds.select``).",
-              "line": 1134,
+              "line": 1133,
               "deprecated": false
             },
             {
@@ -5011,7 +5011,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The active object, resolved window-independently (``view_layer.objects.active``).",
-              "line": 1175,
+              "line": 1174,
               "deprecated": false
             },
             {
@@ -5020,7 +5020,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Restore the viewport selection after a scene-mutating block — mirror of",
-              "line": 1188,
+              "line": 1187,
               "deprecated": false
             },
             {
@@ -5029,7 +5029,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, method='name', reverse=False)",
               "summary": "Reorder a set of objects by a sorting method — mirror of ``mtk.reorder_objects``",
-              "line": 1239,
+              "line": 1238,
               "deprecated": false
             },
             {
@@ -5038,7 +5038,7 @@
               "kind": "staticmethod",
               "signature": "(area_type=None)",
               "summary": "All areas of ``area_type`` (``\"VIEW_3D\"``, ``\"IMAGE_EDITOR\"``, …) across every open",
-              "line": 1314,
+              "line": 1313,
               "deprecated": false
             },
             {
@@ -5047,7 +5047,7 @@
               "kind": "classmethod",
               "signature": "(cls, area_type=None) -> int",
               "summary": "Queue a redraw of every area of ``area_type`` (all areas when None);",
-              "line": 1337,
+              "line": 1336,
               "deprecated": false
             },
             {
@@ -5056,7 +5056,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Context-override dict targeting the first VIEW_3D area/region, or ``None`` if there is no",
-              "line": 1356,
+              "line": 1355,
               "deprecated": false
             },
             {
@@ -5065,7 +5065,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Yield with a valid ``window`` in context when ``bpy.context.window`` is ``None``.",
-              "line": 1386,
+              "line": 1385,
               "deprecated": false
             },
             {
@@ -5074,7 +5074,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Yield with *objects* -- and only them -- in Edit Mode;",
-              "line": 1423,
+              "line": 1422,
               "deprecated": false
             }
           ]
@@ -6730,13 +6730,13 @@
     },
     {
       "relpath": "edit_utils/bevel.py",
-      "summary": "Bevel tool — engine + Switchboard slot wiring for the co-located ``bevel.ui``.",
+      "summary": "Bevel tool engine.",
       "functions": [],
       "classes": [
         {
           "name": "Bevel",
           "summary": "Native ``bmesh.ops.bevel`` engine (mirror of mayatk's ``Bevel``).",
-          "line": 24,
+          "line": 21,
           "bases": [],
           "members": [
             {
@@ -6745,7 +6745,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, width=0.1, segments=1, profile=0.5, clamp_overlap=True, affect='EDGES', offset_type='OFFSET')",
               "summary": "Bevel the selected edges (or vertices) of the given mesh objects.",
-              "line": 28,
+              "line": 25,
               "deprecated": false
             }
           ]
@@ -7075,13 +7075,13 @@
     },
     {
       "relpath": "edit_utils/duplicate_grid.py",
-      "summary": "Grid array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_grid``.",
+      "summary": "Grid array duplication — mirror of mayatk's ``edit_utils.duplicate_grid``.",
       "functions": [],
       "classes": [
         {
           "name": "DuplicateGrid",
           "summary": "Grid-array duplication engine — mirror of mayatk's ``DuplicateGrid``.",
-          "line": 28,
+          "line": 27,
           "bases": [],
           "members": [
             {
@@ -7090,7 +7090,7 @@
               "kind": "staticmethod",
               "signature": "(objects, dimensions=(2, 2, 1), spacing=0.0, mode='instance')",
               "summary": "Duplicate object(s) into a 3D grid — mirror of mayatk's ``DuplicateGrid.duplicate_grid``.",
-              "line": 48,
+              "line": 46,
               "deprecated": false
             }
           ]
@@ -7103,20 +7103,20 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 25,
+          "line": 24,
           "deprecated": false
         }
       ]
     },
     {
       "relpath": "edit_utils/duplicate_linear.py",
-      "summary": "Linear array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_linear``.",
+      "summary": "Linear array duplication — mirror of mayatk's ``edit_utils.duplicate_linear``.",
       "functions": [],
       "classes": [
         {
           "name": "DuplicateLinear",
           "summary": "Linear-array duplication engine — mirror of mayatk's ``DuplicateLinear``.",
-          "line": 23,
+          "line": 21,
           "bases": [],
           "members": [
             {
@@ -7125,7 +7125,7 @@
               "kind": "staticmethod",
               "signature": "(objects, num_copies, translate=(0, 0, 0), rotate=(0, 0, 0), scale=(1, 1, 1), weight_bias=0.5, weight_curve=4, pivot='object', calculation_mode='weighted', instance=True)",
               "summary": "Duplicate object(s) along a linear path — mirror of mayatk's",
-              "line": 32,
+              "line": 29,
               "deprecated": false
             }
           ]
@@ -7177,7 +7177,7 @@
         {
           "name": "DynamicPipe",
           "summary": "Build a pipe-style mesh driven by a chain of handle objects (Empties/locators) — Blender",
-          "line": 37,
+          "line": 29,
           "bases": [
             "pythontk.LoggingMixin"
           ],
@@ -7188,7 +7188,7 @@
               "kind": "classmethod",
               "signature": "(cls, **kwargs) -> 'DynamicPipe'",
               "summary": "A pipe through the selected handle objects (Empties), chained in",
-              "line": 68,
+              "line": 60,
               "deprecated": false
             }
           ]
@@ -8348,7 +8348,7 @@
       "classes": [
         {
           "name": "TargetWeld",
-          "summary": "Namespace class (mirror of the co-located-tool convention;",
+          "summary": "Namespace class (a tool's API is a class;",
           "line": 527,
           "bases": [
             "_TargetWeldInternal"
@@ -14485,12 +14485,48 @@
           ],
           "members": [
             {
+              "name": "shader_type_choices",
+              "qualname": "MatUpdater.shader_type_choices",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "No retype targets: Blender has one surface shader (Principled BSDF), so there is",
+              "line": 1394,
+              "deprecated": false
+            },
+            {
+              "name": "texture_root",
+              "qualname": "MatUpdater.texture_root",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "Where a run resolves a relative Output Folder and discovers sibling maps",
+              "line": 1401,
+              "deprecated": false
+            },
+            {
+              "name": "selected_materials",
+              "qualname": "MatUpdater.selected_materials",
+              "kind": "classmethod",
+              "signature": "(cls, shader_type=None)",
+              "summary": "The materials a run over the selection acts on: those on the selected objects",
+              "line": 1419,
+              "deprecated": false
+            },
+            {
+              "name": "materials_using_textures",
+              "qualname": "MatUpdater.materials_using_textures",
+              "kind": "staticmethod",
+              "signature": "(paths, shader_type=None)",
+              "summary": "The scene materials whose shader graph reads an image at one of *paths* (the",
+              "line": 1440,
+              "deprecated": false
+            },
+            {
               "name": "update_materials",
               "qualname": "MatUpdater.update_materials",
               "kind": "classmethod",
-              "signature": "(cls, materials=None, config=None, verbose=False, progress_callback=None)",
+              "signature": "(cls, materials=None, config=None, verbose=False, progress_callback=None, shader_type=None)",
               "summary": "Reprocess the textures of ``materials`` and repath their image nodes to the results.",
-              "line": 1388,
+              "line": 1447,
               "deprecated": false
             }
           ]
@@ -14498,7 +14534,7 @@
         {
           "name": "MatUtils",
           "summary": "Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).",
-          "line": 1645,
+          "line": 1716,
           "bases": [
             "_MatUtilsInternal"
           ],
@@ -14509,7 +14545,7 @@
               "kind": "staticmethod",
               "signature": "(idblock, create: bool = False)",
               "summary": "The node tree *idblock* renders through, or ``None``.",
-              "line": 1649,
+              "line": 1720,
               "deprecated": false
             },
             {
@@ -14518,7 +14554,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Unique materials assigned to the given object(s), in slot order.",
-              "line": 1682,
+              "line": 1753,
               "deprecated": false
             },
             {
@@ -14527,7 +14563,7 @@
               "kind": "staticmethod",
               "signature": "(mat_type='standard', name='')",
               "summary": "Create a new material (mirror of ``mtk.MatUtils.create_mat``).",
-              "line": 1692,
+              "line": 1763,
               "deprecated": false
             },
             {
@@ -14536,7 +14572,7 @@
               "kind": "staticmethod",
               "signature": "(objects, material)",
               "summary": "Assign ``material`` to the given object(s) — whole-object assignment (all slots).",
-              "line": 1714,
+              "line": 1785,
               "deprecated": false
             },
             {
@@ -14545,7 +14581,7 @@
               "kind": "staticmethod",
               "signature": "(material, objects=None)",
               "summary": "Objects using ``material`` (mirror of ``mtk.find_by_mat_id`` at the object level).",
-              "line": 1728,
+              "line": 1799,
               "deprecated": false
             },
             {
@@ -14554,7 +14590,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Objects carrying no material — the complement of :meth:`find_by_mat_id`.",
-              "line": 1743,
+              "line": 1814,
               "deprecated": false
             },
             {
@@ -14563,7 +14599,7 @@
               "kind": "staticmethod",
               "signature": "(material, add=False)",
               "summary": "Select every scene object using ``material`` (optionally adding to the selection).",
-              "line": 1767,
+              "line": 1838,
               "deprecated": false
             },
             {
@@ -14572,7 +14608,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Reload every file image -- a TILED set too -- from disk (mirror of",
-              "line": 1782,
+              "line": 1853,
               "deprecated": false
             },
             {
@@ -14581,7 +14617,7 @@
               "kind": "staticmethod",
               "signature": "(inc=None, exc=None, sort=False, as_dict=False, exclude_defaults=True, **filter_kwargs)",
               "summary": "Scene materials with flexible name filtering — mirror of ``mtk.MatUtils.get_scene_mats``.",
-              "line": 1795,
+              "line": 1866,
               "deprecated": false
             },
             {
@@ -14590,7 +14626,7 @@
               "kind": "staticmethod",
               "signature": "(mat)",
               "summary": "True iff something uses ``mat`` — mirror of ``mtk.is_mat_assigned`` (in use: what",
-              "line": 1824,
+              "line": 1895,
               "deprecated": false
             },
             {
@@ -14599,7 +14635,7 @@
               "kind": "staticmethod",
               "signature": "(mat, size=(20, 20), fallback_to_blank=True)",
               "summary": "A ``QIcon`` filled with ``mat``'s viewport display color — mirror of",
-              "line": 1835,
+              "line": 1906,
               "deprecated": false
             },
             {
@@ -14608,7 +14644,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, materials=None, absolute=True)",
               "summary": "Unique texture file paths in scope — mirror of ``mtk.MatUtils.get_texture_paths``.",
-              "line": 1856,
+              "line": 1927,
               "deprecated": false
             },
             {
@@ -14617,7 +14653,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, materials=None)",
               "summary": "Image metadata for the textures in scope — mirror of ``mtk.MatUtils.get_texture_info``.",
-              "line": 1876,
+              "line": 1947,
               "deprecated": false
             },
             {
@@ -14626,7 +14662,7 @@
               "kind": "staticmethod",
               "signature": "(materials=None, objects=None, optimize_check=False, progress_callback=None, exclude_defaults=False, exclude_unassigned=False, include_textures=True, include_image_metadata=True, **optimize_kwargs)",
               "summary": "Aggregate per-material info (name, type, textures + image metadata) — mirror of",
-              "line": 1900,
+              "line": 1971,
               "deprecated": false
             },
             {
@@ -14635,7 +14671,7 @@
               "kind": "staticmethod",
               "signature": "(records)",
               "summary": "Render :func:`get_mat_info` output as styled HTML (delegates to ``pythontk.MatReport``).",
-              "line": 1967,
+              "line": 2038,
               "deprecated": false
             },
             {
@@ -14644,7 +14680,7 @@
               "kind": "staticmethod",
               "signature": "(info_list)",
               "summary": "Render :func:`get_texture_info` output as styled HTML (delegates to ``pythontk.MatReport``).",
-              "line": 1972,
+              "line": 2043,
               "deprecated": false
             },
             {
@@ -14653,7 +14689,7 @@
               "kind": "staticmethod",
               "signature": "(materials=None, strict=False, verify=True)",
               "summary": "Groups of materials that are texture-level duplicates — mirror of",
-              "line": 1977,
+              "line": 2048,
               "deprecated": false
             },
             {
@@ -14662,7 +14698,7 @@
               "kind": "staticmethod",
               "signature": "(duplicate_groups, delete=True, verify=True)",
               "summary": "Reassign every object using a duplicate to the group's first (canonical) material, then",
-              "line": 2045,
+              "line": 2116,
               "deprecated": false
             },
             {
@@ -14671,7 +14707,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Delete the materials nothing uses (:meth:`is_mat_assigned`) — mirror of Maya's",
-              "line": 2086,
+              "line": 2157,
               "deprecated": false
             },
             {
@@ -14680,7 +14716,7 @@
               "kind": "staticmethod",
               "signature": "(images)",
               "summary": "``(material, node)`` for every ``ShaderNodeTexImage`` bound to ``images``.",
-              "line": 2106,
+              "line": 2177,
               "deprecated": false
             },
             {
@@ -14689,7 +14725,7 @@
               "kind": "staticmethod",
               "signature": "(images, activate=True)",
               "summary": "Select the Image Texture nodes bound to ``images`` — the Blender analogue of Maya's",
-              "line": 2151,
+              "line": 2222,
               "deprecated": false
             },
             {
@@ -14698,7 +14734,7 @@
               "kind": "staticmethod",
               "signature": "(materials, mode=None)",
               "summary": "Open the Shader Editor focused on ``materials`` — the Blender analogue of Maya's",
-              "line": 2201,
+              "line": 2272,
               "deprecated": false
             },
             {
@@ -14707,7 +14743,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Every file-backed image datablock as a record for the Texture Path Editor:",
-              "line": 2224,
+              "line": 2295,
               "deprecated": false
             },
             {
@@ -14716,7 +14752,7 @@
               "kind": "classmethod",
               "signature": "(cls, images, new_path=None)",
               "summary": "Context manager: hold the ``filepath`` of *images* for the block, restore on exit.",
-              "line": 2254,
+              "line": 2325,
               "deprecated": false
             },
             {
@@ -14725,7 +14761,7 @@
               "kind": "staticmethod",
               "signature": "(image, new_path, reload=True)",
               "summary": "Point ``image`` (datablock or name) at ``new_path`` and reload it — mirror of the Texture",
-              "line": 2312,
+              "line": 2383,
               "deprecated": false
             },
             {
@@ -14734,7 +14770,7 @@
               "kind": "staticmethod",
               "signature": "(abspath, blenddir=None, project_root=None)",
               "summary": "Convert an absolute path to a Blender ``//``-relative path when it falls inside the",
-              "line": 2329,
+              "line": 2400,
               "deprecated": false
             },
             {
@@ -14743,7 +14779,7 @@
               "kind": "staticmethod",
               "signature": "(search_dir, recursive=True, stem=False, texture=False, fuzzy=False, images=None)",
               "summary": "Repath missing FILE images within ``search_dir`` — the Blender analogue of Maya's Texture",
-              "line": 2377,
+              "line": 2448,
               "deprecated": false
             },
             {
@@ -14752,7 +14788,7 @@
               "kind": "staticmethod",
               "signature": "(mode='relative', project_dir=None, images=None)",
               "summary": "Normalize file image paths — mirror of the Texture Path Editor's 'Normalize Paths'.",
-              "line": 2474,
+              "line": 2545,
               "deprecated": false
             },
             {
@@ -14761,7 +14797,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "``{image-name: [material names]}`` for every image a material's shader graph reads --",
-              "line": 2562,
+              "line": 2633,
               "deprecated": false
             },
             {
@@ -14770,7 +14806,7 @@
               "kind": "staticmethod",
               "signature": "(paths)",
               "summary": "Scene materials whose shader graph references an image at one of ``paths`` (matched by",
-              "line": 2580,
+              "line": 2651,
               "deprecated": false
             },
             {
@@ -14779,7 +14815,7 @@
               "kind": "staticmethod",
               "signature": "(images=None, force_update=False, dry_run=False)",
               "summary": "Assign each texture image its correct color space by map type — the Blender counterpart of",
-              "line": 2601,
+              "line": 2672,
               "deprecated": false
             },
             {
@@ -14788,7 +14824,7 @@
               "kind": "staticmethod",
               "signature": "(images: Any = None, target_dir: Optional[str] = None, mode: str = 'rewrite', allow_missing: bool = False) -> int",
               "summary": "Repath each image so its file lives directly under ``target_dir`` — mirror of the Texture",
-              "line": 2649,
+              "line": 2720,
               "deprecated": false
             },
             {
@@ -14797,7 +14833,7 @@
               "kind": "staticmethod",
               "signature": "(images=None, search_dir=None, dest_dir=None, use_valid_paths=True)",
               "summary": "What :func:`find_and_copy_textures` WOULD relocate and repath — nothing written.",
-              "line": 2717,
+              "line": 2788,
               "deprecated": false
             },
             {
@@ -14806,7 +14842,7 @@
               "kind": "staticmethod",
               "signature": "(images=None, search_dir=None, dest_dir=None, mode='copy', use_valid_paths=True)",
               "summary": "Gather the textures used by ``images`` and relocate them into ``dest_dir`` (``mode``",
-              "line": 2828,
+              "line": 2899,
               "deprecated": false
             },
             {
@@ -14815,7 +14851,7 @@
               "kind": "classmethod",
               "signature": "(cls, path: str, new_name: str, images: Any = None) -> Dict[str, Any]",
               "summary": "Rename a texture file on disk and repoint every image reading it.",
-              "line": 2862,
+              "line": 2933,
               "deprecated": false
             },
             {
@@ -14824,7 +14860,7 @@
               "kind": "classmethod",
               "signature": "(cls, material: Any, base: str, material_affix: Tuple[str, str] = ('', ''), image_affix: Tuple[str, str] = ('', ''), images: Any = None, dry_run: bool = False, lightmaps: Optional[Any] = None) -> Dict[str, Any]",
               "summary": "Name a material, its texture set, lightmap and images for ONE base.",
-              "line": 2910,
+              "line": 2981,
               "deprecated": false
             },
             {
@@ -14833,7 +14869,7 @@
               "kind": "staticmethod",
               "signature": "(records=None)",
               "summary": "Render :func:`get_image_records` as an HTML table for the panel/report (missing flagged).",
-              "line": 2983,
+              "line": 3054,
               "deprecated": false
             },
             {
@@ -14842,7 +14878,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The available Principled-BSDF template names (mirror of Maya's Shader Templates list).",
-              "line": 3006,
+              "line": 3077,
               "deprecated": false
             },
             {
@@ -14851,7 +14887,7 @@
               "kind": "staticmethod",
               "signature": "(material, template)",
               "summary": "Apply a Principled-BSDF template preset to ``material``'s shader.",
-              "line": 3011,
+              "line": 3082,
               "deprecated": false
             },
             {
@@ -14860,7 +14896,7 @@
               "kind": "staticmethod",
               "signature": "(template, name=None)",
               "summary": "Create a new node-based material configured from a Principled-BSDF ``template`` — mirror of",
-              "line": 3026,
+              "line": 3097,
               "deprecated": false
             },
             {
@@ -14869,7 +14905,7 @@
               "kind": "staticmethod",
               "signature": "(material)",
               "summary": "Capture a material's shader node graph as a portable, JSON-safe dict — the Blender analogue of",
-              "line": 3034,
+              "line": 3105,
               "deprecated": false
             },
             {
@@ -14878,7 +14914,7 @@
               "kind": "staticmethod",
               "signature": "(data, name=None, textures=None)",
               "summary": "Rebuild a material from a :func:`serialize_material` dict — the Blender analogue of mayatk's",
-              "line": 3101,
+              "line": 3172,
               "deprecated": false
             },
             {
@@ -14887,7 +14923,7 @@
               "kind": "staticmethod",
               "signature": "(textures, config=None)",
               "summary": "Classify ``textures`` and reduce them to ONE source per Principled input.",
-              "line": 3192,
+              "line": 3263,
               "deprecated": false
             },
             {
@@ -14896,7 +14932,7 @@
               "kind": "staticmethod",
               "signature": "(textures, name=None, normal_direction='OpenGL', config=None, plan=None, ambient_occlusion=True)",
               "summary": "Build a Principled-BSDF material from a set of PBR texture files — Blender mirror of mayatk's",
-              "line": 3275,
+              "line": 3346,
               "deprecated": false
             },
             {
@@ -14905,7 +14941,7 @@
               "kind": "staticmethod",
               "signature": "(textures, name=None, normal_direction='OpenGL', prefix='', suffix='', config=None)",
               "summary": "Batch builder — Blender mirror of mayatk's ``GameShader.create_network`` batch path.",
-              "line": 3740,
+              "line": 3811,
               "deprecated": false
             },
             {
@@ -14914,7 +14950,7 @@
               "kind": "staticmethod",
               "signature": "(materials=None, config=None, verbose=False, progress_callback=None)",
               "summary": "Moved to :meth:`MatUpdater.update_materials`, its one owner (also the",
-              "line": 3809,
+              "line": 3880,
               "deprecated": true,
               "remove_in": "0.23.0"
             }
@@ -15466,164 +15502,37 @@
         {
           "name": "GameShader",
           "summary": "Build Principled-BSDF texture networks from PBR map sets (Blender mirror of mayatk's ``GameShader``…",
-          "line": 120,
+          "line": 118,
           "bases": [
             "pythontk.LoggingMixin",
             "_GameShaderInternal"
           ],
           "members": [
             {
+              "name": "shader_type_choices",
+              "qualname": "GameShader.shader_type_choices",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "None: Blender has one surface shader, the Principled BSDF (already the OpenPBR",
+              "line": 138,
+              "deprecated": false
+            },
+            {
               "name": "create_network",
               "qualname": "GameShader.create_network",
               "kind": "method",
               "signature": "(self, textures: List[str], name: str = '', prefix: str = '', suffix: str = '', config: Union[str, Dict[str, Any]] = None, progress_callback: Callable = None, **kwargs) -> Union[Optional[object], List[Optional[object]]]",
               "summary": "Create a PBR shader network with textures.",
-              "line": 139,
-              "deprecated": false
-            }
-          ]
-        },
-        {
-          "name": "GameShaderSlots",
-          "summary": "Switchboard slot wiring for the Game Shader panel.",
-          "line": 446,
-          "bases": [
-            "GameShader"
-          ],
-          "members": [
-            {
-              "name": "workspace_dir",
-              "qualname": "GameShaderSlots.workspace_dir",
-              "kind": "property",
-              "signature": "(self) -> str",
-              "summary": "",
-              "line": 487,
+              "line": 146,
               "deprecated": false
             },
             {
-              "name": "source_images_dir",
-              "qualname": "GameShaderSlots.source_images_dir",
-              "kind": "property",
-              "signature": "(self) -> str",
-              "summary": "",
-              "line": 491,
-              "deprecated": false
-            },
-            {
-              "name": "header_init",
-              "qualname": "GameShaderSlots.header_init",
+              "name": "assign_network",
+              "qualname": "GameShader.assign_network",
               "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize the header widget.",
-              "line": 494,
-              "deprecated": false
-            },
-            {
-              "name": "lbl_graph_material",
-              "qualname": "GameShaderSlots.lbl_graph_material",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Graph the most recently created material in the Shader Editor.",
-              "line": 546,
-              "deprecated": false
-            },
-            {
-              "name": "mat_name",
-              "qualname": "GameShaderSlots.mat_name",
-              "kind": "property",
-              "signature": "(self) -> str",
-              "summary": "Get the material name from the user input text field.",
-              "line": 554,
-              "deprecated": false
-            },
-            {
-              "name": "mat_prefix",
-              "qualname": "GameShaderSlots.mat_prefix",
-              "kind": "property",
-              "signature": "(self) -> str",
-              "summary": "Return the affix text when it resolves as a prefix, else empty string.",
-              "line": 563,
-              "deprecated": false
-            },
-            {
-              "name": "mat_suffix",
-              "qualname": "GameShaderSlots.mat_suffix",
-              "kind": "property",
-              "signature": "(self) -> str",
-              "summary": "Return the affix text when it resolves as a suffix, else empty string.",
-              "line": 571,
-              "deprecated": false
-            },
-            {
-              "name": "normal_map_type",
-              "qualname": "GameShaderSlots.normal_map_type",
-              "kind": "property",
-              "signature": "(self) -> str",
-              "summary": "Get the normal map direction from the comboBox's current text.",
-              "line": 579,
-              "deprecated": false
-            },
-            {
-              "name": "output_extension",
-              "qualname": "GameShaderSlots.output_extension",
-              "kind": "property",
-              "signature": "(self) -> str",
-              "summary": "Selected output extension, or '' when 'Profile default' is chosen.",
-              "line": 588,
-              "deprecated": false
-            },
-            {
-              "name": "cmb002_init",
-              "qualname": "GameShaderSlots.cmb002_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize Presets",
-              "line": 600,
-              "deprecated": false
-            },
-            {
-              "name": "opacity_mode",
-              "qualname": "GameShaderSlots.opacity_mode",
-              "kind": "property",
-              "signature": "(self) -> Optional[str]",
-              "summary": "The opacity graph the panel asks for.",
-              "line": 617,
-              "deprecated": false
-            },
-            {
-              "name": "cmb003_init",
-              "qualname": "GameShaderSlots.cmb003_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize Output Format.",
-              "line": 637,
-              "deprecated": false
-            },
-            {
-              "name": "txt000_init",
-              "qualname": "GameShaderSlots.txt000_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Material-name field — clearable back to the auto-derived name.",
-              "line": 654,
-              "deprecated": false
-            },
-            {
-              "name": "txt002_init",
-              "qualname": "GameShaderSlots.txt002_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Add a prefix/suffix/auto-mode picker to the affix field.",
-              "line": 658,
-              "deprecated": false
-            },
-            {
-              "name": "b000",
-              "qualname": "GameShaderSlots.b000",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Create Network — pick PBR texture files and build Principled material(s) from them.",
-              "line": 728,
+              "signature": "(self, network, objects) -> bool",
+              "summary": "Assign the one material a :meth:`create_network` call built to *objects*.",
+              "line": 319,
               "deprecated": false
             }
           ]
@@ -17199,69 +17108,6 @@
               "signature": "(cls, mat_name: str, manifest: Dict[str, Any], source_mat_name: Optional[str] = None) -> int",
               "summary": "Reconnect image textures to the material named *mat_name* from a manifest.",
               "line": 133,
-              "deprecated": false
-            }
-          ]
-        }
-      ],
-      "constants": []
-    },
-    {
-      "relpath": "mat_utils/mat_updater.py",
-      "summary": "Material Updater tool panel — Switchboard slot wiring for the co-located ``mat_updater.ui``.",
-      "functions": [],
-      "classes": [
-        {
-          "name": "MatUpdaterSlots",
-          "summary": "Switchboard slot wiring for the Material Updater panel.",
-          "line": 34,
-          "bases": [
-            "MatUpdater"
-          ],
-          "members": [
-            {
-              "name": "header_init",
-              "qualname": "MatUpdaterSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Format global options in the header menu (mirror of the Maya panel's, minus the",
-              "line": 164,
-              "deprecated": false
-            },
-            {
-              "name": "selection_mode",
-              "qualname": "MatUpdaterSlots.selection_mode",
-              "kind": "property",
-              "signature": "(self)",
-              "summary": "",
-              "line": 372,
-              "deprecated": false
-            },
-            {
-              "name": "move_to_folder",
-              "qualname": "MatUpdaterSlots.move_to_folder",
-              "kind": "property",
-              "signature": "(self)",
-              "summary": "",
-              "line": 376,
-              "deprecated": false
-            },
-            {
-              "name": "cmb001_init",
-              "qualname": "MatUpdaterSlots.cmb001_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize Presets (mirror of mayatk's ``cmb001_init``).",
-              "line": 379,
-              "deprecated": false
-            },
-            {
-              "name": "b001",
-              "qualname": "MatUpdaterSlots.b001",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Update Materials",
-              "line": 406,
               "deprecated": false
             }
           ]

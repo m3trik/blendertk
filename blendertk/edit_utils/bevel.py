@@ -1,14 +1,11 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Bevel tool — engine + Switchboard slot wiring for the co-located ``bevel.ui``.
+"""Bevel tool engine.
 
 Blender port of mayatk's ``edit_utils.bevel`` (``btk.Bevel`` ↔ ``mtk.Bevel``): a thin wrapper
 over native ``bmesh.ops.bevel`` driving the selected edges (or vertices) of the active Edit-Mode
-selection — the same edge-component bevel as Maya — plus a ``BevelSlots`` panel that is a 1:1
-mirror of mayatk's (``chk000`` Preview / ``s000`` Width / ``s001`` Segments / ``b000`` Create).
-The Slots class is discovered and served by ``BlenderUiHandler`` (``marking_menu.show("bevel")``),
-exactly the mayatk/MayaUiHandler split, so the panel lives in blendertk next to its engine rather
-than in tentacle.
+selection — the same edge-component bevel as Maya. The panel is tentacle's shared Bevel tool
+(``slots/tools/bevel.py``).
 
 ``bmesh.ops.bevel`` is used over the ``bpy.ops.mesh.bevel`` operator on purpose: it needs no 3D
 view / region context, so it runs identically interactively and under headless ``--background``

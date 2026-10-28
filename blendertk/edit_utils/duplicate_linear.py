@@ -1,14 +1,12 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Linear array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_linear``.
+"""Linear array duplication — mirror of mayatk's ``edit_utils.duplicate_linear``.
 
 ``duplicate_linear`` is pure ``mathutils`` matrix math over the shared
-``ptk.ProgressionCurves`` (no temp nodes, fully headless-testable); ``DuplicateLinearSlots`` is
-the Switchboard wiring for the co-located ``duplicate_linear.ui`` panel, discovered + served by
-``BlenderUiHandler`` (``marking_menu.show("duplicate_linear")``).
+``ptk.ProgressionCurves`` (no temp nodes, fully headless-testable). The panel is tentacle's
+shared Duplicate Linear tool (``slots/tools/duplicate_linear.py``).
 
-``import bpy`` / ``mathutils`` (and the Qt-only ``uitk`` helpers) are deferred into the call
-bodies (no import side effects; headless Blender ships no Qt binding).
+``import bpy`` / ``mathutils`` are deferred into the call bodies (no import side effects).
 """
 
 import math
@@ -23,8 +21,7 @@ from blendertk.xform_utils._xform_utils import XformUtils
 class DuplicateLinear:
     """Linear-array duplication engine — mirror of mayatk's ``DuplicateLinear``.
 
-    Reached as ``btk.DuplicateLinear.duplicate_linear`` (class-only; the co-located
-    ``DuplicateLinearSlots`` panel is discovered by ``BlenderUiHandler``, so the module is not
+    Reached as ``btk.DuplicateLinear.duplicate_linear`` (class-only: the module is not
     wildcard-scanned onto the flat ``btk.*`` namespace)."""
 
     @staticmethod
