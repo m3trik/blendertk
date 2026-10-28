@@ -6,12 +6,11 @@ Diffs the current scene's object hierarchy against a reference object set (in pr
 ``.blend`` linked in as a library — Blender's closest analogue of Maya's namespace-sandboxed
 reference import; an ``.fbx`` reference is first converted to a throwaway ``.blend`` by
 :func:`stage_reference_blend` so the pipeline stays format-agnostic; see
-``hierarchy_sync_slots.HierarchySyncController`` for how the library is staged/torn down),
+``hierarchy_sync_session.HierarchySyncSession`` for how the library is staged/torn down),
 then repairs drift: create stub Empties for missing nodes, quarantine extras, fix reparented /
 fuzzy-renamed nodes.
 
-Divergence from mayatk (by design, not a gap to fill in later — see the port's scoping notes in
-``hierarchy_sync_slots.py``):
+Divergence from mayatk (by design, not a gap to fill in later):
     * No namespace stripping. Blender has no namespaces; a linked library's objects keep their
       source-file names untouched (that IS the "clean" name), so paths need no cleaning pass —
       unlike Maya's DAG, where two same-named nodes under different parents are common and only

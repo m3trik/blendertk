@@ -565,7 +565,9 @@ class UiUtils(_UiUtilsInternal):
                          Accepts ``?path=`` (canonical) or ``?filepath=`` (legacy).
             ``preview`` — show the ``.glb`` at *path* in the WebXR preview
                          (``WebXrPreview.preview_file``: the panel's own server and tab).
-            ``select`` — select *node* (an object name) in the viewport, making it active.
+            ``select`` — select *node* (an object name, or a hierarchy path such as
+                         ``Grp|Child`` -- mayatk's DAG-path form -- whose leaf is one) in
+                         the viewport, making it active.
             ``reveal`` — select *node* and frame it in the 3D viewport (Blender has no scripted
                          Outliner "reveal" like Maya's ``showSelected``; framing the viewport is the
                          closest visible feedback).
@@ -645,6 +647,10 @@ class UiUtils(_UiUtilsInternal):
                 None,
             ) or bpy.data.objects.get(name)
 
+        # A node named by its hierarchy path (``Grp|Child``: the DAG-path form mayatk's
+        # links carry, which the shared Hierarchy Sync panel's diff log emits for both
+        # hosts) is the object its leaf names.
+        named = [n.rsplit("|", 1)[-1] for n in named]
         objs = [o for o in map(local, named) if o is not None]
         if len(objs) != len(named) and logger:
             found = {o.name for o in objs}

@@ -57,7 +57,6 @@ PANELS = [
     "marmoset_bridge",
     "substance_bridge",
     "arnold_bridge",
-    "hierarchy_sync",
     "shots",
     "shot_sequencer",
 ]

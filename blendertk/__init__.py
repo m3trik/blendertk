@@ -150,15 +150,15 @@ DEFAULT_INCLUDE = {
         "TaskManager",
     ],
     # Hierarchy Sync — diff/repair a scene hierarchy against a reference .blend linked as a
-    # library (mirror of mayatk's ``env_utils.hierarchy_sync._hierarchy_sync``; the
-    # ``HierarchySyncSlots`` panel is discovered by BlenderUiHandler, not registered).
+    # library (mirror of mayatk's ``env_utils.hierarchy_sync._hierarchy_sync``; its panel is
+    # tentacle's shared tool, over ``HierarchySyncSession``).
     "env_utils.hierarchy_sync._hierarchy_sync": [
         "HierarchySync",
-        # Pull IS ported: hierarchy_sync_slots imports and drives this class, and the
-        # mayatk twin registers ``mtk.ObjectSwapper`` — leaving it out broke the
-        # name-level mirror the tentacle slots rely on.
+        # Pull: ``HierarchySyncSession.pull`` drives this class; the mayatk twin
+        # registers ``mtk.ObjectSwapper`` too (the name-level mirror).
         "ObjectSwapper",
     ],
+    "env_utils.hierarchy_sync.hierarchy_sync_session": ["HierarchySyncSession"],
     "env_utils.hierarchy_sync.scene_data_sidecar": "SceneDataSidecar",
     "light_utils._light_utils": "*",
     # Lightmap Baker — the engine (its panel is tentacle's shared Lightmap Baker tool) and
@@ -714,6 +714,23 @@ MOVED_NAMES = {
     # Channels' copy / paste took mayatk's names (no alias: the panel was their one caller).
     "copy_values": ("blendertk.Channels.copy_attr_values", "0.23.0"),
     "paste_values": ("blendertk.Channels.paste_attr_values", "0.23.0"),
+    "HierarchySyncSlots": (
+        "tentacle.slots.tools.hierarchy_sync.HierarchySyncSlots",
+        "0.23.0",
+    ),
+    # Hierarchy Sync's panel helpers: tentacle's private _hierarchy_sync package.
+    "HierarchySyncController": (
+        "tentacle.slots.tools._hierarchy_sync.controller.HierarchySyncController",
+        "0.23.0",
+    ),
+    "HierarchyTreeRenderer": (
+        "tentacle.slots.tools._hierarchy_sync.tree_renderer.HierarchyTreeRenderer",
+        "0.23.0",
+    ),
+    "TreePathMatcher": (
+        "tentacle.slots.tools._hierarchy_sync.tree_matcher.TreePathMatcher",
+        "0.23.0",
+    ),
 }
 
 bootstrap_package(

@@ -122,7 +122,6 @@ jobs:
           test_blender_ui_handler
           test_cancel_provider
           test_fbx_stage_worker
-          test_hierarchy_tree_utils
           test_image_tracer
           test_qt_dock
           test_rizom_construction
