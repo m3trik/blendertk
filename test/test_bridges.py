@@ -206,6 +206,22 @@ try:
                 f"{_cls} {_stem}.py echoes __CARRIER__ (surfaces the Format combo)",
                 bool(_re.search(r"__CARRIER__", _txt)),
             )
+    # What tentacle's shared Marmoset / Substance Bridge panels read off the
+    # engine CLASS (its HostBridge): the registry, the template folder and the
+    # (template, mode) list the combo opens on. Mirror of mayatk's.
+    for _mod, _cls, _initial in (
+        (_mar_mod, "MarmosetBridge", ("bake", _mar_mod.ROUND_TRIP)),
+        (_sub_mod, "SubstanceBridge", ("import", _sub_mod.SEND_TO)),
+    ):
+        _bridge_cls = getattr(_mod, _cls)
+        _modes = _bridge_cls.list_template_modes()
+        check(
+            f"{_cls}: registry, template folder and modes come off the class",
+            {"SCOPE", "BAKE_SOURCE_SET"} <= set(_bridge_cls.params_registry().PARAMS)
+            and _bridge_cls.TEMPLATE_DIR == _mod._TEMPLATE_DIR
+            and _initial in _modes,
+            f"{_modes}",
+        )
     for _name, _opts in (
         ("substance", _sub_mod._DEFAULT_USD_OPTIONS),
         ("marmoset", _mar_mod._DEFAULT_USD_OPTIONS),
@@ -411,13 +427,9 @@ try:
                         )
         return False
 
+    # (The Marmoset Send is tentacle's shared panel now; its test pins it.)
     for _subpath, _module, _slots_cls in (
         (("uv_utils", "rizom_bridge"), "rizom_bridge_slots.py", "RizomBridgeSlots"),
-        (
-            ("mat_utils", "marmoset_bridge"),
-            "marmoset_bridge_slots.py",
-            "MarmosetBridgeSlots",
-        ),
     ):
         check(
             f"{_slots_cls}.b000 runs in the dispatcher's CancelScope (@Cancelable)",

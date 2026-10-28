@@ -268,12 +268,12 @@ DEFAULT_INCLUDE = {
     "light_utils.hdr_manager": ["HdrManager"],
     "mat_utils.shader_templates": ["ShaderTemplates"],
     # Marmoset Bridge — mirror of mayatk's ``mat_utils.marmoset_bridge._marmoset_bridge``
-    # (``MarmosetBridgeSlots`` panel discovered by the handler, not registered).
+    # (its panel is tentacle's shared tool).
     "mat_utils.marmoset_bridge._marmoset_bridge": [
         "MarmosetBridge",
     ],
     # Substance Bridge — mirror of mayatk's ``mat_utils.substance_bridge._substance_bridge``
-    # (``SubstanceBridgeSlots`` panel discovered by the handler, not registered).
+    # (its panel is tentacle's shared tool).
     "mat_utils.substance_bridge._substance_bridge": [
         "SubstanceBridge",
     ],
@@ -766,6 +766,27 @@ MOVED_NAMES = {
     ),
     "WorkspaceEditorSlots": (
         "tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots",
+        "0.23.0",
+    ),
+    "MarmosetBridgeSlots": (
+        "tentacle.slots.tools.marmoset_bridge.MarmosetBridgeSlots",
+        "0.23.0",
+    ),
+    "SubstanceBridgeSlots": (
+        "tentacle.slots.tools.substance_bridge.SubstanceBridgeSlots",
+        "0.23.0",
+    ),
+    # The bridge panels' Bake Source row actions: tentacle's HostBridge, once.
+    "set_bake_source_from_selection": (
+        "tentacle.slots.tools._app_bridge.host_bridge.HostBridge.set_bake_source_from_selection",
+        "0.23.0",
+    ),
+    "select_bake_source": (
+        "tentacle.slots.tools._app_bridge.host_bridge.HostBridge.select_bake_source",
+        "0.23.0",
+    ),
+    "clear_bake_source": (
+        "tentacle.slots.tools._app_bridge.host_bridge.HostBridge.clear_bake_source",
         "0.23.0",
     ),
 }

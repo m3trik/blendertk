@@ -50,8 +50,6 @@ def _sandbox_qsettings():
 PANELS = [
     "rizom_bridge",
     "maya_bridge",
-    "marmoset_bridge",
-    "substance_bridge",
     "shot_sequencer",
 ]
 
@@ -247,14 +245,6 @@ try:
     for panel, slot_cls in (
         ("rizom_bridge", "RizomBridgeSlots"),  # engine/slots init is bpy-free
         ("maya_bridge", "MayaBridgeSlots"),  # engine/slots init is bpy-free
-        (
-            "marmoset_bridge",
-            "MarmosetBridgeSlots",
-        ),  # BridgeSlotsBase init is bpy-free (engine defers bpy)
-        (
-            "substance_bridge",
-            "SubstanceBridgeSlots",
-        ),  # BridgeSlotsBase init is bpy-free (engine defers bpy)
     ):
         ui = sb.get_ui(panel)
         check(f"{panel} ui loads", ui is not None)
@@ -390,12 +380,6 @@ except Exception as e:
 try:
     from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
     from blendertk.env_utils.maya_bridge.maya_bridge_slots import MayaBridgeSlots
-    from blendertk.mat_utils.marmoset_bridge.marmoset_bridge_slots import (
-        MarmosetBridgeSlots,
-    )
-    from blendertk.mat_utils.substance_bridge.substance_bridge_slots import (
-        SubstanceBridgeSlots,
-    )
     from blendertk.uv_utils.rizom_bridge.rizom_bridge_slots import RizomBridgeSlots
 
     # Every bridge slot must inherit the ONE resolver. MayaBridgeSlots and
@@ -404,8 +388,6 @@ try:
     # forever. Pin the inheritance, not merely the presence of the parameter.
     for _cls in (
         MayaBridgeSlots,
-        MarmosetBridgeSlots,
-        SubstanceBridgeSlots,
         RizomBridgeSlots,
     ):
         check(
@@ -494,104 +476,6 @@ try:
 except Exception as e:
     traceback.print_exc()
     check("scope precedence raised", False, repr(e))
-
-# ---------------------------------------------------------------------------
-# The Bake Source row says what THIS bridge does with the set. The shared base
-# told every bridge's artist "Sends now ship it as the companion bake source",
-# while the Marmoset send never read the set at all. Now each bridge carries
-# its own sentence (mayatk's wording per bridge), both read the ONE
-# bake_sets.BakeSourceSet, and the Marmoset panel greys the suffix fallback
-# while a set exists (mirror of mayatk's _refresh_param_enablement).
-# Added: 2026-09-27
-# ---------------------------------------------------------------------------
-try:
-    import types as _types
-
-    from blendertk.mat_utils.bake_sets import BakeSourceSet
-    from blendertk.mat_utils.marmoset_bridge import parameters as _mar_params
-    from blendertk.mat_utils.marmoset_bridge.marmoset_bridge_slots import (
-        MarmosetBridgeSlots,
-    )
-    from blendertk.mat_utils.substance_bridge.substance_bridge_slots import (
-        SubstanceBridgeSlots,
-    )
-    from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
-
-    check(
-        "the Bake Source row acts on bake_sets.BakeSourceSet",
-        BlenderBridgeSlotsBase._bake_source_set() is BakeSourceSet
-        and MarmosetBridgeSlots._bake_source_set() is BakeSourceSet
-        and SubstanceBridgeSlots._bake_source_set() is BakeSourceSet,
-    )
-
-    class _Log:
-        def __init__(self):
-            self.records = []
-
-        def info(self, msg):
-            self.records.append(("info", msg))
-
-        def warning(self, msg):
-            self.records.append(("warning", msg))
-
-    def _bare_slots(cls, has_set):
-        """A panel-less slots instance whose set reports *has_set*."""
-        inst = object.__new__(cls)
-        inst._bridge = _types.SimpleNamespace(logger=_Log())
-        inst._param_widgets = {}  # no supersession triggers wired
-        inst.enabled = {}
-        inst.set_param_enabled = lambda key, on, reason="": inst.enabled.__setitem__(
-            key, (on, reason)
-        )
-        fake_set = _types.SimpleNamespace(
-            SET_NAME=BakeSourceSet.SET_NAME,
-            define=lambda: ["obj"],
-            exists=lambda: has_set,
-        )
-        inst._bake_source_set = lambda: fake_set
-        return inst
-
-    _mar = _bare_slots(MarmosetBridgeSlots, has_set=True)
-    _mar.set_bake_source_from_selection()
-    _sub = _bare_slots(SubstanceBridgeSlots, has_set=True)
-    _sub.set_bake_source_from_selection()
-    _mar_msg = " ".join(m for _k, m in _mar._bridge.logger.records)
-    _sub_msg = " ".join(m for _k, m in _sub._bridge.logger.records)
-    check(
-        "Marmoset's Set From Selection names what ITS bake send does",
-        "Bake sends now export it as the bake source" in _mar_msg
-        and "Suffix fallback is inactive" in _mar_msg,
-        _mar_msg,
-    )
-    check(
-        "Substance's keeps its own sentence",
-        "Sends now ship it as the companion bake source" in _sub_msg
-        and "Suffix" not in _sub_msg,
-        _sub_msg,
-    )
-    check(
-        "defining the set greys Marmoset's suffix-fallback rows at once",
-        set(MarmosetBridgeSlots.SUFFIX_FALLBACK_KEYS)
-        <= set(_mar_params.Parameters.PARAMS)
-        and all(
-            _mar.enabled.get(k, (True, ""))[0] is False and _mar.enabled[k][1]
-            for k in MarmosetBridgeSlots.SUFFIX_FALLBACK_KEYS
-        ),
-        str(_mar.enabled),
-    )
-    _clear = _bare_slots(MarmosetBridgeSlots, has_set=False)
-    _clear._refresh_param_enablement()
-    check(
-        "...and without a set they are live again",
-        all(
-            _clear.enabled.get(k) == (True, "")
-            for k in MarmosetBridgeSlots.SUFFIX_FALLBACK_KEYS
-        ),
-        str(_clear.enabled),
-    )
-except Exception as e:
-    traceback.print_exc()
-    check("bake-source row wiring raised", False, repr(e))
 
 # ---------------------------------------------------------------------------
 # A panel's scope ships the subtree it names. Every Blender bridge panel

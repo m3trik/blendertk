@@ -4,8 +4,8 @@
 
 The DCC-agnostic base lives upstream in :mod:`uitk.bridge.slots`
 (re-exported through :mod:`uitk.bridge`). This thin subclass injects
-what every Blender bridge shares: the meaning of a blank Output Dir, the
-Scope resolution (``BridgeHost``'s) and the Bake Source row.
+what every Blender bridge shares: the meaning of a blank Output Dir and the
+Scope resolution (``BridgeHost``'s).
 
 A blank Output Dir means "the bridge's own rule" (uitk's ``default_output_dir``,
 ``""``, is kept): hand-off intermediates go to a ``TempArtifacts`` scratch per
@@ -14,16 +14,16 @@ send, and what is kept goes to a folder of the file's project (a bake's maps to
 Toolbag scene to ``data/marmoset``). mayatk's base means the same.
 
 Mirror of mayatk's :class:`mayatk.ui_utils.maya_bridge_slots_base.MayaBridgeSlotsBase` --
-the Marmoset, Substance, Rizom and Maya bridge slots subclass this instead
-of inheriting from ``BridgeSlotsBase`` directly, so the rule lives in one
-place. A bridge that has moved to tentacle (Unity) sits on tentacle's
-``HostBridge`` instead, over the same ``BridgeHost`` / ``BakeSourceSet`` API.
+the Rizom and Maya bridge slots subclass this instead of inheriting from
+``BridgeSlotsBase`` directly, so the rule lives in one place. A bridge that
+has moved to tentacle (Unity, Marmoset, Substance) sits on tentacle's
+``HostBridge`` instead, over the same ``BridgeHost`` API; the Bake Source row
+(``BakeSourceSet``) lives there, once for both hosts.
 """
 
 from __future__ import annotations
 
 from uitk.bridge import BridgeSlotsBase
-from pythontk import TooltipFormat
 
 
 class BlenderBridgeSlotsBase(BridgeSlotsBase):
@@ -73,144 +73,3 @@ class BlenderBridgeSlotsBase(BridgeSlotsBase):
         from blendertk.env_utils.handoff_export import BridgeHost
 
         BridgeHost.install_package(spec)
-
-    # ------------------------------------------------------------------
-    # Bake Source set (param-row actions + the live member tooltip)
-    # ------------------------------------------------------------------
-
-    #: Param key the row is declared under, so the tooltip is registered only
-    #: for a bridge that actually HAS the row (mirrors
-    #: ``MayaBridgeSlotsBase.BAKE_SOURCE_KEY``).
-    BAKE_SOURCE_KEY = "BAKE_SOURCE_SET"
-
-    #: What defining the set changes for THIS bridge's sends, appended to the
-    #: Set From Selection log line. Per bridge because the answer is: the
-    #: Substance send ships the set with every send whose template claims the
-    #: row, the Marmoset one only with a bake (and it retires the suffix
-    #: fallback) -- a shared sentence promised one bridge's behaviour of the
-    #: other. The wording is mayatk's, per bridge.
-    BAKE_SOURCE_DEFINED_NOTE = "Sends now ship it as the companion bake source."
-    #: What clearing the set falls back to for this bridge ("" = nothing to say).
-    BAKE_SOURCE_CLEARED_NOTE = ""
-
-    @staticmethod
-    def _bake_source_set():
-        """The stamped-Collection bake-source set the actions below operate on.
-
-        :class:`blendertk.mat_utils.bake_sets.BakeSourceSet` -- the one set
-        every bridge reads. A hook, imported lazily, so the Qt-side base stays
-        importable without ``bpy`` and a bridge that stamps its set differently
-        overrides this one method.
-        """
-        from blendertk.mat_utils.bake_sets import BakeSourceSet
-
-        return BakeSourceSet
-
-    def live_param_tooltip_blocks(self):
-        """Make the Bake Source row report the file's CURRENT members.
-
-        The set is a stamped Collection in the .blend, not panel state, so it
-        moves under an open panel -- a new file, a redefine, an unlink in the
-        Outliner. A build-time tooltip would describe the set the panel opened
-        on, which is exactly the case the user is trying to check.
-
-        Registered as a BLOCK, not a whole tooltip: the row's three buttons each
-        carry their own description, and the member list has to reach the one the
-        user is actually hovering when they capture a selection -- not just the
-        label off to its left.
-
-        Mirrors ``MayaBridgeSlotsBase.live_param_tooltip_blocks``, including its
-        extend-don't-replace contract: the hook is a registry, so a subclass that
-        has to remember to merge is one that will forget.
-        """
-        tips = dict(super().live_param_tooltip_blocks() or {})
-        # Gated on the row being DECLARED: this base is inherited by every
-        # blendertk bridge, and only the material ones carry a bake source.
-        # The binder already no-ops on an unknown key, so an ungated entry is
-        # harmless -- but it makes the registry describe rows that do not
-        # exist, and mayatk's twin gates it for the same reason.
-        params = getattr(self.params_module, "PARAMS", {}) or {}
-        if self.BAKE_SOURCE_KEY in params:
-            tips[self.BAKE_SOURCE_KEY] = self._bake_source_tooltip
-        return tips
-
-    def _bake_source_tooltip(self) -> str:
-        """The Bake Source set's live member list (appended to each hover target)."""
-        try:
-            names = self._bake_source_set().member_names()
-        except Exception:  # noqa: BLE001 -- a tooltip must never raise into Qt
-            return ""
-        return TooltipFormat.stored_items(
-            names,
-            noun="object(s) in this file's set",
-            empty_text="No bake source defined in this file.",
-        )
-
-    def set_bake_source_from_selection(self) -> None:
-        """Store the current selection as this file's bake source.
-
-        Defining the set IS the opt-in: the sends that read it (see
-        :attr:`BAKE_SOURCE_DEFINED_NOTE`) export it as the companion
-        ``<name>_source.fbx``. There is no second checkbox to tick -- the
-        pairing this replaced could be silently half-on (a set defined, the
-        box left clear), which reads as the tool ignoring you.
-        """
-        bake_set = self._bake_source_set()
-        members = bake_set.define()
-        # Rows that key off the set (the Marmoset suffix fallback) re-grey now,
-        # not on the next panel show.
-        self._refresh_param_enablement()
-        if not members:
-            self.bridge.logger.warning(
-                "Nothing selected; the bake-source set was cleared."
-            )
-            return
-        self.bridge.logger.info(
-            f"Bake Source set: {len(members)} object(s) -> {bake_set.SET_NAME}. "
-            f"{self.BAKE_SOURCE_DEFINED_NOTE}"
-        )
-
-    def select_bake_source(self) -> None:
-        """Select the bake-source set's members.
-
-        Members outside the active view layer (an excluded collection) can't
-        be selected at all, and one whose ``hide_select`` is on silently
-        refuses (:meth:`BakeSourceSet.select` leaves both out). Both are
-        reported rather than forced: unhiding geometry behind the user's back
-        to satisfy a *select* action would be the one thing this feature
-        promises not to do. The export itself doesn't care either way.
-        """
-        bake_set = self._bake_source_set()
-        members = bake_set.members()
-        # Also resyncs the suffix rows if the set was removed outside the panel.
-        self._refresh_param_enablement()
-        if not members:
-            self.bridge.logger.warning("This file has no bake-source set.")
-            return
-        selected = bake_set.select()
-        unreachable = len(members) - len(selected)
-        self.bridge.logger.info(
-            f"Selected {len(selected)} bake-source object(s)."
-            + (
-                f" {unreachable} could not be selected (hidden from selection "
-                "or outside the active view layer); they still export."
-                if unreachable
-                else ""
-            )
-        )
-
-    def clear_bake_source(self) -> None:
-        """Remove the bake-source collection; its objects are left alone."""
-        bake_set = self._bake_source_set()
-        if not bake_set.exists():
-            self.bridge.logger.warning("This file has no bake-source set.")
-            return
-        bake_set.clear()
-        self._refresh_param_enablement()
-        self.bridge.logger.info(
-            " ".join(
-                s
-                for s in ("Bake-source set cleared.", self.BAKE_SOURCE_CLEARED_NOTE)
-                if s
-            )
-        )

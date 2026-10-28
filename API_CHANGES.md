@@ -2,7 +2,7 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (734)
+## Moved out (751)
 
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b000` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
@@ -501,6 +501,13 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/image_to_plane/image_to_plane_slots.py::ImageToPlaneSlots` → `tentacle.slots.tools.image_to_plane.ImageToPlaneSlots` (from 0.23.0)
 - `mat_utils/image_to_plane/image_to_plane_slots.py::ImageToPlaneSlots.header_init` → `tentacle.slots.tools.image_to_plane.ImageToPlaneSlots` (from 0.23.0)
 - `mat_utils/image_to_plane/image_to_plane_slots.py::ImageToPlaneSlots.txt_suffix_init` → `tentacle.slots.tools.image_to_plane.ImageToPlaneSlots` (from 0.23.0)
+- `mat_utils/marmoset_bridge/marmoset_bridge_slots.py::MarmosetBridgeSlots` → `tentacle.slots.tools.marmoset_bridge.MarmosetBridgeSlots` (from 0.23.0)
+- `mat_utils/marmoset_bridge/marmoset_bridge_slots.py::MarmosetBridgeSlots.b000` → `tentacle.slots.tools.marmoset_bridge.MarmosetBridgeSlots` (from 0.23.0)
+- `mat_utils/marmoset_bridge/marmoset_bridge_slots.py::MarmosetBridgeSlots.list_template_modes` → `tentacle.slots.tools.marmoset_bridge.MarmosetBridgeSlots` (from 0.23.0)
+- `mat_utils/marmoset_bridge/marmoset_bridge_slots.py::MarmosetBridgeSlots.make_bridge` → `tentacle.slots.tools.marmoset_bridge.MarmosetBridgeSlots` (from 0.23.0)
+- `mat_utils/marmoset_bridge/marmoset_bridge_slots.py::MarmosetBridgeSlots.params_module` → `tentacle.slots.tools.marmoset_bridge.MarmosetBridgeSlots` (from 0.23.0)
+- `mat_utils/marmoset_bridge/marmoset_bridge_slots.py::MarmosetBridgeSlots.select_initial_template_index` → `tentacle.slots.tools.marmoset_bridge.MarmosetBridgeSlots` (from 0.23.0)
+- `mat_utils/marmoset_bridge/marmoset_bridge_slots.py::MarmosetBridgeSlots.template_dir` → `tentacle.slots.tools.marmoset_bridge.MarmosetBridgeSlots` (from 0.23.0)
 - `mat_utils/mat_updater.py::MatUpdaterSlots` → `tentacle.slots.tools.mat_updater.MatUpdaterSlots` (from 0.23.0)
 - `mat_utils/mat_updater.py::MatUpdaterSlots.b001` → `tentacle.slots.tools.mat_updater.MatUpdaterSlots` (from 0.23.0)
 - `mat_utils/mat_updater.py::MatUpdaterSlots.cmb001_init` → `tentacle.slots.tools.mat_updater.MatUpdaterSlots` (from 0.23.0)
@@ -535,6 +542,13 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/shader_templates.py::ShaderTemplatesSlots.source_images_dir` → `tentacle.slots.tools.shader_templates.ShaderTemplatesSlots` (from 0.23.0)
 - `mat_utils/shader_templates.py::ShaderTemplatesSlots.template_name` → `tentacle.slots.tools.shader_templates.ShaderTemplatesSlots` (from 0.23.0)
 - `mat_utils/shader_templates.py::ShaderTemplatesSlots.workspace_dir` → `tentacle.slots.tools.shader_templates.ShaderTemplatesSlots` (from 0.23.0)
+- `mat_utils/substance_bridge/substance_bridge_slots.py::SubstanceBridgeSlots` → `tentacle.slots.tools.substance_bridge.SubstanceBridgeSlots` (from 0.23.0)
+- `mat_utils/substance_bridge/substance_bridge_slots.py::SubstanceBridgeSlots.b000` → `tentacle.slots.tools.substance_bridge.SubstanceBridgeSlots` (from 0.23.0)
+- `mat_utils/substance_bridge/substance_bridge_slots.py::SubstanceBridgeSlots.list_template_modes` → `tentacle.slots.tools.substance_bridge.SubstanceBridgeSlots` (from 0.23.0)
+- `mat_utils/substance_bridge/substance_bridge_slots.py::SubstanceBridgeSlots.make_bridge` → `tentacle.slots.tools.substance_bridge.SubstanceBridgeSlots` (from 0.23.0)
+- `mat_utils/substance_bridge/substance_bridge_slots.py::SubstanceBridgeSlots.params_module` → `tentacle.slots.tools.substance_bridge.SubstanceBridgeSlots` (from 0.23.0)
+- `mat_utils/substance_bridge/substance_bridge_slots.py::SubstanceBridgeSlots.select_initial_template_index` → `tentacle.slots.tools.substance_bridge.SubstanceBridgeSlots` (from 0.23.0)
+- `mat_utils/substance_bridge/substance_bridge_slots.py::SubstanceBridgeSlots.template_dir` → `tentacle.slots.tools.substance_bridge.SubstanceBridgeSlots` (from 0.23.0)
 - `mat_utils/texture_path_editor.py::TexturePathEditorSlots` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
 - `mat_utils/texture_path_editor.py::TexturePathEditorSlots.cleanup_scene_callbacks` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
 - `mat_utils/texture_path_editor.py::TexturePathEditorSlots.delete_file_node` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
@@ -653,6 +667,9 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `rig_utils/wheel_rig.py::WheelRigSlots.txt000_init` → `tentacle.slots.tools.wheel_rig.WheelRigSlots` (from 0.23.0)
 - `rig_utils/wheel_rig.py::WheelRigSlots.update_rig_name_placeholder` → `tentacle.slots.tools.wheel_rig.WheelRigSlots` (from 0.23.0)
 - `rig_utils/wheel_rig.py::WheelRigSlots.wheel_rig` → `tentacle.slots.tools.wheel_rig.WheelRigSlots` (from 0.23.0)
+- `ui_utils/blender_bridge_slots_base.py::BlenderBridgeSlotsBase.clear_bake_source` → `tentacle.slots.tools._app_bridge.host_bridge.HostBridge.clear_bake_source` (from 0.23.0)
+- `ui_utils/blender_bridge_slots_base.py::BlenderBridgeSlotsBase.select_bake_source` → `tentacle.slots.tools._app_bridge.host_bridge.HostBridge.select_bake_source` (from 0.23.0)
+- `ui_utils/blender_bridge_slots_base.py::BlenderBridgeSlotsBase.set_bake_source_from_selection` → `tentacle.slots.tools._app_bridge.host_bridge.HostBridge.set_bake_source_from_selection` (from 0.23.0)
 - `ui_utils/calculator.py::CalculatorSlots` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
 - `ui_utils/calculator.py::CalculatorSlots.frames_to_sec` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
 - `ui_utils/calculator.py::CalculatorSlots.get_current_time` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
@@ -739,7 +756,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (307)
+## Added (310)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -940,6 +957,8 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/emissive_groups.py::BlenderEmissiveGroups.write_colors(self, obj: str, channels, color_set: str) -> None`
 - `mat_utils/game_shader.py::GameShader.assign_network(self, network, objects) -> bool`
 - `mat_utils/game_shader.py::GameShader.shader_type_choices()`
+- `mat_utils/marmoset_bridge/_marmoset_bridge.py::MarmosetBridge.list_template_modes() -> List[Tuple[str, str]]`
+- `mat_utils/marmoset_bridge/_marmoset_bridge.py::MarmosetBridge.params_registry(cls)`
 - `mat_utils/render_opacity/render_effects.py::RenderEffects.ensure_highlight_props(cls, obj, color=None, dim_color=None)`
 - `mat_utils/render_opacity/render_effects.py::RenderEffects.ensure_opacity_prop(cls, obj, value=1.0)`
 - `mat_utils/render_opacity/render_effects.py::RenderEffects.has_channel(cls, obj, channel='opacity') -> bool`
@@ -951,6 +970,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/shader_templates.py::ShaderTemplates.save_template(cls, nodes, file_path, exclude_types=None, logger=None) -> None`
 - `mat_utils/shader_templates.py::ShaderTemplates.store(cls) -> 'ptk.PresetStore'`
 - `mat_utils/shader_templates.py::ShaderTemplates.suggested_name(cls, nodes) -> str`
+- `mat_utils/substance_bridge/_substance_bridge.py::SubstanceBridge.params_registry(cls)`
 - `mat_utils/texture_path_editor.py::TexturePathEditor(class)`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.apply_path_edit(self, file_node, typed: str, shader=None, sync=None) -> str`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.can_rename_shader(self, shader) -> bool`
@@ -1065,7 +1085,7 @@ _Live retirement debt, earliest deadline first. An **EXPIRED** row has outlived 
 - `env_utils/_env_utils.py::EnvUtils.twin_save_target` — remove in 0.23.0, not before 2026-11-24
 - `mat_utils/_mat_utils.py::MatUtils.update_materials` — remove in 0.23.0, not before 2026-11-24
 
-## Moved (16)
+## Moved (17)
 
 _Still resolvable at the same call site -- hoisted to a base class or re-exported from another module. NOT a removal: no alias or minor bump is owed._
 
@@ -1085,6 +1105,7 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/emissive_groups.py::EmissiveGroups.transfer_in`
 - `mat_utils/emissive_groups.py::EmissiveGroups.transfer_out`
 - `mat_utils/emissive_groups.py::EmissiveGroups.validate`
+- `ui_utils/blender_bridge_slots_base.py::BlenderBridgeSlotsBase.live_param_tooltip_blocks`
 
 ## Signature changed (17)
 
