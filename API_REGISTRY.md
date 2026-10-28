@@ -8,7 +8,6 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`anim_utils/_anim_utils.py`](#anim_utils--_anim_utils) — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 - [`anim_utils/blendshape_animator/_blendshape_animator.py`](#anim_utils--blendshape_animator--_blendshape_animator) — Main workflow facade for shape-key morph creation, editing, and export — mirror of mayatk's
 - [`anim_utils/blendshape_animator/applicator.py`](#anim_utils--blendshape_animator--applicator) — Applies tween mesh edits back to the master shape key — mirror of mayatk's
-- [`anim_utils/blendshape_animator/blendshape_animator_slots.py`](#anim_utils--blendshape_animator--blendshape_animator_slots) — Switchboard slots controller for the co-located ``blendshape_animator.ui`` — Blender port of
 - [`anim_utils/blendshape_animator/creator.py`](#anim_utils--blendshape_animator--creator) — Creates in-between (tween) target meshes for sculpting a custom morph curve — mirror of
 - [`anim_utils/blendshape_animator/keyframes.py`](#anim_utils--blendshape_animator--keyframes) — Master shape-key value keyframe animation — mirror of mayatk's
 - [`anim_utils/blendshape_animator/target.py`](#anim_utils--blendshape_animator--target) — Tween mesh wrappers and registry — mirror of mayatk's
@@ -185,10 +184,9 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`rig_utils/shadow_rig/_shadow_rig.py`](#rig_utils--shadow_rig--_shadow_rig) — Shadow Rig engine — tentacle's Shadow Rig panel (``slots/tools/shadow_rig.py``) drives it.
 - [`rig_utils/shadow_rig/shadow_preview.py`](#rig_utils--shadow_rig--shadow_preview) — A live viewport preview of a horizon rig: the artist drags the light and
 - [`rig_utils/telescope_rig.py`](#rig_utils--telescope_rig) — Telescope Rig — the telescoping-segment rig (tentacle's Telescope Rig panel drives it).
-- [`rig_utils/tube_rig/_tube_rig.py`](#rig_utils--tube_rig--_tube_rig) — Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies + panel).
+- [`rig_utils/tube_rig/_tube_rig.py`](#rig_utils--tube_rig--_tube_rig) — Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies).
 - [`rig_utils/tube_rig/strategies.py`](#rig_utils--tube_rig--strategies) — Tube Rig build strategies (Blender) — mirror of mayatk's ``tube_rig/strategies.py``.
 - [`rig_utils/tube_rig/tube_path.py`](#rig_utils--tube_rig--tube_path) — Tube-mesh centerline extraction — Blender port of mayatk's ``rig_utils.tube_rig.tube_path.TubePath`…
-- [`rig_utils/tube_rig/tube_rig_slots.py`](#rig_utils--tube_rig--tube_rig_slots) — Tube Rig panel (Blender) — the Switchboard slots for ``tube_rig.ui``.
 - [`rig_utils/wheel_rig.py`](#rig_utils--wheel_rig) — Wheel Rig — wheels that roll as their control moves (tentacle's Wheel Rig panel drives it).
 - [`ui_utils/_ui_utils.py`](#ui_utils--_ui_utils) — UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
 - [`ui_utils/blender_bridge_slots_base.py`](#ui_utils--blender_bridge_slots_base) — Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
@@ -219,7 +217,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L438) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L437) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -290,15 +288,24 @@ Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror 
 
 Main workflow facade for shape-key morph creation, editing, and export — mirror of mayatk's
 
-- **[`class BlendshapeAnimator(pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/blendshape_animator/_blendshape_animator.py#L42)** — Main workflow facade for shape-key morph animation.
+- **[`class BlendshapeAnimator(pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/blendshape_animator/_blendshape_animator.py#L50)** — Main workflow facade for shape-key morph animation.
+  - `BlendshapeAnimator.base_mesh(self) -> Optional[str]` *(property)* — The base mesh object's name (``None`` unbound) -- mayatk's ``base_mesh``.
+  - `BlendshapeAnimator.target_mesh(self) -> Optional[str]` *(property)* — The target mesh object's name (``None`` unbound) -- mayatk's ``target_mesh``.
+  - `BlendshapeAnimator.blendshape(self) -> Optional[str]` *(property)* — The master shape key's name -- the analogue of mayatk's blendShape node name.
   - `BlendshapeAnimator.create(self, base_obj=None, target_obj=None, start_frame: Optional[int] = None, end_frame: Optional[int] = None, name: str = 'morph', test_setup: bool = True) -> bool` — Set up a basic morph animation between two mesh objects.
-  - `BlendshapeAnimator.edit_weight_based(self, weights: Optional[List[float]] = None, count: int = 3, weight_range: Tuple[float, float] = (0.0, 1.0)) -> List[Target]` — Create tweens at specific weights or evenly spaced.
-  - `BlendshapeAnimator.edit_frame_based(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None) -> List[Target]` — Create tweens at specific animation frames.
+  - `BlendshapeAnimator.edit_weight_based(self, weights: Optional[List[float]] = None, count: int = 3, weight_range: Tuple[float, float] = (0.0, 1.0), group_name: Optional[str] = None, name_prefix: Optional[str] = None) -> List[Target]` — Create tweens at specific weights or evenly spaced.
+  - `BlendshapeAnimator.edit_frame_based(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None, group_name: Optional[str] = None, name_prefix: Optional[str] = None) -> List[Target]` — Create tweens at specific animation frames.
   - `BlendshapeAnimator.edit_apply_tweens(self, tweens: Optional[List[Target]] = None) -> List[Target]` — Apply tween mesh edits back to the master shape key's correctives.
+  - `BlendshapeAnimator.has_setup(self) -> bool` — True while a setup is bound and its base mesh and master shape key still exist -- the
+  - `BlendshapeAnimator.selected_base(cls) -> Optional[str]` *(class)* — The name of the first selected mesh that carries a usable shape-key setup -- the setup
+  - `BlendshapeAnimator.tween_topology(self)` — This setup's tweens with their vertex counts, beside the base mesh's -- mirror of
+  - `BlendshapeAnimator.apply_tweens(self, tweens: Optional[List[Target]] = None, skip_duplicates: bool = True, validate_topology: bool = False) -> List[Tuple[Target, ApplyStatus]]` — Apply tween edits back as driver-driven corrective shape keys and report each tween
+  - `BlendshapeAnimator.delete_tweens(self, tweens: List[Target]) -> List[str]` — Delete tween meshes, and the default tween group once they leave it empty -- mirror
+  - `BlendshapeAnimator.select_tweens(tweens: List[Target]) -> list` *(static)* — Select the tweens' meshes that still exist, replacing the selection
   - `BlendshapeAnimator.basic_workflow(cls, base_obj=None, target_obj=None, start_frame: Optional[int] = None, end_frame: Optional[int] = None, name: str = 'morph') -> Optional['BlendshapeAnimator']` *(class)* — Complete basic workflow: create setup with tweens ready for editing.
   - `BlendshapeAnimator.apply_all_edits(self) -> bool` — Apply all tween edits to the current setup.
   - `BlendshapeAnimator.finalize_for_export(self, cleanup_scene: bool = True, delete_construction_history: bool = True, hide_target_mesh: bool = True, delete_inbetween_meshes: bool = True) -> bool` — Finalize the morph animation and clean up the scene for export.
-  - `BlendshapeAnimator.from_existing(cls, base_obj=None) -> Optional['BlendshapeAnimator']` *(class)* — Create an animator bound to an existing shape-key setup on ``base_obj``.
+  - `BlendshapeAnimator.from_existing(cls, base_obj=None) -> Optional['BlendshapeAnimator']` *(class)* — Create an animator bound to an existing shape-key setup on ``base_obj`` -- an object,
   - `BlendshapeAnimator.recover_animation(self) -> bool` — Recover lost animation keyframes on the master shape key's value.
   - `BlendshapeAnimator.diagnose_topology_issues(self) -> bool` — Diagnose topology mismatches between the base mesh and in-between meshes.
   - `BlendshapeAnimator.cleanup_topology_mismatches(self, delete_mismatched: bool = True, apply_valid_only: bool = True) -> bool` — Clean up topology mismatches by deleting bad meshes and applying good ones.
@@ -314,37 +321,6 @@ Applies tween mesh edits back to the master shape key — mirror of mayatk's
   - `Applicator.validate_topology(self, tweens: List[Target]) -> List[Target]` — Filter ``tweens`` to those matching the base mesh's vertex count.
   - `Applicator.apply_tweens(self, tweens: Optional[List[Target]] = None, skip_duplicates: bool = True, validate_topology: bool = False) -> List[Tuple[Target, ApplyStatus]]` — Apply tween mesh edits to corrective in-between shape keys.
 
-<a id="anim_utils--blendshape_animator--blendshape_animator_slots"></a>
-### `anim_utils/blendshape_animator/blendshape_animator_slots.py`
-
-Switchboard slots controller for the co-located ``blendshape_animator.ui`` — Blender port of
-
-- [`COL_NAME`](blendertk/blendertk/anim_utils/blendshape_animator/blendshape_animator_slots.py#L35) — constant
-- [`COL_WEIGHT`](blendertk/blendertk/anim_utils/blendshape_animator/blendshape_animator_slots.py#L36) — constant
-- [`COL_FRAME`](blendertk/blendertk/anim_utils/blendshape_animator/blendshape_animator_slots.py#L37) — constant
-- [`COL_TOPOLOGY`](blendertk/blendertk/anim_utils/blendshape_animator/blendshape_animator_slots.py#L38) — constant
-- [`COL_STATUS`](blendertk/blendertk/anim_utils/blendshape_animator/blendshape_animator_slots.py#L39) — constant
-- [`MODE_WEIGHT`](blendertk/blendertk/anim_utils/blendshape_animator/blendshape_animator_slots.py#L42) — constant
-- [`MODE_FRAME`](blendertk/blendertk/anim_utils/blendshape_animator/blendshape_animator_slots.py#L43) — constant
-- **[`class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsInternal)`](blendertk/blendertk/anim_utils/blendshape_animator/blendshape_animator_slots.py#L82)** — Controller wiring blendshape_animator.ui to the BlendshapeAnimator domain class.
-  - `BlendshapeAnimatorSlots.header_init(self, widget) -> None` — Configure header buttons + about menu.
-  - `BlendshapeAnimatorSlots.b000_init(self, widget) -> None` — Create Setup button — option_box exposes an alternative entrypoint.
-  - `BlendshapeAnimatorSlots.b000(self, widget) -> None` — Create Setup.
-  - `BlendshapeAnimatorSlots.cmb000_init(self, widget) -> None` — Populate the edit-mode combo, and say which input each mode uses.
-  - `BlendshapeAnimatorSlots.le000_init(self, widget) -> None` — Name-prefix field — optional, so an empty prefix is a real choice.
-  - `BlendshapeAnimatorSlots.le001_init(self, widget) -> None` — CSV weights field — option_box menu offers preset lists.
-  - `BlendshapeAnimatorSlots.b001_init(self, widget) -> None` — Add Tweens — option_box exposes count + group / prefix overrides.
-  - `BlendshapeAnimatorSlots.b001(self, widget) -> None` — Add Tweens — dispatches by mode.
-  - `BlendshapeAnimatorSlots.b003(self, widget) -> None` — Diagnose Topology.
-  - `BlendshapeAnimatorSlots.b004_init(self, widget) -> None` — Cleanup Topology Mismatches — option_box for the two flags.
-  - `BlendshapeAnimatorSlots.b004(self, widget) -> None` — Clean up in-between meshes whose topology doesn't match the base mesh.
-  - `BlendshapeAnimatorSlots.b005(self, widget) -> None` — Recover Animation.
-  - `BlendshapeAnimatorSlots.b006_init(self, widget) -> None` — Apply All Edits — option_box for skip_duplicates, validate_topology.
-  - `BlendshapeAnimatorSlots.b006(self, widget) -> None` — Apply All Edits — bulk apply with optional flags from the option_box.
-  - `BlendshapeAnimatorSlots.b007(self, widget) -> None` — Remove Target Mesh.
-  - `BlendshapeAnimatorSlots.b008_init(self, widget) -> None` — Finalize for Export — option_box for the four boolean flags.
-  - `BlendshapeAnimatorSlots.b008(self, widget) -> None` — Finalize the shape-key setup for export (scene cleanup, hide source).
-
 <a id="anim_utils--blendshape_animator--creator"></a>
 ### `anim_utils/blendshape_animator/creator.py`
 
@@ -352,7 +328,7 @@ Creates in-between (tween) target meshes for sculpting a custom morph curve — 
 
 - **[`class Creator(pythontk.LoggingMixin, _CreatorInternal)`](blendertk/blendertk/anim_utils/blendshape_animator/creator.py#L72)** — Creates in-between target mesh objects for custom morph curves.
   - `Creator.create_weight_based_tweens(self, weights: List[float], group_name: str = Targets.GROUP_NAME, name_prefix: str = 'morph_ib') -> List[Target]` — Create tween meshes at specific weight values.
-  - `Creator.create_frame_based_tween(self, target_frame: int) -> Optional[Target]` — Create a tween mesh at a specific animation frame.
+  - `Creator.create_frame_based_tween(self, target_frame: int, group_name: str = Targets.GROUP_NAME, name_prefix: str = 'tween') -> Optional[Target]` — Create a tween mesh at a specific animation frame, named
   - `Creator.tag_tween_mesh(self, obj, weight: float, target_frame: Optional[int] = None) -> None` — Add metadata custom properties to ``obj``.
   - `Creator.get_existing_weights(self) -> Set[float]` — All in-between weights known for the current master shape key.
   - `Creator.find_nearby_weight(self, target_weight: float, existing_weights: Set[float], tolerance: float = 0.01) -> Optional[float]` — Find a nearby weight that doesn't conflict with existing weights.
@@ -3545,20 +3521,32 @@ Telescope Rig — the telescoping-segment rig (tentacle's Telescope Rig panel dr
 <a id="rig_utils--tube_rig--_tube_rig"></a>
 ### `rig_utils/tube_rig/_tube_rig.py`
 
-Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies + panel).
+Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies).
 
-- **[`class TubeRig(pythontk.LoggingMixin, _TubeRigInternal)`](blendertk/blendertk/rig_utils/tube_rig/_tube_rig.py#L123)** — Rig a tube mesh via a named strategy — Blender mirror of mayatk's ``TubeRig``.
+- **[`class TubeRig(pythontk.LoggingMixin, _TubeRigInternal)`](blendertk/blendertk/rig_utils/tube_rig/_tube_rig.py#L168)** — Rig a tube mesh via a named strategy — Blender mirror of mayatk's ``TubeRig``.
   - `TubeRig.collection(self)` *(property)*
   - `TubeRig.resolve_centerline(self, num_joints, precision=None, edges=None)` — The tube's centerline (world points) for *num_joints*, raising if the mesh isn't a
+  - `TubeRig.estimate_tube_radius(self, centerline=None)` — Measure the tube's radius from the mesh surface -- mirror of mayatk's.
+  - `TubeRig.resolve_sizes(self, centerline=None, joint_radius=-1.0)` — ``(joint_radius, control_size)`` from the tube -- mirror of mayatk's ``resolve_sizes``.
   - `TubeRig.create_root(self)`
   - `TubeRig.create_armature(self, centerline, radius=None)` — Armature + bone chain along *centerline*, parented under the rig root.
   - `TubeRig.create_joint_chain(self, centerline, radius=1.0, reverse=False)` — Bones-only build step — mirror of mayatk's ``generate_joint_chain`` + lazy
+  - `TubeRig.create_joints(self, strategy='spline', num_joints=-1, radius=-1.0, reverse=False, edges=None)` — Step 1 of a step-by-step build: this rig's bone chain along the tube's centerline, as
   - `TubeRig.add_twist(self, armature, bones, radius=1.0)` — Progressive roll twist for a Spline-IK chain — Blender's Spline IK ignores the driver
   - `TubeRig.attach_spline_rig(self, armature, bones, num_controls=3, radius=1.0, enable_stretch=True, enable_squash=False, enable_volume=False, enable_auto_bend=False, enable_twist=False)` — Curve + Spline IK + hooked controls on an EXISTING bone chain — mirror of mayatk's
+  - `TubeRig.attach_anchor_rig(self, armature, bones, size=1.0, enable_stretch=True)` — Anchor (piston) controls on an EXISTING one-bone chain — mirror of mayatk's
+  - `TubeRig.attach_fk_rig(self, armature, bones, size=1.0)` — FK on an EXISTING bone chain — Blender's bones-as-controls (mayatk's
   - `TubeRig.build_curve(self, points, count)` — A low-res NURBS driver curve (``count`` control points resampled along *points*) for the
   - `TubeRig.make_control(self, shape, name, size, location, root, color=(1, 1, 0), axis='x')` — Create a control curve at *location*, parented under *root* (keeping its world pos).
   - `TubeRig.hook_curve_controls(self, curve, radius, root)` — One control per curve control-point, each Hook-bound to its point (the live-reshape
   - `TubeRig.constrain_end_with_falloff(self, armature, bones, anchor, mesh, falloff=5.0, bone_index=-1, control=None)` — Constrain one end of a BOUND tube rig to an external *anchor* object with a distance-falloff
+  - `TubeRig.for_build(cls, obj, rig_name=None)` *(class)* — The rig an operation on *obj* (a tube mesh, or its name) builds — mirror of mayatk's.
+  - `TubeRig.selected_tubes()` *(static)* — The tube meshes a build acts on — mirror of mayatk's: every selected mesh object (one
+  - `TubeRig.selected_edges()` *(static)* — The active mesh's selected Edit-Mode edges — the path a build or Step 1 reads the
+  - `TubeRig.undo_step(name='Tube Rig')` *(static)* — ONE undo step for everything the block does — mirror of mayatk's: how a batch of
+  - `TubeRig.create_controls_from_selection(cls, strategy='spline', num_controls=3, rig_name=None, enable_stretch=True, enable_squash=True, enable_volume=True, enable_twist=True, enable_auto_bend=False)` *(class)* — Step 2 of a step-by-step build: the mode's controls on the selected armature's EXISTING
+  - `TubeRig.bind_from_selection(cls, strategy='spline', rig_name=None)` *(class)* — Step 3 of a step-by-step build: bind the selected tube mesh to the selected armature
+  - `TubeRig.constrain_ends_from_selection(cls, strategy='spline', rig_name=None, progress=None)` *(class)* — Constrain one or both ends of the selected bound rig to anchors — mirror of mayatk's:
   - `TubeRig.build(self, strategy='spline', progress: Optional[Callable] = None, **opts) -> TubeRigBundle` — Build the rig with the named *strategy* (``"spline"`` / ``"anchor"`` / ``"fk"`` or a
 
 <a id="rig_utils--tube_rig--strategies"></a>
@@ -3566,20 +3554,22 @@ Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strat
 
 Tube Rig build strategies (Blender) — mirror of mayatk's ``tube_rig/strategies.py``.
 
-- [`TUBE_STRATEGIES`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L274) — constant
-- **[`class TubeRigBundle`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L21)** — Result of a strategy build — mirror of mayatk's ``TubeRigBundle``.
-- **[`class TubeStrategy(ABC)`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L36)** — Base tube-rig strategy.
+- [`TUBE_STRATEGIES`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L262) — constant
+- [`RIG_MODES`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L300) — constant
+- **[`class TubeRigBundle`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L23)** — Result of a strategy build — mirror of mayatk's ``TubeRigBundle``.
+- **[`class TubeStrategy(ABC)`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L38)** — Base tube-rig strategy.
   - `TubeStrategy.register(cls)` *(static)* — Register a custom :class:`TubeStrategy` subclass (keyed by ``cls.name``) — the extension
   - `TubeStrategy.defaults(self) -> dict`
   - `TubeStrategy.resolve(self, opts: Optional[dict]) -> dict` — Merge caller *opts* over the declared defaults (``None`` values fall back to default).
-  - `TubeStrategy.centerline(rig, count, o: dict) -> list` *(static)* — The rig's centerline, root first -- reversed when ``o["reverse"]``.
+  - `TubeStrategy.centerline(rig, count, o: dict) -> list` *(static)* — The rig's centerline, root first -- read from ``o["edges"]`` (a selected-edge
   - `TubeStrategy.build(self, rig: 'TubeRig', **opts) -> TubeRigBundle`
-- **[`class SplineIKStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L78)**
+- **[`class SplineIKStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L81)**
   - `SplineIKStrategy.build(self, rig, **opts)`
-- **[`class AnchorStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L173)**
+- **[`class AnchorStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L179)**
   - `AnchorStrategy.build(self, rig, **opts)`
-- **[`class FKChainStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L229)**
+- **[`class FKChainStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L220)**
   - `FKChainStrategy.build(self, rig, **opts)`
+- **[`class RigModeConfig`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L273)** — A rig mode: its strategy, its option defaults, and which options it supports (an option a
 
 <a id="rig_utils--tube_rig--tube_path"></a>
 ### `rig_utils/tube_rig/tube_path.py`
@@ -3588,22 +3578,9 @@ Tube-mesh centerline extraction — Blender port of mayatk's ``rig_utils.tube_ri
 
 - **[`class TubePath`](blendertk/blendertk/rig_utils/tube_rig/tube_path.py#L23)** — Extract centerline paths from tube meshes (static helpers;
   - `TubePath.get_centerline(mesh, num_joints=10, precision=None, edges=None)` *(static)* — Unified centerline dispatcher — mirror of mayatk's ``TubePath.get_centerline``.
+  - `TubePath.estimate_radius(mesh, centerline)` *(static)* — Estimate the tube's radius -- mirror of mayatk's ``TubePath.estimate_radius``: the
   - `TubePath.get_selected_edges(mesh)` *(static)* — The mesh's selected EDIT-mode edges — mirror of mayatk's optional
   - `TubePath.get_centerline_using_edges(mesh, edges)` *(static)* — Centerline from an explicit edge selection — mirror of mayatk's
-
-<a id="rig_utils--tube_rig--tube_rig_slots"></a>
-### `rig_utils/tube_rig/tube_rig_slots.py`
-
-Tube Rig panel (Blender) — the Switchboard slots for ``tube_rig.ui``.
-
-- **[`class TubeRigSlots(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/tube_rig/tube_rig_slots.py#L23)** — Switchboard slot wiring for the co-located ``tube_rig.ui`` — the **HYBRID** panel.
-  - `TubeRigSlots.txt000_init(self, widget)` — Rig-name field — optional, so clearing back to auto-naming is a state.
-  - `TubeRigSlots.header_init(self, widget)` — Configure header help text.
-  - `TubeRigSlots.b000(self)` — Build Rig — run the selected strategy on the selected tube mesh.
-  - `TubeRigSlots.b001(self)` — Step 1 — create the joint/bone chain from the selected tube mesh's centerline (no controls
-  - `TubeRigSlots.b002(self)` — Step 2 — add the curve + Spline IK + hooked controls onto the selected armature's EXISTING
-  - `TubeRigSlots.b003(self)` — Step 3 — bind the selected tube mesh to the selected armature (Armature modifier + automatic
-  - `TubeRigSlots.b004(self)` — Utility — Constrain Ends to Anchors, one anchor or two: select the rig's armature and
 
 <a id="rig_utils--wheel_rig"></a>
 ### `rig_utils/wheel_rig.py`

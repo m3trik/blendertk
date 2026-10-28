@@ -2,8 +2,33 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (361)
+## Moved out (394)
 
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b000` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b000_init` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b001` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b001_init` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b003` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b004` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b004_init` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b005` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b006` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b006_init` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b007` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b008` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b008_init` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.cmb000_init` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.header_init` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.le000_init` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.le001_init` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::COL_FRAME` → `tentacle.slots.tools.blendshape_animator.COL_FRAME` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::COL_NAME` → `tentacle.slots.tools.blendshape_animator.COL_NAME` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::COL_STATUS` → `tentacle.slots.tools.blendshape_animator.COL_STATUS` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::COL_TOPOLOGY` → `tentacle.slots.tools.blendshape_animator.COL_TOPOLOGY` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::COL_WEIGHT` → `tentacle.slots.tools.blendshape_animator.COL_WEIGHT` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::MODE_FRAME` → `tentacle.slots.tools.blendshape_animator.MODE_FRAME` (from 0.23.0)
+- `anim_utils/blendshape_animator/blendshape_animator_slots.py::MODE_WEIGHT` → `tentacle.slots.tools.blendshape_animator.MODE_WEIGHT` (from 0.23.0)
 - `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots` → `tentacle.slots.tools.key_stash.KeyStashSlots` (from 0.23.0)
 - `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots.b000` → `tentacle.slots.tools.key_stash.KeyStashSlots` (from 0.23.0)
 - `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots.b001` → `tentacle.slots.tools.key_stash.KeyStashSlots` (from 0.23.0)
@@ -310,6 +335,14 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `rig_utils/telescope_rig.py::TelescopeRigSlots.build_rig` → `tentacle.slots.tools.telescope_rig.TelescopeRigSlots` (from 0.23.0)
 - `rig_utils/telescope_rig.py::TelescopeRigSlots.header_init` → `tentacle.slots.tools.telescope_rig.TelescopeRigSlots` (from 0.23.0)
 - `rig_utils/telescope_rig.py::TelescopeRigSlots.remove_rig` → `tentacle.slots.tools.telescope_rig.TelescopeRigSlots` (from 0.23.0)
+- `rig_utils/tube_rig/tube_rig_slots.py::TubeRigSlots` → `tentacle.slots.tools.tube_rig.TubeRigSlots` (from 0.23.0)
+- `rig_utils/tube_rig/tube_rig_slots.py::TubeRigSlots.b000` → `tentacle.slots.tools.tube_rig.TubeRigSlots` (from 0.23.0)
+- `rig_utils/tube_rig/tube_rig_slots.py::TubeRigSlots.b001` → `tentacle.slots.tools.tube_rig.TubeRigSlots` (from 0.23.0)
+- `rig_utils/tube_rig/tube_rig_slots.py::TubeRigSlots.b002` → `tentacle.slots.tools.tube_rig.TubeRigSlots` (from 0.23.0)
+- `rig_utils/tube_rig/tube_rig_slots.py::TubeRigSlots.b003` → `tentacle.slots.tools.tube_rig.TubeRigSlots` (from 0.23.0)
+- `rig_utils/tube_rig/tube_rig_slots.py::TubeRigSlots.b004` → `tentacle.slots.tools.tube_rig.TubeRigSlots` (from 0.23.0)
+- `rig_utils/tube_rig/tube_rig_slots.py::TubeRigSlots.header_init` → `tentacle.slots.tools.tube_rig.TubeRigSlots` (from 0.23.0)
+- `rig_utils/tube_rig/tube_rig_slots.py::TubeRigSlots.txt000_init` → `tentacle.slots.tools.tube_rig.TubeRigSlots` (from 0.23.0)
 - `rig_utils/wheel_rig.py::WheelRigSlots` → `tentacle.slots.tools.wheel_rig.WheelRigSlots` (from 0.23.0)
 - `rig_utils/wheel_rig.py::WheelRigSlots.b000` → `tentacle.slots.tools.wheel_rig.WheelRigSlots` (from 0.23.0)
 - `rig_utils/wheel_rig.py::WheelRigSlots.cleanup` → `tentacle.slots.tools.wheel_rig.WheelRigSlots` (from 0.23.0)
@@ -366,10 +399,19 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/shell_xform.py::ShellXformSlots.tb008` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
 - `uv_utils/shell_xform.py::ShellXformSlots.tb008_init` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
 
-## Added (121)
+## Added (145)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
+- `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.apply_tweens(self, tweens: Optional[List[Target]] = None, skip_duplicates: bool = True, validate_topology: bool = False) -> List[Tuple[Target, ApplyStatus]]`
+- `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.base_mesh(self) -> Optional[str]`
+- `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.blendshape(self) -> Optional[str]`
+- `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.delete_tweens(self, tweens: List[Target]) -> List[str]`
+- `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.has_setup(self) -> bool`
+- `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.select_tweens(tweens: List[Target]) -> list`
+- `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.selected_base(cls) -> Optional[str]`
+- `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.target_mesh(self) -> Optional[str]`
+- `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.tween_topology(self)`
 - `anim_utils/key_stash/_key_stash.py::KeyStash.select_clip_objects(self, clip_id: int) -> List[str]`
 - `anim_utils/key_stash/_key_stash.py::KeyStash.stash_from(self, source: str) -> Optional[StashedClip]`
 - `anim_utils/key_stash/_key_stash.py::KeyStash.watch_undo(cls, owner, widget=None) -> List[int]`
@@ -482,6 +524,21 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `rig_utils/shadow_rig/_shadow_rig.py::ShadowRig.source_selection()`
 - `rig_utils/shadow_rig/shadow_preview.py::ShadowPreview.language(cls) -> Tuple[Optional[str], str]`
 - `rig_utils/telescope_rig.py::TelescopeRig.partition_selection(cls, selection=None)`
+- `rig_utils/tube_rig/_tube_rig.py::TubeRig.attach_anchor_rig(self, armature, bones, size=1.0, enable_stretch=True)`
+- `rig_utils/tube_rig/_tube_rig.py::TubeRig.attach_fk_rig(self, armature, bones, size=1.0)`
+- `rig_utils/tube_rig/_tube_rig.py::TubeRig.bind_from_selection(cls, strategy='spline', rig_name=None)`
+- `rig_utils/tube_rig/_tube_rig.py::TubeRig.constrain_ends_from_selection(cls, strategy='spline', rig_name=None, progress=None)`
+- `rig_utils/tube_rig/_tube_rig.py::TubeRig.create_controls_from_selection(cls, strategy='spline', num_controls=3, rig_name=None, enable_stretch=True, enable_squash=True, enable_volume=True, enable_twist=True, enable_auto_bend=False)`
+- `rig_utils/tube_rig/_tube_rig.py::TubeRig.create_joints(self, strategy='spline', num_joints=-1, radius=-1.0, reverse=False, edges=None)`
+- `rig_utils/tube_rig/_tube_rig.py::TubeRig.estimate_tube_radius(self, centerline=None)`
+- `rig_utils/tube_rig/_tube_rig.py::TubeRig.for_build(cls, obj, rig_name=None)`
+- `rig_utils/tube_rig/_tube_rig.py::TubeRig.resolve_sizes(self, centerline=None, joint_radius=-1.0)`
+- `rig_utils/tube_rig/_tube_rig.py::TubeRig.selected_edges()`
+- `rig_utils/tube_rig/_tube_rig.py::TubeRig.selected_tubes()`
+- `rig_utils/tube_rig/_tube_rig.py::TubeRig.undo_step(name='Tube Rig')`
+- `rig_utils/tube_rig/strategies.py::RIG_MODES(constant)`
+- `rig_utils/tube_rig/strategies.py::RigModeConfig(class)`
+- `rig_utils/tube_rig/tube_path.py::TubePath.estimate_radius(mesh, centerline)`
 - `rig_utils/wheel_rig.py::WheelRig.default_rig_name(cls, control=None)`
 - `rig_utils/wheel_rig.py::WheelRig.from_selection(cls, rig_name=None, freeze_transforms=True, **kwargs)`
 - `rig_utils/wheel_rig.py::WheelRig.wheel_size(obj=None, movement_axis='translateZ')`
@@ -530,8 +587,17 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/emissive_groups.py::EmissiveGroups.transfer_out`
 - `mat_utils/emissive_groups.py::EmissiveGroups.validate`
 
-## Signature changed (8)
+## Signature changed (11)
 
+- `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.edit_frame_based`
+  - was: `(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None) -> List[Target]`
+  - now: `(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None, group_name: Optional[str] = None, name_prefix: Optional[str] = None) -> List[Target]`
+- `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.edit_weight_based`
+  - was: `(self, weights: Optional[List[float]] = None, count: int = 3, weight_range: Tuple[float, float] = (0.0, 1.0)) -> List[Target]`
+  - now: `(self, weights: Optional[List[float]] = None, count: int = 3, weight_range: Tuple[float, float] = (0.0, 1.0), group_name: Optional[str] = None, name_prefix: Optional[str] = None) -> List[Target]`
+- `anim_utils/blendshape_animator/creator.py::Creator.create_frame_based_tween`
+  - was: `(self, target_frame: int) -> Optional[Target]`
+  - now: `(self, target_frame: int, group_name: str = Targets.GROUP_NAME, name_prefix: str = 'tween') -> Optional[Target]`
 - `display_utils/color_id.py::ColorId.apply_color`
   - was: `(cls, objects: Sequence, color: Optional[Color] = None, apply_to_material: bool = False, apply_to_object: bool = False, apply_to_vertex: bool = False, apply_to_outliner: bool = False, set_per_color: bool = False) -> None`
   - now: `(cls, objects: Sequence, color: Optional[Color] = None, apply_to_material: bool = False, apply_to_vertex: bool = False, apply_to_wireframe: bool = False, apply_to_outliner: bool = False, set_per_color: bool = False, apply_to_object: bool = False) -> None`

@@ -23,7 +23,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 438,
+          "line": 437,
           "deprecated": false
         }
       ]
@@ -567,36 +567,63 @@
         {
           "name": "BlendshapeAnimator",
           "summary": "Main workflow facade for shape-key morph animation.",
-          "line": 42,
+          "line": 50,
           "bases": [
             "pythontk.LoggingMixin"
           ],
           "members": [
+            {
+              "name": "base_mesh",
+              "qualname": "BlendshapeAnimator.base_mesh",
+              "kind": "property",
+              "signature": "(self) -> Optional[str]",
+              "summary": "The base mesh object's name (``None`` unbound) -- mayatk's ``base_mesh``.",
+              "line": 87,
+              "deprecated": false
+            },
+            {
+              "name": "target_mesh",
+              "qualname": "BlendshapeAnimator.target_mesh",
+              "kind": "property",
+              "signature": "(self) -> Optional[str]",
+              "summary": "The target mesh object's name (``None`` unbound) -- mayatk's ``target_mesh``.",
+              "line": 92,
+              "deprecated": false
+            },
+            {
+              "name": "blendshape",
+              "qualname": "BlendshapeAnimator.blendshape",
+              "kind": "property",
+              "signature": "(self) -> Optional[str]",
+              "summary": "The master shape key's name -- the analogue of mayatk's blendShape node name.",
+              "line": 97,
+              "deprecated": false
+            },
             {
               "name": "create",
               "qualname": "BlendshapeAnimator.create",
               "kind": "method",
               "signature": "(self, base_obj=None, target_obj=None, start_frame: Optional[int] = None, end_frame: Optional[int] = None, name: str = 'morph', test_setup: bool = True) -> bool",
               "summary": "Set up a basic morph animation between two mesh objects.",
-              "line": 67,
+              "line": 105,
               "deprecated": false
             },
             {
               "name": "edit_weight_based",
               "qualname": "BlendshapeAnimator.edit_weight_based",
               "kind": "method",
-              "signature": "(self, weights: Optional[List[float]] = None, count: int = 3, weight_range: Tuple[float, float] = (0.0, 1.0)) -> List[Target]",
+              "signature": "(self, weights: Optional[List[float]] = None, count: int = 3, weight_range: Tuple[float, float] = (0.0, 1.0), group_name: Optional[str] = None, name_prefix: Optional[str] = None) -> List[Target]",
               "summary": "Create tweens at specific weights or evenly spaced.",
-              "line": 216,
+              "line": 254,
               "deprecated": false
             },
             {
               "name": "edit_frame_based",
               "qualname": "BlendshapeAnimator.edit_frame_based",
               "kind": "method",
-              "signature": "(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None) -> List[Target]",
+              "signature": "(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None, group_name: Optional[str] = None, name_prefix: Optional[str] = None) -> List[Target]",
               "summary": "Create tweens at specific animation frames.",
-              "line": 242,
+              "line": 290,
               "deprecated": false
             },
             {
@@ -605,7 +632,61 @@
               "kind": "method",
               "signature": "(self, tweens: Optional[List[Target]] = None) -> List[Target]",
               "summary": "Apply tween mesh edits back to the master shape key's correctives.",
-              "line": 273,
+              "line": 331,
+              "deprecated": false
+            },
+            {
+              "name": "has_setup",
+              "qualname": "BlendshapeAnimator.has_setup",
+              "kind": "method",
+              "signature": "(self) -> bool",
+              "summary": "True while a setup is bound and its base mesh and master shape key still exist -- the",
+              "line": 349,
+              "deprecated": false
+            },
+            {
+              "name": "selected_base",
+              "qualname": "BlendshapeAnimator.selected_base",
+              "kind": "classmethod",
+              "signature": "(cls) -> Optional[str]",
+              "summary": "The name of the first selected mesh that carries a usable shape-key setup -- the setup",
+              "line": 380,
+              "deprecated": false
+            },
+            {
+              "name": "tween_topology",
+              "qualname": "BlendshapeAnimator.tween_topology",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "This setup's tweens with their vertex counts, beside the base mesh's -- mirror of",
+              "line": 396,
+              "deprecated": false
+            },
+            {
+              "name": "apply_tweens",
+              "qualname": "BlendshapeAnimator.apply_tweens",
+              "kind": "method",
+              "signature": "(self, tweens: Optional[List[Target]] = None, skip_duplicates: bool = True, validate_topology: bool = False) -> List[Tuple[Target, ApplyStatus]]",
+              "summary": "Apply tween edits back as driver-driven corrective shape keys and report each tween",
+              "line": 417,
+              "deprecated": false
+            },
+            {
+              "name": "delete_tweens",
+              "qualname": "BlendshapeAnimator.delete_tweens",
+              "kind": "method",
+              "signature": "(self, tweens: List[Target]) -> List[str]",
+              "summary": "Delete tween meshes, and the default tween group once they leave it empty -- mirror",
+              "line": 436,
+              "deprecated": false
+            },
+            {
+              "name": "select_tweens",
+              "qualname": "BlendshapeAnimator.select_tweens",
+              "kind": "staticmethod",
+              "signature": "(tweens: List[Target]) -> list",
+              "summary": "Select the tweens' meshes that still exist, replacing the selection",
+              "line": 460,
               "deprecated": false
             },
             {
@@ -614,7 +695,7 @@
               "kind": "classmethod",
               "signature": "(cls, base_obj=None, target_obj=None, start_frame: Optional[int] = None, end_frame: Optional[int] = None, name: str = 'morph') -> Optional['BlendshapeAnimator']",
               "summary": "Complete basic workflow: create setup with tweens ready for editing.",
-              "line": 335,
+              "line": 524,
               "deprecated": false
             },
             {
@@ -623,7 +704,7 @@
               "kind": "method",
               "signature": "(self) -> bool",
               "summary": "Apply all tween edits to the current setup.",
-              "line": 368,
+              "line": 557,
               "deprecated": false
             },
             {
@@ -632,7 +713,7 @@
               "kind": "method",
               "signature": "(self, cleanup_scene: bool = True, delete_construction_history: bool = True, hide_target_mesh: bool = True, delete_inbetween_meshes: bool = True) -> bool",
               "summary": "Finalize the morph animation and clean up the scene for export.",
-              "line": 386,
+              "line": 575,
               "deprecated": false
             },
             {
@@ -640,8 +721,8 @@
               "qualname": "BlendshapeAnimator.from_existing",
               "kind": "classmethod",
               "signature": "(cls, base_obj=None) -> Optional['BlendshapeAnimator']",
-              "summary": "Create an animator bound to an existing shape-key setup on ``base_obj``.",
-              "line": 476,
+              "summary": "Create an animator bound to an existing shape-key setup on ``base_obj`` -- an object,",
+              "line": 665,
               "deprecated": false
             },
             {
@@ -650,7 +731,7 @@
               "kind": "method",
               "signature": "(self) -> bool",
               "summary": "Recover lost animation keyframes on the master shape key's value.",
-              "line": 535,
+              "line": 734,
               "deprecated": false
             },
             {
@@ -659,7 +740,7 @@
               "kind": "method",
               "signature": "(self) -> bool",
               "summary": "Diagnose topology mismatches between the base mesh and in-between meshes.",
-              "line": 580,
+              "line": 779,
               "deprecated": false
             },
             {
@@ -668,7 +749,7 @@
               "kind": "method",
               "signature": "(self, delete_mismatched: bool = True, apply_valid_only: bool = True) -> bool",
               "summary": "Clean up topology mismatches by deleting bad meshes and applying good ones.",
-              "line": 646,
+              "line": 845,
               "deprecated": false
             },
             {
@@ -677,7 +758,7 @@
               "kind": "method",
               "signature": "(self) -> bool",
               "summary": "Remove the target mesh object for a clean export.",
-              "line": 749,
+              "line": 948,
               "deprecated": false
             }
           ]
@@ -731,242 +812,6 @@
       "constants": []
     },
     {
-      "relpath": "anim_utils/blendshape_animator/blendshape_animator_slots.py",
-      "summary": "Switchboard slots controller for the co-located ``blendshape_animator.ui`` — Blender port of",
-      "functions": [],
-      "classes": [
-        {
-          "name": "BlendshapeAnimatorSlots",
-          "summary": "Controller wiring blendshape_animator.ui to the BlendshapeAnimator domain class.",
-          "line": 82,
-          "bases": [
-            "BlendshapeAnimator",
-            "_BlendshapeAnimatorSlotsInternal"
-          ],
-          "members": [
-            {
-              "name": "header_init",
-              "qualname": "BlendshapeAnimatorSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Configure header buttons + about menu.",
-              "line": 199,
-              "deprecated": false
-            },
-            {
-              "name": "b000_init",
-              "qualname": "BlendshapeAnimatorSlots.b000_init",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Create Setup button — option_box exposes an alternative entrypoint.",
-              "line": 245,
-              "deprecated": false
-            },
-            {
-              "name": "b000",
-              "qualname": "BlendshapeAnimatorSlots.b000",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Create Setup.",
-              "line": 261,
-              "deprecated": false
-            },
-            {
-              "name": "cmb000_init",
-              "qualname": "BlendshapeAnimatorSlots.cmb000_init",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Populate the edit-mode combo, and say which input each mode uses.",
-              "line": 313,
-              "deprecated": false
-            },
-            {
-              "name": "le000_init",
-              "qualname": "BlendshapeAnimatorSlots.le000_init",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Name-prefix field — optional, so an empty prefix is a real choice.",
-              "line": 324,
-              "deprecated": false
-            },
-            {
-              "name": "le001_init",
-              "qualname": "BlendshapeAnimatorSlots.le001_init",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "CSV weights field — option_box menu offers preset lists.",
-              "line": 328,
-              "deprecated": false
-            },
-            {
-              "name": "b001_init",
-              "qualname": "BlendshapeAnimatorSlots.b001_init",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Add Tweens — option_box exposes count + group / prefix overrides.",
-              "line": 346,
-              "deprecated": false
-            },
-            {
-              "name": "b001",
-              "qualname": "BlendshapeAnimatorSlots.b001",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Add Tweens — dispatches by mode.",
-              "line": 374,
-              "deprecated": false
-            },
-            {
-              "name": "b003",
-              "qualname": "BlendshapeAnimatorSlots.b003",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Diagnose Topology.",
-              "line": 436,
-              "deprecated": false
-            },
-            {
-              "name": "b004_init",
-              "qualname": "BlendshapeAnimatorSlots.b004_init",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Cleanup Topology Mismatches — option_box for the two flags.",
-              "line": 450,
-              "deprecated": false
-            },
-            {
-              "name": "b004",
-              "qualname": "BlendshapeAnimatorSlots.b004",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Clean up in-between meshes whose topology doesn't match the base mesh.",
-              "line": 468,
-              "deprecated": false
-            },
-            {
-              "name": "b005",
-              "qualname": "BlendshapeAnimatorSlots.b005",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Recover Animation.",
-              "line": 482,
-              "deprecated": false
-            },
-            {
-              "name": "b006_init",
-              "qualname": "BlendshapeAnimatorSlots.b006_init",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Apply All Edits — option_box for skip_duplicates, validate_topology.",
-              "line": 499,
-              "deprecated": false
-            },
-            {
-              "name": "b006",
-              "qualname": "BlendshapeAnimatorSlots.b006",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Apply All Edits — bulk apply with optional flags from the option_box.",
-              "line": 521,
-              "deprecated": false
-            },
-            {
-              "name": "b007",
-              "qualname": "BlendshapeAnimatorSlots.b007",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Remove Target Mesh.",
-              "line": 549,
-              "deprecated": false
-            },
-            {
-              "name": "b008_init",
-              "qualname": "BlendshapeAnimatorSlots.b008_init",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Finalize for Export — option_box for the four boolean flags.",
-              "line": 562,
-              "deprecated": false
-            },
-            {
-              "name": "b008",
-              "qualname": "BlendshapeAnimatorSlots.b008",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Finalize the shape-key setup for export (scene cleanup, hide source).",
-              "line": 600,
-              "deprecated": false
-            }
-          ]
-        }
-      ],
-      "constants": [
-        {
-          "name": "COL_NAME",
-          "qualname": "COL_NAME",
-          "kind": "constant",
-          "signature": "",
-          "summary": "",
-          "line": 35,
-          "deprecated": false
-        },
-        {
-          "name": "COL_WEIGHT",
-          "qualname": "COL_WEIGHT",
-          "kind": "constant",
-          "signature": "",
-          "summary": "",
-          "line": 36,
-          "deprecated": false
-        },
-        {
-          "name": "COL_FRAME",
-          "qualname": "COL_FRAME",
-          "kind": "constant",
-          "signature": "",
-          "summary": "",
-          "line": 37,
-          "deprecated": false
-        },
-        {
-          "name": "COL_TOPOLOGY",
-          "qualname": "COL_TOPOLOGY",
-          "kind": "constant",
-          "signature": "",
-          "summary": "",
-          "line": 38,
-          "deprecated": false
-        },
-        {
-          "name": "COL_STATUS",
-          "qualname": "COL_STATUS",
-          "kind": "constant",
-          "signature": "",
-          "summary": "",
-          "line": 39,
-          "deprecated": false
-        },
-        {
-          "name": "MODE_WEIGHT",
-          "qualname": "MODE_WEIGHT",
-          "kind": "constant",
-          "signature": "",
-          "summary": "",
-          "line": 42,
-          "deprecated": false
-        },
-        {
-          "name": "MODE_FRAME",
-          "qualname": "MODE_FRAME",
-          "kind": "constant",
-          "signature": "",
-          "summary": "",
-          "line": 43,
-          "deprecated": false
-        }
-      ]
-    },
-    {
       "relpath": "anim_utils/blendshape_animator/creator.py",
       "summary": "Creates in-between (tween) target meshes for sculpting a custom morph curve — mirror of",
       "functions": [],
@@ -993,8 +838,8 @@
               "name": "create_frame_based_tween",
               "qualname": "Creator.create_frame_based_tween",
               "kind": "method",
-              "signature": "(self, target_frame: int) -> Optional[Target]",
-              "summary": "Create a tween mesh at a specific animation frame.",
+              "signature": "(self, target_frame: int, group_name: str = Targets.GROUP_NAME, name_prefix: str = 'tween') -> Optional[Target]",
+              "summary": "Create a tween mesh at a specific animation frame, named",
               "line": 181,
               "deprecated": false
             },
@@ -1004,7 +849,7 @@
               "kind": "method",
               "signature": "(self, obj, weight: float, target_frame: Optional[int] = None) -> None",
               "summary": "Add metadata custom properties to ``obj``.",
-              "line": 237,
+              "line": 243,
               "deprecated": false
             },
             {
@@ -1013,7 +858,7 @@
               "kind": "method",
               "signature": "(self) -> Set[float]",
               "summary": "All in-between weights known for the current master shape key.",
-              "line": 248,
+              "line": 254,
               "deprecated": false
             },
             {
@@ -1022,7 +867,7 @@
               "kind": "method",
               "signature": "(self, target_weight: float, existing_weights: Set[float], tolerance: float = 0.01) -> Optional[float]",
               "summary": "Find a nearby weight that doesn't conflict with existing weights.",
-              "line": 264,
+              "line": 270,
               "deprecated": false
             }
           ]
@@ -21807,13 +21652,13 @@
     },
     {
       "relpath": "rig_utils/tube_rig/_tube_rig.py",
-      "summary": "Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies + panel).",
+      "summary": "Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies).",
       "functions": [],
       "classes": [
         {
           "name": "TubeRig",
           "summary": "Rig a tube mesh via a named strategy — Blender mirror of mayatk's ``TubeRig``.",
-          "line": 123,
+          "line": 168,
           "bases": [
             "pythontk.LoggingMixin",
             "_TubeRigInternal"
@@ -21825,7 +21670,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 138,
+              "line": 190,
               "deprecated": false
             },
             {
@@ -21834,7 +21679,25 @@
               "kind": "method",
               "signature": "(self, num_joints, precision=None, edges=None)",
               "summary": "The tube's centerline (world points) for *num_joints*, raising if the mesh isn't a",
-              "line": 145,
+              "line": 199,
+              "deprecated": false
+            },
+            {
+              "name": "estimate_tube_radius",
+              "qualname": "TubeRig.estimate_tube_radius",
+              "kind": "method",
+              "signature": "(self, centerline=None)",
+              "summary": "Measure the tube's radius from the mesh surface -- mirror of mayatk's.",
+              "line": 222,
+              "deprecated": false
+            },
+            {
+              "name": "resolve_sizes",
+              "qualname": "TubeRig.resolve_sizes",
+              "kind": "method",
+              "signature": "(self, centerline=None, joint_radius=-1.0)",
+              "summary": "``(joint_radius, control_size)`` from the tube -- mirror of mayatk's ``resolve_sizes``.",
+              "line": 238,
               "deprecated": false
             },
             {
@@ -21843,7 +21706,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "",
-              "line": 157,
+              "line": 257,
               "deprecated": false
             },
             {
@@ -21852,7 +21715,7 @@
               "kind": "method",
               "signature": "(self, centerline, radius=None)",
               "summary": "Armature + bone chain along *centerline*, parented under the rig root.",
-              "line": 163,
+              "line": 263,
               "deprecated": false
             },
             {
@@ -21861,7 +21724,16 @@
               "kind": "method",
               "signature": "(self, centerline, radius=1.0, reverse=False)",
               "summary": "Bones-only build step — mirror of mayatk's ``generate_joint_chain`` + lazy",
-              "line": 177,
+              "line": 278,
+              "deprecated": false
+            },
+            {
+              "name": "create_joints",
+              "qualname": "TubeRig.create_joints",
+              "kind": "method",
+              "signature": "(self, strategy='spline', num_joints=-1, radius=-1.0, reverse=False, edges=None)",
+              "summary": "Step 1 of a step-by-step build: this rig's bone chain along the tube's centerline, as",
+              "line": 289,
               "deprecated": false
             },
             {
@@ -21870,7 +21742,7 @@
               "kind": "method",
               "signature": "(self, armature, bones, radius=1.0)",
               "summary": "Progressive roll twist for a Spline-IK chain — Blender's Spline IK ignores the driver",
-              "line": 213,
+              "line": 343,
               "deprecated": false
             },
             {
@@ -21879,7 +21751,25 @@
               "kind": "method",
               "signature": "(self, armature, bones, num_controls=3, radius=1.0, enable_stretch=True, enable_squash=False, enable_volume=False, enable_auto_bend=False, enable_twist=False)",
               "summary": "Curve + Spline IK + hooked controls on an EXISTING bone chain — mirror of mayatk's",
-              "line": 263,
+              "line": 393,
+              "deprecated": false
+            },
+            {
+              "name": "attach_anchor_rig",
+              "qualname": "TubeRig.attach_anchor_rig",
+              "kind": "method",
+              "signature": "(self, armature, bones, size=1.0, enable_stretch=True)",
+              "summary": "Anchor (piston) controls on an EXISTING one-bone chain — mirror of mayatk's",
+              "line": 447,
+              "deprecated": false
+            },
+            {
+              "name": "attach_fk_rig",
+              "qualname": "TubeRig.attach_fk_rig",
+              "kind": "method",
+              "signature": "(self, armature, bones, size=1.0)",
+              "summary": "FK on an EXISTING bone chain — Blender's bones-as-controls (mayatk's",
+              "line": 478,
               "deprecated": false
             },
             {
@@ -21888,7 +21778,7 @@
               "kind": "method",
               "signature": "(self, points, count)",
               "summary": "A low-res NURBS driver curve (``count`` control points resampled along *points*) for the",
-              "line": 317,
+              "line": 492,
               "deprecated": false
             },
             {
@@ -21897,7 +21787,7 @@
               "kind": "method",
               "signature": "(self, shape, name, size, location, root, color=(1, 1, 0), axis='x')",
               "summary": "Create a control curve at *location*, parented under *root* (keeping its world pos).",
-              "line": 352,
+              "line": 527,
               "deprecated": false
             },
             {
@@ -21906,7 +21796,7 @@
               "kind": "method",
               "signature": "(self, curve, radius, root)",
               "summary": "One control per curve control-point, each Hook-bound to its point (the live-reshape",
-              "line": 373,
+              "line": 548,
               "deprecated": false
             },
             {
@@ -21915,7 +21805,70 @@
               "kind": "method",
               "signature": "(self, armature, bones, anchor, mesh, falloff=5.0, bone_index=-1, control=None)",
               "summary": "Constrain one end of a BOUND tube rig to an external *anchor* object with a distance-falloff",
-              "line": 458,
+              "line": 633,
+              "deprecated": false
+            },
+            {
+              "name": "for_build",
+              "qualname": "TubeRig.for_build",
+              "kind": "classmethod",
+              "signature": "(cls, obj, rig_name=None)",
+              "summary": "The rig an operation on *obj* (a tube mesh, or its name) builds — mirror of mayatk's.",
+              "line": 738,
+              "deprecated": false
+            },
+            {
+              "name": "selected_tubes",
+              "qualname": "TubeRig.selected_tubes",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "The tube meshes a build acts on — mirror of mayatk's: every selected mesh object (one",
+              "line": 764,
+              "deprecated": false
+            },
+            {
+              "name": "selected_edges",
+              "qualname": "TubeRig.selected_edges",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "The active mesh's selected Edit-Mode edges — the path a build or Step 1 reads the",
+              "line": 774,
+              "deprecated": false
+            },
+            {
+              "name": "undo_step",
+              "qualname": "TubeRig.undo_step",
+              "kind": "staticmethod",
+              "signature": "(name='Tube Rig')",
+              "summary": "ONE undo step for everything the block does — mirror of mayatk's: how a batch of",
+              "line": 811,
+              "deprecated": false
+            },
+            {
+              "name": "create_controls_from_selection",
+              "qualname": "TubeRig.create_controls_from_selection",
+              "kind": "classmethod",
+              "signature": "(cls, strategy='spline', num_controls=3, rig_name=None, enable_stretch=True, enable_squash=True, enable_volume=True, enable_twist=True, enable_auto_bend=False)",
+              "summary": "Step 2 of a step-by-step build: the mode's controls on the selected armature's EXISTING",
+              "line": 827,
+              "deprecated": false
+            },
+            {
+              "name": "bind_from_selection",
+              "qualname": "TubeRig.bind_from_selection",
+              "kind": "classmethod",
+              "signature": "(cls, strategy='spline', rig_name=None)",
+              "summary": "Step 3 of a step-by-step build: bind the selected tube mesh to the selected armature",
+              "line": 900,
+              "deprecated": false
+            },
+            {
+              "name": "constrain_ends_from_selection",
+              "qualname": "TubeRig.constrain_ends_from_selection",
+              "kind": "classmethod",
+              "signature": "(cls, strategy='spline', rig_name=None, progress=None)",
+              "summary": "Constrain one or both ends of the selected bound rig to anchors — mirror of mayatk's:",
+              "line": 925,
               "deprecated": false
             },
             {
@@ -21924,7 +21877,7 @@
               "kind": "method",
               "signature": "(self, strategy='spline', progress: Optional[Callable] = None, **opts) -> TubeRigBundle",
               "summary": "Build the rig with the named *strategy* (``\"spline\"`` / ``\"anchor\"`` / ``\"fk\"`` or a",
-              "line": 599,
+              "line": 1049,
               "deprecated": false
             }
           ]
@@ -21940,14 +21893,14 @@
         {
           "name": "TubeRigBundle",
           "summary": "Result of a strategy build — mirror of mayatk's ``TubeRigBundle``.",
-          "line": 21,
+          "line": 23,
           "bases": [],
           "members": []
         },
         {
           "name": "TubeStrategy",
           "summary": "Base tube-rig strategy.",
-          "line": 36,
+          "line": 38,
           "bases": [
             "ABC"
           ],
@@ -21958,7 +21911,7 @@
               "kind": "staticmethod",
               "signature": "(cls)",
               "summary": "Register a custom :class:`TubeStrategy` subclass (keyed by ``cls.name``) — the extension",
-              "line": 45,
+              "line": 47,
               "deprecated": false
             },
             {
@@ -21967,7 +21920,7 @@
               "kind": "method",
               "signature": "(self) -> dict",
               "summary": "",
-              "line": 53,
+              "line": 55,
               "deprecated": false
             },
             {
@@ -21976,7 +21929,7 @@
               "kind": "method",
               "signature": "(self, opts: Optional[dict]) -> dict",
               "summary": "Merge caller *opts* over the declared defaults (``None`` values fall back to default).",
-              "line": 56,
+              "line": 58,
               "deprecated": false
             },
             {
@@ -21984,8 +21937,8 @@
               "qualname": "TubeStrategy.centerline",
               "kind": "staticmethod",
               "signature": "(rig, count, o: dict) -> list",
-              "summary": "The rig's centerline, root first -- reversed when ``o[\"reverse\"]``.",
-              "line": 64,
+              "summary": "The rig's centerline, root first -- read from ``o[\"edges\"]`` (a selected-edge",
+              "line": 66,
               "deprecated": false
             },
             {
@@ -21994,7 +21947,7 @@
               "kind": "method",
               "signature": "(self, rig: 'TubeRig', **opts) -> TubeRigBundle",
               "summary": "",
-              "line": 75,
+              "line": 78,
               "deprecated": false
             }
           ]
@@ -22002,7 +21955,7 @@
         {
           "name": "SplineIKStrategy",
           "summary": "",
-          "line": 78,
+          "line": 81,
           "bases": [
             "TubeStrategy"
           ],
@@ -22013,7 +21966,7 @@
               "kind": "method",
               "signature": "(self, rig, **opts)",
               "summary": "",
-              "line": 146,
+              "line": 151,
               "deprecated": false
             }
           ]
@@ -22021,7 +21974,7 @@
         {
           "name": "AnchorStrategy",
           "summary": "",
-          "line": 173,
+          "line": 179,
           "bases": [
             "TubeStrategy"
           ],
@@ -22032,7 +21985,7 @@
               "kind": "method",
               "signature": "(self, rig, **opts)",
               "summary": "",
-              "line": 195,
+              "line": 203,
               "deprecated": false
             }
           ]
@@ -22040,7 +21993,7 @@
         {
           "name": "FKChainStrategy",
           "summary": "",
-          "line": 229,
+          "line": 220,
           "bases": [
             "TubeStrategy"
           ],
@@ -22051,10 +22004,17 @@
               "kind": "method",
               "signature": "(self, rig, **opts)",
               "summary": "",
-              "line": 253,
+              "line": 246,
               "deprecated": false
             }
           ]
+        },
+        {
+          "name": "RigModeConfig",
+          "summary": "A rig mode: its strategy, its option defaults, and which options it supports (an option a",
+          "line": 273,
+          "bases": [],
+          "members": []
         }
       ],
       "constants": [
@@ -22064,7 +22024,16 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 274,
+          "line": 262,
+          "deprecated": false
+        },
+        {
+          "name": "RIG_MODES",
+          "qualname": "RIG_MODES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 300,
           "deprecated": false
         }
       ]
@@ -22090,12 +22059,21 @@
               "deprecated": false
             },
             {
+              "name": "estimate_radius",
+              "qualname": "TubePath.estimate_radius",
+              "kind": "staticmethod",
+              "signature": "(mesh, centerline)",
+              "summary": "Estimate the tube's radius -- mirror of mayatk's ``TubePath.estimate_radius``: the",
+              "line": 53,
+              "deprecated": false
+            },
+            {
               "name": "get_selected_edges",
               "qualname": "TubePath.get_selected_edges",
               "kind": "staticmethod",
               "signature": "(mesh)",
               "summary": "The mesh's selected EDIT-mode edges — mirror of mayatk's optional",
-              "line": 69,
+              "line": 123,
               "deprecated": false
             },
             {
@@ -22104,88 +22082,7 @@
               "kind": "staticmethod",
               "signature": "(mesh, edges)",
               "summary": "Centerline from an explicit edge selection — mirror of mayatk's",
-              "line": 83,
-              "deprecated": false
-            }
-          ]
-        }
-      ],
-      "constants": []
-    },
-    {
-      "relpath": "rig_utils/tube_rig/tube_rig_slots.py",
-      "summary": "Tube Rig panel (Blender) — the Switchboard slots for ``tube_rig.ui``.",
-      "functions": [],
-      "classes": [
-        {
-          "name": "TubeRigSlots",
-          "summary": "Switchboard slot wiring for the co-located ``tube_rig.ui`` — the **HYBRID** panel.",
-          "line": 23,
-          "bases": [
-            "pythontk.LoggingMixin"
-          ],
-          "members": [
-            {
-              "name": "txt000_init",
-              "qualname": "TubeRigSlots.txt000_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Rig-name field — optional, so clearing back to auto-naming is a state.",
-              "line": 48,
-              "deprecated": false
-            },
-            {
-              "name": "header_init",
-              "qualname": "TubeRigSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Configure header help text.",
-              "line": 52,
-              "deprecated": false
-            },
-            {
-              "name": "b000",
-              "qualname": "TubeRigSlots.b000",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Build Rig — run the selected strategy on the selected tube mesh.",
-              "line": 139,
-              "deprecated": false
-            },
-            {
-              "name": "b001",
-              "qualname": "TubeRigSlots.b001",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Step 1 — create the joint/bone chain from the selected tube mesh's centerline (no controls",
-              "line": 195,
-              "deprecated": false
-            },
-            {
-              "name": "b002",
-              "qualname": "TubeRigSlots.b002",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Step 2 — add the curve + Spline IK + hooked controls onto the selected armature's EXISTING",
-              "line": 220,
-              "deprecated": false
-            },
-            {
-              "name": "b003",
-              "qualname": "TubeRigSlots.b003",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Step 3 — bind the selected tube mesh to the selected armature (Armature modifier + automatic",
-              "line": 266,
-              "deprecated": false
-            },
-            {
-              "name": "b004",
-              "qualname": "TubeRigSlots.b004",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Utility — Constrain Ends to Anchors, one anchor or two: select the rig's armature and",
-              "line": 295,
+              "line": 137,
               "deprecated": false
             }
           ]

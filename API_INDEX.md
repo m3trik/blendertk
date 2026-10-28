@@ -11,17 +11,12 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `anim_utils/blendshape_animator/_blendshape_animator.py` — Main workflow facade for shape-key morph creation, editing, and export — mirror of mayatk's
 - `class BlendshapeAnimator(pythontk.LoggingMixin)`
-  - methods: create, edit_weight_based, edit_frame_based, edit_apply_tweens, basic_workflow, apply_all_edits, finalize_for_export, from_existing, recover_animation, diagnose_topology_issues, cleanup_topology_mismatches, remove_target_for_export
+  - methods: base_mesh, target_mesh, blendshape, create, edit_weight_based, edit_frame_based, edit_apply_tweens, has_setup, selected_base, tween_topology, apply_tweens, delete_tweens, select_tweens, basic_workflow, apply_all_edits, finalize_for_export, from_existing, recover_animation, diagnose_topology_issues, cleanup_topology_mismatches, remove_target_for_export
 
 ### `anim_utils/blendshape_animator/applicator.py` — Applies tween mesh edits back to the master shape key — mirror of mayatk's
 - `class ApplyStatus(Enum)`
 - `class Applicator(pythontk.LoggingMixin)`
   - methods: validate_topology, apply_tweens
-
-### `anim_utils/blendshape_animator/blendshape_animator_slots.py` — Switchboard slots controller for the co-located ``blendshape_animator.ui`` — Blender port of
-- constants: COL_NAME, COL_WEIGHT, COL_FRAME, COL_TOPOLOGY, COL_STATUS, MODE_WEIGHT, MODE_FRAME
-- `class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsInternal)`
-  - methods: header_init, b000_init, b000, cmb000_init, le000_init, le001_init, b001_init, b001, b003, b004_init, b004, b005, b006_init, b006, b007, b008_init, b008
 
 ### `anim_utils/blendshape_animator/creator.py` — Creates in-between (tween) target meshes for sculpting a custom morph curve — mirror of
 - `class Creator(pythontk.LoggingMixin, _CreatorInternal)`
@@ -856,12 +851,12 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class TelescopeRig(pythontk.LoggingMixin)`
   - methods: partition_selection, setup_telescope_rig, scene_bundles, find_bundles, teardown
 
-### `rig_utils/tube_rig/_tube_rig.py` — Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies + panel).
+### `rig_utils/tube_rig/_tube_rig.py` — Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies).
 - `class TubeRig(pythontk.LoggingMixin, _TubeRigInternal)`
-  - methods: collection, resolve_centerline, create_root, create_armature, create_joint_chain, add_twist, attach_spline_rig, build_curve, make_control, hook_curve_controls, constrain_end_with_falloff, build
+  - methods: collection, resolve_centerline, estimate_tube_radius, resolve_sizes, create_root, create_armature, create_joint_chain, create_joints, add_twist, attach_spline_rig, attach_anchor_rig, attach_fk_rig, build_curve, make_control, hook_curve_controls, constrain_end_with_falloff, for_build, selected_tubes, selected_edges, undo_step, create_controls_from_selection, bind_from_selection, constrain_ends_from_selection, build
 
 ### `rig_utils/tube_rig/strategies.py` — Tube Rig build strategies (Blender) — mirror of mayatk's ``tube_rig/strategies.py``.
-- constants: TUBE_STRATEGIES
+- constants: TUBE_STRATEGIES, RIG_MODES
 - `class TubeRigBundle`
 - `class TubeStrategy(ABC)`
   - methods: register, defaults, resolve, centerline, build
@@ -871,14 +866,11 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
   - methods: build
 - `class FKChainStrategy(TubeStrategy)`
   - methods: build
+- `class RigModeConfig`
 
 ### `rig_utils/tube_rig/tube_path.py` — Tube-mesh centerline extraction — Blender port of mayatk's ``rig_utils.tube_rig.tube_path.TubePath`…
 - `class TubePath`
-  - methods: get_centerline, get_selected_edges, get_centerline_using_edges
-
-### `rig_utils/tube_rig/tube_rig_slots.py` — Tube Rig panel (Blender) — the Switchboard slots for ``tube_rig.ui``.
-- `class TubeRigSlots(pythontk.LoggingMixin)`
-  - methods: txt000_init, header_init, b000, b001, b002, b003, b004
+  - methods: get_centerline, estimate_radius, get_selected_edges, get_centerline_using_edges
 
 ### `rig_utils/wheel_rig.py` — Wheel Rig — wheels that roll as their control moves (tentacle's Wheel Rig panel drives it).
 - `class WheelRig(pythontk.LoggingMixin)`

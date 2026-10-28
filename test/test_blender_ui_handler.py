@@ -49,7 +49,6 @@ def _sandbox_qsettings():
 # Co-located tool panels that BlenderUiHandler must discover from the blendertk package.
 PANELS = [
     "audio_clips",
-    "blendshape_animator",
     "lightmap_baker",
     "reference_manager",
     "workspace_editor",
@@ -65,7 +64,6 @@ PANELS = [
     "scene_exporter",
     "channels",
     "render_effects",
-    "tube_rig",
     "shots",
     "shot_sequencer",
 ]
@@ -287,18 +285,10 @@ try:
             "AudioClipsSlots",
         ),  # __init__ + cmb000/tb001/b004 _init are bpy-free (list refresh guarded)
         (
-            "blendshape_animator",
-            "BlendshapeAnimatorSlots",
-        ),  # __init__ + header/b000/cmb000/le001/b001/b004/b006/b008 _init are bpy-free (tree stays empty without bpy)
-        (
             "reference_manager",
             "ReferenceManagerSlots",
         ),  # *_init bpy-guarded → table degrades w/o bpy
         ("render_effects", "RenderEffectsSlots"),  # __init__ (btn connect) is bpy-free
-        (
-            "tube_rig",
-            "TubeRigSlots",
-        ),  # __init__ (mode combo + dynamic options) is bpy-free
         (
             "lightmap_baker",
             "LightmapBakerSlots",
@@ -1181,40 +1171,6 @@ try:
         )
     else:
         check("audio_clips exposes slots for the option-box check", False, "no slots")
-
-    # tube_rig (HYBRID): the mode combo lists the registered strategies and the options body is
-    # rebuilt from the SELECTED strategy's option dicts (AttributeSpec -> make_widget) — the core
-    # dynamic-spec behavior. Switching modes swaps the option widget set.
-    tube_ui = sb.get_ui("tube_rig")
-    tslots = getattr(tube_ui, "slots", None)
-    tcmb = getattr(tube_ui, "cmb_preset", None)
-    if tslots is not None and tcmb is not None:
-        modes = [tcmb.itemText(i) for i in range(tcmb.count())]
-        check(
-            "tube_rig mode combo lists the 3 strategies",
-            any("Spline" in m for m in modes)
-            and any("Anchor" in m for m in modes)
-            and any("FK" in m for m in modes),
-            f"{modes}",
-        )
-        # the initial (Spline) options were built from its dicts
-        spline_keys = set(tslots._option_widgets)
-        check(
-            "tube_rig built the Spline option widgets from its dicts",
-            {"num_joints", "num_controls", "radius", "enable_stretch"} <= spline_keys,
-            f"{sorted(spline_keys)}",
-        )
-        # switch to Anchor -> the options body rebuilds to Anchor's smaller dict set
-        anchor_idx = next(
-            i for i in range(tcmb.count()) if "Anchor" in tcmb.itemText(i)
-        )
-        tcmb.setCurrentIndex(anchor_idx)
-        anchor_keys = set(tslots._option_widgets)
-        check(
-            "switching mode rebuilds the options body (Anchor set, no num_controls)",
-            "num_controls" not in anchor_keys and "enable_stretch" in anchor_keys,
-            f"{sorted(anchor_keys)}",
-        )
 
     # lightmap_baker: the Resolution combo is a fixed power-of-two list (replacing the old
     # spinbox) and the Scope combo gates which objects bake; both are Qt-only (no bpy). Verify

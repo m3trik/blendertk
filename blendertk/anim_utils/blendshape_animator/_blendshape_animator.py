@@ -21,6 +21,14 @@ Divergence from mayatk (by design):
       (``from_existing``'s ``TWEEN_NAME_PATTERNS`` comment flags it as fragile) — Blender gives
       us a real, robust place to store this, so :meth:`from_existing` prefers it and only falls
       back to a heuristic scan for scenes set up before this convention existed.
+    * No undo step of its own yet (mayatk's operations are one each): the tween correctives are
+      driver-driven shape keys on the Key datablock, which an undo push re-stales and
+      ``CoreUtils.undo_checkpoint``'s recompile (objects only) does not reach.
+
+Its panel is tentacle's ``slots/tools/blendshape_animator.py`` (one Slots class for both hosts),
+which reads this class through the PANEL API section, mayatk's names: ``has_setup``,
+``selected_base``, ``tween_topology``, ``apply_tweens``, ``delete_tweens``, ``select_tweens``,
+and the read-only ``base_mesh`` / ``target_mesh`` / ``blendshape`` names.
 """
 
 from typing import List, Optional, Tuple
@@ -51,6 +59,10 @@ class BlendshapeAnimator(ptk.LoggingMixin):
     DEFAULT_START_FRAME = 1
     DEFAULT_END_FRAME = 100
 
+    #: The Empty new tween meshes go under unless one is named (the Add Tweens option box's
+    #: default) -- mirror of mayatk's ``TWEEN_GROUP`` (``_morphInbetweens_GRP`` there).
+    TWEEN_GROUP = Targets.GROUP_NAME
+
     def __init__(self):
         super().__init__()
         self.base_obj = None
@@ -59,6 +71,32 @@ class BlendshapeAnimator(ptk.LoggingMixin):
         self.keyframes: Optional[Keyframes] = None
         self.tween_creator: Optional[Creator] = None
         self.tween_applicator: Optional[Applicator] = None
+
+    # mayatk's state is node NAMES (``base_mesh`` / ``target_mesh`` / ``blendshape``); a panel
+    # shared by both hosts reads those. Read-only here: the objects are the state.
+    @staticmethod
+    def _name_of(obj) -> Optional[str]:
+        if obj is None:
+            return None
+        try:
+            return obj.name
+        except ReferenceError:  # removed from the scene
+            return None
+
+    @property
+    def base_mesh(self) -> Optional[str]:
+        """The base mesh object's name (``None`` unbound) -- mayatk's ``base_mesh``."""
+        return self._name_of(self.base_obj)
+
+    @property
+    def target_mesh(self) -> Optional[str]:
+        """The target mesh object's name (``None`` unbound) -- mayatk's ``target_mesh``."""
+        return self._name_of(self.target_obj)
+
+    @property
+    def blendshape(self) -> Optional[str]:
+        """The master shape key's name -- the analogue of mayatk's blendShape node name."""
+        return self.key_name
 
     # =============================================================================
     # CREATE
@@ -218,8 +256,13 @@ class BlendshapeAnimator(ptk.LoggingMixin):
         weights: Optional[List[float]] = None,
         count: int = 3,
         weight_range: Tuple[float, float] = (0.0, 1.0),
+        group_name: Optional[str] = None,
+        name_prefix: Optional[str] = None,
     ) -> List[Target]:
-        """Create tweens at specific weights or evenly spaced."""
+        """Create tweens at specific weights or evenly spaced.
+
+        ``group_name`` / ``name_prefix`` override the Creator defaults when given (mayatk's).
+        """
         if not self._validate_setup():
             return []
         self.logger.info("=== EDIT PHASE: Creating weight-based tweens ===")
@@ -229,7 +272,12 @@ class BlendshapeAnimator(ptk.LoggingMixin):
         else:
             weights = [Weights.round_weight(w) for w in weights]
 
-        tweens = self.tween_creator.create_weight_based_tweens(weights)
+        kwargs = {}
+        if group_name is not None:
+            kwargs["group_name"] = group_name
+        if name_prefix is not None:
+            kwargs["name_prefix"] = name_prefix
+        tweens = self.tween_creator.create_weight_based_tweens(weights, **kwargs)
 
         if tweens:
             self.logger.info(
@@ -243,24 +291,34 @@ class BlendshapeAnimator(ptk.LoggingMixin):
         self,
         frames: Optional[List[int]] = None,
         target_frame: Optional[int] = None,
+        group_name: Optional[str] = None,
+        name_prefix: Optional[str] = None,
     ) -> List[Target]:
-        """Create tweens at specific animation frames."""
+        """Create tweens at specific animation frames.
+
+        ``group_name`` / ``name_prefix`` override the Creator defaults when given (mayatk's).
+        """
         if not self._validate_setup():
             return []
         self.logger.info("=== EDIT PHASE: Creating frame-based tweens ===")
 
-        created_tweens: List[Target] = []
+        kwargs = {}
+        if group_name is not None:
+            kwargs["group_name"] = group_name
+        if name_prefix is not None:
+            kwargs["name_prefix"] = name_prefix
 
+        all_frames: List[int] = []
         if target_frame is not None:
-            tween = self.tween_creator.create_frame_based_tween(target_frame)
+            all_frames.append(target_frame)
+        if frames:
+            all_frames.extend(frames)
+
+        created_tweens: List[Target] = []
+        for frame in all_frames:
+            tween = self.tween_creator.create_frame_based_tween(frame, **kwargs)
             if tween:
                 created_tweens.append(tween)
-
-        if frames:
-            for frame in frames:
-                tween = self.tween_creator.create_frame_based_tween(frame)
-                if tween:
-                    created_tweens.append(tween)
 
         if created_tweens:
             self.logger.info(
@@ -283,6 +341,137 @@ class BlendshapeAnimator(ptk.LoggingMixin):
             self.logger.info("Tween edits applied! Scrub timeline to see custom curve")
 
         return applied
+
+    # =============================================================================
+    # PANEL API (what tentacle's Blendshape Animator panel reads) -- mirror of mayatk's
+    # =============================================================================
+
+    def has_setup(self) -> bool:
+        """True while a setup is bound and its base mesh and master shape key still exist -- the
+        quiet check (:meth:`_validate_setup` logs its refusal)."""
+        if not (self.base_obj and self.key_name and self.keyframes):
+            return False
+        try:
+            self.base_obj.name  # touch to detect a removed/invalidated reference
+        except ReferenceError:
+            return False
+        return self.keyframes.key_block is not None
+
+    @staticmethod
+    def _is_base_candidate(obj) -> bool:
+        """A mesh object carrying a usable (non-reference, non-corrective) shape key -- one
+        :meth:`from_existing` can bind to. A tween mesh is a target, never a base. The reference
+        key is matched by identity, not the literal name "Basis" (imported/renamed meshes name
+        it anything)."""
+        if obj is None or getattr(obj, "type", None) != "MESH":
+            return False
+        if "isInbetweenTarget" in obj.keys():
+            return False
+        shape_keys = getattr(obj.data, "shape_keys", None)
+        if shape_keys is None:
+            return False
+        infix = Applicator._CORRECTIVE_INFIX
+        return any(
+            kb != shape_keys.reference_key and infix not in kb.name
+            for kb in shape_keys.key_blocks
+        )
+
+    @classmethod
+    def selected_base(cls) -> Optional[str]:
+        """The name of the first selected mesh that carries a usable shape-key setup -- the setup
+        a panel binds to when the selection changes -- or ``None``; also ``None`` outside Blender
+        (a panel loading without bpy). Mirror of mayatk's."""
+        try:
+            selection = CoreUtils.selected_objects()
+        except ImportError:  # no Blender: nothing is selected
+            return None
+        for obj in selection:
+            try:
+                if cls._is_base_candidate(obj):
+                    return obj.name
+            except ReferenceError:
+                continue
+        return None
+
+    def tween_topology(self):
+        """This setup's tweens with their vertex counts, beside the base mesh's -- mirror of
+        mayatk's: what a tween list shows as a topology match or mismatch.
+
+        Returns:
+            tuple: ``(base_count, [(tween, count), ...])`` -- a count is ``None`` where it can't
+            be read; ``(None, [])`` without a bound setup.
+        """
+        if not self.has_setup():
+            return None, []
+        rows = []
+        for tween in Targets.find_all_targets(
+            key_block_name=self.key_name, base_mesh_name=self.base_obj.name
+        ):
+            try:
+                count = len(tween.obj.data.vertices)
+            except (ReferenceError, AttributeError):
+                count = None
+            rows.append((tween, count))
+        return len(self.base_obj.data.vertices), rows
+
+    def apply_tweens(
+        self,
+        tweens: Optional[List[Target]] = None,
+        skip_duplicates: bool = True,
+        validate_topology: bool = False,
+    ) -> List[Tuple[Target, ApplyStatus]]:
+        """Apply tween edits back as driver-driven corrective shape keys and report each tween
+        (:meth:`Applicator.apply_tweens`) -- mirror of mayatk's. ``tweens=None`` applies every
+        tween of this setup.
+
+        Returns:
+            list: ``(tween, ApplyStatus)`` per tween; ``[]`` without a setup.
+        """
+        if not self._validate_setup():
+            return []
+        return self.tween_applicator.apply_tweens(
+            tweens, skip_duplicates=skip_duplicates, validate_topology=validate_topology
+        )
+
+    def delete_tweens(self, tweens: List[Target]) -> List[str]:
+        """Delete tween meshes, and the default tween group once they leave it empty -- mirror
+        of mayatk's.
+
+        Returns:
+            list: The names of the meshes deleted.
+        """
+        import bpy
+
+        deleted = []
+        for tween in tweens:
+            try:
+                name = tween.obj.name
+                bpy.data.objects.remove(tween.obj, do_unlink=True)
+            except ReferenceError as e:  # already gone
+                self.logger.warning(f"Could not delete a tween mesh: {e}")
+                continue
+            deleted.append(name)
+        group = bpy.data.objects.get(Targets.GROUP_NAME)
+        if group is not None and not group.children:
+            bpy.data.objects.remove(group, do_unlink=True)
+        return deleted
+
+    @staticmethod
+    def select_tweens(tweens: List[Target]) -> list:
+        """Select the tweens' meshes that still exist, replacing the selection
+        (:meth:`CoreUtils.select`: the window's view layer, any mode) -- mirror of mayatk's.
+
+        Returns:
+            list: The objects selected.
+        """
+        objs = []
+        for tween in tweens:
+            try:
+                tween.obj.name  # touch to detect a removed object
+            except ReferenceError:
+                continue
+            objs.append(tween.obj)
+        return CoreUtils.select(objs) if objs else []
 
     # =============================================================================
     # INTERNAL
@@ -474,8 +663,18 @@ class BlendshapeAnimator(ptk.LoggingMixin):
 
     @classmethod
     def from_existing(cls, base_obj=None) -> Optional["BlendshapeAnimator"]:
-        """Create an animator bound to an existing shape-key setup on ``base_obj``."""
+        """Create an animator bound to an existing shape-key setup on ``base_obj`` -- an object,
+        or its name (mayatk's takes a node name); ``None`` reads the selection."""
         cls.logger.info("=== LOADING EXISTING SETUP ===")
+
+        if isinstance(base_obj, str):
+            import bpy
+
+            named = bpy.data.objects.get(base_obj)
+            if named is None:
+                cls.logger.error(f"No object named {base_obj}")
+                return None
+            base_obj = named
 
         if base_obj is None:
             from blendertk.core_utils._core_utils import CoreUtils

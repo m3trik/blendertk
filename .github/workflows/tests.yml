@@ -120,7 +120,6 @@ jobs:
           SUITES="
           test_blender_native_menus
           test_blender_ui_handler
-          test_blendshape_animator_slots
           test_cancel_provider
           test_fbx_stage_worker
           test_hierarchy_tree_utils

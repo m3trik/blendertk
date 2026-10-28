@@ -178,8 +178,14 @@ class Creator(ptk.LoggingMixin, _CreatorInternal):
         )
         return created_tweens
 
-    def create_frame_based_tween(self, target_frame: int) -> Optional[Target]:
-        """Create a tween mesh at a specific animation frame."""
+    def create_frame_based_tween(
+        self,
+        target_frame: int,
+        group_name: str = Targets.GROUP_NAME,
+        name_prefix: str = "tween",
+    ) -> Optional[Target]:
+        """Create a tween mesh at a specific animation frame, named
+        ``<name_prefix>_f<frame>_w<weight>`` under the *group_name* Empty (mayatk's keywords)."""
         import bpy
 
         try:
@@ -220,10 +226,10 @@ class Creator(ptk.LoggingMixin, _CreatorInternal):
         try:
             bpy.context.scene.frame_set(target_frame)
 
-            tween_name = f"tween_f{target_frame}_w{int(weight * 1000):03d}"
+            tween_name = f"{name_prefix}_f{target_frame}_w{int(weight * 1000):03d}"
             dup = self._duplicate_at_weight(tween_name, weight)
             self.tag_tween_mesh(dup, weight, target_frame)
-            dup.parent = self._ensure_group()
+            dup.parent = self._ensure_group(group_name)
 
             self.logger.info(
                 f"Created frame-based tween: {tween_name} "

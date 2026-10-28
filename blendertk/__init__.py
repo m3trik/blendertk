@@ -311,9 +311,8 @@ DEFAULT_INCLUDE = {
     "anim_utils.smart_bake.bake_session": "RestoreResult",
     # Blendshape Animator — morph-authoring engine (base+target mesh -> keyed shape key, with
     # driver-driven corrective "tween" shapes for a custom curve), mirror of mayatk's
-    # ``anim_utils.blendshape_animator.BlendshapeAnimator``. The co-located
-    # ``BlendshapeAnimatorSlots`` panel is discovered by ``BlenderUiHandler`` (not registered
-    # here), matching the other tool Slots.
+    # ``anim_utils.blendshape_animator.BlendshapeAnimator`` (its panel is tentacle's shared
+    # Blendshape Animator tool).
     "anim_utils.blendshape_animator._blendshape_animator": [
         "BlendshapeAnimator",
     ],
@@ -649,6 +648,42 @@ MOVED_NAMES = {
     ),
     "NamingSlots": (
         "tentacle.slots.tools.naming.NamingSlots",
+        "0.23.0",
+    ),
+    "TubeRigSlots": (
+        "tentacle.slots.tools.tube_rig.TubeRigSlots",
+        "0.23.0",
+    ),
+    "BlendshapeAnimatorSlots": (
+        "tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots",
+        "0.23.0",
+    ),
+    "COL_FRAME": (
+        "tentacle.slots.tools.blendshape_animator.COL_FRAME",
+        "0.23.0",
+    ),
+    "COL_NAME": (
+        "tentacle.slots.tools.blendshape_animator.COL_NAME",
+        "0.23.0",
+    ),
+    "COL_STATUS": (
+        "tentacle.slots.tools.blendshape_animator.COL_STATUS",
+        "0.23.0",
+    ),
+    "COL_TOPOLOGY": (
+        "tentacle.slots.tools.blendshape_animator.COL_TOPOLOGY",
+        "0.23.0",
+    ),
+    "COL_WEIGHT": (
+        "tentacle.slots.tools.blendshape_animator.COL_WEIGHT",
+        "0.23.0",
+    ),
+    "MODE_FRAME": (
+        "tentacle.slots.tools.blendshape_animator.MODE_FRAME",
+        "0.23.0",
+    ),
+    "MODE_WEIGHT": (
+        "tentacle.slots.tools.blendshape_animator.MODE_WEIGHT",
         "0.23.0",
     ),
 }

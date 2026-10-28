@@ -50,6 +50,60 @@ class TubePath:
         return pts, len(pts)
 
     @staticmethod
+    def estimate_radius(mesh, centerline):
+        """Estimate the tube's radius -- mirror of mayatk's ``TubePath.estimate_radius``: the
+        median distance from the interior centerline points to the mesh surface.
+
+        Points within one probe length (half the mesh's smallest dimension, about the radius
+        upper bound) of either end are skipped: their nearest surface is the end cap, which
+        reads near zero and poisons the estimate. A tube too short for interior points samples
+        its arc midpoint.
+
+        Args:
+            mesh (bpy.types.Object): The tube mesh.
+            centerline (list): World-space points along the tube.
+
+        Returns:
+            float: The radius, or ``None`` when no mesh / centerline is usable.
+        """
+        from mathutils import Vector
+
+        if getattr(mesh, "type", None) != "MESH" or not centerline or len(centerline) < 2:
+            return None
+        pts = [Vector((float(p[0]), float(p[1]), float(p[2]))) for p in centerline]
+        arc = [0.0]
+        for a, b in zip(pts, pts[1:]):
+            arc.append(arc[-1] + (b - a).length)
+        total = arc[-1]
+        if total < 1e-6:
+            return None
+        dims = [d for d in mesh.dimensions if d > 1e-6]
+        probe = 0.5 * min(dims) if dims else 1.0
+        interior = [p for p, d in zip(pts, arc) if d >= probe and total - d >= probe]
+        if not interior:  # shorter than ~2 radii: the arc midpoint
+            half = total / 2.0
+            i = next(i for i in range(1, len(arc)) if arc[i] >= half)
+            t = (half - arc[i - 1]) / max(arc[i] - arc[i - 1], 1e-9)
+            interior = [pts[i - 1].lerp(pts[i], t)]
+
+        mw = mesh.matrix_world
+        inv = mw.inverted_safe()
+        dists = []
+        for p in interior[:: max(1, len(interior) // 15)]:
+            try:
+                hit, location, _normal, _index = mesh.closest_point_on_mesh(inv @ p)
+            except RuntimeError:  # no mesh data to query (e.g. the mesh is in Edit Mode)
+                return None
+            if hit:
+                d = (mw @ location - p).length
+                if d > 1e-6:
+                    dists.append(d)
+        if not dists:
+            return None
+        dists.sort()
+        return dists[len(dists) // 2]
+
+    @staticmethod
     def _world_vertices(mesh):
         """World-space vertex positions of *mesh* (read from the evaluated mesh so modifiers /
         shape keys are included — the deformed tube, like Maya reads the live shape)."""
