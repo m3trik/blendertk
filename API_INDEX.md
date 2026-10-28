@@ -285,11 +285,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class Bevel`
   - methods: bevel
 
-### `edit_utils/bridge.py` — Bridge tool — engine + Switchboard slot wiring for the co-located ``bridge.ui``.
+### `edit_utils/bridge.py` — Bridge: connect two open edge loops with new faces — mirror of mayatk's
 - `class Bridge`
   - methods: bridge
-- `class BridgeSlots(pythontk.LoggingMixin)`
-  - methods: header_init, perform_operation
 
 ### `edit_utils/components.py` — Component-level mesh operations — mirror of mayatk's ``core_utils.components``.
 - `class Components(_ComponentsInternal)`
@@ -977,7 +975,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `uv_utils/_uv_utils.py` — UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
 - constants: DEFAULT_UV_SET, LIGHTMAP_UV_SET, LIGHTMAP_OVERLAP_TOLERANCE
 - `class UvUtils(_UvUtilsInternal)`
-  - methods: calculate_uv_padding, move_uvs, get_uv_bounds, get_uv_triangles, get_uv_world_triangles, get_neighbor_shell_bounds, transfer_uvs_to_similar, scale_uvs, transform_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, export_uv_layout, apply_uv_layout, create_lightmap_uvs, auto_unwrap, transfer_uvs, get_uv_shell_sets, get_uv_coords, set_uv_coords, get_similar_uv_shells, stack_uv_shells, straighten_uv_shells, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, gather_to_udim, orient_uv_shells, randomize_uv_shells
+  - methods: calculate_uv_padding, move_uvs, move_to_uv_space, get_uv_bounds, get_uv_triangles, get_uv_world_triangles, get_neighbor_shell_bounds, transfer_uvs_to_similar, scale_uvs, transform_uvs, rotate_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, export_uv_layout, apply_uv_layout, create_lightmap_uvs, auto_unwrap, transfer_uvs, get_uv_shell_sets, get_uv_coords, set_uv_coords, get_similar_uv_shells, stack_uv_shells, straighten_uv_shells, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, gather_to_udim, orient_uv_shells, orient_shells, randomize_uv_shells
 
 ### `uv_utils/rizom_bridge/_rizom_bridge.py` — RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 - constants: APP
@@ -992,10 +990,6 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `uv_utils/rizom_bridge/rizom_bridge_slots.py` — Slots for the RizomUV bridge panel.
 - `class RizomBridgeSlots(BlenderBridgeSlotsBase)`
   - methods: params_module, template_dir, make_bridge, list_template_modes, b000, open_uv_editor
-
-### `uv_utils/shell_xform.py` — Dedicated UV shell-transform panel (Blender).
-- `class ShellXformSlots(pythontk.LoggingMixin)`
-  - methods: header_init, cmb_move_scope_init, b023, b024, b025, b026, gather_to_udim, b034, b035, b036, b037, s041, tb005_init, tb005, tb006_init, tb006, tb008_init, tb008, align_u_min, align_u_avg, align_u_max, align_v_min, align_v_avg, align_v_max, linear_align, orient_shells, orient_edges, gather_shells, randomize_shells, open_uv_editor
 
 ### `uv_utils/texture_combine/texture_combine.py` — Several materials into ONE: one atlas, one material, in place -- no duplicated meshes.
 - `class CombineInputs`

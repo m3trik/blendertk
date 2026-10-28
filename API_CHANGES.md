@@ -2,7 +2,7 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (175)
+## Moved out (209)
 
 - `anim_utils/shots/shot_manifest/export_preview.py::ExportPreviewMixin` → `tentacle.slots.tools._shot_manifest.export_preview.ExportPreviewMixin` (from 0.23.0)
 - `anim_utils/shots/shot_manifest/export_preview.py::ExportPreviewMixin.export` → `tentacle.slots.tools._shot_manifest.export_preview.ExportPreviewMixin` (from 0.23.0)
@@ -85,6 +85,9 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `edit_utils/bevel.py::BevelSlots` → `tentacle.slots.tools.bevel.BevelSlots` (from 0.23.0)
 - `edit_utils/bevel.py::BevelSlots.header_init` → `tentacle.slots.tools.bevel.BevelSlots` (from 0.23.0)
 - `edit_utils/bevel.py::BevelSlots.perform_operation` → `tentacle.slots.tools.bevel.BevelSlots` (from 0.23.0)
+- `edit_utils/bridge.py::BridgeSlots` → `tentacle.slots.tools.bridge.BridgeSlots` (from 0.23.0)
+- `edit_utils/bridge.py::BridgeSlots.header_init` → `tentacle.slots.tools.bridge.BridgeSlots` (from 0.23.0)
+- `edit_utils/bridge.py::BridgeSlots.perform_operation` → `tentacle.slots.tools.bridge.BridgeSlots` (from 0.23.0)
 - `edit_utils/cut_on_axis.py::CutOnAxisSlots` → `tentacle.slots.tools.cut_on_axis.CutOnAxisSlots` (from 0.23.0)
 - `edit_utils/cut_on_axis.py::CutOnAxisSlots.header_init` → `tentacle.slots.tools.cut_on_axis.CutOnAxisSlots` (from 0.23.0)
 - `edit_utils/cut_on_axis.py::CutOnAxisSlots.perform_operation` → `tentacle.slots.tools.cut_on_axis.CutOnAxisSlots` (from 0.23.0)
@@ -179,8 +182,39 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `ui_utils/calculator.py::CalculatorSlots.on_equal` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
 - `ui_utils/calculator.py::CalculatorSlots.on_input` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
 - `ui_utils/calculator.py::CalculatorSlots.sec_to_frames` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.align_u_avg` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.align_u_max` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.align_u_min` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.align_v_avg` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.align_v_max` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.align_v_min` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.b023` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.b024` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.b025` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.b026` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.b034` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.b035` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.b036` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.b037` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.cmb_move_scope_init` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.gather_shells` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.gather_to_udim` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.header_init` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.linear_align` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.open_uv_editor` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.orient_edges` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.orient_shells` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.randomize_shells` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.s041` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.tb005` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.tb005_init` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.tb006` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.tb006_init` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.tb008` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
+- `uv_utils/shell_xform.py::ShellXformSlots.tb008_init` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
 
-## Added (64)
+## Added (67)
 
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
 - `anim_utils/shots/_shots.py::BlenderShotStore.fcurve_for_key(key: str)`
@@ -246,6 +280,9 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `rig_utils/wheel_rig.py::WheelRig.from_selection(cls, rig_name=None, freeze_transforms=True, **kwargs)`
 - `rig_utils/wheel_rig.py::WheelRig.wheel_size(obj=None, movement_axis='translateZ')`
 - `ui_utils/node_icons.py::NodeIcons.audio_icon(size: int = 16)`
+- `uv_utils/_uv_utils.py::UvUtils.move_to_uv_space(objects, u, v, relative=True)`
+- `uv_utils/_uv_utils.py::UvUtils.orient_shells(objects, to_edge=False)`
+- `uv_utils/_uv_utils.py::UvUtils.rotate_uvs(objects, angle)`
 
 ## Deprecations (14)
 
@@ -287,11 +324,17 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/emissive_groups.py::EmissiveGroups.transfer_out`
 - `mat_utils/emissive_groups.py::EmissiveGroups.validate`
 
-## Signature changed (2)
+## Signature changed (4)
 
 - `edit_utils/_edit_utils.py::EditUtils.mirror`
   - was: `(objects, axis='x', pivot='object', merge_mode=1, delete_original=False, merge_threshold=0.001, center_pivot=True, axis_frame=None)`
   - now: `(objects, axis='x', pivot='object', mergeMode=-1, delete_original=False, merge_threshold=0.001, center_pivot=True, axis_frame=None)`
+- `edit_utils/bridge.py::Bridge.bridge`
+  - was: `(objects=None, divisions=0, smoothing_angle=None, offset=0, merge=False)`
+  - now: `(objects=None, divisions=0, smoothing_angle=None, offset=0, merge=False, *, curve_type=None, taper=None, twist=None, cleanup_curves=False)`
 - `rig_utils/wheel_rig.py::WheelRig.rig_rotation`
   - was: `(self, movement_axis: str = 'LOC_Z', rotation_index: int = None, wheel_height: float = 1.0, wheels: list = None, use_world_space: bool = False) -> list`
   - now: `(self, movement_axis: str = 'translateZ', rotation_axis=None, wheel_height: float = 1.0, wheels: list = None, use_world_space: bool = False) -> list`
+- `uv_utils/_uv_utils.py::UvUtils.distribute_uv_shells`
+  - was: `(objects, axis='u')`
+  - now: `(objects, axis='u', spacing=None)`

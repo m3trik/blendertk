@@ -212,6 +212,70 @@ class _UvUtilsInternal(object):
                 loop[uv_layer].uv.y += dv
 
     @staticmethod
+    def _distribute_in_a_row(objects, axis, spacing):
+        """Lay the targeted islands of *objects* out in a row along *axis*, *spacing*
+        apart — Maya's ``texDistributeShells`` (see :func:`distribute_uv_shells`).
+        Returns the number of islands moved."""
+        comp = 0 if str(axis).lower() == "u" else 1
+        meshes = EditUtils._meshes(objects)
+        # Pass 1: every targeted island's box, keyed by (mesh index, island index). Island
+        # references must not escape the read (an object-mode bmesh is freed when its callback
+        # returns), and the island walk is deterministic, so pass 2 re-finds each by index.
+        boxes = []
+        for m, o in enumerate(meshes):
+
+            def _read(bm, obj=o, m=m):
+                uvl = bm.loops.layers.uv.active
+                if uvl is None:
+                    return
+                islands = _UvUtilsInternal._target_islands(obj, bm, uvl)
+                for i, island in enumerate(islands):
+                    boxes.append(((m, i), _UvUtilsInternal._island_bounds(island, uvl)))
+
+            _UvUtilsInternal._uv_read(o, _read)
+        if len(boxes) < 2:
+            return 0
+
+        # Maya's order: largest extent along the axis first (its texSortShellsByBounds);
+        # the first island moves to the center of the islands' combined box, and each next
+        # one sits `spacing` past the last (rightward along U, downward along V), centered
+        # on the first's cross-axis center.
+        boxes.sort(key=lambda kb: kb[1][comp + 2] - kb[1][comp], reverse=True)
+        center_u = (min(b[0] for _, b in boxes) + max(b[2] for _, b in boxes)) / 2.0
+        center_v = (min(b[1] for _, b in boxes) + max(b[3] for _, b in boxes)) / 2.0
+        first_key, (u0, v0, u1, v1) = boxes[0]
+        du, dv = center_u - (u0 + u1) / 2.0, center_v - (v0 + v1) / 2.0
+        deltas = {first_key: (du, dv)}
+        anchor = u1 + du if comp == 0 else v0 + dv
+        for key, (u0, v0, u1, v1) in boxes[1:]:
+            if comp == 0:
+                du, dv = anchor + spacing - u0, center_v - (v0 + v1) / 2.0
+                anchor = u1 + du
+            else:
+                du, dv = center_u - (u0 + u1) / 2.0, anchor - spacing - v1
+                anchor = v0 + dv
+            deltas[key] = (du, dv)
+
+        # Pass 2: move each island by its delta.
+        moved = 0
+        for m, o in enumerate(meshes):
+
+            def _apply(bm, obj=o, m=m):
+                nonlocal moved
+                uvl = bm.loops.layers.uv.active
+                if uvl is None:
+                    return
+                islands = _UvUtilsInternal._target_islands(obj, bm, uvl)
+                for i, island in enumerate(islands):
+                    du, dv = deltas.get((m, i), (0.0, 0.0))
+                    if abs(du) > 1e-9 or abs(dv) > 1e-9:
+                        _UvUtilsInternal._move_island(island, uvl, du, dv)
+                        moved += 1
+
+            _UvUtilsInternal._uv_edit(o, _apply)
+        return moved
+
+    @staticmethod
     def _target_islands(obj, bm, uv_layer):
         """The islands an operation should act on: in EDIT mode only islands touched by the
         selection (Maya's "selected shells"); in object mode every island."""
@@ -458,6 +522,26 @@ class UvUtils(_UvUtilsInternal):
 
         for o in EditUtils._meshes(objects):
             _UvUtilsInternal._uv_edit(o, _shift)
+
+    @staticmethod
+    @CoreUtils.undoable
+    def move_to_uv_space(objects, u, v, relative=True):
+        """Move the UVs of *objects* by ``(u, v)`` — or, with ``relative=False``, onto that
+        point — mirror of mayatk's ``UvUtils.move_to_uv_space`` (what tentacle's Shell Xform
+        move pad calls). Like :func:`move_uvs`, each mesh's whole UV map moves (Maya moves the
+        UVs of the given components)."""
+        if relative:
+            UvUtils.move_uvs(objects, du=u, dv=v)
+            return
+
+        def _place(bm):
+            uvl = bm.loops.layers.uv.verify()
+            for face in bm.faces:
+                for loop in face.loops:
+                    loop[uvl].uv = (u, v)
+
+        for o in EditUtils._meshes(objects):
+            _UvUtilsInternal._uv_edit(o, _place)
 
     @staticmethod
     def get_uv_bounds(objects):
@@ -785,6 +869,51 @@ class UvUtils(_UvUtilsInternal):
             _UvUtilsInternal._uv_edit(o, _apply)
 
     @staticmethod
+    @CoreUtils.undoable
+    def rotate_uvs(objects, angle):
+        """Rotate the UVs of *objects* by *angle* degrees, counter-clockwise, about their shared
+        centroid — mirror of mayatk's ``UvUtils.rotate_uvs``: the mean of the distinct UV
+        points (one per UV vertex, as Maya counts UVs) across every object. Like :func:`move_uvs`,
+        each mesh's whole UV map turns. Returns the number of UV points rotated (0: none)."""
+        import math
+
+        meshes = EditUtils._meshes(objects)
+        points = {}  # (mesh index, vert index, rounded u, rounded v) -> (u, v)
+        for m, o in enumerate(meshes):
+
+            def _read(bm, m=m):
+                uvl = bm.loops.layers.uv.active
+                if uvl is None:
+                    return
+                for face in bm.faces:
+                    for loop in face.loops:
+                        uv = loop[uvl].uv
+                        key = (m, loop.vert.index, round(uv.x, 6), round(uv.y, 6))
+                        points[key] = (uv.x, uv.y)
+
+            _UvUtilsInternal._uv_read(o, _read)
+        if not points:
+            return 0
+        pu = sum(p[0] for p in points.values()) / len(points)
+        pv = sum(p[1] for p in points.values()) / len(points)
+        cos_a, sin_a = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+
+        def _turn(bm):
+            uvl = bm.loops.layers.uv.active
+            if uvl is None:
+                return
+            for face in bm.faces:
+                for loop in face.loops:
+                    uv = loop[uvl].uv
+                    du, dv = uv.x - pu, uv.y - pv
+                    uv.x, uv.y = pu + du * cos_a - dv * sin_a, pv + du * sin_a + dv * cos_a
+
+        for o in meshes:
+            _UvUtilsInternal._uv_edit(o, _turn)
+        return len(points)
+
+    @staticmethod
+    @CoreUtils.undoable
     def mirror_uvs(objects, axis="u", per_shell=True, preserve_position=True):
         """Mirror UVs across U or V — mirror of ``mtk.UvUtils.mirror_uvs``.
 
@@ -1808,6 +1937,7 @@ class UvUtils(_UvUtilsInternal):
         return moved
 
     @staticmethod
+    @CoreUtils.undoable
     # The whole body in the window's context: follow_active_quads polls the edit
     # object from screen context, and the active write addresses the context's layer.
     @CoreUtils.window_context_override()
@@ -1917,11 +2047,20 @@ class UvUtils(_UvUtilsInternal):
         return len(meshes)
 
     @staticmethod
-    def distribute_uv_shells(objects, axis="u"):
-        """Distribute UV islands evenly along ``axis`` (``"u"`` or ``"v"``) — the first and
-        last islands keep their centers, the rest space evenly between (per object; Maya's
-        ``texDistributeShells`` equivalent). EDIT mode targets only selection-touched islands.
+    @CoreUtils.undoable
+    def distribute_uv_shells(objects, axis="u", spacing=None):
+        """Distribute UV islands along ``axis`` (``"u"`` or ``"v"``).
+
+        ``spacing`` a number — mirror of mayatk's ``UvUtils.distribute_uv_shells`` (Maya's
+        ``texDistributeShells``, what tentacle's Shell Xform panel runs): the islands are laid out
+        in a row ``spacing`` apart, rightward along U / downward along V, largest first, the first
+        centered on the islands' combined box, across every given object.
+
+        ``spacing=None`` (default): the first and last islands keep their centers, the rest space
+        evenly between (per object). EDIT mode targets only selection-touched islands.
         Returns the number of islands repositioned."""
+        if spacing is not None:
+            return _UvUtilsInternal._distribute_in_a_row(objects, axis, float(spacing))
         comp = 0 if axis.lower() == "u" else 1
         moved = 0
         for o in EditUtils._meshes(objects):
@@ -1959,6 +2098,7 @@ class UvUtils(_UvUtilsInternal):
         return moved
 
     @staticmethod
+    @CoreUtils.undoable
     def straighten_uvs(objects, u=True, v=True, angle=30.0):
         """Straighten the selected UV edges — edges within ``angle`` degrees of horizontal
         snap flat in V (``u``), near-vertical edges snap flat in U (``v``); the Maya
@@ -2016,6 +2156,7 @@ class UvUtils(_UvUtilsInternal):
         return snapped
 
     @staticmethod
+    @CoreUtils.undoable
     def align_uvs(objects, axis="u", mode="avg"):
         """Align the selected UVs — mirror of Maya's ``performAlignUV`` (min/avg/max) and
         ``performLinearAlignUV`` (``mode="linear"``). ``min`` / ``max`` / ``avg`` snap every selected
@@ -2073,6 +2214,7 @@ class UvUtils(_UvUtilsInternal):
         return moved
 
     @staticmethod
+    @CoreUtils.undoable
     def gather_uv_shells(objects):
         """Gather the targeted UV shells back into the 0-1 tile — mirror of Maya's ``UVGatherShells``:
         each island is shifted by the negative floor of its bbox-center, so a shell sitting in tile
@@ -2099,6 +2241,7 @@ class UvUtils(_UvUtilsInternal):
         return moved
 
     @staticmethod
+    @CoreUtils.undoable
     def gather_to_udim(objects, udim=None, map_size=4096):
         """Move UV shells sitting outside the target UDIM tile into it — mirror of mayatk's
         ``UvUtils.gather_to_udim``, and the cheap alternative to a repack: each stray island keeps
@@ -2161,6 +2304,7 @@ class UvUtils(_UvUtilsInternal):
         return moved if seen else None
 
     @staticmethod
+    @CoreUtils.undoable
     def orient_uv_shells(objects, to_edge=False):
         """Orient the selected UV shells — mirror of Maya's ``texOrientShells`` /
         ``UvUtils.orient_shells`` (``to_edge=False`` -> native ``uv.align_rotation`` AUTO: square each
@@ -2178,6 +2322,13 @@ class UvUtils(_UvUtilsInternal):
             return 0  # e.g. EDGE with no edge selected
 
     @staticmethod
+    def orient_shells(objects, to_edge=False):
+        """Orient the selected UV shells — mirror of mayatk's ``UvUtils.orient_shells`` (the
+        name tentacle's Shell Xform panel calls): :func:`orient_uv_shells`, one undo step."""
+        return UvUtils.orient_uv_shells(objects, to_edge=to_edge)
+
+    @staticmethod
+    @CoreUtils.undoable
     def randomize_uv_shells(objects, seed=0):
         """Randomly offset the selected UV shells — mirror of Maya's ``RandomizeShells`` (a per-shell
         random translation; ``seed`` makes it deterministic). Drives ``uv.randomize_uv_transform``

@@ -68,7 +68,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`display_utils/outliner_tint.py`](#display_utils--outliner_tint) — Per-object **outliner text colour** for Blender — the true analogue of Maya's
 - [`edit_utils/_edit_utils.py`](#edit_utils--_edit_utils) — Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
 - [`edit_utils/bevel.py`](#edit_utils--bevel) — Bevel tool — engine + Switchboard slot wiring for the co-located ``bevel.ui``.
-- [`edit_utils/bridge.py`](#edit_utils--bridge) — Bridge tool — engine + Switchboard slot wiring for the co-located ``bridge.ui``.
+- [`edit_utils/bridge.py`](#edit_utils--bridge) — Bridge: connect two open edge loops with new faces — mirror of mayatk's
 - [`edit_utils/components.py`](#edit_utils--components) — Component-level mesh operations — mirror of mayatk's ``core_utils.components``.
 - [`edit_utils/curtain/_curtain.py`](#edit_utils--curtain--_curtain) — Procedural draped-cloth (curtain) generator for Blender -- mirror of mayatk's
 - [`edit_utils/curtain/_curtain_drape.py`](#edit_utils--curtain--_curtain_drape) — Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.
@@ -215,7 +215,6 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`uv_utils/rizom_bridge/_rizom_bridge.py`](#uv_utils--rizom_bridge--_rizom_bridge) — RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 - [`uv_utils/rizom_bridge/parameters.py`](#uv_utils--rizom_bridge--parameters) — Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 - [`uv_utils/rizom_bridge/rizom_bridge_slots.py`](#uv_utils--rizom_bridge--rizom_bridge_slots) — Slots for the RizomUV bridge panel.
-- [`uv_utils/shell_xform.py`](#uv_utils--shell_xform) — Dedicated UV shell-transform panel (Blender).
 - [`uv_utils/texture_combine/texture_combine.py`](#uv_utils--texture_combine--texture_combine) — Several materials into ONE: one atlas, one material, in place -- no duplicated meshes.
 - [`uv_utils/texture_combine/texture_combine_slots.py`](#uv_utils--texture_combine--texture_combine_slots) — The Texture Combine panel: Switchboard slots for ``texture_combine.ui``.
 - [`uv_utils/texture_transfer.py`](#uv_utils--texture_transfer) — Transfer a mesh's textures from one UV layout to another -- no rays, no bake.
@@ -228,7 +227,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L435) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L434) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -1313,13 +1312,10 @@ Bevel tool — engine + Switchboard slot wiring for the co-located ``bevel.ui``.
 <a id="edit_utils--bridge"></a>
 ### `edit_utils/bridge.py`
 
-Bridge tool — engine + Switchboard slot wiring for the co-located ``bridge.ui``.
+Bridge: connect two open edge loops with new faces — mirror of mayatk's
 
-- **[`class Bridge`](blendertk/blendertk/edit_utils/bridge.py#L46)** — Native ``bmesh.ops.bridge_loops`` engine (mirror of mayatk's ``Bridge``).
-  - `Bridge.bridge(objects=None, divisions=0, smoothing_angle=None, offset=0, merge=False)` *(static)* — Bridge the two selected open edge loops of each given mesh with new faces.
-- **[`class BridgeSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/bridge.py#L120)** — Switchboard slot wiring for the bridge UI — 1:1 mirror of mayatk's ``BridgeSlots`` (same
-  - `BridgeSlots.header_init(self, widget)` — Configure header help text.
-  - `BridgeSlots.perform_operation(self, objects)`
+- **[`class Bridge`](blendertk/blendertk/edit_utils/bridge.py#L35)** — Native ``bmesh.ops.bridge_loops`` engine (mirror of mayatk's ``Bridge``).
+  - `Bridge.bridge(objects=None, divisions=0, smoothing_angle=None, offset=0, merge=False, *, curve_type=None, taper=None, twist=None, cleanup_curves=False)` *(static)* — Bridge the two selected open edge loops of each given mesh with new faces.
 
 <a id="edit_utils--components"></a>
 ### `edit_utils/components.py`
@@ -3963,9 +3959,10 @@ UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk'
 - [`DEFAULT_UV_SET`](blendertk/blendertk/uv_utils/_uv_utils.py#L22) — constant
 - [`LIGHTMAP_UV_SET`](blendertk/blendertk/uv_utils/_uv_utils.py#L41) — constant
 - [`LIGHTMAP_OVERLAP_TOLERANCE`](blendertk/blendertk/uv_utils/_uv_utils.py#L45) — constant
-- **[`class UvUtils(_UvUtilsInternal)`](blendertk/blendertk/uv_utils/_uv_utils.py#L420)** — Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level).
+- **[`class UvUtils(_UvUtilsInternal)`](blendertk/blendertk/uv_utils/_uv_utils.py#L484)** — Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level).
   - `UvUtils.calculate_uv_padding(map_size: int, normalize: bool = False, factor: int = 256)` *(static)* — The texture gutter for a given map size — Blender-side name for the ecosystem rule.
   - `UvUtils.move_uvs(objects, du=0.0, dv=0.0)` *(static)* — Translate the UVs of the given mesh object(s) by ``(du, dv)`` — "move to UV space"
+  - `UvUtils.move_to_uv_space(objects, u, v, relative=True)` *(static)* — Move the UVs of *objects* by ``(u, v)`` — or, with ``relative=False``, onto that
   - `UvUtils.get_uv_bounds(objects)` *(static)* — The UV-space bounding box of *objects*, as one box over the whole input —
   - `UvUtils.get_uv_triangles(obj, uv_set=None)` *(static)* — ``(N, 3, 2)`` array of *obj*'s UV-space triangles for *uv_set* —
   - `UvUtils.get_uv_world_triangles(obj, uv_set=None)` *(static)* — *obj*'s UV-space triangles paired with the world-space corners they map —
@@ -3973,6 +3970,7 @@ UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk'
   - `UvUtils.transfer_uvs_to_similar(cls, source, candidates=None, tolerance=0.9)` *(class)* — Transfer UVs from one source mesh to every geometrically similar mesh — mirror of
   - `UvUtils.scale_uvs(objects, su=1.0, sv=1.0, pivot=(0.0, 0.0))` *(static)* — Scale the UVs of the given mesh object(s) by ``(su, sv)`` about ``pivot`` (UV-space
   - `UvUtils.transform_uvs(objects, flip_u=False, flip_v=False, angle=0.0, per_shell=False)` *(static)* — Flip and/or rotate (``angle`` degrees, CCW) the UVs of the given mesh object(s).
+  - `UvUtils.rotate_uvs(objects, angle)` *(static)* — Rotate the UVs of *objects* by *angle* degrees, counter-clockwise, about their shared
   - `UvUtils.mirror_uvs(objects, axis='u', per_shell=True, preserve_position=True)` *(static)* — Mirror UVs across U or V — mirror of ``mtk.UvUtils.mirror_uvs``.
   - `UvUtils.pin_uvs(objects, pin=True, selected_only=True, whole_shells=False)` *(static)* — Pin/unpin UVs (bmesh ``pin_uv``).
   - `UvUtils.get_texel_density(objects, map_size)` *(static)* — Texel density (px per scene unit) of the meshes' faces against a ``map_size`` map —
@@ -3992,12 +3990,13 @@ UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk'
   - `UvUtils.stack_uv_shells(objects, tolerance=None)` *(static)* — Stack UV islands on top of each other.
   - `UvUtils.straighten_uv_shells(objects, mode='LENGTH_AVERAGE')` *(static)* — Rectangularize the targeted UV shell(s) — mirror of Maya's ``texStraightenShell`` — via
   - `UvUtils.derive_auto_seams(objects, angle=66.0, margin=0.0)` *(static)* — Auto-detect UV seams via a temporary Smart UV Project pass — mirror of Maya's
-  - `UvUtils.distribute_uv_shells(objects, axis='u')` *(static)* — Distribute UV islands evenly along ``axis`` (``"u"`` or ``"v"``) — the first and
+  - `UvUtils.distribute_uv_shells(objects, axis='u', spacing=None)` *(static)* — Distribute UV islands along ``axis`` (``"u"`` or ``"v"``).
   - `UvUtils.straighten_uvs(objects, u=True, v=True, angle=30.0)` *(static)* — Straighten the selected UV edges — edges within ``angle`` degrees of horizontal
   - `UvUtils.align_uvs(objects, axis='u', mode='avg')` *(static)* — Align the selected UVs — mirror of Maya's ``performAlignUV`` (min/avg/max) and
   - `UvUtils.gather_uv_shells(objects)` *(static)* — Gather the targeted UV shells back into the 0-1 tile — mirror of Maya's ``UVGatherShells``:
   - `UvUtils.gather_to_udim(objects, udim=None, map_size=4096)` *(static)* — Move UV shells sitting outside the target UDIM tile into it — mirror of mayatk's
   - `UvUtils.orient_uv_shells(objects, to_edge=False)` *(static)* — Orient the selected UV shells — mirror of Maya's ``texOrientShells`` /
+  - `UvUtils.orient_shells(objects, to_edge=False)` *(static)* — Orient the selected UV shells — mirror of mayatk's ``UvUtils.orient_shells`` (the
   - `UvUtils.randomize_uv_shells(objects, seed=0)` *(static)* — Randomly offset the selected UV shells — mirror of Maya's ``RandomizeShells`` (a per-shell
 
 <a id="uv_utils--rizom_bridge--_rizom_bridge"></a>
@@ -4046,43 +4045,6 @@ Slots for the RizomUV bridge panel.
   - `RizomBridgeSlots.list_template_modes(self)` — Return ``[(stem, ""), ...]`` for every bundled ``.lua`` script.
   - `RizomBridgeSlots.b000(self)` — Run the chosen preset: round-trip, or one-way send when ``send`` is picked.
   - `RizomBridgeSlots.open_uv_editor(self)` — Open Blender's UV Editor in a new window.
-
-<a id="uv_utils--shell_xform"></a>
-### `uv_utils/shell_xform.py`
-
-Dedicated UV shell-transform panel (Blender).
-
-- **[`class ShellXformSlots(pythontk.LoggingMixin)`](blendertk/blendertk/uv_utils/shell_xform.py#L29)** — Switchboard slots for the Shell Xform panel (``shell_xform.ui``).
-  - `ShellXformSlots.header_init(self, widget)` — Header menu — Open UV Editor + panel help.
-  - `ShellXformSlots.cmb_move_scope_init(self, widget)` — Move scope — how far one arrow press travels, plus the snap button.
-  - `ShellXformSlots.b023(self)` — Move To UV Space: Left
-  - `ShellXformSlots.b024(self)` — Move To UV Space: Down
-  - `ShellXformSlots.b025(self)` — Move To UV Space: Up
-  - `ShellXformSlots.b026(self)` — Move To UV Space: Right
-  - `ShellXformSlots.gather_to_udim(self)` — Move shells sitting outside the selection's UDIM tile into it.
-  - `ShellXformSlots.b034(self)` — Flip U: mirror the selection's UV maps horizontally about their bbox center.
-  - `ShellXformSlots.b035(self)` — Flip V: mirror the selection's UV maps vertically about their bbox center.
-  - `ShellXformSlots.b036(self)` — Rotate the selection's UV maps counter-clockwise by the s041 angle.
-  - `ShellXformSlots.b037(self)` — Rotate the selection's UV maps clockwise by the s041 angle.
-  - `ShellXformSlots.s041(self, value, widget)` — Rotate Angle — passive input; read by the Rotate buttons (b036/b037).
-  - `ShellXformSlots.tb005_init(self, widget)`
-  - `ShellXformSlots.tb005(self, widget)` — Straighten UV (selected UV edges within the angle threshold snap flat;
-  - `ShellXformSlots.tb006_init(self, widget)`
-  - `ShellXformSlots.tb006(self, widget)` — Distribute (space the targeted UV shells evenly along U or V).
-  - `ShellXformSlots.tb008_init(self, widget)`
-  - `ShellXformSlots.tb008(self, widget)` — Mirror UVs (footprint-preserving reassignment by default;
-  - `ShellXformSlots.align_u_min(self)` — Align the selected UVs to their minimum U (left).
-  - `ShellXformSlots.align_u_avg(self)` — Align the selected UVs to their average U (center).
-  - `ShellXformSlots.align_u_max(self)` — Align the selected UVs to their maximum U (right).
-  - `ShellXformSlots.align_v_min(self)` — Align the selected UVs to their minimum V (bottom).
-  - `ShellXformSlots.align_v_avg(self)` — Align the selected UVs to their average V (center).
-  - `ShellXformSlots.align_v_max(self)` — Align the selected UVs to their maximum V (top).
-  - `ShellXformSlots.linear_align(self)` — Linearly align the selected UVs between their two end points.
-  - `ShellXformSlots.orient_shells(self)` — Orient each shell to run parallel with its nearest U/V axis (Align Rotation).
-  - `ShellXformSlots.orient_edges(self)` — Orient the shell so its selected edge runs along U or V.
-  - `ShellXformSlots.gather_shells(self)` — Gather the selected shells together toward the 0-1 UV space.
-  - `ShellXformSlots.randomize_shells(self)` — Randomly offset the selected shells.
-  - `ShellXformSlots.open_uv_editor(self)` — Open Blender's UV Editor.
 
 <a id="uv_utils--texture_combine--texture_combine"></a>
 ### `uv_utils/texture_combine/texture_combine.py`

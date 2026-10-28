@@ -353,7 +353,6 @@ DEFAULT_INCLUDE = {
         "Bevel",
     ],
     # Bridge engine — mirror of mayatk's ``edit_utils.bridge.Bridge`` (``btk.Bridge`` ↔ ``mtk.Bridge``).
-    # The co-located ``BridgeSlots`` panel is discovered by ``BlenderUiHandler`` (not registered here).
     "edit_utils.bridge": [
         "Bridge",
     ],
@@ -590,6 +589,14 @@ MOVED_NAMES = {
     ),
     "WheelRigSlots": (
         "tentacle.slots.tools.wheel_rig.WheelRigSlots",
+        "0.23.0",
+    ),
+    "BridgeSlots": (
+        "tentacle.slots.tools.bridge.BridgeSlots",
+        "0.23.0",
+    ),
+    "ShellXformSlots": (
+        "tentacle.slots.tools.shell_xform.ShellXformSlots",
         "0.23.0",
     ),
 }

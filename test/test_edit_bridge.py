@@ -1,4 +1,4 @@
-"""blendertk bridge (btk.Bridge + BridgeSlots/Preview) headless test.
+"""blendertk bridge (btk.Bridge + Preview) headless test.
 Run: blender --background --factory-startup --python blendertk/test/test_edit_bridge.py
 
 Covers the engine (bridge two open loops via bmesh.ops.bridge_loops in the Object-Mode/Preview
@@ -144,9 +144,35 @@ try:
         raised = True
     check("non-mesh selection raises RuntimeError", raised)
 
+    # ---- engine: the shared panel's keywords (mirror of mayatk's Bridge.bridge) -------------
+    reset()
+    obj = two_open_loops()
+    n = Bridge.bridge([obj], divisions=0, smoothing_angle=30.0, offset=0, curve_type="linear",
+                      taper=1.0, twist=0.0, cleanup_curves=True)
+    check("the panel's neutral keyword set bridges (linear, no taper/twist)", n == NSIDES,
+          f"faces={n}")
+    check("Bridge names mayatk's curve types, in its order",
+          Bridge.CURVE_TYPES == ("linear", "blend", "curve"), str(Bridge.CURVE_TYPES))
+    check("what bmesh cannot build is named, each with a reason",
+          set(Bridge.UNSUPPORTED_OPTIONS) == {"blend", "curve", "taper", "twist", "cleanup_curves"}
+          and all(Bridge.UNSUPPORTED_OPTIONS.values()), str(sorted(Bridge.UNSUPPORTED_OPTIONS)))
+    for label, kwargs in (("curve_type='curve'", {"curve_type": "curve"}),
+                          ("curve_type='blend'", {"curve_type": "blend"}),
+                          ("taper=0.5", {"taper": 0.5}),
+                          ("twist=10", {"twist": 10.0})):
+        reset()
+        obj = two_open_loops()
+        try:
+            Bridge.bridge([obj], **kwargs)
+            refused = ""
+        except ValueError as exc:
+            refused = str(exc)
+        check(f"{label} is refused with its reason, nothing built",
+              "Not supported in Blender" in refused and len(obj.data.polygons) == 0, refused)
+
     # ---- Preview: enable bridges; refresh re-bridges from pristine (NO stacking) ------------
     class _Op:
-        """Stand-in BridgeSlots: Preview calls perform_operation(objects)."""
+        """Stand-in for tentacle's BridgeSlots: Preview calls perform_operation(objects)."""
         def __init__(self):
             self.divisions = 0
         def perform_operation(self, objects):

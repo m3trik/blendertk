@@ -49,7 +49,6 @@ def _sandbox_qsettings():
 # Co-located tool panels that BlenderUiHandler must discover from the blendertk package.
 PANELS = [
     "curtain",
-    "bridge",
     "audio_clips",
     "blendshape_animator",
     "naming",
@@ -63,7 +62,6 @@ PANELS = [
     "shader_templates",
     "mat_updater",
     "rizom_bridge",
-    "shell_xform",
     "texture_combine",
     "maya_bridge",
     "unity_bridge",
@@ -276,10 +274,6 @@ try:
     for panel, slot_cls in (
         ("curtain", "CurtainSlots"),
         (
-            "bridge",
-            "BridgeSlots",
-        ),  # Preview/connect_multi + setVisible init is bpy-free
-        (
             "shader_templates",
             "ShaderTemplatesSlots",
         ),  # bpy-free init -> loadable under .venv
@@ -288,10 +282,6 @@ try:
             "MatUpdaterSlots",
         ),  # engine defers bpy; cmb001_init is bpy-free
         ("rizom_bridge", "RizomBridgeSlots"),  # engine/slots init is bpy-free
-        (
-            "shell_xform",
-            "ShellXformSlots",
-        ),  # __init__ (logging + deferred icons/uitk) is bpy-free
         (
             "workspace_editor",
             "WorkspaceEditorSlots",
@@ -377,7 +367,7 @@ try:
         # Preview panels ship the commit button enabled=false in the .ui; Preview must enable
         # it on construction or Create is a dead button (preview can never be committed). Verify
         # end-to-end on the real loaded widget — the unit test only covers the stub.
-        if panel in ("curtain", "bridge"):
+        if panel in ("curtain"):
             b000 = getattr(ui, "b000", None)
             check(
                 f"{panel} Create button enabled after load (Preview manages it)",
@@ -421,8 +411,6 @@ try:
     GESTURE_SCOPED = [
         "reference_manager",
         "color_id",
-        "bridge",
-        "shell_xform",
         "naming",
     ]
     for panel in GESTURE_SCOPED:
