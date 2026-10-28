@@ -28,11 +28,11 @@ try:
     import pythontk as ptk
     import blendertk as btk
 
-    from blendertk.edit_utils.curtain import CurtainMesh, Rail
+    from blendertk.edit_utils.curtain import Curtain, CurtainMesh, Rail
     from blendertk.edit_utils.curtain._curtain_drape import CurtainDrape
 
     # ---- surface: mayatk's names and shape (Rail + CurtainMesh), unregistered
-    # like mayatk's; CurtainRig is the registered twin
+    # like mayatk's; CurtainRig and the tool API Curtain are the registered twins
     check(
         "curtain engine mirrors mayatk's Rail + CurtainMesh",
         issubclass(Rail, ptk.Polyline)
@@ -42,6 +42,7 @@ try:
         and issubclass(CurtainMesh, CurtainDrape)
         and all(callable(getattr(CurtainMesh, n, None)) for n in ("create", "build"))
         and btk.CurtainRig is not None
+        and btk.Curtain is Curtain
         and not any(hasattr(btk, n) for n in ("Rail", "CurtainMesh")),
     )
 
@@ -146,6 +147,57 @@ try:
     check(
         "empty selection -> None",
         Rail.from_selection([]) is None,
+    )
+
+    # ---- the tool API (what tentacle's panel calls): names in, names out
+    reset()
+    check(
+        "Curtain keeps blendertk's preset store over the shipped tier",
+        Curtain.PRESET_DIR == "blendertk/curtain"
+        and os.path.isdir(Curtain.BUILTIN_PRESET_DIR),
+    )
+    name = Curtain.create(rail, height=1.0, gravity=0.0, irregularity=0.0)
+    made = bpy.data.objects.get(name)
+    check("create returns the curtain's name", made is not None and made.type == "MESH")
+    made.data.calc_loop_triangles()
+    check(
+        "triangle_count counts the curtain",
+        Curtain.triangle_count(name) == len(made.data.loop_triangles),
+    )
+    check(
+        "triangle_count of nothing is None",
+        Curtain.triangle_count(None) is None and Curtain.triangle_count("NoSuch") is None,
+    )
+    check("rail_from_selection of nothing is None", Curtain.rail_from_selection([]) is None)
+
+    curve_name = Curtain.rail_curve(ptk.Polyline.resample(rail, 5), select=True)
+    curve = bpy.data.objects.get(curve_name)
+    check(
+        "rail_curve builds a selected, active curve through the points",
+        curve is not None
+        and curve.type == "CURVE"
+        and len(curve.data.splines[0].points) == 5
+        and curve.select_get()
+        and bpy.context.view_layer.objects.active == curve,
+    )
+    wide = ptk.Polyline.resample(ptk.Polyline.make(width=12.0)[0], 7)
+    same = Curtain.rail_curve(wide, closed=True, curve=curve_name)
+    splines = bpy.data.objects[curve_name].data.splines
+    check(
+        "rail_curve reshapes the curve in place",
+        same == curve_name
+        and len(splines) == 1
+        and len(splines[0].points) == 7
+        and splines[0].use_cyclic_u,
+        f"{same} / {len(splines)} spline(s)",
+    )
+    data_name = bpy.data.objects[curve_name].data.name
+    Curtain.delete_rail_curve(curve_name)
+    Curtain.delete_rail_curve(curve_name)  # gone: a no-op
+    Curtain.delete_rail_curve(None)
+    check(
+        "delete_rail_curve frees the object and its curve data",
+        curve_name not in bpy.data.objects and data_name not in bpy.data.curves,
     )
 
     # ============================ RIG (control handles + hooks) ============================

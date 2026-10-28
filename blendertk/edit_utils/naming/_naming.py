@@ -56,6 +56,24 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
         ("set_suffix", "objectSet", "objectSet"),
     )
 
+    #: The convention entries this host has no type for, ``{convention key:
+    #: why}`` -- mirror of mayatk's (empty there): :meth:`suffix_by_type` never
+    #: applies them, and the Naming panel greys their rows (still editable: the
+    #: convention is shared). Materials and images are real targets here
+    #: (:meth:`type_key`), but never part of a selection scope.
+    UNSUPPORTED_TYPES = {
+        "ikHandle": "No Blender equivalent: IK handles are bone constraints, not objects.",
+        "constraint": "No Blender equivalent: Constraints live on objects, they are not objects.",
+        "cluster": "No Blender equivalent: A cluster is a Hook modifier, not an object.",
+        "skinCluster": "No Blender equivalent: Skinning is an Armature modifier, not an object.",
+        "blendShape": "No Blender equivalent: Blend shapes are shape keys, not objects.",
+        "material": "No Blender equivalent: Materials are datablocks, never in a selection scope.",
+        "shadingEngine": "No Blender equivalent: Blender has no shading group node.",
+        "texture": "No Blender equivalent: Images are datablocks, never in a selection scope.",
+        "displayLayer": "No Blender equivalent: Display layers are Maya-only (a collection is a membership group, not an object type).",
+        "objectSet": "No Blender equivalent: Sets are Maya-only (a collection is a membership group, not an object type).",
+    }
+
     @ptk.ClassProperty
     def SUFFIX_TYPES(cls) -> Tuple[Tuple[str, str, str, str], ...]:
         """``(keyword, affix, label, type key)`` -- the live convention, joined
@@ -78,6 +96,47 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
         import bpy
 
         return list(bpy.context.scene.objects)
+
+    @classmethod
+    def scope_objects(cls, scene=False) -> List:
+        """What a naming operation acts on in a scene scope: every object in the
+        scene (*scene*, :meth:`scene_objects`), else the selected objects --
+        mirror of mayatk's."""
+        if scene:
+            return cls.scene_objects()
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        return CoreUtils.selected_objects()
+
+    @classmethod
+    def select_by_name(
+        cls, pattern, regex=False, ignore_case=False, locators_only=False
+    ) -> Tuple[List, int]:
+        """Select the scene's objects whose name matches *pattern* (Find) --
+        mirror of mayatk's.
+
+        *pattern* takes ``*`` / ``|`` wildcards, or a regular expression with
+        *regex* (:func:`pythontk.find_str`). *locators_only* searches Empties,
+        Blender's locator. The matches replace the selection (the first one
+        active); none found clears it. Returns ``(matches, searched)``: the
+        matched objects and how many objects were searched.
+        """
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        objects = [
+            o for o in cls.scene_objects() if not locators_only or o.type == "EMPTY"
+        ]
+        names = [o.name for o in objects]
+        hits = set(ptk.find_str(pattern, names, regex=regex, ignore_case=ignore_case))
+        found = [o for o, name in zip(objects, names) if name in hits]
+        CoreUtils.select(found, mode="replace")
+        return found, len(objects)
+
+    @classmethod
+    def select_link(cls, obj) -> str:
+        """A report link labeled with *obj*'s name that selects it -- mirror of
+        mayatk's."""
+        return cls.log_link(obj.name, "select", node=obj.name)
 
     @classmethod
     def rename(

@@ -3,8 +3,8 @@ Run: blender --background --factory-startup --python blendertk/test/test_naming.
 
 Covers the engine — pattern rename (replace-all / append-suffix / filter / retain-suffix), set_case,
 strip_chars, suffix_by_type (Blender type map), append_location_based_suffix (distance ordering,
-alphabetical + integer), generate_unique_name, strip_illegal_chars. The NamingSlots Qt wiring is
-covered by the handler test (under .venv).
+alphabetical + integer), generate_unique_name, strip_illegal_chars, and the API tentacle's Naming
+panel calls (scope_objects, select_by_name, select_link, UNSUPPORTED_TYPES).
 """
 
 import sys, os, traceback
@@ -289,6 +289,43 @@ try:
     check(
         "strip illegal chars (list)",
         Naming.strip_illegal_chars(["x.y", "z 1"]) == ["x_y", "z_1"],
+    )
+
+    # ---- the tool API (what tentacle's Naming panel calls) ------------------------------------
+    reset()
+    a, b = empty("ScopeA"), empty("ScopeB")
+    btk.CoreUtils.select([a], mode="replace")
+    check("scope_objects: the selection", Naming.scope_objects() == [a])
+    check(
+        "scope_objects: the scene",
+        sorted(o.name for o in Naming.scope_objects(scene=True)) == ["ScopeA", "ScopeB"],
+    )
+
+    reset()
+    loc, mesh = empty("FindLoc"), typed("FindMe", "MESH")
+    found, searched = Naming.select_by_name("Find*")
+    check(
+        "select_by_name selects the matches",
+        sorted(o.name for o in found) == ["FindLoc", "FindMe"]
+        and searched == 2
+        and all(o.select_get() for o in found),
+        f"{[o.name for o in found]} of {searched}",
+    )
+    found, searched = Naming.select_by_name("Find*", locators_only=True)
+    check(
+        "select_by_name locators_only searches Empties",
+        [o.name for o in found] == ["FindLoc"] and searched == 1 and not mesh.select_get(),
+    )
+    found, _searched = Naming.select_by_name("NoSuch")
+    check("no match clears the selection", found == [] and not loc.select_get())
+    check(
+        "select_link labels and selects by name",
+        Naming.select_link(loc) == Naming.log_link("FindLoc", "select", node="FindLoc"),
+    )
+    check(
+        "UNSUPPORTED_TYPES name bound convention keys",
+        bool(Naming.UNSUPPORTED_TYPES)
+        and set(Naming.UNSUPPORTED_TYPES) <= {ck for _kw, ck, _tk in Naming.SUFFIX_BINDINGS},
     )
 
 except Exception:

@@ -2,7 +2,7 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (336)
+## Moved out (361)
 
 - `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots` → `tentacle.slots.tools.key_stash.KeyStashSlots` (from 0.23.0)
 - `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots.b000` → `tentacle.slots.tools.key_stash.KeyStashSlots` (from 0.23.0)
@@ -112,6 +112,12 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `edit_utils/bridge.py::BridgeSlots` → `tentacle.slots.tools.bridge.BridgeSlots` (from 0.23.0)
 - `edit_utils/bridge.py::BridgeSlots.header_init` → `tentacle.slots.tools.bridge.BridgeSlots` (from 0.23.0)
 - `edit_utils/bridge.py::BridgeSlots.perform_operation` → `tentacle.slots.tools.bridge.BridgeSlots` (from 0.23.0)
+- `edit_utils/curtain/curtain_slots.py::CurtainSlots` → `tentacle.slots.tools.curtain.CurtainSlots` (from 0.23.0)
+- `edit_utils/curtain/curtain_slots.py::CurtainSlots.b001_init` → `tentacle.slots.tools.curtain.CurtainSlots` (from 0.23.0)
+- `edit_utils/curtain/curtain_slots.py::CurtainSlots.b002` → `tentacle.slots.tools.curtain.CurtainSlots` (from 0.23.0)
+- `edit_utils/curtain/curtain_slots.py::CurtainSlots.cmb000_init` → `tentacle.slots.tools.curtain.CurtainSlots` (from 0.23.0)
+- `edit_utils/curtain/curtain_slots.py::CurtainSlots.header_init` → `tentacle.slots.tools.curtain.CurtainSlots` (from 0.23.0)
+- `edit_utils/curtain/curtain_slots.py::CurtainSlots.perform_operation` → `tentacle.slots.tools.curtain.CurtainSlots` (from 0.23.0)
 - `edit_utils/cut_on_axis.py::CutOnAxisSlots` → `tentacle.slots.tools.cut_on_axis.CutOnAxisSlots` (from 0.23.0)
 - `edit_utils/cut_on_axis.py::CutOnAxisSlots.header_init` → `tentacle.slots.tools.cut_on_axis.CutOnAxisSlots` (from 0.23.0)
 - `edit_utils/cut_on_axis.py::CutOnAxisSlots.perform_operation` → `tentacle.slots.tools.cut_on_axis.CutOnAxisSlots` (from 0.23.0)
@@ -138,6 +144,25 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `edit_utils/mirror.py::MirrorSlots.header_init` → `tentacle.slots.tools.mirror.MirrorSlots` (from 0.23.0)
 - `edit_utils/mirror.py::MirrorSlots.perform_operation` → `tentacle.slots.tools.mirror.MirrorSlots` (from 0.23.0)
 - `edit_utils/mirror.py::MirrorSlots.prepare_operation` → `tentacle.slots.tools.mirror.MirrorSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots.base_names` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots.dry_run` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots.file_scope` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots.header_init` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots.scope` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots.tb000` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots.tb000_init` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots.tb001` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots.tb001_init` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots.tb002` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots.tb002_init` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots.tb003` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots.tb003_init` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots.txt000` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots.txt000_init` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots.txt001` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots.txt001_init` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
+- `edit_utils/naming/naming_slots.py::NamingSlots.valid_suffixes` → `tentacle.slots.tools.naming.NamingSlots` (from 0.23.0)
 - `edit_utils/snap.py::SnapSlots` → `tentacle.slots.tools.snap.SnapSlots` (from 0.23.0)
 - `edit_utils/snap.py::SnapSlots.b000` → `tentacle.slots.tools.snap.SnapSlots` (from 0.23.0)
 - `edit_utils/snap.py::SnapSlots.b000_init` → `tentacle.slots.tools.snap.SnapSlots` (from 0.23.0)
@@ -341,7 +366,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/shell_xform.py::ShellXformSlots.tb008` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
 - `uv_utils/shell_xform.py::ShellXformSlots.tb008_init` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
 
-## Added (112)
+## Added (121)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -377,10 +402,19 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `edit_utils/components.py::Components.set_to_face_normals(objects)`
 - `edit_utils/components.py::Components.toggle_normal_lock(objects)`
 - `edit_utils/components.py::Components.transfer_normals(objects, space='world')`
+- `edit_utils/curtain/_curtain.py::Curtain(class)`
+- `edit_utils/curtain/_curtain.py::Curtain.create(rail: Sequence[Vec], **opts) -> str`
+- `edit_utils/curtain/_curtain.py::Curtain.delete_rail_curve(curve) -> None`
+- `edit_utils/curtain/_curtain.py::Curtain.rail_curve(points, closed=False, curve=None, select=False) -> str`
+- `edit_utils/curtain/_curtain.py::Curtain.rail_from_selection(objects) -> Optional[Tuple[List[Vec], bool]]`
+- `edit_utils/curtain/_curtain.py::Curtain.triangle_count(curtain) -> Optional[int]`
 - `edit_utils/cut_on_axis.py::CutOnAxis(class)`
 - `edit_utils/cut_on_axis.py::CutOnAxis.perform_cut_on_axis(objects, axis='-x', cuts=0, cut_offset=0, cut_spacing=0.0, distribution='linear', weight_bias=0.5, weight_curve=2.0, delete=False, mirror=False, pivot='manip', axis_frame=None)`
 - `edit_utils/duplicate_radial.py::DuplicateRadial.regroup_copies(copies)`
 - `edit_utils/dynamic_pipe.py::DynamicPipe.from_selection(cls, **kwargs) -> 'DynamicPipe'`
+- `edit_utils/naming/_naming.py::Naming.scope_objects(cls, scene=False) -> List`
+- `edit_utils/naming/_naming.py::Naming.select_by_name(cls, pattern, regex=False, ignore_case=False, locators_only=False) -> Tuple[List, int]`
+- `edit_utils/naming/_naming.py::Naming.select_link(cls, obj) -> str`
 - `edit_utils/snap.py::Snap(class)`
 - `edit_utils/snap.py::Snap.snap_to_closest_vertex(obj1, obj2, tolerance=10.0)`
 - `edit_utils/snap.py::Snap.snap_to_grid(objects=None, grid_size=1.0, axes='xyz')`

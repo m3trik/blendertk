@@ -13,7 +13,8 @@ class BlenderUiHandler(UiHandler):
     The Blender analogue of :class:`mayatk.ui_utils.maya_ui_handler.MayaUiHandler`:
     it scans the **blendertk package** recursively so a tool that ships its own
     Switchboard ``.ui`` + ``<Tool>Slots`` co-located with its logic (e.g.
-    ``edit_utils/curtain/curtain.ui`` + ``CurtainSlots``) is auto-discovered and served by
+    ``light_utils/lightmap_baker/lightmap_baker.ui`` + ``LightmapBakerSlots``) is
+    auto-discovered and served by
     ``marking_menu.show("<tool>")`` — exactly the way mayatk tools are. This keeps the
     Blender tool panels in blendertk (next to the code that drives them), not in
     tentacle, mirroring the mayatk/tentacle split.
@@ -165,7 +166,7 @@ class BlenderUiHandler(UiHandler):
         shelf/console one-liner reliable::
 
             from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
-            BlenderUiHandler.instance().get("curtain").show(pos="screen")
+            BlenderUiHandler.instance().get("lightmap_baker").show(pos="screen")
         """
         if switchboard is None:
             # SingletonMixin._instances is shared across subclasses; filter to ours.

@@ -48,10 +48,8 @@ def _sandbox_qsettings():
 
 # Co-located tool panels that BlenderUiHandler must discover from the blendertk package.
 PANELS = [
-    "curtain",
     "audio_clips",
     "blendshape_animator",
-    "naming",
     "lightmap_baker",
     "reference_manager",
     "workspace_editor",
@@ -262,7 +260,6 @@ try:
     # 2. Loading a panel whose Slots.__init__ is bpy-free wires the co-located <Tool>Slots
     #    FROM blendertk (not tentacle) and stamps the blendertk source tag (hide-button style).
     for panel, slot_cls in (
-        ("curtain", "CurtainSlots"),
         ("rizom_bridge", "RizomBridgeSlots"),  # engine/slots init is bpy-free
         (
             "workspace_editor",
@@ -297,7 +294,6 @@ try:
             "reference_manager",
             "ReferenceManagerSlots",
         ),  # *_init bpy-guarded → table degrades w/o bpy
-        ("naming", "NamingSlots"),  # __init__ + option-box *_init are bpy-free
         ("render_effects", "RenderEffectsSlots"),  # __init__ (btn connect) is bpy-free
         (
             "tube_rig",
@@ -322,16 +318,6 @@ try:
             f"{panel} carries the blendertk source tag",
             hasattr(ui, "has_tags") and ui.has_tags(["blendertk"]),
         )
-        # Preview panels ship the commit button enabled=false in the .ui; Preview must enable
-        # it on construction or Create is a dead button (preview can never be committed). Verify
-        # end-to-end on the real loaded widget — the unit test only covers the stub.
-        if panel in ("curtain"):
-            b000 = getattr(ui, "b000", None)
-            check(
-                f"{panel} Create button enabled after load (Preview manages it)",
-                b000 is not None and b000.isEnabled(),
-                "b000.isEnabled()",
-            )
 
     # 2b. The "blendertk" -> hide rule is a DEFAULT declared through
     #     UiHandler.default_persistence, not a hardcoded header_buttons swap in
@@ -342,7 +328,7 @@ try:
 
     check(
         "blendertk-tagged panels default to sticky (hide button)",
-        handler.default_persistence(sb.get_ui("curtain"))
+        handler.default_persistence(sb.get_ui("channels"))
         == _UiHandler.PERSISTENCE_STICKY,
     )
     check(
@@ -352,15 +338,15 @@ try:
     )
     check(
         "a UI Browser override outranks the blendertk default",
-        handler.resolve_persistence(sb.get_ui("curtain"), context_default=None)
+        handler.resolve_persistence(sb.get_ui("channels"), context_default=None)
         == _UiHandler.PERSISTENCE_STICKY
         and (
-            handler.set_persistence_override("curtain", _UiHandler.PERSISTENCE_TRANSIENT)
-            or handler.resolve_persistence(sb.get_ui("curtain"))
+            handler.set_persistence_override("channels", _UiHandler.PERSISTENCE_TRANSIENT)
+            or handler.resolve_persistence(sb.get_ui("channels"))
         )
         == _UiHandler.PERSISTENCE_TRANSIENT,
     )
-    handler.set_persistence_override("curtain", None)  # leave the store clean
+    handler.set_persistence_override("channels", None)  # leave the store clean
 
     # Gesture-scoped panels opt into the pin + auto-hide-on-key_show-release behavior by declaring a
     # "pin" header button in header_init (overriding BlenderUiHandler's blanket "blendertk"->hide
@@ -368,7 +354,6 @@ try:
     # second header menu -- so assert what the load itself wired: pin replaced the default hide.
     GESTURE_SCOPED = [
         "reference_manager",
-        "naming",
     ]
     for panel in GESTURE_SCOPED:
         gs_ui = sb.get_ui(panel)
@@ -1197,17 +1182,6 @@ try:
     else:
         check("audio_clips exposes slots for the option-box check", False, "no slots")
 
-    # curtain: the cmb000 preset selector is wired via uitk.PresetManager and populated from the
-    # shipped built-in presets (proves the combo + builtin_dir work, not just "didn't error").
-    curtain_ui = sb.get_ui("curtain")
-    cmb = getattr(curtain_ui, "cmb000", None)
-    items = [cmb.itemText(i) for i in range(cmb.count())] if cmb else []
-    check(
-        "curtain preset combo lists the built-in presets",
-        "Stage Swag" in items and "Shower Curtain" in items,
-        f"{items}",
-    )
-
     # tube_rig (HYBRID): the mode combo lists the registered strategies and the options body is
     # rebuilt from the SELECTED strategy's option dicts (AttributeSpec -> make_widget) — the core
     # dynamic-spec behavior. Switching modes swaps the option widget set.
@@ -1317,42 +1291,6 @@ try:
         )
     else:
         check("lightmap_baker exposes slots for the combo check", False, "no slots")
-
-    # naming: every Suffix By Type row names its type in a label to the RIGHT of the field (the
-    # fields ship filled, so their placeholders never show), and the menu carries the convention
-    # preset combo (2026-09-26). The picker wraps each field, so find the grid cell holding it.
-    nm_ui = sb.get_ui("naming")
-    nm = getattr(nm_ui, "slots", None)
-    if nm is not None:
-        nm_menu = nm_ui.tb003.option_box.menu
-        if not (nm_menu.gridLayout and nm_menu.gridLayout.count()):
-            nm.tb003_init(nm_ui.tb003)
-        grid = nm_menu.gridLayout
-        unlabeled = []
-        rows = list(nm._convention_editor.fields())
-        for ck, field in rows:
-            cell = None
-            for i in range(grid.count()):
-                held = grid.itemAt(i).widget()
-                if held is not None and (held is field or held.isAncestorOf(field)):
-                    cell = grid.getItemPosition(i)[:2]
-                    break
-            beside = grid.itemAtPosition(cell[0], 1) if cell and cell[1] == 0 else None
-            text = beside.widget().text() if beside and beside.widget() else None
-            if text != ptk.NamingConvention.label(ck):
-                unlabeled.append((ck, cell, text))
-        check(
-            "naming Suffix By Type labels every convention row to the right of its field",
-            len(rows) == 22 and not unlabeled,
-            f"rows={len(rows)} unlabeled={unlabeled}",
-        )
-        check(
-            "naming Suffix By Type offers convention presets (semantic mode)",
-            nm_menu.add_presets
-            and nm_menu.presets.value_applier == nm._convention_editor.apply_preset,
-        )
-    else:
-        check("naming exposes slots for the Suffix By Type check", False, "no slots")
 
     # workspace_editor: the minimal Project Window — one root field, RULE/LOCATION table with
     # per-row reset/remove action columns, and rule edits that write through to workspace.mel in

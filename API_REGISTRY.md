@@ -70,7 +70,6 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`edit_utils/components.py`](#edit_utils--components) — Component-level mesh operations — mirror of mayatk's ``core_utils.components``.
 - [`edit_utils/curtain/_curtain.py`](#edit_utils--curtain--_curtain) — Procedural draped-cloth (curtain) generator for Blender -- mirror of mayatk's
 - [`edit_utils/curtain/_curtain_drape.py`](#edit_utils--curtain--_curtain_drape) — Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.
-- [`edit_utils/curtain/curtain_slots.py`](#edit_utils--curtain--curtain_slots) — Curtain panel — the Switchboard slots for ``curtain.ui`` (Blender).
 - [`edit_utils/cut_on_axis.py`](#edit_utils--cut_on_axis) — Cut On Axis: slice meshes along an axis -- mirror of mayatk's
 - [`edit_utils/duplicate_grid.py`](#edit_utils--duplicate_grid) — Grid array duplication — mirror of mayatk's ``edit_utils.duplicate_grid``.
 - [`edit_utils/duplicate_linear.py`](#edit_utils--duplicate_linear) — Linear array duplication — mirror of mayatk's ``edit_utils.duplicate_linear``.
@@ -78,7 +77,6 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`edit_utils/dynamic_pipe.py`](#edit_utils--dynamic_pipe) — Dynamic Pipe tool — Blender port of mayatk's ``edit_utils.dynamic_pipe``.
 - [`edit_utils/macros/_macros.py`](#edit_utils--macros--_macros) — Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
 - [`edit_utils/naming/_naming.py`](#edit_utils--naming--_naming) — Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
-- [`edit_utils/naming/naming_slots.py`](#edit_utils--naming--naming_slots) — Switchboard slots for the Naming panel — Blender port of mayatk's ``NamingSlots``.
 - [`edit_utils/selection.py`](#edit_utils--selection) — Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``
 - [`edit_utils/snap.py`](#edit_utils--snap) — Snap: vertices to a target surface, to the closest target vertex, or to the
 - [`edit_utils/target_weld.py`](#edit_utils--target_weld) — Target Weld — interactive drag-a-vertex-onto-another merge tool.
@@ -221,7 +219,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L437) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L438) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -1306,14 +1304,20 @@ Component-level mesh operations — mirror of mayatk's ``core_utils.components``
 
 Procedural draped-cloth (curtain) generator for Blender -- mirror of mayatk's
 
-- **[`class Rail(pythontk.Polyline)`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L39)** — Rail-polyline geometry -- the line a curtain hangs from.
+- **[`class Rail(pythontk.Polyline)`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L41)** — Rail-polyline geometry -- the line a curtain hangs from.
   - `Rail.from_selection(objects) -> Optional[Tuple[List[Vec], bool]]` *(static)* — Resolve a rail polyline from a Blender selection.
   - `Rail.sample_curve(curve) -> Tuple[List[Vec], bool]` *(static)* — Sample a curve object into a dense world-space polyline.
-- **[`class CurtainMesh(CurtainDrape)`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L114)** — Generate a pleated, gravity-draped curtain mesh from a rail polyline.
+- **[`class CurtainMesh(CurtainDrape)`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L116)** — Generate a pleated, gravity-draped curtain mesh from a rail polyline.
   - `CurtainMesh.create(cls, rail: Sequence[Vec], **opts)` *(class)*
   - `CurtainMesh.build(self)` — Create the curtain mesh object and return it.
-- **[`class CurtainRig`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L190)** — Make grabbable control handles drive a finished curtain — Blender mirror of mayatk's
+- **[`class CurtainRig`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L192)** — Make grabbable control handles drive a finished curtain — Blender mirror of mayatk's
   - `CurtainRig.attach(curtain, controls=5, dropoff=2.0, name=None)` *(static)* — Rig *curtain* with control-empty handles that pull the cloth via hooks.
+- **[`class Curtain`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L343)** — The Curtain tool's API -- mirror of mayatk's ``Curtain``: drape a curtain
+  - `Curtain.rail_from_selection(objects) -> Optional[Tuple[List[Vec], bool]]` *(static)* — The rail ``(points, closed)`` *objects* describe, or None: mesh edges
+  - `Curtain.create(rail: Sequence[Vec], **opts) -> str` *(static)* — Drape a curtain from the *rail* points (:class:`CurtainMesh`'s
+  - `Curtain.rail_curve(points, closed=False, curve=None, select=False) -> str` *(static)* — A poly curve through *points*: a visible stand-in for a rail.
+  - `Curtain.delete_rail_curve(curve) -> None` *(static)* — Delete a :meth:`rail_curve` object and its curve data;
+  - `Curtain.triangle_count(curtain) -> Optional[int]` *(static)* — The *curtain* mesh's triangle count, or None when it is gone.
 
 <a id="edit_utils--curtain--_curtain_drape"></a>
 ### `edit_utils/curtain/_curtain_drape.py`
@@ -1324,18 +1328,6 @@ Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.
   - `CurtainDrape.prepare(self) -> Tuple[int, int, List[Tuple[Vec, Vec, Vec]]]` — Precompute the per-build state and return ``(u_segs, v_segs, frames)``.
   - `CurtainDrape.grid_points(self) -> Tuple[int, int, List[Vec]]` — The full draped grid: ``(u_segs, v_segs, points)``.
   - `CurtainDrape.drape(self, u, v, pos, tan, normal) -> Vec` — Place one cloth vertex.
-
-<a id="edit_utils--curtain--curtain_slots"></a>
-### `edit_utils/curtain/curtain_slots.py`
-
-Curtain panel — the Switchboard slots for ``curtain.ui`` (Blender).
-
-- **[`class CurtainSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/curtain/curtain_slots.py#L27)** — Switchboard slot wiring for the curtain UI (live preview + rail resolution + presets).
-  - `CurtainSlots.header_init(self, widget)` — Configure header help text (the preset combo lives in the panel).
-  - `CurtainSlots.cmb000_init(self, widget)` — Wire the in-panel preset selector (built-in + user tiers) — mirror of the Maya panel.
-  - `CurtainSlots.b001_init(self, widget)` — Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the
-  - `CurtainSlots.b002(self)` — Set Position to the bounding-box center of the selected object(s).
-  - `CurtainSlots.perform_operation(self, objects)` — Build the curtain from the resolved rail (Preview entry point).
 
 <a id="edit_utils--cut_on_axis"></a>
 ### `edit_utils/cut_on_axis.py`
@@ -1454,6 +1446,9 @@ Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
   - `Naming.SUFFIX_TYPES(cls) -> Tuple[Tuple[str, str, str, str], ...]` — ``(keyword, affix, label, type key)`` -- the live convention, joined
   - `Naming.affix_rules(cls, overrides=None, modes=None)` *(class)* — ``{Blender type key: AffixRule}`` -- the shared convention bound to
   - `Naming.scene_objects(cls) -> List` *(class)* — Every object in the current scene — the naming tools' "Scene" scope.
+  - `Naming.scope_objects(cls, scene=False) -> List` *(class)* — What a naming operation acts on in a scene scope: every object in the
+  - `Naming.select_by_name(cls, pattern, regex=False, ignore_case=False, locators_only=False) -> Tuple[List, int]` *(class)* — Select the scene's objects whose name matches *pattern* (Find) --
+  - `Naming.select_link(cls, obj) -> str` *(class)* — A report link labeled with *obj*'s name that selects it -- mirror of
   - `Naming.rename(cls, objects, to, fltr='', regex=False, ignore_case=False, retain_suffix=False, valid_suffixes=None, collapse_padding=True, dry_run=False)` *(class)* — Rename objects by pattern — Blender mirror of mayatk's ``Naming.rename``.
   - `Naming.generate_unique_name(cls, base_name, suffix='_', padding=3)` *(class)* — A unique object name based on ``base_name`` (``Cube`` → ``Cube_001``) — mirror of
   - `Naming.strip_illegal_chars(input_data, replace_with='_')` *(static)* — Replace characters outside ``[A-Za-z0-9_]`` (engine-export-safe naming).
@@ -1463,31 +1458,6 @@ Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
   - `Naming.affix_for(cls, item, overrides=None, modes=None)` *(class)* — The convention's affix rule for *item*'s OWN type -- mirror of mayatk's.
   - `Naming.suffix_by_type(cls, objects, group_suffix=None, locator_suffix=None, joint_suffix=None, mesh_suffix=None, nurbs_curve_suffix=None, camera_suffix=None, light_suffix=None, display_layer_suffix=None, ik_handle_suffix=None, nurbs_surface_suffix=None, cluster_suffix=None, lattice_suffix=None, skin_cluster_suffix=None, blend_shape_suffix=None, constraint_suffix=None, material_suffix=None, shading_group_suffix=None, texture_suffix=None, set_suffix=None, custom_suffixes=None, affix_mode=None, affix_modes=None, strip=None, strip_trailing_ints=False, strip_trailing_underscores=False, strip_trailing_padding=True, dry_run=False)` *(class)* — Apply each object's conventional type **affix** (stripping any other it
   - `Naming.append_location_based_suffix(cls, objects, first_obj_as_ref=False, alphabetical=False, strip_trailing_ints=True, strip_defined_suffixes=True, valid_suffixes=None, reverse=False, independent_groups=False, dry_run=False)` *(class)* — Suffix objects by their distance from a reference point (origin, or the first object's
-
-<a id="edit_utils--naming--naming_slots"></a>
-### `edit_utils/naming/naming_slots.py`
-
-Switchboard slots for the Naming panel — Blender port of mayatk's ``NamingSlots``.
-
-- **[`class NamingSlots(Naming)`](blendertk/blendertk/edit_utils/naming/naming_slots.py#L31)** — Switchboard slots for the Naming panel.
-  - `NamingSlots.header_init(self, widget)` — Configure header menu with tool description and workflow instructions.
-  - `NamingSlots.scope(self) -> str` *(property)*
-  - `NamingSlots.dry_run(self) -> bool` *(property)*
-  - `NamingSlots.file_scope(self) -> bool` *(property)*
-  - `NamingSlots.base_names(self) -> bool` *(property)* — Operate on map-suffix-free base names — file scopes only.
-  - `NamingSlots.valid_suffixes(self)` *(property)* — The current Suffix By Type strings (non-empty), from the tb003 option box.
-  - `NamingSlots.txt000_init(self, widget)` — Initialize Find
-  - `NamingSlots.txt000(self, widget)` — Find: select scene objects (or browse for files) whose name matches the pattern.
-  - `NamingSlots.txt001_init(self, widget)` — Initialize Rename
-  - `NamingSlots.txt001(self, widget)` — Rename: rename matched objects or files (find → replace, with regex / suffix options).
-  - `NamingSlots.tb000_init(self, widget)` — Initialize Convert Case
-  - `NamingSlots.tb000(self, widget)` — Convert Case
-  - `NamingSlots.tb001_init(self, widget)` — Initialize Suffix By Location
-  - `NamingSlots.tb001(self, widget)` — Suffix By Location
-  - `NamingSlots.tb002_init(self, widget)` — Initialize Strip Chars
-  - `NamingSlots.tb002(self, widget)` — Strip Chars: remove a number of leading/trailing characters from the names in scope.
-  - `NamingSlots.tb003_init(self, widget)` — Initialize Suffix By Type — the editor for the shared naming convention.
-  - `NamingSlots.tb003(self, widget)` — Suffix By Type
 
 <a id="edit_utils--selection"></a>
 ### `edit_utils/selection.py`

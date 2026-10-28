@@ -23,7 +23,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 437,
+          "line": 438,
           "deprecated": false
         }
       ]
@@ -6885,7 +6885,7 @@
         {
           "name": "Rail",
           "summary": "Rail-polyline geometry -- the line a curtain hangs from.",
-          "line": 39,
+          "line": 41,
           "bases": [
             "pythontk.Polyline"
           ],
@@ -6896,7 +6896,7 @@
               "kind": "staticmethod",
               "signature": "(objects) -> Optional[Tuple[List[Vec], bool]]",
               "summary": "Resolve a rail polyline from a Blender selection.",
-              "line": 48,
+              "line": 50,
               "deprecated": false
             },
             {
@@ -6905,7 +6905,7 @@
               "kind": "staticmethod",
               "signature": "(curve) -> Tuple[List[Vec], bool]",
               "summary": "Sample a curve object into a dense world-space polyline.",
-              "line": 82,
+              "line": 84,
               "deprecated": false
             }
           ]
@@ -6913,7 +6913,7 @@
         {
           "name": "CurtainMesh",
           "summary": "Generate a pleated, gravity-draped curtain mesh from a rail polyline.",
-          "line": 114,
+          "line": 116,
           "bases": [
             "CurtainDrape"
           ],
@@ -6924,7 +6924,7 @@
               "kind": "classmethod",
               "signature": "(cls, rail: Sequence[Vec], **opts)",
               "summary": "",
-              "line": 125,
+              "line": 127,
               "deprecated": false
             },
             {
@@ -6933,7 +6933,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Create the curtain mesh object and return it.",
-              "line": 129,
+              "line": 131,
               "deprecated": false
             }
           ]
@@ -6941,7 +6941,7 @@
         {
           "name": "CurtainRig",
           "summary": "Make grabbable control handles drive a finished curtain — Blender mirror of mayatk's",
-          "line": 190,
+          "line": 192,
           "bases": [],
           "members": [
             {
@@ -6950,7 +6950,60 @@
               "kind": "staticmethod",
               "signature": "(curtain, controls=5, dropoff=2.0, name=None)",
               "summary": "Rig *curtain* with control-empty handles that pull the cloth via hooks.",
-              "line": 218,
+              "line": 220,
+              "deprecated": false
+            }
+          ]
+        },
+        {
+          "name": "Curtain",
+          "summary": "The Curtain tool's API -- mirror of mayatk's ``Curtain``: drape a curtain",
+          "line": 343,
+          "bases": [],
+          "members": [
+            {
+              "name": "rail_from_selection",
+              "qualname": "Curtain.rail_from_selection",
+              "kind": "staticmethod",
+              "signature": "(objects) -> Optional[Tuple[List[Vec], bool]]",
+              "summary": "The rail ``(points, closed)`` *objects* describe, or None: mesh edges",
+              "line": 363,
+              "deprecated": false
+            },
+            {
+              "name": "create",
+              "qualname": "Curtain.create",
+              "kind": "staticmethod",
+              "signature": "(rail: Sequence[Vec], **opts) -> str",
+              "summary": "Drape a curtain from the *rail* points (:class:`CurtainMesh`'s",
+              "line": 370,
+              "deprecated": false
+            },
+            {
+              "name": "rail_curve",
+              "qualname": "Curtain.rail_curve",
+              "kind": "staticmethod",
+              "signature": "(points, closed=False, curve=None, select=False) -> str",
+              "summary": "A poly curve through *points*: a visible stand-in for a rail.",
+              "line": 376,
+              "deprecated": false
+            },
+            {
+              "name": "delete_rail_curve",
+              "qualname": "Curtain.delete_rail_curve",
+              "kind": "staticmethod",
+              "signature": "(curve) -> None",
+              "summary": "Delete a :meth:`rail_curve` object and its curve data;",
+              "line": 405,
+              "deprecated": false
+            },
+            {
+              "name": "triangle_count",
+              "qualname": "Curtain.triangle_count",
+              "kind": "staticmethod",
+              "signature": "(curtain) -> Optional[int]",
+              "summary": "The *curtain* mesh's triangle count, or None when it is gone.",
+              "line": 419,
               "deprecated": false
             }
           ]
@@ -6996,69 +7049,6 @@
               "signature": "(self, u, v, pos, tan, normal) -> Vec",
               "summary": "Place one cloth vertex.",
               "line": 260,
-              "deprecated": false
-            }
-          ]
-        }
-      ],
-      "constants": []
-    },
-    {
-      "relpath": "edit_utils/curtain/curtain_slots.py",
-      "summary": "Curtain panel — the Switchboard slots for ``curtain.ui`` (Blender).",
-      "functions": [],
-      "classes": [
-        {
-          "name": "CurtainSlots",
-          "summary": "Switchboard slot wiring for the curtain UI (live preview + rail resolution + presets).",
-          "line": 27,
-          "bases": [
-            "pythontk.LoggingMixin"
-          ],
-          "members": [
-            {
-              "name": "header_init",
-              "qualname": "CurtainSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Configure header help text (the preset combo lives in the panel).",
-              "line": 113,
-              "deprecated": false
-            },
-            {
-              "name": "cmb000_init",
-              "qualname": "CurtainSlots.cmb000_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Wire the in-panel preset selector (built-in + user tiers) — mirror of the Maya panel.",
-              "line": 172,
-              "deprecated": false
-            },
-            {
-              "name": "b001_init",
-              "qualname": "CurtainSlots.b001_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the",
-              "line": 404,
-              "deprecated": false
-            },
-            {
-              "name": "b002",
-              "qualname": "CurtainSlots.b002",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Set Position to the bounding-box center of the selected object(s).",
-              "line": 411,
-              "deprecated": false
-            },
-            {
-              "name": "perform_operation",
-              "qualname": "CurtainSlots.perform_operation",
-              "kind": "method",
-              "signature": "(self, objects)",
-              "summary": "Build the curtain from the resolved rail (Preview entry point).",
-              "line": 439,
               "deprecated": false
             }
           ]
@@ -7787,7 +7777,7 @@
               "kind": "method",
               "signature": "(cls) -> Tuple[Tuple[str, str, str, str], ...]",
               "summary": "``(keyword, affix, label, type key)`` -- the live convention, joined",
-              "line": 60,
+              "line": 78,
               "deprecated": false
             },
             {
@@ -7796,7 +7786,7 @@
               "kind": "classmethod",
               "signature": "(cls, overrides=None, modes=None)",
               "summary": "``{Blender type key: AffixRule}`` -- the shared convention bound to",
-              "line": 70,
+              "line": 88,
               "deprecated": false
             },
             {
@@ -7805,7 +7795,34 @@
               "kind": "classmethod",
               "signature": "(cls) -> List",
               "summary": "Every object in the current scene — the naming tools' \"Scene\" scope.",
-              "line": 76,
+              "line": 94,
+              "deprecated": false
+            },
+            {
+              "name": "scope_objects",
+              "qualname": "Naming.scope_objects",
+              "kind": "classmethod",
+              "signature": "(cls, scene=False) -> List",
+              "summary": "What a naming operation acts on in a scene scope: every object in the",
+              "line": 101,
+              "deprecated": false
+            },
+            {
+              "name": "select_by_name",
+              "qualname": "Naming.select_by_name",
+              "kind": "classmethod",
+              "signature": "(cls, pattern, regex=False, ignore_case=False, locators_only=False) -> Tuple[List, int]",
+              "summary": "Select the scene's objects whose name matches *pattern* (Find) --",
+              "line": 112,
+              "deprecated": false
+            },
+            {
+              "name": "select_link",
+              "qualname": "Naming.select_link",
+              "kind": "classmethod",
+              "signature": "(cls, obj) -> str",
+              "summary": "A report link labeled with *obj*'s name that selects it -- mirror of",
+              "line": 136,
               "deprecated": false
             },
             {
@@ -7814,7 +7831,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, to, fltr='', regex=False, ignore_case=False, retain_suffix=False, valid_suffixes=None, collapse_padding=True, dry_run=False)",
               "summary": "Rename objects by pattern — Blender mirror of mayatk's ``Naming.rename``.",
-              "line": 83,
+              "line": 142,
               "deprecated": false
             },
             {
@@ -7823,7 +7840,7 @@
               "kind": "classmethod",
               "signature": "(cls, base_name, suffix='_', padding=3)",
               "summary": "A unique object name based on ``base_name`` (``Cube`` → ``Cube_001``) — mirror of",
-              "line": 167,
+              "line": 226,
               "deprecated": false
             },
             {
@@ -7832,7 +7849,7 @@
               "kind": "staticmethod",
               "signature": "(input_data, replace_with='_')",
               "summary": "Replace characters outside ``[A-Za-z0-9_]`` (engine-export-safe naming).",
-              "line": 184,
+              "line": 243,
               "deprecated": false
             },
             {
@@ -7841,7 +7858,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, num_chars=1, trailing=False, dry_run=False)",
               "summary": "Delete ``num_chars`` leading (or ``trailing``) characters from each object's name —",
-              "line": 195,
+              "line": 254,
               "deprecated": false
             },
             {
@@ -7850,7 +7867,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, case='capitalize', dry_run=False)",
               "summary": "Rename objects by Python string case op — ``upper`` / ``lower`` / ``capitalize`` /",
-              "line": 212,
+              "line": 271,
               "deprecated": false
             },
             {
@@ -7859,7 +7876,7 @@
               "kind": "classmethod",
               "signature": "(cls, item) -> str",
               "summary": "Resolve an object (or Material / Image datablock) to its suffix-by-type key.",
-              "line": 223,
+              "line": 282,
               "deprecated": false
             },
             {
@@ -7868,7 +7885,7 @@
               "kind": "classmethod",
               "signature": "(cls, item, overrides=None, modes=None)",
               "summary": "The convention's affix rule for *item*'s OWN type -- mirror of mayatk's.",
-              "line": 250,
+              "line": 309,
               "deprecated": false
             },
             {
@@ -7877,7 +7894,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, group_suffix=None, locator_suffix=None, joint_suffix=None, mesh_suffix=None, nurbs_curve_suffix=None, camera_suffix=None, light_suffix=None, display_layer_suffix=None, ik_handle_suffix=None, nurbs_surface_suffix=None, cluster_suffix=None, lattice_suffix=None, skin_cluster_suffix=None, blend_shape_suffix=None, constraint_suffix=None, material_suffix=None, shading_group_suffix=None, texture_suffix=None, set_suffix=None, custom_suffixes=None, affix_mode=None, affix_modes=None, strip=None, strip_trailing_ints=False, strip_trailing_underscores=False, strip_trailing_padding=True, dry_run=False)",
               "summary": "Apply each object's conventional type **affix** (stripping any other it",
-              "line": 269,
+              "line": 328,
               "deprecated": false
             },
             {
@@ -7886,187 +7903,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, first_obj_as_ref=False, alphabetical=False, strip_trailing_ints=True, strip_defined_suffixes=True, valid_suffixes=None, reverse=False, independent_groups=False, dry_run=False)",
               "summary": "Suffix objects by their distance from a reference point (origin, or the first object's",
-              "line": 387,
-              "deprecated": false
-            }
-          ]
-        }
-      ],
-      "constants": []
-    },
-    {
-      "relpath": "edit_utils/naming/naming_slots.py",
-      "summary": "Switchboard slots for the Naming panel — Blender port of mayatk's ``NamingSlots``.",
-      "functions": [],
-      "classes": [
-        {
-          "name": "NamingSlots",
-          "summary": "Switchboard slots for the Naming panel.",
-          "line": 31,
-          "bases": [
-            "Naming"
-          ],
-          "members": [
-            {
-              "name": "header_init",
-              "qualname": "NamingSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Configure header menu with tool description and workflow instructions.",
-              "line": 168,
-              "deprecated": false
-            },
-            {
-              "name": "scope",
-              "qualname": "NamingSlots.scope",
-              "kind": "property",
-              "signature": "(self) -> str",
-              "summary": "",
-              "line": 286,
-              "deprecated": false
-            },
-            {
-              "name": "dry_run",
-              "qualname": "NamingSlots.dry_run",
-              "kind": "property",
-              "signature": "(self) -> bool",
-              "summary": "",
-              "line": 290,
-              "deprecated": false
-            },
-            {
-              "name": "file_scope",
-              "qualname": "NamingSlots.file_scope",
-              "kind": "property",
-              "signature": "(self) -> bool",
-              "summary": "",
-              "line": 294,
-              "deprecated": false
-            },
-            {
-              "name": "base_names",
-              "qualname": "NamingSlots.base_names",
-              "kind": "property",
-              "signature": "(self) -> bool",
-              "summary": "Operate on map-suffix-free base names — file scopes only.",
-              "line": 298,
-              "deprecated": false
-            },
-            {
-              "name": "valid_suffixes",
-              "qualname": "NamingSlots.valid_suffixes",
-              "kind": "property",
-              "signature": "(self)",
-              "summary": "The current Suffix By Type strings (non-empty), from the tb003 option box.",
-              "line": 490,
-              "deprecated": false
-            },
-            {
-              "name": "txt000_init",
-              "qualname": "NamingSlots.txt000_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize Find",
-              "line": 504,
-              "deprecated": false
-            },
-            {
-              "name": "txt000",
-              "qualname": "NamingSlots.txt000",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Find: select scene objects (or browse for files) whose name matches the pattern.",
-              "line": 559,
-              "deprecated": false
-            },
-            {
-              "name": "txt001_init",
-              "qualname": "NamingSlots.txt001_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize Rename",
-              "line": 640,
-              "deprecated": false
-            },
-            {
-              "name": "txt001",
-              "qualname": "NamingSlots.txt001",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Rename: rename matched objects or files (find → replace, with regex / suffix options).",
-              "line": 699,
-              "deprecated": false
-            },
-            {
-              "name": "tb000_init",
-              "qualname": "NamingSlots.tb000_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize Convert Case",
-              "line": 743,
-              "deprecated": false
-            },
-            {
-              "name": "tb000",
-              "qualname": "NamingSlots.tb000",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Convert Case",
-              "line": 753,
-              "deprecated": false
-            },
-            {
-              "name": "tb001_init",
-              "qualname": "NamingSlots.tb001_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize Suffix By Location",
-              "line": 770,
-              "deprecated": false
-            },
-            {
-              "name": "tb001",
-              "qualname": "NamingSlots.tb001",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Suffix By Location",
-              "line": 814,
-              "deprecated": false
-            },
-            {
-              "name": "tb002_init",
-              "qualname": "NamingSlots.tb002_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize Strip Chars",
-              "line": 847,
-              "deprecated": false
-            },
-            {
-              "name": "tb002",
-              "qualname": "NamingSlots.tb002",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Strip Chars: remove a number of leading/trailing characters from the names in scope.",
-              "line": 865,
-              "deprecated": false
-            },
-            {
-              "name": "tb003_init",
-              "qualname": "NamingSlots.tb003_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize Suffix By Type — the editor for the shared naming convention.",
-              "line": 924,
-              "deprecated": false
-            },
-            {
-              "name": "tb003",
-              "qualname": "NamingSlots.tb003",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Suffix By Type",
-              "line": 963,
+              "line": 446,
               "deprecated": false
             }
           ]
@@ -22736,7 +22573,7 @@
               "kind": "classmethod",
               "signature": "(cls, switchboard: Switchboard = None, **kwargs) -> 'BlenderUiHandler'",
               "summary": "Return the BlenderUiHandler singleton, bootstrapping if needed.",
-              "line": 159,
+              "line": 160,
               "deprecated": false
             },
             {
@@ -22745,7 +22582,7 @@
               "kind": "method",
               "signature": "(self, name: str) -> bool",
               "summary": "Recognise the native Blender menus this handler wraps on demand.",
-              "line": 181,
+              "line": 182,
               "deprecated": false
             },
             {
@@ -22754,7 +22591,7 @@
               "kind": "method",
               "signature": "(self, ui, pos=None, force: bool = False, **kwargs)",
               "summary": "Swap a native-menu proxy for its wrapped, freshly-harvested menu window;",
-              "line": 226,
+              "line": 227,
               "deprecated": false
             },
             {
@@ -22763,7 +22600,7 @@
               "kind": "method",
               "signature": "(self, ui) -> str",
               "summary": "blendertk-sourced tool panels stay open by default (hide, not pin).",
-              "line": 321,
+              "line": 322,
               "deprecated": false
             }
           ]

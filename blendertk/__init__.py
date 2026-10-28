@@ -346,9 +346,10 @@ DEFAULT_INCLUDE = {
     "edit_utils.duplicate_linear": "DuplicateLinear",
     "edit_utils.duplicate_radial": "DuplicateRadial",
     "edit_utils.duplicate_grid": "DuplicateGrid",
-    # The curtain's rig (``mtk.CurtainRig`` twin). The drape engine is ``Rail`` +
-    # ``CurtainMesh`` in ``edit_utils.curtain``, unregistered as in mayatk.
-    "edit_utils.curtain._curtain": "CurtainRig",
+    # Curtain: the tool's API and its rig (``mtk.Curtain`` / ``mtk.CurtainRig``
+    # twins). The drape engine is ``Rail`` + ``CurtainMesh`` in
+    # ``edit_utils.curtain``, unregistered as in mayatk.
+    "edit_utils.curtain._curtain": ["Curtain", "CurtainRig"],
     # Bevel engine — mirror of mayatk's ``edit_utils.bevel.Bevel`` (``btk.Bevel`` ↔ ``mtk.Bevel``).
     "edit_utils.bevel": [
         "Bevel",
@@ -374,8 +375,8 @@ DEFAULT_INCLUDE = {
     "edit_utils.dynamic_pipe": [
         "DynamicPipe",
     ],
-    # Naming tool — engine + co-located ``NamingSlots`` panel (discovered by the handler, not
-    # registered). Mirror of mayatk's ``edit_utils.naming`` subpackage.
+    # Naming tool engine (its panel is tentacle's shared Naming tool). Mirror of mayatk's
+    # ``edit_utils.naming`` subpackage.
     "edit_utils.naming._naming": [
         "Naming",
     ],
@@ -640,6 +641,14 @@ MOVED_NAMES = {
     ),
     "ShadowRigSlots": (
         "tentacle.slots.tools.shadow_rig.ShadowRigSlots",
+        "0.23.0",
+    ),
+    "CurtainSlots": (
+        "tentacle.slots.tools.curtain.CurtainSlots",
+        "0.23.0",
+    ),
+    "NamingSlots": (
+        "tentacle.slots.tools.naming.NamingSlots",
         "0.23.0",
     ),
 }

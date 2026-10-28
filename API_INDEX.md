@@ -290,14 +290,12 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
   - methods: create, build
 - `class CurtainRig`
   - methods: attach
+- `class Curtain`
+  - methods: rail_from_selection, create, rail_curve, delete_rail_curve, triangle_count
 
 ### `edit_utils/curtain/_curtain_drape.py` — Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.
 - `class CurtainDrape(_CurtainDrapeInternal)`
   - methods: prepare, grid_points, drape
-
-### `edit_utils/curtain/curtain_slots.py` — Curtain panel — the Switchboard slots for ``curtain.ui`` (Blender).
-- `class CurtainSlots(pythontk.LoggingMixin)`
-  - methods: header_init, cmb000_init, b001_init, b002, perform_operation
 
 ### `edit_utils/cut_on_axis.py` — Cut On Axis: slice meshes along an axis -- mirror of mayatk's
 - `class CutOnAxis`
@@ -337,11 +335,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `edit_utils/naming/_naming.py` — Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
 - `class Naming(pythontk.HelpMixin, pythontk.LoggingMixin)`
-  - methods: SUFFIX_TYPES, affix_rules, scene_objects, rename, generate_unique_name, strip_illegal_chars, strip_chars, set_case, type_key, affix_for, suffix_by_type, append_location_based_suffix
-
-### `edit_utils/naming/naming_slots.py` — Switchboard slots for the Naming panel — Blender port of mayatk's ``NamingSlots``.
-- `class NamingSlots(Naming)`
-  - methods: header_init, scope, dry_run, file_scope, base_names, valid_suffixes, txt000_init, txt000, txt001_init, txt001, tb000_init, tb000, tb001_init, tb001, tb002_init, tb002, tb003_init, tb003
+  - methods: SUFFIX_TYPES, affix_rules, scene_objects, scope_objects, select_by_name, select_link, rename, generate_unique_name, strip_illegal_chars, strip_chars, set_case, type_key, affix_for, suffix_by_type, append_location_based_suffix
 
 ### `edit_utils/selection.py` — Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``
 - `class Selection`

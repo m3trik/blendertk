@@ -125,11 +125,9 @@ jobs:
           test_fbx_stage_worker
           test_hierarchy_tree_utils
           test_image_tracer
-          test_naming_slots
           test_qt_dock
           test_rizom_construction
           test_script_output
-          test_shot_manifest_panel
           test_shot_sequencer_panel
           test_shots_slots
           test_workspace
