@@ -853,7 +853,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (525)
+## Added (538)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -1177,6 +1177,19 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/_mat_utils.py::MatUpdater.selected_materials(cls, shader_type=None)`
 - `mat_utils/_mat_utils.py::MatUpdater.shader_type_choices()`
 - `mat_utils/_mat_utils.py::MatUpdater.texture_root()`
+- `mat_utils/_mat_utils.py::MatUtils.assign_new_mat(objects=None)`
+- `mat_utils/_mat_utils.py::MatUtils.assign_random_mat(objects=None, previous=None)`
+- `mat_utils/_mat_utils.py::MatUtils.delete_mats(materials)`
+- `mat_utils/_mat_utils.py::MatUtils.find_duplicate_materials(materials=None)`
+- `mat_utils/_mat_utils.py::MatUtils.get_mat_facts(materials)`
+- `mat_utils/_mat_utils.py::MatUtils.get_mat_names(objects=None)`
+- `mat_utils/_mat_utils.py::MatUtils.get_scene_mat_names(exclude_defaults=False, exc_renderer=None)`
+- `mat_utils/_mat_utils.py::MatUtils.get_texture_scopes()`
+- `mat_utils/_mat_utils.py::MatUtils.merge_duplicate_materials(pairs)`
+- `mat_utils/_mat_utils.py::MatUtils.rename_mat(material, name)`
+- `mat_utils/_mat_utils.py::MatUtils.select_by_mat(material, objects=None, shell=False, add=False)`
+- `mat_utils/_mat_utils.py::MatUtils.select_unassigned(objects=None, add=False)`
+- `mat_utils/_mat_utils.py::MatUtils.show_mat_attributes(material)`
 - `mat_utils/arnold_bridge.py::ArnoldBridge.base_materials() -> List[str]`
 - `mat_utils/arnold_bridge.py::ArnoldBridge.select_bridged(self) -> List[str]`
 - `mat_utils/bake_sets.py::BakeSet.member_names(cls) -> List[str]`
@@ -1418,7 +1431,7 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/emissive_groups.py::EmissiveGroups.validate`
 - `ui_utils/blender_ui_handler.py::BlenderUiHandler.default_persistence`
 
-## Signature changed (40)
+## Signature changed (44)
 
 - `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.edit_frame_based`
   - was: `(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None) -> List[Target]`
@@ -1486,6 +1499,18 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/_mat_utils.py::MatUpdater.update_materials`
   - was: `(cls, materials=None, config=None, verbose=False, progress_callback=None)`
   - now: `(cls, materials=None, config=None, verbose=False, progress_callback=None, shader_type=None)`
+- `mat_utils/_mat_utils.py::MatUtils.assign_mat`
+  - was: `(objects, material)`
+  - now: `(objects, material, create=True)`
+- `mat_utils/_mat_utils.py::MatUtils.get_texture_info`
+  - was: `(objects=None, materials=None)`
+  - now: `(objects=None, materials=None, exclude_defaults=False, exclude_unassigned=False)`
+- `mat_utils/_mat_utils.py::MatUtils.get_texture_paths`
+  - was: `(objects=None, materials=None, absolute=True)`
+  - now: `(objects=None, materials=None, absolute=True, exclude_bundled=False)`
+- `mat_utils/_mat_utils.py::MatUtils.reload_textures`
+  - was: `()`
+  - now: `(reset_viewport=False)`
 - `node_utils/_node_utils.py::NodeUtils.replace_with_instances`
   - was: `(objects, freeze_transforms=False, center_pivot=False, delete_history=False, retain_bbox_scale=False, retain_bbox_per_axis=False)`
   - now: `(objects=None, freeze_transforms=False, center_pivot=False, delete_history=False, retain_bbox_scale=False, retain_bbox_per_axis=False)`

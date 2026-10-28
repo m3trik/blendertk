@@ -21,10 +21,98 @@ from typing import Any, Dict, Optional, Tuple
 
 import pythontk as ptk
 
+# Eager: ``CoreUtils.undoable`` decorates MatUtils' one-step operations while the
+# class body runs (core_utils imports nothing from mat_utils).
+from blendertk.core_utils._core_utils import CoreUtils
+
 
 class _MatUtilsInternal:
     """DCC-agnostic private helpers for MatUpdater + MatUtils (mirror of mayatk's
     ``_MatUtilsInternal``). Staticmethods; call as ``_MatUtilsInternal._x(...)``."""
+
+    @staticmethod
+    def _material_named(material, required=True):
+        """*material* as a datablock: a Material passes through, a name resolves
+        against ``bpy.data.materials`` (the panels keep names: a stored datablock
+        goes stale on undo). A name that resolves to nothing raises ``ValueError``
+        when *required*, else gives None."""
+        if not isinstance(material, str):
+            return material
+        import bpy
+
+        mat = bpy.data.materials.get(material)
+        if mat is None and required:
+            raise ValueError(f"No material named '{material}'.")
+        return mat
+
+    @staticmethod
+    def _image_file_missing(image):
+        """An image read from a file that is not there (packed, generated and
+        UDIM-tiled images never count)."""
+        if image.source not in ("FILE", "SEQUENCE") or image.packed_file:
+            return False
+        return bool(image.filepath) and not os.path.exists(
+            _MatUtilsInternal._abspath(image)
+        )
+
+    @staticmethod
+    def _is_bundled_path(path):
+        """Whether *path* lies in Blender's own installation: images Blender
+        ships, read-only, never a project's (mirror of mayatk's
+        ``MatUtils.is_bundled_texture``)."""
+        import bpy
+
+        root = os.path.dirname(bpy.app.binary_path or "")
+        if not (root and path):
+            return False
+        root = os.path.normcase(os.path.abspath(root))
+        try:
+            return (
+                os.path.commonpath([os.path.normcase(os.path.abspath(path)), root])
+                == root
+            )
+        except ValueError:  # another drive
+            return False
+
+    @staticmethod
+    def _select_users(users, add, what):
+        """Select *users* in Object Mode (added or replacing): the ones the
+        active view layer holds. Raises ``RuntimeError`` when there are users
+        but the layer holds none of them (another scene, an excluded
+        collection); ``[]`` for no users."""
+        if not users:
+            return []
+        layer = CoreUtils.active_view_layer()
+        in_layer = [o for o in users if layer is not None and o.name in layer.objects]
+        if not in_layer:
+            raise RuntimeError(
+                f"All {len(users)} object(s) {what} are outside the active view "
+                "layer: nothing selectable."
+            )
+        CoreUtils.ensure_object_mode()
+        return CoreUtils.select(in_layer, mode="add" if add else "replace")
+
+    @staticmethod
+    def _select_material_faces(objects, mat):
+        """Enter Edit Mode and select the faces assigned to *mat* across *objects*."""
+        import bpy
+
+        for obj in objects:
+            for i, slot in enumerate(obj.material_slots):
+                if slot.material == mat:
+                    obj.active_material_index = i
+                    break
+        # mode_set / select_all / material_slot_select poll on the active / edit
+        # object from screen context: dead in the Qt-pump state without a window.
+        with CoreUtils.window_context_override():
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.select_all(action="DESELECT")
+            try:
+                bpy.ops.object.material_slot_select()
+            except RuntimeError as error:
+                raise RuntimeError(
+                    f"Couldn't select the faces using {mat.name}: {error}"
+                ) from error
 
     @staticmethod
     def _is_gp_material(mat):
@@ -407,8 +495,13 @@ class _MatUtilsInternal:
         else every scene material. An explicit empty iterable means 'no scope' → []."""
         import bpy
 
-        if materials is not None:
-            return [m for m in ptk.make_iterable(materials) if m]
+        if materials is not None:  # names resolve; a name gone is left out
+            resolved = (
+                _MatUtilsInternal._material_named(m, required=False)
+                for m in ptk.make_iterable(materials)
+                if m
+            )
+            return [m for m in resolved if m is not None]
         if objects is not None:
             return MatUtils.get_mats(objects)
         return [
@@ -1760,6 +1853,66 @@ class MatUtils(_MatUtilsInternal):
         return seen
 
     @staticmethod
+    def get_mat_names(objects=None):
+        """The names of the materials on *objects* (None: the selection), in slot
+        order -- mirror of ``mtk.MatUtils.get_mat_names``: what a list shared by
+        both hosts reads (a stored datablock goes stale on undo; a name does not).
+        ``[]`` when nothing is selected."""
+        targets = CoreUtils.selected_objects() if objects is None else objects
+        return [m.name for m in MatUtils.get_mats(targets)]
+
+    @staticmethod
+    def get_scene_mat_names(exclude_defaults=False, exc_renderer=None):
+        """The names of the file's materials, sorted (grease-pencil ones left out)
+        -- mirror of ``mtk.MatUtils.get_scene_mat_names``. ``exclude_defaults`` and
+        ``exc_renderer`` are accepted for that signature: Blender has no built-in
+        default materials, and one material serves every render engine."""
+        return [m.name for m in MatUtils.get_scene_mats(sort=True)]
+
+    @staticmethod
+    def get_mat_facts(materials):
+        """What a material list shows per material, and what needs attention --
+        mirror of ``mtk.MatUtils.get_mat_facts``: ``{name: {"type", "users",
+        "textures", "missing", "duplicate_of", "unused"}}``.
+
+        ``type`` is the surface shader's label; ``users`` the objects whose slots
+        carry it (what selecting it selects); ``textures`` its image nodes;
+        ``missing`` the file names of the images not on disk (packed, generated
+        and UDIM-tiled images never count); ``duplicate_of`` the material it is a
+        verified duplicate of among *materials*, or None; ``unused`` whether
+        nothing uses it (:meth:`is_mat_assigned`: the datablock's own count -- a
+        Geometry Nodes Set Material is a use -- and a fake-user material is kept
+        on purpose, so never unused). *materials* are names or datablocks; a name
+        gone is left out."""
+        import bpy
+
+        users = {}
+        for obj in bpy.data.objects:
+            for slot in getattr(obj, "material_slots", ()):
+                if slot.material is not None:
+                    users.setdefault(slot.material.name, set()).add(obj.name)
+        mats = _MatUtilsInternal._resolve_materials(materials=materials or [])
+        duplicate_of = (
+            MatUtils.find_duplicate_materials(mats) if len(mats) > 1 else {}
+        )
+        facts = {}
+        for mat in mats:
+            images = [img for _node, img in _MatUtilsInternal._material_image_nodes(mat)]
+            facts[mat.name] = {
+                "type": _MatUtilsInternal._mat_surface_type(mat),
+                "users": len(users.get(mat.name, ())),
+                "textures": len(images),
+                "missing": [
+                    os.path.basename(img.filepath) or img.name
+                    for img in images
+                    if _MatUtilsInternal._image_file_missing(img)
+                ],
+                "duplicate_of": duplicate_of.get(mat.name),
+                "unused": not mat.use_fake_user and not MatUtils.is_mat_assigned(mat),
+            }
+        return facts
+
+    @staticmethod
     def create_mat(mat_type="standard", name=""):
         """Create a new material (mirror of ``mtk.MatUtils.create_mat``).
 
@@ -1782,12 +1935,22 @@ class MatUtils(_MatUtilsInternal):
         return mat
 
     @staticmethod
-    def assign_mat(objects, material):
+    def assign_mat(objects, material, create=True):
         """Assign ``material`` to the given object(s) — whole-object assignment (all slots).
 
         Mirrors Maya's object-level assign; per-face assignment is an edit-mode workflow and is
-        intentionally out of scope here.
+        intentionally out of scope here. ``material`` is a Material or a name; a name with no
+        material makes a standard one of that name (``create``, mayatk's behavior) or raises
+        ``ValueError``. A raw ``bpy.data`` edit, so it pushes no undo step: a caller acting for
+        the user wraps it (``CoreUtils.undo_chunk``) -- bulk callers stay cheap.
         """
+        if isinstance(material, str):
+            name = material
+            material = _MatUtilsInternal._material_named(name, required=False)
+            if material is None:
+                if not create:
+                    raise ValueError(f"No material named '{name}'.")
+                material = MatUtils.create_mat("standard", name=name)
         for o in ptk.make_iterable(objects):
             data = getattr(o, "data", None)
             if data is None or not hasattr(data, "materials"):
@@ -1835,6 +1998,180 @@ class MatUtils(_MatUtilsInternal):
         ]
 
     @staticmethod
+    @CoreUtils.undoable
+    def select_by_mat(material, objects=None, shell=False, add=False):
+        """Select what uses *material* (:meth:`find_by_mat_id`), one undo step --
+        mirror of ``mtk.MatUtils.select_by_mat``. Whole objects with ``shell``;
+        otherwise the objects enter Edit Mode with the material's faces selected.
+
+        Parameters:
+            material: A Material or its name.
+            objects: Search only these; None or empty: the whole file.
+            shell (bool): Whole objects instead of the material's faces.
+            add (bool): Add to the selection instead of replacing it.
+
+        Returns:
+            list: The objects selected; ``[]`` when nothing uses it. Users outside
+            the active view layer are left unselected.
+
+        Raises:
+            ValueError: No material of that name.
+            RuntimeError: Every user is outside the active view layer, or the face
+                selection failed.
+        """
+        mat = _MatUtilsInternal._material_named(material)
+        pool = [o for o in ptk.make_iterable(objects) if o] if objects else None
+        selected = _MatUtilsInternal._select_users(
+            MatUtils.find_by_mat_id(mat, objects=pool or None), add, f"using {mat.name}"
+        )
+        if selected and not shell:
+            _MatUtilsInternal._select_material_faces(selected, mat)
+        return selected
+
+    @staticmethod
+    @CoreUtils.undoable
+    def select_unassigned(objects=None, add=False):
+        """Select the objects carrying no material (:meth:`find_unassigned`), one
+        undo step -- mirror of ``mtk.MatUtils.select_unassigned``.
+
+        Returns:
+            list: The objects selected; ``[]`` when every object has one.
+
+        Raises:
+            RuntimeError: Every one is outside the active view layer.
+        """
+        pool = [o for o in ptk.make_iterable(objects) if o] if objects else None
+        return _MatUtilsInternal._select_users(
+            MatUtils.find_unassigned(objects=pool or None), add, "with no material"
+        )
+
+    @staticmethod
+    @CoreUtils.undoable
+    def show_mat_attributes(material):
+        """Show *material*'s settings: select the objects using it, the first one
+        active on the material's slot, so the Properties editor's Material tab
+        shows it -- the Blender counterpart of mayatk's ``show_mat_attributes``
+        (its node in the Attribute Editor).
+
+        Returns:
+            list: The objects selected; ``[]`` when nothing uses it.
+
+        Raises:
+            ValueError: No material of that name.
+            RuntimeError: Every user is outside the active view layer.
+        """
+        mat = _MatUtilsInternal._material_named(material)
+        selected = _MatUtilsInternal._select_users(
+            MatUtils.find_by_mat_id(mat), False, f"using {mat.name}"
+        )
+        if selected:
+            active = CoreUtils.active_object() or selected[0]
+            for i, slot in enumerate(active.material_slots):
+                if slot.material == mat:
+                    active.active_material_index = i
+                    break
+        return selected
+
+    @staticmethod
+    @CoreUtils.undoable
+    def assign_random_mat(objects=None, previous=None):
+        """Assign a new random-colored material to *objects* (None: the selection),
+        one undo step -- mirror of ``mtk.MatUtils.assign_random_mat``. A re-roll
+        replaces: *previous* (what an earlier call made, a name) is deleted when
+        nothing uses it any more and no fake user keeps it.
+
+        Returns:
+            str: The new material's name.
+
+        Raises:
+            ValueError: Nothing to assign it to.
+        """
+        import bpy
+
+        targets = (
+            CoreUtils.selected_objects()
+            if objects is None
+            else [o for o in ptk.make_iterable(objects) if o]
+        )
+        if not targets:
+            raise ValueError("Nothing selected: select what the new material goes on.")
+        new = MatUtils.create_mat("random")
+        MatUtils.assign_mat(targets, new)
+        old = (
+            _MatUtilsInternal._material_named(previous, required=False)
+            if previous
+            else None
+        )
+        if (
+            old is not None
+            and old.name != new.name
+            and not old.use_fake_user
+            and not MatUtils.is_mat_assigned(old)
+        ):
+            bpy.data.materials.remove(old)
+        return new.name
+
+    @staticmethod
+    @CoreUtils.undoable
+    def assign_new_mat(objects=None):
+        """Assign a new material Blender's way (the material slot's New: a
+        Principled ``Material``) to *objects* (None: the selection), one undo
+        step -- mirror of ``mtk.MatUtils.assign_new_mat`` (Maya opens its Assign
+        New Material window and returns None).
+
+        Returns:
+            str: The new material's name.
+
+        Raises:
+            ValueError: No selected object can hold a material.
+        """
+        targets = (
+            CoreUtils.selected_objects()
+            if objects is None
+            else [o for o in ptk.make_iterable(objects) if o]
+        )
+        holders = [o for o in targets if hasattr(getattr(o, "data", None), "materials")]
+        if not holders:
+            raise ValueError("No object that can hold a material is selected.")
+        mat = MatUtils.create_mat("standard", name="Material")
+        MatUtils.assign_mat(holders, mat)
+        return mat.name
+
+    @staticmethod
+    @CoreUtils.undoable
+    def rename_mat(material, name):
+        """Rename *material* (a Material or its name) to *name*, one undo step --
+        mirror of ``mtk.MatUtils.rename_mat``.
+
+        Returns:
+            str: The name Blender gave it (``.001`` on a clash).
+
+        Raises:
+            ValueError: No material of that name.
+        """
+        mat = _MatUtilsInternal._material_named(material)
+        mat.name = name
+        return mat.name
+
+    @staticmethod
+    @CoreUtils.undoable
+    def delete_mats(materials):
+        """Delete the materials (names or datablocks), one undo step; a name that
+        no longer resolves is skipped -- mirror of ``mtk.MatUtils.delete_mats``.
+
+        Returns:
+            list[str]: The names of the materials deleted.
+        """
+        import bpy
+
+        unique = {}  # a name given twice is removed once
+        for mat in _MatUtilsInternal._resolve_materials(materials=materials or []):
+            unique.setdefault(mat.name, mat)
+        for mat in unique.values():
+            bpy.data.materials.remove(mat)
+        return list(unique)
+
+    @staticmethod
     def select_by_material(material, add=False):
         """Select every scene object using ``material`` (optionally adding to the selection).
 
@@ -1850,9 +2187,11 @@ class MatUtils(_MatUtilsInternal):
         return users
 
     @staticmethod
-    def reload_textures():
+    def reload_textures(reset_viewport=False):
         """Reload every file image -- a TILED set too -- from disk (mirror of
-        ``mtk.MatUtils.reload_textures``)."""
+        ``mtk.MatUtils.reload_textures``). ``reset_viewport`` then redraws the 3D
+        views on them (Maya restarts Viewport 2.0 there; a reload here already
+        re-uploads each image)."""
         import bpy
 
         for img in bpy.data.images:
@@ -1861,6 +2200,11 @@ class MatUtils(_MatUtilsInternal):
                     img.reload()
                 except RuntimeError:
                     pass
+        if reset_viewport:
+            for window in bpy.context.window_manager.windows:
+                for area in window.screen.areas:
+                    if area.type == "VIEW_3D":
+                        area.tag_redraw()
 
     @staticmethod
     def get_scene_mats(
@@ -1912,6 +2256,10 @@ class MatUtils(_MatUtilsInternal):
             from qtpy.QtGui import QPixmap, QColor, QIcon
         except Exception:
             return None
+        if isinstance(mat, str):  # a name: None once it no longer resolves
+            mat = _MatUtilsInternal._material_named(mat, required=False)
+            if mat is None:
+                return None
         try:
             r, g, b = (int(max(0.0, min(1.0, c)) * 255) for c in mat.diffuse_color[:3])
             pixmap = QPixmap(size[0], size[1])
@@ -1924,12 +2272,13 @@ class MatUtils(_MatUtilsInternal):
         return QIcon(pixmap)
 
     @staticmethod
-    def get_texture_paths(objects=None, materials=None, absolute=True):
+    def get_texture_paths(objects=None, materials=None, absolute=True, exclude_bundled=False):
         """Unique texture file paths in scope — mirror of ``mtk.MatUtils.get_texture_paths``.
 
         Scope resolves to materials (from ``objects`` if given, else ``materials``, else the whole
         scene); reads the ``filepath`` of each material's image-texture nodes. ``absolute`` resolves
-        against the .blend (Blender ``//`` relative paths)."""
+        against the .blend (Blender ``//`` relative paths). ``exclude_bundled`` drops images inside
+        Blender's own installation (read-only: a tool that writes can only fail on them)."""
         mats = _MatUtilsInternal._resolve_materials(objects, materials)
         paths = []
         for mat in mats:
@@ -1939,16 +2288,39 @@ class MatUtils(_MatUtilsInternal):
                     if absolute
                     else (getattr(img, "filepath", "") or "")
                 )
-                if p:
+                if p and not (
+                    exclude_bundled and _MatUtilsInternal._is_bundled_path(p)
+                ):
                     paths.append(p)
         return list(dict.fromkeys(paths))
 
     @staticmethod
-    def get_texture_info(objects=None, materials=None):
+    def get_texture_scopes():
+        """``{label: () -> [path]}``: the selections a texture-file tool (Map Converter)
+        can read its files from -- mirror of ``mtk.MatUtils.get_texture_scopes``. Blender's
+        one: the selected objects' materials. Each provider reads the CURRENT selection when
+        called and leaves Blender's bundled images out (those tools write)."""
+
+        def _objects():
+            selection = CoreUtils.selected_objects()
+            if not selection:
+                return []
+            return MatUtils.get_texture_paths(objects=selection, exclude_bundled=True)
+
+        return {"Selected Objects": _objects}
+
+    @staticmethod
+    def get_texture_info(
+        objects=None, materials=None, exclude_defaults=False, exclude_unassigned=False
+    ):
         """Image metadata for the textures in scope — mirror of ``mtk.MatUtils.get_texture_info``.
-        Built from the Blender image datablocks (native size/format; no PIL)."""
+        Built from the Blender image datablocks (native size/format; no PIL). With no scope,
+        ``exclude_unassigned`` reads only the textures of the materials something uses;
+        ``exclude_defaults`` is accepted for parity (Blender has no built-in default materials)."""
         import bpy
 
+        if objects is None and materials is None and exclude_unassigned:
+            materials = [m for m in MatUtils.get_scene_mats() if MatUtils.is_mat_assigned(m)]
         if (
             objects is None and materials is None
         ):  # whole scene → every loaded file image
@@ -1985,6 +2357,8 @@ class MatUtils(_MatUtilsInternal):
         ``optimize_check`` runs ``ptk.MapOptimizer.assess`` per texture (best-effort — degrades to an
         ``optimization`` error entry when the image stack is unavailable in Blender's Python)."""
         mats = _MatUtilsInternal._resolve_materials(objects, materials)
+        if optimize_check:  # the analysis reads images with Pillow: provision it
+            CoreUtils.ensure_image_deps()
         if exclude_unassigned and mats:
             mats = [m for m in mats if MatUtils.is_mat_assigned(m)]
 
@@ -2154,9 +2528,52 @@ class MatUtils(_MatUtilsInternal):
         return reassigned
 
     @staticmethod
+    def find_duplicate_materials(materials=None):
+        """``{duplicate: original}`` names: each verified duplicate among *materials*
+        (names or datablocks; None: every material) and the material it duplicates
+        -- mirror of ``mtk.MatUtils.find_duplicate_materials``
+        (:meth:`find_materials_with_duplicate_textures`, flattened)."""
+        mats = (
+            None
+            if materials is None
+            else _MatUtilsInternal._resolve_materials(materials=materials)
+        )
+        if mats is not None and not mats:
+            return {}
+        groups = MatUtils.find_materials_with_duplicate_textures(mats)
+        return {dup.name: group[0].name for group in groups for dup in group[1:]}
+
+    @staticmethod
+    @CoreUtils.undoable
+    def merge_duplicate_materials(pairs):
+        """Merge each ``{duplicate: original}`` pair (names) into its original
+        (:meth:`reassign_duplicate_materials`, re-verified), one undo step --
+        mirror of ``mtk.MatUtils.merge_duplicate_materials``. A pair whose
+        original is gone is skipped, never merged into another duplicate.
+
+        Returns:
+            int: How many duplicates went, counted after: the re-verification
+            can refuse a pair.
+        """
+        import bpy
+
+        materials = bpy.data.materials
+        present = [dup for dup in (pairs or {}) if dup in materials]
+        groups = {}
+        for dup in sorted(present):
+            groups.setdefault(pairs[dup], []).append(materials[dup])
+        merges = [
+            [materials[kept], *dups] for kept, dups in groups.items() if kept in materials
+        ]
+        if merges:
+            MatUtils.reassign_duplicate_materials(merges, delete=True)
+        return sum(1 for dup in present if dup not in materials)
+
+    @staticmethod
+    @CoreUtils.undoable
     def delete_unused_materials():
-        """Delete the materials nothing uses (:meth:`is_mat_assigned`) — mirror of Maya's
-        *Delete Unused Materials*. Respects Blender's fake-user convention (a material the user
+        """Delete the materials nothing uses (:meth:`is_mat_assigned`), one undo step — mirror of
+        Maya's *Delete Unused Materials*. Respects Blender's fake-user convention (a material the user
         explicitly marked to keep is left alone) and skips grease-pencil materials. Returns the
         removed material names."""
         import bpy

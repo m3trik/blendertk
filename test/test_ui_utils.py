@@ -222,6 +222,7 @@ try:
         "Channel Box": "PROPERTIES",
         "Layer Editor": "OUTLINER",
         "Node Editor": "ShaderNodeTree",
+        "Hypershade": "ShaderNodeTree",
         "Command Line": "CONSOLE",
     }
     check(

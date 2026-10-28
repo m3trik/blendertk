@@ -2144,33 +2144,46 @@ Ship a committed lightmap bake in a web (GLB) deliverable.
 
 Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
 
-- [`SHADER_TEMPLATES`](blendertk/blendertk/mat_utils/_mat_utils.py#L1258) — constant
-- **[`class MatUpdater(pythontk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1370)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
+- [`SHADER_TEMPLATES`](blendertk/blendertk/mat_utils/_mat_utils.py#L1351) — constant
+- **[`class MatUpdater(pythontk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1463)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
   - `MatUpdater.shader_type_choices()` *(static)* — No retype targets: Blender has one surface shader (Principled BSDF), so there is
   - `MatUpdater.texture_root()` *(static)* — Where a run resolves a relative Output Folder and discovers sibling maps
   - `MatUpdater.selected_materials(cls, shader_type=None)` *(class)* — The materials a run over the selection acts on: those on the selected objects
   - `MatUpdater.materials_using_textures(paths, shader_type=None)` *(static)* — The scene materials whose shader graph reads an image at one of *paths* (the
   - `MatUpdater.update_materials(cls, materials=None, config=None, verbose=False, progress_callback=None, shader_type=None)` *(class)* — Reprocess the textures of ``materials`` and repath their image nodes to the results.
-- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1716)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
+- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1809)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
   - `MatUtils.get_node_tree(idblock, create: bool = False)` *(static)* — The node tree *idblock* renders through, or ``None``.
   - `MatUtils.get_mats(objects)` *(static)* — Unique materials assigned to the given object(s), in slot order.
+  - `MatUtils.get_mat_names(objects=None)` *(static)* — The names of the materials on *objects* (None: the selection), in slot
+  - `MatUtils.get_scene_mat_names(exclude_defaults=False, exc_renderer=None)` *(static)* — The names of the file's materials, sorted (grease-pencil ones left out)
+  - `MatUtils.get_mat_facts(materials)` *(static)* — What a material list shows per material, and what needs attention --
   - `MatUtils.create_mat(mat_type='standard', name='')` *(static)* — Create a new material (mirror of ``mtk.MatUtils.create_mat``).
-  - `MatUtils.assign_mat(objects, material)` *(static)* — Assign ``material`` to the given object(s) — whole-object assignment (all slots).
+  - `MatUtils.assign_mat(objects, material, create=True)` *(static)* — Assign ``material`` to the given object(s) — whole-object assignment (all slots).
   - `MatUtils.find_by_mat_id(material, objects=None)` *(static)* — Objects using ``material`` (mirror of ``mtk.find_by_mat_id`` at the object level).
   - `MatUtils.find_unassigned(objects=None)` *(static)* — Objects carrying no material — the complement of :meth:`find_by_mat_id`.
+  - `MatUtils.select_by_mat(material, objects=None, shell=False, add=False)` *(static)* — Select what uses *material* (:meth:`find_by_mat_id`), one undo step --
+  - `MatUtils.select_unassigned(objects=None, add=False)` *(static)* — Select the objects carrying no material (:meth:`find_unassigned`), one
+  - `MatUtils.show_mat_attributes(material)` *(static)* — Show *material*'s settings: select the objects using it, the first one
+  - `MatUtils.assign_random_mat(objects=None, previous=None)` *(static)* — Assign a new random-colored material to *objects* (None: the selection),
+  - `MatUtils.assign_new_mat(objects=None)` *(static)* — Assign a new material Blender's way (the material slot's New: a
+  - `MatUtils.rename_mat(material, name)` *(static)* — Rename *material* (a Material or its name) to *name*, one undo step --
+  - `MatUtils.delete_mats(materials)` *(static)* — Delete the materials (names or datablocks), one undo step;
   - `MatUtils.select_by_material(material, add=False)` *(static)* — Select every scene object using ``material`` (optionally adding to the selection).
-  - `MatUtils.reload_textures()` *(static)* — Reload every file image -- a TILED set too -- from disk (mirror of
+  - `MatUtils.reload_textures(reset_viewport=False)` *(static)* — Reload every file image -- a TILED set too -- from disk (mirror of
   - `MatUtils.get_scene_mats(inc=None, exc=None, sort=False, as_dict=False, exclude_defaults=True, **filter_kwargs)` *(static)* — Scene materials with flexible name filtering — mirror of ``mtk.MatUtils.get_scene_mats``.
   - `MatUtils.is_mat_assigned(mat)` *(static)* — True iff something uses ``mat`` — mirror of ``mtk.is_mat_assigned`` (in use: what
   - `MatUtils.get_mat_swatch_icon(mat, size=(20, 20), fallback_to_blank=True)` *(static)* — A ``QIcon`` filled with ``mat``'s viewport display color — mirror of
-  - `MatUtils.get_texture_paths(objects=None, materials=None, absolute=True)` *(static)* — Unique texture file paths in scope — mirror of ``mtk.MatUtils.get_texture_paths``.
-  - `MatUtils.get_texture_info(objects=None, materials=None)` *(static)* — Image metadata for the textures in scope — mirror of ``mtk.MatUtils.get_texture_info``.
+  - `MatUtils.get_texture_paths(objects=None, materials=None, absolute=True, exclude_bundled=False)` *(static)* — Unique texture file paths in scope — mirror of ``mtk.MatUtils.get_texture_paths``.
+  - `MatUtils.get_texture_scopes()` *(static)* — ``{label: () -> [path]}``: the selections a texture-file tool (Map Converter)
+  - `MatUtils.get_texture_info(objects=None, materials=None, exclude_defaults=False, exclude_unassigned=False)` *(static)* — Image metadata for the textures in scope — mirror of ``mtk.MatUtils.get_texture_info``.
   - `MatUtils.get_mat_info(materials=None, objects=None, optimize_check=False, progress_callback=None, exclude_defaults=False, exclude_unassigned=False, include_textures=True, include_image_metadata=True, **optimize_kwargs)` *(static)* — Aggregate per-material info (name, type, textures + image metadata) — mirror of
   - `MatUtils.format_mat_info_html(records)` *(static)* — Render :func:`get_mat_info` output as styled HTML (delegates to ``pythontk.MatReport``).
   - `MatUtils.format_texture_info_html(info_list)` *(static)* — Render :func:`get_texture_info` output as styled HTML (delegates to ``pythontk.MatReport``).
   - `MatUtils.find_materials_with_duplicate_textures(materials=None, strict=False, verify=True)` *(static)* — Groups of materials that are texture-level duplicates — mirror of
   - `MatUtils.reassign_duplicate_materials(duplicate_groups, delete=True, verify=True)` *(static)* — Reassign every object using a duplicate to the group's first (canonical) material, then
-  - `MatUtils.delete_unused_materials()` *(static)* — Delete the materials nothing uses (:meth:`is_mat_assigned`) — mirror of Maya's
+  - `MatUtils.find_duplicate_materials(materials=None)` *(static)* — ``{duplicate: original}`` names: each verified duplicate among *materials*
+  - `MatUtils.merge_duplicate_materials(pairs)` *(static)* — Merge each ``{duplicate: original}`` pair (names) into its original
+  - `MatUtils.delete_unused_materials()` *(static)* — Delete the materials nothing uses (:meth:`is_mat_assigned`), one undo step — mirror of
   - `MatUtils.image_texture_nodes(images)` *(static)* — ``(material, node)`` for every ``ShaderNodeTexImage`` bound to ``images``.
   - `MatUtils.select_image_nodes(images, activate=True)` *(static)* — Select the Image Texture nodes bound to ``images`` — the Blender analogue of Maya's
   - `MatUtils.graph_materials(materials, mode=None)` *(static)* — Open the Shader Editor focused on ``materials`` — the Blender analogue of Maya's
@@ -3386,7 +3399,7 @@ Wheel Rig — wheels that roll as their control moves (tentacle's Wheel Rig pane
 UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
 
 - [`EDITOR_TYPES`](blendertk/blendertk/ui_utils/_ui_utils.py#L16) — constant
-- **[`class UiUtils(_UiUtilsInternal)`](blendertk/blendertk/ui_utils/_ui_utils.py#L201)** — Namespace mirror (helpers also exposed module-level).
+- **[`class UiUtils(_UiUtilsInternal)`](blendertk/blendertk/ui_utils/_ui_utils.py#L202)** — Namespace mirror (helpers also exposed module-level).
   - `UiUtils.get_editor_types()` *(static)* — The friendly-name → ``Area.ui_type`` map understood by :func:`open_editor`.
   - `UiUtils.get_editor_categories(cls)` *(class)* — ``{category: [editor name, ...]}``: the editors a browsing UI lists, each
   - `UiUtils.open_editor(editor, properties_context=None)` *(static)* — Open ``editor`` (a friendly name from :data:`EDITOR_TYPES` or a raw ``ui_type``)

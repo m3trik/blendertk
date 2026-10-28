@@ -43,6 +43,7 @@ EDITOR_TYPES = {
     "Channel Box": "PROPERTIES",
     "Layer Editor": "OUTLINER",
     "Node Editor": "ShaderNodeTree",
+    "Hypershade": "ShaderNodeTree",
     "Command Line": "CONSOLE",
     # mayatk's rendering editors: Properties tabs (UiUtils._PROPERTIES_TABS).
     "Render Settings": "PROPERTIES",
