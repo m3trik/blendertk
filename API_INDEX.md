@@ -124,7 +124,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `cam_utils/_cam_utils.py` — Camera utilities — clip-plane adjustment (mirror of mayatk's ``cam_utils``) plus interactive
 - `class CamUtils(_CamUtilsInternal)`
-  - methods: adjust_camera_clipping, get_view_state, set_view_state, fit_camera_clipping, navigate_view
+  - methods: adjust_camera_clipping, get_view_state, set_view_state, fit_camera_clipping, navigate_view, get_cameras, create_camera, look_through, switch_viewport_camera, align_view_to_selection
 
 ### `cam_utils/camera_visibility.py` — Per-camera visibility sets — rolled infrastructure for Maya's camera-sets isolate
 - `class CameraVisibility`
@@ -202,7 +202,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `edit_utils/_edit_utils.py` — Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
 - `class EditUtils(_EditUtilsInternal)`
-  - methods: hook_bind_inverse, hook_curve_point, decimate, dissolve_coplanar, triangulate, tris_to_quads, subdivide_mesh, boolean_op, set_subdivision, apply_subdivision, set_shading, average_normals, select_edges_by_angle, set_edge_hardness, clear_custom_split_normals, add_custom_split_normals, has_custom_split_normals, flip_normals, recalculate_normals, propagate_normals, conform_normals, extract_reversed_faces, clean_geometry, crease_edges, mirror, mirror_instance, cut_along_axis, wedge, snap_closest_verts, snap_to_grid, snap_to_surface, get_standoff_distances, get_similar_mesh, ungroup_objects, separate_objects, combine_objects, detach_components, get_overlapping_faces, get_overlapping_duplicates, loft
+  - methods: get_symmetry, set_symmetry, hook_bind_inverse, hook_curve_point, decimate, dissolve_coplanar, triangulate, tris_to_quads, subdivide_mesh, boolean_op, set_subdivision, apply_subdivision, set_shading, average_normals, select_edges_by_angle, set_edge_hardness, clear_custom_split_normals, add_custom_split_normals, has_custom_split_normals, flip_normals, recalculate_normals, propagate_normals, conform_normals, extract_reversed_faces, clean_geometry, crease_edges, mirror, mirror_instance, cut_along_axis, wedge, snap_closest_verts, snap_to_grid, snap_to_surface, get_standoff_distances, get_similar_mesh, ungroup_objects, separate_objects, combine_objects, detach_components, get_overlapping_faces, get_overlapping_duplicates, loft
 
 ### `edit_utils/bevel.py` — Bevel tool engine.
 - `class Bevel`
@@ -214,7 +214,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `edit_utils/components.py` — Component-level mesh operations — mirror of mayatk's ``core_utils.components``.
 - `class Components(_ComponentsInternal)`
-  - methods: set_edge_hardness, average_normals, set_edge_softness, set_to_face_normals, reverse_normals, toggle_normal_lock, transfer_normals, transfer_mesh_data
+  - methods: crease_edges, transfer_creased_edges, set_edge_hardness, average_normals, set_edge_softness, set_to_face_normals, reverse_normals, toggle_normal_lock, transfer_normals, transfer_mesh_data
 
 ### `edit_utils/curtain/_curtain.py` — Procedural draped-cloth (curtain) generator for Blender -- mirror of mayatk's
 - `class Rail(pythontk.Polyline)`
@@ -767,7 +767,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `ui_utils/_ui_utils.py` — UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
 - constants: EDITOR_TYPES
 - `class UiUtils(_UiUtilsInternal)`
-  - methods: get_editor_types, open_editor, reveal_in_outliner, main_window, find_editor, close_area, close_editor, dock_editor, toggle_editor, toggle_fullscreen_area, toggle_window_bars, menu_exists, get_operator, invoke_operator_dialog, get_tool_types, set_tool, current_tool, dispatch_log_link, call_native_menu, popup_message
+  - methods: get_editor_types, open_editor, reveal_in_outliner, main_window, find_editor, close_area, close_editor, dock_editor, toggle_editor, toggle_fullscreen_area, toggle_window_bars, menu_exists, get_operator, invoke_operator_dialog, get_tool_types, set_tool, current_tool, dispatch_log_link, call_native_menu, popup_message, annotate, open_pencil
 
 ### `ui_utils/blender_native_menus.py` — Symbolic-name -> Blender native-menu resolution + Qt wrapping for the both-button chord menu.
 - `class BlenderNativeMenus(pythontk.LoggingMixin)`

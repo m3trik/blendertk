@@ -37,6 +37,61 @@ class Components(_ComponentsInternal):
     @staticmethod
     @CoreUtils.undoable
     @CoreUtils.selected
+    def crease_edges(edges=None, amount=None, angle=None):
+        """Crease the meshes *edges* (subdivision sharpness): in Edit Mode their
+        selected edges, else every edge; optionally soften or harden them by angle.
+
+        Mirror of mayatk's ``Components.crease_edges`` (``polyCrease`` /
+        ``polySoftEdge``), over :meth:`EditUtils.crease_edges`: the Subdivision
+        Surface edge crease, and the edges' smooth flag for *angle*. ``None``
+        takes the selection; with nothing selected, ``[]``.
+
+        Parameters:
+            edges (list/None): Mesh objects (a Blender edge selection lives in
+                Edit Mode); others are dropped.
+            amount (float, optional): Maya's 0 (none) to 10 (full) scale; ``None``
+                leaves the crease.
+            angle (float, optional): Harden the edges sharper than it (degrees)
+                and soften the rest; ``None`` leaves them.
+
+        Returns:
+            list: The meshes acted on; ``[]`` with nothing selected.
+        """
+        meshes = Components._meshes(edges)
+        if meshes and (amount is not None or angle is not None):
+            EditUtils.crease_edges(meshes, amount=amount, angle=angle)
+        return meshes
+
+    @staticmethod
+    @CoreUtils.undoable
+    def transfer_creased_edges(frm=None, to=None):
+        """Copy the edge creases of the mesh *frm* to the meshes *to* with Blender's
+        Data Transfer, each edge from the nearest source edge.
+
+        Mirror of mayatk's ``Components.transfer_creased_edges`` (edge id to edge
+        id there). ``frm`` ``None`` takes the selection: the active mesh is the
+        source (it must be selected), the other selected meshes the targets --
+        Blender's convention, where Maya's source is the first selected. ``to``
+        is read only with an explicit ``frm``.
+
+        Returns:
+            list: The target meshes; ``[]`` with nothing selected.
+
+        Raises:
+            ValueError: No selected active mesh for ``None``, fewer than two
+                meshes, or the operator's own report.
+        """
+        objects = None
+        if frm is not None:
+            targets = list(to) if isinstance(to, (list, tuple, set)) else [to]
+            objects = [frm] + [o for o in targets if o is not None]
+        return Components.transfer_mesh_data(
+            objects, "CREASE", edge_mapping="NEAREST"
+        )
+
+    @staticmethod
+    @CoreUtils.undoable
+    @CoreUtils.selected
     def set_edge_hardness(
         objects,
         angle_threshold,

@@ -715,12 +715,17 @@ Consumer-facing audio-segment discovery for the sequencer + manifest (Blender).
 
 Camera utilities — clip-plane adjustment (mirror of mayatk's ``cam_utils``) plus interactive
 
-- **[`class CamUtils(_CamUtilsInternal)`](blendertk/blendertk/cam_utils/_cam_utils.py#L335)** — Namespace mirror of mayatk's ``CamUtils`` (helper also exposed module-level).
+- **[`class CamUtils(_CamUtilsInternal)`](blendertk/blendertk/cam_utils/_cam_utils.py#L337)** — Namespace mirror of mayatk's ``CamUtils`` (helper also exposed module-level).
   - `CamUtils.adjust_camera_clipping(camera=None, near_clip=None, far_clip=None)` *(static)* — Adjust near/far clip planes of camera object(s) — mirror of ``mtk.adjust_camera_clipping``.
   - `CamUtils.get_view_state(space=None)` *(static)* — Snapshot the 3D viewport's placement and clipping, for a later restore.
   - `CamUtils.set_view_state(state)` *(static)* — Restore a snapshot taken by :meth:`get_view_state`.
   - `CamUtils.fit_camera_clipping(objects=None, space=None, buffer=0.25)` *(static)* — Widen the clip planes the view uses until ``objects`` can't be clipped by them.
   - `CamUtils.navigate_view(mode='ORBIT')` *(static)* — Arm an interactive Maya-style viewport-navigation tool: **LMB-drag** to Orbit/Dolly/Track/
+  - `CamUtils.get_cameras()` *(static)* — The names of the scene's camera objects: what a camera picker lists.
+  - `CamUtils.create_camera(focal_length=35.0)` *(static)* — Add a camera at the 3D cursor with *focal_length* (mm), selected and
+  - `CamUtils.look_through(camera, select=False)` *(static)* — Look through *camera*: make it the scene camera and put the 3D viewport
+  - `CamUtils.switch_viewport_camera(camera_name)` *(static)* — Switch the 3D viewport to a standard view, by mayatk's names:
+  - `CamUtils.align_view_to_selection()` *(static)* — Look along the active element's normal (a face in Edit Mode) and frame
 
 <a id="cam_utils--camera_visibility"></a>
 ### `cam_utils/camera_visibility.py`
@@ -1003,6 +1008,8 @@ Per-object **outliner text colour** for Blender — the true analogue of Maya's
 Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
 
 - **[`class EditUtils(_EditUtilsInternal)`](blendertk/blendertk/edit_utils/_edit_utils.py#L720)** — Namespace mirror of mayatk's ``EditUtils`` (helpers also exposed module-level).
+  - `EditUtils.get_symmetry()` *(static)* — The active mesh's symmetry (its mirror flags): what tentacle's symmetry
+  - `EditUtils.set_symmetry(axis=None, state=True, space=None)` *(static)* — Set the selected meshes' symmetry: an axis on or off, and/or matching
   - `EditUtils.hook_bind_inverse(target, obj)` *(static)* — The ``matrix_inverse`` a Hook modifier needs so its geometry does **not jump** at bind time.
   - `EditUtils.hook_curve_point(curve, point_index, target, name=None, falloff_type='NONE')` *(static)* — Hook control point *point_index* of *curve* to *target* so moving the target moves that point
   - `EditUtils.decimate(objects, percentage=50.0, preserve_quads=True, symmetry=False, apply=True)` *(static)* — Reduce mesh density via a Decimate (COLLAPSE) modifier — mirror of ``mtk.EditUtils.decimate``.
@@ -1066,6 +1073,8 @@ Bridge: connect two open edge loops with new faces — mirror of mayatk's
 Component-level mesh operations — mirror of mayatk's ``core_utils.components``.
 
 - **[`class Components(_ComponentsInternal)`](blendertk/blendertk/edit_utils/components.py#L34)** — Component-level mesh operations — mirror of mayatk's ``Components``.
+  - `Components.crease_edges(edges=None, amount=None, angle=None)` *(static)* — Crease the meshes *edges* (subdivision sharpness): in Edit Mode their
+  - `Components.transfer_creased_edges(frm=None, to=None)` *(static)* — Copy the edge creases of the mesh *frm* to the meshes *to* with Blender's
   - `Components.set_edge_hardness(objects, angle_threshold, upper_hardness=None, lower_hardness=None, unlock_normals=False)` *(static)* — Mark edges hard or soft by their angle against ``angle_threshold``.
   - `Components.average_normals(objects, by_uv_shell=False)` *(static)* — Average the normals of *objects* (soften every edge);
   - `Components.set_edge_softness(objects, soft=True)` *(static)* — Soften (``soft=True``, smooth shading) or harden the edge normals of
@@ -3262,6 +3271,8 @@ UI utilities — opening Blender editors (the analogue of Maya's editor-window m
   - `UiUtils.dispatch_log_link(url, logger=None) -> bool` *(static)* — Handle ``action://`` links emitted by ``logger.log_link()`` in a QTextBrowser.
   - `UiUtils.call_native_menu(menu_idname)` *(static)* — Pop Blender's own native menu ``menu_idname`` (e.g.
   - `UiUtils.popup_message(text, title='Info', icon='INFO')` *(static)* — Show a small native Blender info popup at the cursor (multi-line ``text`` supported).
+  - `UiUtils.annotate(cls)` *(class)* — Activate Blender's Annotate tool (freehand notes over the viewport).
+  - `UiUtils.open_pencil()` *(static)* — Add an empty Grease Pencil object to draw into: Blender's pencil is an
 
 <a id="ui_utils--blender_native_menus"></a>
 ### `ui_utils/blender_native_menus.py`

@@ -194,6 +194,61 @@ try:
             str(error) == "Select target mesh(es) with the source mesh active.",
         )
 
+    # ---- crease_edges / transfer_creased_edges: mayatk's names (tentacle's crease panel)
+    def creases(o):
+        attr = o.data.attributes.get("crease_edge")
+        return [round(d.value, 3) for d in attr.data] if attr else []
+
+    reset()
+    o = cube()
+    btk.CoreUtils.select([o])
+    got = Components.crease_edges(None, amount=5)
+    check(
+        "crease_edges(None): every edge of the selected mesh, on Maya's 0-10 scale",
+        got == [o] and creases(o) == [0.5] * 12,
+        f"{creases(o)}",
+    )
+    Components.crease_edges([o], angle=0)
+    check(
+        "crease_edges: amount=None leaves the crease, angle=0 hardens every edge",
+        creases(o) == [0.5] * 12 and all(e.use_edge_sharp for e in o.data.edges),
+        f"{creases(o)}",
+    )
+    btk.CoreUtils.select([])
+    check(
+        "crease_edges(None) with nothing selected is []",
+        Components.crease_edges(None, amount=5) == [],
+    )
+
+    reset()
+    src, tgt = cube(), cube(x=4.0)
+    Components.crease_edges([src], amount=10)
+    btk.CoreUtils.select([src, tgt])  # replace: the first one (src) is active
+    targets = Components.transfer_creased_edges(None)
+    check(
+        "transfer_creased_edges(None): the active mesh's creases reach the others",
+        targets == [tgt] and creases(tgt) == [1.0] * 12,
+        f"{targets} {creases(tgt)}",
+    )
+    reset()
+    src, tgt = cube(), cube(x=4.0)
+    Components.crease_edges([src], amount=10)
+    check(
+        "transfer_creased_edges(frm, to): explicit meshes",
+        Components.transfer_creased_edges(src, [tgt]) == [tgt]
+        and creases(tgt) == [1.0] * 12,
+    )
+    try:
+        Components.transfer_creased_edges(src, [])
+        check("transfer_creased_edges with no target raises ValueError", False)
+    except ValueError:
+        check("transfer_creased_edges with no target raises ValueError", True)
+    btk.CoreUtils.select([])
+    check(
+        "transfer_creased_edges(None) with nothing selected is []",
+        Components.transfer_creased_edges(None) == [],
+    )
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

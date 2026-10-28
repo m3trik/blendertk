@@ -318,6 +318,51 @@ try:
     check("remove_all_for_all clears every camera",
           CV.get_sets(cam) == ([], []) and not any(c.hide_viewport for c in cubes))
 
+    # ---- get_cameras / create_camera / look_through / views: mayatk's names (cameras panel)
+    reset()
+    made = btk.CamUtils.create_camera(focal_length=85)
+    check(
+        "create_camera: a camera with the focal length, selected and active",
+        made.type == "CAMERA"
+        and made.data.lens == 85.0
+        and btk.CoreUtils.active_object() is made
+        and btk.CoreUtils.selected_objects() == [made],
+        f"lens={made.data.lens}",
+    )
+    other = btk.CamUtils.create_camera(focal_length=18)
+    check(
+        "get_cameras names the scene's cameras",
+        sorted(btk.CamUtils.get_cameras()) == sorted([made.name, other.name]),
+        f"{btk.CamUtils.get_cameras()}",
+    )
+    got = btk.CamUtils.look_through(made.name, select=True)
+    check(
+        "look_through(name, select=True): the scene camera, selected",
+        got is made
+        and bpy.context.scene.camera is made
+        and btk.CoreUtils.selected_objects() == [made],
+    )
+    try:
+        btk.CamUtils.look_through("NotACamera")
+        check("look_through an unknown name raises ValueError", False)
+    except ValueError:
+        check("look_through an unknown name raises ValueError", True)
+    try:
+        btk.CamUtils.switch_viewport_camera("diagonal")
+        check("switch_viewport_camera: an unknown view raises ValueError", False)
+    except ValueError:
+        check("switch_viewport_camera: an unknown view raises ValueError", True)
+    try:
+        switched = btk.CamUtils.switch_viewport_camera("top")
+        check("switch_viewport_camera('top') answers its name", switched == "top")
+    except RuntimeError as error:
+        check("switch_viewport_camera refuses only headless", bpy.app.background, str(error))
+    btk.CoreUtils.select([])
+    check(
+        "align_view_to_selection with nothing selected is []",
+        btk.CamUtils.align_view_to_selection() == [],
+    )
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

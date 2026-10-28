@@ -852,7 +852,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (385)
+## Added (396)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -947,6 +947,11 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `audio_utils/audio_clips.py::AudioClips.sync_scene_range(extend_only: bool = True) -> Tuple[int, int]`
 - `audio_utils/audio_clips.py::AudioClips.trim_track(track_id: str, start: Optional[int] = None, end: Optional[int] = None) -> Optional[int]`
 - `audio_utils/audio_clips.py::AudioClips.watch(cls, owner, on_scene=None, on_tracks=None, on_time=None, widget=None) -> List[int]`
+- `cam_utils/_cam_utils.py::CamUtils.align_view_to_selection()`
+- `cam_utils/_cam_utils.py::CamUtils.create_camera(focal_length=35.0)`
+- `cam_utils/_cam_utils.py::CamUtils.get_cameras()`
+- `cam_utils/_cam_utils.py::CamUtils.look_through(camera, select=False)`
+- `cam_utils/_cam_utils.py::CamUtils.switch_viewport_camera(camera_name)`
 - `core_utils/_core_utils.py::CoreUtils.active_view_layer()`
 - `core_utils/_core_utils.py::CoreUtils.ensure_component_mode(object_type='mesh', component=None)`
 - `core_utils/_core_utils.py::CoreUtils.ensure_object_mode()`
@@ -965,13 +970,17 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `display_utils/exploded_view.py::ExplodedView.toggle_explode(self, objects: Optional[list] = None) -> list`
 - `display_utils/exploded_view.py::ExplodedView.un_explode(self, objects: Optional[list] = None) -> list`
 - `display_utils/exploded_view.py::ExplodedView.un_explode_all(self) -> list`
+- `edit_utils/_edit_utils.py::EditUtils.get_symmetry()`
+- `edit_utils/_edit_utils.py::EditUtils.set_symmetry(axis=None, state=True, space=None)`
 - `edit_utils/components.py::Components(class)`
 - `edit_utils/components.py::Components.average_normals(objects, by_uv_shell=False)`
+- `edit_utils/components.py::Components.crease_edges(edges=None, amount=None, angle=None)`
 - `edit_utils/components.py::Components.reverse_normals(objects, mode=0)`
 - `edit_utils/components.py::Components.set_edge_hardness(objects, angle_threshold, upper_hardness=None, lower_hardness=None, unlock_normals=False)`
 - `edit_utils/components.py::Components.set_edge_softness(objects, soft=True)`
 - `edit_utils/components.py::Components.set_to_face_normals(objects)`
 - `edit_utils/components.py::Components.toggle_normal_lock(objects)`
+- `edit_utils/components.py::Components.transfer_creased_edges(frm=None, to=None)`
 - `edit_utils/components.py::Components.transfer_mesh_data(objects, data_type, **options)`
 - `edit_utils/components.py::Components.transfer_normals(objects, space='world')`
 - `edit_utils/curtain/_curtain.py::Curtain(class)`
@@ -1214,10 +1223,12 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `rig_utils/wheel_rig.py::WheelRig.default_rig_name(cls, control=None)`
 - `rig_utils/wheel_rig.py::WheelRig.from_selection(cls, rig_name=None, freeze_transforms=True, **kwargs)`
 - `rig_utils/wheel_rig.py::WheelRig.wheel_size(obj=None, movement_axis='translateZ')`
+- `ui_utils/_ui_utils.py::UiUtils.annotate(cls)`
 - `ui_utils/_ui_utils.py::UiUtils.current_tool(cls)`
 - `ui_utils/_ui_utils.py::UiUtils.get_operator(idname)`
 - `ui_utils/_ui_utils.py::UiUtils.get_tool_types(cls)`
 - `ui_utils/_ui_utils.py::UiUtils.invoke_operator_dialog(cls, idname, **props)`
+- `ui_utils/_ui_utils.py::UiUtils.open_pencil()`
 - `ui_utils/_ui_utils.py::UiUtils.set_tool(cls, tool)`
 - `ui_utils/node_icons.py::NodeIcons.audio_icon(size: int = 16)`
 - `uv_utils/_uv_utils.py::UvUtils.move_to_uv_space(objects, u, v, relative=True)`

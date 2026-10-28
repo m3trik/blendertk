@@ -178,6 +178,30 @@ try:
     current = UiUtils.current_tool()
     check("current_tool: a name, an idname or None", current is None or isinstance(current, str), repr(current))
 
+    # ---- annotate / open_pencil: each host's own (mayatk's names; tentacle's utilities panel)
+    import bpy
+
+    for o in list(bpy.data.objects):
+        bpy.data.objects.remove(o, do_unlink=True)
+    try:
+        armed = UiUtils.annotate()
+        check("annotate arms the Annotate tool and names it", armed == "Annotation", repr(armed))
+        if not bpy.app.background:
+            check("annotate: the Annotate tool is current", UiUtils.current_tool() == "Annotation")
+    except RuntimeError as error:
+        # --background: keymap-bearing tools fail their setup (viewport_tool_check.py)
+        check("annotate refuses only headless", bpy.app.background, str(error))
+    names_before = {o.name for o in bpy.data.objects}
+    pencil = UiUtils.open_pencil()
+    added = {o.name for o in bpy.data.objects} - names_before
+    check(
+        "open_pencil adds one empty Grease Pencil object and returns it",
+        pencil is not None
+        and pencil.type in ("GREASEPENCIL", "GPENCIL")
+        and added == {pencil.name},
+        f"{getattr(pencil, 'type', pencil)} added={added}",
+    )
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

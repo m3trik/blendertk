@@ -1896,6 +1896,56 @@ try:
           all(faces(o) == 1 for o in got))
 
 
+    # ---- get_symmetry / set_symmetry: mayatk's names (tentacle's symmetry panel) -------------
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    sym_a = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(4, 0, 0))
+    sym_b = bpy.context.active_object
+    btk.CoreUtils.select([sym_a, sym_b])  # replace: sym_a is active
+    state = btk.EditUtils.set_symmetry(axis="x", state=True)
+    check(
+        "set_symmetry: the axis on every selected mesh, the active mesh's state back",
+        sym_a.data.use_mirror_x
+        and sym_b.data.use_mirror_x
+        and state == {"enabled": True, "axes": ["x"], "space": "object", "by_axis": True},
+        f"{state}",
+    )
+    btk.EditUtils.set_symmetry(axis="Y", state=True)
+    state = btk.EditUtils.set_symmetry(axis="x", state=False)
+    check("set_symmetry: each axis is its own flag", state["axes"] == ["y"], f"{state}")
+    state = btk.EditUtils.set_symmetry(space="topo")
+    check(
+        "set_symmetry space='topo' matches by topology",
+        sym_b.data.use_mirror_topology and state["space"] == "topo",
+        f"{state}",
+    )
+    state = btk.EditUtils.set_symmetry(space="object")
+    check(
+        "set_symmetry space='object' matches by position",
+        not sym_a.data.use_mirror_topology and state["space"] == "object",
+        f"{state}",
+    )
+    try:
+        btk.EditUtils.set_symmetry(space="world")
+        check("set_symmetry: a space Blender lacks raises ValueError", False)
+    except ValueError:
+        check("set_symmetry: a space Blender lacks raises ValueError", True)
+    btk.CoreUtils.select([])
+    try:
+        btk.EditUtils.set_symmetry(axis="z", state=True)
+        check("set_symmetry with no mesh selected raises ValueError", False)
+    except ValueError:
+        check(
+            "set_symmetry with no mesh selected raises ValueError",
+            not sym_a.data.use_mirror_z,
+        )
+    check(
+        "get_symmetry with no active mesh: no space, nothing enabled",
+        btk.EditUtils.get_symmetry()
+        == {"enabled": False, "axes": [], "space": None, "by_axis": True},
+    )
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

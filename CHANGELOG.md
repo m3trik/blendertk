@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-28 -- Mirrors of mayatk's crease, symmetry, utilities and camera operations (`edit_utils/components.py`, `edit_utils/_edit_utils.py`, `ui_utils/_ui_utils.py`, `cam_utils/_cam_utils.py`).** `Components.crease_edges` / `transfer_creased_edges` (on `transfer_mesh_data`), `EditUtils.get_symmetry` / `set_symmetry`, `UiUtils.annotate` / `open_pencil`, `CamUtils.get_cameras` / `create_camera` / `look_through` / `switch_viewport_camera` / `align_view_to_selection`. `EditUtils.crease_edges(amount=None)` now leaves the crease alone.
+  - Test(s): `test_components.py`, `test_edit_utils.py`, `test_ui_utils.py`, `test_cam_utils.py`.
 - **2026-10-28 -- tentacle's Blender Slots base becomes library API (`core_utils/_core_utils.py`, `ui_utils/_ui_utils.py`, `edit_utils/components.py`).** `CoreUtils.ensure_component_mode` / `ensure_object_mode` (raises `RuntimeError` when Blender refuses); `UiUtils.get_tool_types` / `set_tool` / `current_tool` (mayatk's names), `get_operator(idname)` (None for an unregistered operator, which the old lookup never answered) and `invoke_operator_dialog(idname, **props)`; `Components.transfer_mesh_data(objects, data_type, **options)`, which `transfer_normals` now runs on. Additive.
   - Test(s): `test_core_utils.py`, `test_ui_utils.py`, `test_components.py` (the Qt-pump `window=None` state included).
 - **2026-10-28 -- blendertk hosts no panels (`ui_utils/blender_ui_handler.py`, `ui_utils/blender_bridge_slots_base.py` removed, `__init__.py`, `CLAUDE.md`, `docs/STRUCTURE.md`).** Mirror of mayatk's: `BlenderUiHandler` registers no UI source and adds no persistence rule; `BlenderBridgeSlotsBase` is gone (`MOVED_NAMES` 0.23.0 -> `HostBridge`).

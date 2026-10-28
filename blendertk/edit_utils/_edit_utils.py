@@ -721,6 +721,67 @@ class EditUtils(_EditUtilsInternal):
     """Namespace mirror of mayatk's ``EditUtils`` (helpers also exposed module-level)."""
 
     @staticmethod
+    def get_symmetry():
+        """The active mesh's symmetry (its mirror flags): what tentacle's symmetry
+        panel mirrors. Mirror of mayatk's ``EditUtils.get_symmetry`` (Maya's
+        scene-wide ``symmetricModelling`` there).
+
+        Returns:
+            dict: ``enabled`` (any axis mirrored); ``axes`` (the mirrored axes,
+                several possible); ``space`` (``"object"``, or ``"topo"`` when
+                mirrored vertices are matched by topology; ``None`` with no
+                active mesh); ``by_axis`` (always True: Blender's topology
+                matching still mirrors across the axes).
+        """
+        active = CoreUtils.active_object()
+        mesh = active.data if active is not None and active.type == "MESH" else None
+        if mesh is None:
+            return {"enabled": False, "axes": [], "space": None, "by_axis": True}
+        axes = [a for a in "xyz" if getattr(mesh, f"use_mirror_{a}")]
+        return {
+            "enabled": bool(axes),
+            "axes": axes,
+            "space": "topo" if mesh.use_mirror_topology else "object",
+            "by_axis": True,
+        }
+
+    @staticmethod
+    @CoreUtils.undoable
+    def set_symmetry(axis=None, state=True, space=None):
+        """Set the selected meshes' symmetry: an axis on or off, and/or matching
+        mirrored vertices by topology. Mirror of mayatk's
+        ``EditUtils.set_symmetry`` (Maya's modeling symmetry is one scene-wide
+        setting; Blender's is per mesh, several axes at once).
+
+        Parameters:
+            axis (str, optional): ``"x"``, ``"y"`` or ``"z"``.
+            state (bool): On or off, for *axis*.
+            space (str, optional): ``"object"`` (match by position) or ``"topo"``
+                (by topology). Blender mirrors in object space only.
+
+        Returns:
+            dict: The resulting :meth:`get_symmetry` (the active mesh's).
+
+        Raises:
+            ValueError: No mesh selected, or a *space* Blender has no analogue of.
+        """
+        if space not in (None, "object", "topo"):
+            raise ValueError(
+                "Blender mirrors in object space, by position or by topology; "
+                f"not {space!r}."
+            )
+        meshes = [o for o in CoreUtils.selected_objects() if o.type == "MESH"]
+        if not meshes:
+            raise ValueError("Select a mesh: Blender sets symmetry per mesh.")
+        for obj in meshes:
+            if space is not None:
+                obj.data.use_mirror_topology = space == "topo"
+            if axis is not None:
+                setattr(obj.data, f"use_mirror_{axis.lower()}", bool(state))
+        CoreUtils.tag_redraw("VIEW_3D")  # a write from the Qt pump repaints nothing
+        return EditUtils.get_symmetry()
+
+    @staticmethod
     def hook_bind_inverse(target, obj):
         """The ``matrix_inverse`` a Hook modifier needs so its geometry does **not jump** at bind time.
 
@@ -1215,7 +1276,7 @@ class EditUtils(_EditUtilsInternal):
     def crease_edges(objects, amount=10.0, angle=None):
         """Set Subdivision-Surface edge crease on the given mesh object(s) — mirror of Maya's
         ``crease_edges(amount, angle)``. ``amount`` is the Maya 0–10 scale, normalized to Blender's
-        0–1 crease (``polyCrease``).
+        0–1 crease (``polyCrease``); ``None`` leaves the crease.
 
         When ``angle`` (degrees) is given it also softens/hardens the same edges by it — the Blender
         equivalent of Maya's ``polySoftEdge -angle``: an edge whose dihedral angle **exceeds** ``angle``
@@ -1227,17 +1288,18 @@ class EditUtils(_EditUtilsInternal):
         """
         import bmesh
 
-        value = max(0.0, min(1.0, amount / 10.0))
+        value = None if amount is None else max(0.0, min(1.0, amount / 10.0))
         threshold = None if angle is None else math.radians(angle)
 
         def _apply(bm, selected_only):
             # fetch (creating if needed) the crease layer BEFORE touching edges — adding a custom
             # data layer invalidates any pre-collected BMEdge references.
-            cl = _EditUtilsInternal._crease_layer(bm)
+            cl = None if value is None else _EditUtilsInternal._crease_layer(bm)
             for e in bm.edges:
                 if selected_only and not e.select:
                     continue
-                e[cl] = value
+                if cl is not None:  # amount None leaves the crease
+                    e[cl] = value
                 if threshold is not None:
                     try:
                         e.smooth = e.calc_face_angle() <= threshold

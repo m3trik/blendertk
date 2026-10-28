@@ -884,3 +884,47 @@ class UiUtils(_UiUtilsInternal):
         # Headless, or no window to pop into — degrade to the console.
         print(f"{title}: {text}")
         return None
+
+    @classmethod
+    def annotate(cls):
+        """Activate Blender's Annotate tool (freehand notes over the viewport).
+        Mirror of mayatk's ``UiUtils.annotate`` (Maya's Create > Annotation there:
+        a text label on the selected object).
+
+        Returns:
+            str: ``"Annotation"``, the tool now active (:meth:`set_tool`'s name).
+
+        Raises:
+            RuntimeError: No 3D viewport is open, or Blender refused the tool.
+        """
+        cls.set_tool("Annotation")
+        return "Annotation"
+
+    @staticmethod
+    @CoreUtils.undoable
+    def open_pencil():
+        """Add an empty Grease Pencil object to draw into: Blender's pencil is an
+        object. Mirror of mayatk's ``UiUtils.open_pencil`` (Blue Pencil there, 2D
+        strokes over the viewport). Object Mode first, where Blender's own Add
+        menu offers it; runs under :func:`window_context_override` (the operator
+        reads screen context, dead in the Qt-pump state). One undo step.
+
+        Returns:
+            The new object.
+
+        Raises:
+            RuntimeError: This Blender has no Grease Pencil operator, or refused it.
+        """
+        # Blender 4.3 renamed the operator; the older name stays for 4.2.
+        op = UiUtils.get_operator("object.grease_pencil_add") or UiUtils.get_operator(
+            "object.gpencil_add"
+        )
+        if op is None:
+            raise RuntimeError("Grease Pencil is not available in this Blender version.")
+        CoreUtils.ensure_object_mode()
+        with CoreUtils.window_context_override():
+            try:
+                op(type="EMPTY")
+            except (RuntimeError, TypeError) as error:
+                raise RuntimeError(str(error)) from error
+        return CoreUtils.active_object()
