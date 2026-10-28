@@ -79,13 +79,28 @@ class _XformUtilsInternal(object):
 
     @staticmethod
     def _pivot_point(objects, pivot):
+        """The world point *pivot* names for *objects* (``move_to``): their
+        origins' mean for ``"object"``, the world origin, the 3D cursor for
+        ``"manip"``, else a point of their combined bounding box -- its center,
+        or an extent key's face (the center on the other two axes), as mayatk's
+        ``move_to`` resolves them."""
         from mathutils import Vector
 
         if pivot == "object":
             locs = [o.matrix_world.translation for o in objects]
             return sum(locs, Vector((0.0, 0.0, 0.0))) / len(locs)
+        if pivot == "world":
+            return Vector((0.0, 0.0, 0.0))
+        if pivot == "manip":
+            import bpy
+
+            return bpy.context.scene.cursor.location.copy()
         mn, mx = _XformUtilsInternal._combined_bbox(objects)
-        return (mn + mx) / 2.0  # bounding-box center
+        point = (mn + mx) / 2.0  # bounding-box center
+        if pivot in ("xmin", "xmax", "ymin", "ymax", "zmin", "zmax"):
+            axis = "xyz".index(pivot[0])
+            point[axis] = (mn if pivot.endswith("min") else mx)[axis]
+        return point
 
     @staticmethod
     def _store_bakes(obj, location, rotation, scale, prefix=_DEFAULT_BAKE_PREFIX):
@@ -893,8 +908,21 @@ class XformUtils(_XformUtilsInternal):
 
     @staticmethod
     def get_pivot_options():
-        """Pivot keys understood by :func:`move_to` (mirror of ``mtk.XformUtils.get_pivot_options``)."""
-        return ["center", "object"]
+        """The pivot keys the operations resolve (``get_operation_axis_matrix``,
+        ``move_to``) -- mirror of ``mtk.XformUtils.get_pivot_options``, without
+        ``"baked"``: a Blender object carries a single origin."""
+        return [
+            "object",
+            "world",
+            "center",
+            "manip",
+            "xmin",
+            "xmax",
+            "ymin",
+            "ymax",
+            "zmin",
+            "zmax",
+        ]
 
     #: Euler orders, Maya-spelled and in its ``rotateOrder`` enum order (Blender's
     #: ``rotation_mode`` of the same letters applies the axes in the same sequence).

@@ -64,7 +64,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`core_utils/units.py`](#core_utils--units) — Blender's lengths and angles, converted by the kind of value that holds them.
 - [`display_utils/_display_utils.py`](#display_utils--_display_utils) — Display utilities — the exploded-view toggle (mirror of mayatk's
 - [`display_utils/color_id.py`](#display_utils--color_id) — Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui``.
-- [`display_utils/exploded_view.py`](#display_utils--exploded_view) — Exploded View — Switchboard slot wiring for the co-located ``exploded_view.ui``.
+- [`display_utils/exploded_view.py`](#display_utils--exploded_view) — Exploded View: spread meshes apart from their shared center, and back.
 - [`display_utils/outliner_tint.py`](#display_utils--outliner_tint) — Per-object **outliner text colour** for Blender — the true analogue of Maya's
 - [`edit_utils/_edit_utils.py`](#edit_utils--_edit_utils) — Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
 - [`edit_utils/bevel.py`](#edit_utils--bevel) — Bevel tool — engine + Switchboard slot wiring for the co-located ``bevel.ui``.
@@ -73,7 +73,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`edit_utils/curtain/_curtain.py`](#edit_utils--curtain--_curtain) — Procedural draped-cloth (curtain) generator for Blender -- mirror of mayatk's
 - [`edit_utils/curtain/_curtain_drape.py`](#edit_utils--curtain--_curtain_drape) — Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.
 - [`edit_utils/curtain/curtain_slots.py`](#edit_utils--curtain--curtain_slots) — Curtain panel — the Switchboard slots for ``curtain.ui`` (Blender).
-- [`edit_utils/cut_on_axis.py`](#edit_utils--cut_on_axis) — Cut-On-Axis tool panel — Switchboard slot wiring for the co-located ``cut_on_axis.ui``.
+- [`edit_utils/cut_on_axis.py`](#edit_utils--cut_on_axis) — Cut On Axis: slice meshes along an axis -- mirror of mayatk's
 - [`edit_utils/duplicate_grid.py`](#edit_utils--duplicate_grid) — Grid array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_grid``.
 - [`edit_utils/duplicate_linear.py`](#edit_utils--duplicate_linear) — Linear array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_linear``.
 - [`edit_utils/duplicate_radial.py`](#edit_utils--duplicate_radial) — Radial array duplication — mirror of mayatk's ``edit_utils.duplicate_radial``.
@@ -83,7 +83,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`edit_utils/naming/_naming.py`](#edit_utils--naming--_naming) — Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
 - [`edit_utils/naming/naming_slots.py`](#edit_utils--naming--naming_slots) — Switchboard slots for the Naming panel — Blender port of mayatk's ``NamingSlots``.
 - [`edit_utils/selection.py`](#edit_utils--selection) — Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``
-- [`edit_utils/snap.py`](#edit_utils--snap) — Snap tool — Switchboard slot wiring for the co-located ``snap.ui``.
+- [`edit_utils/snap.py`](#edit_utils--snap) — Snap: vertices to a target surface, to the closest target vertex, or to the
 - [`edit_utils/target_weld.py`](#edit_utils--target_weld) — Target Weld — interactive drag-a-vertex-onto-another merge tool.
 - [`env_utils/_env_utils.py`](#env_utils--_env_utils) — blendertk environment / scene-library utilities — the engine behind the Reference Manager panel.
 - [`env_utils/blender_connection.py`](#env_utils--blender_connection) — Launch a FRESH headless Blender to run a script / code string and capture its output — the
@@ -229,7 +229,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L437) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L436) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -1229,14 +1229,14 @@ Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui
 <a id="display_utils--exploded_view"></a>
 ### `display_utils/exploded_view.py`
 
-Exploded View — Switchboard slot wiring for the co-located ``exploded_view.ui``.
+Exploded View: spread meshes apart from their shared center, and back.
 
-- **[`class ExplodedViewSlots(pythontk.LoggingMixin)`](blendertk/blendertk/display_utils/exploded_view.py#L27)** — Switchboard slot wiring for the Exploded View panel (mirror of mayatk's ``ExplodedViewSlots``).
-  - `ExplodedViewSlots.header_init(self, widget)` — Configure header help text.
-  - `ExplodedViewSlots.b000(self)` — Explode.
-  - `ExplodedViewSlots.b001(self)` — Un-Explode (selected).
-  - `ExplodedViewSlots.b002(self)` — Un-Explode All.
-  - `ExplodedViewSlots.b003(self)` — Toggle Explode.
+- **[`class ExplodedView(pythontk.LoggingMixin)`](blendertk/blendertk/display_utils/exploded_view.py#L26)** — Explode, un-explode and toggle a set of meshes: the given objects, or the
+  - `ExplodedView.objects(self) -> list` *(property)* — The assigned objects, or the current selection.
+  - `ExplodedView.explode(self, objects: Optional[list] = None) -> list` — Push the meshes apart (those not exploded already);
+  - `ExplodedView.un_explode(self, objects: Optional[list] = None) -> list` — Return the meshes to their stored positions;
+  - `ExplodedView.toggle_explode(self, objects: Optional[list] = None) -> list` — Un-explode once the whole set is exploded;
+  - `ExplodedView.un_explode_all(self) -> list` — Restore every exploded object in the scene, regardless of selection.
 
 <a id="display_utils--outliner_tint"></a>
 ### `display_utils/outliner_tint.py`
@@ -1307,11 +1307,8 @@ Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tri
 
 Bevel tool — engine + Switchboard slot wiring for the co-located ``bevel.ui``.
 
-- **[`class Bevel`](blendertk/blendertk/edit_utils/bevel.py#L26)** — Native ``bmesh.ops.bevel`` engine (mirror of mayatk's ``Bevel``).
+- **[`class Bevel`](blendertk/blendertk/edit_utils/bevel.py#L24)** — Native ``bmesh.ops.bevel`` engine (mirror of mayatk's ``Bevel``).
   - `Bevel.bevel(objects=None, width=0.1, segments=1, profile=0.5, clamp_overlap=True, affect='EDGES', offset_type='OFFSET')` *(static)* — Bevel the selected edges (or vertices) of the given mesh objects.
-- **[`class BevelSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/bevel.py#L98)** — Switchboard slot wiring for the bevel UI — 1:1 mirror of mayatk's ``BevelSlots`` (same
-  - `BevelSlots.header_init(self, widget)` — Configure header help text.
-  - `BevelSlots.perform_operation(self, objects)`
 
 <a id="edit_utils--bridge"></a>
 ### `edit_utils/bridge.py`
@@ -1377,38 +1374,27 @@ Curtain panel — the Switchboard slots for ``curtain.ui`` (Blender).
 <a id="edit_utils--cut_on_axis"></a>
 ### `edit_utils/cut_on_axis.py`
 
-Cut-On-Axis tool panel — Switchboard slot wiring for the co-located ``cut_on_axis.ui``.
+Cut On Axis: slice meshes along an axis -- mirror of mayatk's
 
-- **[`class CutOnAxisSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/cut_on_axis.py#L22)** — Switchboard slot wiring for the cut-on-axis UI (live preview).
-  - `CutOnAxisSlots.header_init(self, widget)` — Configure header help text.
-  - `CutOnAxisSlots.toggle_weight_ui(self)` — Enable the weight fields only for the modes that consume them.
-  - `CutOnAxisSlots.perform_operation(self, objects)`
+- **[`class CutOnAxis`](blendertk/blendertk/edit_utils/cut_on_axis.py#L17)**
+  - `CutOnAxis.perform_cut_on_axis(objects, axis='-x', cuts=0, cut_offset=0, cut_spacing=0.0, distribution='linear', weight_bias=0.5, weight_curve=2.0, delete=False, mirror=False, pivot='manip', axis_frame=None)` *(static)* — Cut each mesh along *axis*;
 
 <a id="edit_utils--duplicate_grid"></a>
 ### `edit_utils/duplicate_grid.py`
 
 Grid array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_grid``.
 
-- [`GRID_MAX_COPIES`](blendertk/blendertk/edit_utils/duplicate_grid.py#L26) — constant
-- **[`class DuplicateGrid`](blendertk/blendertk/edit_utils/duplicate_grid.py#L29)** — Grid-array duplication engine — mirror of mayatk's ``DuplicateGrid``.
+- [`GRID_MAX_COPIES`](blendertk/blendertk/edit_utils/duplicate_grid.py#L25) — constant
+- **[`class DuplicateGrid`](blendertk/blendertk/edit_utils/duplicate_grid.py#L28)** — Grid-array duplication engine — mirror of mayatk's ``DuplicateGrid``.
   - `DuplicateGrid.duplicate_grid(objects, dimensions=(2, 2, 1), spacing=0.0, mode='instance')` *(static)* — Duplicate object(s) into a 3D grid — mirror of mayatk's ``DuplicateGrid.duplicate_grid``.
-- **[`class DuplicateGridSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/duplicate_grid.py#L106)** — Switchboard slot wiring for the Duplicate-Grid panel — 1:1 objectName mirror of
-  - `DuplicateGridSlots.header_init(self, widget)` — Configure header help text.
-  - `DuplicateGridSlots.b001_init(self, widget)` — Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the
-  - `DuplicateGridSlots.perform_operation(self, objects)`
 
 <a id="edit_utils--duplicate_linear"></a>
 ### `edit_utils/duplicate_linear.py`
 
 Linear array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_linear``.
 
-- **[`class DuplicateLinear`](blendertk/blendertk/edit_utils/duplicate_linear.py#L24)** — Linear-array duplication engine — mirror of mayatk's ``DuplicateLinear``.
+- **[`class DuplicateLinear`](blendertk/blendertk/edit_utils/duplicate_linear.py#L23)** — Linear-array duplication engine — mirror of mayatk's ``DuplicateLinear``.
   - `DuplicateLinear.duplicate_linear(objects, num_copies, translate=(0, 0, 0), rotate=(0, 0, 0), scale=(1, 1, 1), weight_bias=0.5, weight_curve=4, pivot='object', calculation_mode='weighted', instance=True)` *(static)* — Duplicate object(s) along a linear path — mirror of mayatk's
-- **[`class DuplicateLinearSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/duplicate_linear.py#L106)** — Switchboard slot wiring for the Duplicate-Linear panel — 1:1 objectName mirror of
-  - `DuplicateLinearSlots.header_init(self, widget)` — Configure header help text.
-  - `DuplicateLinearSlots.toggle_weight_ui(self)` — Disable weight UI components if the current calculation mode doesn't use them.
-  - `DuplicateLinearSlots.b001_init(self, widget)` — Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the
-  - `DuplicateLinearSlots.perform_operation(self, objects)` — Perform the linear duplication operation.
 
 <a id="edit_utils--duplicate_radial"></a>
 ### `edit_utils/duplicate_radial.py`
@@ -1425,9 +1411,7 @@ Radial array duplication — mirror of mayatk's ``edit_utils.duplicate_radial``.
 Dynamic Pipe tool — Blender port of mayatk's ``edit_utils.dynamic_pipe``.
 
 - **[`class DynamicPipe(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/dynamic_pipe.py#L37)** — Build a pipe-style mesh driven by a chain of handle objects (Empties/locators) — Blender
-- **[`class DynamicPipeSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/dynamic_pipe.py#L141)** — Switchboard slot wiring for the co-located ``dynamic_pipe.ui`` (mirror of mayatk's
-  - `DynamicPipeSlots.header_init(self, widget)` — Configure header help text.
-  - `DynamicPipeSlots.b000(self)` — Initialize Pipe — build pipe from the current selection (name-ordered).
+  - `DynamicPipe.from_selection(cls, **kwargs) -> 'DynamicPipe'` *(class)* — A pipe through the selected handle objects (Empties), chained in
 
 <a id="edit_utils--macros--_macros"></a>
 ### `edit_utils/macros/_macros.py`
@@ -1583,16 +1567,13 @@ Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Sel
 <a id="edit_utils--snap"></a>
 ### `edit_utils/snap.py`
 
-Snap tool — Switchboard slot wiring for the co-located ``snap.ui``.
+Snap: vertices to a target surface, to the closest target vertex, or to the
 
-- **[`class SnapSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/snap.py#L25)** — Switchboard slot wiring for the Snap panel (mirror of mayatk's ``SnapSlots``).
-  - `SnapSlots.header_init(self, widget)` — Configure header help text.
-  - `SnapSlots.b000_init(self, widget)` — Initialize Snap to Surface button option box.
-  - `SnapSlots.b000(self)` — Snap to Surface button.
-  - `SnapSlots.b001_init(self, widget)` — Initialize Snap to Closest Vertex button option box.
-  - `SnapSlots.b001(self)` — Snap to Closest Vertex button.
-  - `SnapSlots.b002_init(self, widget)` — Initialize Snap to Grid button option box.
-  - `SnapSlots.b002(self)` — Snap to Grid button.
+- **[`class Snap(pythontk.HelpMixin)`](blendertk/blendertk/edit_utils/snap.py#L21)** — Vertex and mesh snapping utilities.
+  - `Snap.source_and_target()` *(static)* — The selected meshes as ``(sources, target)``: the active mesh is the
+  - `Snap.snap_to_surface(source_meshes, target_mesh, offset=None, threshold=None, invert=False)` *(static)* — Snap the source meshes' vertices onto the target's surface, at
+  - `Snap.snap_to_closest_vertex(obj1, obj2, tolerance=10.0)` *(static)* — Snap *obj1*'s vertices to *obj2*'s closest within *tolerance*;
+  - `Snap.snap_to_grid(objects=None, grid_size=1.0, axes='xyz')` *(static)* — Snap the selected vertices (Edit Mode) or each object's origin to
 
 <a id="edit_utils--target_weld"></a>
 ### `edit_utils/target_weld.py`
@@ -3917,17 +3898,6 @@ Calculator tool panel — Switchboard slot wiring for the co-located ``calculato
   - `CalculatorController.get_current_time()` *(static)* — Current frame as a string.
   - `CalculatorController.frames_to_sec(cls, frames)` *(class)*
   - `CalculatorController.sec_to_frames(cls, seconds)` *(class)*
-- **[`class CalculatorSlots(pythontk.LoggingMixin)`](blendertk/blendertk/ui_utils/calculator.py#L79)** — Switchboard slot wiring for the Calculator panel.
-  - `CalculatorSlots.header_init(self, widget)` — Configure header help text.
-  - `CalculatorSlots.on_input(self, text)`
-  - `CalculatorSlots.on_clear(self)`
-  - `CalculatorSlots.on_backspace(self)`
-  - `CalculatorSlots.on_equal(self)`
-  - `CalculatorSlots.on_convert_units(self)`
-  - `CalculatorSlots.get_fps(self)`
-  - `CalculatorSlots.get_current_time(self)`
-  - `CalculatorSlots.frames_to_sec(self)`
-  - `CalculatorSlots.sec_to_frames(self)`
 
 <a id="ui_utils--cancel_provider"></a>
 ### `ui_utils/cancel_provider.py`
@@ -4250,7 +4220,7 @@ Transfer a mesh's textures from one UV layout to another -- no rays, no bake.
 
 Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,
 
-- **[`class XformUtils(_XformUtilsInternal)`](blendertk/blendertk/xform_utils/_xform_utils.py#L158)** — Namespace mirror of mayatk's ``XformUtils`` (helpers also exposed module-level).
+- **[`class XformUtils(_XformUtilsInternal)`](blendertk/blendertk/xform_utils/_xform_utils.py#L173)** — Namespace mirror of mayatk's ``XformUtils`` (helpers also exposed module-level).
   - `XformUtils.get_world_bbox(obj)` *(static)* — Return ``(min, max)`` ``Vector``s of ``obj``'s bounding box in world space.
   - `XformUtils.freeze_transforms(objects, location=True, rotation=False, scale=True, store=True, instance_strategy='skip')` *(static)* — Apply (bake) the given transform channels into the object data — Blender's
   - `XformUtils.restore_transforms(objects, delete_attrs=True, channels=None, traverse=False, prefix=_DEFAULT_BAKE_PREFIX)` *(static)* — Un-freeze: compose the stored pre-freeze channels back into the local transform
@@ -4271,7 +4241,7 @@ Transform utilities — object-level transform ops (world bbox, freeze, drop-to-
   - `XformUtils.order_by_distance(objects, reference_point=None, reverse=False)` *(static)* — Order ``objects`` by distance from ``reference_point`` (an object / Vector / 3-seq;
   - `XformUtils.aim_object_at_point(objects, target_pos, aim_vect=(1, 0, 0), up_vect=(0, 1, 0))` *(static)* — Aim ``objects`` at a world-space point — mirror of ``mtk.aim_object_at_point`` (which uses
   - `XformUtils.restore_original_axes(objects=None, prefix=_DEFAULT_BAKE_PREFIX, name='Authored')` *(static)* — Point the transform gizmo at an object's PRE-FREEZE axes, without un-freezing —
-  - `XformUtils.get_pivot_options()` *(static)* — Pivot keys understood by :func:`move_to` (mirror of ``mtk.XformUtils.get_pivot_options``).
+  - `XformUtils.get_pivot_options()` *(static)* — The pivot keys the operations resolve (``get_operation_axis_matrix``,
   - `XformUtils.set_rotate_order(objects, order, preserve=True)` *(static)* — Change objects' Euler order keeping their pose and keyed animation --
 
 <a id="xform_utils--matrices"></a>

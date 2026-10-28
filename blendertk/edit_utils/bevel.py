@@ -17,9 +17,7 @@ the Qt-only ``uitk`` helper into its method, so importing the module / resolving
 surface never needs a running Blender or Qt.
 """
 
-import pythontk as ptk
 
-from blendertk.core_utils.preview import Preview
 from blendertk.edit_utils._edit_utils import EditUtils
 
 
@@ -95,68 +93,5 @@ class Bevel:
         return total
 
 
-class BevelSlots(ptk.LoggingMixin):
-    """Switchboard slot wiring for the bevel UI — 1:1 mirror of mayatk's ``BevelSlots`` (same
-    objectNames, same layout, same widget count: Preview / Width / Segments / Create).
-
-    Self-contained (``ptk.LoggingMixin`` only) so blendertk carries no back-dependency on
-    tentacle; the Qt-only ``uitk`` helper is deferred into ``header_init``.
-    """
-
-    def __init__(self, switchboard, log_level="WARNING"):
-        self.sb = switchboard
-        self.ui = self.sb.loaded_ui.bevel
-        self.logger.setLevel(log_level)
-        self.logger.set_log_prefix("[bevel] ")
-
-        # Per-field reset buttons must precede connect_multi/Preview (wrap-first — reparenting
-        # a QUiLoader spinbox after a deferred-widget access invalidates its wrapper). Wrap the
-        # whole UI (no range arg) like duplicate_grid / cut_on_axis — the range form leaves the
-        # later connect_multi resolving a stale spinbox wrapper.
-        self.sb.add_reset_buttons(self.ui)
-
-        self.preview = Preview(
-            self,
-            self.ui.chk000,
-            self.ui.b000,
-            message_func=self.sb.message_box,
-            undo_message="Bevel",
-        )
-
-        self.sb.connect_multi(self.ui, "s000-1", "valueChanged", self.preview.refresh)
-
-    def header_init(self, widget):
-        """Configure header help text."""
-        widget.set_help_text(
-            self.sb.tooltip.fmt(
-                title="Bevel",
-                body="Add chamfer bevels to selected polygon edges.",
-                steps=[
-                    "In Edit Mode, select one or more edges (or vertices).",
-                    "Set <b>Width</b> (offset distance) and <b>Segments</b> (1+).",
-                    "Toggle <b>Preview</b> to iterate non-destructively, "
-                    "or press <b>Create</b> to commit.",
-                ],
-                notes=[
-                    "Profile shape and clamp-overlap use the <i>Bevel.bevel</i> defaults "
-                    "(round profile, clamped). Edit the slot if you need finer control.",
-                ],
-            )
-        )
-
-    def perform_operation(self, objects):
-        width = self.ui.s000.value()
-        segments = self.ui.s001.value()
-        # 1:1 with mayatk's panel — mayatk's Bevel UI exposes only Width/Segments, so this panel
-        # mirrors it verbatim. Bevel.bevel still accepts profile= / clamp_overlap= for callers
-        # that want them; they just aren't wired to a widget here.
-        Bevel.bevel(objects, width, segments)
-
-
 # -----------------------------------------------------------------------------
 
-if __name__ == "__main__":
-    from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
-
-    ui = BlenderUiHandler.instance().get("bevel", reload=True)
-    ui.show(pos="screen", app_exec=True)

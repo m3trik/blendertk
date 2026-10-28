@@ -160,48 +160,50 @@ try:
           all(tuple(o.location) == locs[o.name] for o in (a, b)))
     check("unexplode_all clears every stamp", not btk.is_exploded([a, b]))
 
-    # ---- ExplodedViewSlots: panel buttons drive the engine over the live selection ----------
-    from blendertk.display_utils.exploded_view import ExplodedViewSlots
-
-    class _UI:
-        pass
-
-    class _SB:
-        def __init__(self):
-            self.loaded_ui = type("L", (), {"exploded_view": _UI()})()
-            self.messages = []
-        def message_box(self, msg):
-            self.messages.append(msg)
-
+    # ---- ExplodedView: the panel's buttons drive it over the live selection ---------------
     reset()
     a = cube(x=0.5, name="A")
     b = cube(x=-0.5, name="B")
     for o in (a, b):
         o.select_set(True)
     bpy.context.view_layer.objects.active = a
-    slots = ExplodedViewSlots(_SB())
-    slots.b000()  # Explode
-    check("slot b000 explodes the selection", btk.is_exploded([a, b]))
-    slots.b001()  # Un-Explode (selected)
-    check("slot b001 un-explodes the selection", not btk.is_exploded([a, b]))
-    slots.b003()  # Toggle -> explode
-    check("slot b003 toggles to exploded", btk.is_exploded([a, b]))
-    slots.b003()  # Toggle -> restore
-    check("slot b003 toggles back to original", not btk.is_exploded([a, b]))
-    slots.b000()  # explode again, then clear selection and Un-Explode All
+    view = btk.ExplodedView()  # no objects: the selection, read at each call
+    view.explode()
+    check("explode explodes the selection", btk.is_exploded([a, b]))
+    view.un_explode()
+    check("un_explode un-explodes the selection", not btk.is_exploded([a, b]))
+    view.toggle_explode()
+    check("toggle_explode explodes", btk.is_exploded([a, b]))
+    view.toggle_explode()
+    check("toggle_explode toggles back to original", not btk.is_exploded([a, b]))
+    view.explode()  # explode again, then clear selection and Un-Explode All
     bpy.ops.object.select_all(action="DESELECT")
-    slots.b002()  # Un-Explode All
-    check("slot b002 un-explodes all with nothing selected", not btk.is_exploded([a, b]))
+    view.un_explode_all()
+    check("un_explode_all un-explodes all with nothing selected", not btk.is_exploded([a, b]))
+
+    # A selected group stands for its child meshes (mayatk's get_unique_children).
+    reset()
+    a = cube(x=0.5, name="A")
+    b = cube(x=-0.5, name="B")
+    bpy.ops.object.empty_add(location=(0, 0, 0))
+    grp = bpy.context.active_object
+    for o in (a, b):
+        o.parent = grp
+    bpy.ops.object.select_all(action="DESELECT")
+    grp.select_set(True)
+    bpy.context.view_layer.objects.active = grp
+    exploded = btk.ExplodedView().explode()
+    check("a selected group explodes its child meshes",
+          sorted(o.name for o in exploded) == ["A", "B"] and btk.is_exploded([a, b]),
+          str([o.name for o in exploded]))
 
     # ---- slot guards: explode with <2 selected meshes warns instead of acting --------------
     reset()
     a = cube(name="A")
     a.select_set(True)
     bpy.context.view_layer.objects.active = a
-    sb = _SB()
-    slots = ExplodedViewSlots(sb)
-    slots.b000()
-    check("slot b000 with <2 selected shows a message", len(sb.messages) == 1, str(sb.messages))
+    check("explode with <2 selected meshes moves nothing",
+          btk.ExplodedView().explode() == [] and not btk.is_exploded([a]))
 
 except Exception:
     traceback.print_exc()

@@ -1,22 +1,21 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Exploded View — Switchboard slot wiring for the co-located ``exploded_view.ui``.
+"""Exploded View: spread meshes apart from their shared center, and back.
 
-Blender port of mayatk's ``display_utils.exploded_view`` panel (``ExplodedViewSlots``): spread the
-selected meshes outward from their shared bbox center for inspection, with an exact, reversible
-restore. The explode/unexplode **engine** already lives module-level in
-:mod:`~blendertk.display_utils._display_utils` (``explode_view`` / ``unexplode_view`` /
-``unexplode_all`` / ``is_exploded``) — Maya uses an iterative repulsive-force solve; blendertk uses
-a deterministic bbox-center separation (headless-testable) that stamps each pre-explode location as
-a custom prop so the toggle survives save/reload. Target-*resolution* (which objects the buttons act
-on) stays in this module rather than the shared engine file — mirroring mayatk, which keeps its
-``objects`` property / ``_get_target_objects`` on the ``ExplodedView`` class in ``exploded_view.py``
-rather than in the shared ``_display_utils.py``. The Slots class is discovered and served by
-``BlenderUiHandler`` (``marking_menu.show("exploded_view")``).
+``ExplodedView`` mirrors mayatk's (name + behavior): the buttons tentacle's
+Exploded View panel drives, over the explode / unexplode engine module-level in
+:mod:`~blendertk.display_utils._display_utils` (``explode_view`` /
+``unexplode_view`` / ``unexplode_all`` / ``is_exploded``). Maya uses an
+iterative repulsive-force solve; blendertk a deterministic bbox-center
+separation (headless-testable) that stamps each pre-explode location as a
+custom prop, so the toggle survives save/reload. Target resolution (which
+objects a button acts on) is this class's, as mayatk keeps its ``objects`` /
+``_get_target_objects`` on its ``ExplodedView``.
 
-``import bpy`` is deferred into the call bodies (via ``selected_objects()``) and the Qt-only
-``uitk`` helper into ``header_init``.
+``import bpy`` is deferred into the call bodies (via ``selected_objects()``).
 """
+
+from typing import Optional
 
 import pythontk as ptk
 
@@ -24,111 +23,81 @@ from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.display_utils._display_utils import DisplayUtils
 
 
-class ExplodedViewSlots(ptk.LoggingMixin):
-    """Switchboard slot wiring for the Exploded View panel (mirror of mayatk's ``ExplodedViewSlots``).
+class ExplodedView(ptk.LoggingMixin):
+    """Explode, un-explode and toggle a set of meshes: the given objects, or the
+    selection when none were given.
 
-    Self-contained (``ptk.LoggingMixin`` only); calls the module-level engine directly.
+    Parameters:
+        objects: The objects to act on; ``None`` (the default) acts on the
+            selection at each call.
     """
 
-    def __init__(self, switchboard, log_level="WARNING"):
-        self.sb = switchboard
-        self.ui = self.sb.loaded_ui.exploded_view
-        self.logger.setLevel(log_level)
-        self.logger.set_log_prefix("[exploded_view] ")
+    def __init__(self, objects: Optional[list] = None, **kwargs):
+        self._objects = objects
+        self._kwargs = kwargs
 
-    _NEED_TWO = "Select two or more mesh objects to explode apart."
+    @property
+    def objects(self) -> list:
+        """The assigned objects, or the current selection."""
+        if self._objects is not None:
+            return list(self._objects)
+        return CoreUtils.selected_objects()
 
-    def _mesh_selection(self):
-        """Resolve the target meshes from the current selection.
+    @objects.setter
+    def objects(self, value: list):
+        self._objects = value
 
-        Mirrors mayatk's ``ExplodedView.objects`` + ``NodeUtils.get_unique_children``: a
-        selected "group" — a Blender Empty carrying no mesh data of its own — is expanded to
-        its child meshes (recursively) instead of being treated as an explode target itself.
-        Non-mesh, non-empty selections (curves, armatures, lights, …) are dropped, same as the
-        prior behavior — ``explode_view``/``unexplode_view`` only ever operate on meshes.
-        """
+    def _get_target_objects(self) -> list:
+        """The meshes the objects stand for: a mesh itself, a group (an Empty
+        with no mesh of its own) its child meshes, recursively -- mirror of
+        mayatk's ``NodeUtils.get_unique_children``. Other types (curves,
+        armatures, lights, ...) are dropped; the explode moves meshes only."""
 
         def collect(obj, found):
             if obj.type == "MESH":
-                found.add(obj)
+                found.append(obj)
             elif obj.type == "EMPTY":
                 for child in obj.children:
                     collect(child, found)
 
-        found = set()
-        for obj in CoreUtils.selected_objects():
+        found = []
+        for obj in self.objects:
             collect(obj, found)
-        return list(found)
+        meshes = list(dict.fromkeys(found))
+        if not meshes:
+            self.logger.warning("No objects provided or selected.")
+        return meshes
 
-    def header_init(self, widget):
-        """Configure header help text."""
-        # Gesture-scoped window: pin button + auto-hide on key_show release.
-        widget.config_buttons("menu", "collapse", "pin")
-        widget.set_help_text(
-            self.sb.tooltip.fmt(
-                title="Exploded View",
-                body="Spread selected objects outward from their shared center to inspect "
-                "interior parts. Each object's pre-explode location is stamped as a custom "
-                "property, so the explode is fully reversible.",
-                sections=[
-                    (
-                        "Actions",
-                        [
-                            "<b>Explode</b> — push the selected meshes away from the group's bbox "
-                            "center until their bounding boxes no longer overlap.",
-                            "<b>Un-Explode</b> — return the selected objects to their stored "
-                            "positions.",
-                            "<b>Un-Explode All</b> — reset every exploded object in the scene "
-                            "(regardless of selection).",
-                            "<b>Toggle Explode</b> — alternate between exploded and original views "
-                            "on the current selection.",
-                        ],
-                    ),
-                ],
-            )
-        )
+    @CoreUtils.undoable
+    def explode(self, objects: Optional[list] = None) -> list:
+        """Push the meshes apart (those not exploded already); returns them."""
+        if objects is not None:
+            self.objects = objects
+        meshes = self._get_target_objects()
+        if len(meshes) < 2:
+            if meshes:
+                self.logger.warning("Select two or more mesh objects to explode apart.")
+            return []
+        DisplayUtils.explode_view(meshes)  # leaves the exploded ones alone
+        return meshes
 
-    def b000(self):
-        """Explode."""
-        meshes = self._mesh_selection()
-        if (
-            len(meshes) < 2
-        ):  # warn only when genuinely under-selected (not when already exploded)
-            self.sb.message_box(self._NEED_TWO)
-            return
-        DisplayUtils.explode_view(meshes)  # no-ops silently if already exploded
+    @CoreUtils.undoable
+    def un_explode(self, objects: Optional[list] = None) -> list:
+        """Return the meshes to their stored positions; returns those restored."""
+        if objects is not None:
+            self.objects = objects
+        return DisplayUtils.unexplode_view(self._get_target_objects())
 
-    def b001(self):
-        """Un-Explode (selected)."""
-        DisplayUtils.unexplode_view(self._mesh_selection())
+    def toggle_explode(self, objects: Optional[list] = None) -> list:
+        """Un-explode once the whole set is exploded; else explode what is not."""
+        if objects is not None:
+            self.objects = objects
+        meshes = self._get_target_objects()
+        if meshes and all(DisplayUtils.is_exploded([m]) for m in meshes):
+            return self.un_explode()
+        return self.explode()
 
-    def b002(self):
-        """Un-Explode All."""
-        DisplayUtils.unexplode_all()
-
-    def b003(self):
-        """Toggle Explode."""
-        meshes = self._mesh_selection()
-        # Mirrors mayatk's toggle_explode reasoning: only collapse once the WHOLE selection is
-        # already exploded; otherwise push out whatever isn't exploded yet. explode_view() only
-        # stamps/moves the not-yet-exploded subset, so a partially-exploded selection converges
-        # toward "fully exploded" one toggle at a time, same as mayatk's explode()/_get_target_
-        # objects(unexploded=True) split.
-        fully_exploded = bool(meshes) and all(
-            DisplayUtils.is_exploded([m]) for m in meshes
-        )
-        if fully_exploded:
-            DisplayUtils.unexplode_view(meshes)
-        elif len(meshes) < 2:
-            self.sb.message_box(self._NEED_TWO)
-        else:
-            DisplayUtils.explode_view(meshes)
-
-
-# -----------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
-
-    ui = BlenderUiHandler.instance().get("exploded_view", reload=True)
-    ui.show(pos="screen", app_exec=True)
+    @CoreUtils.undoable
+    def un_explode_all(self) -> list:
+        """Restore every exploded object in the scene, regardless of selection."""
+        return DisplayUtils.unexplode_all()

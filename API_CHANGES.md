@@ -2,7 +2,7 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (97)
+## Moved out (141)
 
 - `anim_utils/shots/shot_manifest/export_preview.py::ExportPreviewMixin` → `tentacle.slots.tools._shot_manifest.export_preview.ExportPreviewMixin` (from 0.23.0)
 - `anim_utils/shots/shot_manifest/export_preview.py::ExportPreviewMixin.export` → `tentacle.slots.tools._shot_manifest.export_preview.ExportPreviewMixin` (from 0.23.0)
@@ -76,12 +76,45 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `anim_utils/shots/shot_manifest/table_presenter.py::ManifestTableMixin.expand_extra` → `tentacle.slots.tools._shot_manifest.table_presenter.ManifestTableMixin` (from 0.23.0)
 - `anim_utils/shots/shot_manifest/table_presenter.py::ManifestTableMixin.expand_missing` → `tentacle.slots.tools._shot_manifest.table_presenter.ManifestTableMixin` (from 0.23.0)
 - `anim_utils/shots/shot_manifest/view_combos.py::ViewCombosMixin` → `tentacle.slots.tools._shot_manifest.view_combos.ViewCombosMixin` (from 0.23.0)
+- `display_utils/exploded_view.py::ExplodedViewSlots` → `tentacle.slots.tools.exploded_view.ExplodedViewSlots` (from 0.23.0)
+- `display_utils/exploded_view.py::ExplodedViewSlots.b000` → `tentacle.slots.tools.exploded_view.ExplodedViewSlots` (from 0.23.0)
+- `display_utils/exploded_view.py::ExplodedViewSlots.b001` → `tentacle.slots.tools.exploded_view.ExplodedViewSlots` (from 0.23.0)
+- `display_utils/exploded_view.py::ExplodedViewSlots.b002` → `tentacle.slots.tools.exploded_view.ExplodedViewSlots` (from 0.23.0)
+- `display_utils/exploded_view.py::ExplodedViewSlots.b003` → `tentacle.slots.tools.exploded_view.ExplodedViewSlots` (from 0.23.0)
+- `display_utils/exploded_view.py::ExplodedViewSlots.header_init` → `tentacle.slots.tools.exploded_view.ExplodedViewSlots` (from 0.23.0)
+- `edit_utils/bevel.py::BevelSlots` → `tentacle.slots.tools.bevel.BevelSlots` (from 0.23.0)
+- `edit_utils/bevel.py::BevelSlots.header_init` → `tentacle.slots.tools.bevel.BevelSlots` (from 0.23.0)
+- `edit_utils/bevel.py::BevelSlots.perform_operation` → `tentacle.slots.tools.bevel.BevelSlots` (from 0.23.0)
+- `edit_utils/cut_on_axis.py::CutOnAxisSlots` → `tentacle.slots.tools.cut_on_axis.CutOnAxisSlots` (from 0.23.0)
+- `edit_utils/cut_on_axis.py::CutOnAxisSlots.header_init` → `tentacle.slots.tools.cut_on_axis.CutOnAxisSlots` (from 0.23.0)
+- `edit_utils/cut_on_axis.py::CutOnAxisSlots.perform_operation` → `tentacle.slots.tools.cut_on_axis.CutOnAxisSlots` (from 0.23.0)
+- `edit_utils/cut_on_axis.py::CutOnAxisSlots.toggle_weight_ui` → `tentacle.slots.tools.cut_on_axis.CutOnAxisSlots` (from 0.23.0)
+- `edit_utils/duplicate_grid.py::DuplicateGridSlots` → `tentacle.slots.tools.duplicate_grid.DuplicateGridSlots` (from 0.23.0)
+- `edit_utils/duplicate_grid.py::DuplicateGridSlots.b001_init` → `tentacle.slots.tools.duplicate_grid.DuplicateGridSlots` (from 0.23.0)
+- `edit_utils/duplicate_grid.py::DuplicateGridSlots.header_init` → `tentacle.slots.tools.duplicate_grid.DuplicateGridSlots` (from 0.23.0)
+- `edit_utils/duplicate_grid.py::DuplicateGridSlots.perform_operation` → `tentacle.slots.tools.duplicate_grid.DuplicateGridSlots` (from 0.23.0)
+- `edit_utils/duplicate_linear.py::DuplicateLinearSlots` → `tentacle.slots.tools.duplicate_linear.DuplicateLinearSlots` (from 0.23.0)
+- `edit_utils/duplicate_linear.py::DuplicateLinearSlots.b001_init` → `tentacle.slots.tools.duplicate_linear.DuplicateLinearSlots` (from 0.23.0)
+- `edit_utils/duplicate_linear.py::DuplicateLinearSlots.header_init` → `tentacle.slots.tools.duplicate_linear.DuplicateLinearSlots` (from 0.23.0)
+- `edit_utils/duplicate_linear.py::DuplicateLinearSlots.perform_operation` → `tentacle.slots.tools.duplicate_linear.DuplicateLinearSlots` (from 0.23.0)
+- `edit_utils/duplicate_linear.py::DuplicateLinearSlots.toggle_weight_ui` → `tentacle.slots.tools.duplicate_linear.DuplicateLinearSlots` (from 0.23.0)
 - `edit_utils/duplicate_radial.py::DuplicateRadialSlots` → `tentacle.slots.tools.duplicate_radial.DuplicateRadialSlots` (from 0.23.0)
 - `edit_utils/duplicate_radial.py::DuplicateRadialSlots.b001_init` → `tentacle.slots.tools.duplicate_radial.DuplicateRadialSlots` (from 0.23.0)
 - `edit_utils/duplicate_radial.py::DuplicateRadialSlots.header_init` → `tentacle.slots.tools.duplicate_radial.DuplicateRadialSlots` (from 0.23.0)
 - `edit_utils/duplicate_radial.py::DuplicateRadialSlots.perform_operation` → `tentacle.slots.tools.duplicate_radial.DuplicateRadialSlots` (from 0.23.0)
 - `edit_utils/duplicate_radial.py::DuplicateRadialSlots.s015_init` → `tentacle.slots.tools.duplicate_radial.DuplicateRadialSlots` (from 0.23.0)
 - `edit_utils/duplicate_radial.py::DuplicateRadialSlots.s016_init` → `tentacle.slots.tools.duplicate_radial.DuplicateRadialSlots` (from 0.23.0)
+- `edit_utils/dynamic_pipe.py::DynamicPipeSlots` → `tentacle.slots.tools.dynamic_pipe.DynamicPipeSlots` (from 0.23.0)
+- `edit_utils/dynamic_pipe.py::DynamicPipeSlots.b000` → `tentacle.slots.tools.dynamic_pipe.DynamicPipeSlots` (from 0.23.0)
+- `edit_utils/dynamic_pipe.py::DynamicPipeSlots.header_init` → `tentacle.slots.tools.dynamic_pipe.DynamicPipeSlots` (from 0.23.0)
+- `edit_utils/snap.py::SnapSlots` → `tentacle.slots.tools.snap.SnapSlots` (from 0.23.0)
+- `edit_utils/snap.py::SnapSlots.b000` → `tentacle.slots.tools.snap.SnapSlots` (from 0.23.0)
+- `edit_utils/snap.py::SnapSlots.b000_init` → `tentacle.slots.tools.snap.SnapSlots` (from 0.23.0)
+- `edit_utils/snap.py::SnapSlots.b001` → `tentacle.slots.tools.snap.SnapSlots` (from 0.23.0)
+- `edit_utils/snap.py::SnapSlots.b001_init` → `tentacle.slots.tools.snap.SnapSlots` (from 0.23.0)
+- `edit_utils/snap.py::SnapSlots.b002` → `tentacle.slots.tools.snap.SnapSlots` (from 0.23.0)
+- `edit_utils/snap.py::SnapSlots.b002_init` → `tentacle.slots.tools.snap.SnapSlots` (from 0.23.0)
+- `edit_utils/snap.py::SnapSlots.header_init` → `tentacle.slots.tools.snap.SnapSlots` (from 0.23.0)
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots` → `tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.b000` → `tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.b001` → `tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
@@ -101,8 +134,19 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.txt000_init` → `tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.weights_all_off` → `tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.weights_all_on` → `tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
+- `ui_utils/calculator.py::CalculatorSlots` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
+- `ui_utils/calculator.py::CalculatorSlots.frames_to_sec` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
+- `ui_utils/calculator.py::CalculatorSlots.get_current_time` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
+- `ui_utils/calculator.py::CalculatorSlots.get_fps` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
+- `ui_utils/calculator.py::CalculatorSlots.header_init` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
+- `ui_utils/calculator.py::CalculatorSlots.on_backspace` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
+- `ui_utils/calculator.py::CalculatorSlots.on_clear` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
+- `ui_utils/calculator.py::CalculatorSlots.on_convert_units` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
+- `ui_utils/calculator.py::CalculatorSlots.on_equal` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
+- `ui_utils/calculator.py::CalculatorSlots.on_input` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
+- `ui_utils/calculator.py::CalculatorSlots.sec_to_frames` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
 
-## Added (44)
+## Added (58)
 
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
 - `anim_utils/shots/_shots.py::BlenderShotStore.fcurve_for_key(key: str)`
@@ -111,6 +155,12 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `anim_utils/shots/shot_manifest/manifest_host.py::ManifestHost.range_resolver_cls()`
 - `core_utils/_core_utils.py::CoreUtils.active_view_layer()`
 - `core_utils/_core_utils.py::CoreUtils.selected(func: Callable) -> Callable`
+- `display_utils/exploded_view.py::ExplodedView(class)`
+- `display_utils/exploded_view.py::ExplodedView.explode(self, objects: Optional[list] = None) -> list`
+- `display_utils/exploded_view.py::ExplodedView.objects(self) -> list`
+- `display_utils/exploded_view.py::ExplodedView.toggle_explode(self, objects: Optional[list] = None) -> list`
+- `display_utils/exploded_view.py::ExplodedView.un_explode(self, objects: Optional[list] = None) -> list`
+- `display_utils/exploded_view.py::ExplodedView.un_explode_all(self) -> list`
 - `edit_utils/components.py::Components(class)`
 - `edit_utils/components.py::Components.average_normals(objects, by_uv_shell=False)`
 - `edit_utils/components.py::Components.reverse_normals(objects, mode=0)`
@@ -119,7 +169,15 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `edit_utils/components.py::Components.set_to_face_normals(objects)`
 - `edit_utils/components.py::Components.toggle_normal_lock(objects)`
 - `edit_utils/components.py::Components.transfer_normals(objects, space='world')`
+- `edit_utils/cut_on_axis.py::CutOnAxis(class)`
+- `edit_utils/cut_on_axis.py::CutOnAxis.perform_cut_on_axis(objects, axis='-x', cuts=0, cut_offset=0, cut_spacing=0.0, distribution='linear', weight_bias=0.5, weight_curve=2.0, delete=False, mirror=False, pivot='manip', axis_frame=None)`
 - `edit_utils/duplicate_radial.py::DuplicateRadial.regroup_copies(copies)`
+- `edit_utils/dynamic_pipe.py::DynamicPipe.from_selection(cls, **kwargs) -> 'DynamicPipe'`
+- `edit_utils/snap.py::Snap(class)`
+- `edit_utils/snap.py::Snap.snap_to_closest_vertex(obj1, obj2, tolerance=10.0)`
+- `edit_utils/snap.py::Snap.snap_to_grid(objects=None, grid_size=1.0, axes='xyz')`
+- `edit_utils/snap.py::Snap.snap_to_surface(source_meshes, target_mesh, offset=None, threshold=None, invert=False)`
+- `edit_utils/snap.py::Snap.source_and_target()`
 - `mat_utils/emissive_groups.py::BlenderEmissiveGroups(class)`
 - `mat_utils/emissive_groups.py::BlenderEmissiveGroups.add_members(self, store: str, face_map: FaceMap) -> None`
 - `mat_utils/emissive_groups.py::BlenderEmissiveGroups.carrier_weights(self, prefix: str) -> List[str]`

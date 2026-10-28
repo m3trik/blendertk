@@ -268,9 +268,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class ColorIdSlots(pythontk.LoggingMixin)`
   - methods: header_init, selected_objects, selected_button, target_color, b000, b001, b002, b003
 
-### `display_utils/exploded_view.py` — Exploded View — Switchboard slot wiring for the co-located ``exploded_view.ui``.
-- `class ExplodedViewSlots(pythontk.LoggingMixin)`
-  - methods: header_init, b000, b001, b002, b003
+### `display_utils/exploded_view.py` — Exploded View: spread meshes apart from their shared center, and back.
+- `class ExplodedView(pythontk.LoggingMixin)`
+  - methods: objects, explode, un_explode, toggle_explode, un_explode_all
 
 ### `display_utils/outliner_tint.py` — Per-object **outliner text colour** for Blender — the true analogue of Maya's
 - constants: COLOR_PROP
@@ -284,8 +284,6 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `edit_utils/bevel.py` — Bevel tool — engine + Switchboard slot wiring for the co-located ``bevel.ui``.
 - `class Bevel`
   - methods: bevel
-- `class BevelSlots(pythontk.LoggingMixin)`
-  - methods: header_init, perform_operation
 
 ### `edit_utils/bridge.py` — Bridge tool — engine + Switchboard slot wiring for the co-located ``bridge.ui``.
 - `class Bridge`
@@ -313,22 +311,18 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class CurtainSlots(pythontk.LoggingMixin)`
   - methods: header_init, cmb000_init, b001_init, b002, perform_operation
 
-### `edit_utils/cut_on_axis.py` — Cut-On-Axis tool panel — Switchboard slot wiring for the co-located ``cut_on_axis.ui``.
-- `class CutOnAxisSlots(pythontk.LoggingMixin)`
-  - methods: header_init, toggle_weight_ui, perform_operation
+### `edit_utils/cut_on_axis.py` — Cut On Axis: slice meshes along an axis -- mirror of mayatk's
+- `class CutOnAxis`
+  - methods: perform_cut_on_axis
 
 ### `edit_utils/duplicate_grid.py` — Grid array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_grid``.
 - constants: GRID_MAX_COPIES
 - `class DuplicateGrid`
   - methods: duplicate_grid
-- `class DuplicateGridSlots(pythontk.LoggingMixin)`
-  - methods: header_init, b001_init, perform_operation
 
 ### `edit_utils/duplicate_linear.py` — Linear array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_linear``.
 - `class DuplicateLinear`
   - methods: duplicate_linear
-- `class DuplicateLinearSlots(pythontk.LoggingMixin)`
-  - methods: header_init, toggle_weight_ui, b001_init, perform_operation
 
 ### `edit_utils/duplicate_radial.py` — Radial array duplication — mirror of mayatk's ``edit_utils.duplicate_radial``.
 - `class DuplicateRadial(_DuplicateRadialInternal)`
@@ -336,8 +330,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `edit_utils/dynamic_pipe.py` — Dynamic Pipe tool — Blender port of mayatk's ``edit_utils.dynamic_pipe``.
 - `class DynamicPipe(pythontk.LoggingMixin)`
-- `class DynamicPipeSlots(pythontk.LoggingMixin)`
-  - methods: header_init, b000
+  - methods: from_selection
 
 ### `edit_utils/macros/_macros.py` — Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
 - `class DisplayMacros(_ViewportMixin)`
@@ -372,9 +365,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class SelectionOrder`
   - methods: enable, disable, is_enabled, get, set_order
 
-### `edit_utils/snap.py` — Snap tool — Switchboard slot wiring for the co-located ``snap.ui``.
-- `class SnapSlots(pythontk.LoggingMixin)`
-  - methods: header_init, b000_init, b000, b001_init, b001, b002_init, b002
+### `edit_utils/snap.py` — Snap: vertices to a target surface, to the closest target vertex, or to the
+- `class Snap(pythontk.HelpMixin)`
+  - methods: source_and_target, snap_to_surface, snap_to_closest_vertex, snap_to_grid
 
 ### `edit_utils/target_weld.py` — Target Weld — interactive drag-a-vertex-onto-another merge tool.
 - constants: COLOR_PRESELECT, COLOR_SOURCE, COLOR_LINE, COLOR_HALO, COLOR_PROMPT_BG, COLOR_PROMPT_TEXT, PICK_RADIUS, MARKER_SIZE, HALO_SIZE
@@ -963,8 +956,6 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `ui_utils/calculator.py` — Calculator tool panel — Switchboard slot wiring for the co-located ``calculator.ui``.
 - `class CalculatorController`
   - methods: calculate, convert_unit, get_fps_value, get_current_time, frames_to_sec, sec_to_frames
-- `class CalculatorSlots(pythontk.LoggingMixin)`
-  - methods: header_init, on_input, on_clear, on_backspace, on_equal, on_convert_units, get_fps, get_current_time, frames_to_sec, sec_to_frames
 
 ### `ui_utils/cancel_provider.py` — Blender's answers to uitk's cancellation contract (mayatk parity twin).
 - `class BlenderCancelProvider(CancelProvider)`

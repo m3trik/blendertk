@@ -1,19 +1,15 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Snap tool — Switchboard slot wiring for the co-located ``snap.ui``.
+"""Snap: vertices to a target surface, to the closest target vertex, or to the
+world grid -- mirror of mayatk's ``edit_utils.snap.Snap`` (name + behavior).
 
-Blender port of mayatk's ``edit_utils.snap`` panel (``SnapSlots``): snap vertices to a target
-surface, to the closest target vertex, or to the world grid. The engine lives module-level in
-:mod:`~blendertk.edit_utils._edit_utils` (``snap_to_surface`` / ``snap_closest_verts`` /
-``snap_to_grid`` — mirror of mayatk's ``Snap`` class). Each button carries an option box (▸) built
-in ``b###_init``, matching the Maya panel's option boxes exactly (same objectNames: ``s000``/
-``s001``/``chk000`` on Surface, ``s002`` on Closest Vertex, ``s003``/``txt000`` on Grid).
+The math lives module-level in :mod:`~blendertk.edit_utils._edit_utils`
+(``snap_to_surface`` / ``snap_closest_verts`` / ``snap_to_grid``); this class
+is the API tentacle's Snap panel calls, as it calls mayatk's. Maya's "source
+first, target last" is the **active** object here: Blender keeps no selection
+order.
 
-Selection convention mirrors Maya's "source first, target last": the **active** object is the
-target (Blender's equivalent of Maya's last-ordered selection), the rest are sources. The Slots
-class is discovered and served by ``BlenderUiHandler`` (``marking_menu.show("snap")``).
-
-``import bpy`` is deferred into the call bodies and the Qt-only ``uitk`` helper into ``header_init``.
+``import bpy`` is deferred into the call bodies.
 """
 
 import pythontk as ptk
@@ -22,179 +18,40 @@ from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.edit_utils._edit_utils import EditUtils
 
 
-class SnapSlots(ptk.LoggingMixin):
-    """Switchboard slot wiring for the Snap panel (mirror of mayatk's ``SnapSlots``).
+class Snap(ptk.HelpMixin):
+    """Vertex and mesh snapping utilities."""
 
-    Self-contained (``ptk.LoggingMixin`` only); calls the module-level engine directly.
-    """
-
-    def __init__(self, switchboard, log_level="WARNING"):
-        self.sb = switchboard
-        self.ui = self.sb.loaded_ui.snap
-        self.logger.setLevel(log_level)
-        self.logger.set_log_prefix("[snap] ")
-
-    def _source_target(self):
-        """((sources), target) using the active object as the target (= Maya's last-ordered
-        selection); both restricted to meshes. Returns ([], None) when under-selected."""
-
+    @staticmethod
+    def source_and_target():
+        """The selected meshes as ``(sources, target)``: the active mesh is the
+        target, the other selected meshes the sources; ``([], None)`` unless
+        two or more meshes are selected with a mesh active."""
         meshes = [o for o in CoreUtils.selected_objects() if o.type == "MESH"]
         target = CoreUtils.active_object()
-        if (
-            len(meshes) < 2
-            or target is None
-            or target.type != "MESH"
-            or target not in meshes
-        ):
+        if len(meshes) < 2 or target is None or target not in meshes:
             return [], None
         return [o for o in meshes if o is not target], target
 
-    def header_init(self, widget):
-        """Configure header help text."""
-        widget.set_help_text(
-            self.sb.tooltip.fmt(
-                title="Snap",
-                body="Snap vertices to other vertices, surfaces, or the world grid. Each button "
-                "has an option box (▸) for its per-tool parameters.",
-                sections=[
-                    (
-                        "Snap to Surface",
-                        [
-                            "Select source mesh(es), then the target mesh <b>last (active)</b>.",
-                            "Source verts are projected onto the target surface.",
-                            "Option box: <b>Offset</b>, <b>Threshold</b>, <b>Invert</b>.",
-                        ],
-                    ),
-                    (
-                        "Snap to Closest Vertex",
-                        [
-                            "Select exactly two meshes: source, then target <b>last (active)</b>.",
-                            "Source verts within <b>Tolerance</b> snap to the closest target vert.",
-                        ],
-                    ),
-                    (
-                        "Snap to Grid",
-                        [
-                            "Select objects (or vertices in Edit Mode).",
-                            "Option box: <b>Grid Size</b> + per-axis filter (xyz).",
-                            "Edit Mode snaps selected verts; Object Mode snaps each object's origin.",
-                        ],
-                    ),
-                ],
-            )
+    @staticmethod
+    @CoreUtils.undoable
+    def snap_to_surface(source_meshes, target_mesh, offset=None, threshold=None, invert=False):
+        """Snap the source meshes' vertices onto the target's surface, at
+        *offset* (see ``EditUtils.snap_to_surface``); returns the count moved."""
+        return EditUtils.snap_to_surface(
+            source_meshes, target_mesh, offset=offset or 0.0, threshold=threshold, invert=invert
         )
 
-    def b000_init(self, widget):
-        """Initialize Snap to Surface button option box."""
-        widget.option_box.menu.setTitle("Snap to Surface")
-        widget.option_box.menu.add(
-            "QDoubleSpinBox",
-            setPrefix="Offset: ",
-            setObjectName="s000",
-            set_limits=[0, 100, 0.01, 1],
-            setValue=0.0,
-            setToolTip="Distance from surface to place affected vertices.",
-        )
-        widget.option_box.menu.add(
-            "QDoubleSpinBox",
-            setPrefix="Threshold: ",
-            setObjectName="s001",
-            set_limits=[0, 1000, 0.1, 1],
-            setValue=0.0,
-            setToolTip="Only process vertices within this distance. 0 = no limit.",
-        )
-        widget.option_box.menu.add(
-            "QCheckBox",
-            setText="Invert",
-            setObjectName="chk000",
-            setChecked=False,
-            setToolTip="Invert direction (use if target normals point inward).",
-        )
+    @staticmethod
+    @CoreUtils.undoable
+    def snap_to_closest_vertex(obj1, obj2, tolerance=10.0):
+        """Snap *obj1*'s vertices to *obj2*'s closest within *tolerance*;
+        returns the count moved (Maya's ``freeze_transforms`` has no use here:
+        the world math is exact under any transform)."""
+        return EditUtils.snap_closest_verts(obj1, obj2, tolerance=tolerance)
 
-    def b000(self):
-        """Snap to Surface button."""
-        sources, target = self._source_target()
-        if not target:
-            self.sb.message_box(
-                "Select source mesh(es) first, then the target mesh last (active)."
-            )
-            return
-
-        offset = self.ui.b000.menu.s000.value()
-        threshold = self.ui.b000.menu.s001.value() or None  # 0 means no limit
-        invert = self.ui.b000.menu.chk000.isChecked()
-
-        count = EditUtils.snap_to_surface(
-            sources,
-            target,
-            offset=offset,
-            threshold=threshold,
-            invert=invert,
-        )
-        self.sb.message_box(f"<hl>Snapped {count} vertices to surface.</hl>")
-
-    def b001_init(self, widget):
-        """Initialize Snap to Closest Vertex button option box."""
-        widget.option_box.menu.setTitle("Snap to Closest Vertex")
-        widget.option_box.menu.add(
-            "QDoubleSpinBox",
-            setPrefix="Tolerance: ",
-            setObjectName="s002",
-            set_limits=[0, 1000, 0.1, 1],
-            setValue=10.0,
-            setToolTip="Maximum search distance for matching vertices.",
-        )
-
-    def b001(self):
-        """Snap to Closest Vertex button."""
-        sources, target = self._source_target()
-        if not target or len(sources) != 1:
-            self.sb.message_box(
-                "Select exactly two meshes: source first, then target last (active)."
-            )
-            return
-
-        tolerance = self.ui.b001.menu.s002.value()
-
-        count = EditUtils.snap_closest_verts(sources[0], target, tolerance=tolerance)
-        self.sb.message_box(f"<hl>Snapped {count} vertices.</hl>")
-
-    def b002_init(self, widget):
-        """Initialize Snap to Grid button option box."""
-        widget.option_box.menu.setTitle("Snap to Grid")
-        widget.option_box.menu.add(
-            "QDoubleSpinBox",
-            setPrefix="Grid Size: ",
-            setObjectName="s003",
-            set_limits=[0.001, 1000, 0.1, 3],
-            setValue=1.0,
-            setToolTip="Grid spacing to snap to.",
-        )
-        widget.option_box.menu.add(
-            "QLineEdit",
-            setPlaceholderText="Axes (xyz)...",
-            setObjectName="txt000",
-            setText="xyz",
-            setToolTip="Which axes to snap: x, y, z, or combinations like xy.",
-        )
-
-    def b002(self):
-        """Snap to Grid button."""
-        grid_size = self.ui.b002.menu.s003.value()
-        axes = self.ui.b002.menu.txt000.text() or "xyz"
-
-        count = EditUtils.snap_to_grid(grid_size=grid_size, axes=axes)
-        self.sb.message_box(f"<hl>Snapped {count} items to grid.</hl>")
-
-
-# -----------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
-
-    ui = BlenderUiHandler.instance().get("snap", reload=True)
-    ui.show(pos="screen", app_exec=True)
-
-# -----------------------------------------------------------------------------
-# Notes
-# -----------------------------------------------------------------------------
+    @staticmethod
+    @CoreUtils.undoable
+    def snap_to_grid(objects=None, grid_size=1.0, axes="xyz"):
+        """Snap the selected vertices (Edit Mode) or each object's origin to
+        the grid on *axes*; returns the count snapped."""
+        return EditUtils.snap_to_grid(objects, grid_size=grid_size, axes=axes)

@@ -1,8 +1,8 @@
-"""blendertk snap (btk.snap_to_grid / snap_to_surface / snap_closest_verts + SnapSlots) headless test.
+"""blendertk snap (btk.snap_to_grid / snap_to_surface / snap_closest_verts + Snap) headless test.
 Run: blender --background --factory-startup --python blendertk/test/test_snap.py
 
 Covers the two new engine functions (grid snap in object + edit mode with axis filtering; surface
-projection with offset / threshold / invert push-out semantics) and the SnapSlots button routing
+projection with offset / threshold / invert push-out semantics) and the Snap class the panel calls
 (source-first/target-last via the active object, under-selection guards). snap_closest_verts itself
 is covered by test_wedge_snap_explode.
 """
@@ -24,7 +24,6 @@ try:
     import bpy
     import bmesh
     import blendertk as btk
-    from blendertk.edit_utils.snap import SnapSlots
 
     def reset():
         if (
@@ -140,52 +139,21 @@ try:
     check("surface snap with no sources -> 0", btk.snap_to_surface([], target) == 0)
     check("surface snap with no target -> 0", btk.snap_to_surface([target], None) == 0)
 
-    # ---- SnapSlots routing: stub the option boxes, drive real bpy selection -----------------
-    class _Field:
-        def __init__(self, v):
-            self.v = v
-        def value(self):
-            return self.v
-        def isChecked(self):
-            return self.v
-        def text(self):
-            return self.v
+    # ---- Snap: the class tentacle's Snap panel calls, over real bpy selection --------------
+    from blendertk import Snap
 
-    def _btn(**fields):
-        b = type("B", (), {})()
-        b.menu = type("M", (), {})()
-        for k, val in fields.items():
-            setattr(b.menu, k, _Field(val))
-        return b
-
-    class _SB:
-        def __init__(self, ui):
-            self.loaded_ui = type("L", (), {"snap": ui})()
-            self.messages = []
-        def message_box(self, msg):
-            self.messages.append(msg)
-
-    def make_slots():
-        ui = type("U", (), {})()
-        ui.b000 = _btn(s000=0.0, s001=0.0, chk000=False)
-        ui.b001 = _btn(s002=10.0)
-        ui.b002 = _btn(s003=1.0, txt000="xyz")
-        sb = _SB(ui)
-        return SnapSlots(sb), sb
-
-    # b002 Grid: snaps the selected objects' origins
+    # Grid: snaps the selected objects' origins
     reset()
     o = plane(name="P")
     o.location = (1.4, 0.6, 0.0)
     o.select_set(True)
     bpy.context.view_layer.objects.active = o
-    slots, sb = make_slots()
-    slots.b002()
-    check("slot b002 grid-snaps the selection", tuple(round(c, 4) for c in o.location)[:2] == (1.0, 1.0),
+    n = Snap.snap_to_grid(grid_size=1.0, axes="xyz")
+    check("Snap.snap_to_grid snaps the selection", tuple(round(c, 4) for c in o.location)[:2] == (1.0, 1.0),
           str(tuple(o.location)))
-    check("slot b002 reports", any("grid" in m.lower() for m in sb.messages), str(sb.messages))
+    check("Snap.snap_to_grid counts what it snapped", n == 1, str(n))
 
-    # b001 Closest Vertex: source first, target last (active)
+    # source_and_target: the active mesh is the target, the other selected meshes the sources
     reset()
     a = plane(name="A")
     a.location = (0.05, 0, 0)
@@ -193,31 +161,30 @@ try:
     for x in (a, b):
         x.select_set(True)
     bpy.context.view_layer.objects.active = b  # target = active
-    slots, sb = make_slots()
-    slots.b001()
-    check("slot b001 snaps source verts to target (active=target)",
-          any("Snapped" in m for m in sb.messages), str(sb.messages))
+    sources, target = Snap.source_and_target()
+    check("source_and_target: active = target", target is b and sources == [a],
+          f"{[o.name for o in sources]} -> {getattr(target, 'name', None)}")
+    moved = Snap.snap_to_closest_vertex(sources[0], target, tolerance=10.0)
+    check("Snap.snap_to_closest_vertex snaps source verts to the target", moved > 0, str(moved))
 
-    # b001 guard: a single selected mesh warns
+    # a single selected mesh is no split
     reset()
     a = plane(name="A")
     a.select_set(True)
     bpy.context.view_layer.objects.active = a
-    slots, sb = make_slots()
-    slots.b001()
-    check("slot b001 with one mesh warns", any("exactly two" in m for m in sb.messages), str(sb.messages))
+    check("source_and_target with one mesh -> ([], None)", Snap.source_and_target() == ([], None))
 
-    # b000 Surface: sources + target(active)
+    # Surface: sources + target(active)
     reset()
     target = plane(z=0.0, size=4.0, name="T")
     src = plane(z=-1.0, size=2.0, name="S")
     for x in (src, target):
         x.select_set(True)
     bpy.context.view_layer.objects.active = target
-    slots, sb = make_slots()
-    slots.b000()
+    sources, target = Snap.source_and_target()
+    Snap.snap_to_surface(sources, target, offset=0.0, threshold=None, invert=False)
     zs = [round((src.matrix_world @ v.co).z, 4) for v in src.data.vertices]
-    check("slot b000 snaps sources onto the target surface", all(abs(z) < 1e-3 for z in zs), str(zs))
+    check("Snap.snap_to_surface snaps sources onto the target surface", all(abs(z) < 1e-3 for z in zs), str(zs))
 
 except Exception:
     traceback.print_exc()

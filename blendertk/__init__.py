@@ -87,9 +87,9 @@ DEFAULT_INCLUDE = {
     "display_utils.color_id": [
         "ColorId",
     ],
-    # Exploded View tool — co-located ``ExplodedViewSlots`` panel (discovered by the handler, not
-    # registered); the explode/unexplode engine lives module-level in ``_display_utils`` above
-    # (``explode_view`` / ``unexplode_view`` / ``unexplode_all`` / ``is_exploded``).
+    # Exploded View -- mirror of mayatk's ``ExplodedView`` (``btk.ExplodedView``), over the
+    # explode/unexplode engine module-level in ``_display_utils`` above.
+    "display_utils.exploded_view": ["ExplodedView"],
     "env_utils._env_utils": "*",
     # FBX import/export — mirror of mayatk's ``env_utils.fbx_utils.FbxUtils`` (``btk.FbxUtils`` ↔
     # ``mtk.FbxUtils``). Scope-limited to the class on purpose: ``FbxUtils.export`` is a generic name
@@ -186,6 +186,8 @@ DEFAULT_INCLUDE = {
     "ui_utils.blender_ui_handler": [
         "BlenderUiHandler",
     ],
+    # The Calculator's host half (scene FPS, current frame) -- mirror of mayatk's.
+    "ui_utils.calculator": ["CalculatorController"],
     # Host cancellation strategy for uitk's slot dispatcher — parity twin of
     # ``mtk.MayaCancelProvider``. Qt-side (imports uitk), so it resolves lazily
     # and stays out of the headless engine surface.
@@ -336,11 +338,10 @@ DEFAULT_INCLUDE = {
         "Selection",
         "SelectionOrder",
     ],
-    # Array-duplication tools — one self-contained module per pattern (engine + co-located
-    # panel Slots), mirroring mayatk's duplicate_linear / _radial / _grid split. Class-only
-    # (matching mayatk): the engine method is reached as ``btk.DuplicateLinear.duplicate_linear``
-    # etc.; the shared object-array primitives live flat in ``_edit_utils``; the ``<Tool>Slots``
-    # classes are discovered by ``BlenderUiHandler`` (not registered here).
+    # Array-duplication tools — one module per pattern, mirroring mayatk's duplicate_linear /
+    # _radial / _grid split (their panels are tentacle's). Class-only (matching mayatk): the
+    # engine method is reached as ``btk.DuplicateLinear.duplicate_linear`` etc.; the shared
+    # object-array primitives live flat in ``_edit_utils``.
     "edit_utils.duplicate_linear": "DuplicateLinear",
     "edit_utils.duplicate_radial": "DuplicateRadial",
     "edit_utils.duplicate_grid": "DuplicateGrid",
@@ -348,8 +349,6 @@ DEFAULT_INCLUDE = {
     # ``CurtainMesh`` in ``edit_utils.curtain``, unregistered as in mayatk.
     "edit_utils.curtain._curtain": "CurtainRig",
     # Bevel engine — mirror of mayatk's ``edit_utils.bevel.Bevel`` (``btk.Bevel`` ↔ ``mtk.Bevel``).
-    # The co-located ``BevelSlots`` panel is discovered by ``BlenderUiHandler`` (not registered
-    # here), matching how mayatk's tool Slots stay out of its DEFAULT_INCLUDE.
     "edit_utils.bevel": [
         "Bevel",
     ],
@@ -366,11 +365,11 @@ DEFAULT_INCLUDE = {
     # functions — the modal-operator body + numpy pick helpers, unit-tested by direct module import —
     # with ``TargetWeld`` the thin public facade over them; none leak onto the flat ``btk.*`` surface.)
     "edit_utils.target_weld": "TargetWeld",
-    # Snap tool — co-located ``SnapSlots`` panel (discovered by the handler, not registered); the
-    # snap engine (``snap_closest_verts`` / ``snap_to_grid`` / ``snap_to_surface``) lives in
-    # ``_edit_utils`` above (mirror of mayatk's ``edit_utils.snap.Snap``).
-    # Dynamic Pipe tool — engine + co-located ``DynamicPipeSlots`` panel (discovered by the handler,
-    # not registered). Mirror of mayatk's ``edit_utils.dynamic_pipe`` (Hook-driven beveled curve in
+    # Cut On Axis -- mirror of mayatk's ``edit_utils.cut_on_axis.CutOnAxis``.
+    "edit_utils.cut_on_axis": ["CutOnAxis"],
+    # Snap -- mirror of mayatk's ``edit_utils.snap.Snap``, over the ``_edit_utils`` math above.
+    "edit_utils.snap": ["Snap"],
+    # Dynamic Pipe — mirror of mayatk's ``edit_utils.dynamic_pipe`` (Hook-driven beveled curve in
     # place of Maya's NURBS-circle loft — no native loft in Blender).
     "edit_utils.dynamic_pipe": [
         "DynamicPipe",
@@ -539,6 +538,39 @@ MOVED_NAMES = {
     ),
     "ERROR_COLOR": (
         "tentacle.slots.tools._shot_manifest.manifest_data.ERROR_COLOR",
+        "0.23.0",
+    ),
+    # Small shared tools (tentacle's slots/tools/<tool>.py, the .ui in ui/tools/).
+    "BevelSlots": (
+        "tentacle.slots.tools.bevel.BevelSlots",
+        "0.23.0",
+    ),
+    "DuplicateLinearSlots": (
+        "tentacle.slots.tools.duplicate_linear.DuplicateLinearSlots",
+        "0.23.0",
+    ),
+    "DuplicateGridSlots": (
+        "tentacle.slots.tools.duplicate_grid.DuplicateGridSlots",
+        "0.23.0",
+    ),
+    "ExplodedViewSlots": (
+        "tentacle.slots.tools.exploded_view.ExplodedViewSlots",
+        "0.23.0",
+    ),
+    "DynamicPipeSlots": (
+        "tentacle.slots.tools.dynamic_pipe.DynamicPipeSlots",
+        "0.23.0",
+    ),
+    "CalculatorSlots": (
+        "tentacle.slots.tools.calculator.CalculatorSlots",
+        "0.23.0",
+    ),
+    "SnapSlots": (
+        "tentacle.slots.tools.snap.SnapSlots",
+        "0.23.0",
+    ),
+    "CutOnAxisSlots": (
+        "tentacle.slots.tools.cut_on_axis.CutOnAxisSlots",
         "0.23.0",
     ),
 }

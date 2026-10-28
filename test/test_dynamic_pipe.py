@@ -23,8 +23,7 @@ def check(name, cond, detail=""):
 
 try:
     import bpy
-    import blendertk as btk
-    from blendertk.edit_utils.dynamic_pipe import DynamicPipe, DynamicPipeSlots
+    from blendertk.edit_utils.dynamic_pipe import DynamicPipe
 
     def reset():
         bpy.ops.object.select_all(action="DESELECT")
@@ -116,43 +115,30 @@ try:
         raised = True
     check("under two handles raises ValueError", raised)
 
-    # ---- DynamicPipeSlots.b000 routing --------------------------------------------------------
-    class _SB:
-        def __init__(self, ui):
-            self.loaded_ui = type("L", (), {"dynamic_pipe": ui})()
-            self.messages = []
-        def message_box(self, msg):
-            self.messages.append(msg)
-
-    def make_slots():
-        ui = type("U", (), {})()
-        sb = _SB(ui)
-        return DynamicPipeSlots(sb), sb
-
-    # b000: name-ordered selection builds a pipe through the selected handles
+    # ---- DynamicPipe.from_selection: what the panel's Initialize Pipe calls -------------------
+    # name-ordered selection builds a pipe through the selected handles
     reset()
     h2 = handle("h_02", x=4.0)
     h1 = handle("h_01", x=0.0)  # created out of name order
     for h in (h1, h2):
         h.select_set(True)
     bpy.context.view_layer.objects.active = h2
-    slots, sb = make_slots()
-    slots.b000()
-    check("slot b000 builds a pipe from the selection",
-          slots.pipe is not None and any("Built" in m for m in sb.messages), str(sb.messages))
-    check("slot b000 orders handles by name (h_01 before h_02)",
-          slots.pipe is not None and [h.name for h in slots.pipe.handles] == ["h_01", "h_02"],
-          str([h.name for h in slots.pipe.handles]) if slots.pipe else "no pipe")
+    pipe = DynamicPipe.from_selection()
+    check("from_selection orders handles by name (h_01 before h_02)",
+          [h.name for h in pipe.handles] == ["h_01", "h_02"],
+          str([h.name for h in pipe.handles]))
 
-    # b000 guard: a single selected object warns
+    # a single selected object is refused before anything is built
     reset()
     h = handle("solo")
     h.select_set(True)
     bpy.context.view_layer.objects.active = h
-    slots, sb = make_slots()
-    slots.b000()
-    check("slot b000 with one object warns", any("at least two" in m for m in sb.messages),
-          str(sb.messages))
+    try:
+        DynamicPipe.from_selection()
+        refused = ""
+    except ValueError as exc:
+        refused = str(exc)
+    check("from_selection with one object raises", "at least two" in refused, refused)
 
 except Exception:
     traceback.print_exc()

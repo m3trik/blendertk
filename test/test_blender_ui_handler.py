@@ -50,25 +50,17 @@ def _sandbox_qsettings():
 PANELS = [
     "curtain",
     "mirror",
-    "bevel",
     "bridge",
-    "snap",
     "audio_clips",
     "blendshape_animator",
-    "dynamic_pipe",
     "image_tracer",
     "curve_to_tube",
     "naming",
-    "cut_on_axis",
-    "duplicate_linear",
-    "duplicate_grid",
     "hdr_manager",
     "lightmap_baker",
     "reference_manager",
     "workspace_editor",
     "color_id",
-    "exploded_view",
-    "calculator",
     "texture_path_editor",
     "image_to_plane",
     "shader_templates",
@@ -290,14 +282,9 @@ try:
         ("mirror", "MirrorSlots"),
         ("curtain", "CurtainSlots"),
         (
-            "bevel",
-            "BevelSlots",
-        ),  # Preview/connect_multi init is bpy-free -> loadable under .venv
-        (
             "bridge",
             "BridgeSlots",
         ),  # Preview/connect_multi + setVisible init is bpy-free
-        ("calculator", "CalculatorSlots"),
         (
             "shader_templates",
             "ShaderTemplatesSlots",
@@ -336,12 +323,10 @@ try:
             "channels",
             "ChannelsSlots",
         ),  # __init__ + table/header init are bpy-free (guarded refresh)
-        ("exploded_view", "ExplodedViewSlots"),  # __init__ (logging only) is bpy-free
         (
             "color_id",
             "ColorIdSlots",
         ),  # __init__ (button groups + keep_square swatches) is bpy-free
-        ("snap", "SnapSlots"),  # __init__ + option-box b###_init are bpy-free
         (
             "audio_clips",
             "AudioClipsSlots",
@@ -358,7 +343,6 @@ try:
             "hdr_manager",
             "HdrManagerSlots",
         ),  # __init__ + header/cmb _init are bpy-free (os dir scan)
-        ("dynamic_pipe", "DynamicPipeSlots"),  # __init__ (logging only) is bpy-free
         (
             "image_tracer",
             "ImageTracerSlots",
@@ -412,7 +396,7 @@ try:
         # Preview panels ship the commit button enabled=false in the .ui; Preview must enable
         # it on construction or Create is a dead button (preview can never be committed). Verify
         # end-to-end on the real loaded widget — the unit test only covers the stub.
-        if panel in ("mirror", "curtain", "bevel", "bridge"):
+        if panel in ("mirror", "curtain", "bridge"):
             b000 = getattr(ui, "b000", None)
             check(
                 f"{panel} Create button enabled after load (Preview manages it)",
@@ -456,9 +440,7 @@ try:
     GESTURE_SCOPED = [
         "reference_manager",
         "color_id",
-        "exploded_view",
         "bridge",
-        "cut_on_axis",
         "mirror",
         "shell_xform",
         "naming",

@@ -23,7 +23,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 437,
+          "line": 436,
           "deprecated": false
         }
       ]
@@ -6316,60 +6316,60 @@
     },
     {
       "relpath": "display_utils/exploded_view.py",
-      "summary": "Exploded View — Switchboard slot wiring for the co-located ``exploded_view.ui``.",
+      "summary": "Exploded View: spread meshes apart from their shared center, and back.",
       "functions": [],
       "classes": [
         {
-          "name": "ExplodedViewSlots",
-          "summary": "Switchboard slot wiring for the Exploded View panel (mirror of mayatk's ``ExplodedViewSlots``).",
-          "line": 27,
+          "name": "ExplodedView",
+          "summary": "Explode, un-explode and toggle a set of meshes: the given objects, or the",
+          "line": 26,
           "bases": [
             "pythontk.LoggingMixin"
           ],
           "members": [
             {
-              "name": "header_init",
-              "qualname": "ExplodedViewSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Configure header help text.",
-              "line": 63,
+              "name": "objects",
+              "qualname": "ExplodedView.objects",
+              "kind": "property",
+              "signature": "(self) -> list",
+              "summary": "The assigned objects, or the current selection.",
+              "line": 40,
               "deprecated": false
             },
             {
-              "name": "b000",
-              "qualname": "ExplodedViewSlots.b000",
+              "name": "explode",
+              "qualname": "ExplodedView.explode",
               "kind": "method",
-              "signature": "(self)",
-              "summary": "Explode.",
+              "signature": "(self, objects: Optional[list] = None) -> list",
+              "summary": "Push the meshes apart (those not exploded already);",
+              "line": 72,
+              "deprecated": false
+            },
+            {
+              "name": "un_explode",
+              "qualname": "ExplodedView.un_explode",
+              "kind": "method",
+              "signature": "(self, objects: Optional[list] = None) -> list",
+              "summary": "Return the meshes to their stored positions;",
+              "line": 85,
+              "deprecated": false
+            },
+            {
+              "name": "toggle_explode",
+              "qualname": "ExplodedView.toggle_explode",
+              "kind": "method",
+              "signature": "(self, objects: Optional[list] = None) -> list",
+              "summary": "Un-explode once the whole set is exploded;",
               "line": 91,
               "deprecated": false
             },
             {
-              "name": "b001",
-              "qualname": "ExplodedViewSlots.b001",
+              "name": "un_explode_all",
+              "qualname": "ExplodedView.un_explode_all",
               "kind": "method",
-              "signature": "(self)",
-              "summary": "Un-Explode (selected).",
+              "signature": "(self) -> list",
+              "summary": "Restore every exploded object in the scene, regardless of selection.",
               "line": 101,
-              "deprecated": false
-            },
-            {
-              "name": "b002",
-              "qualname": "ExplodedViewSlots.b002",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Un-Explode All.",
-              "line": 105,
-              "deprecated": false
-            },
-            {
-              "name": "b003",
-              "qualname": "ExplodedViewSlots.b003",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Toggle Explode.",
-              "line": 109,
               "deprecated": false
             }
           ]
@@ -6872,7 +6872,7 @@
         {
           "name": "Bevel",
           "summary": "Native ``bmesh.ops.bevel`` engine (mirror of mayatk's ``Bevel``).",
-          "line": 26,
+          "line": 24,
           "bases": [],
           "members": [
             {
@@ -6881,35 +6881,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, width=0.1, segments=1, profile=0.5, clamp_overlap=True, affect='EDGES', offset_type='OFFSET')",
               "summary": "Bevel the selected edges (or vertices) of the given mesh objects.",
-              "line": 30,
-              "deprecated": false
-            }
-          ]
-        },
-        {
-          "name": "BevelSlots",
-          "summary": "Switchboard slot wiring for the bevel UI — 1:1 mirror of mayatk's ``BevelSlots`` (same",
-          "line": 98,
-          "bases": [
-            "pythontk.LoggingMixin"
-          ],
-          "members": [
-            {
-              "name": "header_init",
-              "qualname": "BevelSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Configure header help text.",
-              "line": 128,
-              "deprecated": false
-            },
-            {
-              "name": "perform_operation",
-              "qualname": "BevelSlots.perform_operation",
-              "kind": "method",
-              "signature": "(self, objects)",
-              "summary": "",
-              "line": 147,
+              "line": 28,
               "deprecated": false
             }
           ]
@@ -7242,42 +7214,22 @@
     },
     {
       "relpath": "edit_utils/cut_on_axis.py",
-      "summary": "Cut-On-Axis tool panel — Switchboard slot wiring for the co-located ``cut_on_axis.ui``.",
+      "summary": "Cut On Axis: slice meshes along an axis -- mirror of mayatk's",
       "functions": [],
       "classes": [
         {
-          "name": "CutOnAxisSlots",
-          "summary": "Switchboard slot wiring for the cut-on-axis UI (live preview).",
-          "line": 22,
-          "bases": [
-            "pythontk.LoggingMixin"
-          ],
+          "name": "CutOnAxis",
+          "summary": "",
+          "line": 17,
+          "bases": [],
           "members": [
             {
-              "name": "header_init",
-              "qualname": "CutOnAxisSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Configure header help text.",
-              "line": 86,
-              "deprecated": false
-            },
-            {
-              "name": "toggle_weight_ui",
-              "qualname": "CutOnAxisSlots.toggle_weight_ui",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Enable the weight fields only for the modes that consume them.",
-              "line": 119,
-              "deprecated": false
-            },
-            {
-              "name": "perform_operation",
-              "qualname": "CutOnAxisSlots.perform_operation",
-              "kind": "method",
-              "signature": "(self, objects)",
-              "summary": "",
-              "line": 131,
+              "name": "perform_cut_on_axis",
+              "qualname": "CutOnAxis.perform_cut_on_axis",
+              "kind": "staticmethod",
+              "signature": "(objects, axis='-x', cuts=0, cut_offset=0, cut_spacing=0.0, distribution='linear', weight_bias=0.5, weight_curve=2.0, delete=False, mirror=False, pivot='manip', axis_frame=None)",
+              "summary": "Cut each mesh along *axis*;",
+              "line": 22,
               "deprecated": false
             }
           ]
@@ -7293,7 +7245,7 @@
         {
           "name": "DuplicateGrid",
           "summary": "Grid-array duplication engine — mirror of mayatk's ``DuplicateGrid``.",
-          "line": 29,
+          "line": 28,
           "bases": [],
           "members": [
             {
@@ -7302,44 +7254,7 @@
               "kind": "staticmethod",
               "signature": "(objects, dimensions=(2, 2, 1), spacing=0.0, mode='instance')",
               "summary": "Duplicate object(s) into a 3D grid — mirror of mayatk's ``DuplicateGrid.duplicate_grid``.",
-              "line": 49,
-              "deprecated": false
-            }
-          ]
-        },
-        {
-          "name": "DuplicateGridSlots",
-          "summary": "Switchboard slot wiring for the Duplicate-Grid panel — 1:1 objectName mirror of",
-          "line": 106,
-          "bases": [
-            "pythontk.LoggingMixin"
-          ],
-          "members": [
-            {
-              "name": "header_init",
-              "qualname": "DuplicateGridSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Configure header help text.",
-              "line": 163,
-              "deprecated": false
-            },
-            {
-              "name": "b001_init",
-              "qualname": "DuplicateGridSlots.b001_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the",
-              "line": 198,
-              "deprecated": false
-            },
-            {
-              "name": "perform_operation",
-              "qualname": "DuplicateGridSlots.perform_operation",
-              "kind": "method",
-              "signature": "(self, objects)",
-              "summary": "",
-              "line": 208,
+              "line": 48,
               "deprecated": false
             }
           ]
@@ -7352,7 +7267,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 26,
+          "line": 25,
           "deprecated": false
         }
       ]
@@ -7365,7 +7280,7 @@
         {
           "name": "DuplicateLinear",
           "summary": "Linear-array duplication engine — mirror of mayatk's ``DuplicateLinear``.",
-          "line": 24,
+          "line": 23,
           "bases": [],
           "members": [
             {
@@ -7374,53 +7289,7 @@
               "kind": "staticmethod",
               "signature": "(objects, num_copies, translate=(0, 0, 0), rotate=(0, 0, 0), scale=(1, 1, 1), weight_bias=0.5, weight_curve=4, pivot='object', calculation_mode='weighted', instance=True)",
               "summary": "Duplicate object(s) along a linear path — mirror of mayatk's",
-              "line": 33,
-              "deprecated": false
-            }
-          ]
-        },
-        {
-          "name": "DuplicateLinearSlots",
-          "summary": "Switchboard slot wiring for the Duplicate-Linear panel — 1:1 objectName mirror of",
-          "line": 106,
-          "bases": [
-            "pythontk.LoggingMixin"
-          ],
-          "members": [
-            {
-              "name": "header_init",
-              "qualname": "DuplicateLinearSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Configure header help text.",
-              "line": 233,
-              "deprecated": false
-            },
-            {
-              "name": "toggle_weight_ui",
-              "qualname": "DuplicateLinearSlots.toggle_weight_ui",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Disable weight UI components if the current calculation mode doesn't use them.",
-              "line": 260,
-              "deprecated": false
-            },
-            {
-              "name": "b001_init",
-              "qualname": "DuplicateLinearSlots.b001_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the",
-              "line": 286,
-              "deprecated": false
-            },
-            {
-              "name": "perform_operation",
-              "qualname": "DuplicateLinearSlots.perform_operation",
-              "kind": "method",
-              "signature": "(self, objects)",
-              "summary": "Perform the linear duplication operation.",
-              "line": 293,
+              "line": 32,
               "deprecated": false
             }
           ]
@@ -7476,32 +7345,14 @@
           "bases": [
             "pythontk.LoggingMixin"
           ],
-          "members": []
-        },
-        {
-          "name": "DynamicPipeSlots",
-          "summary": "Switchboard slot wiring for the co-located ``dynamic_pipe.ui`` (mirror of mayatk's",
-          "line": 141,
-          "bases": [
-            "pythontk.LoggingMixin"
-          ],
           "members": [
             {
-              "name": "header_init",
-              "qualname": "DynamicPipeSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Configure header help text.",
-              "line": 154,
-              "deprecated": false
-            },
-            {
-              "name": "b000",
-              "qualname": "DynamicPipeSlots.b000",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Initialize Pipe — build pipe from the current selection (name-ordered).",
-              "line": 176,
+              "name": "from_selection",
+              "qualname": "DynamicPipe.from_selection",
+              "kind": "classmethod",
+              "signature": "(cls, **kwargs) -> 'DynamicPipe'",
+              "summary": "A pipe through the selected handle objects (Empties), chained in",
+              "line": 68,
               "deprecated": false
             }
           ]
@@ -8647,78 +8498,51 @@
     },
     {
       "relpath": "edit_utils/snap.py",
-      "summary": "Snap tool — Switchboard slot wiring for the co-located ``snap.ui``.",
+      "summary": "Snap: vertices to a target surface, to the closest target vertex, or to the",
       "functions": [],
       "classes": [
         {
-          "name": "SnapSlots",
-          "summary": "Switchboard slot wiring for the Snap panel (mirror of mayatk's ``SnapSlots``).",
-          "line": 25,
+          "name": "Snap",
+          "summary": "Vertex and mesh snapping utilities.",
+          "line": 21,
           "bases": [
-            "pythontk.LoggingMixin"
+            "pythontk.HelpMixin"
           ],
           "members": [
             {
-              "name": "header_init",
-              "qualname": "SnapSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Configure header help text.",
-              "line": 52,
+              "name": "source_and_target",
+              "qualname": "Snap.source_and_target",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "The selected meshes as ``(sources, target)``: the active mesh is the",
+              "line": 25,
               "deprecated": false
             },
             {
-              "name": "b000_init",
-              "qualname": "SnapSlots.b000_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize Snap to Surface button option box.",
-              "line": 87,
+              "name": "snap_to_surface",
+              "qualname": "Snap.snap_to_surface",
+              "kind": "staticmethod",
+              "signature": "(source_meshes, target_mesh, offset=None, threshold=None, invert=False)",
+              "summary": "Snap the source meshes' vertices onto the target's surface, at",
+              "line": 37,
               "deprecated": false
             },
             {
-              "name": "b000",
-              "qualname": "SnapSlots.b000",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Snap to Surface button.",
-              "line": 114,
+              "name": "snap_to_closest_vertex",
+              "qualname": "Snap.snap_to_closest_vertex",
+              "kind": "staticmethod",
+              "signature": "(obj1, obj2, tolerance=10.0)",
+              "summary": "Snap *obj1*'s vertices to *obj2*'s closest within *tolerance*;",
+              "line": 46,
               "deprecated": false
             },
             {
-              "name": "b001_init",
-              "qualname": "SnapSlots.b001_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize Snap to Closest Vertex button option box.",
-              "line": 136,
-              "deprecated": false
-            },
-            {
-              "name": "b001",
-              "qualname": "SnapSlots.b001",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Snap to Closest Vertex button.",
-              "line": 148,
-              "deprecated": false
-            },
-            {
-              "name": "b002_init",
-              "qualname": "SnapSlots.b002_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize Snap to Grid button option box.",
-              "line": 162,
-              "deprecated": false
-            },
-            {
-              "name": "b002",
-              "qualname": "SnapSlots.b002",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Snap to Grid button.",
-              "line": 181,
+              "name": "snap_to_grid",
+              "qualname": "Snap.snap_to_grid",
+              "kind": "staticmethod",
+              "signature": "(objects=None, grid_size=1.0, axes='xyz')",
+              "summary": "Snap the selected vertices (Edit Mode) or each object's origin to",
+              "line": 54,
               "deprecated": false
             }
           ]
@@ -24226,106 +24050,6 @@
               "deprecated": false
             }
           ]
-        },
-        {
-          "name": "CalculatorSlots",
-          "summary": "Switchboard slot wiring for the Calculator panel.",
-          "line": 79,
-          "bases": [
-            "pythontk.LoggingMixin"
-          ],
-          "members": [
-            {
-              "name": "header_init",
-              "qualname": "CalculatorSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Configure header help text.",
-              "line": 124,
-              "deprecated": false
-            },
-            {
-              "name": "on_input",
-              "qualname": "CalculatorSlots.on_input",
-              "kind": "method",
-              "signature": "(self, text)",
-              "summary": "",
-              "line": 213,
-              "deprecated": false
-            },
-            {
-              "name": "on_clear",
-              "qualname": "CalculatorSlots.on_clear",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "",
-              "line": 216,
-              "deprecated": false
-            },
-            {
-              "name": "on_backspace",
-              "qualname": "CalculatorSlots.on_backspace",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "",
-              "line": 219,
-              "deprecated": false
-            },
-            {
-              "name": "on_equal",
-              "qualname": "CalculatorSlots.on_equal",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "",
-              "line": 224,
-              "deprecated": false
-            },
-            {
-              "name": "on_convert_units",
-              "qualname": "CalculatorSlots.on_convert_units",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "",
-              "line": 238,
-              "deprecated": false
-            },
-            {
-              "name": "get_fps",
-              "qualname": "CalculatorSlots.get_fps",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "",
-              "line": 253,
-              "deprecated": false
-            },
-            {
-              "name": "get_current_time",
-              "qualname": "CalculatorSlots.get_current_time",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "",
-              "line": 256,
-              "deprecated": false
-            },
-            {
-              "name": "frames_to_sec",
-              "qualname": "CalculatorSlots.frames_to_sec",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "",
-              "line": 259,
-              "deprecated": false
-            },
-            {
-              "name": "sec_to_frames",
-              "qualname": "CalculatorSlots.sec_to_frames",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "",
-              "line": 262,
-              "deprecated": false
-            }
-          ]
         }
       ],
       "constants": []
@@ -26506,7 +26230,7 @@
         {
           "name": "XformUtils",
           "summary": "Namespace mirror of mayatk's ``XformUtils`` (helpers also exposed module-level).",
-          "line": 158,
+          "line": 173,
           "bases": [
             "_XformUtilsInternal"
           ],
@@ -26517,7 +26241,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Return ``(min, max)`` ``Vector``s of ``obj``'s bounding box in world space.",
-              "line": 162,
+              "line": 177,
               "deprecated": false
             },
             {
@@ -26526,7 +26250,7 @@
               "kind": "staticmethod",
               "signature": "(objects, location=True, rotation=False, scale=True, store=True, instance_strategy='skip')",
               "summary": "Apply (bake) the given transform channels into the object data — Blender's",
-              "line": 173,
+              "line": 188,
               "deprecated": false
             },
             {
@@ -26535,7 +26259,7 @@
               "kind": "staticmethod",
               "signature": "(objects, delete_attrs=True, channels=None, traverse=False, prefix=_DEFAULT_BAKE_PREFIX)",
               "summary": "Un-freeze: compose the stored pre-freeze channels back into the local transform",
-              "line": 284,
+              "line": 299,
               "deprecated": false
             },
             {
@@ -26544,7 +26268,7 @@
               "kind": "staticmethod",
               "signature": "(objects, prefix=_DEFAULT_BAKE_PREFIX)",
               "summary": "Map each object → whether it carries pre-freeze bake data (mirror of",
-              "line": 403,
+              "line": 418,
               "deprecated": false
             },
             {
@@ -26553,7 +26277,7 @@
               "kind": "staticmethod",
               "signature": "(objects, prefix=_DEFAULT_BAKE_PREFIX, channels=None, traverse=False)",
               "summary": "Capture the current local channels as cumulative bake history — mirror of",
-              "line": 411,
+              "line": 426,
               "deprecated": false
             },
             {
@@ -26562,7 +26286,7 @@
               "kind": "staticmethod",
               "signature": "(obj, prefix=_DEFAULT_BAKE_PREFIX)",
               "summary": "Read one object's stored pre-freeze channels back as plain values —",
-              "line": 451,
+              "line": 466,
               "deprecated": false
             },
             {
@@ -26571,7 +26295,7 @@
               "kind": "staticmethod",
               "signature": "(objects, scale_factor=1.1)",
               "summary": "Scale each CONNECTED set of selected edges about that set's own centroid — mirror",
-              "line": 485,
+              "line": 500,
               "deprecated": false
             },
             {
@@ -26580,7 +26304,7 @@
               "kind": "staticmethod",
               "signature": "(objects, align='Min', origin=False, center_pivot=False)",
               "summary": "Drop each object so its bbox ``Min`` / ``Mid`` / ``Max`` sits on the ground (Z=0).",
-              "line": 524,
+              "line": 539,
               "deprecated": false
             },
             {
@@ -26589,7 +26313,7 @@
               "kind": "staticmethod",
               "signature": "(objects, mode='object')",
               "summary": "Move each object's origin (Blender's single pivot) — mirror of Maya's Center Pivot.",
-              "line": 553,
+              "line": 568,
               "deprecated": false
             },
             {
@@ -26598,7 +26322,7 @@
               "kind": "staticmethod",
               "signature": "(objects, translate=True, rotate=False, scale=False, world_space=True, mirror='', select_targets_after_transfer=False)",
               "summary": "Transfer the object **origin** from the first object to the rest — mirror of Maya's",
-              "line": 592,
+              "line": 607,
               "deprecated": false
             },
             {
@@ -26607,7 +26331,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Center-pivot mode keys understood by :func:`center_pivot`.",
-              "line": 650,
+              "line": 665,
               "deprecated": false
             },
             {
@@ -26616,7 +26340,7 @@
               "kind": "staticmethod",
               "signature": "(source, target, average=True)",
               "summary": "Uniformly rescale ``source`` object(s) to match ``target``'s bounding-box size.",
-              "line": 655,
+              "line": 670,
               "deprecated": false
             },
             {
@@ -26625,7 +26349,7 @@
               "kind": "staticmethod",
               "signature": "(source, target, pivot='center')",
               "summary": "Move ``source`` object(s) so their pivot aligns with the ``target``'s pivot point.",
-              "line": 672,
+              "line": 687,
               "deprecated": false
             },
             {
@@ -26634,7 +26358,7 @@
               "kind": "staticmethod",
               "signature": "(objects, value='', world_space=True)",
               "summary": "Combined bounding box of ``objects`` — mirror of ``mtk.get_bounding_box`` (name + behavior).",
-              "line": 690,
+              "line": 705,
               "deprecated": false
             },
             {
@@ -26643,7 +26367,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Bounding-box center of ``objects`` as an ``(x, y, z)`` tuple (mirror of",
-              "line": 730,
+              "line": 745,
               "deprecated": false
             },
             {
@@ -26652,7 +26376,7 @@
               "kind": "staticmethod",
               "signature": "(obj, pivot)",
               "summary": "World pivot frame (orientation + position, scale stripped) for a per-object linear/",
-              "line": 736,
+              "line": 751,
               "deprecated": false
             },
             {
@@ -26661,7 +26385,7 @@
               "kind": "staticmethod",
               "signature": "(a, b)",
               "summary": "Distance between two points — each an object (world origin), ``Vector``, or 3-sequence",
-              "line": 801,
+              "line": 816,
               "deprecated": false
             },
             {
@@ -26670,7 +26394,7 @@
               "kind": "staticmethod",
               "signature": "(objects, reference_point=None, reverse=False)",
               "summary": "Order ``objects`` by distance from ``reference_point`` (an object / Vector / 3-seq;",
-              "line": 809,
+              "line": 824,
               "deprecated": false
             },
             {
@@ -26679,7 +26403,7 @@
               "kind": "staticmethod",
               "signature": "(objects, target_pos, aim_vect=(1, 0, 0), up_vect=(0, 1, 0))",
               "summary": "Aim ``objects`` at a world-space point — mirror of ``mtk.aim_object_at_point`` (which uses",
-              "line": 827,
+              "line": 842,
               "deprecated": false
             },
             {
@@ -26688,7 +26412,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, prefix=_DEFAULT_BAKE_PREFIX, name='Authored')",
               "summary": "Point the transform gizmo at an object's PRE-FREEZE axes, without un-freezing —",
-              "line": 848,
+              "line": 863,
               "deprecated": false
             },
             {
@@ -26696,8 +26420,8 @@
               "qualname": "XformUtils.get_pivot_options",
               "kind": "staticmethod",
               "signature": "()",
-              "summary": "Pivot keys understood by :func:`move_to` (mirror of ``mtk.XformUtils.get_pivot_options``).",
-              "line": 895,
+              "summary": "The pivot keys the operations resolve (``get_operation_axis_matrix``,",
+              "line": 910,
               "deprecated": false
             },
             {
@@ -26706,7 +26430,7 @@
               "kind": "staticmethod",
               "signature": "(objects, order, preserve=True)",
               "summary": "Change objects' Euler order keeping their pose and keyed animation --",
-              "line": 904,
+              "line": 932,
               "deprecated": false
             }
           ]

@@ -1,8 +1,8 @@
 """blendertk Calculator engine headless test.
 
 Verifies the controller delegates its math/unit engine to the shared ``pythontk.MathUtils``
-(identical to the Maya panel) and that the Blender-specific time helpers read the scene FPS,
-plus the display-action logic (input / evaluate / convert) on a UI stand-in.
+(identical to Maya's) and that the Blender-specific time helpers read the scene FPS. The
+panel's display actions are tentacle's (``test_tool_panels.py``).
 
 Run: blender --background --factory-startup --python blendertk/test/test_calculator.py
 """
@@ -20,28 +20,9 @@ def check(name, cond, detail=""):
     lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}")
 
 
-class FakeDisplay:
-    """Minimal stand-in for the txt_display QLineEdit."""
-    def __init__(self, value=""):
-        self._v = value
-    def text(self):
-        return self._v
-    def setText(self, v):
-        self._v = v
-    def clear(self):
-        self._v = ""
-
-
-class FakeCombo:
-    def __init__(self, value):
-        self._v = value
-    def currentText(self):
-        return self._v
-
-
 try:
     import bpy
-    from blendertk.ui_utils.calculator import CalculatorController, CalculatorSlots
+    from blendertk.ui_utils.calculator import CalculatorController
 
     ctrl = CalculatorController()
 
@@ -62,44 +43,6 @@ try:
     check("frames_to_sec(fps) ~ 1.0", abs(float(secs) - 1.0) < 1e-6, secs)
     frames = ctrl.sec_to_frames(1.0)        # one second -> fps frames
     check("sec_to_frames(1) ~ fps", abs(float(frames) - fps) < 1e-6, frames)
-
-    # 3. Slot display-action logic (no Qt grid build — bypass __init__).
-    slot = CalculatorSlots.__new__(CalculatorSlots)
-    slot.ui = type("UI", (), {})()
-    slot.ui.txt_display = FakeDisplay()
-    slot.controller = ctrl
-
-    slot.on_input("1"); slot.on_input("2"); slot.on_input("+"); slot.on_input("3")
-    check("on_input builds expression", slot.ui.txt_display.text() == "12+3")
-    slot.on_equal()
-    check("on_equal evaluates", slot.ui.txt_display.text() == "15")
-    slot.on_backspace()
-    check("on_backspace", slot.ui.txt_display.text() == "1")
-    slot.on_clear()
-    check("on_clear", slot.ui.txt_display.text() == "")
-
-    # convert: evaluate display then convert cm->m
-    slot.ui.txt_display.setText("100")
-    slot.ui.cmb_unit_from = FakeCombo("cm")
-    slot.ui.cmb_unit_to = FakeCombo("m")
-    slot.on_convert_units()
-    check("on_convert_units cm->m", slot.ui.txt_display.text() == "1.0", slot.ui.txt_display.text())
-
-    # time helper resolves the display expression first
-    slot.ui.txt_display.setText(str(int(fps)))
-    slot.frames_to_sec()
-    check("frames_to_sec action ~1.0", abs(float(slot.ui.txt_display.text()) - 1.0) < 1e-6,
-          slot.ui.txt_display.text())
-
-    # error path: an invalid display expression resolves to "Error" (unified _resolve helper)
-    slot.ui.txt_display.setText("1/0")
-    slot.on_convert_units()
-    check("on_convert_units invalid -> Error", slot.ui.txt_display.text() == "Error",
-          slot.ui.txt_display.text())
-    slot.ui.txt_display.setText("nope(")
-    slot.frames_to_sec()
-    check("time helper invalid -> Error", slot.ui.txt_display.text() == "Error",
-          slot.ui.txt_display.text())
 
 except Exception as e:
     traceback.print_exc()
