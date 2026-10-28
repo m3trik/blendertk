@@ -151,7 +151,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`mat_utils/mat_manifest.py`](#mat_utils--mat_manifest) — Material-to-texture manifest for bridge workflows -- mirror of mayatk's ``mat_utils.mat_manifest``.
 - [`mat_utils/render_opacity/render_effects.py`](#mat_utils--render_opacity--render_effects) — Render Effects — Blender per-object render-effect channels for engine-ready control (mirror of
 - [`mat_utils/render_opacity/render_effects_slots.py`](#mat_utils--render_opacity--render_effects_slots) — Switchboard slots for the Render Effects panel (``render_effects.ui``).
-- [`mat_utils/shader_templates.py`](#mat_utils--shader_templates) — Shader Templates tool panel — Switchboard slot wiring for the co-located
+- [`mat_utils/shader_templates.py`](#mat_utils--shader_templates) — Shader templates: save a material's node graph as a reusable template, rebuild it.
 - [`mat_utils/substance_bridge/_substance_bridge.py`](#mat_utils--substance_bridge--_substance_bridge) — Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
 - [`mat_utils/substance_bridge/_substance_engine.py`](#mat_utils--substance_bridge--_substance_engine) — Drive Substance 3D Painter from the outside -- the DCC-free half of the bridge.
 - [`mat_utils/substance_bridge/connection.py`](#mat_utils--substance_bridge--connection) — Substance 3D Painter connection module.
@@ -223,7 +223,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L431) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L435) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -2272,23 +2272,19 @@ Light utilities — the world-environment (HDRI) helpers behind the HDR Manager 
 
 Blender world-HDRI environment manager.
 
-- **[`class HdrManagerSlots(pythontk.LoggingMixin)`](blendertk/blendertk/light_utils/hdr_manager.py#L54)** — Switchboard slots for the HDR Manager UI.
-  - `HdrManagerSlots.header_init(self, widget) -> None` — Configure header menu and refresh button.
-  - `HdrManagerSlots.cmb000_init(self, widget) -> None` — Wire the HDR dropdown: option-box plugins, context menu, auto-refresh.
-  - `HdrManagerSlots.set_hdr_folder(self) -> None` — Header-menu action — choose the folder scanned for HDR maps.
-  - `HdrManagerSlots.hdr_map(self) -> Optional[str]` *(property)* — Selected HDR file path from the combobox.
-  - `HdrManagerSlots.hdr_map_visibility(self) -> bool` *(property)* — Render 'Visible' flag — read from the rotation slider's render toggle.
-  - `HdrManagerSlots.cmb000(self, index, widget) -> None` — HDR map selection — the panel's sole apply action.
-  - `HdrManagerSlots.slider000(self, value, widget) -> None` — Rotate the HDR around Z.
-  - `HdrManagerSlots.spn_intensity(self, value, widget) -> None` — Set the world's HDR intensity (brightness multiplier).
-  - `HdrManagerSlots.spn_exposure(self, value, widget) -> None` — Set the world's HDR exposure (in stops).
-  - `HdrManagerSlots.spn_resolution(self, value, widget) -> None` — Importance-sampling map resolution — switches the world to manual Cycles sampling and
-  - `HdrManagerSlots.spn_diffuse(self, value, widget) -> None` — Diffuse contribution — any value >0 enables it, 0 disables it (Cycles ray
-  - `HdrManagerSlots.spn_specular(self, value, widget) -> None` — Specular/glossy contribution — any value >0 enables it, 0 disables it (Cycles ray
-  - `HdrManagerSlots.add_hdr(self) -> None` — Add HDR(s) from one dialog — pick loose files and/or a whole folder.
-  - `HdrManagerSlots.open_sourceimages(self) -> None` — Open the HDR folder in the OS file manager.
-  - `HdrManagerSlots.clear_network(self) -> None` — Delete the world HDRI network and reset the UI to defaults.
-  - `HdrManagerSlots.ctx_reveal_in_explorer(self) -> None` — Reveal the environment's HDR texture file in the OS file manager.
+- **[`class HdrManager(pythontk.LoggingMixin)`](blendertk/blendertk/light_utils/hdr_manager.py#L44)** — Manage the scene world's HDR environment (mirror of mayatk's ``HdrManager``).
+  - `HdrManager.hdr_env(self)` *(property)* — The scene world while it carries a managed environment map, else None.
+  - `HdrManager.hdr_file_path(self) -> Optional[str]` *(property)* — The environment map's file (absolute), or None.
+  - `HdrManager.visibility(self) -> bool` *(property)* — The environment as the render's backdrop: ``film_transparent`` off
+  - `HdrManager.rotation(self) -> float` *(property)* — Z rotation (degrees, azimuth) of the environment;
+  - `HdrManager.intensity(self) -> float` *(property)* — Linear light-output multiplier;
+  - `HdrManager.exposure(self) -> float` *(property)* — Photographic stops (log2);
+  - `HdrManager.resolution(self) -> Optional[int]` *(property)* — The world's manual importance-sampling map size;
+  - `HdrManager.diffuse(self) -> float` *(property)* — 1.0 while the world lights diffuse rays, else 0.0 (Cycles).
+  - `HdrManager.specular(self) -> float` *(property)* — 1.0 while the world lights glossy rays, else 0.0 (Cycles).
+  - `HdrManager.create_network(self, hdrMap: str = '', hdrMapVisibility: bool = False, intensity: Optional[float] = None, exposure: Optional[float] = None, rotation: Optional[float] = None, resolution: Optional[int] = None, samples: Optional[int] = None, diffuse: Optional[float] = None, specular: Optional[float] = None, preview: Optional[bool] = None)` — Apply settings to the (lazily-built) environment as ONE undo step --
+  - `HdrManager.clear(self) -> None` — Remove the managed environment (its Environment Texture / Mapping /
+  - `HdrManager.defer_apply(callback: Callable[[], None]) -> None` *(static)* — Run *callback*, a scene edit a dropdown pick drives -- at once: a world
 
 <a id="light_utils--lightmap_baker--_probe_placement"></a>
 ### `light_utils/lightmap_baker/_probe_placement.py`
@@ -2900,24 +2896,13 @@ Switchboard slots for the Render Effects panel (``render_effects.ui``).
 <a id="mat_utils--shader_templates"></a>
 ### `mat_utils/shader_templates.py`
 
-Shader Templates tool panel — Switchboard slot wiring for the co-located
+Shader templates: save a material's node graph as a reusable template, rebuild it.
 
-- **[`class ShaderTemplatesSlots(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/shader_templates.py#L51)** — Switchboard slot wiring for the Shader Templates panel.
-  - `ShaderTemplatesSlots.workspace_dir(self) -> str` *(property)*
-  - `ShaderTemplatesSlots.source_images_dir(self) -> str` *(property)*
-  - `ShaderTemplatesSlots.template_name(self)` *(property)*
-  - `ShaderTemplatesSlots.header_init(self, widget)` — Initialize the header widget.
-  - `ShaderTemplatesSlots.lbl_graph_material(self)` — Open the last restored material in the Shader Editor.
-  - `ShaderTemplatesSlots.lbl_open_templates_dir(self)` — Open the shader templates directory in the OS file manager.
-  - `ShaderTemplatesSlots.cmb002_init(self, widget)` — Initialize the ComboBox for shader templates.
-  - `ShaderTemplatesSlots.refresh_templates(self, widget)` — Refresh the list of templates.
-  - `ShaderTemplatesSlots.rename_template_safe(self, widget, new_name)` — Safe rename that checks for None.
-  - `ShaderTemplatesSlots.lbl000(self)` — Set the ComboBox as editable to allow renaming.
-  - `ShaderTemplatesSlots.lbl001(self)` — Delete the selected template.
-  - `ShaderTemplatesSlots.lbl002(self)` — Open the selected template in the default editor.
-  - `ShaderTemplatesSlots.b000(self)` — Create shader network using selected template.
-  - `ShaderTemplatesSlots.b001(self)` — Load texture maps and update GUI.
-  - `ShaderTemplatesSlots.b002(self)` — Save current graph as a new shader template.
+- **[`class ShaderTemplates`](blendertk/blendertk/mat_utils/shader_templates.py#L31)** — Save and restore a material's node graph as a template (mirror of mayatk's).
+  - `ShaderTemplates.store(cls) -> 'ptk.PresetStore'` *(class)* — The template store: the user's templates, in
+  - `ShaderTemplates.suggested_name(cls, nodes) -> str` *(class)* — The name Save Template offers for *nodes*: the material it would
+  - `ShaderTemplates.save_template(cls, nodes, file_path, exclude_types=None, logger=None) -> None` *(class)* — Save the material *nodes* carry (:meth:`_material`) as a template at
+  - `ShaderTemplates.restore_template(file_path, texture_paths=None, name=None, logger=None) -> dict` *(static)* — Rebuild the template at *file_path* as a new material, assigned to the
 
 <a id="mat_utils--substance_bridge--_substance_bridge"></a>
 ### `mat_utils/substance_bridge/_substance_bridge.py`

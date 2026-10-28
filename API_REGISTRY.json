@@ -23,7 +23,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 431,
+          "line": 435,
           "deprecated": false
         }
       ]
@@ -13271,155 +13271,119 @@
       "functions": [],
       "classes": [
         {
-          "name": "HdrManagerSlots",
-          "summary": "Switchboard slots for the HDR Manager UI.",
-          "line": 54,
+          "name": "HdrManager",
+          "summary": "Manage the scene world's HDR environment (mirror of mayatk's ``HdrManager``).",
+          "line": 44,
           "bases": [
             "pythontk.LoggingMixin"
           ],
           "members": [
             {
-              "name": "header_init",
-              "qualname": "HdrManagerSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Configure header menu and refresh button.",
-              "line": 244,
+              "name": "hdr_env",
+              "qualname": "HdrManager.hdr_env",
+              "kind": "property",
+              "signature": "(self)",
+              "summary": "The scene world while it carries a managed environment map, else None.",
+              "line": 123,
               "deprecated": false
             },
             {
-              "name": "cmb000_init",
-              "qualname": "HdrManagerSlots.cmb000_init",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Wire the HDR dropdown: option-box plugins, context menu, auto-refresh.",
-              "line": 350,
-              "deprecated": false
-            },
-            {
-              "name": "set_hdr_folder",
-              "qualname": "HdrManagerSlots.set_hdr_folder",
-              "kind": "method",
-              "signature": "(self) -> None",
-              "summary": "Header-menu action — choose the folder scanned for HDR maps.",
-              "line": 486,
-              "deprecated": false
-            },
-            {
-              "name": "hdr_map",
-              "qualname": "HdrManagerSlots.hdr_map",
+              "name": "hdr_file_path",
+              "qualname": "HdrManager.hdr_file_path",
               "kind": "property",
               "signature": "(self) -> Optional[str]",
-              "summary": "Selected HDR file path from the combobox.",
-              "line": 733,
+              "summary": "The environment map's file (absolute), or None.",
+              "line": 142,
               "deprecated": false
             },
             {
-              "name": "hdr_map_visibility",
-              "qualname": "HdrManagerSlots.hdr_map_visibility",
+              "name": "visibility",
+              "qualname": "HdrManager.visibility",
               "kind": "property",
               "signature": "(self) -> bool",
-              "summary": "Render 'Visible' flag — read from the rotation slider's render toggle.",
-              "line": 738,
+              "summary": "The environment as the render's backdrop: ``film_transparent`` off",
+              "line": 151,
               "deprecated": false
             },
             {
-              "name": "cmb000",
-              "qualname": "HdrManagerSlots.cmb000",
+              "name": "rotation",
+              "qualname": "HdrManager.rotation",
+              "kind": "property",
+              "signature": "(self) -> float",
+              "summary": "Z rotation (degrees, azimuth) of the environment;",
+              "line": 167,
+              "deprecated": false
+            },
+            {
+              "name": "intensity",
+              "qualname": "HdrManager.intensity",
+              "kind": "property",
+              "signature": "(self) -> float",
+              "summary": "Linear light-output multiplier;",
+              "line": 176,
+              "deprecated": false
+            },
+            {
+              "name": "exposure",
+              "qualname": "HdrManager.exposure",
+              "kind": "property",
+              "signature": "(self) -> float",
+              "summary": "Photographic stops (log2);",
+              "line": 185,
+              "deprecated": false
+            },
+            {
+              "name": "resolution",
+              "qualname": "HdrManager.resolution",
+              "kind": "property",
+              "signature": "(self) -> Optional[int]",
+              "summary": "The world's manual importance-sampling map size;",
+              "line": 194,
+              "deprecated": false
+            },
+            {
+              "name": "diffuse",
+              "qualname": "HdrManager.diffuse",
+              "kind": "property",
+              "signature": "(self) -> float",
+              "summary": "1.0 while the world lights diffuse rays, else 0.0 (Cycles).",
+              "line": 209,
+              "deprecated": false
+            },
+            {
+              "name": "specular",
+              "qualname": "HdrManager.specular",
+              "kind": "property",
+              "signature": "(self) -> float",
+              "summary": "1.0 while the world lights glossy rays, else 0.0 (Cycles).",
+              "line": 218,
+              "deprecated": false
+            },
+            {
+              "name": "create_network",
+              "qualname": "HdrManager.create_network",
               "kind": "method",
-              "signature": "(self, index, widget) -> None",
-              "summary": "HDR map selection — the panel's sole apply action.",
-              "line": 749,
+              "signature": "(self, hdrMap: str = '', hdrMapVisibility: bool = False, intensity: Optional[float] = None, exposure: Optional[float] = None, rotation: Optional[float] = None, resolution: Optional[int] = None, samples: Optional[int] = None, diffuse: Optional[float] = None, specular: Optional[float] = None, preview: Optional[bool] = None)",
+              "summary": "Apply settings to the (lazily-built) environment as ONE undo step --",
+              "line": 231,
               "deprecated": false
             },
             {
-              "name": "slider000",
-              "qualname": "HdrManagerSlots.slider000",
-              "kind": "method",
-              "signature": "(self, value, widget) -> None",
-              "summary": "Rotate the HDR around Z.",
-              "line": 773,
-              "deprecated": false
-            },
-            {
-              "name": "spn_intensity",
-              "qualname": "HdrManagerSlots.spn_intensity",
-              "kind": "method",
-              "signature": "(self, value, widget) -> None",
-              "summary": "Set the world's HDR intensity (brightness multiplier).",
-              "line": 777,
-              "deprecated": false
-            },
-            {
-              "name": "spn_exposure",
-              "qualname": "HdrManagerSlots.spn_exposure",
-              "kind": "method",
-              "signature": "(self, value, widget) -> None",
-              "summary": "Set the world's HDR exposure (in stops).",
-              "line": 781,
-              "deprecated": false
-            },
-            {
-              "name": "spn_resolution",
-              "qualname": "HdrManagerSlots.spn_resolution",
-              "kind": "method",
-              "signature": "(self, value, widget) -> None",
-              "summary": "Importance-sampling map resolution — switches the world to manual Cycles sampling and",
-              "line": 798,
-              "deprecated": false
-            },
-            {
-              "name": "spn_diffuse",
-              "qualname": "HdrManagerSlots.spn_diffuse",
-              "kind": "method",
-              "signature": "(self, value, widget) -> None",
-              "summary": "Diffuse contribution — any value >0 enables it, 0 disables it (Cycles ray",
-              "line": 804,
-              "deprecated": false
-            },
-            {
-              "name": "spn_specular",
-              "qualname": "HdrManagerSlots.spn_specular",
-              "kind": "method",
-              "signature": "(self, value, widget) -> None",
-              "summary": "Specular/glossy contribution — any value >0 enables it, 0 disables it (Cycles ray",
-              "line": 809,
-              "deprecated": false
-            },
-            {
-              "name": "add_hdr",
-              "qualname": "HdrManagerSlots.add_hdr",
-              "kind": "method",
-              "signature": "(self) -> None",
-              "summary": "Add HDR(s) from one dialog — pick loose files and/or a whole folder.",
-              "line": 918,
-              "deprecated": false
-            },
-            {
-              "name": "open_sourceimages",
-              "qualname": "HdrManagerSlots.open_sourceimages",
+              "name": "clear",
+              "qualname": "HdrManager.clear",
               "kind": "method",
               "signature": "(self) -> None",
-              "summary": "Open the HDR folder in the OS file manager.",
-              "line": 1090,
+              "summary": "Remove the managed environment (its Environment Texture / Mapping /",
+              "line": 279,
               "deprecated": false
             },
             {
-              "name": "clear_network",
-              "qualname": "HdrManagerSlots.clear_network",
-              "kind": "method",
-              "signature": "(self) -> None",
-              "summary": "Delete the world HDRI network and reset the UI to defaults.",
-              "line": 1104,
-              "deprecated": false
-            },
-            {
-              "name": "ctx_reveal_in_explorer",
-              "qualname": "HdrManagerSlots.ctx_reveal_in_explorer",
-              "kind": "method",
-              "signature": "(self) -> None",
-              "summary": "Reveal the environment's HDR texture file in the OS file manager.",
-              "line": 1112,
+              "name": "defer_apply",
+              "qualname": "HdrManager.defer_apply",
+              "kind": "staticmethod",
+              "signature": "(callback: Callable[[], None]) -> None",
+              "summary": "Run *callback*, a scene edit a dropdown pick drives -- at once: a world",
+              "line": 286,
               "deprecated": false
             }
           ]
@@ -17504,150 +17468,49 @@
     },
     {
       "relpath": "mat_utils/shader_templates.py",
-      "summary": "Shader Templates tool panel — Switchboard slot wiring for the co-located",
+      "summary": "Shader templates: save a material's node graph as a reusable template, rebuild it.",
       "functions": [],
       "classes": [
         {
-          "name": "ShaderTemplatesSlots",
-          "summary": "Switchboard slot wiring for the Shader Templates panel.",
-          "line": 51,
-          "bases": [
-            "pythontk.LoggingMixin"
-          ],
+          "name": "ShaderTemplates",
+          "summary": "Save and restore a material's node graph as a template (mirror of mayatk's).",
+          "line": 31,
+          "bases": [],
           "members": [
             {
-              "name": "workspace_dir",
-              "qualname": "ShaderTemplatesSlots.workspace_dir",
-              "kind": "property",
-              "signature": "(self) -> str",
-              "summary": "",
-              "line": 88,
+              "name": "store",
+              "qualname": "ShaderTemplates.store",
+              "kind": "classmethod",
+              "signature": "(cls) -> 'ptk.PresetStore'",
+              "summary": "The template store: the user's templates, in",
+              "line": 40,
               "deprecated": false
             },
             {
-              "name": "source_images_dir",
-              "qualname": "ShaderTemplatesSlots.source_images_dir",
-              "kind": "property",
-              "signature": "(self) -> str",
-              "summary": "",
-              "line": 92,
+              "name": "suggested_name",
+              "qualname": "ShaderTemplates.suggested_name",
+              "kind": "classmethod",
+              "signature": "(cls, nodes) -> str",
+              "summary": "The name Save Template offers for *nodes*: the material it would",
+              "line": 67,
               "deprecated": false
             },
             {
-              "name": "template_name",
-              "qualname": "ShaderTemplatesSlots.template_name",
-              "kind": "property",
-              "signature": "(self)",
-              "summary": "",
-              "line": 99,
+              "name": "save_template",
+              "qualname": "ShaderTemplates.save_template",
+              "kind": "classmethod",
+              "signature": "(cls, nodes, file_path, exclude_types=None, logger=None) -> None",
+              "summary": "Save the material *nodes* carry (:meth:`_material`) as a template at",
+              "line": 75,
               "deprecated": false
             },
             {
-              "name": "header_init",
-              "qualname": "ShaderTemplatesSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize the header widget.",
-              "line": 103,
-              "deprecated": false
-            },
-            {
-              "name": "lbl_graph_material",
-              "qualname": "ShaderTemplatesSlots.lbl_graph_material",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Open the last restored material in the Shader Editor.",
-              "line": 145,
-              "deprecated": false
-            },
-            {
-              "name": "lbl_open_templates_dir",
-              "qualname": "ShaderTemplatesSlots.lbl_open_templates_dir",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Open the shader templates directory in the OS file manager.",
-              "line": 152,
-              "deprecated": false
-            },
-            {
-              "name": "cmb002_init",
-              "qualname": "ShaderTemplatesSlots.cmb002_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize the ComboBox for shader templates.",
-              "line": 157,
-              "deprecated": false
-            },
-            {
-              "name": "refresh_templates",
-              "qualname": "ShaderTemplatesSlots.refresh_templates",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Refresh the list of templates.",
-              "line": 185,
-              "deprecated": false
-            },
-            {
-              "name": "rename_template_safe",
-              "qualname": "ShaderTemplatesSlots.rename_template_safe",
-              "kind": "method",
-              "signature": "(self, widget, new_name)",
-              "summary": "Safe rename that checks for None.",
-              "line": 192,
-              "deprecated": false
-            },
-            {
-              "name": "lbl000",
-              "qualname": "ShaderTemplatesSlots.lbl000",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Set the ComboBox as editable to allow renaming.",
-              "line": 204,
-              "deprecated": false
-            },
-            {
-              "name": "lbl001",
-              "qualname": "ShaderTemplatesSlots.lbl001",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Delete the selected template.",
-              "line": 209,
-              "deprecated": false
-            },
-            {
-              "name": "lbl002",
-              "qualname": "ShaderTemplatesSlots.lbl002",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Open the selected template in the default editor.",
-              "line": 216,
-              "deprecated": false
-            },
-            {
-              "name": "b000",
-              "qualname": "ShaderTemplatesSlots.b000",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Create shader network using selected template.",
-              "line": 222,
-              "deprecated": false
-            },
-            {
-              "name": "b001",
-              "qualname": "ShaderTemplatesSlots.b001",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Load texture maps and update GUI.",
-              "line": 268,
-              "deprecated": false
-            },
-            {
-              "name": "b002",
-              "qualname": "ShaderTemplatesSlots.b002",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Save current graph as a new shader template.",
-              "line": 287,
+              "name": "restore_template",
+              "qualname": "ShaderTemplates.restore_template",
+              "kind": "staticmethod",
+              "signature": "(file_path, texture_paths=None, name=None, logger=None) -> dict",
+              "summary": "Rebuild the template at *file_path* as a new material, assigned to the",
+              "line": 111,
               "deprecated": false
             }
           ]

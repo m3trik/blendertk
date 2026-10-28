@@ -550,8 +550,8 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
   - methods: set_world_hdri, get_world_hdri, set_world_ray_visibility, get_world_ray_visibility, set_world_importance_resolution, get_world_importance_resolution, clear_world_hdri, world_emits, lights_from_geometry, remove_lights, set_world_environment, lights_from_records, scale_light_energy, set_emission_strength
 
 ### `light_utils/hdr_manager.py` — Blender world-HDRI environment manager.
-- `class HdrManagerSlots(pythontk.LoggingMixin)`
-  - methods: header_init, cmb000_init, set_hdr_folder, hdr_map, hdr_map_visibility, cmb000, slider000, spn_intensity, spn_exposure, spn_resolution, spn_diffuse, spn_specular, add_hdr, open_sourceimages, clear_network, ctx_reveal_in_explorer
+- `class HdrManager(pythontk.LoggingMixin)`
+  - methods: hdr_env, hdr_file_path, visibility, rotation, intensity, exposure, resolution, diffuse, specular, create_network, clear, defer_apply
 
 ### `light_utils/lightmap_baker/_probe_placement.py` — Where a lightmap bake's reflection probe stands -- Blender's scene for the placement.
 - `class ProbePlacement(pythontk.ProbePlacement)`
@@ -699,9 +699,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class RenderEffectsSlots(pythontk.LoggingMixin)`
   - methods: header_init, cmb_effect_init, cmb_effect, stk_effects_init, ui_field, focus, unfocus, b000, btn_remove, btn_webxr_init, btn_webxr
 
-### `mat_utils/shader_templates.py` — Shader Templates tool panel — Switchboard slot wiring for the co-located
-- `class ShaderTemplatesSlots(pythontk.LoggingMixin)`
-  - methods: workspace_dir, source_images_dir, template_name, header_init, lbl_graph_material, lbl_open_templates_dir, cmb002_init, refresh_templates, rename_template_safe, lbl000, lbl001, lbl002, b000, b001, b002
+### `mat_utils/shader_templates.py` — Shader templates: save a material's node graph as a reusable template, rebuild it.
+- `class ShaderTemplates`
+  - methods: store, suggested_name, save_template, restore_template
 
 ### `mat_utils/substance_bridge/_substance_bridge.py` — Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
 - constants: SEND_TO, ROUND_TRIP, TARGET_AUTO, TARGET_NEW, TARGET_CURRENT

@@ -257,6 +257,10 @@ DEFAULT_INCLUDE = {
     # Mirror of mayatk's ``mat_utils.game_shader`` (``btk.GameShader`` ↔
     # ``mtk.GameShader``, both exposing ``create_network``).
     "mat_utils.game_shader": ["GameShader"],
+    # HDR Manager and Shader Templates -- mirrors of mayatk's engines (their panels are
+    # tentacle's shared tools).
+    "light_utils.hdr_manager": ["HdrManager"],
+    "mat_utils.shader_templates": ["ShaderTemplates"],
     # Marmoset Bridge — mirror of mayatk's ``mat_utils.marmoset_bridge._marmoset_bridge``
     # (``MarmosetBridgeSlots`` panel discovered by the handler, not registered).
     "mat_utils.marmoset_bridge._marmoset_bridge": [
@@ -618,6 +622,14 @@ MOVED_NAMES = {
     ),
     "MatUpdaterSlots": (
         "tentacle.slots.tools.mat_updater.MatUpdaterSlots",
+        "0.23.0",
+    ),
+    "HdrManagerSlots": (
+        "tentacle.slots.tools.hdr_manager.HdrManagerSlots",
+        "0.23.0",
+    ),
+    "ShaderTemplatesSlots": (
+        "tentacle.slots.tools.shader_templates.ShaderTemplatesSlots",
         "0.23.0",
     ),
 }

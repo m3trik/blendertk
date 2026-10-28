@@ -52,12 +52,10 @@ PANELS = [
     "audio_clips",
     "blendshape_animator",
     "naming",
-    "hdr_manager",
     "lightmap_baker",
     "reference_manager",
     "workspace_editor",
     "texture_path_editor",
-    "shader_templates",
     "rizom_bridge",
     "texture_combine",
     "maya_bridge",
@@ -267,10 +265,6 @@ try:
     #    FROM blendertk (not tentacle) and stamps the blendertk source tag (hide-button style).
     for panel, slot_cls in (
         ("curtain", "CurtainSlots"),
-        (
-            "shader_templates",
-            "ShaderTemplatesSlots",
-        ),  # bpy-free init -> loadable under .venv
         ("rizom_bridge", "RizomBridgeSlots"),  # engine/slots init is bpy-free
         (
             "workspace_editor",
@@ -305,10 +299,6 @@ try:
             "reference_manager",
             "ReferenceManagerSlots",
         ),  # *_init bpy-guarded → table degrades w/o bpy
-        (
-            "hdr_manager",
-            "HdrManagerSlots",
-        ),  # __init__ + header/cmb _init are bpy-free (os dir scan)
         ("naming", "NamingSlots"),  # __init__ + option-box *_init are bpy-free
         (
             "shadow_rig",
@@ -1338,143 +1328,6 @@ try:
     else:
         check("lightmap_baker exposes slots for the combo check", False, "no slots")
 
-    # hdr_manager: the 2026-07-03 drift port added an option-box Add-HDR flow on cmb000
-    # (add_hdr_btn + cmb_add_mode) and an inline exact-angle ValueOption on slider000 — all
-    # Qt-only (uitk option boxes, no bpy). Prove they materialized (not just that _init ran).
-    hdr_ui = sb.get_ui("hdr_manager")
-    # The option-box wiring runs in a deferred singleShot(0) (_initialize_ui) —
-    # pump once so it fires; nothing else pumps under this harness.
-    app.processEvents()
-    hslots = getattr(hdr_ui, "slots", None)
-    if hslots is not None:
-        menu = hdr_ui.cmb000.option_box.menu
-        mode_items = [
-            menu.cmb_add_mode.itemText(i) for i in range(menu.cmb_add_mode.count())
-        ]
-        check(
-            "hdr_manager Add-HDR option box built add_hdr_btn + cmb_add_mode",
-            hasattr(menu, "add_hdr_btn")
-            and mode_items == [label for label, _t in hslots._ADD_MODES]
-            and hslots._add_mode() == "copy",
-            f"{mode_items} _add_mode()={hslots._add_mode()}",
-        )
-        # The List toggles (2026-09-26: baked lightmaps listed as HDRs) read back through
-        # _list_filter -- untick one and the filter follows the real widget. Signals blocked:
-        # the toggle's re-list reads the live world (bpy), which this harness lacks.
-        before = hslots._list_filter()
-        menu.chk_hide_lightmaps.blockSignals(True)
-        menu.chk_hide_lightmaps.setChecked(False)
-        after = hslots._list_filter()
-        menu.chk_hide_lightmaps.setChecked(True)
-        menu.chk_hide_lightmaps.blockSignals(False)
-        check(
-            "hdr_manager List toggles drive the environment-map filter",
-            before == {"latlong_only": True, "skip_lightmaps": True}
-            and after == {"latlong_only": True, "skip_lightmaps": False},
-            f"before={before} after={after}",
-        )
-        # ...and the filter on disk. _refresh_combo / _folder_hdrs are an os scan (bpy-free), so
-        # the real ones run here over mayatk's fixture set: a 2:1 environment, a square lightmap
-        # tile, a square texture, and a 2:1 lightmap light group only the name filter hides. The
-        # convention is sandboxed -- the name half must not read the developer's own affix.
-        import struct as _hdr_struct
-
-        def _exr(path, width, height):
-            window = _hdr_struct.pack("<iiii", 0, 0, width - 1, height - 1)
-            with open(path, "wb") as f:
-                f.write(
-                    b"\x76\x2f\x31\x01"
-                    + _hdr_struct.pack("<I", 2)
-                    + b"dataWindow\0box2i\0"
-                    + _hdr_struct.pack("<i", 16)
-                    + window
-                    + b"\0"
-                )
-
-        with (
-            ptk.TestSandbox.user_config(),
-            ptk.TempArtifacts("btk_hdr_filter", policy="scoped") as _hdr_store,
-        ):
-            folder = _hdr_store.dir_path()
-            with open(os.path.join(folder, "workshop_8k.hdr"), "wb") as f:
-                f.write(
-                    b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 4 +X 8\n" + b"\x10" * 128
-                )
-            _exr(os.path.join(folder, "ROOM_ENV_Lightmap_12.exr"), 256, 256)
-            _exr(os.path.join(folder, "crate.exr"), 512, 512)
-            _exr(os.path.join(folder, "desk_LightMap.LIGHT_A.exr"), 2048, 1024)
-            prev_folder = hdr_ui.settings.value("hdr_folder")
-            hdr_ui.settings.setValue("hdr_folder", folder)
-            try:
-                hslots._refresh_combo()
-                combo = hdr_ui.cmb000
-                listed = [
-                    os.path.basename(combo.itemData(i))
-                    for i in range(combo.count())
-                    if combo.itemData(i) not in (None, hslots.NONE_TOKEN)
-                ]
-                footer = hdr_ui.footer.statusText()  # text() is the ELIDED display
-                added = [os.path.basename(p) for p in hslots._folder_hdrs(folder)]
-            finally:
-                hdr_ui.settings.setValue("hdr_folder", prev_folder or "")
-        check(
-            "hdr_manager lists only environment maps (dropdown + folder add)",
-            listed == ["workshop_8k.hdr"]
-            and added == ["workshop_8k.hdr"]
-            and "3 other images hidden" in footer,
-            f"listed={listed} added={added} footer={footer!r}",
-        )
-        # The filter plumbing is mayatk's, verbatim (docstrings aside: they name each host's
-        # folder) -- a fix to one copy fails here until the other matches.
-        import ast as _ast
-
-        def _slot_methods(path, names):
-            tree = _ast.parse(open(path, encoding="utf-8").read())
-            cls = next(
-                n
-                for n in tree.body
-                if isinstance(n, _ast.ClassDef) and n.name == "HdrManagerSlots"
-            )
-            found = {}
-            for fn in cls.body:
-                if isinstance(fn, _ast.FunctionDef) and fn.name in names:
-                    if _ast.get_docstring(fn) is not None:
-                        fn.body = fn.body[1:]
-                    found[fn.name] = _ast.dump(fn)
-            return found
-
-        _mirrored = ("_list_filter", "_folder_hdrs")
-        _mtk_hdr = os.path.join(
-            MONO, "mayatk", "mayatk", "light_utils", "hdr_manager.py"
-        )
-        if os.path.isfile(_mtk_hdr):
-            ours = _slot_methods(
-                os.path.join(REPO, "blendertk", "light_utils", "hdr_manager.py"),
-                _mirrored,
-            )
-            theirs = _slot_methods(_mtk_hdr, _mirrored)
-            check(
-                "hdr_manager filter plumbing mirrors mayatk's verbatim",
-                set(ours) == set(_mirrored) and ours == theirs,
-                f"differ: {sorted(k for k in _mirrored if ours.get(k) != theirs.get(k))}",
-            )
-        from uitk.widgets.optionBox.options.value import ValueOption
-
-        check(
-            "hdr_manager rotation slider carries the exact-angle ValueOption",
-            hdr_ui.slider000.option_box.find_option(ValueOption) is not None,
-        )
-        # _norm_path (the combo path-match fix): an imported os.path.normpath() path still
-        # matches get_dir_contents' filepaths despite a different slash style — the miss that
-        # made the old plain findData() fail to highlight a just-added map.
-        norm_p = os.path.join("HDRs", "Env A.hdr")
-        check(
-            "hdr_manager _norm_path collapses slash style for combo matching",
-            hslots._norm_path(norm_p) == hslots._norm_path(norm_p.replace(os.sep, "/")),
-        )
-    else:
-        check("hdr_manager exposes slots for the option-box check", False, "no slots")
-
     # naming: every Suffix By Type row names its type in a label to the RIGHT of the field (the
     # fields ship filled, so their placeholders never show), and the menu carries the convention
     # preset combo (2026-09-26). The picker wraps each field, so find the grid cell holding it.
@@ -1644,6 +1497,9 @@ try:
     # on the real loaded panel here. Compact collapses row height + hides the table column header;
     # the ladder scales ×10 (Ctrl) / ×100 (Ctrl+Shift) / ÷10 (Alt) per modifier (mirror of Maya).
     channels_ui = sb.get_ui("channels")
+    # The header wiring (header_init) runs in a deferred singleShot(0): pump once so it
+    # fires; nothing else pumps under this harness.
+    app.processEvents()
     cslots = getattr(channels_ui, "slots", None)
     ctbl = getattr(channels_ui, "tbl000", None)
     if cslots is not None and ctbl is not None:
@@ -1674,7 +1530,7 @@ try:
             and cslots._wheel_step(Qt.AltModifier, True) == 0
         )
         check("channels wheel-step ladder scales ×10/÷10 per modifier", ladder_ok)
-        # The load ran header_init (every *_init), so the Compact View checkbox is already wired;
+        # The pump above ran header_init (every *_init), so the Compact View checkbox is wired;
         # the footer single-object button is built in __init__.
         chk = getattr(cslots, "_chk_compact", None)
         check(

@@ -176,6 +176,115 @@ try:
         and btk.get_world_importance_resolution() is None,
     )
 
+    # ---- HdrManager: mayatk's environment API over the world shader ---------
+    # (what tentacle's HDR Manager panel drives; the world-HDRI functions above
+    # are its engine)
+    btk.clear_world_hdri()
+    btk.set_world_importance_resolution(0)
+    mgr = btk.HdrManager()
+    check(
+        "HdrManager: no environment -> hdr_env None, the levels at defaults",
+        mgr.hdr_env is None
+        and mgr.hdr_file_path is None
+        and (mgr.rotation, mgr.intensity, mgr.exposure) == (0.0, 1.0, 0.0),
+    )
+    mgr.rotation = 45.0  # no environment: a no-op, as on mayatk's missing skydome
+    check("HdrManager: a level without an environment is a no-op", btk.get_world_hdri() is None)
+
+    world = mgr.create_network(
+        hdrMap=paths[0],
+        hdrMapVisibility=False,
+        intensity=2.0,
+        exposure=1.0,
+        rotation=90.0,
+        resolution=4096,
+        samples=8,
+        diffuse=0.0,
+        specular=1.0,
+        preview=True,
+    )
+    state = btk.get_world_hdri()
+    check(
+        "HdrManager.create_network builds the environment from the knobs given",
+        world == bpy.context.scene.world  # == : bpy hands out fresh wrappers
+        and state is not None
+        and os.path.basename(state["filepath"]) == "env_a.hdr"
+        and abs(state["strength"] - 4.0) < 1e-6
+        and abs(state["rotation"] - 90.0) < 1e-4
+        and state["visible"] is False,
+        f"state={state}",
+    )
+    check(
+        "a build keeps Cycles' automatic map size (resolution reads None)",
+        mgr.resolution is None
+        and bpy.context.scene.world.cycles.sampling_method == "AUTOMATIC",
+    )
+    check(
+        "a build sets the ray visibility from diffuse / specular",
+        (mgr.diffuse, mgr.specular) == (0.0, 1.0),
+    )
+
+    mgr.hdr_env = paths[1]
+    state = btk.get_world_hdri()
+    check(
+        "hdr_env swaps the map in place, the levels kept",
+        os.path.basename(state["filepath"]) == "env_b.hdr"
+        and abs(state["strength"] - 4.0) < 1e-6
+        and abs(state["rotation"] - 90.0) < 1e-4
+        and state["visible"] is False,
+        f"state={state}",
+    )
+    bad = os.path.join(tmp_dir, "partial.hdr")
+    with open(bad, "wb") as fh:  # a 2:1 header whose scanlines never arrive
+        fh.write(b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 16 +X 32\n\x02\x02\x00\x20")
+    mgr.hdr_env = bad
+    check(
+        "hdr_env refuses an incomplete image",
+        os.path.basename(btk.get_world_hdri()["filepath"]) == "env_b.hdr",
+    )
+    os.remove(bad)
+
+    mgr.rotation = 180.0
+    mgr.intensity = 0.5
+    mgr.exposure = 0.0
+    mgr.visibility = True
+    state = btk.get_world_hdri()
+    check(
+        "each level knob writes the environment",
+        abs(state["rotation"] - 180.0) < 1e-4
+        and abs(state["strength"] - 0.5) < 1e-6
+        and state["visible"] is True
+        and mgr.visibility is True,
+        f"state={state}",
+    )
+    mgr.resolution = 2048
+    check(
+        "resolution switches Cycles to a manual map size",
+        mgr.resolution == 2048
+        and bpy.context.scene.world.cycles.sampling_method == "MANUAL",
+    )
+    mgr.create_network(hdrMap=paths[0], resolution=1024)
+    check("a build applies resolution while the size is manual", mgr.resolution == 1024)
+    check(
+        "KNOBS are settable properties; samples / preview are mayatk's alone",
+        all(
+            isinstance(getattr(btk.HdrManager, k, None), property)
+            and getattr(btk.HdrManager, k).fset is not None
+            for k in btk.HdrManager.KNOBS
+        )
+        and "samples" not in btk.HdrManager.KNOBS
+        and "preview" not in btk.HdrManager.KNOBS,
+    )
+    ran = []
+    btk.HdrManager.defer_apply(lambda: ran.append(1))
+    check("defer_apply runs the edit at once", ran == [1])
+    mgr.clear()
+    check(
+        "clear removes the environment",
+        mgr.hdr_env is None and btk.get_world_hdri() is None,
+    )
+    btk.set_world_importance_resolution(0)
+
     # ---- scale_light_energy: the Maya->Cycles unit dial ----------------------
     # Relative, so it corrects the crossing without flattening the artist's own
     # relative brightnesses -- and must not compound on a SHARED light datablock.
