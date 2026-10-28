@@ -874,6 +874,7 @@ MOVED_NAMES = {
         "tentacle.slots.tools._app_bridge.host_bridge.HostBridge",
         "0.23.0",
     ),
+    "loft": ("blendertk.NurbsUtils.loft", "0.23.0"),
 }
 
 bootstrap_package(

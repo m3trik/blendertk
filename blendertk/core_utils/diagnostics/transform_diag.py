@@ -159,6 +159,7 @@ class TransformDiagnostics(_TransformDiagnosticsInternal):
         return found if detailed else list(found)
 
     @staticmethod
+    @CoreUtils.undoable
     @CoreUtils._object_mode
     def fix_non_orthogonal_axes(
         objects=None, dry_run=False, tolerance=1e-5, break_connections=False

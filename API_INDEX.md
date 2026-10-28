@@ -185,7 +185,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `display_utils/_display_utils.py` — Display utilities — the exploded-view toggle (mirror of mayatk's
 - `class DisplayUtils(_DisplayUtilsInternal)`
-  - methods: is_exploded, explode_view, unexplode_view, unexplode_all, get_visible_geometry, set_viewport_overlay, set_visibility, hide_objects, show_objects, toggle_xray, clear_xray, toggle_xray_others, cycle_component_ids, cycle_normals_display, toggle_soft_edge_display, toggle_material_override, set_wireframe, toggle_wireframe, toggle_wireframe_inactive, toggle_template, toggle_uv_checker, toggle_uv_distortion
+  - methods: get_smooth_level, set_smooth_level, is_exploded, explode_view, unexplode_view, unexplode_all, get_visible_geometry, set_viewport_overlay, set_visibility, hide_objects, show_objects, toggle_xray, clear_xray, toggle_xray_others, cycle_component_ids, cycle_normals_display, toggle_soft_edge_display, toggle_material_override, set_wireframe, toggle_wireframe, toggle_wireframe_inactive, toggle_template, toggle_uv_checker, toggle_uv_distortion
 
 ### `display_utils/color_id.py` — Color ID engine: color-code scene objects across channels.
 - `class ColorId`
@@ -202,7 +202,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `edit_utils/_edit_utils.py` — Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
 - `class EditUtils(_EditUtilsInternal)`
-  - methods: get_symmetry, set_symmetry, hook_bind_inverse, hook_curve_point, decimate, dissolve_coplanar, triangulate, tris_to_quads, subdivide_mesh, merge_vertices, boolean_objects, boolean_op, set_subdivision, apply_subdivision, set_shading, average_normals, select_edges_by_angle, set_edge_hardness, clear_custom_split_normals, add_custom_split_normals, has_custom_split_normals, flip_normals, recalculate_normals, propagate_normals, conform_normals, extract_reversed_faces, clean_geometry, crease_edges, mirror, mirror_instance, cut_along_axis, wedge, snap_closest_verts, snap_to_grid, snap_to_surface, get_standoff_distances, get_similar_mesh, ungroup_objects, separate_objects, combine_objects, detach_components, get_overlapping_faces, get_overlapping_duplicates, delete_selected, get_conversion_types, convert_objects, loft
+  - methods: get_symmetry, set_symmetry, hook_bind_inverse, hook_curve_point, decimate, dissolve_coplanar, triangulate, quadrangulate, tris_to_quads, subdivide_mesh, merge_vertices, boolean_objects, boolean_op, set_subdivision, apply_subdivision, set_shading, average_normals, select_edges_by_angle, set_edge_hardness, clear_custom_split_normals, add_custom_split_normals, has_custom_split_normals, flip_normals, recalculate_normals, propagate_normals, conform_normals, extract_reversed_faces, clean_geometry, crease_edges, mirror, mirror_instance, cut_along_axis, wedge, snap_closest_verts, snap_to_grid, snap_to_surface, get_standoff_distances, get_similar_mesh, ungroup_objects, separate_objects, combine_objects, detach_components, get_overlapping_faces, get_overlapping_duplicates, delete_selected, get_conversion_types, convert_objects
 
 ### `edit_utils/bevel.py` — Bevel tool engine.
 - `class Bevel`
@@ -690,7 +690,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `nurbs_utils/_nurbs_utils.py` — Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` namespace.
 - `class NurbsUtils(pythontk.LoggingMixin)`
-  - methods: add_spline, create_curve, duplicate_curve, create_plane, curve_to_mesh, straighten_curve, bend_curve, curl_curve, scale_curvature, rebuild_curve, extend_curve
+  - methods: add_spline, create_curve, duplicate_curve, create_plane, curve_to_mesh, straighten_curve, bend_curve, curl_curve, scale_curvature, rebuild_curve, extend_curve, curve_action, project_curves_on_mesh, curves_from_mesh, duplicate_curves, smooth_curves, toggle_curves_cyclic, reverse_curves, fill_planar_curves, attach_curves, separate_curve_points, split_curve_points, extrude_curves, revolve, loft
 
 ### `nurbs_utils/curve_to_tube.py` — Curve to Tube tool — Blender port of mayatk's ``nurbs_utils.curve_to_tube``.
 - `class CurveToTube(pythontk.LoggingMixin)`
@@ -702,7 +702,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `rig_utils/_rig_utils.py` — Shared procedural-rig primitives — Blender port of mayatk's ``rig_utils.RigUtils``.
 - `class RigUtils`
-  - methods: resolve_object, create_locator, create_group, parent_keep_transform, create_locator_at_object, remove_locator, create_armature, add_bone_chain, add_bone, set_bone_heads, set_bone_lengths, get_bone_chain_from_root, invert_bone_chain, add_bone_constraint, add_spline_ik, bind_armature, apply_falloff_weights, copy_location, copy_rotation, damped_track, track_to, child_of, refresh_drivers, add_distance_driver, add_transform_driver, add_prop_var, add_transform_var, ensure_custom_prop, remove_driver, lock_channels
+  - methods: resolve_object, create_locator, create_group, parent_keep_transform, freeze_and_reanchor, create_locator_at_object, remove_locator, create_armature, add_bone_chain, add_bone, set_bone_heads, set_bone_lengths, get_bone_chain_from_root, invert_bone_chain, add_bone_constraint, add_spline_ik, bind_armature, apply_falloff_weights, copy_location, copy_rotation, damped_track, track_to, child_of, refresh_drivers, add_distance_driver, add_transform_driver, add_prop_var, add_transform_var, ensure_custom_prop, remove_driver, lock_channels
 
 ### `rig_utils/articulated_rig/_articulated_rig.py` — Articulated Rig engine (Blender) -- rigid parts on hinge, swivel, ball and slide joints.
 - `class ArticulatedRig(pythontk.LoggingMixin, _ArticulatedRigInternal)`
@@ -844,7 +844,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `xform_utils/_xform_utils.py` — Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,
 - `class XformUtils(_XformUtilsInternal)`
-  - methods: get_world_bbox, freeze_transforms, restore_transforms, has_stored_transforms, store_transforms, get_stored_transforms, scale_connected_edges, drop_to_grid, center_pivot, transfer_pivot, reset_pivot, world_align_pivot, bake_pivot, get_pivot_modes, match_scale, move_to, get_bounding_box, get_center_point, get_operation_axis_matrix, get_distance, order_by_distance, aim_object_at_point, restore_original_axes, get_pivot_options, set_rotate_order
+  - methods: get_world_bbox, freeze_transforms, restore_transforms, has_stored_transforms, store_transforms, get_stored_transforms, scale_connected_edges, drop_to_grid, center_pivot, transfer_pivot, reset_pivot, world_align_pivot, bake_pivot, get_pivot_modes, match_scale, move_to, get_bounding_box, get_center_point, get_operation_axis_matrix, get_distance, order_by_distance, aim_object_at_point, restore_original_axes, get_pivot_options, move_to_target, align_to, get_transform_snap, set_transform_snap, get_transform_constraint, set_transform_constraint, set_rotate_order
 
 ### `xform_utils/matrices.py` — Matrix utilities — the Blender counterpart of mayatk's ``xform_utils.matrices``
 - `class Matrices`

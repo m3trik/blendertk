@@ -163,6 +163,20 @@ try:
     finally:
         btk.CoreUtils.get_areas = real_areas
 
+    # ---- smooth level (tentacle's composed SubdivisionSlots s000/s001) -----------------
+    reset()
+    sl = cube("SmoothLevel")
+    btk.CoreUtils.select([sl])
+    check("get_smooth_level without a Subsurf -> None", D.get_smooth_level() is None)
+    check("set_smooth_level(None) adds the modifier on the selection",
+          D.set_smooth_level(None, level=2, adaptive_level=3) == [sl])
+    check("get_smooth_level reads viewport / render levels",
+          D.get_smooth_level() == {"level": 2, "adaptive_level": 3},
+          str(D.get_smooth_level()))
+    btk.CoreUtils.select([])
+    check("set_smooth_level with nothing selected -> []",
+          D.set_smooth_level(None, level=1) == [])
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

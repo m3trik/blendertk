@@ -50,6 +50,29 @@ class _XformUtilsInternal(object):
     """Internal helpers for XformUtils."""
 
     @staticmethod
+    def _snap_elements():
+        """The live snap-element set (the combined ``snap_elements`` where Blender
+        has it, else the base set): what the Edge / Surface constraints read."""
+        import bpy
+
+        ts = bpy.context.scene.tool_settings
+        try:
+            return set(ts.snap_elements)
+        except AttributeError:  # 4.x split: snap_elements_base/_individual
+            return set(ts.snap_elements_base)
+
+    @staticmethod
+    def _snap_individual():
+        """The live per-element projection modes (FACE_PROJECT / FACE_NEAREST)."""
+        import bpy
+
+        ts = bpy.context.scene.tool_settings
+        try:
+            return set(ts.snap_elements_individual)
+        except AttributeError:  # pre-4.0 combined property
+            return {e for e in ts.snap_elements if e in ("FACE_NEAREST", "FACE_PROJECT")}
+
+    @staticmethod
     def _bake_keys(prefix=_DEFAULT_BAKE_PREFIX):
         """``(T, R, S)`` custom-prop key triple for *prefix* (mirror of
         mayatk's ``_XformUtilsInternal._bake_attr_names``)."""
@@ -183,9 +206,75 @@ class XformUtils(_XformUtilsInternal):
         mx = Vector(tuple(max(c[i] for c in corners) for i in range(3)))
         return mn, mx
 
+    #: The object types Freeze's "Center Pivot: All" re-centers (geometry).
+    _GEOMETRY_TYPES = frozenset({"MESH", "CURVE", "SURFACE", "FONT", "META"})
+
+    @staticmethod
+    @CoreUtils.undoable
+    def freeze_transforms(
+        objects,
+        location=True,
+        rotation=False,
+        scale=True,
+        store=True,
+        instance_strategy="skip",
+        *,
+        translate=None,
+        rotate=None,
+        center_pivot=0,
+        freeze_children=False,
+        force=True,
+        delete_history=False,
+        connection_strategy="preserve",
+        from_channel_box=False,
+    ):
+        """Freeze: apply (bake) the given channels into the object data -- Blender's
+        ``transform_apply`` (:meth:`_freeze_channels`), with mayatk's
+        ``freeze_transforms`` keywords: ``translate`` / ``rotate`` name
+        ``location`` / ``rotation``; ``freeze_children`` extends the freeze to every
+        descendant; ``center_pivot`` (0 none, 1 meshes, 2 all geometry; ``True`` is
+        2) re-centers the frozen objects' origins on their bounding boxes
+        afterwards. ``store`` stamps the pre-freeze channels for
+        :func:`restore_transforms`; ``instance_strategy`` is the linked-data policy
+        (``skip`` / ``preserve`` / ``uninstance``). ``force``, ``delete_history``,
+        ``connection_strategy`` and ``from_channel_box`` are Maya's (locked
+        channels, construction history, driven channels, the channel box), with
+        nothing to act on here: accepted for the shared call and ignored. One undo
+        step.
+
+        Returns the objects actually baked -- empty when everything was skipped.
+        """
+        if translate is not None:
+            location = translate
+        if rotate is not None:
+            rotation = rotate
+        objects = [o for o in ptk.make_iterable(objects) if o]
+        if freeze_children:  # descendants too, de-duplicated, order kept
+            objects = list(
+                dict.fromkeys(objects + [c for o in objects for c in o.children_recursive])
+            )
+        baked = XformUtils._freeze_channels(
+            objects,
+            location=location,
+            rotation=rotation,
+            scale=scale,
+            store=store,
+            instance_strategy=instance_strategy,
+        )
+        mode = 2 if center_pivot is True else int(center_pivot or 0)
+        if mode and baked:  # after the bake: the origin is Blender's one pivot
+            targets = [
+                o
+                for o in baked
+                if (o.type == "MESH" if mode == 1 else o.type in XformUtils._GEOMETRY_TYPES)
+            ]
+            if targets:
+                XformUtils.center_pivot(targets, mode="object")
+        return baked
+
     @staticmethod
     @CoreUtils._object_mode
-    def freeze_transforms(
+    def _freeze_channels(
         objects,
         location=True,
         rotation=False,
@@ -242,7 +331,7 @@ class XformUtils(_XformUtilsInternal):
                 else:  # preserve — re-enter with each group's master forked;
                     # the CM restores siblings (compensated) on exit.
                     with NodeUtils._preserved_instances(objects, quiet=False) as ctx:
-                        return XformUtils.freeze_transforms(
+                        return XformUtils._freeze_channels(
                             ctx.objects,
                             location=location,
                             rotation=rotation,
@@ -295,6 +384,7 @@ class XformUtils(_XformUtilsInternal):
         return objects
 
     @staticmethod
+    @CoreUtils.undoable
     @CoreUtils._object_mode
     def restore_transforms(
         objects,
@@ -497,7 +587,9 @@ class XformUtils(_XformUtilsInternal):
         }
 
     @staticmethod
-    def scale_connected_edges(objects, scale_factor=1.1):
+    @CoreUtils.selected
+    @CoreUtils.undoable
+    def scale_connected_edges(objects=None, scale_factor=1.1):
         """Scale each CONNECTED set of selected edges about that set's own centroid — mirror
         of ``mtk.scale_connected_edges``. Edit-mode workflow (mode-aware, like
         ``crease_edges``): acts on the selected edges of each mesh in EDIT mode. A tuple
@@ -535,12 +627,19 @@ class XformUtils(_XformUtilsInternal):
         return scaled
 
     @staticmethod
+    @CoreUtils.selected
+    @CoreUtils.undoable
     @CoreUtils._object_mode
-    def drop_to_grid(objects, align="Min", origin=False, center_pivot=False):
+    def drop_to_grid(
+        objects=None, align="Min", origin=False, center_pivot=False, freeze_transforms=False
+    ):
         """Drop each object so its bbox ``Min`` / ``Mid`` / ``Max`` sits on the ground (Z=0).
 
         ``origin``: first move the object to the world origin. ``center_pivot``: re-center the
-        object origin on its geometry bbox afterwards.
+        object origin on its geometry bbox afterwards. ``freeze_transforms``: then bake the
+        location (mayatk's freezes every channel). ``objects`` None takes the selection; the
+        objects end selected. One undo step. Returns the objects dropped, ``[]`` (nothing
+        runs) with nothing selected.
         """
         import bpy
 
@@ -562,6 +661,11 @@ class XformUtils(_XformUtilsInternal):
                 center_pivot
             ):  # bool param; reach the helper via the class (name is shadowed here)
                 XformUtils.center_pivot(obj, mode="object")
+        dropped = [o for o in ptk.make_iterable(objects) if o]
+        if freeze_transforms and dropped:  # the param shadows the method: via the class
+            XformUtils.freeze_transforms(dropped, location=True, rotation=False, scale=False)
+        CoreUtils.select(dropped)
+        return dropped
 
     @staticmethod
     @CoreUtils.undoable
@@ -804,13 +908,27 @@ class XformUtils(_XformUtilsInternal):
         return ["object", "median", "world"]
 
     @staticmethod
-    def match_scale(source, target, average=True):
-        """Uniformly rescale ``source`` object(s) to match ``target``'s bounding-box size."""
+    @CoreUtils.undoable
+    def match_scale(source=None, target=None, average=True):
+        """Uniformly rescale ``source`` object(s) to match ``target``'s bounding-box size.
+
+        Both None: the selection -- the active object is rescaled to the other selected
+        objects (mayatk's ``match_scale(None, None)`` scales the first selected; Blender
+        keeps no pick order, so its one distinguished object takes that role). One undo
+        step. Returns the objects rescaled, ``[]`` when there was nothing to scale.
+        """
+        if source is None and target is None:
+            active = CoreUtils.active_object()
+            others = [o for o in CoreUtils.selected_objects() if o != active]
+            if active is None or not others:
+                return []
+            source, target = [active], others
         targets = [o for o in ptk.make_iterable(target) if o]
         if not targets:
-            return
+            return []
         t_mn, t_mx = _XformUtilsInternal._combined_bbox(targets)
         t_size = t_mx - t_mn
+        scaled = []
         for src in (o for o in ptk.make_iterable(source) if o):
             s_mn, s_mx = XformUtils.get_world_bbox(src)
             s_size = s_mx - s_mn
@@ -819,6 +937,8 @@ class XformUtils(_XformUtilsInternal):
                 continue
             factor = (sum(ratios) / len(ratios)) if average else max(ratios)
             src.scale = [v * factor for v in src.scale]
+            scaled.append(src)
+        return scaled
 
     @staticmethod
     def move_to(source, target, pivot="center"):
@@ -1060,6 +1180,236 @@ class XformUtils(_XformUtilsInternal):
             "zmin",
             "zmax",
         ]
+
+    #: The pivots :meth:`move_to_target` aligns by, in the order a panel lists them
+    #: (it saves an index): :meth:`get_pivot_options` without ``"world"`` and
+    #: ``"manip"`` (the 3D cursor): each names one point for mover and target alike,
+    #: so the move would be zero. Mirror of ``mtk.XformUtils.MOVE_TO_PIVOTS``.
+    MOVE_TO_PIVOTS = (
+        "center",
+        "object",
+        "xmin",
+        "xmax",
+        "ymin",
+        "ymax",
+        "zmin",
+        "zmax",
+    )
+
+    #: Align To modes -> the axes ``object.align`` aligns the selected objects'
+    #: centers on, to the active object's. Mirror of ``mtk.XformUtils.ALIGN_MODES``
+    #: (Maya's snap / align tools there).
+    ALIGN_MODES = {
+        "Align X to Active": ("X",),
+        "Align Y to Active": ("Y",),
+        "Align Z to Active": ("Z",),
+        "Align Centers to Active": ("X", "Y", "Z"),
+    }
+
+    #: Transform-snap kinds -> the tool-settings flag that gates each.
+    _SNAP_FLAGS = {
+        "move": "use_snap_translate",
+        "scale": "use_snap_scale",
+        "rotate": "use_snap_rotate",
+    }
+
+    @staticmethod
+    @CoreUtils.undoable
+    def move_to_target(objects=None, pivot="center", all_to_last=True, match_scale=False):
+        """Move To -- mirror of ``mtk.XformUtils.move_to_target``: the objects move
+        onto their target by *pivot*. *objects* None takes the selection with the
+        active object as the target (Blender keeps no pick order); a list's last
+        object is. With *all_to_last* every other object moves onto the target;
+        otherwise the target moves onto the others' combined bounding box.
+        *match_scale* first rescales the movers uniformly to the target's size. One
+        undo step.
+
+        Returns:
+            (list): The objects moved; ``[]`` (nothing runs) with fewer than two.
+        """
+        if objects is None:
+            active = CoreUtils.active_object()
+            if active is None:
+                return []
+            nodes = [o for o in CoreUtils.selected_objects() if o != active] + [active]
+        else:
+            nodes = [o for o in ptk.make_iterable(objects) if o]
+        if len(nodes) < 2:
+            return []
+        if all_to_last:
+            source, target = nodes[:-1], nodes[-1]
+        else:
+            source, target = [nodes[-1]], nodes[:-1]
+        if match_scale:
+            XformUtils.match_scale(source, target)
+        XformUtils.move_to(source, target, pivot=pivot)
+        return source
+
+    @staticmethod
+    @CoreUtils.undoable
+    def align_to(mode, objects=None):
+        """Align To -- mirror of ``mtk.XformUtils.align_to``: align the selected
+        objects' centers on the :attr:`ALIGN_MODES` axes of *mode* to the active
+        object's (``object.align``). *objects* None takes the selection; a list's
+        last object is the target. One undo step.
+
+        Returns:
+            (list): The objects aligned (the target included).
+
+        Raises:
+            ValueError: An unknown *mode*, or fewer than two objects.
+            RuntimeError: Blender refused it.
+        """
+        import bpy
+
+        axes = XformUtils.ALIGN_MODES.get(mode)
+        if axes is None:
+            raise ValueError(
+                f"Unknown Align To mode {mode!r}: expected one of "
+                f"{', '.join(XformUtils.ALIGN_MODES)}."
+            )
+        objects = (
+            CoreUtils.selected_objects()
+            if objects is None
+            else [o for o in ptk.make_iterable(objects) if o]
+        )
+        if len(objects) < 2:
+            raise ValueError(
+                "Align needs two or more selected objects; the active one is the target."
+            )
+        # object.align iterates context.selected_objects -- empty without a window
+        # (the Qt-pump state), where it fails as a WARNING, not an exception.
+        with CoreUtils.window_context_override():
+            if objects != CoreUtils.selected_objects():
+                CoreUtils.select(objects)
+                bpy.context.view_layer.objects.active = objects[-1]
+            bpy.ops.object.align(
+                align_mode="OPT_2", relative_to="OPT_4", align_axis=set(axes)
+            )
+        return objects
+
+    @staticmethod
+    def get_transform_snap():
+        """Increment snapping per transform kind -- mirror of
+        ``mtk.XformUtils.get_transform_snap``: ``{kind: {"enabled": bool,
+        "increment": float | None}}``. *enabled* is the EFFECTIVE state (snapping
+        on and the kind affected); only rotate has an increment (degrees):
+        translation snaps to the grid, scale has none."""
+        import math
+
+        import bpy
+
+        ts = bpy.context.scene.tool_settings
+        return {
+            kind: {
+                "enabled": bool(ts.use_snap and getattr(ts, flag)),
+                "increment": (
+                    math.degrees(ts.snap_angle_increment_3d) if kind == "rotate" else None
+                ),
+            }
+            for kind, flag in XformUtils._SNAP_FLAGS.items()
+        }
+
+    @staticmethod
+    def set_transform_snap(kind, state=None, increment=None):
+        """Set the *kind* (``"move"``, ``"scale"``, ``"rotate"``) increment snapping
+        -- mirror of ``mtk.XformUtils.set_transform_snap``. The other kinds keep
+        their effective state: snapping is one switch with per-kind flags here, so
+        every flag is written and the switch is on while any kind is. With nothing
+        to snap to yet, INCREMENT is seeded (an Edge / Surface constraint's element
+        is kept). *increment* sets the rotate step (degrees); move and scale have
+        none, and theirs is ignored.
+
+        Returns:
+            (dict): The kind's state after, as :meth:`get_transform_snap` reads it.
+
+        Raises:
+            ValueError: An unknown *kind*.
+        """
+        import math
+
+        import bpy
+
+        if kind not in XformUtils._SNAP_FLAGS:
+            raise ValueError(f"kind must be 'move', 'scale' or 'rotate', not {kind!r}.")
+        ts = bpy.context.scene.tool_settings
+        if state is not None:
+            effective = {
+                k: bool(ts.use_snap and getattr(ts, flag))
+                for k, flag in XformUtils._SNAP_FLAGS.items()
+            }
+            effective[kind] = bool(state)
+            for k, flag in XformUtils._SNAP_FLAGS.items():
+                setattr(ts, flag, effective[k])
+            ts.use_snap = any(effective.values())
+            if ts.use_snap and not (
+                _XformUtilsInternal._snap_elements()
+                or _XformUtilsInternal._snap_individual()
+            ):
+                try:
+                    ts.snap_elements = {"INCREMENT"}
+                except AttributeError:  # 4.x split: snap_elements_base/_individual
+                    ts.snap_elements_base = {"INCREMENT"}
+        if increment is not None and kind == "rotate":
+            ts.snap_angle_increment_3d = math.radians(increment)
+        return XformUtils.get_transform_snap()[kind]
+
+    @staticmethod
+    def get_transform_constraint():
+        """The transform constraints -- mirror of
+        ``mtk.XformUtils.get_transform_constraint``: ``{"edge": bool, "surface":
+        bool, "live": bool}``, read off live snapping (EDGE / FACE snap elements;
+        FACE_NEAREST projection for Make Live)."""
+        import bpy
+
+        use_snap = bpy.context.scene.tool_settings.use_snap
+        elements = _XformUtilsInternal._snap_elements() if use_snap else set()
+        individual = _XformUtilsInternal._snap_individual() if use_snap else set()
+        return {
+            "edge": "EDGE" in elements,
+            "surface": "FACE" in elements,
+            "live": "FACE_NEAREST" in individual,
+        }
+
+    @staticmethod
+    def set_transform_constraint(kind, state=True):
+        """Turn a transform constraint on or off -- mirror of
+        ``mtk.XformUtils.set_transform_constraint``: ``"edge"`` / ``"surface"`` snap
+        to that element during a move (one at a time, as Maya constrains to one
+        type); ``"live"`` projects transformed geometry onto surfaces (FACE_NEAREST,
+        Blender's retopology snap; Maya makes one surface live, Blender projects
+        onto every snap target). Enabling one replaces the others (Blender's snap
+        setters cross-clear base and individual elements); disabling turns snapping
+        off.
+
+        Returns:
+            (dict): :meth:`get_transform_constraint` after.
+
+        Raises:
+            ValueError: An unknown *kind*.
+        """
+        import bpy
+
+        if kind not in ("edge", "surface", "live"):
+            raise ValueError(f"kind must be 'edge', 'surface' or 'live', not {kind!r}.")
+        ts = bpy.context.scene.tool_settings
+        if not state:
+            ts.use_snap = False
+            return XformUtils.get_transform_constraint()
+        if kind == "live":
+            try:  # 4.0+: FACE_NEAREST / FACE_PROJECT live in the individual set
+                ts.snap_elements_individual = {"FACE_NEAREST"}
+            except AttributeError:  # pre-split combined property
+                ts.snap_elements = {"FACE_NEAREST"}
+        else:
+            element = "EDGE" if kind == "edge" else "FACE"
+            try:
+                ts.snap_elements = {element}
+            except AttributeError:
+                ts.snap_elements_base = {element}
+        ts.use_snap = True
+        ts.use_snap_translate = True
+        return XformUtils.get_transform_constraint()
 
     #: Euler orders, Maya-spelled and in its ``rotateOrder`` enum order (Blender's
     #: ``rotation_mode`` of the same letters applies the axes in the same sequence).

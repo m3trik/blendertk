@@ -91,6 +91,47 @@ class DisplayUtils(_DisplayUtilsInternal):
     """Namespace mirror of mayatk's ``DisplayUtils`` (helpers also exposed module-level)."""
 
     @staticmethod
+    def get_smooth_level(objects=None):
+        """The subdivision levels of the first object carrying a Subdivision Surface
+        modifier among *objects* (None: the active object, then the selection):
+        ``{"level": levels, "adaptive_level": render_levels}``, or None without one.
+        Mirror of ``mtk.DisplayUtils.get_smooth_level`` (Maya's smooth-preview
+        divisions and OpenSubdiv adaptive level): the viewport level is the
+        preview, the render level the second one Blender has.
+        """
+        if objects is None:
+            active = CoreUtils.active_object()
+            pool = ([active] if active is not None else []) + CoreUtils.selected_objects()
+        else:
+            pool = list(ptk.make_iterable(objects))
+        for obj in pool:
+            mod = next(
+                (m for m in getattr(obj, "modifiers", ()) if m.type == "SUBSURF"), None
+            )
+            if mod is not None:
+                return {"level": mod.levels, "adaptive_level": mod.render_levels}
+        return None
+
+    @staticmethod
+    @CoreUtils.selected
+    @CoreUtils.undoable
+    def set_smooth_level(objects=None, level=None, adaptive_level=None):
+        """Set the Subdivision Surface levels of the meshes in *objects* (None: the
+        selection), adding the modifier where there is none: *level* the viewport
+        level, *adaptive_level* the render level -- mirror of
+        ``mtk.DisplayUtils.set_smooth_level`` (``EditUtils.set_subdivision``). One
+        undo step.
+
+        Returns:
+            (list): The meshes set; ``[]`` when *objects* holds none.
+        """
+        from blendertk.edit_utils._edit_utils import EditUtils  # a lower part
+
+        return EditUtils.set_subdivision(
+            objects, viewport_levels=level, render_levels=adaptive_level
+        )
+
+    @staticmethod
     def is_exploded(objects):
         """True when any of the given objects carries an exploded-view origin stamp."""
         return any(_ORIG_LOCATION in o for o in ptk.make_iterable(objects) if o)

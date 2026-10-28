@@ -2,7 +2,7 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (847)
+## Moved out (848)
 
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b000` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
@@ -295,6 +295,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `display_utils/exploded_view.py::ExplodedViewSlots.b002` → `tentacle.slots.tools.exploded_view.ExplodedViewSlots` (from 0.23.0)
 - `display_utils/exploded_view.py::ExplodedViewSlots.b003` → `tentacle.slots.tools.exploded_view.ExplodedViewSlots` (from 0.23.0)
 - `display_utils/exploded_view.py::ExplodedViewSlots.header_init` → `tentacle.slots.tools.exploded_view.ExplodedViewSlots` (from 0.23.0)
+- `edit_utils/_edit_utils.py::EditUtils.loft` → `blendertk.NurbsUtils.loft` (from 0.23.0)
 - `edit_utils/bevel.py::BevelSlots` → `tentacle.slots.tools.bevel.BevelSlots` (from 0.23.0)
 - `edit_utils/bevel.py::BevelSlots.header_init` → `tentacle.slots.tools.bevel.BevelSlots` (from 0.23.0)
 - `edit_utils/bevel.py::BevelSlots.perform_operation` → `tentacle.slots.tools.bevel.BevelSlots` (from 0.23.0)
@@ -852,7 +853,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (472)
+## Added (496)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -965,7 +966,9 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `display_utils/_display_utils.py::DisplayUtils.clear_xray()`
 - `display_utils/_display_utils.py::DisplayUtils.cycle_component_ids()`
 - `display_utils/_display_utils.py::DisplayUtils.cycle_normals_display()`
+- `display_utils/_display_utils.py::DisplayUtils.get_smooth_level(objects=None)`
 - `display_utils/_display_utils.py::DisplayUtils.hide_objects(objects=None)`
+- `display_utils/_display_utils.py::DisplayUtils.set_smooth_level(objects=None, level=None, adaptive_level=None)`
 - `display_utils/_display_utils.py::DisplayUtils.set_visibility(elements, visibility=True, include_ancestors=True, affect_layers=True)`
 - `display_utils/_display_utils.py::DisplayUtils.set_wireframe(objects=None, state=True)`
 - `display_utils/_display_utils.py::DisplayUtils.show_objects(objects=None)`
@@ -994,6 +997,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `edit_utils/_edit_utils.py::EditUtils.get_conversion_types(cls)`
 - `edit_utils/_edit_utils.py::EditUtils.get_symmetry()`
 - `edit_utils/_edit_utils.py::EditUtils.merge_vertices(objects=None, tolerance=0.001, selected_only=None)`
+- `edit_utils/_edit_utils.py::EditUtils.quadrangulate(objects=None, angle=40.0)`
 - `edit_utils/_edit_utils.py::EditUtils.set_symmetry(axis=None, state=True, space=None)`
 - `edit_utils/components.py::Components(class)`
 - `edit_utils/components.py::Components.adjusted_distance_between_vertices(p1=None, p2=None, adjust=0.0, as_percentage=False)`
@@ -1264,7 +1268,22 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `node_utils/attributes/channels/_channels.py::Channels.unmute_attrs(cls, objects, attr_names)`
 - `node_utils/attributes/channels/_channels.py::Channels.unwatch(owner=None, tokens=())`
 - `node_utils/attributes/channels/_channels.py::Channels.watch_scene(owner, on_rebuild, on_values, widget=None)`
+- `nurbs_utils/_nurbs_utils.py::NurbsUtils.attach_curves(cls, objects=None)`
+- `nurbs_utils/_nurbs_utils.py::NurbsUtils.curve_action(cls, action, curves=None)`
+- `nurbs_utils/_nurbs_utils.py::NurbsUtils.curves_from_mesh(cls, objects=None)`
+- `nurbs_utils/_nurbs_utils.py::NurbsUtils.duplicate_curves(cls, objects=None)`
+- `nurbs_utils/_nurbs_utils.py::NurbsUtils.extrude_curves(cls, objects=None)`
+- `nurbs_utils/_nurbs_utils.py::NurbsUtils.fill_planar_curves(cls, objects=None)`
+- `nurbs_utils/_nurbs_utils.py::NurbsUtils.loft(objects=None, uniform=True, close=False, degree=3, autoReverse=False, sectionSpans=1, range_=False, polygon=True, reverseSurfaceNormals=True, angle_loft_between_two_curves=False, angleLoftSpans=6)`
+- `nurbs_utils/_nurbs_utils.py::NurbsUtils.project_curves_on_mesh(cls, objects=None)`
+- `nurbs_utils/_nurbs_utils.py::NurbsUtils.reverse_curves(cls, objects=None)`
+- `nurbs_utils/_nurbs_utils.py::NurbsUtils.revolve(curves=None, axis='y', start_sweep=0.0, end_sweep=360.0, sections=8, degree=3, range_=False, polygon=True, use_tolerance=False, tolerance=0.001, auto_correct_normal=False)`
+- `nurbs_utils/_nurbs_utils.py::NurbsUtils.separate_curve_points(cls, curve=None)`
+- `nurbs_utils/_nurbs_utils.py::NurbsUtils.smooth_curves(cls, objects=None)`
+- `nurbs_utils/_nurbs_utils.py::NurbsUtils.split_curve_points(cls, curve=None)`
+- `nurbs_utils/_nurbs_utils.py::NurbsUtils.toggle_curves_cyclic(cls, objects=None)`
 - `nurbs_utils/curve_to_tube.py::CurveToTube.describe(tubes)`
+- `rig_utils/_rig_utils.py::RigUtils.freeze_and_reanchor(objects=None, reanchor=True, **freeze_options)`
 - `rig_utils/articulated_rig/_articulated_rig.py::ArticulatedRig.group_uuid(self) -> Optional[str]`
 - `rig_utils/articulated_rig/_articulated_rig.py::ArticulatedRig.parts_of(self, nodes: Sequence[Any]) -> List[Any]`
 - `rig_utils/articulated_rig/_articulated_rig.py::ArticulatedRig.select(cls, nodes: Sequence[Any]) -> None`
@@ -1323,8 +1342,14 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_transfer.py::TextureTransfer.meshes(objects) -> List[Any]`
 - `uv_utils/texture_transfer.py::TextureTransfer.selection_sides(cls, mode: str = 'auto', stored=()) -> Tuple[str, Optional[List[Any]], List[Any]]`
 - `uv_utils/texture_transfer.py::TextureTransfer.shader_types() -> Dict[str, str]`
+- `xform_utils/_xform_utils.py::XformUtils.align_to(mode, objects=None)`
 - `xform_utils/_xform_utils.py::XformUtils.bake_pivot(objects, position=False, orientation=False)`
+- `xform_utils/_xform_utils.py::XformUtils.get_transform_constraint()`
+- `xform_utils/_xform_utils.py::XformUtils.get_transform_snap()`
+- `xform_utils/_xform_utils.py::XformUtils.move_to_target(objects=None, pivot='center', all_to_last=True, match_scale=False)`
 - `xform_utils/_xform_utils.py::XformUtils.reset_pivot(objects=None, position=True, orientation=True)`
+- `xform_utils/_xform_utils.py::XformUtils.set_transform_constraint(kind, state=True)`
+- `xform_utils/_xform_utils.py::XformUtils.set_transform_snap(kind, state=None, increment=None)`
 - `xform_utils/_xform_utils.py::XformUtils.world_align_pivot(objects=None, pivot_type='object', mode='set')`
 
 ## Deprecations (10)
@@ -1364,7 +1389,7 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/emissive_groups.py::EmissiveGroups.validate`
 - `ui_utils/blender_ui_handler.py::BlenderUiHandler.default_persistence`
 
-## Signature changed (30)
+## Signature changed (39)
 
 - `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.edit_frame_based`
   - was: `(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None) -> List[Target]`
@@ -1387,9 +1412,18 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `display_utils/color_id.py::ColorId.reset_colors`
   - was: `(cls, objects: Sequence, reset_material: bool = True, reset_object: bool = True, reset_vertex: bool = True, reset_outliner: bool = True, reset_sets: bool = True) -> None`
   - now: `(cls, objects: Sequence, reset_outliner: bool = True, reset_wireframe: bool = True, reset_vertex: bool = True, reset_material: bool = True, reset_sets: bool = True) -> None`
+- `edit_utils/_edit_utils.py::EditUtils.apply_subdivision`
+  - was: `(objects)`
+  - now: `(objects=None)`
+- `edit_utils/_edit_utils.py::EditUtils.decimate`
+  - was: `(objects, percentage=50.0, preserve_quads=True, symmetry=False, apply=True)`
+  - now: `(objects=None, percentage=50.0, preserve_quads=True, symmetry=False, apply=True, delete_history=True)`
 - `edit_utils/_edit_utils.py::EditUtils.detach_components`
   - was: `(*, duplicate=False, separate=True, separate_each=False, center_pivot=True)`
   - now: `(components=None, duplicate=True, separate=True, keep_faces_together=True, center_pivot=True, *, separate_each=None)`
+- `edit_utils/_edit_utils.py::EditUtils.dissolve_coplanar`
+  - was: `(objects, angle_tolerance=1.0, delimit=None, preserve_borders=True, apply=True)`
+  - now: `(objects=None, angle_tolerance=1.0, delimit=None, preserve_borders=True, apply=True, preserve_hard_edges=False, preserve_uv_borders=False)`
 - `edit_utils/_edit_utils.py::EditUtils.mirror`
   - was: `(objects, axis='x', pivot='object', merge_mode=1, delete_original=False, merge_threshold=0.001, center_pivot=True, axis_frame=None)`
   - now: `(objects, axis='x', pivot='object', mergeMode=-1, delete_original=False, merge_threshold=0.001, center_pivot=True, axis_frame=None)`
@@ -1399,6 +1433,12 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `edit_utils/_edit_utils.py::EditUtils.separate_objects`
   - was: `(objects=None, *, by_material=False, rename=False, center_pivots=True, uninstance=True)`
   - now: `(objects=None, *, by_material=False, group_by_material=False, rename=False, center_pivots=True, uninstance=True, select=False)`
+- `edit_utils/_edit_utils.py::EditUtils.subdivide_mesh`
+  - was: `(objects, cuts=1)`
+  - now: `(objects=None, cuts=1)`
+- `edit_utils/_edit_utils.py::EditUtils.triangulate`
+  - was: `(objects)`
+  - now: `(objects=None)`
 - `edit_utils/_edit_utils.py::EditUtils.wedge`
   - was: `(objects, angle=90.0, divisions=4)`
   - now: `(objects=None, angle=None, divisions=None)`
@@ -1453,6 +1493,18 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `xform_utils/_xform_utils.py::XformUtils.center_pivot`
   - was: `(objects, mode='object')`
   - now: `(objects=None, mode='object')`
+- `xform_utils/_xform_utils.py::XformUtils.drop_to_grid`
+  - was: `(objects, align='Min', origin=False, center_pivot=False)`
+  - now: `(objects=None, align='Min', origin=False, center_pivot=False, freeze_transforms=False)`
+- `xform_utils/_xform_utils.py::XformUtils.freeze_transforms`
+  - was: `(objects, location=True, rotation=False, scale=True, store=True, instance_strategy='skip')`
+  - now: `(objects, location=True, rotation=False, scale=True, store=True, instance_strategy='skip', *, translate=None, rotate=None, center_pivot=0, freeze_children=False, force=True, delete_history=False, connection_strategy='preserve', from_channel_box=False)`
+- `xform_utils/_xform_utils.py::XformUtils.match_scale`
+  - was: `(source, target, average=True)`
+  - now: `(source=None, target=None, average=True)`
+- `xform_utils/_xform_utils.py::XformUtils.scale_connected_edges`
+  - was: `(objects, scale_factor=1.1)`
+  - now: `(objects=None, scale_factor=1.1)`
 - `xform_utils/_xform_utils.py::XformUtils.transfer_pivot`
   - was: `(objects, translate=True, rotate=False, scale=False, world_space=True, mirror='', select_targets_after_transfer=False)`
   - now: `(objects, translate=True, rotate=False, scale=False, bake=True, world_space=True, mirror='', select_targets_after_transfer=False)`

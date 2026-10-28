@@ -4580,7 +4580,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, dry_run=False, tolerance=1e-05, break_connections=False)",
               "summary": "Bake out non-orthogonal (sheared) world axes — shear breaks FBX export (mirror of",
-              "line": 163,
+              "line": 164,
               "deprecated": false
             }
           ]
@@ -4886,12 +4886,30 @@
           ],
           "members": [
             {
+              "name": "get_smooth_level",
+              "qualname": "DisplayUtils.get_smooth_level",
+              "kind": "staticmethod",
+              "signature": "(objects=None)",
+              "summary": "The subdivision levels of the first object carrying a Subdivision Surface",
+              "line": 94,
+              "deprecated": false
+            },
+            {
+              "name": "set_smooth_level",
+              "qualname": "DisplayUtils.set_smooth_level",
+              "kind": "staticmethod",
+              "signature": "(objects=None, level=None, adaptive_level=None)",
+              "summary": "Set the Subdivision Surface levels of the meshes in *objects* (None: the",
+              "line": 118,
+              "deprecated": false
+            },
+            {
               "name": "is_exploded",
               "qualname": "DisplayUtils.is_exploded",
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "True when any of the given objects carries an exploded-view origin stamp.",
-              "line": 94,
+              "line": 135,
               "deprecated": false
             },
             {
@@ -4900,7 +4918,7 @@
               "kind": "staticmethod",
               "signature": "(objects, step=1.2, margin=0.05, max_iterations=50)",
               "summary": "Push the given objects apart for inspection — each moves away from the group's bbox",
-              "line": 99,
+              "line": 140,
               "deprecated": false
             },
             {
@@ -4909,7 +4927,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Restore the exact pre-explode locations stamped by :func:`explode_view`.",
-              "line": 156,
+              "line": 197,
               "deprecated": false
             },
             {
@@ -4918,7 +4936,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Restore every exploded object in the scene, regardless of selection (mirror of mayatk's",
-              "line": 173,
+              "line": 214,
               "deprecated": false
             },
             {
@@ -4927,7 +4945,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Mesh objects visible in the current view layer — mirror of mayatk's",
-              "line": 181,
+              "line": 222,
               "deprecated": false
             },
             {
@@ -4936,7 +4954,7 @@
               "kind": "staticmethod",
               "signature": "(**flags)",
               "summary": "Set ``View3DOverlay`` properties on every 3D viewport of the file -- each",
-              "line": 196,
+              "line": 237,
               "deprecated": false
             },
             {
@@ -4945,7 +4963,7 @@
               "kind": "staticmethod",
               "signature": "(elements, visibility=True, include_ancestors=True, affect_layers=True)",
               "summary": "Show or hide *elements* in the window's view layer (the eye,",
-              "line": 246,
+              "line": 287,
               "deprecated": false
             },
             {
@@ -4954,7 +4972,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Hide *objects* in the window's view layer (the eye, Blender's H).",
-              "line": 295,
+              "line": 336,
               "deprecated": false
             },
             {
@@ -4963,7 +4981,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Show hidden *objects* in the window's view layer.",
-              "line": 315,
+              "line": 356,
               "deprecated": false
             },
             {
@@ -4972,7 +4990,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Uniform x-ray (``show_in_front``) toggle: any off turns them all on;",
-              "line": 336,
+              "line": 377,
               "deprecated": false
             },
             {
@@ -4981,7 +4999,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Turn x-ray off on every object in the scene (\"Un-Xray All\").",
-              "line": 348,
+              "line": 389,
               "deprecated": false
             },
             {
@@ -4990,7 +5008,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Uniform x-ray toggle over every mesh in the scene EXCEPT *objects*",
-              "line": 362,
+              "line": 403,
               "deprecated": false
             },
             {
@@ -4999,7 +5017,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Toggle the 3D viewports' index overlay (``show_extra_indices``: the",
-              "line": 384,
+              "line": 425,
               "deprecated": false
             },
             {
@@ -5008,7 +5026,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Step the 3D viewports' normals overlay: face, vertex, off (shown in",
-              "line": 396,
+              "line": 437,
               "deprecated": false
             },
             {
@@ -5017,7 +5035,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Toggle the 3D viewports' sharp-edge overlay (``show_edge_sharp``).",
-              "line": 421,
+              "line": 462,
               "deprecated": false
             },
             {
@@ -5026,7 +5044,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Toggle the 3D viewports' solid colour between Material and a flat",
-              "line": 431,
+              "line": 472,
               "deprecated": false
             },
             {
@@ -5035,7 +5053,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, state=True)",
               "summary": "Draw *objects* as wireframe, or textured again (*state* False:",
-              "line": 451,
+              "line": 492,
               "deprecated": false
             },
             {
@@ -5044,7 +5062,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Toggle *objects* between wireframe and textured, together: the active",
-              "line": 465,
+              "line": 506,
               "deprecated": false
             },
             {
@@ -5053,7 +5071,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Draw every unselected mesh in the scene as wireframe, or textured",
-              "line": 484,
+              "line": 525,
               "deprecated": false
             },
             {
@@ -5062,7 +5080,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Template *objects*: wireframe, not rendered, not selectable -- Maya's",
-              "line": 501,
+              "line": 542,
               "deprecated": false
             },
             {
@@ -5071,7 +5089,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Toggle a checker in the UV editors: a generated ``UV_GRID`` image",
-              "line": 539,
+              "line": 580,
               "deprecated": false
             },
             {
@@ -5080,7 +5098,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Step the UV editors' stretch overlay: angle, area, off.",
-              "line": 571,
+              "line": 612,
               "deprecated": false
             }
           ]
@@ -5554,27 +5572,36 @@
               "name": "decimate",
               "qualname": "EditUtils.decimate",
               "kind": "staticmethod",
-              "signature": "(objects, percentage=50.0, preserve_quads=True, symmetry=False, apply=True)",
+              "signature": "(objects=None, percentage=50.0, preserve_quads=True, symmetry=False, apply=True, delete_history=True)",
               "summary": "Reduce mesh density via a Decimate (COLLAPSE) modifier — mirror of ``mtk.EditUtils.decimate``.",
-              "line": 854,
+              "line": 871,
               "deprecated": false
             },
             {
               "name": "dissolve_coplanar",
               "qualname": "EditUtils.dissolve_coplanar",
               "kind": "staticmethod",
-              "signature": "(objects, angle_tolerance=1.0, delimit=None, preserve_borders=True, apply=True)",
+              "signature": "(objects=None, angle_tolerance=1.0, delimit=None, preserve_borders=True, apply=True, preserve_hard_edges=False, preserve_uv_borders=False)",
               "summary": "Dissolve near-coplanar faces via a Decimate (PLANAR) modifier — mirror of",
-              "line": 881,
+              "line": 909,
               "deprecated": false
             },
             {
               "name": "triangulate",
               "qualname": "EditUtils.triangulate",
               "kind": "staticmethod",
-              "signature": "(objects)",
-              "summary": "Triangulate all faces of the given mesh object(s) (bmesh, headless).",
-              "line": 908,
+              "signature": "(objects=None)",
+              "summary": "Triangulate all faces of the given mesh object(s) (bmesh, headless) -- mirror of",
+              "line": 954,
+              "deprecated": false
+            },
+            {
+              "name": "quadrangulate",
+              "qualname": "EditUtils.quadrangulate",
+              "kind": "staticmethod",
+              "signature": "(objects=None, angle=40.0)",
+              "summary": "Quadrangulate -- mirror of ``mtk.EditUtils.quadrangulate``: merge adjacent",
+              "line": 968,
               "deprecated": false
             },
             {
@@ -5583,16 +5610,16 @@
               "kind": "staticmethod",
               "signature": "(objects, angle=40.0)",
               "summary": "Merge adjacent triangles back into quads where the face/shape angle is within ``angle``",
-              "line": 918,
+              "line": 978,
               "deprecated": false
             },
             {
               "name": "subdivide_mesh",
               "qualname": "EditUtils.subdivide_mesh",
               "kind": "staticmethod",
-              "signature": "(objects, cuts=1)",
-              "summary": "Subdivide every edge ``cuts`` times, grid-filling faces (bmesh, headless) — \"Add Divisions\".",
-              "line": 941,
+              "signature": "(objects=None, cuts=1)",
+              "summary": "Subdivide every edge ``cuts`` times, grid-filling faces (bmesh, headless) — \"Add Divisions\"",
+              "line": 1003,
               "deprecated": false
             },
             {
@@ -5601,7 +5628,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, tolerance=0.001, selected_only=None)",
               "summary": "Merge the vertices within *tolerance* (Blender's Merge by Distance).",
-              "line": 954,
+              "line": 1019,
               "deprecated": false
             },
             {
@@ -5610,7 +5637,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, operation='difference', interactive=False)",
               "summary": "Boolean meshes with Boolean modifiers: the first is the base (for",
-              "line": 1008,
+              "line": 1073,
               "deprecated": false
             },
             {
@@ -5619,7 +5646,7 @@
               "kind": "staticmethod",
               "signature": "(objects, operation='DIFFERENCE', apply=True)",
               "summary": "Boolean the first mesh by the remaining ones via Boolean modifiers (the §5 map for",
-              "line": 1045,
+              "line": 1110,
               "deprecated": false
             },
             {
@@ -5628,16 +5655,16 @@
               "kind": "staticmethod",
               "signature": "(objects, viewport_levels=None, render_levels=None, ensure=True)",
               "summary": "Set Subdivision-Surface levels on the given mesh object(s), kept **live** (non-destructive",
-              "line": 1062,
+              "line": 1127,
               "deprecated": false
             },
             {
               "name": "apply_subdivision",
               "qualname": "EditUtils.apply_subdivision",
               "kind": "staticmethod",
-              "signature": "(objects)",
+              "signature": "(objects=None)",
               "summary": "Bake the live Subsurf modifier into real geometry — the destructive counterpart of",
-              "line": 1085,
+              "line": 1152,
               "deprecated": false
             },
             {
@@ -5646,7 +5673,7 @@
               "kind": "staticmethod",
               "signature": "(objects, smooth=True, selected_only=False)",
               "summary": "Set smooth (averaged vertex normals) or flat (face normals) shading — the Blender",
-              "line": 1105,
+              "line": 1173,
               "deprecated": false
             },
             {
@@ -5655,7 +5682,7 @@
               "kind": "staticmethod",
               "signature": "(objects, by_uv_shell=False)",
               "summary": "Average vertex normals by softening edges — Blender mirror of ``mtk.Components.average_normals``",
-              "line": 1148,
+              "line": 1216,
               "deprecated": false
             },
             {
@@ -5664,7 +5691,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, low_angle=0.0, high_angle=180.0)",
               "summary": "Select interior edges whose dihedral (face) angle is within ``[low_angle, high_angle]``",
-              "line": 1178,
+              "line": 1246,
               "deprecated": false
             },
             {
@@ -5673,7 +5700,7 @@
               "kind": "staticmethod",
               "signature": "(objects, angle=30.0, upper_hardness=0, lower_hardness=180)",
               "summary": "Smooth-shade, then mark interior edges hard/soft by their dihedral angle relative to",
-              "line": 1216,
+              "line": 1284,
               "deprecated": false
             },
             {
@@ -5682,7 +5709,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Clear custom split normals on the given mesh object(s) — the Blender analogue of Maya's",
-              "line": 1253,
+              "line": 1321,
               "deprecated": false
             },
             {
@@ -5691,7 +5718,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Bake the current normals of the given mesh object(s) as custom split normals — the Blender",
-              "line": 1262,
+              "line": 1330,
               "deprecated": false
             },
             {
@@ -5700,7 +5727,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "True when EVERY mesh in ``objects`` carries custom split normals (i.e.",
-              "line": 1271,
+              "line": 1339,
               "deprecated": false
             },
             {
@@ -5709,7 +5736,7 @@
               "kind": "staticmethod",
               "signature": "(objects, selected_only=False)",
               "summary": "Reverse face winding / normals (bmesh ``reverse_faces``, headless).",
-              "line": 1282,
+              "line": 1350,
               "deprecated": false
             },
             {
@@ -5718,7 +5745,7 @@
               "kind": "staticmethod",
               "signature": "(objects, inside=False)",
               "summary": "Recalculate consistent face normals, outward by default / inward if ``inside`` (bmesh).",
-              "line": 1296,
+              "line": 1364,
               "deprecated": false
             },
             {
@@ -5727,7 +5754,7 @@
               "kind": "staticmethod",
               "signature": "(objects, reverse=False)",
               "summary": "Maya ``polyNormal`` Propagate (normalMode 1) / Reverse-and-Propagate (mode 4):",
-              "line": 1309,
+              "line": 1377,
               "deprecated": false
             },
             {
@@ -5736,7 +5763,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Maya ``polyNormal`` Conform (normalMode 2): make every face normal in each object",
-              "line": 1332,
+              "line": 1400,
               "deprecated": false
             },
             {
@@ -5745,7 +5772,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Maya ``polyNormal`` Reverse-and-Extract (normalMode 3): duplicate the selected",
-              "line": 1349,
+              "line": 1417,
               "deprecated": false
             },
             {
@@ -5754,7 +5781,7 @@
               "kind": "staticmethod",
               "signature": "(objects, *, merge=True, merge_distance=0.0001, delete_loose=True, degenerate=True, recalculate=True, fill_holes=False)",
               "summary": "Clean mesh geometry — merge doubles, dissolve degenerate (zero-area) faces, remove loose",
-              "line": 1368,
+              "line": 1436,
               "deprecated": false
             },
             {
@@ -5763,7 +5790,7 @@
               "kind": "staticmethod",
               "signature": "(objects, amount=10.0, angle=None)",
               "summary": "Set Subdivision-Surface edge crease on the given mesh object(s) — mirror of Maya's",
-              "line": 1410,
+              "line": 1478,
               "deprecated": false
             },
             {
@@ -5772,7 +5799,7 @@
               "kind": "staticmethod",
               "signature": "(objects, axis='x', pivot='object', mergeMode=-1, delete_original=False, merge_threshold=0.001, center_pivot=True, axis_frame=None)",
               "summary": "Mirror mesh object(s) across an axis plane — mirror of ``mtk.EditUtils.mirror``.",
-              "line": 1460,
+              "line": 1528,
               "deprecated": false
             },
             {
@@ -5781,7 +5808,7 @@
               "kind": "staticmethod",
               "signature": "(objects, axis='x', pivot='object', axis_frame=None)",
               "summary": "Mirror as **linked duplicates**: each object gets a copy that shares its mesh data,",
-              "line": 1556,
+              "line": 1624,
               "deprecated": false
             },
             {
@@ -5790,7 +5817,7 @@
               "kind": "staticmethod",
               "signature": "(objects, axis='x', pivot='center', amount=1, offset=0.0, spacing=0.0, distribution='linear', weight_bias=0.5, weight_curve=2.0, invert=False, delete=False, mirror=False, merge_threshold=0.0001, center_pivot=True, axis_frame=None)",
               "summary": "Cut mesh object(s) along an axis — mirror of ``mtk.EditUtils.cut_along_axis``.",
-              "line": 1588,
+              "line": 1656,
               "deprecated": false
             },
             {
@@ -5799,7 +5826,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, angle=None, divisions=None)",
               "summary": "Wedge the selected faces about a selected hinge edge — mirror of Maya's",
-              "line": 1710,
+              "line": 1778,
               "deprecated": false
             },
             {
@@ -5808,7 +5835,7 @@
               "kind": "staticmethod",
               "signature": "(obj_a, obj_b, tolerance=10.0)",
               "summary": "Snap each vertex of ``obj_a`` onto the closest vertex of ``obj_b`` within",
-              "line": 1789,
+              "line": 1857,
               "deprecated": false
             },
             {
@@ -5817,7 +5844,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, grid_size=1.0, axes='xyz')",
               "summary": "Snap to the nearest grid point — mirror of ``mtk.Snap.snap_to_grid``.",
-              "line": 1818,
+              "line": 1886,
               "deprecated": false
             },
             {
@@ -5826,7 +5853,7 @@
               "kind": "staticmethod",
               "signature": "(source_meshes, target, offset=0.0, threshold=None, invert=False)",
               "summary": "Project the source meshes' vertices onto the closest point of ``target``'s surface —",
-              "line": 1917,
+              "line": 1985,
               "deprecated": false
             },
             {
@@ -5835,7 +5862,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, target, sample_limit=None)",
               "summary": "Measure how far each mesh in *objects* stands off *target*'s surface —",
-              "line": 1979,
+              "line": 2047,
               "deprecated": false
             },
             {
@@ -5844,7 +5871,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, *, tolerance=0.0, inc_orig=False, select=False, vertex=False, edge=False, face=False, triangle=False, shell=False, uvcoord=False, area=False, world_area=False, bounding_box=False)",
               "summary": "Find scene mesh objects similar to ``objects`` by topology / area / bounding-box metrics —",
-              "line": 2049,
+              "line": 2117,
               "deprecated": false
             },
             {
@@ -5853,7 +5880,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Dissolve the given group Empties (or the selection's) — mirror of mayatk's",
-              "line": 2121,
+              "line": 2189,
               "deprecated": false
             },
             {
@@ -5862,7 +5889,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, *, by_material=False, group_by_material=False, rename=False, center_pivots=True, uninstance=True, select=False)",
               "summary": "Separate mesh(es) into loose parts, or one object per material (``by_material``) — Blender",
-              "line": 2181,
+              "line": 2249,
               "deprecated": false
             },
             {
@@ -5871,7 +5898,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, *, group_by_material=False, cluster_by_distance=False, threshold=10000.0, uninstance=True)",
               "summary": "Combine mesh objects into one — Blender mirror of mayatk's ``EditUtils.combine_objects``",
-              "line": 2260,
+              "line": 2328,
               "deprecated": false
             },
             {
@@ -5880,7 +5907,7 @@
               "kind": "staticmethod",
               "signature": "(components=None, duplicate=True, separate=True, keep_faces_together=True, center_pivot=True, *, separate_each=None)",
               "summary": "Detach the active mesh's selected faces — Blender mirror of mayatk's",
-              "line": 2319,
+              "line": 2387,
               "deprecated": false
             },
             {
@@ -5889,7 +5916,7 @@
               "kind": "staticmethod",
               "signature": "(objects, delete=False, select=True, round_ndigits=5)",
               "summary": "Find faces geometrically coincident with another face — doubled geometry on *distinct*",
-              "line": 2416,
+              "line": 2484,
               "deprecated": false
             },
             {
@@ -5898,7 +5925,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, retain=None, select=False, delete=False, round_ndigits=5)",
               "summary": "Find duplicate mesh objects overlapping in world space — mirror of",
-              "line": 2463,
+              "line": 2531,
               "deprecated": false
             },
             {
@@ -5907,7 +5934,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Delete the selection: in Edit Mode, the selected components of the active",
-              "line": 2550,
+              "line": 2618,
               "deprecated": false
             },
             {
@@ -5916,7 +5943,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "The Convert menu: ``{label: object.convert target}`` in menu order, each",
-              "line": 2588,
+              "line": 2656,
               "deprecated": false
             },
             {
@@ -5925,16 +5952,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, conversion)",
               "summary": "Convert *objects* (``None``: the selection) by a :meth:`get_conversion_types`",
-              "line": 2599,
-              "deprecated": false
-            },
-            {
-              "name": "loft",
-              "qualname": "EditUtils.loft",
-              "kind": "staticmethod",
-              "signature": "(objects=None, *, close=False, reverse_normals=False, section_spans=1)",
-              "summary": "Loft a mesh surface across a sequence of profile curves / mesh edge-loops — a Blender mesh",
-              "line": 2631,
+              "line": 2667,
               "deprecated": false
             }
           ]
@@ -18453,7 +18471,7 @@
         {
           "name": "NurbsUtils",
           "summary": "Shared Blender curve primitives (mirror of mayatk's ``NurbsUtils``).",
-          "line": 17,
+          "line": 19,
           "bases": [
             "pythontk.LoggingMixin"
           ],
@@ -18464,7 +18482,7 @@
               "kind": "staticmethod",
               "signature": "(curve, points, cyclic=False, kind='POLY')",
               "summary": "Append a spline of ``points`` (each an ``(x, y, z)``) to an existing curve.",
-              "line": 21,
+              "line": 23,
               "deprecated": false
             },
             {
@@ -18473,7 +18491,7 @@
               "kind": "classmethod",
               "signature": "(cls, points, name='curve', cyclic=False, kind='POLY', dimensions='3D', link=True, collection=None)",
               "summary": "Build a curve object from a point list — mirror of mayatk's ``cmds.curve`` usage.",
-              "line": 50,
+              "line": 52,
               "deprecated": false
             },
             {
@@ -18482,7 +18500,7 @@
               "kind": "staticmethod",
               "signature": "(curve_obj, name=None, link=True)",
               "summary": "A curve-data duplicate of ``curve_obj``, linked into the same collection(s) — the",
-              "line": 85,
+              "line": 87,
               "deprecated": false
             },
             {
@@ -18491,7 +18509,7 @@
               "kind": "staticmethod",
               "signature": "(width=1.0, height=1.0, location=(0.0, 0.0, 0.0), name='plane', link=True, collection=None)",
               "summary": "Build a simple rectangular mesh plane centered at ``location`` — Blender analogue of",
-              "line": 108,
+              "line": 110,
               "deprecated": false
             },
             {
@@ -18500,7 +18518,7 @@
               "kind": "staticmethod",
               "signature": "(curve_obj, name=None, link=True, keep_curve=False, collection=None)",
               "summary": "Bake a curve object's **evaluated** geometry (its bevel sweep / 2D fill) to a new mesh",
-              "line": 144,
+              "line": 146,
               "deprecated": false
             },
             {
@@ -18509,7 +18527,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, straightness=1.0, preserve_length=True)",
               "summary": "Interpolate control points toward the start→end line (Maya ``StraightenCurves``:",
-              "line": 220,
+              "line": 222,
               "deprecated": false
             },
             {
@@ -18518,7 +18536,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, angle=45.0, axis='z')",
               "summary": "Bend each curve into a circular arc of ``angle`` degrees around the local",
-              "line": 242,
+              "line": 244,
               "deprecated": false
             },
             {
@@ -18527,7 +18545,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, angle=270.0, frequency=1.0, axis='z')",
               "summary": "Curl each curve — like :func:`bend_curve` but with an accelerating rotation",
-              "line": 285,
+              "line": 287,
               "deprecated": false
             },
             {
@@ -18536,7 +18554,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, factor=1.5)",
               "summary": "Scale each control point's deviation from the start→end chord by ``factor``",
-              "line": 313,
+              "line": 315,
               "deprecated": false
             },
             {
@@ -18545,7 +18563,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, spans=8)",
               "summary": "Redistribute each spline's control points uniformly by arc length with a new",
-              "line": 325,
+              "line": 327,
               "deprecated": false
             },
             {
@@ -18554,7 +18572,133 @@
               "kind": "classmethod",
               "signature": "(cls, objects, distance=1.0, from_start=False)",
               "summary": "Extend each spline by one control point continuing its end tangent for",
-              "line": 380,
+              "line": 382,
+              "deprecated": false
+            },
+            {
+              "name": "curve_action",
+              "qualname": "NurbsUtils.curve_action",
+              "kind": "classmethod",
+              "signature": "(cls, action, curves=None)",
+              "summary": "Run the curve action *action* (a :attr:`CURVE_ACTIONS` key) on *curves*.",
+              "line": 436,
+              "deprecated": false
+            },
+            {
+              "name": "project_curves_on_mesh",
+              "qualname": "NurbsUtils.project_curves_on_mesh",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None)",
+              "summary": "Project: conform the curves of *objects* (the selection when None) onto",
+              "line": 516,
+              "deprecated": false
+            },
+            {
+              "name": "curves_from_mesh",
+              "qualname": "NurbsUtils.curves_from_mesh",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None)",
+              "summary": "Extract: a curve built from each mesh's edges (Maya's",
+              "line": 552,
+              "deprecated": false
+            },
+            {
+              "name": "duplicate_curves",
+              "qualname": "NurbsUtils.duplicate_curves",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None)",
+              "summary": "Duplicate: a copy of each curve (:meth:`duplicate_curve`), the copies",
+              "line": 578,
+              "deprecated": false
+            },
+            {
+              "name": "smooth_curves",
+              "qualname": "NurbsUtils.smooth_curves",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None)",
+              "summary": "Smooth: ``curve.smooth`` over every control point of the curves.",
+              "line": 586,
+              "deprecated": false
+            },
+            {
+              "name": "toggle_curves_cyclic",
+              "qualname": "NurbsUtils.toggle_curves_cyclic",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None)",
+              "summary": "Open/Close: ``curve.cyclic_toggle`` over every spline of the curves.",
+              "line": 591,
+              "deprecated": false
+            },
+            {
+              "name": "reverse_curves",
+              "qualname": "NurbsUtils.reverse_curves",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None)",
+              "summary": "Reverse: ``curve.switch_direction`` over every spline of the curves.",
+              "line": 596,
+              "deprecated": false
+            },
+            {
+              "name": "fill_planar_curves",
+              "qualname": "NurbsUtils.fill_planar_curves",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None)",
+              "summary": "Planar: fill each closed, coplanar curve (``dimensions = \"2D\"``,",
+              "line": 632,
+              "deprecated": false
+            },
+            {
+              "name": "attach_curves",
+              "qualname": "NurbsUtils.attach_curves",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None)",
+              "summary": "Attach: join the curves into the first of them (``object.join``;",
+              "line": 665,
+              "deprecated": false
+            },
+            {
+              "name": "separate_curve_points",
+              "qualname": "NurbsUtils.separate_curve_points",
+              "kind": "classmethod",
+              "signature": "(cls, curve=None)",
+              "summary": "Detach: separate the selected points of the curve in Edit Mode (*curve*,",
+              "line": 696,
+              "deprecated": false
+            },
+            {
+              "name": "split_curve_points",
+              "qualname": "NurbsUtils.split_curve_points",
+              "kind": "classmethod",
+              "signature": "(cls, curve=None)",
+              "summary": "Cut: split the curve in Edit Mode (*curve*, the active object when None)",
+              "line": 712,
+              "deprecated": false
+            },
+            {
+              "name": "extrude_curves",
+              "qualname": "NurbsUtils.extrude_curves",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None)",
+              "summary": "Extrude: a surface from the curves, in Maya's two styles.",
+              "line": 727,
+              "deprecated": false
+            },
+            {
+              "name": "revolve",
+              "qualname": "NurbsUtils.revolve",
+              "kind": "staticmethod",
+              "signature": "(curves=None, axis='y', start_sweep=0.0, end_sweep=360.0, sections=8, degree=3, range_=False, polygon=True, use_tolerance=False, tolerance=0.001, auto_correct_normal=False)",
+              "summary": "Revolve each profile (a curve or mesh object) into a surface: a Screw",
+              "line": 749,
+              "deprecated": false
+            },
+            {
+              "name": "loft",
+              "qualname": "NurbsUtils.loft",
+              "kind": "staticmethod",
+              "signature": "(objects=None, uniform=True, close=False, degree=3, autoReverse=False, sectionSpans=1, range_=False, polygon=True, reverseSurfaceNormals=True, angle_loft_between_two_curves=False, angleLoftSpans=6)",
+              "summary": "Loft a mesh surface across the profile curves / mesh loops of *objects*",
+              "line": 800,
               "deprecated": false
             }
           ]
@@ -18700,12 +18844,21 @@
               "deprecated": false
             },
             {
+              "name": "freeze_and_reanchor",
+              "qualname": "RigUtils.freeze_and_reanchor",
+              "kind": "staticmethod",
+              "signature": "(objects=None, reanchor=True, **freeze_options)",
+              "summary": "Freeze Transforms -- mirror of ``mtk.RigUtils.freeze_and_reanchor``, the",
+              "line": 168,
+              "deprecated": false
+            },
+            {
               "name": "create_locator_at_object",
               "qualname": "RigUtils.create_locator_at_object",
               "kind": "staticmethod",
               "signature": "(objects, loc_scale=1.0, lock_translate=False, lock_rotation=False, lock_scale=False, grp_suffix=None, grp_affix_mode='auto', loc_suffix=None, loc_affix_mode='auto', obj_suffix=None, obj_affix_mode='auto', strip_digits=False, strip_trailing_underscores=True, strip_suffix=True, rotate_order='xyz', freeze_object=True, group_display='none')",
               "summary": "Rig each object under a zeroed locator (Empty) at its origin, under a group Empty.",
-              "line": 168,
+              "line": 189,
               "deprecated": false
             },
             {
@@ -18714,7 +18867,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Dissolve locator rigs: the inverse of :meth:`create_locator_at_object`.",
-              "line": 438,
+              "line": 459,
               "deprecated": false
             },
             {
@@ -18723,7 +18876,7 @@
               "kind": "staticmethod",
               "signature": "(name='armature', location=(0, 0, 0), collection=None)",
               "summary": "Create an empty Armature object (Maya's joint-chain container).",
-              "line": 573,
+              "line": 594,
               "deprecated": false
             },
             {
@@ -18732,7 +18885,7 @@
               "kind": "staticmethod",
               "signature": "(armature, points, prefix='bone', connect=True, radius=None)",
               "summary": "Build a connected bone chain through world-space *points* — Maya's ``generate_joint_chain``",
-              "line": 585,
+              "line": 606,
               "deprecated": false
             },
             {
@@ -18741,7 +18894,7 @@
               "kind": "staticmethod",
               "signature": "(armature, name, head, tail, parent=None, connect=False, radius=None, deform=True)",
               "summary": "Add ONE bone to an existing armature at world-space *head*/*tail* — the single-bone",
-              "line": 614,
+              "line": 635,
               "deprecated": false
             },
             {
@@ -18750,7 +18903,7 @@
               "kind": "staticmethod",
               "signature": "(armature, heads)",
               "summary": "Move bones by NAME — ``{bone: (x, y, z)}``, the new HEAD in armature space.",
-              "line": 659,
+              "line": 680,
               "deprecated": false
             },
             {
@@ -18759,7 +18912,7 @@
               "kind": "staticmethod",
               "signature": "(armature, lengths)",
               "summary": "Resize bones by NAME — ``{bone: length}``, in the armature's own units.",
-              "line": 697,
+              "line": 718,
               "deprecated": false
             },
             {
@@ -18768,7 +18921,7 @@
               "kind": "staticmethod",
               "signature": "(armature, bone_name=None, reverse=False)",
               "summary": "Walk a single-path bone chain from a root bone — mirror of mayatk's",
-              "line": 747,
+              "line": 768,
               "deprecated": false
             },
             {
@@ -18777,7 +18930,7 @@
               "kind": "staticmethod",
               "signature": "(armature, bone_names)",
               "summary": "Rebuild *bone_names* (head->tail order) with reversed hierarchy — mirror of mayatk's",
-              "line": 771,
+              "line": 792,
               "deprecated": false
             },
             {
@@ -18786,7 +18939,7 @@
               "kind": "staticmethod",
               "signature": "(armature, bone_name, ctype, target=None, subtarget=None, **props)",
               "summary": "Add a **pose-bone** constraint (``ctype`` e.g.",
-              "line": 818,
+              "line": 839,
               "deprecated": false
             },
             {
@@ -18795,7 +18948,7 @@
               "kind": "staticmethod",
               "signature": "(armature, bone_name, curve, chain_count, name='Spline IK', **props)",
               "summary": "Add a **Spline IK** bone constraint to pose bone *bone_name* so *chain_count* bones up the",
-              "line": 836,
+              "line": 857,
               "deprecated": false
             },
             {
@@ -18804,7 +18957,7 @@
               "kind": "staticmethod",
               "signature": "(mesh, armature, auto_weights=True)",
               "summary": "Bind *mesh* to *armature* (Maya ``skinCluster`` analogue).",
-              "line": 853,
+              "line": 874,
               "deprecated": false
             },
             {
@@ -18813,7 +18966,7 @@
               "kind": "staticmethod",
               "signature": "(mesh, group_name, center, radius, profile='linear', add_group=True)",
               "summary": "Distance-falloff vertex weights — the Blender (vertex-group) analogue of mayatk's",
-              "line": 872,
+              "line": 893,
               "deprecated": false
             },
             {
@@ -18822,7 +18975,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, influence=1.0, **props)",
               "summary": "Maya pointConstraint → COPY_LOCATION.",
-              "line": 937,
+              "line": 958,
               "deprecated": false
             },
             {
@@ -18831,7 +18984,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, influence=1.0, **props)",
               "summary": "Maya orientConstraint → COPY_ROTATION.",
-              "line": 947,
+              "line": 968,
               "deprecated": false
             },
             {
@@ -18840,7 +18993,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, track_axis='TRACK_Y', **props)",
               "summary": "Single-axis aim (Maya aimConstraint, no up-vector) → DAMPED_TRACK.",
-              "line": 954,
+              "line": 975,
               "deprecated": false
             },
             {
@@ -18849,7 +19002,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, track_axis='TRACK_Y', up_axis='UP_Z', **props)",
               "summary": "Aim with an up-vector (full Maya aimConstraint) → TRACK_TO.",
-              "line": 961,
+              "line": 982,
               "deprecated": false
             },
             {
@@ -18858,7 +19011,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, set_inverse=True, **props)",
               "summary": "Maya parentConstraint(maintainOffset=True) → CHILD_OF (inverse bound at the current pose).",
-              "line": 968,
+              "line": 989,
               "deprecated": false
             },
             {
@@ -18867,7 +19020,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Force-recompile every driver on ``objects`` — call ONCE after building a rig's drivers.",
-              "line": 988,
+              "line": 1009,
               "deprecated": false
             },
             {
@@ -18876,7 +19029,7 @@
               "kind": "staticmethod",
               "signature": "(obj, data_path, index, a, b, expression='dist', var_name='dist')",
               "summary": "Drive ``obj.<data_path>[index]`` from the live distance between objects ``a`` and ``b``",
-              "line": 1001,
+              "line": 1022,
               "deprecated": false
             },
             {
@@ -18885,7 +19038,7 @@
               "kind": "staticmethod",
               "signature": "(obj, data_path, index, target, transform_type, space='WORLD_SPACE', expression=None, var_name='var')",
               "summary": "Drive ``obj.<data_path>[index]`` from a single transform channel of ``target`` (a",
-              "line": 1022,
+              "line": 1043,
               "deprecated": false
             },
             {
@@ -18894,7 +19047,7 @@
               "kind": "staticmethod",
               "signature": "(fcurve, name, id_obj, data_path, id_type=None)",
               "summary": "Append a ``SINGLE_PROP`` variable to an existing driver fcurve — e.g.",
-              "line": 1052,
+              "line": 1073,
               "deprecated": false
             },
             {
@@ -18903,7 +19056,7 @@
               "kind": "staticmethod",
               "signature": "(fcurve, name, target, transform_type, space='WORLD_SPACE')",
               "summary": "Append a ``TRANSFORMS`` variable (a single transform channel of *target*) to an existing",
-              "line": 1072,
+              "line": 1093,
               "deprecated": false
             },
             {
@@ -18912,7 +19065,7 @@
               "kind": "staticmethod",
               "signature": "(obj, name, value, min_value=None, max_value=None)",
               "summary": "Set a keyable custom property (Maya's ``addAttr`` analogue), creating it if absent and",
-              "line": 1088,
+              "line": 1109,
               "deprecated": false
             },
             {
@@ -18921,7 +19074,7 @@
               "kind": "staticmethod",
               "signature": "(obj, data_path, index=None)",
               "summary": "Remove a driver on ``obj.<data_path>[index]`` if present (idempotent;",
-              "line": 1109,
+              "line": 1130,
               "deprecated": false
             },
             {
@@ -18930,7 +19083,7 @@
               "kind": "staticmethod",
               "signature": "(obj, location=None, rotation=None, scale=None)",
               "summary": "Lock the given transform channels (each a 3-tuple of bools, or ``None`` to leave as-is).",
-              "line": 1121,
+              "line": 1142,
               "deprecated": false
             }
           ]
@@ -23189,7 +23342,7 @@
         {
           "name": "XformUtils",
           "summary": "Namespace mirror of mayatk's ``XformUtils`` (helpers also exposed module-level).",
-          "line": 173,
+          "line": 196,
           "bases": [
             "_XformUtilsInternal"
           ],
@@ -23200,16 +23353,16 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Return ``(min, max)`` ``Vector``s of ``obj``'s bounding box in world space.",
-              "line": 177,
+              "line": 200,
               "deprecated": false
             },
             {
               "name": "freeze_transforms",
               "qualname": "XformUtils.freeze_transforms",
               "kind": "staticmethod",
-              "signature": "(objects, location=True, rotation=False, scale=True, store=True, instance_strategy='skip')",
-              "summary": "Apply (bake) the given transform channels into the object data — Blender's",
-              "line": 188,
+              "signature": "(objects, location=True, rotation=False, scale=True, store=True, instance_strategy='skip', *, translate=None, rotate=None, center_pivot=0, freeze_children=False, force=True, delete_history=False, connection_strategy='preserve', from_channel_box=False)",
+              "summary": "Freeze: apply (bake) the given channels into the object data -- Blender's",
+              "line": 214,
               "deprecated": false
             },
             {
@@ -23218,7 +23371,7 @@
               "kind": "staticmethod",
               "signature": "(objects, delete_attrs=True, channels=None, traverse=False, prefix=_DEFAULT_BAKE_PREFIX)",
               "summary": "Un-freeze: compose the stored pre-freeze channels back into the local transform",
-              "line": 299,
+              "line": 389,
               "deprecated": false
             },
             {
@@ -23227,7 +23380,7 @@
               "kind": "staticmethod",
               "signature": "(objects, prefix=_DEFAULT_BAKE_PREFIX)",
               "summary": "Map each object → whether it carries pre-freeze bake data (mirror of",
-              "line": 418,
+              "line": 508,
               "deprecated": false
             },
             {
@@ -23236,7 +23389,7 @@
               "kind": "staticmethod",
               "signature": "(objects, prefix=_DEFAULT_BAKE_PREFIX, channels=None, traverse=False)",
               "summary": "Capture the current local channels as cumulative bake history — mirror of",
-              "line": 426,
+              "line": 516,
               "deprecated": false
             },
             {
@@ -23245,25 +23398,25 @@
               "kind": "staticmethod",
               "signature": "(obj, prefix=_DEFAULT_BAKE_PREFIX)",
               "summary": "Read one object's stored pre-freeze channels back as plain values —",
-              "line": 466,
+              "line": 556,
               "deprecated": false
             },
             {
               "name": "scale_connected_edges",
               "qualname": "XformUtils.scale_connected_edges",
               "kind": "staticmethod",
-              "signature": "(objects, scale_factor=1.1)",
+              "signature": "(objects=None, scale_factor=1.1)",
               "summary": "Scale each CONNECTED set of selected edges about that set's own centroid — mirror",
-              "line": 500,
+              "line": 592,
               "deprecated": false
             },
             {
               "name": "drop_to_grid",
               "qualname": "XformUtils.drop_to_grid",
               "kind": "staticmethod",
-              "signature": "(objects, align='Min', origin=False, center_pivot=False)",
+              "signature": "(objects=None, align='Min', origin=False, center_pivot=False, freeze_transforms=False)",
               "summary": "Drop each object so its bbox ``Min`` / ``Mid`` / ``Max`` sits on the ground (Z=0).",
-              "line": 539,
+              "line": 633,
               "deprecated": false
             },
             {
@@ -23272,7 +23425,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, mode='object')",
               "summary": "Move each object's origin (Blender's single pivot) — mirror of Maya's Center Pivot.",
-              "line": 569,
+              "line": 673,
               "deprecated": false
             },
             {
@@ -23281,7 +23434,7 @@
               "kind": "staticmethod",
               "signature": "(objects, translate=True, rotate=False, scale=False, bake=True, world_space=True, mirror='', select_targets_after_transfer=False)",
               "summary": "Transfer the object **origin** from the first object to the rest — mirror of Maya's",
-              "line": 616,
+              "line": 720,
               "deprecated": false
             },
             {
@@ -23290,7 +23443,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, position=True, orientation=True)",
               "summary": "Reset the pivot: Blender's single origin back on the geometry's",
-              "line": 693,
+              "line": 797,
               "deprecated": false
             },
             {
@@ -23299,7 +23452,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, pivot_type='object', mode='set')",
               "summary": "World-align the pivot.",
-              "line": 714,
+              "line": 818,
               "deprecated": false
             },
             {
@@ -23308,7 +23461,7 @@
               "kind": "staticmethod",
               "signature": "(objects, position=False, orientation=False)",
               "summary": "Bake Blender's temporary pivot, the 3D cursor, into the objects' origins",
-              "line": 784,
+              "line": 888,
               "deprecated": false
             },
             {
@@ -23317,16 +23470,16 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Center-pivot mode keys understood by :func:`center_pivot`.",
-              "line": 802,
+              "line": 906,
               "deprecated": false
             },
             {
               "name": "match_scale",
               "qualname": "XformUtils.match_scale",
               "kind": "staticmethod",
-              "signature": "(source, target, average=True)",
+              "signature": "(source=None, target=None, average=True)",
               "summary": "Uniformly rescale ``source`` object(s) to match ``target``'s bounding-box size.",
-              "line": 807,
+              "line": 912,
               "deprecated": false
             },
             {
@@ -23335,7 +23488,7 @@
               "kind": "staticmethod",
               "signature": "(source, target, pivot='center')",
               "summary": "Move ``source`` object(s) so their pivot aligns with the ``target``'s pivot point.",
-              "line": 824,
+              "line": 944,
               "deprecated": false
             },
             {
@@ -23344,7 +23497,7 @@
               "kind": "staticmethod",
               "signature": "(objects, value='', world_space=True)",
               "summary": "Combined bounding box of ``objects`` — mirror of ``mtk.get_bounding_box`` (name + behavior).",
-              "line": 842,
+              "line": 962,
               "deprecated": false
             },
             {
@@ -23353,7 +23506,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Bounding-box center of ``objects`` as an ``(x, y, z)`` tuple (mirror of",
-              "line": 882,
+              "line": 1002,
               "deprecated": false
             },
             {
@@ -23362,7 +23515,7 @@
               "kind": "staticmethod",
               "signature": "(obj, pivot)",
               "summary": "World pivot frame (orientation + position, scale stripped) for a per-object linear/",
-              "line": 888,
+              "line": 1008,
               "deprecated": false
             },
             {
@@ -23371,7 +23524,7 @@
               "kind": "staticmethod",
               "signature": "(a, b)",
               "summary": "Distance between two points — each an object (world origin), ``Vector``, or 3-sequence",
-              "line": 953,
+              "line": 1073,
               "deprecated": false
             },
             {
@@ -23380,7 +23533,7 @@
               "kind": "staticmethod",
               "signature": "(objects, reference_point=None, reverse=False)",
               "summary": "Order ``objects`` by distance from ``reference_point`` (an object / Vector / 3-seq;",
-              "line": 961,
+              "line": 1081,
               "deprecated": false
             },
             {
@@ -23389,7 +23542,7 @@
               "kind": "staticmethod",
               "signature": "(objects, target_pos, aim_vect=(1, 0, 0), up_vect=(0, 1, 0))",
               "summary": "Aim ``objects`` at a world-space point — mirror of ``mtk.aim_object_at_point`` (which uses",
-              "line": 979,
+              "line": 1099,
               "deprecated": false
             },
             {
@@ -23398,7 +23551,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, prefix=_DEFAULT_BAKE_PREFIX, name='Authored')",
               "summary": "Point the transform gizmo at an object's PRE-FREEZE axes, without un-freezing —",
-              "line": 1000,
+              "line": 1120,
               "deprecated": false
             },
             {
@@ -23407,7 +23560,61 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The pivot keys the operations resolve (``get_operation_axis_matrix``,",
-              "line": 1047,
+              "line": 1167,
+              "deprecated": false
+            },
+            {
+              "name": "move_to_target",
+              "qualname": "XformUtils.move_to_target",
+              "kind": "staticmethod",
+              "signature": "(objects=None, pivot='center', all_to_last=True, match_scale=False)",
+              "summary": "Move To -- mirror of ``mtk.XformUtils.move_to_target``: the objects move",
+              "line": 1218,
+              "deprecated": false
+            },
+            {
+              "name": "align_to",
+              "qualname": "XformUtils.align_to",
+              "kind": "staticmethod",
+              "signature": "(mode, objects=None)",
+              "summary": "Align To -- mirror of ``mtk.XformUtils.align_to``: align the selected",
+              "line": 1250,
+              "deprecated": false
+            },
+            {
+              "name": "get_transform_snap",
+              "qualname": "XformUtils.get_transform_snap",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "Increment snapping per transform kind -- mirror of",
+              "line": 1292,
+              "deprecated": false
+            },
+            {
+              "name": "set_transform_snap",
+              "qualname": "XformUtils.set_transform_snap",
+              "kind": "staticmethod",
+              "signature": "(kind, state=None, increment=None)",
+              "summary": "Set the *kind* (``\"move\"``, ``\"scale\"``, ``\"rotate\"``) increment snapping",
+              "line": 1314,
+              "deprecated": false
+            },
+            {
+              "name": "get_transform_constraint",
+              "qualname": "XformUtils.get_transform_constraint",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "The transform constraints -- mirror of",
+              "line": 1358,
+              "deprecated": false
+            },
+            {
+              "name": "set_transform_constraint",
+              "qualname": "XformUtils.set_transform_constraint",
+              "kind": "staticmethod",
+              "signature": "(kind, state=True)",
+              "summary": "Turn a transform constraint on or off -- mirror of",
+              "line": 1375,
               "deprecated": false
             },
             {
@@ -23416,7 +23623,7 @@
               "kind": "staticmethod",
               "signature": "(objects, order, preserve=True)",
               "summary": "Change objects' Euler order keeping their pose and keyed animation --",
-              "line": 1069,
+              "line": 1419,
               "deprecated": false
             }
           ]

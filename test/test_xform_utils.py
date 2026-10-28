@@ -670,6 +670,115 @@ try:
     check("bake_pivot: the 3D cursor becomes the origin",
           got == [pv_tgt] and approx(pv_tgt.location.x, 2.0), f"x={pv_tgt.location.x:.3f}")
 
+    # ---- transform panel ops (tentacle's composed TransformSlots) ----------------------
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+    tA = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(6, 0, 0))
+    tB = bpy.context.active_object
+    moved = btk.XformUtils.move_to_target([tA, tB], pivot="center")
+    bpy.context.view_layer.update()
+    check("move_to_target: all but the last move onto it",
+          moved == [tA] and approx(tA.location.x, 6.0), f"x={tA.location.x:.3f}")
+    tA.location.x = 0.0
+    bpy.context.view_layer.update()  # matrix_world (what move_to reads) follows location
+    btk.CoreUtils.select([tA, tB])
+    bpy.context.view_layer.objects.active = tB
+    btk.XformUtils.move_to_target(None, all_to_last=False)
+    bpy.context.view_layer.update()
+    check("move_to_target(None, all_to_last=False): the active moves to the others",
+          approx(tB.location.x, 0.0), f"x={tB.location.x:.3f}")
+    btk.CoreUtils.select([tA])
+    check("move_to_target with one object -> []", btk.XformUtils.move_to_target(None) == [])
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+    sA = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(5, 0, 0))
+    sB = bpy.context.active_object
+    sB.scale = (3, 3, 3)
+    bpy.context.view_layer.update()
+    btk.CoreUtils.select([sB, sA])  # sA active: the one rescaled
+    bpy.context.view_layer.objects.active = sA
+    check("match_scale(None, None): the active is rescaled to the others",
+          btk.XformUtils.match_scale(None, None) == [sA] and approx(sA.scale.x, 3.0),
+          f"scale={tuple(sA.scale)}")
+    btk.CoreUtils.select([sA])
+    check("match_scale(None, None) with one object -> []",
+          btk.XformUtils.match_scale(None, None) == [])
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 5))
+    dg = bpy.context.active_object
+    btk.CoreUtils.select([dg])
+    got = btk.XformUtils.drop_to_grid(None, align="Min", freeze_transforms=True)
+    bpy.context.view_layer.update()
+    mn, mx = btk.get_world_bbox(dg)
+    check("drop_to_grid(None): drops the selection, freezes its location, keeps it selected",
+          got == [dg] and approx(mn.z, 0.0) and approx(dg.location.z, 0.0)
+          and dg.select_get(), f"min.z={mn.z:.3f} loc.z={dg.location.z:.3f}")
+    btk.CoreUtils.select([])
+    check("drop_to_grid(None) with nothing selected -> []",
+          btk.XformUtils.drop_to_grid(None) == [])
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+    aA = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(4, 2, 1))
+    aB = bpy.context.active_object
+    aA.location = (-3, 5, 7)
+    bpy.context.view_layer.update()
+    btk.XformUtils.align_to("Align X to Active", [aA, aB])
+    bpy.context.view_layer.update()
+    check("align_to X: the center's X goes to the target's, Y kept",
+          approx(aA.location.x, 4.0) and approx(aA.location.y, 5.0),
+          f"loc={tuple(aA.location)}")
+    for bad, label in ((("Nowhere", [aA, aB]), "unknown mode"), (("Align X to Active", [aA]), "one object")):
+        try:
+            btk.XformUtils.align_to(*bad)
+            check(f"align_to refuses {label}", False)
+        except ValueError:
+            check(f"align_to refuses {label}", True)
+
+    ts = bpy.context.scene.tool_settings
+    ts.use_snap, ts.use_snap_translate, ts.use_snap_rotate, ts.use_snap_scale = False, True, False, False
+    state = btk.XformUtils.set_transform_snap("rotate", True, increment=15.0)
+    snap = btk.XformUtils.get_transform_snap()
+    check("set_transform_snap rotate: rotate on at 15 degrees, move stays off",
+          state["enabled"] and approx(state["increment"], 15.0)
+          and not snap["move"]["enabled"] and snap["move"]["increment"] is None, str(snap))
+    btk.XformUtils.set_transform_snap("rotate", False)
+    check("set_transform_snap off: snapping off with no kind left", not ts.use_snap)
+
+    check("set_transform_constraint edge",
+          btk.XformUtils.set_transform_constraint("edge", True)
+          == {"edge": True, "surface": False, "live": False})
+    check("set_transform_constraint live replaces edge",
+          btk.XformUtils.set_transform_constraint("live", True)
+          == {"edge": False, "surface": False, "live": True})
+    check("set_transform_constraint off turns snapping off",
+          btk.XformUtils.set_transform_constraint("live", False)
+          == {"edge": False, "surface": False, "live": False} and not ts.use_snap)
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(2, 0, 0))
+    parent = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(0, 3, 0))
+    child = bpy.context.active_object
+    child.parent = parent
+    bpy.context.view_layer.update()
+    baked = btk.RigUtils.freeze_and_reanchor(
+        [parent], reanchor=True, translate=True, rotate=False, scale=False,
+        freeze_children=True, center_pivot=1, force=False, delete_history=True,
+        connection_strategy="delete", from_channel_box=True,
+    )
+    check("freeze_and_reanchor: Maya's keywords taken, children frozen, pivot centered",
+          parent in baked and child in baked and approx(parent.location.x, 2.0),
+          f"baked={[o.name for o in baked]} x={parent.location.x:.3f}")
+    btk.CoreUtils.select([])
+    check("freeze_and_reanchor with nothing selected -> []",
+          btk.RigUtils.freeze_and_reanchor(None) == [])
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

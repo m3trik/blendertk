@@ -937,6 +937,8 @@ Blender's lengths and angles, converted by the kind of value that holds them.
 Display utilities — the exploded-view toggle (mirror of mayatk's
 
 - **[`class DisplayUtils(_DisplayUtilsInternal)`](blendertk/blendertk/display_utils/_display_utils.py#L90)** — Namespace mirror of mayatk's ``DisplayUtils`` (helpers also exposed module-level).
+  - `DisplayUtils.get_smooth_level(objects=None)` *(static)* — The subdivision levels of the first object carrying a Subdivision Surface
+  - `DisplayUtils.set_smooth_level(objects=None, level=None, adaptive_level=None)` *(static)* — Set the Subdivision Surface levels of the meshes in *objects* (None: the
   - `DisplayUtils.is_exploded(objects)` *(static)* — True when any of the given objects carries an exploded-view origin stamp.
   - `DisplayUtils.explode_view(objects, step=1.2, margin=0.05, max_iterations=50)` *(static)* — Push the given objects apart for inspection — each moves away from the group's bbox
   - `DisplayUtils.unexplode_view(objects)` *(static)* — Restore the exact pre-explode locations stamped by :func:`explode_view`.
@@ -1031,16 +1033,17 @@ Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tri
   - `EditUtils.set_symmetry(axis=None, state=True, space=None)` *(static)* — Set the selected meshes' symmetry: an axis on or off, and/or matching
   - `EditUtils.hook_bind_inverse(target, obj)` *(static)* — The ``matrix_inverse`` a Hook modifier needs so its geometry does **not jump** at bind time.
   - `EditUtils.hook_curve_point(curve, point_index, target, name=None, falloff_type='NONE')` *(static)* — Hook control point *point_index* of *curve* to *target* so moving the target moves that point
-  - `EditUtils.decimate(objects, percentage=50.0, preserve_quads=True, symmetry=False, apply=True)` *(static)* — Reduce mesh density via a Decimate (COLLAPSE) modifier — mirror of ``mtk.EditUtils.decimate``.
-  - `EditUtils.dissolve_coplanar(objects, angle_tolerance=1.0, delimit=None, preserve_borders=True, apply=True)` *(static)* — Dissolve near-coplanar faces via a Decimate (PLANAR) modifier — mirror of
-  - `EditUtils.triangulate(objects)` *(static)* — Triangulate all faces of the given mesh object(s) (bmesh, headless).
+  - `EditUtils.decimate(objects=None, percentage=50.0, preserve_quads=True, symmetry=False, apply=True, delete_history=True)` *(static)* — Reduce mesh density via a Decimate (COLLAPSE) modifier — mirror of ``mtk.EditUtils.decimate``.
+  - `EditUtils.dissolve_coplanar(objects=None, angle_tolerance=1.0, delimit=None, preserve_borders=True, apply=True, preserve_hard_edges=False, preserve_uv_borders=False)` *(static)* — Dissolve near-coplanar faces via a Decimate (PLANAR) modifier — mirror of
+  - `EditUtils.triangulate(objects=None)` *(static)* — Triangulate all faces of the given mesh object(s) (bmesh, headless) -- mirror of
+  - `EditUtils.quadrangulate(objects=None, angle=40.0)` *(static)* — Quadrangulate -- mirror of ``mtk.EditUtils.quadrangulate``: merge adjacent
   - `EditUtils.tris_to_quads(objects, angle=40.0)` *(static)* — Merge adjacent triangles back into quads where the face/shape angle is within ``angle``
-  - `EditUtils.subdivide_mesh(objects, cuts=1)` *(static)* — Subdivide every edge ``cuts`` times, grid-filling faces (bmesh, headless) — "Add Divisions".
+  - `EditUtils.subdivide_mesh(objects=None, cuts=1)` *(static)* — Subdivide every edge ``cuts`` times, grid-filling faces (bmesh, headless) — "Add Divisions"
   - `EditUtils.merge_vertices(objects=None, tolerance=0.001, selected_only=None)` *(static)* — Merge the vertices within *tolerance* (Blender's Merge by Distance).
   - `EditUtils.boolean_objects(objects=None, operation='difference', interactive=False)` *(static)* — Boolean meshes with Boolean modifiers: the first is the base (for
   - `EditUtils.boolean_op(objects, operation='DIFFERENCE', apply=True)` *(static)* — Boolean the first mesh by the remaining ones via Boolean modifiers (the §5 map for
   - `EditUtils.set_subdivision(objects, viewport_levels=None, render_levels=None, ensure=True)` *(static)* — Set Subdivision-Surface levels on the given mesh object(s), kept **live** (non-destructive
-  - `EditUtils.apply_subdivision(objects)` *(static)* — Bake the live Subsurf modifier into real geometry — the destructive counterpart of
+  - `EditUtils.apply_subdivision(objects=None)` *(static)* — Bake the live Subsurf modifier into real geometry — the destructive counterpart of
   - `EditUtils.set_shading(objects, smooth=True, selected_only=False)` *(static)* — Set smooth (averaged vertex normals) or flat (face normals) shading — the Blender
   - `EditUtils.average_normals(objects, by_uv_shell=False)` *(static)* — Average vertex normals by softening edges — Blender mirror of ``mtk.Components.average_normals``
   - `EditUtils.select_edges_by_angle(objects=None, low_angle=0.0, high_angle=180.0)` *(static)* — Select interior edges whose dihedral (face) angle is within ``[low_angle, high_angle]``
@@ -1073,7 +1076,6 @@ Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tri
   - `EditUtils.delete_selected()` *(static)* — Delete the selection: in Edit Mode, the selected components of the active
   - `EditUtils.get_conversion_types(cls)` *(class)* — The Convert menu: ``{label: object.convert target}`` in menu order, each
   - `EditUtils.convert_objects(cls, objects, conversion)` *(class)* — Convert *objects* (``None``: the selection) by a :meth:`get_conversion_types`
-  - `EditUtils.loft(objects=None, *, close=False, reverse_normals=False, section_spans=1)` *(static)* — Loft a mesh surface across a sequence of profile curves / mesh edge-loops — a Blender mesh
 
 <a id="edit_utils--bevel"></a>
 ### `edit_utils/bevel.py`
@@ -2949,7 +2951,7 @@ The Blender scene store -- mirror of mayatk's ``node_utils.data_nodes``.
 
 Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` namespace.
 
-- **[`class NurbsUtils(pythontk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/_nurbs_utils.py#L17)** — Shared Blender curve primitives (mirror of mayatk's ``NurbsUtils``).
+- **[`class NurbsUtils(pythontk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/_nurbs_utils.py#L19)** — Shared Blender curve primitives (mirror of mayatk's ``NurbsUtils``).
   - `NurbsUtils.add_spline(curve, points, cyclic=False, kind='POLY')` *(static)* — Append a spline of ``points`` (each an ``(x, y, z)``) to an existing curve.
   - `NurbsUtils.create_curve(cls, points, name='curve', cyclic=False, kind='POLY', dimensions='3D', link=True, collection=None)` *(class)* — Build a curve object from a point list — mirror of mayatk's ``cmds.curve`` usage.
   - `NurbsUtils.duplicate_curve(curve_obj, name=None, link=True)` *(static)* — A curve-data duplicate of ``curve_obj``, linked into the same collection(s) — the
@@ -2961,6 +2963,20 @@ Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` n
   - `NurbsUtils.scale_curvature(cls, objects, factor=1.5)` *(class)* — Scale each control point's deviation from the start→end chord by ``factor``
   - `NurbsUtils.rebuild_curve(cls, objects, spans=8)` *(class)* — Redistribute each spline's control points uniformly by arc length with a new
   - `NurbsUtils.extend_curve(cls, objects, distance=1.0, from_start=False)` *(class)* — Extend each spline by one control point continuing its end tangent for
+  - `NurbsUtils.curve_action(cls, action, curves=None)` *(class)* — Run the curve action *action* (a :attr:`CURVE_ACTIONS` key) on *curves*.
+  - `NurbsUtils.project_curves_on_mesh(cls, objects=None)` *(class)* — Project: conform the curves of *objects* (the selection when None) onto
+  - `NurbsUtils.curves_from_mesh(cls, objects=None)` *(class)* — Extract: a curve built from each mesh's edges (Maya's
+  - `NurbsUtils.duplicate_curves(cls, objects=None)` *(class)* — Duplicate: a copy of each curve (:meth:`duplicate_curve`), the copies
+  - `NurbsUtils.smooth_curves(cls, objects=None)` *(class)* — Smooth: ``curve.smooth`` over every control point of the curves.
+  - `NurbsUtils.toggle_curves_cyclic(cls, objects=None)` *(class)* — Open/Close: ``curve.cyclic_toggle`` over every spline of the curves.
+  - `NurbsUtils.reverse_curves(cls, objects=None)` *(class)* — Reverse: ``curve.switch_direction`` over every spline of the curves.
+  - `NurbsUtils.fill_planar_curves(cls, objects=None)` *(class)* — Planar: fill each closed, coplanar curve (``dimensions = "2D"``,
+  - `NurbsUtils.attach_curves(cls, objects=None)` *(class)* — Attach: join the curves into the first of them (``object.join``;
+  - `NurbsUtils.separate_curve_points(cls, curve=None)` *(class)* — Detach: separate the selected points of the curve in Edit Mode (*curve*,
+  - `NurbsUtils.split_curve_points(cls, curve=None)` *(class)* — Cut: split the curve in Edit Mode (*curve*, the active object when None)
+  - `NurbsUtils.extrude_curves(cls, objects=None)` *(class)* — Extrude: a surface from the curves, in Maya's two styles.
+  - `NurbsUtils.revolve(curves=None, axis='y', start_sweep=0.0, end_sweep=360.0, sections=8, degree=3, range_=False, polygon=True, use_tolerance=False, tolerance=0.001, auto_correct_normal=False)` *(static)* — Revolve each profile (a curve or mesh object) into a surface: a Screw
+  - `NurbsUtils.loft(objects=None, uniform=True, close=False, degree=3, autoReverse=False, sectionSpans=1, range_=False, polygon=True, reverseSurfaceNormals=True, angle_loft_between_two_curves=False, angleLoftSpans=6)` *(static)* — Loft a mesh surface across the profile curves / mesh loops of *objects*
 
 <a id="nurbs_utils--curve_to_tube"></a>
 ### `nurbs_utils/curve_to_tube.py`
@@ -2992,6 +3008,7 @@ Shared procedural-rig primitives — Blender port of mayatk's ``rig_utils.RigUti
   - `RigUtils.create_locator(name='locator', location=(0, 0, 0), display_type='PLAIN_AXES', size=1.0, collection=None)` *(static)* — Create an Empty — Blender's analogue of Maya's spaceLocator (a rig handle).
   - `RigUtils.create_group(name='rig_grp', location=(0, 0, 0), children=None)` *(static)* — Create an Empty used as a transform group, parenting ``children`` under it (keeping
   - `RigUtils.parent_keep_transform(child, parent)` *(static)* — Parent ``child`` to ``parent`` without moving it in world space (Maya ``parent`` default).
+  - `RigUtils.freeze_and_reanchor(objects=None, reanchor=True, **freeze_options)` *(static)* — Freeze Transforms -- mirror of ``mtk.RigUtils.freeze_and_reanchor``, the
   - `RigUtils.create_locator_at_object(objects, loc_scale=1.0, lock_translate=False, lock_rotation=False, lock_scale=False, grp_suffix=None, grp_affix_mode='auto', loc_suffix=None, loc_affix_mode='auto', obj_suffix=None, obj_affix_mode='auto', strip_digits=False, strip_trailing_underscores=True, strip_suffix=True, rotate_order='xyz', freeze_object=True, group_display='none')` *(static)* — Rig each object under a zeroed locator (Empty) at its origin, under a group Empty.
   - `RigUtils.remove_locator(objects)` *(static)* — Dissolve locator rigs: the inverse of :meth:`create_locator_at_object`.
   - `RigUtils.create_armature(name='armature', location=(0, 0, 0), collection=None)` *(static)* — Create an empty Armature object (Maya's joint-chain container).
@@ -3644,22 +3661,22 @@ Transfer a mesh's textures from one UV layout to another -- no rays, no bake.
 
 Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,
 
-- **[`class XformUtils(_XformUtilsInternal)`](blendertk/blendertk/xform_utils/_xform_utils.py#L173)** — Namespace mirror of mayatk's ``XformUtils`` (helpers also exposed module-level).
+- **[`class XformUtils(_XformUtilsInternal)`](blendertk/blendertk/xform_utils/_xform_utils.py#L196)** — Namespace mirror of mayatk's ``XformUtils`` (helpers also exposed module-level).
   - `XformUtils.get_world_bbox(obj)` *(static)* — Return ``(min, max)`` ``Vector``s of ``obj``'s bounding box in world space.
-  - `XformUtils.freeze_transforms(objects, location=True, rotation=False, scale=True, store=True, instance_strategy='skip')` *(static)* — Apply (bake) the given transform channels into the object data — Blender's
+  - `XformUtils.freeze_transforms(objects, location=True, rotation=False, scale=True, store=True, instance_strategy='skip', *, translate=None, rotate=None, center_pivot=0, freeze_children=False, force=True, delete_history=False, connection_strategy='preserve', from_channel_box=False)` *(static)* — Freeze: apply (bake) the given channels into the object data -- Blender's
   - `XformUtils.restore_transforms(objects, delete_attrs=True, channels=None, traverse=False, prefix=_DEFAULT_BAKE_PREFIX)` *(static)* — Un-freeze: compose the stored pre-freeze channels back into the local transform
   - `XformUtils.has_stored_transforms(objects, prefix=_DEFAULT_BAKE_PREFIX)` *(static)* — Map each object → whether it carries pre-freeze bake data (mirror of
   - `XformUtils.store_transforms(objects, prefix=_DEFAULT_BAKE_PREFIX, channels=None, traverse=False)` *(static)* — Capture the current local channels as cumulative bake history — mirror of
   - `XformUtils.get_stored_transforms(obj, prefix=_DEFAULT_BAKE_PREFIX)` *(static)* — Read one object's stored pre-freeze channels back as plain values —
-  - `XformUtils.scale_connected_edges(objects, scale_factor=1.1)` *(static)* — Scale each CONNECTED set of selected edges about that set's own centroid — mirror
-  - `XformUtils.drop_to_grid(objects, align='Min', origin=False, center_pivot=False)` *(static)* — Drop each object so its bbox ``Min`` / ``Mid`` / ``Max`` sits on the ground (Z=0).
+  - `XformUtils.scale_connected_edges(objects=None, scale_factor=1.1)` *(static)* — Scale each CONNECTED set of selected edges about that set's own centroid — mirror
+  - `XformUtils.drop_to_grid(objects=None, align='Min', origin=False, center_pivot=False, freeze_transforms=False)` *(static)* — Drop each object so its bbox ``Min`` / ``Mid`` / ``Max`` sits on the ground (Z=0).
   - `XformUtils.center_pivot(objects=None, mode='object')` *(static)* — Move each object's origin (Blender's single pivot) — mirror of Maya's Center Pivot.
   - `XformUtils.transfer_pivot(objects, translate=True, rotate=False, scale=False, bake=True, world_space=True, mirror='', select_targets_after_transfer=False)` *(static)* — Transfer the object **origin** from the first object to the rest — mirror of Maya's
   - `XformUtils.reset_pivot(objects=None, position=True, orientation=True)` *(static)* — Reset the pivot: Blender's single origin back on the geometry's
   - `XformUtils.world_align_pivot(objects=None, pivot_type='object', mode='set')` *(static)* — World-align the pivot.
   - `XformUtils.bake_pivot(objects, position=False, orientation=False)` *(static)* — Bake Blender's temporary pivot, the 3D cursor, into the objects' origins
   - `XformUtils.get_pivot_modes()` *(static)* — Center-pivot mode keys understood by :func:`center_pivot`.
-  - `XformUtils.match_scale(source, target, average=True)` *(static)* — Uniformly rescale ``source`` object(s) to match ``target``'s bounding-box size.
+  - `XformUtils.match_scale(source=None, target=None, average=True)` *(static)* — Uniformly rescale ``source`` object(s) to match ``target``'s bounding-box size.
   - `XformUtils.move_to(source, target, pivot='center')` *(static)* — Move ``source`` object(s) so their pivot aligns with the ``target``'s pivot point.
   - `XformUtils.get_bounding_box(objects, value='', world_space=True)` *(static)* — Combined bounding box of ``objects`` — mirror of ``mtk.get_bounding_box`` (name + behavior).
   - `XformUtils.get_center_point(objects)` *(static)* — Bounding-box center of ``objects`` as an ``(x, y, z)`` tuple (mirror of
@@ -3669,6 +3686,12 @@ Transform utilities — object-level transform ops (world bbox, freeze, drop-to-
   - `XformUtils.aim_object_at_point(objects, target_pos, aim_vect=(1, 0, 0), up_vect=(0, 1, 0))` *(static)* — Aim ``objects`` at a world-space point — mirror of ``mtk.aim_object_at_point`` (which uses
   - `XformUtils.restore_original_axes(objects=None, prefix=_DEFAULT_BAKE_PREFIX, name='Authored')` *(static)* — Point the transform gizmo at an object's PRE-FREEZE axes, without un-freezing —
   - `XformUtils.get_pivot_options()` *(static)* — The pivot keys the operations resolve (``get_operation_axis_matrix``,
+  - `XformUtils.move_to_target(objects=None, pivot='center', all_to_last=True, match_scale=False)` *(static)* — Move To -- mirror of ``mtk.XformUtils.move_to_target``: the objects move
+  - `XformUtils.align_to(mode, objects=None)` *(static)* — Align To -- mirror of ``mtk.XformUtils.align_to``: align the selected
+  - `XformUtils.get_transform_snap()` *(static)* — Increment snapping per transform kind -- mirror of
+  - `XformUtils.set_transform_snap(kind, state=None, increment=None)` *(static)* — Set the *kind* (``"move"``, ``"scale"``, ``"rotate"``) increment snapping
+  - `XformUtils.get_transform_constraint()` *(static)* — The transform constraints -- mirror of
+  - `XformUtils.set_transform_constraint(kind, state=True)` *(static)* — Turn a transform constraint on or off -- mirror of
   - `XformUtils.set_rotate_order(objects, order, preserve=True)` *(static)* — Change objects' Euler order keeping their pose and keyed animation --
 
 <a id="xform_utils--matrices"></a>

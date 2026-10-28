@@ -1449,7 +1449,7 @@ try:
         _poly_curve(f"P{z}", [(0, 0, z), (1, 0, z), (2, 0, z), (3, 0, z)])
         for z in (0, 1, 2)
     ]
-    lofted = btk.loft(profs, close=False, section_spans=1)
+    lofted = (btk.NurbsUtils.loft(profs, close=False, sectionSpans=1) or [None])[0]
     check(
         "loft -> a new mesh object",
         lofted is not None and lofted.type == "MESH",
@@ -1468,7 +1468,7 @@ try:
         _poly_curve(f"Q{z}", [(0, 0, z), (1, 0, z), (2, 0, z), (3, 0, z)])
         for z in (0, 1, 2)
     ]
-    lofted = btk.loft(profs, section_spans=2)
+    lofted = (btk.NurbsUtils.loft(profs, sectionSpans=2) or [None])[0]
     check(
         "loft section_spans=2 -> 12 quads",
         lofted is not None and len(lofted.data.polygons) == 12,
@@ -1481,7 +1481,7 @@ try:
         _poly_curve(f"R{z}", [(0, 0, z), (1, 0, z), (2, 0, z), (3, 0, z)])
         for z in (0, 1, 2)
     ]
-    lofted = btk.loft(profs, close=True)
+    lofted = (btk.NurbsUtils.loft(profs, close=True) or [None])[0]
     check(
         "loft close=True -> 9 quads (periodic)",
         lofted is not None and len(lofted.data.polygons) == 9,
@@ -1491,7 +1491,7 @@ try:
     # loft with <2 profiles -> None
     reset()
     one = _poly_curve("Solo", [(0, 0, 0), (1, 0, 0)])
-    check("loft <2 profiles -> None", btk.loft([one]) is None)
+    check("loft <2 profiles -> []", btk.NurbsUtils.loft([one]) == [])
 
     # detach_components: select 2 faces of a cube in edit mode, then detach
     def select_faces(o, idxs):
@@ -2101,6 +2101,53 @@ try:
         and btk.CoreUtils.selected_objects() == parts,
         f"{[(p.name, p.type) for p in parts]}",
     )
+
+    # ---- subdivision ops (tentacle's composed SubdivisionSlots) -------------------------
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    sub_cube = bpy.context.active_object
+    btk.CoreUtils.select([sub_cube])
+    check("triangulate(None) acts on the selection",
+          btk.EditUtils.triangulate(None) == [sub_cube] and faces(sub_cube) == 12,
+          f"faces={faces(sub_cube)}")
+    check("quadrangulate merges the triangles back",
+          btk.EditUtils.quadrangulate(None) == [sub_cube] and faces(sub_cube) == 6,
+          f"faces={faces(sub_cube)}")
+    check("subdivide_mesh(None) adds faces",
+          btk.EditUtils.subdivide_mesh(None) == [sub_cube] and faces(sub_cube) > 6)
+    btk.CoreUtils.select([])
+    for op in ("triangulate", "quadrangulate", "subdivide_mesh", "apply_subdivision",
+               "decimate", "dissolve_coplanar"):
+        check(f"{op}(None) with nothing selected -> [] (nothing runs)",
+              getattr(btk.EditUtils, op)(None) == [])
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    sub_cube = bpy.context.active_object
+    btk.EditUtils.set_subdivision([sub_cube], viewport_levels=1)
+    check("apply_subdivision(None) applies the selection's Subsurf",
+          btk.EditUtils.apply_subdivision(None) == [sub_cube]
+          and not sub_cube.modifiers and faces(sub_cube) == 24)
+    check("decimate takes Maya's delete_history (ignored)",
+          btk.EditUtils.decimate([sub_cube], percentage=10.0, delete_history=False)
+          == [sub_cube])
+    import inspect as _inspect
+
+    for algorithm, op in (("reduce", btk.EditUtils.decimate),
+                          ("planar", btk.EditUtils.dissolve_coplanar)):
+        params = _inspect.signature(op).parameters
+        check(f"DECIMATE_OPTIONS[{algorithm!r}] are the op's keywords",
+              all(o in params for o in btk.EditUtils.DECIMATE_OPTIONS[algorithm]))
+    # dissolve_coplanar's preserve_hard_edges keeps a sharp edge between coplanar faces
+    reset()
+    bpy.ops.mesh.primitive_plane_add(size=2.0)
+    grid = bpy.context.active_object
+    btk.EditUtils.subdivide_mesh([grid], cuts=1)  # 4 coplanar quads
+    for e in grid.data.edges:
+        mid = (grid.data.vertices[e.vertices[0]].co + grid.data.vertices[e.vertices[1]].co) / 2
+        e.use_edge_sharp = abs(mid.x) < 1e-6 and abs(mid.y) > 1e-6  # the inner Y-running pair
+    btk.EditUtils.dissolve_coplanar([grid], angle_tolerance=1.0, preserve_hard_edges=True)
+    check("dissolve_coplanar preserve_hard_edges keeps the sharp seam (2 faces, not 1)",
+          faces(grid) == 2, f"faces={faces(grid)}")
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

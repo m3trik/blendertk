@@ -165,6 +165,27 @@ class RigUtils:
         return None
 
     @staticmethod
+    def freeze_and_reanchor(objects=None, reanchor=True, **freeze_options):
+        """Freeze Transforms -- mirror of ``mtk.RigUtils.freeze_and_reanchor``, the
+        Freeze Transforms panel's one call: ``XformUtils.freeze_transforms`` with
+        *freeze_options* (mayatk's keywords). *reanchor* is Maya's step (it restores
+        the world anchor a Maya freeze collapses out of a GRP > LOC > GEO rig);
+        Blender has no such step yet, so it is accepted for the shared call and
+        ignored. *objects* None takes the selection. One undo step.
+
+        Returns:
+            (list): The objects baked; ``[]`` (nothing runs) with nothing selected.
+        """
+        from blendertk.core_utils._core_utils import CoreUtils
+        from blendertk.xform_utils._xform_utils import XformUtils
+
+        if objects is None:
+            objects = CoreUtils.selected_objects()
+        if not objects:
+            return []
+        return XformUtils.freeze_transforms(objects, **freeze_options)
+
+    @staticmethod
     def create_locator_at_object(
         objects,
         loc_scale=1.0,

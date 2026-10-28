@@ -196,6 +196,114 @@ try:
     btk.NurbsUtils.bend_curve(o, angle=90.0, axis="z")
     check("family works on NURBS splines", pts(o)[-1].y > 0, f"end y={pts(o)[-1].y:.3f}")
 
+    # ---- curve_action: the Nurbs list's actions (tentacle's composed NurbsSlots) ----
+    def closed_square(name="sq", z=0.0):
+        sq = [(0, 0, z), (1, 0, z), (1, 1, z), (0, 1, z)]
+        return btk.NurbsUtils.create_curve(sq, name=name, cyclic=True)
+
+    reset()
+    o = line_curve(n=3, length=2.0)
+    btk.CoreUtils.select([o])
+    btk.NurbsUtils.curve_action("reverse")
+    check("curve_action reverse flips the point order", abs(pts(o)[0].x - 2.0) < 1e-6,
+          f"first x={pts(o)[0].x:.3f}")
+    check("curve_action reverse leaves Object Mode", o.mode == "OBJECT")
+    was = o.data.splines[0].use_cyclic_u
+    btk.NurbsUtils.curve_action("open_close", [o])
+    check("curve_action open_close toggles cyclic", o.data.splines[0].use_cyclic_u != was)
+
+    reset()
+    o = line_curve(n=3, length=2.0)
+    before = set(bpy.data.objects.keys())
+    made = btk.NurbsUtils.curve_action("duplicate", [o])
+    check("curve_action duplicate -> one selected copy",
+          len(made) == 1 and made[0].name not in before and made[0].select_get())
+
+    reset()
+    sq = closed_square()
+    filled = btk.NurbsUtils.curve_action("planar", [sq])
+    check("curve_action planar fills a closed coplanar curve",
+          filled == [sq] and sq.data.fill_mode == "BOTH" and sq.data.dimensions == "2D")
+    open_line = line_curve(n=3, length=2.0)
+    try:
+        btk.NurbsUtils.curve_action("planar", [open_line])
+        check("planar on an open curve raises ValueError", False)
+    except ValueError as error:
+        check("planar on an open curve raises ValueError", "open" in str(error), str(error))
+
+    reset()
+    a, b = closed_square("a"), closed_square("b", z=2.0)
+    count = len(bpy.data.objects)
+    joined = btk.NurbsUtils.curve_action("attach", [a, b])
+    check("curve_action attach joins two curves into one",
+          len(bpy.data.objects) == count - 1 and len(joined) == 1)
+
+    reset()
+    o = line_curve(n=5, length=4.0)
+    btk.NurbsUtils.curve_action("bend", [o])
+    check("curve_action bend runs the CV family with its default angle", pts(o)[-1].y > 0)
+    bz = bpy.data.curves.new("bz", "CURVE")
+    bz.splines.new("BEZIER").bezier_points.add(1)
+    bz_obj = bpy.data.objects.new("bz", bz)
+    bpy.context.collection.objects.link(bz_obj)
+    try:
+        btk.NurbsUtils.curve_action("bend", [bz_obj])
+        check("the CV family refuses a Bezier-only curve", False)
+    except ValueError:
+        check("the CV family refuses a Bezier-only curve", True)
+
+    reset()
+    btk.CoreUtils.select([])
+    for action in ("reverse", "smooth", "duplicate", "attach", "extrude", "planar"):
+        try:
+            btk.NurbsUtils.curve_action(action)
+            check(f"curve_action {action} with nothing selected raises ValueError", False)
+        except ValueError:
+            check(f"curve_action {action} with nothing selected raises ValueError", True)
+    for action in ("lock_length", "insert_knot", "no_such_action"):
+        try:
+            btk.NurbsUtils.curve_action(action)
+            check(f"curve_action {action!r} (no Blender counterpart) raises", False)
+        except ValueError:
+            check(f"curve_action {action!r} (no Blender counterpart) raises", True)
+    try:
+        btk.NurbsUtils.curve_action("cut")
+        check("cut outside Edit Mode raises ValueError", False)
+    except ValueError:
+        check("cut outside Edit Mode raises ValueError", True)
+
+    # ---- revolve: a Screw modifier, re-set rather than stacked ----
+    reset()
+    o = line_curve(n=3, length=2.0)
+    got = btk.NurbsUtils.revolve([o], axis="z", start_sweep=0, end_sweep=180, sections=12)
+    screws = [m for m in o.modifiers if m.type == "SCREW"]
+    check("revolve adds one Screw modifier", got == [o] and len(screws) == 1)
+    check("revolve sets axis, sweep and steps",
+          screws[0].axis == "Z" and abs(math.degrees(screws[0].angle) - 180) < 1e-4
+          and screws[0].steps == 12)
+    btk.NurbsUtils.revolve([o], axis="x", sections=4)
+    screws = [m for m in o.modifiers if m.type == "SCREW"]
+    check("revolve again re-sets the same modifier",
+          len(screws) == 1 and screws[0].axis == "X" and screws[0].steps == 4)
+    btk.CoreUtils.select([])
+    check("revolve with nothing selected -> []", btk.NurbsUtils.revolve(None) == [])
+    try:
+        btk.NurbsUtils.revolve([o], axis="w")
+        check("revolve refuses an unknown axis", False)
+    except ValueError:
+        check("revolve refuses an unknown axis", True)
+
+    # ---- extrude: one curve -> ribbon; two -> profile swept along the path ----
+    reset()
+    o = line_curve(n=3, length=2.0)
+    btk.NurbsUtils.curve_action("extrude", [o])
+    check("extrude one curve gives it an extrude depth", o.data.extrude > 0)
+    path, profile = line_curve(n=3, length=4.0), closed_square("profile")
+    btk.CoreUtils.select([path, profile])  # path active
+    btk.NurbsUtils.curve_action("extrude")
+    check("extrude two curves sweeps the profile along the active path",
+          path.data.bevel_mode == "OBJECT" and path.data.bevel_object == profile)
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

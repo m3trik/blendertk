@@ -850,9 +850,31 @@ class EditUtils(_EditUtilsInternal):
         mod.matrix_inverse = EditUtils.hook_bind_inverse(target, curve)
         return mod
 
+    #: The keywords each Decimate algorithm honors -- ``"reduce"``
+    #: (:meth:`decimate`) and ``"planar"`` (:meth:`dissolve_coplanar`): what a
+    #: panel offers per algorithm. Twin of mayatk's ``DECIMATE_OPTIONS``. The
+    #: collapse cannot hold borders, hard edges or UV borders; the planar
+    #: dissolve can (``use_dissolve_boundaries``, delimit SHARP / UV).
+    DECIMATE_OPTIONS = {
+        "reduce": ("percentage", "preserve_quads", "symmetry"),
+        "planar": (
+            "angle_tolerance",
+            "preserve_borders",
+            "preserve_hard_edges",
+            "preserve_uv_borders",
+        ),
+    }
+
     @staticmethod
+    @CoreUtils.selected
+    @CoreUtils.undoable
     def decimate(
-        objects, percentage=50.0, preserve_quads=True, symmetry=False, apply=True
+        objects=None,
+        percentage=50.0,
+        preserve_quads=True,
+        symmetry=False,
+        apply=True,
+        delete_history=True,
     ):
         """Reduce mesh density via a Decimate (COLLAPSE) modifier — mirror of ``mtk.EditUtils.decimate``.
 
@@ -868,6 +890,10 @@ class EditUtils(_EditUtilsInternal):
         path drives the modifier through a temporary vertex group (removed again on ``apply``; with
         ``apply=False`` the live modifier keeps a ``Decimate`` group). In Object Mode the whole mesh
         reduces. Returns the processed objects.
+
+        ``objects`` None takes the selection (``[]``, nothing runs, when it is empty). One undo
+        step. ``delete_history`` is Maya's (construction history): Blender keeps none, so it is
+        accepted for the shared call and ignored.
         """
         meshes = _EditUtilsInternal._meshes(objects)
         scoped = [
@@ -878,8 +904,16 @@ class EditUtils(_EditUtilsInternal):
         )
 
     @staticmethod
+    @CoreUtils.selected
+    @CoreUtils.undoable
     def dissolve_coplanar(
-        objects, angle_tolerance=1.0, delimit=None, preserve_borders=True, apply=True
+        objects=None,
+        angle_tolerance=1.0,
+        delimit=None,
+        preserve_borders=True,
+        apply=True,
+        preserve_hard_edges=False,
+        preserve_uv_borders=False,
     ):
         """Dissolve near-coplanar faces via a Decimate (PLANAR) modifier — mirror of
         ``mtk.EditUtils.dissolve_coplanar``. ``angle_tolerance`` is the max dihedral angle (degrees)
@@ -894,7 +928,17 @@ class EditUtils(_EditUtilsInternal):
         **selected** verts/edges — a selected face region collapses within itself and keeps its outline
         (bmesh ``dissolve_limit``, always applied: the PLANAR modifier has no vertex-group input). In
         Object Mode the whole mesh. Returns the processed objects.
+
+        ``objects`` None takes the selection (``[]``, nothing runs, when it is empty). One undo
+        step. ``preserve_hard_edges`` / ``preserve_uv_borders`` are mayatk's keywords for the
+        ``SHARP`` / ``UV`` delimits, added to *delimit*.
         """
+        if preserve_hard_edges or preserve_uv_borders:
+            delimit = set(delimit or ())
+            if preserve_hard_edges:
+                delimit.add("SHARP")
+            if preserve_uv_borders:
+                delimit.add("UV")
         meshes = _EditUtilsInternal._meshes(objects)
         scoped = [
             o for o in meshes if o.mode == "EDIT"
@@ -904,14 +948,30 @@ class EditUtils(_EditUtilsInternal):
         )
 
     @staticmethod
+    @CoreUtils.selected
+    @CoreUtils.undoable
     @CoreUtils._object_mode
-    def triangulate(objects):
-        """Triangulate all faces of the given mesh object(s) (bmesh, headless)."""
+    def triangulate(objects=None):
+        """Triangulate all faces of the given mesh object(s) (bmesh, headless) -- mirror of
+        ``mtk.EditUtils.triangulate``. None takes the selection. One undo step. Returns the
+        meshes triangulated, ``[]`` (nothing runs) when there are none."""
         import bmesh
 
         _EditUtilsInternal._bmesh_each(
             objects, lambda bm: bmesh.ops.triangulate(bm, faces=bm.faces[:])
         )
+        return _EditUtilsInternal._meshes(objects)
+
+    @staticmethod
+    @CoreUtils.selected
+    @CoreUtils.undoable
+    def quadrangulate(objects=None, angle=40.0):
+        """Quadrangulate -- mirror of ``mtk.EditUtils.quadrangulate``: merge adjacent
+        triangles into quads where the face / shape angle is within *angle* degrees
+        (:meth:`tris_to_quads`). None takes the selection. One undo step. Returns the
+        meshes, ``[]`` (nothing runs) when there are none."""
+        EditUtils.tris_to_quads(objects, angle=angle)
+        return _EditUtilsInternal._meshes(objects)
 
     @staticmethod
     @CoreUtils._object_mode
@@ -937,9 +997,13 @@ class EditUtils(_EditUtilsInternal):
         _EditUtilsInternal._bmesh_each(objects, _join)
 
     @staticmethod
+    @CoreUtils.selected
+    @CoreUtils.undoable
     @CoreUtils._object_mode
-    def subdivide_mesh(objects, cuts=1):
-        """Subdivide every edge ``cuts`` times, grid-filling faces (bmesh, headless) — "Add Divisions"."""
+    def subdivide_mesh(objects=None, cuts=1):
+        """Subdivide every edge ``cuts`` times, grid-filling faces (bmesh, headless) — "Add Divisions"
+        (mirror of ``mtk.EditUtils.subdivide_mesh``). None takes the selection. One undo step.
+        Returns the meshes, ``[]`` (nothing runs) when there are none."""
         import bmesh
 
         def _sub(bm):
@@ -948,6 +1012,7 @@ class EditUtils(_EditUtilsInternal):
             )
 
         _EditUtilsInternal._bmesh_each(objects, _sub)
+        return _EditUtilsInternal._meshes(objects)
 
     @staticmethod
     @CoreUtils.undoable
@@ -1081,11 +1146,14 @@ class EditUtils(_EditUtilsInternal):
         return changed
 
     @staticmethod
+    @CoreUtils.selected
+    @CoreUtils.undoable
     @CoreUtils._object_mode
-    def apply_subdivision(objects):
+    def apply_subdivision(objects=None):
         """Bake the live Subsurf modifier into real geometry — the destructive counterpart of
         :func:`set_subdivision` and the Blender analogue of Maya's *smooth preview → polygons*
-        (``performSmoothMeshPreviewToPolygon``). Returns the objects whose modifier was applied.
+        (``performSmoothMeshPreviewToPolygon``; mirror of ``mtk.EditUtils.apply_subdivision``).
+        None takes the selection. One undo step. Returns the objects whose modifier was applied.
         """
         applied = []
         for o in _EditUtilsInternal._meshes(objects):
@@ -2628,7 +2696,9 @@ class EditUtils(_EditUtilsInternal):
         return CoreUtils.selected_objects()
 
     @staticmethod
-    def loft(objects=None, *, close=False, reverse_normals=False, section_spans=1):
+    def _loft_profiles(
+        objects=None, *, close=False, reverse_normals=False, section_spans=1
+    ):
         """Loft a mesh surface across a sequence of profile curves / mesh edge-loops — a Blender mesh
         equivalent of Maya's ``loft`` (Blender ships no native NURBS loft). Each profile's ordered
         points are resampled to a common count and consecutive profiles are bridged with quad faces.
