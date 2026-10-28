@@ -539,6 +539,47 @@ class DisplayUtils(_DisplayUtilsInternal):
 
     @staticmethod
     @CoreUtils.undoable
+    def toggle_local_axes(objects=None, joints=False):
+        """Toggle local axes display, the lead (the first) deciding the state for
+        all. Mirror of mayatk's ``DisplayUtils.toggle_local_axes``
+        (``displayLocalAxis``).
+
+        Parameters:
+            objects (obj/list): The objects (or names); ``None``: the selection.
+            joints (bool): Toggle the bone axes (``Armature.show_axes``) of the
+                armatures among them; called bare with none selected, of every
+                armature in the scene. False: the objects' own axes
+                (``Object.show_axis``).
+
+        Returns:
+            (bool/None): True when the axes now show; None with nothing to toggle.
+        """
+        bare = objects is None
+        objects = (
+            CoreUtils.selected_objects()
+            if bare
+            else _DisplayUtilsInternal._objects(objects)
+        )
+        if joints:
+            armatures = [o for o in objects if o.type == "ARMATURE"]
+            if not armatures and bare:
+                armatures = _DisplayUtilsInternal._scene_objects("ARMATURE")
+            datas = list(dict.fromkeys(a.data for a in armatures))
+            if not datas:
+                return None
+            state = not datas[0].show_axes
+            for data in datas:
+                data.show_axes = state
+            return state
+        if not objects:
+            return None
+        state = not objects[0].show_axis
+        for obj in objects:
+            obj.show_axis = state
+        return state
+
+    @staticmethod
+    @CoreUtils.undoable
     def toggle_template(objects=None):
         """Template *objects*: wireframe, not rendered, not selectable -- Maya's
         template. Twin of mayatk's ``DisplayUtils.toggle_template``.

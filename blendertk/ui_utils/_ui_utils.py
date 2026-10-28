@@ -44,6 +44,10 @@ EDITOR_TYPES = {
     "Layer Editor": "OUTLINER",
     "Node Editor": "ShaderNodeTree",
     "Command Line": "CONSOLE",
+    # mayatk's rendering editors: Properties tabs (UiUtils._PROPERTIES_TABS).
+    "Render Settings": "PROPERTIES",
+    "Render Setup": "PROPERTIES",
+    "Rendering Flags": "PROPERTIES",
 }
 
 
@@ -245,6 +249,15 @@ class UiUtils(_UiUtilsInternal):
             for category, names in cls._EDITOR_CATEGORIES.items()
         }
 
+    #: mayatk's editor name -> the Properties tab that serves it: the render
+    #: settings, Render Setup's render layers (View Layers) and the per-object
+    #: Rendering Flags (the Object tab's ray Visibility).
+    _PROPERTIES_TABS = {
+        "Render Settings": "RENDER",
+        "Render Setup": "VIEW_LAYER",
+        "Rendering Flags": "OBJECT",
+    }
+
     @staticmethod
     def open_editor(editor, properties_context=None):
         """Open ``editor`` (a friendly name from :data:`EDITOR_TYPES` or a raw ``ui_type``)
@@ -268,6 +281,7 @@ class UiUtils(_UiUtilsInternal):
         import bpy
 
         ui_type = EDITOR_TYPES.get(editor, editor)
+        properties_context = properties_context or UiUtils._PROPERTIES_TABS.get(editor)
         if ui_type == "PREFERENCES":
             try:
                 with CoreUtils.window_context_override():

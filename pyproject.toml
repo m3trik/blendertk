@@ -101,6 +101,7 @@ order = [
     "anim_utils",
     "audio_utils",
     "rig_utils",
+    "render_utils",
     "mat_utils",
     "node_utils",
     "xform_utils",

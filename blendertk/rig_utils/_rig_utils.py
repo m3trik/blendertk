@@ -17,6 +17,10 @@ surface never needs a running Blender (matches the no-import-side-effects rule).
 
 from contextlib import contextmanager
 
+import pythontk as ptk
+
+from blendertk.core_utils._core_utils import CoreUtils
+
 
 class RigUtils:
     """Constraint / driver / handle / grouping / armature helpers shared by the procedural rigs."""
@@ -186,6 +190,7 @@ class RigUtils:
         return XformUtils.freeze_transforms(objects, **freeze_options)
 
     @staticmethod
+    @CoreUtils.undoable
     def create_locator_at_object(
         objects,
         loc_scale=1.0,
@@ -456,7 +461,8 @@ class RigUtils:
         return Matrix.LocRotScale(location, rotation, None)
 
     @staticmethod
-    def remove_locator(objects):
+    @CoreUtils.undoable
+    def remove_locator(objects=None):
         """Dissolve locator rigs: the inverse of :meth:`create_locator_at_object`.
 
         Mirror of mayatk's ``RigUtils.remove_locator``: each locator in *objects*
@@ -478,7 +484,8 @@ class RigUtils:
         children to that Empty.
 
         Parameters:
-            objects (obj/list): The locators or their groups (or their names).
+            objects (obj/list): The locators or their groups (or their names);
+                ``None``: the selection.
 
         Returns:
             (list): The names of the locators removed (empty when no locator rig
@@ -487,7 +494,9 @@ class RigUtils:
         import bpy
 
         role = RigUtils._locator_rig_role
-        if not isinstance(objects, (list, tuple, set)):
+        if objects is None:
+            objects = CoreUtils.selected_objects()
+        elif not isinstance(objects, (list, tuple, set)):
             objects = [objects]
         locators = []
         for o in (RigUtils.resolve_object(x) for x in objects):
@@ -550,6 +559,389 @@ class RigUtils:
             if not grp.children:  # only a group left childless goes
                 bpy.data.objects.remove(grp, do_unlink=True)
         return removed
+
+    # ----------------------------------------------------------------- the Rigging menu
+    @staticmethod
+    @CoreUtils.undoable
+    def add_locator(size=1.0, rotate_order="xyz"):
+        """Add a lone locator the way Blender's Add menu adds an Empty: at the 3D
+        cursor, selected and active -- typed a Maya locator
+        (``NodeUtils.set_maya_node_type``), so it stays one once something is
+        parented under it. Mirror of mayatk's ``RigUtils.add_locator`` (Maya's
+        Create > Locator, at the origin). Object Mode first. One undo step.
+
+        Parameters:
+            size (float): The Empty's display size.
+            rotate_order (str): Its Euler order, Maya-spelled ("xyz", "zyx", ...).
+
+        Returns:
+            (bpy.types.Object): The new locator Empty.
+
+        Raises:
+            ValueError: *rotate_order* is not an Euler order.
+            RuntimeError: Blender refused to add it.
+        """
+        import bpy
+
+        from blendertk.node_utils._node_utils import NodeUtils
+
+        rotation_mode = str(rotate_order).upper()
+        if sorted(rotation_mode) != ["X", "Y", "Z"]:
+            raise ValueError(f"Invalid rotate order {rotate_order!r}.")
+        CoreUtils.ensure_object_mode()
+        # Windowless (tentacle's Qt timer), the op would address the scene's
+        # default view layer, not the window's.
+        with CoreUtils.window_context_override():
+            bpy.ops.object.empty_add(type="PLAIN_AXES", radius=float(size))
+        loc = CoreUtils.active_object()
+        if loc is None or loc.type != "EMPTY":
+            raise RuntimeError("Locator creation failed: the new object is not an Empty.")
+        loc.rotation_mode = rotation_mode
+        NodeUtils.set_maya_node_type(loc, "locator")
+        return loc
+
+    #: ``{name: (bpy.ops.object operator, its properties)}`` behind
+    #: :meth:`create_utility_node`.
+    _UTILITY_NODE_OPS = {
+        "Armature": ("armature_add", {}),
+        "Empty": ("empty_add", {"type": "PLAIN_AXES"}),
+    }
+    #: The rigging utility objects :meth:`create_utility_node` adds. Mirror of
+    #: mayatk's ``RigUtils.UTILITY_NODES`` (its joints, IK handle, lattice and
+    #: cluster).
+    UTILITY_NODES = tuple(_UTILITY_NODE_OPS)
+
+    @staticmethod
+    @CoreUtils.undoable
+    def create_utility_node(node_type):
+        """Add a rigging utility object the way Blender's Add menu does -- an
+        "Armature" (one bone) or an "Empty" -- at the 3D cursor, selected and
+        active. Mirror of mayatk's ``RigUtils.create_utility_node``. Object Mode
+        first. One undo step.
+
+        Returns:
+            (bpy.types.Object): The new object.
+
+        Raises:
+            ValueError: *node_type* is not one of :attr:`UTILITY_NODES`.
+            RuntimeError: Blender refused to add it.
+        """
+        import bpy
+
+        if node_type not in RigUtils._UTILITY_NODE_OPS:
+            raise ValueError(
+                f"Unknown utility node {node_type!r}; expected one of "
+                f"{RigUtils.UTILITY_NODES}."
+            )
+        op, props = RigUtils._UTILITY_NODE_OPS[node_type]
+        CoreUtils.ensure_object_mode()
+        with CoreUtils.window_context_override():
+            getattr(bpy.ops.object, op)(**props)
+        return CoreUtils.active_object()
+
+    #: ``{name: "category.operator"}`` behind :meth:`auto_rig`: the bundled Rigify
+    #: add-on's operators.
+    _AUTO_RIG_OPS = {
+        "Human Meta-Rig": "object.armature_human_metarig_add",
+        "Basic Human Meta-Rig": "object.armature_basic_human_metarig_add",
+        "Generate Rig": "pose.rigify_generate",
+    }
+    #: Blender's character auto-rigging steps, as :meth:`auto_rig` names them.
+    #: Mirror of mayatk's ``RigUtils.AUTO_RIGS`` (Quick Rig, HumanIK).
+    AUTO_RIGS = tuple(_AUTO_RIG_OPS)
+
+    @staticmethod
+    def _enable_rigify():
+        """Enable the bundled Rigify add-on (idempotent). True when available."""
+        import addon_utils
+
+        try:
+            # ``enable`` returns the add-on module on success and None on failure:
+            # it logs the traceback instead of raising, so the return value is
+            # the only reliable failure signal.
+            return addon_utils.enable("rigify", default_set=True) is not None
+        except Exception:  # noqa: BLE001 - an add-on that will not load is "unavailable"
+            return False
+
+    @staticmethod
+    @CoreUtils.undoable
+    def auto_rig(rig_type):
+        """Run Blender's character auto-rigger, the bundled Rigify add-on
+        (enabled on demand): add a human or basic human meta-rig at the 3D
+        cursor, or generate the control rig from the active meta-rig. Mirror of
+        mayatk's ``RigUtils.auto_rig`` (Quick Rig / HumanIK). One undo step.
+
+        Returns:
+            (bpy.types.Object/None): The active object afterwards.
+
+        Raises:
+            ValueError: *rig_type* is not one of :attr:`AUTO_RIGS`, or Generate
+                Rig with no active meta-rig armature.
+            RuntimeError: Rigify could not be enabled, or its operator failed.
+        """
+        import bpy
+
+        op_path = RigUtils._AUTO_RIG_OPS.get(rig_type)
+        if op_path is None:
+            raise ValueError(
+                f"Unknown auto-rigger {rig_type!r}; expected one of {RigUtils.AUTO_RIGS}."
+            )
+        if not RigUtils._enable_rigify():
+            raise RuntimeError("The Rigify add-on could not be enabled.")
+        if op_path.startswith("pose."):
+            active = CoreUtils.active_object()
+            if active is None or active.type != "ARMATURE":
+                raise ValueError(f"{rig_type} requires an active meta-rig armature.")
+        category, name = op_path.split(".")
+        try:
+            # The meta-rig add / generate ops read the active object from SCREEN
+            # context (dead in the Qt-pump state).
+            with CoreUtils.window_context_override():
+                getattr(getattr(bpy.ops, category), name)()
+        except AttributeError as error:  # Rigify enabled, its operators absent
+            raise RuntimeError(f"{rig_type} is unavailable: {error}") from error
+        return CoreUtils.active_object()
+
+    #: The channel groups each :meth:`lock_transforms` scope names.
+    _LOCK_SCOPE_CHANNELS = {
+        "all": ("location", "rotation", "scale"),
+        "translate": ("location",),
+        "rotate": ("rotation",),
+        "scale": ("scale",),
+    }
+    #: A channel group's attributes as mayatk names them.
+    _CHANNEL_ATTRS = {
+        "location": ("tx", "ty", "tz"),
+        "rotation": ("rx", "ry", "rz"),
+        "scale": ("sx", "sy", "sz"),
+    }
+    #: What :meth:`lock_transforms` can lock. Mirror of mayatk's
+    #: ``RigUtils.LOCK_SCOPES`` less its channel-box scopes: Blender has none.
+    LOCK_SCOPES = tuple(_LOCK_SCOPE_CHANNELS)
+
+    @staticmethod
+    @CoreUtils.undoable
+    def lock_transforms(objects=None, lock=True, scope="all"):
+        """Lock or unlock objects' transform channels (``lock_location`` /
+        ``lock_rotation`` / ``lock_scale``). Mirror of mayatk's
+        ``RigUtils.lock_transforms``. One undo step.
+
+        Parameters:
+            objects (obj/list): The objects (or names); ``None``: the selection.
+            lock (bool): Lock (True) or unlock (False).
+            scope (str): One of :attr:`LOCK_SCOPES`.
+
+        Returns:
+            (tuple): ``(objects, attributes)``, the attributes Maya-spelled
+            (``tx`` ... ``sz``) as mayatk's; ``([], [])`` with nothing selected.
+
+        Raises:
+            ValueError: A *scope* not in :attr:`LOCK_SCOPES` (mayatk's "auto" and
+                "channel_box" included: Blender has no channel box).
+        """
+        if scope not in RigUtils.LOCK_SCOPES:
+            raise ValueError(
+                f"Unknown lock scope {scope!r}; Blender's are {RigUtils.LOCK_SCOPES} "
+                "(it has no channel box)."
+            )
+        if objects is None:
+            objects = CoreUtils.selected_objects()
+        else:
+            objects = [
+                o
+                for o in (RigUtils.resolve_object(x) for x in ptk.make_iterable(objects))
+                if o is not None
+            ]
+        if not objects:
+            return [], []
+        channels = RigUtils._LOCK_SCOPE_CHANNELS[scope]
+        for obj in objects:
+            RigUtils.lock_channels(obj, **{c: (bool(lock),) * 3 for c in channels})
+        return objects, [a for c in channels for a in RigUtils._CHANNEL_ATTRS[c]]
+
+    @staticmethod
+    @CoreUtils.undoable
+    def rebind_skin_clusters(meshes=None, temp_dir=None, inherits_transform=None):
+        """Rebind skinned meshes: point each one's Armature modifiers at their
+        armature again. Mirror of mayatk's ``RigUtils.rebind_skin_clusters``
+        (a skinCluster rebind there), with its summary.
+
+        A mesh's armature is its Armature modifier's, else its armature parent,
+        else the first armature among *meshes* (so selecting meshes and their
+        armature binds an unskinned mesh to it). The modifiers are re-pointed in
+        place: remove + re-add would lose the stack order, per-modifier settings
+        and layered multi-armature setups, and re-assigning ``.object`` (the same
+        value included) is what makes the depsgraph rebind. A mesh with no
+        modifier gets one, deforming by its vertex groups. Weights live in the
+        vertex groups, so they are kept. One undo step.
+
+        Parameters:
+            meshes (obj/list): Objects (or names); ``None``: every mesh in the
+                scene with an Armature modifier. Armatures among them are bind
+                targets, not inputs.
+            temp_dir, inherits_transform: mayatk's, accepted for the panel both
+                hosts share: Blender keeps the weights in vertex groups (never on
+                disk) and has no ``inheritsTransform``.
+
+        Returns:
+            dict: ``"rebound"`` / ``"no_skin_cluster"`` / ``"wrong_type"`` (object
+            names) and ``"failed"`` (``(name, error)`` pairs), as mayatk's.
+        """
+        import bpy
+
+        result = {"rebound": [], "no_skin_cluster": [], "wrong_type": [], "failed": []}
+        if meshes is None:
+            objects = [
+                o
+                for o in bpy.data.objects
+                if o.type == "MESH" and any(m.type == "ARMATURE" for m in o.modifiers)
+            ]
+        else:
+            objects = [
+                o
+                for o in (RigUtils.resolve_object(m) for m in ptk.make_iterable(meshes))
+                if o is not None
+            ]
+        fallback = next((o for o in objects if o.type == "ARMATURE"), None)
+        for obj in objects:
+            if obj.type == "ARMATURE":
+                continue  # a bind target, not a skin
+            if obj.type != "MESH":
+                result["wrong_type"].append(obj.name)
+                print(f"[SKIP] Not a mesh: {obj.name}")
+                continue
+            try:
+                mods = [m for m in obj.modifiers if m.type == "ARMATURE"]
+                arm = next((m.object for m in mods if m.object), None)
+                if arm is None and obj.parent is not None and obj.parent.type == "ARMATURE":
+                    arm = obj.parent
+                arm = arm or fallback
+                if arm is None:
+                    result["no_skin_cluster"].append(obj.name)
+                    print(f"[SKIP] No armature: {obj.name}")
+                    continue
+                if mods:
+                    for mod in mods:
+                        mod.object = mod.object or arm
+                else:
+                    mod = obj.modifiers.new(name="Armature", type="ARMATURE")
+                    mod.object = arm
+                    mod.use_vertex_groups = True
+                result["rebound"].append(obj.name)
+            except (RuntimeError, TypeError, ReferenceError) as error:
+                result["failed"].append((obj.name, str(error)))
+                print(f"[FAIL] {obj.name}: {error}")
+        return result
+
+    @staticmethod
+    @CoreUtils.undoable
+    def connect_switch_to_constraint(
+        constraint_node=None,
+        constraint_targets=None,
+        attr_name="parent_switch",
+        overwrite_existing=False,
+        node=None,
+        weighted=False,
+        anchor=None,
+    ):
+        """Drive an object's constraints from one switch property. Mirror of
+        mayatk's ``RigUtils.connect_switch_to_constraint`` (a switch attribute
+        driving a constraint node's target weights): Blender has no constraint
+        nodes, so *constraint_node* is the CONSTRAINED object and its targeted
+        constraints are the switch's targets.
+
+        The switch is a custom property on *node* (the constrained object by
+        default), 0 to targets - 1, driving each constraint's influence: snapped
+        to the nearest index, or -- *weighted* -- blended, falling off linearly
+        with the distance from each index. An *anchor* name adds an Empty at the
+        world origin as one more (Copy Transforms) target first. One undo step.
+
+        Parameters:
+            constraint_node (obj/str): The constrained object; ``None``: the
+                active object.
+            constraint_targets (list): Only the constraints targeting these
+                (objects or names); ``None``: every targeted constraint.
+            attr_name (str): The switch property's name.
+            overwrite_existing (bool): Replace an existing property of that name;
+                False leaves it, and builds nothing.
+            node (obj/str): The object to hold the property.
+            weighted (bool): Blend between targets instead of snapping.
+            anchor (str): The name of an Empty to add as a target.
+
+        Returns:
+            dict: ``"switch_attr"`` (the property's path, ``'<object>["<name>"]'``),
+            ``"constraints"`` (their names) and ``"anchor_helper"`` when one was
+            made; ``{}`` when the property exists and *overwrite_existing* is off.
+
+        Raises:
+            ValueError: No object, or fewer than two targets (the anchor counted).
+        """
+        import bpy
+
+        obj = (
+            CoreUtils.active_object()
+            if constraint_node is None
+            else RigUtils.resolve_object(constraint_node)
+        )
+        if obj is None:
+            raise ValueError("Nothing selected: select the constrained object.")
+        holder = RigUtils.resolve_object(node) if node is not None else obj
+        targets = (
+            None
+            if constraint_targets is None
+            else {RigUtils.resolve_object(t) for t in ptk.make_iterable(constraint_targets)}
+        )
+        constraints = [
+            c
+            for c in obj.constraints
+            if getattr(c, "target", None) and (targets is None or c.target in targets)
+        ]
+        if len(constraints) + (1 if anchor else 0) < 2:
+            raise ValueError(
+                f"A constraint switch needs 2+ targeted constraints on '{obj.name}' "
+                "(add them, or name an anchor to add one)."
+            )
+        if attr_name in holder and not overwrite_existing:
+            print(f"[connect_switch_to_constraint] '{holder.name}[\"{attr_name}\"]' exists.")
+            return {}
+        result = {}
+        if anchor:
+            helper = bpy.data.objects.new(anchor, None)
+            helper.empty_display_type = "PLAIN_AXES"
+            # The scene's root collection: ``bpy.context.collection`` is screen
+            # context (an AttributeError from tentacle's Qt pump).
+            bpy.context.scene.collection.objects.link(helper)
+            con = obj.constraints.new(type="COPY_TRANSFORMS")
+            con.target = helper
+            constraints.append(con)
+            result["anchor_helper"] = helper.name
+        count = len(constraints)
+        if attr_name in holder:
+            del holder[attr_name]
+        holder[attr_name] = 0.0
+        try:  # clamp the property's slider to the valid index range
+            holder.id_properties_ui(attr_name).update(min=0.0, max=float(count - 1))
+        except (AttributeError, TypeError):
+            pass
+        for index, con in enumerate(constraints):
+            con.driver_remove("influence")
+            driver = con.driver_add("influence").driver
+            var = driver.variables.new()
+            var.name = "s"
+            var.type = "SINGLE_PROP"
+            var.targets[0].id = holder
+            var.targets[0].data_path = f'["{attr_name}"]'
+            # Only abs() (always in Blender's restricted driver namespace; round()
+            # is not guaranteed). Weighted: a triangular falloff; snapped: 1 when
+            # this index is the nearest.
+            driver.expression = (
+                f"max(0.0, 1.0 - abs(s - {index}))"
+                if weighted
+                else f"1.0 if abs(s - {index}) < 0.5 else 0.0"
+            )
+        result["switch_attr"] = f'{holder.name}["{attr_name}"]'
+        result["constraints"] = [c.name for c in constraints]
+        return result
 
     # ----------------------------------------------------------------- armature / bones
     @staticmethod

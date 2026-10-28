@@ -1300,6 +1300,153 @@ try:
         f"moved {_delta(_kp.matrix_world, _kpw):.4f}",
     )
 
+    # ---- the Rigging panel's operations (mirror of mayatk's) ------------------------------
+    from blendertk.core_utils._core_utils import CoreUtils
+
+    reset()
+    _loc = RigUtils.add_locator(size=1.5, rotate_order="zyx")
+    check(
+        "add_locator: a typed locator Empty, display-sized, Euler order set, active",
+        _loc is not None
+        and _loc.type == "EMPTY"
+        and _loc.get("maya_node_type") == "locator"
+        and abs(_loc.empty_display_size - 1.5) < 1e-6
+        and _loc.rotation_mode == "ZYX"
+        and CoreUtils.active_object() == _loc,
+        _loc and _loc.name,
+    )
+    try:
+        RigUtils.add_locator(rotate_order="xxy")
+        check("add_locator refuses a bad rotate order", False)
+    except ValueError:
+        check("add_locator refuses a bad rotate order", True)
+
+    reset()
+    _empty = RigUtils.create_utility_node("Empty")
+    check(
+        "create_utility_node('Empty') adds an Empty",
+        _empty is not None and _empty.type == "EMPTY",
+    )
+    try:
+        RigUtils.create_utility_node("Lattice")
+        check("create_utility_node refuses a Maya-only node", False)
+    except ValueError:
+        check("create_utility_node refuses a Maya-only node", True)
+    try:
+        RigUtils.auto_rig("Quick Rig")
+        check("auto_rig refuses a Maya auto-rigger", False)
+    except ValueError:
+        check("auto_rig refuses a Maya auto-rigger", True)
+
+    # lock_transforms: the scope's channels, Maya-spelled
+    reset()
+    _box = cube("LockBox")
+    _objs, _attrs = RigUtils.lock_transforms([_box], lock=True, scope="rotate")
+    check(
+        "lock_transforms('rotate') locks rotation only, answers rx..rz",
+        _objs == [_box]
+        and _attrs == ["rx", "ry", "rz"]
+        and tuple(_box.lock_rotation) == (True, True, True)
+        and tuple(_box.lock_location) == (False, False, False),
+    )
+    RigUtils.lock_transforms([_box], lock=False, scope="all")
+    check("lock_transforms(lock=False) unlocks", not any(_box.lock_rotation))
+    CoreUtils.select([])
+    check("lock_transforms(None), nothing selected -> ([], [])",
+          RigUtils.lock_transforms(None) == ([], []))
+    try:
+        RigUtils.lock_transforms([_box], scope="channel_box")
+        check("lock_transforms refuses the channel box (Blender has none)", False)
+    except ValueError:
+        check("lock_transforms refuses the channel box (Blender has none)", True)
+
+    # rebind_skin_clusters: mayatk's summary
+    reset()
+    _arm = RigUtils.create_armature("RebindArm")
+    _skinned = cube("Skinned")
+    _skinned.parent = _arm
+    _bare = cube("Bare")
+    _helper = bpy.data.objects.new("Helper", None)
+    bpy.context.collection.objects.link(_helper)
+    _summary = RigUtils.rebind_skin_clusters([_skinned, _bare, _helper])
+    check(
+        "rebind_skin_clusters: an armature child gets its modifier; the rest are tallied",
+        _summary["rebound"] == ["Skinned"]
+        and _summary["no_skin_cluster"] == ["Bare"]
+        and _summary["wrong_type"] == ["Helper"]
+        and any(m.type == "ARMATURE" and m.object == _arm for m in _skinned.modifiers),
+        str(_summary),
+    )
+    _summary = RigUtils.rebind_skin_clusters([_bare, _arm])
+    check(
+        "rebind_skin_clusters: a selected armature binds an unskinned mesh",
+        _summary["rebound"] == ["Bare"]
+        and any(m.object == _arm for m in _bare.modifiers if m.type == "ARMATURE"),
+        str(_summary),
+    )
+
+    # connect_switch_to_constraint: the constrained object's constraints, one property
+    reset()
+    _driven = cube("Driven")
+    _ta = bpy.data.objects.new("TargetA", None)
+    _tb = bpy.data.objects.new("TargetB", None)
+    for _t in (_ta, _tb):
+        bpy.context.collection.objects.link(_t)
+        _driven.constraints.new(type="COPY_LOCATION").target = _t
+    def _influence_expr(obj, con):
+        fc = obj.animation_data and obj.animation_data.drivers.find(
+            f'constraints["{con.name}"].influence'
+        )
+        return fc.driver.expression if fc else None
+
+    _res = RigUtils.connect_switch_to_constraint(
+        _driven, attr_name="space", overwrite_existing=True
+    )
+    _drivers = [_influence_expr(_driven, c) for c in _driven.constraints]
+    check(
+        "connect_switch_to_constraint: a property drives each constraint's influence",
+        _res.get("switch_attr") == 'Driven["space"]'
+        and "space" in _driven
+        and _drivers == [
+            "1.0 if abs(s - 0) < 0.5 else 0.0",
+            "1.0 if abs(s - 1) < 0.5 else 0.0",
+        ],
+        str(_drivers),
+    )
+    check(
+        "...an existing property is left when overwrite_existing is off",
+        RigUtils.connect_switch_to_constraint(_driven, attr_name="space") == {},
+    )
+    _lone = cube("Lone")
+    _lone.constraints.new(type="COPY_LOCATION").target = _ta
+    try:
+        RigUtils.connect_switch_to_constraint(_lone, attr_name="space")
+        check("...one target and no anchor is refused", False)
+    except ValueError:
+        check("...one target and no anchor is refused", True)
+    _res = RigUtils.connect_switch_to_constraint(
+        _lone, attr_name="space", anchor="World", weighted=True
+    )
+    check(
+        "...an anchor adds a Copy Transforms target; weighted blends",
+        _res.get("anchor_helper") == "World"
+        and len(_lone.constraints) == 2
+        and _lone.constraints[1].type == "COPY_TRANSFORMS"
+        and _influence_expr(_lone, _lone.constraints[0]) == "max(0.0, 1.0 - abs(s - 0))",
+        str(_res),
+    )
+
+    # remove_locator(None) is the selection
+    reset()
+    _rig_box = cube("RigBox")
+    _rig_loc = RigUtils.create_locator_at_object(_rig_box)[0]
+    CoreUtils.select([_rig_loc])
+    _gone = RigUtils.remove_locator()
+    check("remove_locator(None) dissolves the selected rig",
+          _gone and _rig_box.parent is None, str(_gone))
+    CoreUtils.select([])
+    check("remove_locator(None), nothing selected -> []", RigUtils.remove_locator() == [])
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

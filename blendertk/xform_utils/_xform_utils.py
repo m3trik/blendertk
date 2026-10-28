@@ -1416,6 +1416,29 @@ class XformUtils(_XformUtilsInternal):
     ROTATE_ORDERS = ("xyz", "yzx", "zxy", "xzy", "yxz", "zyx")
 
     @staticmethod
+    def get_rotate_order(objects=None):
+        """Each object's rotation mode, Maya-spelled: ``{object: "xyz"}``
+        ("quaternion" / "axis_angle" for the non-Euler modes). Mirror of
+        mayatk's ``XformUtils.get_rotate_order``.
+
+        Parameters:
+            objects (obj/str/list): The objects (or names); ``None``: the selection.
+
+        Returns:
+            (dict): ``{object: order}`` in input order; ``{}`` with none.
+        """
+        import bpy
+
+        if objects is None:
+            objects = CoreUtils.selected_objects()
+        found = (
+            bpy.data.objects.get(o) if isinstance(o, str) else o
+            for o in ptk.make_iterable(objects)
+        )
+        return {o: o.rotation_mode.lower() for o in found if o is not None}
+
+    @staticmethod
+    @CoreUtils.undoable
     def set_rotate_order(objects, order, preserve=True):
         """Change objects' Euler order keeping their pose and keyed animation --
         mirror of ``mtk.XformUtils.set_rotate_order``.

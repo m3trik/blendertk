@@ -779,6 +779,18 @@ try:
     check("freeze_and_reanchor with nothing selected -> []",
           btk.RigUtils.freeze_and_reanchor(None) == [])
 
+    # ---- get_rotate_order (mirror of mayatk's) ----
+    bpy.ops.mesh.primitive_cube_add(); ro_cube = bpy.context.active_object
+    ro_cube.rotation_mode = "ZYX"
+    check("get_rotate_order: Maya-spelled, by object",
+          btk.XformUtils.get_rotate_order([ro_cube]) == {ro_cube: "zyx"})
+    btk.CoreUtils.select([ro_cube])
+    check("get_rotate_order(None) is the selection",
+          btk.XformUtils.get_rotate_order() == {ro_cube: "zyx"})
+    btk.CoreUtils.select([])
+    check("get_rotate_order(None), nothing selected -> {}",
+          btk.XformUtils.get_rotate_order() == {})
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

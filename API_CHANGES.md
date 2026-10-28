@@ -853,7 +853,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (496)
+## Added (525)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -869,6 +869,15 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `anim_utils/key_stash/_key_stash.py::KeyStash.select_clip_objects(self, clip_id: int) -> List[str]`
 - `anim_utils/key_stash/_key_stash.py::KeyStash.stash_from(self, source: str) -> Optional[StashedClip]`
 - `anim_utils/key_stash/_key_stash.py::KeyStash.watch_undo(cls, owner, widget=None) -> List[int]`
+- `anim_utils/playblast_exporter.py::PlayblastExporter(class)`
+- `anim_utils/playblast_exporter.py::PlayblastExporter.capture_movie(self, filepath: str, container: str = 'MPEG4', codec: str = 'H264', start: Optional[int] = None, end: Optional[int] = None, camera=None, sound: Optional[str] = None, **overrides: Any) -> str`
+- `anim_utils/playblast_exporter.py::PlayblastExporter.capture_sequence(self, directory: str, prefix: Optional[str] = None, start: Optional[int] = None, end: Optional[int] = None, camera=None, image_format: str = 'png', **overrides: Any) -> CaptureResult`
+- `anim_utils/playblast_exporter.py::PlayblastExporter.capture_still(self, filepath: str, frame: Optional[int] = None, camera=None, image_format: str = 'png', **overrides: Any) -> str`
+- `anim_utils/playblast_exporter.py::PlayblastExporter.export(self, output_dir: str, *args: Any, **kwargs: Any) -> List[Any]`
+- `anim_utils/playblast_exporter.py::PlayblastExporter.scene_fps(cls) -> float`
+- `anim_utils/playblast_exporter.py::PlayblastExporter.scene_name() -> str`
+- `anim_utils/playblast_exporter.py::PlayblastExporter.sequence_fps(self) -> float`
+- `anim_utils/playblast_exporter.py::PlayblastExporter.sequence_name(self) -> str`
 - `anim_utils/shots/_shots.py::BlenderShotStore.fcurve_for_key(key: str)`
 - `anim_utils/shots/_shots.py::BlenderShotStore.is_transform_path(data_path: str) -> bool`
 - `anim_utils/shots/shot_manifest/manifest_host.py::ManifestHost.behaviors_cls()`
@@ -972,6 +981,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `display_utils/_display_utils.py::DisplayUtils.set_visibility(elements, visibility=True, include_ancestors=True, affect_layers=True)`
 - `display_utils/_display_utils.py::DisplayUtils.set_wireframe(objects=None, state=True)`
 - `display_utils/_display_utils.py::DisplayUtils.show_objects(objects=None)`
+- `display_utils/_display_utils.py::DisplayUtils.toggle_local_axes(objects=None, joints=False)`
 - `display_utils/_display_utils.py::DisplayUtils.toggle_material_override()`
 - `display_utils/_display_utils.py::DisplayUtils.toggle_soft_edge_display()`
 - `display_utils/_display_utils.py::DisplayUtils.toggle_template(objects=None)`
@@ -1283,7 +1293,25 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `nurbs_utils/_nurbs_utils.py::NurbsUtils.split_curve_points(cls, curve=None)`
 - `nurbs_utils/_nurbs_utils.py::NurbsUtils.toggle_curves_cyclic(cls, objects=None)`
 - `nurbs_utils/curve_to_tube.py::CurveToTube.describe(tubes)`
+- `render_utils/_render_utils.py::RenderUtils(class)`
+- `render_utils/_render_utils.py::RenderUtils.current_renderer(cls) -> str`
+- `render_utils/_render_utils.py::RenderUtils.get_available_renderers(cls) -> List[Dict[str, object]]`
+- `render_utils/_render_utils.py::RenderUtils.redo_previous_render(cls, render_mode: str = 'render') -> None`
+- `render_utils/_render_utils.py::RenderUtils.render_camera(cls, camera=None, render_mode: str = 'render') -> None`
+- `render_utils/_render_utils.py::RenderUtils.render_cameras(cls) -> List[str]`
+- `render_utils/_render_utils.py::RenderUtils.render_preset_store() -> 'ptk.PresetStore'`
+- `render_utils/_render_utils.py::RenderUtils.render_settings(cls) -> Dict[str, Any]`
+- `render_utils/_render_utils.py::RenderUtils.set_render_settings(cls, values: Dict[str, Any]) -> int`
+- `render_utils/_render_utils.py::RenderUtils.set_renderer(cls, name: str) -> None`
+- `render_utils/_render_utils.py::RenderUtils.start_ipr(camera: str, renderer: Optional[str] = None) -> bool`
+- `render_utils/_render_utils.py::RenderUtils.supports_ipr(renderer: Optional[str] = None) -> bool`
+- `rig_utils/_rig_utils.py::RigUtils.add_locator(size=1.0, rotate_order='xyz')`
+- `rig_utils/_rig_utils.py::RigUtils.auto_rig(rig_type)`
+- `rig_utils/_rig_utils.py::RigUtils.connect_switch_to_constraint(constraint_node=None, constraint_targets=None, attr_name='parent_switch', overwrite_existing=False, node=None, weighted=False, anchor=None)`
+- `rig_utils/_rig_utils.py::RigUtils.create_utility_node(node_type)`
 - `rig_utils/_rig_utils.py::RigUtils.freeze_and_reanchor(objects=None, reanchor=True, **freeze_options)`
+- `rig_utils/_rig_utils.py::RigUtils.lock_transforms(objects=None, lock=True, scope='all')`
+- `rig_utils/_rig_utils.py::RigUtils.rebind_skin_clusters(meshes=None, temp_dir=None, inherits_transform=None)`
 - `rig_utils/articulated_rig/_articulated_rig.py::ArticulatedRig.group_uuid(self) -> Optional[str]`
 - `rig_utils/articulated_rig/_articulated_rig.py::ArticulatedRig.parts_of(self, nodes: Sequence[Any]) -> List[Any]`
 - `rig_utils/articulated_rig/_articulated_rig.py::ArticulatedRig.select(cls, nodes: Sequence[Any]) -> None`
@@ -1344,6 +1372,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_transfer.py::TextureTransfer.shader_types() -> Dict[str, str]`
 - `xform_utils/_xform_utils.py::XformUtils.align_to(mode, objects=None)`
 - `xform_utils/_xform_utils.py::XformUtils.bake_pivot(objects, position=False, orientation=False)`
+- `xform_utils/_xform_utils.py::XformUtils.get_rotate_order(objects=None)`
 - `xform_utils/_xform_utils.py::XformUtils.get_transform_constraint()`
 - `xform_utils/_xform_utils.py::XformUtils.get_transform_snap()`
 - `xform_utils/_xform_utils.py::XformUtils.move_to_target(objects=None, pivot='center', all_to_last=True, match_scale=False)`
@@ -1389,7 +1418,7 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/emissive_groups.py::EmissiveGroups.validate`
 - `ui_utils/blender_ui_handler.py::BlenderUiHandler.default_persistence`
 
-## Signature changed (39)
+## Signature changed (40)
 
 - `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.edit_frame_based`
   - was: `(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None) -> List[Target]`
@@ -1472,6 +1501,9 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `node_utils/attributes/channels/_channels.py::Channels.unfreeze_transforms`
   - was: `(cls, objects)`
   - now: `(cls, objects, attrs=None)`
+- `rig_utils/_rig_utils.py::RigUtils.remove_locator`
+  - was: `(objects)`
+  - now: `(objects=None)`
 - `rig_utils/controls.py::Controls.create`
   - was: `(cls, shape='circle', name='ctrl', size=1.0, axis='y', color=None, location=(0, 0, 0), group=False, collection=None, return_nodes=False)`
   - now: `(cls, shape='circle', name='ctrl', size=1.0, axis='y', color=None, location=(0, 0, 0), group=False, collection=None, return_nodes=False, select=False)`

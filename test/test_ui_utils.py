@@ -260,6 +260,16 @@ try:
     )
     bpy.context.preferences.active_section = _prior_section
 
+    # mayatk's rendering editors open Properties tabs (the shared Rendering panel)
+    from blendertk.ui_utils._ui_utils import EDITOR_TYPES
+
+    check(
+        "mayatk's rendering editors open Properties tabs",
+        all(EDITOR_TYPES[name] == "PROPERTIES" for name in UiUtils._PROPERTIES_TABS)
+        and UiUtils._PROPERTIES_TABS
+        == {"Render Settings": "RENDER", "Render Setup": "VIEW_LAYER", "Rendering Flags": "OBJECT"},
+    )
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

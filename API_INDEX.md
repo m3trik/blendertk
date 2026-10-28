@@ -41,6 +41,10 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class KeyStash(pythontk.core_utils.engines.key_stash.key_stash_model.KeyStash, _KeyStashInternal)`
   - methods: active, watch_undo, rescale_to_fps, reconcile, merge_carrier, discard_carrier, stash, retrieve, drop, stash_from, select_clip_objects, preview, end_preview
 
+### `anim_utils/playblast_exporter.py` — Playblast capture and export for Blender -- mirror of mayatk's
+- `class PlayblastExporter(pythontk.SequenceExporter)`
+  - methods: scene_name, scene_fps, sequence_name, sequence_fps, capture_sequence, capture_still, capture_movie, export
+
 ### `anim_utils/scale_keys.py` — Dedicated scale-keys module to keep AnimUtils lean and testable (mirror of mayatk's
 - `class ScaleKeys(_ScaleKeysInternal)`
   - methods: scale_keys
@@ -185,7 +189,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `display_utils/_display_utils.py` — Display utilities — the exploded-view toggle (mirror of mayatk's
 - `class DisplayUtils(_DisplayUtilsInternal)`
-  - methods: get_smooth_level, set_smooth_level, is_exploded, explode_view, unexplode_view, unexplode_all, get_visible_geometry, set_viewport_overlay, set_visibility, hide_objects, show_objects, toggle_xray, clear_xray, toggle_xray_others, cycle_component_ids, cycle_normals_display, toggle_soft_edge_display, toggle_material_override, set_wireframe, toggle_wireframe, toggle_wireframe_inactive, toggle_template, toggle_uv_checker, toggle_uv_distortion
+  - methods: get_smooth_level, set_smooth_level, is_exploded, explode_view, unexplode_view, unexplode_all, get_visible_geometry, set_viewport_overlay, set_visibility, hide_objects, show_objects, toggle_xray, clear_xray, toggle_xray_others, cycle_component_ids, cycle_normals_display, toggle_soft_edge_display, toggle_material_override, set_wireframe, toggle_wireframe, toggle_wireframe_inactive, toggle_local_axes, toggle_template, toggle_uv_checker, toggle_uv_distortion
 
 ### `display_utils/color_id.py` — Color ID engine: color-code scene objects across channels.
 - `class ColorId`
@@ -700,9 +704,13 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class ImageTracer(pythontk.LoggingMixin)`
   - methods: trace_curves, create_mesh, create_negative_space_mesh, project_on_plane
 
+### `render_utils/_render_utils.py` — Render control -- mirror of mayatk's ``render_utils.RenderUtils``.
+- `class RenderUtils`
+  - methods: get_available_renderers, current_renderer, set_renderer, render_settings, set_render_settings, render_preset_store, render_cameras, render_camera, redo_previous_render, supports_ipr, start_ipr
+
 ### `rig_utils/_rig_utils.py` — Shared procedural-rig primitives — Blender port of mayatk's ``rig_utils.RigUtils``.
 - `class RigUtils`
-  - methods: resolve_object, create_locator, create_group, parent_keep_transform, freeze_and_reanchor, create_locator_at_object, remove_locator, create_armature, add_bone_chain, add_bone, set_bone_heads, set_bone_lengths, get_bone_chain_from_root, invert_bone_chain, add_bone_constraint, add_spline_ik, bind_armature, apply_falloff_weights, copy_location, copy_rotation, damped_track, track_to, child_of, refresh_drivers, add_distance_driver, add_transform_driver, add_prop_var, add_transform_var, ensure_custom_prop, remove_driver, lock_channels
+  - methods: resolve_object, create_locator, create_group, parent_keep_transform, freeze_and_reanchor, create_locator_at_object, remove_locator, add_locator, create_utility_node, auto_rig, lock_transforms, rebind_skin_clusters, connect_switch_to_constraint, create_armature, add_bone_chain, add_bone, set_bone_heads, set_bone_lengths, get_bone_chain_from_root, invert_bone_chain, add_bone_constraint, add_spline_ik, bind_armature, apply_falloff_weights, copy_location, copy_rotation, damped_track, track_to, child_of, refresh_drivers, add_distance_driver, add_transform_driver, add_prop_var, add_transform_var, ensure_custom_prop, remove_driver, lock_channels
 
 ### `rig_utils/articulated_rig/_articulated_rig.py` — Articulated Rig engine (Blender) -- rigid parts on hinge, swivel, ball and slide joints.
 - `class ArticulatedRig(pythontk.LoggingMixin, _ArticulatedRigInternal)`
@@ -844,7 +852,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `xform_utils/_xform_utils.py` — Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,
 - `class XformUtils(_XformUtilsInternal)`
-  - methods: get_world_bbox, freeze_transforms, restore_transforms, has_stored_transforms, store_transforms, get_stored_transforms, scale_connected_edges, drop_to_grid, center_pivot, transfer_pivot, reset_pivot, world_align_pivot, bake_pivot, get_pivot_modes, match_scale, move_to, get_bounding_box, get_center_point, get_operation_axis_matrix, get_distance, order_by_distance, aim_object_at_point, restore_original_axes, get_pivot_options, move_to_target, align_to, get_transform_snap, set_transform_snap, get_transform_constraint, set_transform_constraint, set_rotate_order
+  - methods: get_world_bbox, freeze_transforms, restore_transforms, has_stored_transforms, store_transforms, get_stored_transforms, scale_connected_edges, drop_to_grid, center_pivot, transfer_pivot, reset_pivot, world_align_pivot, bake_pivot, get_pivot_modes, match_scale, move_to, get_bounding_box, get_center_point, get_operation_axis_matrix, get_distance, order_by_distance, aim_object_at_point, restore_original_axes, get_pivot_options, move_to_target, align_to, get_transform_snap, set_transform_snap, get_transform_constraint, set_transform_constraint, get_rotate_order, set_rotate_order
 
 ### `xform_utils/matrices.py` — Matrix utilities — the Blender counterpart of mayatk's ``xform_utils.matrices``
 - `class Matrices`

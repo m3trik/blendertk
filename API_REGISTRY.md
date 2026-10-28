@@ -13,6 +13,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`anim_utils/blendshape_animator/target.py`](#anim_utils--blendshape_animator--target) — Tween mesh wrappers and registry — mirror of mayatk's
 - [`anim_utils/blendshape_animator/validator.py`](#anim_utils--blendshape_animator--validator) — Mesh + shape-key setup validation — mirror of mayatk's
 - [`anim_utils/key_stash/_key_stash.py`](#anim_utils--key_stash--_key_stash) — Key Stash — park keyframes outside the working animation, retrieve later (Blender).
+- [`anim_utils/playblast_exporter.py`](#anim_utils--playblast_exporter) — Playblast capture and export for Blender -- mirror of mayatk's
 - [`anim_utils/scale_keys.py`](#anim_utils--scale_keys) — Dedicated scale-keys module to keep AnimUtils lean and testable (mirror of mayatk's
 - [`anim_utils/segment_keys.py`](#anim_utils--segment_keys) — Animation-segment collection over Blender fcurves (mirror of ``mtk.SegmentKeys``).
 - [`anim_utils/shots/_detection.py`](#anim_utils--shots--_detection) — Shot-region detection — Blender scene acquisition over the pure engine math.
@@ -149,6 +150,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`nurbs_utils/_nurbs_utils.py`](#nurbs_utils--_nurbs_utils) — Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` namespace.
 - [`nurbs_utils/curve_to_tube.py`](#nurbs_utils--curve_to_tube) — Curve to Tube tool — Blender port of mayatk's ``nurbs_utils.curve_to_tube``.
 - [`nurbs_utils/image_tracer.py`](#nurbs_utils--image_tracer) — Image Tracer tool — Blender port of mayatk's ``nurbs_utils.image_tracer``.
+- [`render_utils/_render_utils.py`](#render_utils--_render_utils) — Render control -- mirror of mayatk's ``render_utils.RenderUtils``.
 - [`rig_utils/_rig_utils.py`](#rig_utils--_rig_utils) — Shared procedural-rig primitives — Blender port of mayatk's ``rig_utils.RigUtils``.
 - [`rig_utils/articulated_rig/_articulated_rig.py`](#rig_utils--articulated_rig--_articulated_rig) — Articulated Rig engine (Blender) -- rigid parts on hinge, swivel, ball and slide joints.
 - [`rig_utils/articulated_rig/_solver_handler.py`](#rig_utils--articulated_rig--_solver_handler) — The end control's live solve (Blender) -- the twin of mayatk's ``_solver_expression.py``.
@@ -189,7 +191,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L446) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L448) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -364,6 +366,21 @@ Key Stash — park keyframes outside the working animation, retrieve later (Blen
   - `KeyStash.select_clip_objects(self, clip_id: int) -> List[str]` — Select a stored clip's objects that still exist, replacing the
   - `KeyStash.preview(self, clip_id: int, in_context: bool = True, set_playback_range: bool = True) -> Dict[str, Any]` — Play a stored clip on its objects without retrieving it.
   - `KeyStash.end_preview(self) -> bool` — Tear the preview tracks down and restore the preview range.
+
+<a id="anim_utils--playblast_exporter"></a>
+### `anim_utils/playblast_exporter.py`
+
+Playblast capture and export for Blender -- mirror of mayatk's
+
+- **[`class PlayblastExporter(pythontk.SequenceExporter)`](blendertk/blendertk/anim_utils/playblast_exporter.py#L39)** — Viewport capture and export.
+  - `PlayblastExporter.scene_name() -> str` *(static)* — Basename of the open .blend without extension;
+  - `PlayblastExporter.scene_fps(cls) -> float` *(class)* — The scene frame rate (``fps / fps_base``).
+  - `PlayblastExporter.sequence_name(self) -> str`
+  - `PlayblastExporter.sequence_fps(self) -> float`
+  - `PlayblastExporter.capture_sequence(self, directory: str, prefix: Optional[str] = None, start: Optional[int] = None, end: Optional[int] = None, camera=None, image_format: str = 'png', **overrides: Any) -> CaptureResult` — Capture the frame range as a numbered image sequence
+  - `PlayblastExporter.capture_still(self, filepath: str, frame: Optional[int] = None, camera=None, image_format: str = 'png', **overrides: Any) -> str` — Capture one frame (default: the current one) to an exact filepath:
+  - `PlayblastExporter.capture_movie(self, filepath: str, container: str = 'MPEG4', codec: str = 'H264', start: Optional[int] = None, end: Optional[int] = None, camera=None, sound: Optional[str] = None, **overrides: Any) -> str` — Write a movie with Blender's own FFmpeg in one OpenGL pass.
+  - `PlayblastExporter.export(self, output_dir: str, *args: Any, **kwargs: Any) -> List[Any]` — :meth:`pythontk.SequenceExporter.export`, *output_dir* allowed to be
 
 <a id="anim_utils--scale_keys"></a>
 ### `anim_utils/scale_keys.py`
@@ -958,6 +975,7 @@ Display utilities — the exploded-view toggle (mirror of mayatk's
   - `DisplayUtils.set_wireframe(objects=None, state=True)` *(static)* — Draw *objects* as wireframe, or textured again (*state* False:
   - `DisplayUtils.toggle_wireframe(objects=None)` *(static)* — Toggle *objects* between wireframe and textured, together: the active
   - `DisplayUtils.toggle_wireframe_inactive()` *(static)* — Draw every unselected mesh in the scene as wireframe, or textured
+  - `DisplayUtils.toggle_local_axes(objects=None, joints=False)` *(static)* — Toggle local axes display, the lead (the first) deciding the state for
   - `DisplayUtils.toggle_template(objects=None)` *(static)* — Template *objects*: wireframe, not rendered, not selectable -- Maya's
   - `DisplayUtils.toggle_uv_checker()` *(static)* — Toggle a checker in the UV editors: a generated ``UV_GRID`` image
   - `DisplayUtils.toggle_uv_distortion()` *(static)* — Step the UV editors' stretch overlay: angle, area, off.
@@ -2998,19 +3016,43 @@ Image Tracer tool — Blender port of mayatk's ``nurbs_utils.image_tracer``.
   - `ImageTracer.create_negative_space_mesh(self, curve=None, margin_scale=0.1, name='negative_space_mesh')` — Fill the **inverse**: a boundary rectangle (margin-padded bbox) around the contours, with
   - `ImageTracer.project_on_plane(self, curve=None, name='projected_curves')` — Project the traced curves onto a construction plane — Blender analogue of Maya's
 
+<a id="render_utils--_render_utils"></a>
+### `render_utils/_render_utils.py`
+
+Render control -- mirror of mayatk's ``render_utils.RenderUtils``.
+
+- **[`class RenderUtils`](blendertk/blendertk/render_utils/_render_utils.py#L23)** — Render-engine enumeration / selection, render settings and a rendered frame.
+  - `RenderUtils.get_available_renderers(cls) -> List[Dict[str, object]]` *(class)* — The engines ``scene.render.engine`` accepts: EEVEE and Workbench,
+  - `RenderUtils.current_renderer(cls) -> str` *(class)* — The scene's render engine (``scene.render.engine``).
+  - `RenderUtils.set_renderer(cls, name: str) -> None` *(class)* — Make *name* the scene's render engine.
+  - `RenderUtils.render_settings(cls) -> Dict[str, Any]` *(class)* — The scene's value of every :attr:`RENDER_SETTINGS` key.
+  - `RenderUtils.set_render_settings(cls, values: Dict[str, Any]) -> int` *(class)* — Write render settings to the scene;
+  - `RenderUtils.render_preset_store() -> 'ptk.PresetStore'` *(static)* — Named render-setting presets: ``{key: value}`` dicts of
+  - `RenderUtils.render_cameras(cls) -> List[str]` *(class)* — The names of the scene's cameras, the scene camera first.
+  - `RenderUtils.render_camera(cls, camera=None, render_mode: str = 'render') -> None` *(class)* — Render the current frame through *camera*, made the scene camera, in
+  - `RenderUtils.redo_previous_render(cls, render_mode: str = 'render') -> None` *(class)* — Render again through the scene camera: Blender keeps earlier renders
+  - `RenderUtils.supports_ipr(renderer: Optional[str] = None) -> bool` *(static)* — False: Blender's interactive render is the viewport's Rendered
+  - `RenderUtils.start_ipr(camera: str, renderer: Optional[str] = None) -> bool` *(static)* — False: no IPR session (:meth:`supports_ipr`);
+
 <a id="rig_utils--_rig_utils"></a>
 ### `rig_utils/_rig_utils.py`
 
 Shared procedural-rig primitives — Blender port of mayatk's ``rig_utils.RigUtils``.
 
-- **[`class RigUtils`](blendertk/blendertk/rig_utils/_rig_utils.py#L21)** — Constraint / driver / handle / grouping / armature helpers shared by the procedural rigs.
+- **[`class RigUtils`](blendertk/blendertk/rig_utils/_rig_utils.py#L25)** — Constraint / driver / handle / grouping / armature helpers shared by the procedural rigs.
   - `RigUtils.resolve_object(obj)` *(static)* — An object or its name → the ``bpy`` object (``None`` if missing).
   - `RigUtils.create_locator(name='locator', location=(0, 0, 0), display_type='PLAIN_AXES', size=1.0, collection=None)` *(static)* — Create an Empty — Blender's analogue of Maya's spaceLocator (a rig handle).
   - `RigUtils.create_group(name='rig_grp', location=(0, 0, 0), children=None)` *(static)* — Create an Empty used as a transform group, parenting ``children`` under it (keeping
   - `RigUtils.parent_keep_transform(child, parent)` *(static)* — Parent ``child`` to ``parent`` without moving it in world space (Maya ``parent`` default).
   - `RigUtils.freeze_and_reanchor(objects=None, reanchor=True, **freeze_options)` *(static)* — Freeze Transforms -- mirror of ``mtk.RigUtils.freeze_and_reanchor``, the
   - `RigUtils.create_locator_at_object(objects, loc_scale=1.0, lock_translate=False, lock_rotation=False, lock_scale=False, grp_suffix=None, grp_affix_mode='auto', loc_suffix=None, loc_affix_mode='auto', obj_suffix=None, obj_affix_mode='auto', strip_digits=False, strip_trailing_underscores=True, strip_suffix=True, rotate_order='xyz', freeze_object=True, group_display='none')` *(static)* — Rig each object under a zeroed locator (Empty) at its origin, under a group Empty.
-  - `RigUtils.remove_locator(objects)` *(static)* — Dissolve locator rigs: the inverse of :meth:`create_locator_at_object`.
+  - `RigUtils.remove_locator(objects=None)` *(static)* — Dissolve locator rigs: the inverse of :meth:`create_locator_at_object`.
+  - `RigUtils.add_locator(size=1.0, rotate_order='xyz')` *(static)* — Add a lone locator the way Blender's Add menu adds an Empty: at the 3D
+  - `RigUtils.create_utility_node(node_type)` *(static)* — Add a rigging utility object the way Blender's Add menu does -- an
+  - `RigUtils.auto_rig(rig_type)` *(static)* — Run Blender's character auto-rigger, the bundled Rigify add-on
+  - `RigUtils.lock_transforms(objects=None, lock=True, scope='all')` *(static)* — Lock or unlock objects' transform channels (``lock_location`` /
+  - `RigUtils.rebind_skin_clusters(meshes=None, temp_dir=None, inherits_transform=None)` *(static)* — Rebind skinned meshes: point each one's Armature modifiers at their
+  - `RigUtils.connect_switch_to_constraint(constraint_node=None, constraint_targets=None, attr_name='parent_switch', overwrite_existing=False, node=None, weighted=False, anchor=None)` *(static)* — Drive an object's constraints from one switch property.
   - `RigUtils.create_armature(name='armature', location=(0, 0, 0), collection=None)` *(static)* — Create an empty Armature object (Maya's joint-chain container).
   - `RigUtils.add_bone_chain(armature, points, prefix='bone', connect=True, radius=None)` *(static)* — Build a connected bone chain through world-space *points* — Maya's ``generate_joint_chain``
   - `RigUtils.add_bone(armature, name, head, tail, parent=None, connect=False, radius=None, deform=True)` *(static)* — Add ONE bone to an existing armature at world-space *head*/*tail* — the single-bone
@@ -3344,7 +3386,7 @@ Wheel Rig — wheels that roll as their control moves (tentacle's Wheel Rig pane
 UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
 
 - [`EDITOR_TYPES`](blendertk/blendertk/ui_utils/_ui_utils.py#L16) — constant
-- **[`class UiUtils(_UiUtilsInternal)`](blendertk/blendertk/ui_utils/_ui_utils.py#L197)** — Namespace mirror (helpers also exposed module-level).
+- **[`class UiUtils(_UiUtilsInternal)`](blendertk/blendertk/ui_utils/_ui_utils.py#L201)** — Namespace mirror (helpers also exposed module-level).
   - `UiUtils.get_editor_types()` *(static)* — The friendly-name → ``Area.ui_type`` map understood by :func:`open_editor`.
   - `UiUtils.get_editor_categories(cls)` *(class)* — ``{category: [editor name, ...]}``: the editors a browsing UI lists, each
   - `UiUtils.open_editor(editor, properties_context=None)` *(static)* — Open ``editor`` (a friendly name from :data:`EDITOR_TYPES` or a raw ``ui_type``)
@@ -3692,6 +3734,7 @@ Transform utilities — object-level transform ops (world bbox, freeze, drop-to-
   - `XformUtils.set_transform_snap(kind, state=None, increment=None)` *(static)* — Set the *kind* (``"move"``, ``"scale"``, ``"rotate"``) increment snapping
   - `XformUtils.get_transform_constraint()` *(static)* — The transform constraints -- mirror of
   - `XformUtils.set_transform_constraint(kind, state=True)` *(static)* — Turn a transform constraint on or off -- mirror of
+  - `XformUtils.get_rotate_order(objects=None)` *(static)* — Each object's rotation mode, Maya-spelled: ``{object: "xyz"}``
   - `XformUtils.set_rotate_order(objects, order, preserve=True)` *(static)* — Change objects' Euler order keeping their pose and keyed animation --
 
 <a id="xform_utils--matrices"></a>

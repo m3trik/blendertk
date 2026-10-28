@@ -165,6 +165,7 @@ DEFAULT_INCLUDE = {
     "env_utils.hierarchy_sync.hierarchy_sync_session": ["HierarchySyncSession"],
     "env_utils.hierarchy_sync.scene_data_sidecar": "SceneDataSidecar",
     "light_utils._light_utils": "*",
+    "render_utils._render_utils": "RenderUtils",
     # Lightmap Baker — the engine (its panel is tentacle's shared Lightmap Baker tool) and
     # the bake's Exclude / Isolate sets the panel's rows read.
     "mat_utils.bake_sets": ["BakeSourceSet", "LightmapExcludeSet", "LightmapIsolateSet"],
@@ -278,6 +279,7 @@ DEFAULT_INCLUDE = {
         "SubstanceBridge",
     ],
     "anim_utils._anim_utils": "*",
+    "anim_utils.playblast_exporter": ["PlayblastExporter"],
     # Per-concern key-timing modules — mirror of mayatk's ``anim_utils.scale_keys`` /
     # ``stagger_keys`` (engine class + module-level fn). The fns also stay on ``AnimUtils``
     # via a cycle-safe re-import in ``_anim_utils``.

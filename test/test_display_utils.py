@@ -177,6 +177,29 @@ try:
     check("set_smooth_level with nothing selected -> []",
           D.set_smooth_level(None, level=1) == [])
 
+    # ---- toggle_local_axes (mirror of mayatk's displayLocalAxis toggle) ----
+    _arm_data = bpy.data.armatures.new("AxesArm")
+    _arm = bpy.data.objects.new("AxesArm", _arm_data)
+    bpy.context.scene.collection.objects.link(_arm)
+    _mesh = bpy.data.objects.new("AxesMesh", bpy.data.meshes.new("AxesMesh"))
+    bpy.context.scene.collection.objects.link(_mesh)
+    btk.CoreUtils.select([])
+    _state = btk.DisplayUtils.toggle_local_axes(None, joints=True)
+    check("toggle_local_axes: the bone axes of every armature, nothing selected",
+          _state in (True, False) and _arm_data.show_axes is _state, str(_state))
+    btk.CoreUtils.select([_arm])
+    _again = btk.DisplayUtils.toggle_local_axes(None, joints=True)
+    check("toggle_local_axes: a selected armature's bones toggle back",
+          _again is (not _state) and _arm_data.show_axes is _again)
+    btk.CoreUtils.select([_mesh])
+    check("toggle_local_axes: the selected object's own axis",
+          btk.DisplayUtils.toggle_local_axes(None) is True and _mesh.show_axis is True)
+    btk.CoreUtils.select([])
+    check("toggle_local_axes(None), nothing selected -> None",
+          btk.DisplayUtils.toggle_local_axes(None) is None)
+    for _o in (_arm, _mesh):
+        bpy.data.objects.remove(_o, do_unlink=True)
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

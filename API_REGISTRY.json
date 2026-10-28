@@ -23,7 +23,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 446,
+          "line": 448,
           "deprecated": false
         }
       ]
@@ -1229,6 +1229,96 @@
               "signature": "(self) -> bool",
               "summary": "Tear the preview tracks down and restore the preview range.",
               "line": 814,
+              "deprecated": false
+            }
+          ]
+        }
+      ],
+      "constants": []
+    },
+    {
+      "relpath": "anim_utils/playblast_exporter.py",
+      "summary": "Playblast capture and export for Blender -- mirror of mayatk's",
+      "functions": [],
+      "classes": [
+        {
+          "name": "PlayblastExporter",
+          "summary": "Viewport capture and export.",
+          "line": 39,
+          "bases": [
+            "pythontk.SequenceExporter"
+          ],
+          "members": [
+            {
+              "name": "scene_name",
+              "qualname": "PlayblastExporter.scene_name",
+              "kind": "staticmethod",
+              "signature": "() -> str",
+              "summary": "Basename of the open .blend without extension;",
+              "line": 159,
+              "deprecated": false
+            },
+            {
+              "name": "scene_fps",
+              "qualname": "PlayblastExporter.scene_fps",
+              "kind": "classmethod",
+              "signature": "(cls) -> float",
+              "summary": "The scene frame rate (``fps / fps_base``).",
+              "line": 168,
+              "deprecated": false
+            },
+            {
+              "name": "sequence_name",
+              "qualname": "PlayblastExporter.sequence_name",
+              "kind": "method",
+              "signature": "(self) -> str",
+              "summary": "",
+              "line": 173,
+              "deprecated": false
+            },
+            {
+              "name": "sequence_fps",
+              "qualname": "PlayblastExporter.sequence_fps",
+              "kind": "method",
+              "signature": "(self) -> float",
+              "summary": "",
+              "line": 176,
+              "deprecated": false
+            },
+            {
+              "name": "capture_sequence",
+              "qualname": "PlayblastExporter.capture_sequence",
+              "kind": "method",
+              "signature": "(self, directory: str, prefix: Optional[str] = None, start: Optional[int] = None, end: Optional[int] = None, camera=None, image_format: str = 'png', **overrides: Any) -> CaptureResult",
+              "summary": "Capture the frame range as a numbered image sequence",
+              "line": 321,
+              "deprecated": false
+            },
+            {
+              "name": "capture_still",
+              "qualname": "PlayblastExporter.capture_still",
+              "kind": "method",
+              "signature": "(self, filepath: str, frame: Optional[int] = None, camera=None, image_format: str = 'png', **overrides: Any) -> str",
+              "summary": "Capture one frame (default: the current one) to an exact filepath:",
+              "line": 364,
+              "deprecated": false
+            },
+            {
+              "name": "capture_movie",
+              "qualname": "PlayblastExporter.capture_movie",
+              "kind": "method",
+              "signature": "(self, filepath: str, container: str = 'MPEG4', codec: str = 'H264', start: Optional[int] = None, end: Optional[int] = None, camera=None, sound: Optional[str] = None, **overrides: Any) -> str",
+              "summary": "Write a movie with Blender's own FFmpeg in one OpenGL pass.",
+              "line": 392,
+              "deprecated": false
+            },
+            {
+              "name": "export",
+              "qualname": "PlayblastExporter.export",
+              "kind": "method",
+              "signature": "(self, output_dir: str, *args: Any, **kwargs: Any) -> List[Any]",
+              "summary": ":meth:`pythontk.SequenceExporter.export`, *output_dir* allowed to be",
+              "line": 442,
               "deprecated": false
             }
           ]
@@ -5075,12 +5165,21 @@
               "deprecated": false
             },
             {
+              "name": "toggle_local_axes",
+              "qualname": "DisplayUtils.toggle_local_axes",
+              "kind": "staticmethod",
+              "signature": "(objects=None, joints=False)",
+              "summary": "Toggle local axes display, the lead (the first) deciding the state for",
+              "line": 542,
+              "deprecated": false
+            },
+            {
               "name": "toggle_template",
               "qualname": "DisplayUtils.toggle_template",
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Template *objects*: wireframe, not rendered, not selectable -- Maya's",
-              "line": 542,
+              "line": 583,
               "deprecated": false
             },
             {
@@ -5089,7 +5188,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Toggle a checker in the UV editors: a generated ``UV_GRID`` image",
-              "line": 580,
+              "line": 621,
               "deprecated": false
             },
             {
@@ -5098,7 +5197,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Step the UV editors' stretch overlay: angle, area, off.",
-              "line": 612,
+              "line": 653,
               "deprecated": false
             }
           ]
@@ -18797,6 +18896,121 @@
       "constants": []
     },
     {
+      "relpath": "render_utils/_render_utils.py",
+      "summary": "Render control -- mirror of mayatk's ``render_utils.RenderUtils``.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RenderUtils",
+          "summary": "Render-engine enumeration / selection, render settings and a rendered frame.",
+          "line": 23,
+          "bases": [],
+          "members": [
+            {
+              "name": "get_available_renderers",
+              "qualname": "RenderUtils.get_available_renderers",
+              "kind": "classmethod",
+              "signature": "(cls) -> List[Dict[str, object]]",
+              "summary": "The engines ``scene.render.engine`` accepts: EEVEE and Workbench,",
+              "line": 58,
+              "deprecated": false
+            },
+            {
+              "name": "current_renderer",
+              "qualname": "RenderUtils.current_renderer",
+              "kind": "classmethod",
+              "signature": "(cls) -> str",
+              "summary": "The scene's render engine (``scene.render.engine``).",
+              "line": 87,
+              "deprecated": false
+            },
+            {
+              "name": "set_renderer",
+              "qualname": "RenderUtils.set_renderer",
+              "kind": "classmethod",
+              "signature": "(cls, name: str) -> None",
+              "summary": "Make *name* the scene's render engine.",
+              "line": 93,
+              "deprecated": false
+            },
+            {
+              "name": "render_settings",
+              "qualname": "RenderUtils.render_settings",
+              "kind": "classmethod",
+              "signature": "(cls) -> Dict[str, Any]",
+              "summary": "The scene's value of every :attr:`RENDER_SETTINGS` key.",
+              "line": 106,
+              "deprecated": false
+            },
+            {
+              "name": "set_render_settings",
+              "qualname": "RenderUtils.set_render_settings",
+              "kind": "classmethod",
+              "signature": "(cls, values: Dict[str, Any]) -> int",
+              "summary": "Write render settings to the scene;",
+              "line": 114,
+              "deprecated": false
+            },
+            {
+              "name": "render_preset_store",
+              "qualname": "RenderUtils.render_preset_store",
+              "kind": "staticmethod",
+              "signature": "() -> 'ptk.PresetStore'",
+              "summary": "Named render-setting presets: ``{key: value}`` dicts of",
+              "line": 129,
+              "deprecated": false
+            },
+            {
+              "name": "render_cameras",
+              "qualname": "RenderUtils.render_cameras",
+              "kind": "classmethod",
+              "signature": "(cls) -> List[str]",
+              "summary": "The names of the scene's cameras, the scene camera first.",
+              "line": 138,
+              "deprecated": false
+            },
+            {
+              "name": "render_camera",
+              "qualname": "RenderUtils.render_camera",
+              "kind": "classmethod",
+              "signature": "(cls, camera=None, render_mode: str = 'render') -> None",
+              "summary": "Render the current frame through *camera*, made the scene camera, in",
+              "line": 154,
+              "deprecated": false
+            },
+            {
+              "name": "redo_previous_render",
+              "qualname": "RenderUtils.redo_previous_render",
+              "kind": "classmethod",
+              "signature": "(cls, render_mode: str = 'render') -> None",
+              "summary": "Render again through the scene camera: Blender keeps earlier renders",
+              "line": 183,
+              "deprecated": false
+            },
+            {
+              "name": "supports_ipr",
+              "qualname": "RenderUtils.supports_ipr",
+              "kind": "staticmethod",
+              "signature": "(renderer: Optional[str] = None) -> bool",
+              "summary": "False: Blender's interactive render is the viewport's Rendered",
+              "line": 190,
+              "deprecated": false
+            },
+            {
+              "name": "start_ipr",
+              "qualname": "RenderUtils.start_ipr",
+              "kind": "staticmethod",
+              "signature": "(camera: str, renderer: Optional[str] = None) -> bool",
+              "summary": "False: no IPR session (:meth:`supports_ipr`);",
+              "line": 197,
+              "deprecated": false
+            }
+          ]
+        }
+      ],
+      "constants": []
+    },
+    {
       "relpath": "rig_utils/_rig_utils.py",
       "summary": "Shared procedural-rig primitives — Blender port of mayatk's ``rig_utils.RigUtils``.",
       "functions": [],
@@ -18804,7 +19018,7 @@
         {
           "name": "RigUtils",
           "summary": "Constraint / driver / handle / grouping / armature helpers shared by the procedural rigs.",
-          "line": 21,
+          "line": 25,
           "bases": [],
           "members": [
             {
@@ -18813,7 +19027,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "An object or its name → the ``bpy`` object (``None`` if missing).",
-              "line": 26,
+              "line": 30,
               "deprecated": false
             },
             {
@@ -18822,7 +19036,7 @@
               "kind": "staticmethod",
               "signature": "(name='locator', location=(0, 0, 0), display_type='PLAIN_AXES', size=1.0, collection=None)",
               "summary": "Create an Empty — Blender's analogue of Maya's spaceLocator (a rig handle).",
-              "line": 36,
+              "line": 40,
               "deprecated": false
             },
             {
@@ -18831,7 +19045,7 @@
               "kind": "staticmethod",
               "signature": "(name='rig_grp', location=(0, 0, 0), children=None)",
               "summary": "Create an Empty used as a transform group, parenting ``children`` under it (keeping",
-              "line": 54,
+              "line": 58,
               "deprecated": false
             },
             {
@@ -18840,7 +19054,7 @@
               "kind": "staticmethod",
               "signature": "(child, parent)",
               "summary": "Parent ``child`` to ``parent`` without moving it in world space (Maya ``parent`` default).",
-              "line": 75,
+              "line": 79,
               "deprecated": false
             },
             {
@@ -18849,7 +19063,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, reanchor=True, **freeze_options)",
               "summary": "Freeze Transforms -- mirror of ``mtk.RigUtils.freeze_and_reanchor``, the",
-              "line": 168,
+              "line": 172,
               "deprecated": false
             },
             {
@@ -18858,16 +19072,70 @@
               "kind": "staticmethod",
               "signature": "(objects, loc_scale=1.0, lock_translate=False, lock_rotation=False, lock_scale=False, grp_suffix=None, grp_affix_mode='auto', loc_suffix=None, loc_affix_mode='auto', obj_suffix=None, obj_affix_mode='auto', strip_digits=False, strip_trailing_underscores=True, strip_suffix=True, rotate_order='xyz', freeze_object=True, group_display='none')",
               "summary": "Rig each object under a zeroed locator (Empty) at its origin, under a group Empty.",
-              "line": 189,
+              "line": 194,
               "deprecated": false
             },
             {
               "name": "remove_locator",
               "qualname": "RigUtils.remove_locator",
               "kind": "staticmethod",
-              "signature": "(objects)",
+              "signature": "(objects=None)",
               "summary": "Dissolve locator rigs: the inverse of :meth:`create_locator_at_object`.",
-              "line": 459,
+              "line": 465,
+              "deprecated": false
+            },
+            {
+              "name": "add_locator",
+              "qualname": "RigUtils.add_locator",
+              "kind": "staticmethod",
+              "signature": "(size=1.0, rotate_order='xyz')",
+              "summary": "Add a lone locator the way Blender's Add menu adds an Empty: at the 3D",
+              "line": 566,
+              "deprecated": false
+            },
+            {
+              "name": "create_utility_node",
+              "qualname": "RigUtils.create_utility_node",
+              "kind": "staticmethod",
+              "signature": "(node_type)",
+              "summary": "Add a rigging utility object the way Blender's Add menu does -- an",
+              "line": 616,
+              "deprecated": false
+            },
+            {
+              "name": "auto_rig",
+              "qualname": "RigUtils.auto_rig",
+              "kind": "staticmethod",
+              "signature": "(rig_type)",
+              "summary": "Run Blender's character auto-rigger, the bundled Rigify add-on",
+              "line": 668,
+              "deprecated": false
+            },
+            {
+              "name": "lock_transforms",
+              "qualname": "RigUtils.lock_transforms",
+              "kind": "staticmethod",
+              "signature": "(objects=None, lock=True, scope='all')",
+              "summary": "Lock or unlock objects' transform channels (``lock_location`` /",
+              "line": 724,
+              "deprecated": false
+            },
+            {
+              "name": "rebind_skin_clusters",
+              "qualname": "RigUtils.rebind_skin_clusters",
+              "kind": "staticmethod",
+              "signature": "(meshes=None, temp_dir=None, inherits_transform=None)",
+              "summary": "Rebind skinned meshes: point each one's Armature modifiers at their",
+              "line": 764,
+              "deprecated": false
+            },
+            {
+              "name": "connect_switch_to_constraint",
+              "qualname": "RigUtils.connect_switch_to_constraint",
+              "kind": "staticmethod",
+              "signature": "(constraint_node=None, constraint_targets=None, attr_name='parent_switch', overwrite_existing=False, node=None, weighted=False, anchor=None)",
+              "summary": "Drive an object's constraints from one switch property.",
+              "line": 838,
               "deprecated": false
             },
             {
@@ -18876,7 +19144,7 @@
               "kind": "staticmethod",
               "signature": "(name='armature', location=(0, 0, 0), collection=None)",
               "summary": "Create an empty Armature object (Maya's joint-chain container).",
-              "line": 594,
+              "line": 986,
               "deprecated": false
             },
             {
@@ -18885,7 +19153,7 @@
               "kind": "staticmethod",
               "signature": "(armature, points, prefix='bone', connect=True, radius=None)",
               "summary": "Build a connected bone chain through world-space *points* — Maya's ``generate_joint_chain``",
-              "line": 606,
+              "line": 998,
               "deprecated": false
             },
             {
@@ -18894,7 +19162,7 @@
               "kind": "staticmethod",
               "signature": "(armature, name, head, tail, parent=None, connect=False, radius=None, deform=True)",
               "summary": "Add ONE bone to an existing armature at world-space *head*/*tail* — the single-bone",
-              "line": 635,
+              "line": 1027,
               "deprecated": false
             },
             {
@@ -18903,7 +19171,7 @@
               "kind": "staticmethod",
               "signature": "(armature, heads)",
               "summary": "Move bones by NAME — ``{bone: (x, y, z)}``, the new HEAD in armature space.",
-              "line": 680,
+              "line": 1072,
               "deprecated": false
             },
             {
@@ -18912,7 +19180,7 @@
               "kind": "staticmethod",
               "signature": "(armature, lengths)",
               "summary": "Resize bones by NAME — ``{bone: length}``, in the armature's own units.",
-              "line": 718,
+              "line": 1110,
               "deprecated": false
             },
             {
@@ -18921,7 +19189,7 @@
               "kind": "staticmethod",
               "signature": "(armature, bone_name=None, reverse=False)",
               "summary": "Walk a single-path bone chain from a root bone — mirror of mayatk's",
-              "line": 768,
+              "line": 1160,
               "deprecated": false
             },
             {
@@ -18930,7 +19198,7 @@
               "kind": "staticmethod",
               "signature": "(armature, bone_names)",
               "summary": "Rebuild *bone_names* (head->tail order) with reversed hierarchy — mirror of mayatk's",
-              "line": 792,
+              "line": 1184,
               "deprecated": false
             },
             {
@@ -18939,7 +19207,7 @@
               "kind": "staticmethod",
               "signature": "(armature, bone_name, ctype, target=None, subtarget=None, **props)",
               "summary": "Add a **pose-bone** constraint (``ctype`` e.g.",
-              "line": 839,
+              "line": 1231,
               "deprecated": false
             },
             {
@@ -18948,7 +19216,7 @@
               "kind": "staticmethod",
               "signature": "(armature, bone_name, curve, chain_count, name='Spline IK', **props)",
               "summary": "Add a **Spline IK** bone constraint to pose bone *bone_name* so *chain_count* bones up the",
-              "line": 857,
+              "line": 1249,
               "deprecated": false
             },
             {
@@ -18957,7 +19225,7 @@
               "kind": "staticmethod",
               "signature": "(mesh, armature, auto_weights=True)",
               "summary": "Bind *mesh* to *armature* (Maya ``skinCluster`` analogue).",
-              "line": 874,
+              "line": 1266,
               "deprecated": false
             },
             {
@@ -18966,7 +19234,7 @@
               "kind": "staticmethod",
               "signature": "(mesh, group_name, center, radius, profile='linear', add_group=True)",
               "summary": "Distance-falloff vertex weights — the Blender (vertex-group) analogue of mayatk's",
-              "line": 893,
+              "line": 1285,
               "deprecated": false
             },
             {
@@ -18975,7 +19243,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, influence=1.0, **props)",
               "summary": "Maya pointConstraint → COPY_LOCATION.",
-              "line": 958,
+              "line": 1350,
               "deprecated": false
             },
             {
@@ -18984,7 +19252,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, influence=1.0, **props)",
               "summary": "Maya orientConstraint → COPY_ROTATION.",
-              "line": 968,
+              "line": 1360,
               "deprecated": false
             },
             {
@@ -18993,7 +19261,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, track_axis='TRACK_Y', **props)",
               "summary": "Single-axis aim (Maya aimConstraint, no up-vector) → DAMPED_TRACK.",
-              "line": 975,
+              "line": 1367,
               "deprecated": false
             },
             {
@@ -19002,7 +19270,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, track_axis='TRACK_Y', up_axis='UP_Z', **props)",
               "summary": "Aim with an up-vector (full Maya aimConstraint) → TRACK_TO.",
-              "line": 982,
+              "line": 1374,
               "deprecated": false
             },
             {
@@ -19011,7 +19279,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, set_inverse=True, **props)",
               "summary": "Maya parentConstraint(maintainOffset=True) → CHILD_OF (inverse bound at the current pose).",
-              "line": 989,
+              "line": 1381,
               "deprecated": false
             },
             {
@@ -19020,7 +19288,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Force-recompile every driver on ``objects`` — call ONCE after building a rig's drivers.",
-              "line": 1009,
+              "line": 1401,
               "deprecated": false
             },
             {
@@ -19029,7 +19297,7 @@
               "kind": "staticmethod",
               "signature": "(obj, data_path, index, a, b, expression='dist', var_name='dist')",
               "summary": "Drive ``obj.<data_path>[index]`` from the live distance between objects ``a`` and ``b``",
-              "line": 1022,
+              "line": 1414,
               "deprecated": false
             },
             {
@@ -19038,7 +19306,7 @@
               "kind": "staticmethod",
               "signature": "(obj, data_path, index, target, transform_type, space='WORLD_SPACE', expression=None, var_name='var')",
               "summary": "Drive ``obj.<data_path>[index]`` from a single transform channel of ``target`` (a",
-              "line": 1043,
+              "line": 1435,
               "deprecated": false
             },
             {
@@ -19047,7 +19315,7 @@
               "kind": "staticmethod",
               "signature": "(fcurve, name, id_obj, data_path, id_type=None)",
               "summary": "Append a ``SINGLE_PROP`` variable to an existing driver fcurve — e.g.",
-              "line": 1073,
+              "line": 1465,
               "deprecated": false
             },
             {
@@ -19056,7 +19324,7 @@
               "kind": "staticmethod",
               "signature": "(fcurve, name, target, transform_type, space='WORLD_SPACE')",
               "summary": "Append a ``TRANSFORMS`` variable (a single transform channel of *target*) to an existing",
-              "line": 1093,
+              "line": 1485,
               "deprecated": false
             },
             {
@@ -19065,7 +19333,7 @@
               "kind": "staticmethod",
               "signature": "(obj, name, value, min_value=None, max_value=None)",
               "summary": "Set a keyable custom property (Maya's ``addAttr`` analogue), creating it if absent and",
-              "line": 1109,
+              "line": 1501,
               "deprecated": false
             },
             {
@@ -19074,7 +19342,7 @@
               "kind": "staticmethod",
               "signature": "(obj, data_path, index=None)",
               "summary": "Remove a driver on ``obj.<data_path>[index]`` if present (idempotent;",
-              "line": 1130,
+              "line": 1522,
               "deprecated": false
             },
             {
@@ -19083,7 +19351,7 @@
               "kind": "staticmethod",
               "signature": "(obj, location=None, rotation=None, scale=None)",
               "summary": "Lock the given transform channels (each a 3-tuple of bools, or ``None`` to leave as-is).",
-              "line": 1142,
+              "line": 1534,
               "deprecated": false
             }
           ]
@@ -21231,7 +21499,7 @@
         {
           "name": "UiUtils",
           "summary": "Namespace mirror (helpers also exposed module-level).",
-          "line": 197,
+          "line": 201,
           "bases": [
             "_UiUtilsInternal"
           ],
@@ -21242,7 +21510,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The friendly-name → ``Area.ui_type`` map understood by :func:`open_editor`.",
-              "line": 201,
+              "line": 205,
               "deprecated": false
             },
             {
@@ -21251,7 +21519,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "``{category: [editor name, ...]}``: the editors a browsing UI lists, each",
-              "line": 239,
+              "line": 243,
               "deprecated": false
             },
             {
@@ -21260,7 +21528,7 @@
               "kind": "staticmethod",
               "signature": "(editor, properties_context=None)",
               "summary": "Open ``editor`` (a friendly name from :data:`EDITOR_TYPES` or a raw ``ui_type``)",
-              "line": 249,
+              "line": 262,
               "deprecated": false
             },
             {
@@ -21269,7 +21537,7 @@
               "kind": "classmethod",
               "signature": "(cls, section=None)",
               "summary": "Open Blender's Preferences editor on *section*'s tab: ``\"general\"`` (the",
-              "line": 328,
+              "line": 342,
               "deprecated": false
             },
             {
@@ -21278,7 +21546,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Select *objects* (names or Objects) and scroll the Outliner to the active one.",
-              "line": 366,
+              "line": 380,
               "deprecated": false
             },
             {
@@ -21287,7 +21555,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The main Blender window (the first;",
-              "line": 405,
+              "line": 419,
               "deprecated": false
             },
             {
@@ -21296,7 +21564,7 @@
               "kind": "staticmethod",
               "signature": "(start='', caption='Select Folder', ok_caption='Select')",
               "summary": "Pick a directory in the platform's folder dialog (Qt);",
-              "line": 413,
+              "line": 427,
               "deprecated": false
             },
             {
@@ -21305,7 +21573,7 @@
               "kind": "staticmethod",
               "signature": "(editor, window=None)",
               "summary": "Open areas showing ``editor`` (friendly name or raw ``ui_type``) as ``(window, area)`` pairs.",
-              "line": 423,
+              "line": 437,
               "deprecated": false
             },
             {
@@ -21314,7 +21582,7 @@
               "kind": "staticmethod",
               "signature": "(window, area)",
               "summary": "Close exactly ``area`` in ``window`` via ``screen.area_close``;",
-              "line": 438,
+              "line": 452,
               "deprecated": false
             },
             {
@@ -21323,7 +21591,7 @@
               "kind": "staticmethod",
               "signature": "(editor, window=None)",
               "summary": "Close every open area showing ``editor`` in the (main) window;",
-              "line": 475,
+              "line": 489,
               "deprecated": false
             },
             {
@@ -21332,7 +21600,7 @@
               "kind": "staticmethod",
               "signature": "(editor, edge_size=70, window=None)",
               "summary": "Dock ``editor`` as a strip along the bottom of the main 3D viewport — the Blender analogue",
-              "line": 495,
+              "line": 509,
               "deprecated": false
             },
             {
@@ -21341,7 +21609,7 @@
               "kind": "staticmethod",
               "signature": "(editor, edge_size=70, window=None)",
               "summary": "Maya-style *docked* toggle for ``editor`` (backs the editors-menu Time & Range button).",
-              "line": 544,
+              "line": 558,
               "deprecated": false
             },
             {
@@ -21350,7 +21618,7 @@
               "kind": "staticmethod",
               "signature": "(editor=None, hide_panels=True, window=None)",
               "summary": "Toggle fullscreen-area mode — one editor fills the window (Ctrl+Alt+Space).",
-              "line": 570,
+              "line": 584,
               "deprecated": false
             },
             {
@@ -21359,7 +21627,7 @@
               "kind": "staticmethod",
               "signature": "(visible=None, window=None)",
               "summary": "Show/hide the main window's topbar (File/Edit/Render… menus + workspace tabs) and",
-              "line": 620,
+              "line": 634,
               "deprecated": false
             },
             {
@@ -21368,7 +21636,7 @@
               "kind": "staticmethod",
               "signature": "(menu_idname)",
               "summary": "True if ``menu_idname`` (e.g.",
-              "line": 694,
+              "line": 708,
               "deprecated": false
             },
             {
@@ -21377,7 +21645,7 @@
               "kind": "staticmethod",
               "signature": "(idname)",
               "summary": "The ``bpy.ops`` callable for a dotted operator id (``\"wm.link\"``), or None",
-              "line": 705,
+              "line": 719,
               "deprecated": false
             },
             {
@@ -21386,7 +21654,7 @@
               "kind": "classmethod",
               "signature": "(cls, idname, **props)",
               "summary": "Invoke an operator by dotted id as a menu click does (``INVOKE_DEFAULT``):",
-              "line": 728,
+              "line": 742,
               "deprecated": false
             },
             {
@@ -21395,7 +21663,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "The friendly-name -> ``(tool idname, object type)`` map understood by",
-              "line": 772,
+              "line": 786,
               "deprecated": false
             },
             {
@@ -21404,7 +21672,7 @@
               "kind": "classmethod",
               "signature": "(cls, tool)",
               "summary": "Activate a viewport tool: a friendly name from :meth:`get_tool_types`, or a",
-              "line": 779,
+              "line": 793,
               "deprecated": false
             },
             {
@@ -21413,7 +21681,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "The 3D viewport's active tool: its friendly name from :meth:`get_tool_types`,",
-              "line": 829,
+              "line": 843,
               "deprecated": false
             },
             {
@@ -21422,7 +21690,7 @@
               "kind": "staticmethod",
               "signature": "(url, logger=None) -> bool",
               "summary": "Handle ``action://`` links emitted by ``logger.log_link()`` in a QTextBrowser.",
-              "line": 851,
+              "line": 865,
               "deprecated": false
             },
             {
@@ -21431,7 +21699,7 @@
               "kind": "staticmethod",
               "signature": "(menu_idname)",
               "summary": "Pop Blender's own native menu ``menu_idname`` (e.g.",
-              "line": 981,
+              "line": 995,
               "deprecated": false
             },
             {
@@ -21440,7 +21708,7 @@
               "kind": "staticmethod",
               "signature": "(text, title='Info', icon='INFO')",
               "summary": "Show a small native Blender info popup at the cursor (multi-line ``text`` supported).",
-              "line": 1007,
+              "line": 1021,
               "deprecated": false
             },
             {
@@ -21449,7 +21717,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Activate Blender's Annotate tool (freehand notes over the viewport).",
-              "line": 1037,
+              "line": 1051,
               "deprecated": false
             },
             {
@@ -21458,7 +21726,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Add an empty Grease Pencil object to draw into: Blender's pencil is an",
-              "line": 1053,
+              "line": 1067,
               "deprecated": false
             }
           ]
@@ -23618,12 +23886,21 @@
               "deprecated": false
             },
             {
+              "name": "get_rotate_order",
+              "qualname": "XformUtils.get_rotate_order",
+              "kind": "staticmethod",
+              "signature": "(objects=None)",
+              "summary": "Each object's rotation mode, Maya-spelled: ``{object: \"xyz\"}``",
+              "line": 1419,
+              "deprecated": false
+            },
+            {
               "name": "set_rotate_order",
               "qualname": "XformUtils.set_rotate_order",
               "kind": "staticmethod",
               "signature": "(objects, order, preserve=True)",
               "summary": "Change objects' Euler order keeping their pose and keyed animation --",
-              "line": 1419,
+              "line": 1442,
               "deprecated": false
             }
           ]
