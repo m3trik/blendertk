@@ -51,6 +51,15 @@ try:
     check("selected_objects() matches view_layer.objects.selected",
           btk.selected_objects() == [o for o in bpy.context.view_layer.objects.selected])
 
+    # leaf_name: a node's name as shown (mayatk's); suspended_refresh: a no-op hold
+    check("CoreUtils.leaf_name: an object's name, a string as it is, a path's leaf",
+          (btk.CoreUtils.leaf_name(cube), btk.CoreUtils.leaf_name("Lamp"),
+           btk.CoreUtils.leaf_name("|grp|Lamp")) == (cube.name, "Lamp", "Lamp"))
+    held = False
+    with btk.CoreUtils.suspended_refresh():
+        held = True
+    check("CoreUtils.suspended_refresh runs its block as it is", held)
+
     # 2. THE REGRESSION: from a window-less context (the Qt event-pump timer condition), the
     #    screen-context members go empty while the view-layer readers stay correct.
     with bpy.context.temp_override(window=None):

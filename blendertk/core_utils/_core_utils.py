@@ -521,6 +521,15 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
 
     @staticmethod
     @contextmanager
+    def suspended_refresh():
+        """Hold the viewport still for a bulk operation (mirror of mayatk's
+        ``CoreUtils.suspended_refresh``). Blender never redraws mid-script -- a Python call
+        holds the UI until it returns -- so there is nothing to suspend: the block runs as it
+        is, and a caller shared with Maya wraps it unchanged."""
+        yield
+
+    @staticmethod
+    @contextmanager
     def undo_chunk(name: str = ""):
         """Collapse every change made inside the block into ONE Blender undo step.
 
@@ -1110,6 +1119,15 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         it agrees with the operators run under :func:`window_context_override`.
         """
         return _CoreUtilsInternal._active_view_layer()
+
+    @staticmethod
+    def leaf_name(node) -> str:
+        """*node*'s name as shown (mirror of mayatk's ``CoreUtils.leaf_name``, a DAG path's
+        leaf there): Blender's names are flat, so an object, bone or datablock gives its
+        ``name`` and a string comes back as it is -- a Maya-style ``|`` path handed in is
+        cut to its leaf. A removed object raises ``ReferenceError``, as reading it does."""
+        name = node if isinstance(node, str) else getattr(node, "name", None)
+        return str(node if name is None else name).rsplit("|", 1)[-1]
 
     @staticmethod
     def selected_objects():

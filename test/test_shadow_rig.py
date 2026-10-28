@@ -55,7 +55,7 @@ try:
     import numpy as np
     import bpy
     from blendertk.mat_utils._mat_utils import MatUtils
-    from blendertk.rig_utils.shadow_rig import ShadowRig, ShadowRigSlots
+    from blendertk.rig_utils.shadow_rig import ShadowRig, ShadowPreview
     from pythontk import HeightFieldMap, ShadowAtlas, ShadowProjection
     import pythontk as ptk
     from blendertk.env_utils._env_utils import EnvUtils
@@ -1824,104 +1824,55 @@ try:
             path,
         )
 
-    # ==================== PANEL: PACKING IS A COMMIT-ONLY STEP ====================
-    # Headless Blender ships no Qt, so the panel seam is driven through a bare
-    # slots instance with stubbed combos — the very methods Preview calls.
-    import types
-
-    def slots_stub(
-        planes="Combined",
-        atlas="On",
-        rig="Projected",
-        res=32,
-        intensity=1.0,
-        ground=0.0,
-    ):
-        s = ShadowRigSlots.__new__(ShadowRigSlots)
-        s.ui = types.SimpleNamespace(
-            chk_combine=types.SimpleNamespace(isChecked=lambda: True),
-            # the Live Horizon Preview box the panel syncs after delete / rebuild / commit
-            chk_horizon_preview=types.SimpleNamespace(
-                setChecked=lambda v: None,
-                setEnabled=lambda v: None,
-                blockSignals=lambda v: None,
-                toolTip=lambda: "",
-                setToolTip=lambda t: None,
-            ),
-            txt_source=types.SimpleNamespace(
-                text=lambda: ShadowRig.DEFAULT_SOURCE_NAME
-            ),
-            cmb_type=types.SimpleNamespace(currentText=lambda: f"Rig:  {rig}"),
-            cmb_planes=types.SimpleNamespace(currentText=lambda: f"Planes:  {planes}"),
-            cmb_atlas=types.SimpleNamespace(currentText=lambda: f"Atlas:  {atlas}"),
-            s000=types.SimpleNamespace(currentText=lambda: f"Resolution: {res}"),
-            # Softness: the panel re-reads it after a commit / source edit
-            s001=types.SimpleNamespace(
-                setValue=lambda v: None,
-                blockSignals=lambda v: None,
-                toolTip=lambda: "",
-                setToolTip=lambda t: None,
-                value=lambda: 0.0,
-            ),
-            chk_follow=types.SimpleNamespace(isChecked=lambda: False),
-            # Intensity / Ground Y: what a new rig builds with
-            s002=types.SimpleNamespace(value=lambda: intensity),
-            s003=types.SimpleNamespace(value=lambda: ground),
-        )
-        s.sb = types.SimpleNamespace(
-            message_box=lambda *a, **k: None,
-            tooltip=types.SimpleNamespace(fmt=lambda **k: ""),
-        )
-        s._preview_textures = []
-        s._built_rigs = []
-        s._built_sources = None
-        return s
-
+    # ========== PREVIEW HYGIENE: a pass never packs; a discard spares the atlas ==========
+    # What tentacle's Shadow Rig panel runs (its panel half: tentacle's
+    # test_shadow_rig_panel.py): a preview pass builds per-object rigs and never packs --
+    # the atlas is one shared file -- and the commit packs the scene; a discarded pass's
+    # rollback leaves its PNGs, which delete_orphaned_textures removes, sparing every file
+    # a surviving plane uses.
     reset()
     c = cube("Box")
     other = cube("Crate", loc=(4, 0, 0))
     bpy.context.view_layer.update()
-    slots = slots_stub(planes="Per object", atlas="On")
-    slots.perform_operation([c, other])
+    for target in (c, other):  # Planes: Per object
+        ShadowRig.create_for_sources(
+            [target], [ShadowRig.DEFAULT_SOURCE_NAME], texture_res=32
+        )
     atlas_path = ShadowRig._atlas_path("projected")
     check(
-        "a preview pass builds every plane",
+        "a pass builds every plane",
         len(ShadowRig.find_shadow_planes()) == 2,
         f"{[p.name for p in ShadowRig.find_shadow_planes()]}",
     )
     check(
-        "a preview pass never writes the atlas (it is a shared file)",
+        "building never writes the atlas (a shared file)",
         not os.path.exists(atlas_path)
         and not any(
             ShadowRig.plane_is_atlased(p) for p in ShadowRig.find_shadow_planes()
         ),
         atlas_path,
     )
+    ShadowRig.pack_atlas(ShadowRig.find_shadow_planes())  # the commit's pack
     check(
-        "the preview tracks each rig's OWN pngs, never the atlas",
-        all(
-            not os.path.basename(t).startswith("shadow_atlas")
-            for t in slots._preview_textures
-        ),
-        f"{[os.path.basename(t) for t in slots._preview_textures]}",
-    )
-    slots._pack_after_commit()
-    check(
-        "the commit hook packs the committed rigs",
+        "the commit's pack packs the committed rigs",
         os.path.exists(atlas_path)
         and all(ShadowRig.plane_is_atlased(p) for p in ShadowRig.find_shadow_planes()),
     )
 
     committed = ShadowRig._read_png(atlas_path)
+    kept = [ShadowRig._plane_texture_path(p) for p in ShadowRig.find_shadow_planes()]
     third = cube("Prop", loc=(-4, 0, 0))
     bpy.context.view_layer.update()
-    rehearsal = slots_stub(planes="Per object", atlas="On")
-    rehearsal.perform_operation([third])
-    # Preview's rollback, then its discard hook.
-    ShadowRig.delete_rigs([r.shadow_plane for r in rehearsal._built_rigs])
-    rehearsal._restore_after_preview()
+    rehearsal = ShadowRig.create_for_sources(
+        [third], [ShadowRig.DEFAULT_SOURCE_NAME], texture_res=32
+    )
+    written = [p for r in rehearsal for p in (r.texture_path, r.horizon_path) if p]
+    # The Preview's rollback, then the panel's discard hook.
+    ShadowRig.delete_rigs([r.shadow_plane for r in rehearsal])
+    ShadowRig.refresh_export_metadata()
+    removed = ShadowRig.delete_orphaned_textures(written + kept)
     check(
-        "a discarded preview leaves the committed atlas byte-identical",
+        "a discarded pass leaves the committed atlas byte-identical",
         bool((ShadowRig._read_png(atlas_path) == committed).all()),
     )
     check(
@@ -1930,32 +1881,53 @@ try:
         and all(ShadowRig.plane_is_atlased(p) for p in ShadowRig.find_shadow_planes()),
     )
     check(
-        "a discarded preview removes only its own png",
-        not os.path.exists(os.path.join(os.path.dirname(atlas_path), "Prop_shadow.png"))
-        and all(
-            os.path.exists(ShadowRig._plane_texture_path(p))
-            for p in ShadowRig.find_shadow_planes()
-        ),
-    )
-    check(
-        "Atlas: Off never packs",
-        slots_stub(atlas="Off")._pack_if_wanted(
-            [types.SimpleNamespace(shadow_plane=None)]
-        )
-        == {},
-    )
-    check(
-        "every Atlas combo label round-trips through _atlas_mode",
-        [slots_stub(atlas=m)._atlas_mode() for m in ShadowRigSlots.ATLAS_MODES]
-        == list(ShadowRigSlots.ATLAS_MODES),
-        f"{ShadowRigSlots.ATLAS_MODES}",
-    )
-    check(
-        "the Horizon rig type has a builder",
-        slots_stub(rig="Horizon")._rig_builder()
-        == ShadowRig.create_horizon_for_sources,
+        "delete_orphaned_textures removes only the pass's own png",
+        removed == written
+        and bool(written)
+        and not any(os.path.exists(p) for p in written)
+        and all(os.path.exists(p) for p in kept),
+        f"removed={removed} written={written}",
     )
     ShadowRig.delete_rigs(None, delete_textures=True)
+
+    # ---- what the panel reads through the engine: casters, a source by name, sources ----
+    reset()
+    c = cube("Box")
+    key_sun = sun("KeySun")
+    lamp = ShadowRig.ensure_source("lamp")
+    bpy.context.view_layer.update()
+    check(
+        "shadow_targets: the meshes, never the source or a light",
+        ShadowRig.shadow_targets([c, key_sun, lamp], ["lamp"]) == [c],
+    )
+    try:
+        ShadowRig.shadow_targets([lamp], ["lamp"])
+        refusal = ""
+    except ValueError as e:
+        refusal = str(e)
+    check(
+        "shadow_targets: a selection of only the source is refused, saying so",
+        "shadow source itself" in refusal,
+        refusal,
+    )
+    check(
+        "find_source: the object by its name; None when there is none",
+        ShadowRig.find_source("lamp") == lamp and ShadowRig.find_source("no_such") is None,
+    )
+    bpy.ops.object.select_all(action="DESELECT")
+    key_sun.select_set(True)
+    check(
+        "source_selection: the selected objects' names, no fixture",
+        ShadowRig.source_selection() == ([key_sun.name], []),
+        f"{ShadowRig.source_selection()}",
+    )
+    language, refusal = ShadowPreview.language()
+    check(
+        "ShadowPreview.language: no GPU backend headless, and the refusal says so",
+        language is None and "background" in refusal,
+        refusal,
+    )
+    reset()
 
     # ---------------------------------------------------------- softness
     reset()
@@ -2432,34 +2404,6 @@ try:
         f"{sorted(paths)}",
     )
 
-    # The panel: Delete Rig's option box gains Detach to Plane.
-    class _Menu:
-        def __init__(self):
-            self.items = []
-
-        def setTitle(self, title):
-            self.title = title
-
-        def add(self, _kind, **kw):
-            menu = self
-
-            class _Button:
-                class clicked:
-                    @staticmethod
-                    def connect(handler):
-                        menu.items.append((kw.get("setObjectName"), handler))
-
-            return _Button()
-
-    delete_box = types.SimpleNamespace(option_box=types.SimpleNamespace(menu=_Menu()))
-    panel = slots_stub()
-    panel.b009_init(delete_box)
-    check(
-        "Delete Rig's option box holds Detach to Plane",
-        [n for n, _h in delete_box.option_box.menu.items] == ["btn_detach"]
-        and delete_box.option_box.menu.items[0][1] == panel.detach_to_plane,
-        f"{delete_box.option_box.menu.items}",
-    )
     ShadowRig.delete_rigs(None, delete_textures=True)
 
     # ======================= INTENSITY AND GROUND HEIGHT =======================
@@ -2635,58 +2579,31 @@ try:
         f"{plane[ShadowRig.OPACITY_ATTR]}, {plane['shadowIntensity']}",
     )
 
-    # ---- the panel: Intensity (s002) and Ground Y (s003) ----
+    # ---- a rig built on Ground Y and darkened: what the panel's two boxes build ----
+    # (the boxes themselves: tentacle's test_shadow_rig_panel.py)
     reset()
     box = cube("PanelBox")
     bpy.context.view_layer.update()
-    panel = slots_stub(intensity=0.5, ground=1.25)
-    panel.perform_operation([box])
-    built = ShadowRig.find_shadow_planes()
-    plane = built[0] if built else None
+    built = ShadowRig.create_for_sources(
+        [box], [ShadowRig.DEFAULT_SOURCE_NAME], texture_res=32, ground_height=1.25
+    )
+    plane = built[0].shadow_plane
+    ShadowRig.set_intensity([plane], 0.5)
     bpy.context.view_layer.update()
     check(
-        "a new rig builds with both boxes",
-        plane is not None
-        and approx(plane["shadowIntensity"], 0.5, 1e-6)
+        "a new rig builds on its ground height and takes the intensity",
+        approx(plane["shadowIntensity"], 0.5, 1e-6)
         and approx(plane["groundHeight"], 1.25, 1e-6)
         and approx(
             ev(plane).matrix_world.translation.z,
             1.25 + ShadowRig.GROUND_OFFSET,
             1e-4,
         ),
-        f"{plane.get('shadowIntensity') if plane else None}",
+        f"{plane.get('shadowIntensity')}",
     )
-    messages, refreshed = [], []
-    panel = slots_stub()
-    panel.sb.message_box = lambda *a, **k: messages.append(a)
-    panel.preview = types.SimpleNamespace(
-        is_enabled=False, refresh=lambda: refreshed.append(True)
-    )
-    bpy.ops.object.select_all(action="DESELECT")
-    box.select_set(True)  # a target reaches its rig
-    panel.s002(0.4)
-    panel.s003(2.0)
     check(
-        "a change retunes the selected rig",
-        approx(plane["shadowIntensity"], 0.4, 1e-6)
-        and approx(plane["groundHeight"], 2.0, 1e-6)
-        and messages == [],
-        f"{plane['shadowIntensity']}, {plane['groundHeight']}, {messages}",
-    )
-    bpy.ops.object.select_all(action="DESELECT")
-    panel.s002(0.3)
-    check(
-        "with no rig selected only the setting changes (no message)",
-        approx(plane["shadowIntensity"], 0.4, 1e-6) and messages == [],
-        f"{plane['shadowIntensity']}, {messages}",
-    )
-    box.select_set(True)
-    panel.preview.is_enabled = True
-    panel.s002(0.2)
-    check(
-        "under Preview a change only refreshes the preview",
-        refreshed == [True] and approx(plane["shadowIntensity"], 0.4, 1e-6),
-        f"{refreshed}, {plane['shadowIntensity']}",
+        "a target reaches its plane (what the boxes retune)",
+        ShadowRig.planes_for_nodes([box]) == [plane],
     )
     ShadowRig.delete_rigs(None, delete_textures=True)
 

@@ -180,14 +180,12 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`rig_utils/_rig_utils.py`](#rig_utils--_rig_utils) — Shared procedural-rig primitives — Blender port of mayatk's ``rig_utils.RigUtils``.
 - [`rig_utils/articulated_rig/_articulated_rig.py`](#rig_utils--articulated_rig--_articulated_rig) — Articulated Rig engine (Blender) -- rigid parts on hinge, swivel, ball and slide joints.
 - [`rig_utils/articulated_rig/_solver_handler.py`](#rig_utils--articulated_rig--_solver_handler) — The end control's live solve (Blender) -- the twin of mayatk's ``_solver_expression.py``.
-- [`rig_utils/articulated_rig/articulated_rig_slots.py`](#rig_utils--articulated_rig--articulated_rig_slots) — Articulated Rig panel (Blender) -- the Switchboard slots for ``articulated_rig.ui``.
 - [`rig_utils/articulated_rig/grab_tool.py`](#rig_utils--articulated_rig--grab_tool) — The viewport grab for articulated rigs (Blender): press on a rigged part, drag, let
 - [`rig_utils/controls.py`](#rig_utils--controls) — Rig control-shape factory — Blender port of mayatk's ``rig_utils.controls.Controls``.
 - [`rig_utils/rig_graph_build.py`](#rig_utils--rig_graph_build) — Build a RigGraph in Blender -- phase 3 of the rig-transfer stack.
 - [`rig_utils/rig_graph_extract.py`](#rig_utils--rig_graph_extract) — Read a Blender rig into a RigGraph -- the Blender side of phase 2.
-- [`rig_utils/shadow_rig/_shadow_rig.py`](#rig_utils--shadow_rig--_shadow_rig) — Shadow Rig engine — the panel (``shadow_rig_slots.py``) drives the co-located ``shadow_rig.ui``.
+- [`rig_utils/shadow_rig/_shadow_rig.py`](#rig_utils--shadow_rig--_shadow_rig) — Shadow Rig engine — tentacle's Shadow Rig panel (``slots/tools/shadow_rig.py``) drives it.
 - [`rig_utils/shadow_rig/shadow_preview.py`](#rig_utils--shadow_rig--shadow_preview) — A live viewport preview of a horizon rig: the artist drags the light and
-- [`rig_utils/shadow_rig/shadow_rig_slots.py`](#rig_utils--shadow_rig--shadow_rig_slots) — Shadow Rig panel (Blender) — the Switchboard slots for ``shadow_rig.ui``.
 - [`rig_utils/telescope_rig.py`](#rig_utils--telescope_rig) — Telescope Rig — the telescoping-segment rig (tentacle's Telescope Rig panel drives it).
 - [`rig_utils/tube_rig/_tube_rig.py`](#rig_utils--tube_rig--_tube_rig) — Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies + panel).
 - [`rig_utils/tube_rig/strategies.py`](#rig_utils--tube_rig--strategies) — Tube Rig build strategies (Blender) — mirror of mayatk's ``tube_rig/strategies.py``.
@@ -223,7 +221,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L435) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L437) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -979,6 +977,7 @@ Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 - **[`class CoreUtils(pythontk.CoreUtils, _CoreUtilsInternal)`](blendertk/blendertk/core_utils/_core_utils.py#L478)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
   - `CoreUtils.strip_dup_suffix(name: str) -> str` *(static)* — Strip Blender's ``.NNN`` name-collision suffix (``Cube.001`` -> ``Cube``).
   - `CoreUtils.all_ids(library=None) -> list` *(static)* — Every datablock in the file, across every ID collection -- or only
+  - `CoreUtils.suspended_refresh()` *(static)* — Hold the viewport still for a bulk operation (mirror of mayatk's
   - `CoreUtils.undo_chunk(name: str = '')` *(static)* — Collapse every change made inside the block into ONE Blender undo step.
   - `CoreUtils.undo_push(message: str = '') -> bool` *(static)* — Push ONE Blender undo step from whatever context the caller runs in.
   - `CoreUtils.visible_override(objects)` *(static)* — Yield with *objects* temporarily visible, selectable and renderable.
@@ -996,6 +995,7 @@ Core blendertk utilities — DCC-environment info + cross-cutting decorators.
   - `CoreUtils.cleanup_scene(quiet=False)` *(static)* — Purge orphan datablocks (0 users, no fake user) across the main collections — the
   - `CoreUtils.selected(func: Callable) -> Callable` *(static)* — Pass the selection (:meth:`selected_objects`) to *func*'s target parameter
   - `CoreUtils.active_view_layer()` *(static)* — The active view layer, resolved without depending on a context window
+  - `CoreUtils.leaf_name(node) -> str` *(static)* — *node*'s name as shown (mirror of mayatk's ``CoreUtils.leaf_name``, a DAG path's
   - `CoreUtils.selected_objects()` *(static)* — The current object selection, filtered of ``None`` (mirror of Maya's
   - `CoreUtils.select(objects, mode: str = 'replace') -> list` *(static)* — Set the object selection (Blender's counterpart of ``cmds.select``).
   - `CoreUtils.active_object()` *(static)* — The active object, resolved window-independently (``view_layer.objects.active``).
@@ -3353,13 +3353,17 @@ Shared procedural-rig primitives — Blender port of mayatk's ``rig_utils.RigUti
 
 Articulated Rig engine (Blender) -- rigid parts on hinge, swivel, ball and slide joints.
 
-- **[`class ArticulatedRig(pythontk.LoggingMixin, _ArticulatedRigInternal)`](blendertk/blendertk/rig_utils/articulated_rig/_articulated_rig.py#L471)** — One articulated rig in the scene, bound to its armature.
+- **[`class ArticulatedRig(pythontk.LoggingMixin, _ArticulatedRigInternal)`](blendertk/blendertk/rig_utils/articulated_rig/_articulated_rig.py#L478)** — One articulated rig in the scene, bound to its armature.
   - `ArticulatedRig.group(self)` *(property)* — The rig's armature object.
   - `ArticulatedRig.spec(self) -> Dict[str, Any]` *(property)* — The stamped plan (a fresh copy): name, links, joints, parts.
   - `ArticulatedRig.name(self) -> str` *(property)*
+  - `ArticulatedRig.group_uuid(self) -> Optional[str]` *(property)* — The rig's identity (its stamped ``group_uuid``): two instances bound to one rig
   - `ArticulatedRig.scene_data(cls, node) -> Optional[Dict[str, Any]]` *(class)* — The :attr:`DATA_ATTR` plan on *node*, or None.
   - `ArticulatedRig.scene_rigs(cls) -> List['ArticulatedRig']` *(class)* — Every articulated rig in the scene (duplicated records skipped).
   - `ArticulatedRig.for_node(cls, node) -> Optional['ArticulatedRig']` *(class)* — The rig *node* belongs to -- its armature, a joint or control bone, a part
+  - `ArticulatedRig.selection() -> list` *(static)* — What the Articulated Rig tools act on (tentacle's panel reads it;
+  - `ArticulatedRig.select(cls, nodes: Sequence[Any]) -> None` *(class)* — Replace the selection with *nodes* -- objects (or their names), or a rig's
+  - `ArticulatedRig.parts_of(self, nodes: Sequence[Any]) -> List[Any]` — The *nodes* that are parts of this rig -- never a control, the armature or a
   - `ArticulatedRig.end_control(self)` *(property)* — The end control's bone (a ``PoseBone``), or None (built without one).
   - `ArticulatedRig.solver(self)` *(property)* — What solves the end control -- blendertk's installed handler -- or None: no
   - `ArticulatedRig.ik_blend(self) -> float` — How much the end control's solve adds over FK: 1 places the end link on the
@@ -3420,29 +3424,6 @@ The end control's live solve (Blender) -- the twin of mayatk's ``_solver_express
   - `SolverHandler.mute_all(cls, mute: bool) -> None` *(class)* — Mute (or unmute) every rig's baked MCH curves -- read off the stamped
   - `SolverHandler.solve(cls, rig, depsgraph=None) -> bool` *(class)* — Write *rig*'s MCH offsets for its inputs as *depsgraph* evaluated them (the
 
-<a id="rig_utils--articulated_rig--articulated_rig_slots"></a>
-### `rig_utils/articulated_rig/articulated_rig_slots.py`
-
-Articulated Rig panel (Blender) -- the Switchboard slots for ``articulated_rig.ui``.
-
-- **[`class ArticulatedRigSlots(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/articulated_rig/articulated_rig_slots.py#L42)** — Slots for the Articulated Rig panel.
-  - `ArticulatedRigSlots.header_init(self, widget)`
-  - `ArticulatedRigSlots.btn_ik_fk_init(self, widget)` — Switch IK / FK's option box: put the end control back on the end
-  - `ArticulatedRigSlots.parse_limits(text: str, channels: Sequence[str]) -> Dict[str, Tuple[Optional[float], Optional[float]]]` *(static)* — The limits typed into a Limits cell (``ptk.ArticulationPlan.
-  - `ArticulatedRigSlots.refresh_table(self)`
-  - `ArticulatedRigSlots.btn_analyze(self)`
-  - `ArticulatedRigSlots.btn_build(self)`
-  - `ArticulatedRigSlots.btn_grab(self)`
-  - `ArticulatedRigSlots.btn_ik_fk(self)`
-  - `ArticulatedRigSlots.match_end_control(self)`
-  - `ArticulatedRigSlots.btn_rest(self)`
-  - `ArticulatedRigSlots.btn_insert(self)`
-  - `ArticulatedRigSlots.btn_fold(self)`
-  - `ArticulatedRigSlots.btn_limits_from_pose(self)`
-  - `ArticulatedRigSlots.btn_clear_limits(self)`
-  - `ArticulatedRigSlots.btn_rebuild(self)`
-  - `ArticulatedRigSlots.btn_remove(self)`
-
 <a id="rig_utils--articulated_rig--grab_tool"></a>
 ### `rig_utils/articulated_rig/grab_tool.py`
 
@@ -3494,7 +3475,7 @@ Read a Blender rig into a RigGraph -- the Blender side of phase 2.
 <a id="rig_utils--shadow_rig--_shadow_rig"></a>
 ### `rig_utils/shadow_rig/_shadow_rig.py`
 
-Shadow Rig engine — the panel (``shadow_rig_slots.py``) drives the co-located ``shadow_rig.ui``.
+Shadow Rig engine — tentacle's Shadow Rig panel (``slots/tools/shadow_rig.py``) drives it.
 
 - **[`class ShadowRig(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/shadow_rig/_shadow_rig.py#L84)** — Projected-shadow rig for engine export (mirror of mayatk's ``ShadowRig``).
   - `ShadowRig.has_mesh_geometry(obj, recursive=True)` *(static)* — Does *obj* carry (or, with *recursive*, contain) mesh geometry a
@@ -3506,6 +3487,10 @@ Shadow Rig engine — the panel (``shadow_rig_slots.py``) drives the co-located 
   - `ShadowRig.source_softness(cls, source)` *(class)* — The Softness set on *source* -- world units, degrees for a sun --
   - `ShadowRig.set_source_softness(cls, source, value)` *(class)* — Give *source* a Softness (added on first use;
   - `ShadowRig.planes_lit_by(cls, source)` *(class)* — The shadow planes whose stamped source is *source*.
+  - `ShadowRig.find_source(cls, name)` *(class)* — The existing object named *name*, or None: nothing by that name yet
+  - `ShadowRig.shadow_targets(cls, objects, sources=None, recursive=True)` *(class)* — The shadow casters among *objects* -- mesh-bearing objects that are not one of
+  - `ShadowRig.source_selection()` *(static)* — The selection read as shadow sources (the panel's Source From Selection):
+  - `ShadowRig.delete_orphaned_textures(cls, paths)` *(class)* — Delete each of *paths* -- a shadow plane's own silhouette or horizon PNG -- that
   - `ShadowRig.current_model(self)` — The projection model at the source's CURRENT position, for the stamped
   - `ShadowRig.create_shadow_plane(self)` — Create the unit quad on the XY ground (normal +Z), centred at the footprint, with
   - `ShadowRig.create_silhouette_texture(self, size=512, *, recursive=True, path=None, refit=True, source_size=None, uniform_alpha=True, falloff_power=0.8, vertical_weight=0.3, blur_amount=1.0)` — Rasterize the targets' shadow — their evaluated geometry projected onto the ground
@@ -3557,6 +3542,7 @@ A live viewport preview of a horizon rig: the artist drags the light and
 
 - **[`class ShadowPreview(_ShadowPreviewInternal, pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/shadow_rig/shadow_preview.py#L163)** — Enable / disable the live horizon overlay on shadow planes (module doc).
   - `ShadowPreview.refusal(cls) -> str` *(class)* — Why the overlay cannot run in this session (empty when it can).
+  - `ShadowPreview.language(cls) -> Tuple[Optional[str], str]` *(class)* — ``(language, refusal)`` -- mirror of mayatk's: the shader language the overlay
   - `ShadowPreview.is_enabled(cls) -> bool` *(class)*
   - `ShadowPreview.status(cls) -> str` *(class)* — ``"ok"``, or the reason the overlay stood down.
   - `ShadowPreview.is_attached(cls, plane) -> bool` *(class)* — Whether *plane* stands behind the overlay: registered, its
@@ -3570,40 +3556,6 @@ A live viewport preview of a horizon rig: the artist drags the light and
   - `ShadowPreview.vertex_source() -> str` *(static)*
   - `ShadowPreview.params_struct() -> str` *(static)*
   - `ShadowPreview.frame_params(contact_matrix, ground_height: float, local_a, local_b, local_up) -> Tuple[List[float], List[float], List[float], List[float], float]` *(static)* — ``(origin, A, B, up, ground)`` in world space from the contact's
-
-<a id="rig_utils--shadow_rig--shadow_rig_slots"></a>
-### `rig_utils/shadow_rig/shadow_rig_slots.py`
-
-Shadow Rig panel (Blender) — the Switchboard slots for ``shadow_rig.ui``.
-
-- **[`class ShadowRigSlots(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/shadow_rig/shadow_rig_slots.py#L17)** — Switchboard slot wiring for the Shadow Rig panel.
-  - `ShadowRigSlots.header_init(self, widget)` — Configure header help text.
-  - `ShadowRigSlots.cmb_type_init(self, widget)` — A rig type the panel only plans for is listed but not selectable.
-  - `ShadowRigSlots.txt_source_init(self, widget)` — Source Name's option box: the two actions about the source --
-  - `ShadowRigSlots.b003_init(self, widget)` — Recalculate Silhouette's option box: the deeper updates of an
-  - `ShadowRigSlots.b002_init(self, widget)` — Bake to Keyframes' option box: Restore Expression, its inverse.
-  - `ShadowRigSlots.b009_init(self, widget)` — Delete Rig's option box: Detach to Plane, the teardown that keeps
-  - `ShadowRigSlots.prepare_operation(self, objects)` — Preview's one-shot precondition, run at enable outside the datablock snapshot:
-  - `ShadowRigSlots.b001_init(self, widget)` — Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the
-  - `ShadowRigSlots.chk_follow_init(self, widget)` — Follow Source arms the engine's watcher from the box's (saved)
-  - `ShadowRigSlots.chk_follow(self, checked)` — Follow Source: re-render a silhouette as soon as its source -- or
-  - `ShadowRigSlots.s001_init(self, widget)` — Softness shows the file's value for the first Source Name -- its
-  - `ShadowRigSlots.s001(self, value)` — Softness: the diameter the shadow gives the source(s) named in
-  - `ShadowRigSlots.s002(self, value)` — Intensity: the overall darkness a new rig builds with, applied at
-  - `ShadowRigSlots.s003(self, value)` — Ground Y: the floor's world height (Blender's Z) a new rig builds
-  - `ShadowRigSlots.chk_horizon_preview_init(self, widget)` — The box mirrors the FILE, never a saved setting: checked while a
-  - `ShadowRigSlots.chk_horizon_preview(self, checked)` — Live Horizon Preview: a viewport overlay on the horizon plane(s) the
-  - `ShadowRigSlots.b002(self)` — Bake to Keyframes: bake the rig(s) the selection touches (or all) to keys over
-  - `ShadowRigSlots.b003(self)` — Recalculate Silhouette: re-render the rig(s) the selection touches (or all)
-  - `ShadowRigSlots.source_from_selection(self)` — Source From Selection (Source Name's option box): the selected
-  - `ShadowRigSlots.reproject_sources(self)` — Reproject (Source Name's option box): re-render the silhouette of
-  - `ShadowRigSlots.apply_source(self)` — Apply Source (Recalculate's option box): re-point the rig(s) the
-  - `ShadowRigSlots.rebuild_rig(self)` — Rebuild Rig (Recalculate's option box): re-create the rig(s) the
-  - `ShadowRigSlots.restore_expression(self)` — Restore Expression (Bake's option box): un-bake the rig(s) the
-  - `ShadowRigSlots.b009(self)` — Delete Rig: tear down the rig(s) the selection touches.
-  - `ShadowRigSlots.detach_to_plane(self)` — Detach to Plane (Delete Rig's option box): the rig(s) the selection
-  - `ShadowRigSlots.b010(self)` — Pack Atlas: pack or repack every shadow rig's tiles into the file's
-  - `ShadowRigSlots.perform_operation(self, objects)` — Build one shadow rig per source for the selected target(s).
 
 <a id="rig_utils--telescope_rig"></a>
 ### `rig_utils/telescope_rig.py`

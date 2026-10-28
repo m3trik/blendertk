@@ -467,6 +467,13 @@ class _ArticulatedRigInternal:
         if isinstance(data, bpy.types.Curve) and not data.users:
             bpy.data.curves.remove(data)
 
+    @staticmethod
+    def _set_bone_selected(bone, selected: bool) -> None:
+        """Select or clear a pose bone: Blender 5 keeps the flag on the pose bone,
+        4.x on its ``Bone``."""
+        holder = bone if "select" in bone.bl_rna.properties else bone.bone
+        holder.select = selected
+
 
 class ArticulatedRig(ptk.LoggingMixin, _ArticulatedRigInternal):
     """One articulated rig in the scene, bound to its armature.
@@ -659,6 +666,13 @@ class ArticulatedRig(ptk.LoggingMixin, _ArticulatedRigInternal):
     def name(self) -> str:
         return self.spec.get("name") or self.group.name
 
+    @property
+    def group_uuid(self) -> Optional[str]:
+        """The rig's identity (its stamped ``group_uuid``): two instances bound to one rig
+        share it -- what tentacle's panel compares to tell the rig acted on from the one it
+        shows (mirror of mayatk's)."""
+        return self._group_uuid
+
     @classmethod
     def scene_data(cls, node) -> Optional[Dict[str, Any]]:
         """The :attr:`DATA_ATTR` plan on *node*, or None."""
@@ -717,6 +731,70 @@ class ArticulatedRig(ptk.LoggingMixin, _ArticulatedRigInternal):
             if any(v == obj for k, v in rig._nodes().items() if k in members):
                 return rig
         return None
+
+    # ============================================================= selection
+    @staticmethod
+    def selection() -> list:
+        """What the Articulated Rig tools act on (tentacle's panel reads it; mirror of
+        mayatk's, the selected transforms there): the selected objects -- in the order
+        picked, as blendertk's ``SelectionOrder`` tracker records it (tentacle arms it at
+        startup; disarmed, the selection unordered) -- then the selected bones of an
+        armature in Pose Mode, a rig's controls."""
+        import bpy
+
+        import blendertk as btk  # the root: edit_utils ranks above rig_utils
+
+        nodes = list(btk.SelectionOrder.get())
+        # The window's context: windowless (the Qt event pump) the screen-context
+        # member is absent.
+        with CoreUtils.window_context_override():
+            nodes += list(getattr(bpy.context, "selected_pose_bones", None) or ())
+        return nodes
+
+    @classmethod
+    def select(cls, nodes: Sequence[Any]) -> None:
+        """Replace the selection with *nodes* -- objects (or their names), or a rig's
+        control bones (mirror of mayatk's). Blender selects a bone only in Pose Mode: its
+        armature becomes the active object, in Pose Mode, with those bones alone
+        selected. With nothing that exists the selection stays as it is."""
+        import bpy
+
+        bones = [n for n in nodes if isinstance(n, bpy.types.PoseBone)]
+        objects = [
+            o
+            for o in (
+                bpy.data.objects.get(n) if isinstance(n, str) else n
+                for n in nodes
+                if not isinstance(n, bpy.types.PoseBone)
+            )
+            if isinstance(o, bpy.types.Object)
+        ]
+        if not bones and not objects:
+            return
+        armature = bones[0].id_data if bones else None  # a pose bone's object
+        # The window's context: windowless, mode_set poll-fails.
+        with CoreUtils.window_context_override():
+            active = CoreUtils.active_object()
+            if active is not None and active.mode != "OBJECT" and active != armature:
+                bpy.ops.object.mode_set(mode="OBJECT")
+            # The armature first: CoreUtils.select makes the first one active.
+            CoreUtils.select(([armature] if armature is not None else []) + objects)
+            if armature is None:
+                return
+            if armature.mode != "POSE":
+                bpy.ops.object.mode_set(mode="POSE")
+            for bone in armature.pose.bones:
+                cls._set_bone_selected(bone, False)
+            for bone in bones:
+                cls._set_bone_selected(bone, True)
+            armature.data.bones.active = bones[0].bone
+
+    def parts_of(self, nodes: Sequence[Any]) -> List[Any]:
+        """The *nodes* that are parts of this rig -- never a control, the armature or a
+        handle: what Split Off Selected splits (the picks the rig's ID pointers name;
+        mirror of mayatk's)."""
+        rigged = {m["uuid"] for link in self.spec["links"] for m in link}
+        return [n for n in nodes if self._uuid(n) in rigged]
 
     @property
     def end_control(self):
@@ -2205,6 +2283,10 @@ class ArticulatedRig(ptk.LoggingMixin, _ArticulatedRigInternal):
         Returns:
             How many rigs were repaired (0 when the solve already runs).
         """
+        try:
+            import bpy  # noqa: F401
+        except ImportError:  # no Blender: no scene to repair (a plain-Python panel load)
+            return 0
         if SolverHandler.installed():
             return 0
         ended = []

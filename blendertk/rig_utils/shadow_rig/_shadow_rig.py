@@ -1,6 +1,6 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Shadow Rig engine — the panel (``shadow_rig_slots.py``) drives the co-located ``shadow_rig.ui``.
+"""Shadow Rig engine — tentacle's Shadow Rig panel (``slots/tools/shadow_rig.py``) drives it.
 
 Blender port of mayatk's ``rig_utils.shadow_rig`` (``btk.ShadowRig`` ↔ ``mtk.ShadowRig``): a
 projected-shadow rig for engine export — a quad plane on the ground carrying the targets'
@@ -491,6 +491,110 @@ class ShadowRig(ptk.LoggingMixin):
             if cls._rig_links(plane)[1] is not None
             and cls._rig_links(plane)[1].name == source.name
         ]
+
+    # ------------------------------------------------------------- the panel's readings
+    @classmethod
+    def find_source(cls, name):
+        """The existing object named *name*, or None: nothing by that name yet
+        (:meth:`ensure_source` creates one), or no Blender to look in (mirror of mayatk's,
+        the transform's long name there)."""
+        try:
+            import bpy
+        except ImportError:  # no Blender: no scene (a plain-Python panel load)
+            return None
+        return bpy.data.objects.get(str(name)) if name else None
+
+    @classmethod
+    def shadow_targets(cls, objects, sources=None, recursive=True):
+        """The shadow casters among *objects* -- mesh-bearing objects that are not one of
+        the *sources* (a light or Empty in a selection is the source, never a target):
+        what tentacle's Shadow Rig panel builds from (mirror of mayatk's).
+
+        Parameters:
+            objects (list): Objects or their names.
+            sources (list/None): The source names; default :attr:`DEFAULT_SOURCE_NAME`.
+            recursive (bool): A parent counts by its descendant meshes (Include Children).
+
+        Returns:
+            list: The target objects, in order.
+
+        Raises:
+            ValueError: Nothing in *objects* can cast a shadow (one line: the Preview
+                shows an error's first line).
+        """
+        names = {str(s) for s in (sources or [cls.DEFAULT_SOURCE_NAME])}
+        objs = [RigUtils.resolve_object(o) for o in objects or []]
+        targets, rejected = [], []
+        for obj in objs:
+            if obj is None or obj.name in names or obj.type == "LIGHT":
+                continue
+            if cls.has_mesh_geometry(obj, recursive):
+                if obj not in targets:
+                    targets.append(obj)
+            else:
+                rejected.append(obj.name)
+        if targets:
+            return targets
+        reasons = []
+        if rejected:
+            reasons.append("not mesh geometry: " + ", ".join(rejected[:6]))
+        if objs and all(
+            o is not None and (o.name in names or o.type == "LIGHT") for o in objs
+        ):
+            reasons.append("the selection is the shadow source itself")
+        if not recursive:
+            reasons.append("Include Children is off")
+        raise ValueError(
+            "Select the mesh(es) to cast a shadow from"
+            + (" -- " + "; ".join(reasons) if reasons else "")
+            + "."
+        )
+
+    @staticmethod
+    def source_selection():
+        """The selection read as shadow sources (the panel's Source From Selection):
+        ``(names, fixtures)`` -- mirror of mayatk's, where selected faces are the fixture.
+        A mesh in Edit Mode is a fixture -- a luminaire whose real area light should be the
+        source (``LightUtils.lights_from_geometry`` builds it): those meshes come back as
+        *fixtures*, with no names. Otherwise *names* are the selected objects' names."""
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        sel = [o for o in CoreUtils.selected_objects() if o is not None]
+        fixtures = [o for o in sel if o.type == "MESH" and o.mode == "EDIT"]
+        if fixtures:
+            return [], fixtures
+        return [o.name for o in sel], []
+
+    @classmethod
+    def delete_orphaned_textures(cls, paths):
+        """Delete each of *paths* -- a shadow plane's own silhouette or horizon PNG -- that
+        no shadow plane in the file uses any more: what a discarded preview pass, or one a
+        later pass renamed, leaves on disk. A path a plane still uses, a missing one and a
+        locked one are left (mirror of mayatk's). ``normcase``: ``bpy.path.abspath`` and a
+        plain join can differ in slash style / case on Windows, and a miss would delete a
+        live texture.
+
+        Returns:
+            list: The paths removed.
+        """
+        live = {
+            os.path.normcase(os.path.normpath(t))
+            for plane in cls.find_shadow_planes()
+            for t in (cls._plane_texture_path(plane), cls._plane_horizon_path(plane))
+            if t
+        }
+        removed = []
+        for path in dict.fromkeys(p for p in paths or [] if p):
+            if os.path.normcase(os.path.normpath(path)) in live:
+                continue
+            if not os.path.exists(path):
+                continue
+            try:
+                os.remove(path)
+            except OSError:
+                continue  # locked / read-only: the file is right either way
+            removed.append(path)
+        return removed
 
     # ------------------------------------------------------------------ measure
     def _world_bounds(self):
@@ -1321,8 +1425,12 @@ class ShadowRig(ptk.LoggingMixin):
     def find_shadow_planes(cls, objects=None):
         """Shadow planes = objects carrying the stamped ``basePlaneSize`` custom prop.
         ``objects`` limits the search (their descendants included, so a selected
-        ``*_shadow_grp`` finds its plane); None scans the file."""
-        import bpy
+        ``*_shadow_grp`` finds its plane); None scans the file -- none without Blender
+        (a plain-Python panel load)."""
+        try:
+            import bpy
+        except ImportError:
+            return []
 
         if objects:
             pool = []

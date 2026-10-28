@@ -199,7 +199,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `core_utils/_core_utils.py` — Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 - `class CoreUtils(pythontk.CoreUtils, _CoreUtilsInternal)`
-  - methods: strip_dup_suffix, all_ids, undo_chunk, undo_push, visible_override, undoable, undo_checkpoint, get_env_info, ensure_packages, ensure_image_deps, user_config_path, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected, active_view_layer, selected_objects, select, active_object, preserved_selection, reorder_objects, get_areas, tag_redraw, get_view3d_context, window_context_override, edit_mode
+  - methods: strip_dup_suffix, all_ids, suspended_refresh, undo_chunk, undo_push, visible_override, undoable, undo_checkpoint, get_env_info, ensure_packages, ensure_image_deps, user_config_path, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected, active_view_layer, leaf_name, selected_objects, select, active_object, preserved_selection, reorder_objects, get_areas, tag_redraw, get_view3d_context, window_context_override, edit_mode
 
 ### `core_utils/auto_instancer/_auto_instancer.py` — Scene auto-instancer: convert geometrically identical meshes to instances.
 - `class InstanceCandidate`
@@ -825,15 +825,11 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `rig_utils/articulated_rig/_articulated_rig.py` — Articulated Rig engine (Blender) -- rigid parts on hinge, swivel, ball and slide joints.
 - `class ArticulatedRig(pythontk.LoggingMixin, _ArticulatedRigInternal)`
-  - methods: group, spec, name, scene_data, scene_rigs, for_node, end_control, solver, ik_blend, analyze, create, teardown, rebuild, insert_joint, remove_joint, edit_joint, set_end_control, set_limits, set_limit_from_pose, set_weight, adjusting, adjust_handles, begin_adjust, end_adjust, joint_ids, joint_id_of, joint, control, controls, state, fk_state, channel_value, set_state, install, uninstall, repair_scene, ensure_solver, match_end_control, switch_ik, reset_pose, record, model, export_record, refresh_export_metadata, grab_begin, held_point, pose_to, grab_to, key_hold
+  - methods: group, spec, name, group_uuid, scene_data, scene_rigs, for_node, selection, select, parts_of, end_control, solver, ik_blend, analyze, create, teardown, rebuild, insert_joint, remove_joint, edit_joint, set_end_control, set_limits, set_limit_from_pose, set_weight, adjusting, adjust_handles, begin_adjust, end_adjust, joint_ids, joint_id_of, joint, control, controls, state, fk_state, channel_value, set_state, install, uninstall, repair_scene, ensure_solver, match_end_control, switch_ik, reset_pose, record, model, export_record, refresh_export_metadata, grab_begin, held_point, pose_to, grab_to, key_hold
 
 ### `rig_utils/articulated_rig/_solver_handler.py` — The end control's live solve (Blender) -- the twin of mayatk's ``_solver_expression.py``.
 - `class SolverHandler`
   - methods: install, uninstall, installed, ensure_installed, handler, suspended, rigs, mute_all, solve
-
-### `rig_utils/articulated_rig/articulated_rig_slots.py` — Articulated Rig panel (Blender) -- the Switchboard slots for ``articulated_rig.ui``.
-- `class ArticulatedRigSlots(pythontk.LoggingMixin)`
-  - methods: header_init, btn_ik_fk_init, parse_limits, refresh_table, btn_analyze, btn_build, btn_grab, btn_ik_fk, match_end_control, btn_rest, btn_insert, btn_fold, btn_limits_from_pose, btn_clear_limits, btn_rebuild, btn_remove
 
 ### `rig_utils/articulated_rig/grab_tool.py` — The viewport grab for articulated rigs (Blender): press on a rigged part, drag, let
 - `class ArticulatedRigGrab(pythontk.LoggingMixin, _ArticulatedRigGrabInternal)`
@@ -852,17 +848,13 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class RigGraphExtractor(_RigGraphExtractorInternal, pythontk.HelpMixin)`
   - methods: extract
 
-### `rig_utils/shadow_rig/_shadow_rig.py` — Shadow Rig engine — the panel (``shadow_rig_slots.py``) drives the co-located ``shadow_rig.ui``.
+### `rig_utils/shadow_rig/_shadow_rig.py` — Shadow Rig engine — tentacle's Shadow Rig panel (``slots/tools/shadow_rig.py``) drives it.
 - `class ShadowRig(pythontk.LoggingMixin)`
-  - methods: has_mesh_geometry, create_contact_locator, ensure_source, get_or_create_shadow_source, source_is_directional, source_size, source_softness, set_source_softness, planes_lit_by, current_model, create_shadow_plane, create_silhouette_texture, default_texture_dir, create_material, setup_drivers, plane_is_live, plane_is_baked, bake, find_shadow_planes, planes_for_nodes, for_node, for_nodes, bake_planes, unbake_planes, delete, delete_rigs, plane_materials, set_intensity, set_ground_height, detach_planes, from_plane, set_source, rebuild, silhouette_is_stale, auto_recalculate, auto_recalculate_enabled, recalculate_stale, refresh_silhouette, export_record, refresh_export_metadata, unit_scale, plane_record, plane_type, horizon_output_path, bake_horizon, plane_is_atlased, pack_atlas, unpack_atlas, create, create_for_sources, create_horizon_for_sources, create_per_object
+  - methods: has_mesh_geometry, create_contact_locator, ensure_source, get_or_create_shadow_source, source_is_directional, source_size, source_softness, set_source_softness, planes_lit_by, find_source, shadow_targets, source_selection, delete_orphaned_textures, current_model, create_shadow_plane, create_silhouette_texture, default_texture_dir, create_material, setup_drivers, plane_is_live, plane_is_baked, bake, find_shadow_planes, planes_for_nodes, for_node, for_nodes, bake_planes, unbake_planes, delete, delete_rigs, plane_materials, set_intensity, set_ground_height, detach_planes, from_plane, set_source, rebuild, silhouette_is_stale, auto_recalculate, auto_recalculate_enabled, recalculate_stale, refresh_silhouette, export_record, refresh_export_metadata, unit_scale, plane_record, plane_type, horizon_output_path, bake_horizon, plane_is_atlased, pack_atlas, unpack_atlas, create, create_for_sources, create_horizon_for_sources, create_per_object
 
 ### `rig_utils/shadow_rig/shadow_preview.py` — A live viewport preview of a horizon rig: the artist drags the light and
 - `class ShadowPreview(_ShadowPreviewInternal, pythontk.LoggingMixin)`
-  - methods: refusal, is_enabled, status, is_attached, attached_planes, attach, detach, toggle, detach_all, prepare_for_export, fragment_source, vertex_source, params_struct, frame_params
-
-### `rig_utils/shadow_rig/shadow_rig_slots.py` — Shadow Rig panel (Blender) — the Switchboard slots for ``shadow_rig.ui``.
-- `class ShadowRigSlots(pythontk.LoggingMixin)`
-  - methods: header_init, cmb_type_init, txt_source_init, b003_init, b002_init, b009_init, prepare_operation, b001_init, chk_follow_init, chk_follow, s001_init, s001, s002, s003, chk_horizon_preview_init, chk_horizon_preview, b002, b003, source_from_selection, reproject_sources, apply_source, rebuild_rig, restore_expression, b009, detach_to_plane, b010, perform_operation
+  - methods: refusal, language, is_enabled, status, is_attached, attached_planes, attach, detach, toggle, detach_all, prepare_for_export, fragment_source, vertex_source, params_struct, frame_params
 
 ### `rig_utils/telescope_rig.py` — Telescope Rig — the telescoping-segment rig (tentacle's Telescope Rig panel drives it).
 - `class TelescopeRigBundle`

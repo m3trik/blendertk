@@ -2,7 +2,7 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (291)
+## Moved out (336)
 
 - `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots` → `tentacle.slots.tools.key_stash.KeyStashSlots` (from 0.23.0)
 - `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots.b000` → `tentacle.slots.tools.key_stash.KeyStashSlots` (from 0.23.0)
@@ -236,6 +236,51 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `nurbs_utils/image_tracer.py::ImageTracerSlots.chk000` → `tentacle.slots.tools.image_tracer.ImageTracerSlots` (from 0.23.0)
 - `nurbs_utils/image_tracer.py::ImageTracerSlots.header_init` → `tentacle.slots.tools.image_tracer.ImageTracerSlots` (from 0.23.0)
 - `nurbs_utils/image_tracer.py::ImageTracerSlots.txt000_init` → `tentacle.slots.tools.image_tracer.ImageTracerSlots` (from 0.23.0)
+- `rig_utils/articulated_rig/articulated_rig_slots.py::ArticulatedRigSlots` → `tentacle.slots.tools.articulated_rig.ArticulatedRigSlots` (from 0.23.0)
+- `rig_utils/articulated_rig/articulated_rig_slots.py::ArticulatedRigSlots.btn_analyze` → `tentacle.slots.tools.articulated_rig.ArticulatedRigSlots` (from 0.23.0)
+- `rig_utils/articulated_rig/articulated_rig_slots.py::ArticulatedRigSlots.btn_build` → `tentacle.slots.tools.articulated_rig.ArticulatedRigSlots` (from 0.23.0)
+- `rig_utils/articulated_rig/articulated_rig_slots.py::ArticulatedRigSlots.btn_clear_limits` → `tentacle.slots.tools.articulated_rig.ArticulatedRigSlots` (from 0.23.0)
+- `rig_utils/articulated_rig/articulated_rig_slots.py::ArticulatedRigSlots.btn_fold` → `tentacle.slots.tools.articulated_rig.ArticulatedRigSlots` (from 0.23.0)
+- `rig_utils/articulated_rig/articulated_rig_slots.py::ArticulatedRigSlots.btn_grab` → `tentacle.slots.tools.articulated_rig.ArticulatedRigSlots` (from 0.23.0)
+- `rig_utils/articulated_rig/articulated_rig_slots.py::ArticulatedRigSlots.btn_ik_fk` → `tentacle.slots.tools.articulated_rig.ArticulatedRigSlots` (from 0.23.0)
+- `rig_utils/articulated_rig/articulated_rig_slots.py::ArticulatedRigSlots.btn_ik_fk_init` → `tentacle.slots.tools.articulated_rig.ArticulatedRigSlots` (from 0.23.0)
+- `rig_utils/articulated_rig/articulated_rig_slots.py::ArticulatedRigSlots.btn_insert` → `tentacle.slots.tools.articulated_rig.ArticulatedRigSlots` (from 0.23.0)
+- `rig_utils/articulated_rig/articulated_rig_slots.py::ArticulatedRigSlots.btn_limits_from_pose` → `tentacle.slots.tools.articulated_rig.ArticulatedRigSlots` (from 0.23.0)
+- `rig_utils/articulated_rig/articulated_rig_slots.py::ArticulatedRigSlots.btn_rebuild` → `tentacle.slots.tools.articulated_rig.ArticulatedRigSlots` (from 0.23.0)
+- `rig_utils/articulated_rig/articulated_rig_slots.py::ArticulatedRigSlots.btn_remove` → `tentacle.slots.tools.articulated_rig.ArticulatedRigSlots` (from 0.23.0)
+- `rig_utils/articulated_rig/articulated_rig_slots.py::ArticulatedRigSlots.btn_rest` → `tentacle.slots.tools.articulated_rig.ArticulatedRigSlots` (from 0.23.0)
+- `rig_utils/articulated_rig/articulated_rig_slots.py::ArticulatedRigSlots.header_init` → `tentacle.slots.tools.articulated_rig.ArticulatedRigSlots` (from 0.23.0)
+- `rig_utils/articulated_rig/articulated_rig_slots.py::ArticulatedRigSlots.match_end_control` → `tentacle.slots.tools.articulated_rig.ArticulatedRigSlots` (from 0.23.0)
+- `rig_utils/articulated_rig/articulated_rig_slots.py::ArticulatedRigSlots.parse_limits` → `tentacle.slots.tools.articulated_rig.ArticulatedRigSlots` (from 0.23.0)
+- `rig_utils/articulated_rig/articulated_rig_slots.py::ArticulatedRigSlots.refresh_table` → `tentacle.slots.tools.articulated_rig.ArticulatedRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.apply_source` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.b001_init` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.b002` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.b002_init` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.b003` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.b003_init` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.b009` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.b009_init` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.b010` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.chk_follow` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.chk_follow_init` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.chk_horizon_preview` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.chk_horizon_preview_init` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.cmb_type_init` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.detach_to_plane` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.header_init` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.perform_operation` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.prepare_operation` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.rebuild_rig` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.reproject_sources` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.restore_expression` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.s001` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.s001_init` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.s002` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.s003` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.source_from_selection` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
+- `rig_utils/shadow_rig/shadow_rig_slots.py::ShadowRigSlots.txt_source_init` → `tentacle.slots.tools.shadow_rig.ShadowRigSlots` (from 0.23.0)
 - `rig_utils/telescope_rig.py::TelescopeRigSlots` → `tentacle.slots.tools.telescope_rig.TelescopeRigSlots` (from 0.23.0)
 - `rig_utils/telescope_rig.py::TelescopeRigSlots.build_rig` → `tentacle.slots.tools.telescope_rig.TelescopeRigSlots` (from 0.23.0)
 - `rig_utils/telescope_rig.py::TelescopeRigSlots.header_init` → `tentacle.slots.tools.telescope_rig.TelescopeRigSlots` (from 0.23.0)
@@ -296,7 +341,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/shell_xform.py::ShellXformSlots.tb008` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
 - `uv_utils/shell_xform.py::ShellXformSlots.tb008_init` → `tentacle.slots.tools.shell_xform.ShellXformSlots` (from 0.23.0)
 
-## Added (101)
+## Added (112)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -309,8 +354,10 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `anim_utils/shots/shot_manifest/manifest_host.py::ManifestHost.range_resolver_cls()`
 - `anim_utils/smart_bake/_smart_bake.py::BakeResult.describe(self) -> List[str]`
 - `core_utils/_core_utils.py::CoreUtils.active_view_layer()`
+- `core_utils/_core_utils.py::CoreUtils.leaf_name(node) -> str`
 - `core_utils/_core_utils.py::CoreUtils.select(objects, mode: str = 'replace') -> list`
 - `core_utils/_core_utils.py::CoreUtils.selected(func: Callable) -> Callable`
+- `core_utils/_core_utils.py::CoreUtils.suspended_refresh()`
 - `core_utils/preview.py::Preview.apply_result_selection(widget, results)`
 - `display_utils/color_id.py::ColorId.get_color(cls, obj, check_material_color: bool = False, check_vertex_color: bool = False, check_wireframe_color: bool = False, check_outliner_color: bool = False, check_set: bool = False) -> Optional[Color]`
 - `display_utils/color_id.py::ColorId.lead_object()`
@@ -391,6 +438,15 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/shader_templates.py::ShaderTemplates.store(cls) -> 'ptk.PresetStore'`
 - `mat_utils/shader_templates.py::ShaderTemplates.suggested_name(cls, nodes) -> str`
 - `nurbs_utils/curve_to_tube.py::CurveToTube.describe(tubes)`
+- `rig_utils/articulated_rig/_articulated_rig.py::ArticulatedRig.group_uuid(self) -> Optional[str]`
+- `rig_utils/articulated_rig/_articulated_rig.py::ArticulatedRig.parts_of(self, nodes: Sequence[Any]) -> List[Any]`
+- `rig_utils/articulated_rig/_articulated_rig.py::ArticulatedRig.select(cls, nodes: Sequence[Any]) -> None`
+- `rig_utils/articulated_rig/_articulated_rig.py::ArticulatedRig.selection() -> list`
+- `rig_utils/shadow_rig/_shadow_rig.py::ShadowRig.delete_orphaned_textures(cls, paths)`
+- `rig_utils/shadow_rig/_shadow_rig.py::ShadowRig.find_source(cls, name)`
+- `rig_utils/shadow_rig/_shadow_rig.py::ShadowRig.shadow_targets(cls, objects, sources=None, recursive=True)`
+- `rig_utils/shadow_rig/_shadow_rig.py::ShadowRig.source_selection()`
+- `rig_utils/shadow_rig/shadow_preview.py::ShadowPreview.language(cls) -> Tuple[Optional[str], str]`
 - `rig_utils/telescope_rig.py::TelescopeRig.partition_selection(cls, selection=None)`
 - `rig_utils/wheel_rig.py::WheelRig.default_rig_name(cls, control=None)`
 - `rig_utils/wheel_rig.py::WheelRig.from_selection(cls, rig_name=None, freeze_transforms=True, **kwargs)`

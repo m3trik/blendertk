@@ -2430,30 +2430,24 @@ try:
         refused = True
     check("grab tool: refuses to start in a background Blender", refused)
 
-    # ============================================================== Panel
-    # The panel's scene glue on a real rig (its Qt half is test_articulated_rig_panel,
-    # under the .venv): the slots import with no Qt binding; a row's control is a
-    # bone, selected the way Blender selects one -- its armature active in Pose Mode,
-    # that bone alone selected -- and read back as its joint; a plan row's parts by
-    # name, back in Object Mode; the handles Adjust Pivots puts out; Split Off reading
-    # the parts, never a control; Selection Order reading the picks in their order.
+    # ========================================================== Scene glue
+    # What tentacle's Articulated Rig panel acts through (its Qt half: tentacle's
+    # test_articulated_rig_panel.py), on a real rig: a control is a bone, selected the
+    # way Blender selects one -- its armature active in Pose Mode, that bone alone
+    # selected -- and read back as its joint; a plan row's parts by name, back in
+    # Object Mode; the handles Adjust Pivots puts out; Split Off reading the parts,
+    # never a control; Selection Order reading the picks in their order.
     import blendertk as btk
-    from blendertk.rig_utils.articulated_rig import ArticulatedRigSlots as Slots
 
-    check(
-        "panel: the slots import in a background Blender, Qt deferred",
-        Slots.__module__.endswith("articulated_rig_slots")
-        and "PySide6.QtWidgets" not in sys.modules,
-    )
     arm, rest = setup()
     rig = build(arm)
     group = rig.group
     layer = bpy.context.view_layer
-    Slots._select([rig.control("LEG_2")])
-    picked = Slots._selection()
+    ArticulatedRig.select([rig.control("LEG_2")])
+    picked = ArticulatedRig.selection()
     bones = [n for n in picked if isinstance(n, bpy.types.PoseBone)]
     check(
-        "panel: a row's control is selected as Blender selects a bone",
+        "select: a row's control is selected as Blender selects a bone",
         group.mode == "POSE"
         and layer.objects.active == group
         and [b.name for b in bones] == [rig.control("LEG_2").name]
@@ -2461,48 +2455,52 @@ try:
         (group.mode, [n.name for n in picked]),
     )
     check(
-        "panel: ... and the selection reads back as that joint, of that rig",
+        "selection: ... and reads back as that joint, of that rig",
         bones
         and rig.joint_id_of(bones[0]) == "LEG_2"
         and ArticulatedRig.for_node(bones[0]).name == rig.name,
     )
+    check(
+        "group_uuid: the rig found again from its control is the same rig",
+        bool(bones) and ArticulatedRig.for_node(bones[0]).group_uuid == rig.group_uuid,
+    )
     ob("LEG_4").select_set(True)  # a part picked alongside the control
     check(
-        "panel: Split Off reads the selected parts, never a control or the rig",
-        [n.name for n in Slots._parts_of(rig, Slots._selection())] == ["LEG_4"],
-        [n.name for n in Slots._selection()],
+        "parts_of: Split Off reads the selected parts, never a control or the rig",
+        [n.name for n in rig.parts_of(ArticulatedRig.selection())] == ["LEG_4"],
+        [n.name for n in ArticulatedRig.selection()],
     )
-    Slots._select(["LEG_4", "NO_SUCH_PART"])
+    ArticulatedRig.select(["LEG_4", "NO_SUCH_PART"])
     check(
-        "panel: a plan row selects its parts by name, back in Object Mode",
+        "select: a plan row selects its parts by name, back in Object Mode",
         group.mode == "OBJECT"
         and [o.name for o in CoreUtils.selected_objects()] == ["LEG_4"]
         and layer.objects.active == ob("LEG_4"),
         (group.mode, [o.name for o in CoreUtils.selected_objects()]),
     )
-    Slots._select(["NO_SUCH_PART"])
+    ArticulatedRig.select(["NO_SUCH_PART"])
     check(
-        "panel: a pick of nothing that exists leaves the selection alone",
+        "select: a pick of nothing that exists leaves the selection alone",
         [o.name for o in CoreUtils.selected_objects()] == ["LEG_4"],
     )
     handles = rig.begin_adjust()
-    Slots._select(list(handles.values()))
+    ArticulatedRig.select(list(handles.values()))
     check(
-        "panel: Adjust Pivots' handles come out selected",
+        "select: Adjust Pivots' handles come out selected",
         set(CoreUtils.selected_objects()) == set(handles.values())
         and len(handles) == len(rig.joint_ids()) + 1,
         len(handles),
     )
     rig.end_adjust(apply=False)
     picks = [ob("LEG_3"), ob("BASE"), ob("LEG_1")]
-    Slots._select(picks)
+    ArticulatedRig.select(picks)
     btk.SelectionOrder.set_order(picks)  # the picks as the tracker records them
     try:
-        ordered = [n.name for n in Slots._selection()]
+        ordered = [n.name for n in ArticulatedRig.selection()]
     finally:
         btk.SelectionOrder.disable()
     check(
-        "panel: Selection Order reads the picks in the order they were made",
+        "selection: Selection Order reads the picks in the order they were made",
         ordered == ["LEG_3", "BASE", "LEG_1"],
         ordered,
     )

@@ -66,10 +66,8 @@ PANELS = [
     "hierarchy_sync",
     "scene_exporter",
     "channels",
-    "shadow_rig",
     "render_effects",
     "tube_rig",
-    "articulated_rig",
     "shots",
     "shot_sequencer",
 ]
@@ -300,19 +298,11 @@ try:
             "ReferenceManagerSlots",
         ),  # *_init bpy-guarded → table degrades w/o bpy
         ("naming", "NamingSlots"),  # __init__ + option-box *_init are bpy-free
-        (
-            "shadow_rig",
-            "ShadowRigSlots",
-        ),  # __init__ (Preview + btn connect) is bpy-free
         ("render_effects", "RenderEffectsSlots"),  # __init__ (btn connect) is bpy-free
         (
             "tube_rig",
             "TubeRigSlots",
         ),  # __init__ (mode combo + dynamic options) is bpy-free
-        (
-            "articulated_rig",
-            "ArticulatedRigSlots",
-        ),  # __init__'s scene calls (repair_scene, the order tracker) report, never raise
         (
             "lightmap_baker",
             "LightmapBakerSlots",

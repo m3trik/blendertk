@@ -414,9 +414,11 @@ DEFAULT_INCLUDE = {
     "rig_utils.shadow_rig._shadow_rig": [
         "ShadowRig",
     ],
+    "rig_utils.shadow_rig.shadow_preview": ["ShadowPreview"],
     "rig_utils.articulated_rig._articulated_rig": [
         "ArticulatedRig",
     ],
+    "rig_utils.articulated_rig.grab_tool": ["ArticulatedRigGrab"],
     # Curve / NURBS-adjacent tools — mirror of mayatk's ``nurbs_utils``. ``NurbsUtils`` is the shared
     # curve-build / curve→mesh-bake base (Blender's bevel + 2D-fill replace Maya's loft/planarSrf/
     # nurbsToPoly layer); each curve tool engine is exposed too (their panels are tentacle's).
@@ -630,6 +632,14 @@ MOVED_NAMES = {
     ),
     "ShaderTemplatesSlots": (
         "tentacle.slots.tools.shader_templates.ShaderTemplatesSlots",
+        "0.23.0",
+    ),
+    "ArticulatedRigSlots": (
+        "tentacle.slots.tools.articulated_rig.ArticulatedRigSlots",
+        "0.23.0",
+    ),
+    "ShadowRigSlots": (
+        "tentacle.slots.tools.shadow_rig.ShadowRigSlots",
         "0.23.0",
     ),
 }
