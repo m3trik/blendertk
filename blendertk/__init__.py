@@ -419,8 +419,7 @@ DEFAULT_INCLUDE = {
     ],
     # Curve / NURBS-adjacent tools — mirror of mayatk's ``nurbs_utils``. ``NurbsUtils`` is the shared
     # curve-build / curve→mesh-bake base (Blender's bevel + 2D-fill replace Maya's loft/planarSrf/
-    # nurbsToPoly layer); each curve tool engine is exposed too, while the ``<Tool>Slots`` panels are
-    # discovered by ``BlenderUiHandler`` (not registered), as mayatk's are.
+    # nurbsToPoly layer); each curve tool engine is exposed too (their panels are tentacle's).
     "nurbs_utils._nurbs_utils": "*",
     "nurbs_utils.image_tracer": [
         "ImageTracer",
@@ -571,6 +570,18 @@ MOVED_NAMES = {
     ),
     "CutOnAxisSlots": (
         "tentacle.slots.tools.cut_on_axis.CutOnAxisSlots",
+        "0.23.0",
+    ),
+    "MirrorSlots": (
+        "tentacle.slots.tools.mirror.MirrorSlots",
+        "0.23.0",
+    ),
+    "ImageTracerSlots": (
+        "tentacle.slots.tools.image_tracer.ImageTracerSlots",
+        "0.23.0",
+    ),
+    "CurveToTubeSlots": (
+        "tentacle.slots.tools.curve_to_tube.CurveToTubeSlots",
         "0.23.0",
     ),
 }

@@ -37,11 +37,11 @@ try:
         mx = Vector((max(c.x for c in cs), max(c.y for c in cs), max(c.z for c in cs)))
         return (mn + mx) / 2.0
 
-    # ---- mirror merge_mode=-1 (separate object) about world plane
+    # ---- mirror mergeMode=-1 (separate object) about world plane
     reset()
     o = cube_at(x=2.0)  # spans x 1..3
     n_objs = len(bpy.data.objects)
-    created = btk.mirror(o, axis="x", pivot="world", merge_mode=-1)
+    created = btk.mirror(o, axis="x", pivot="world", mergeMode=-1)
     check("mirror -1 creates one new object", len(bpy.data.objects) == n_objs + 1)
     m = created[0]
     check("mirror -1 names it _mirror", m.name.endswith("_mirror"), m.name)
@@ -59,21 +59,21 @@ try:
     reset()
     o = cube_at(x=2.0)
     name = o.name
-    btk.mirror(o, axis="x", pivot="world", merge_mode=-1, delete_original=True)
+    btk.mirror(o, axis="x", pivot="world", mergeMode=-1, delete_original=True)
     check("mirror -1 delete_original removes source", name not in bpy.data.objects)
 
-    # ---- mirror merge_mode=0 (same mesh, unwelded): face/vert counts double
+    # ---- mirror mergeMode=0 (same mesh, unwelded): face/vert counts double
     reset()
     o = cube_at(x=2.0)
-    btk.mirror(o, axis="x", pivot="world", merge_mode=0)
+    btk.mirror(o, axis="x", pivot="world", mergeMode=0)
     check("mirror 0 doubles geometry in-mesh",
           len(o.data.polygons) == 12 and len(o.data.vertices) == 16,
           f"f={len(o.data.polygons)} v={len(o.data.vertices)}")
 
-    # ---- mirror merge_mode=1 about the object's own min face (border pivot): welds seam
+    # ---- mirror mergeMode=1 about the object's own min face (border pivot): welds seam
     reset()
     o = cube_at(x=2.0)  # spans 1..3; xmin face at x=1
-    btk.mirror(o, axis="x", pivot="xmin", merge_mode=1)
+    btk.mirror(o, axis="x", pivot="xmin", mergeMode=1)
     xs = world_xs(o)
     check("mirror 1 xmin spans -1..3", abs(min(xs) + 1.0) < 1e-4 and abs(max(xs) - 3.0) < 1e-4,
           f"{min(xs):.2f}..{max(xs):.2f}")
@@ -85,7 +85,7 @@ try:
     o = cube_at(x=2.0)
     o.rotation_euler = (0.0, 0.0, 1.5708)  # local X now points along world Y
     bpy.context.view_layer.update()
-    btk.mirror(o, axis="x", pivot="object", merge_mode=0)
+    btk.mirror(o, axis="x", pivot="object", mergeMode=0)
     ys = [(o.matrix_world @ v.co).y for v in o.data.vertices]
     # local-X mirror through the origin of an object at (2,0,0) rotated 90°: spans both sides in Y
     check("mirror object-pivot uses local axis", min(ys) < -0.9 and max(ys) > 0.9,
@@ -213,7 +213,7 @@ try:
     bpy.context.view_layer.update()
     sib_verts_before = len(sib.data.vertices)
 
-    created = btk.mirror(o, axis="x", pivot="object", merge_mode=-1)
+    created = btk.mirror(o, axis="x", pivot="object", mergeMode=-1)
     check("mirror -1 on a linked object keeps the sibling", sib.name in bpy.data.objects)
     check("mirror -1 on a linked object leaves the sibling's geometry alone",
           len(sib.data.vertices) == sib_verts_before,
@@ -230,7 +230,7 @@ try:
     sib.location.x += 10.0
     bpy.context.view_layer.update()
     sib_verts_before = len(sib.data.vertices)
-    btk.mirror(o, axis="x", pivot="object", merge_mode=0)
+    btk.mirror(o, axis="x", pivot="object", mergeMode=0)
     check("mirror merge breaks the link instead of rewriting the sibling",
           sib.data is not o.data and len(sib.data.vertices) == sib_verts_before,
           f"verts={len(sib.data.vertices)} (was {sib_verts_before}) shared={sib.data is o.data}")
@@ -352,14 +352,14 @@ try:
     # result, so it re-centers on the combined bbox (cube 1..3 mirror world -> -3..3).
     reset()
     o = cube_at(x=2.0)
-    btk.mirror(o, axis="x", pivot="world", merge_mode=1)
+    btk.mirror(o, axis="x", pivot="world", mergeMode=1)
     ox = o.matrix_world.translation.x
     check("merge re-centers origin on combined bbox (x~0)", abs(ox) < 1e-4, f"origin x {ox:.3f}")
 
     # center_pivot=False keeps the pre-mirror origin (opt-out escape hatch)
     reset()
     o = cube_at(x=2.0)
-    btk.mirror(o, axis="x", pivot="world", merge_mode=1, center_pivot=False)
+    btk.mirror(o, axis="x", pivot="world", mergeMode=1, center_pivot=False)
     ox = o.matrix_world.translation.x
     check("merge center_pivot=False keeps origin (x~2)", abs(ox - 2.0) < 1e-4, f"origin x {ox:.3f}")
 
@@ -367,7 +367,7 @@ try:
     reset()
     o = cube_at(x=2.0)  # origin at x=2
     src_x = o.matrix_world.translation.x
-    created = btk.mirror(o, axis="x", pivot="world", merge_mode=-1)  # new spans -3..-1
+    created = btk.mirror(o, axis="x", pivot="world", mergeMode=-1)  # new spans -3..-1
     m = created[0]
     mx = m.matrix_world.translation.x
     check("separate centers new half on itself (x~-2)", abs(mx + 2.0) < 1e-4, f"new origin x {mx:.3f}")

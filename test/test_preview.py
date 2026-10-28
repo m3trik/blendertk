@@ -99,7 +99,7 @@ try:
         """Mutates the source mesh in place (the mirror merge-mode 0/1 shape)."""
 
         def perform_operation(self, objects):
-            btk.mirror(objects, axis="x", pivot="world", merge_mode=0)
+            btk.mirror(objects, axis="x", pivot="world", mergeMode=0)
 
     class DeleterOp:
         """Deletes the source (the radial keep_original=False shape)."""
@@ -293,7 +293,7 @@ try:
             btk.uninstance(objects)
 
         def perform_operation(self, objects):
-            btk.mirror(objects, axis="x", pivot="world", merge_mode=0)
+            btk.mirror(objects, axis="x", pivot="world", mergeMode=0)
 
     reset()
     src = cube("Src")
@@ -445,6 +445,50 @@ try:
     check("require_preview commit keeps the result",
           len(bpy.data.objects) == 4, f"n={len(bpy.data.objects)}")
     check("require_preview re-disables commit after the commit", not btn.isEnabled())
+
+    # ---- Select Result (mayatk's select_result_checkbox + result_provider): the result is
+    #      selected after each build and on commit, deselected with the box off, and a live
+    #      toggle applies at once without re-running the operation.
+    class ResultOp:
+        """Copies the source and hands the copy back as its result."""
+
+        def __init__(self):
+            self.result, self.runs = None, 0
+
+        def perform_operation(self, objects):
+            self.runs += 1
+            self.result = objects[0].copy()
+            bpy.context.scene.collection.objects.link(self.result)
+
+    reset()
+    o = cube("Src")
+    op, chk, btn, pick = ResultOp(), FakeCheck(), FakeButton(), FakeCheck()
+    pick.setChecked(True)
+    pv = btk.Preview(op, chk, btn, message_func=msgs.append,
+                     select_result_checkbox=pick, result_provider=lambda: [op.result])
+    chk.setChecked(True)
+    check("Select Result selects the built result (not the source)",
+          op.result.select_get() and not o.select_get()
+          and bpy.context.view_layer.objects.active == op.result)
+    runs = op.runs
+    pick.setChecked(False)
+    check("unchecking Select Result deselects the result without a re-run",
+          not op.result.select_get() and op.runs == runs, f"runs={op.runs}")
+    pick.setChecked(True)
+    btn.click()
+    check("commit leaves the result selected", op.result.select_get())
+
+    reset()
+    o = cube("Src")
+    op, chk, btn, pick = ResultOp(), FakeCheck(), FakeButton(), FakeCheck()
+    pick.setChecked(True)
+    pv = btk.Preview(op, chk, btn, message_func=msgs.append,
+                     select_result_checkbox=pick, result_provider=lambda: [op.result])
+    chk.setChecked(True)
+    chk.setChecked(False)  # rollback removes the result
+    pick.setChecked(False)  # a toggle over a removed result is harmless
+    check("a toggle after the rollback leaves the source alone",
+          "Src" in bpy.data.objects and len(bpy.data.objects) == 1, f"n={len(bpy.data.objects)}")
 
 except Exception:
     traceback.print_exc()

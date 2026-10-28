@@ -79,7 +79,6 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`edit_utils/duplicate_radial.py`](#edit_utils--duplicate_radial) — Radial array duplication — mirror of mayatk's ``edit_utils.duplicate_radial``.
 - [`edit_utils/dynamic_pipe.py`](#edit_utils--dynamic_pipe) — Dynamic Pipe tool — Blender port of mayatk's ``edit_utils.dynamic_pipe``.
 - [`edit_utils/macros/_macros.py`](#edit_utils--macros--_macros) — Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
-- [`edit_utils/mirror.py`](#edit_utils--mirror) — Mirror tool panel — Switchboard slot wiring for the co-located ``mirror.ui``.
 - [`edit_utils/naming/_naming.py`](#edit_utils--naming--_naming) — Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
 - [`edit_utils/naming/naming_slots.py`](#edit_utils--naming--naming_slots) — Switchboard slots for the Naming panel — Blender port of mayatk's ``NamingSlots``.
 - [`edit_utils/selection.py`](#edit_utils--selection) — Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``
@@ -229,7 +228,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L436) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L435) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -1138,12 +1137,13 @@ UV diagnostics -- the Blender counterpart of mayatk's
 
 Live-preview driver for the tentacle Blender tool panels — the Blender analogue of
 
-- **[`class Preview`](blendertk/blendertk/core_utils/preview.py#L36)** — Snapshot-based live preview: ``Preview(slot, ui.chk000, ui.b000, …)``.
+- **[`class Preview`](blendertk/blendertk/core_utils/preview.py#L41)** — Snapshot-based live preview: ``Preview(slot, ui.chk000, ui.b000, …)``.
   - `Preview.is_enabled(self)` *(property)*
   - `Preview.refresh(self, *args)` — Roll back to the snapshot and re-run the operation (parameter-change hook).
   - `Preview.enable(self)`
   - `Preview.disable(self)` — Roll back and drop the snapshot (the un-check path).
   - `Preview.commit(self)` — Keep the current result and push one undo step.
+  - `Preview.apply_result_selection(widget, results)` *(static)* — Select the operation's result(s), or deselect them, per a Select Result checkbox
 
 <a id="core_utils--script_job_manager"></a>
 ### `core_utils/script_job_manager.py`
@@ -1285,7 +1285,7 @@ Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tri
   - `EditUtils.extract_reversed_faces(objects)` *(static)* — Maya ``polyNormal`` Reverse-and-Extract (normalMode 3): duplicate the selected
   - `EditUtils.clean_geometry(objects, *, merge=True, merge_distance=0.0001, delete_loose=True, degenerate=True, recalculate=True, fill_holes=False)` *(static)* — Clean mesh geometry — merge doubles, dissolve degenerate (zero-area) faces, remove loose
   - `EditUtils.crease_edges(objects, amount=10.0, angle=None)` *(static)* — Set Subdivision-Surface edge crease on the given mesh object(s) — mirror of Maya's
-  - `EditUtils.mirror(objects, axis='x', pivot='object', merge_mode=1, delete_original=False, merge_threshold=0.001, center_pivot=True, axis_frame=None)` *(static)* — Mirror mesh object(s) across an axis plane — mirror of ``mtk.EditUtils.mirror``.
+  - `EditUtils.mirror(objects, axis='x', pivot='object', mergeMode=-1, delete_original=False, merge_threshold=0.001, center_pivot=True, axis_frame=None)` *(static)* — Mirror mesh object(s) across an axis plane — mirror of ``mtk.EditUtils.mirror``.
   - `EditUtils.mirror_instance(objects, axis='x', pivot='object', axis_frame=None)` *(static)* — Mirror as **linked duplicates**: each object gets a copy that shares its mesh data,
   - `EditUtils.cut_along_axis(objects, axis='x', pivot='center', amount=1, offset=0.0, spacing=0.0, distribution='linear', weight_bias=0.5, weight_curve=2.0, invert=False, delete=False, mirror=False, merge_threshold=0.0001, center_pivot=True, axis_frame=None)` *(static)* — Cut mesh object(s) along an axis — mirror of ``mtk.EditUtils.cut_along_axis``.
   - `EditUtils.wedge(objects, angle=90.0, divisions=4)` *(static)* — Wedge the selected faces about a selected hinge edge — mirror of Maya's
@@ -1478,16 +1478,6 @@ Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
   - `MacroManager.import_bindings(cls, data: Optional[Dict[str, dict]]) -> int` *(class)* — Apply a loaded binding set (the preset ``value_applier``): release
   - `MacroManager.show_editor(cls, parent=None)` *(class)* — Open the Macro Manager — the unified uitk ``ShortcutEditor`` over
 - **[`class Macros(MacroManager, DisplayMacros, EditMacros, SelectionMacros, AnimationMacros, UiMacros)`](blendertk/blendertk/edit_utils/macros/_macros.py#L1258)** — Concrete macro holder — combines every macro mixin with the manager (mirror of mayatk).
-
-<a id="edit_utils--mirror"></a>
-### `edit_utils/mirror.py`
-
-Mirror tool panel — Switchboard slot wiring for the co-located ``mirror.ui``.
-
-- **[`class MirrorSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/mirror.py#L29)** — Switchboard slot wiring for the mirror UI (live preview + axis/pivot/merge combos).
-  - `MirrorSlots.header_init(self, widget)` — Configure header help text.
-  - `MirrorSlots.prepare_operation(self, objects)` — Break linked-data sharing once, before the preview snapshots are taken.
-  - `MirrorSlots.perform_operation(self, objects)`
 
 <a id="edit_utils--naming--_naming"></a>
 ### `edit_utils/naming/_naming.py`
@@ -3386,32 +3376,20 @@ Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` n
 
 Curve to Tube tool — Blender port of mayatk's ``nurbs_utils.curve_to_tube``.
 
-- **[`class CurveToTube(pythontk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/curve_to_tube.py#L46)** — Sweep a circular profile along curve(s) to build a tube — Blender mirror of mayatk's
+- **[`class CurveToTube(pythontk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/curve_to_tube.py#L41)** — Sweep a circular profile along curve(s) to build a tube — Blender mirror of mayatk's
   - `CurveToTube.create(cls, curves, output_type='nurbs', radius=1.0, sections=8, path_divisions=1, degree=3, caps=True, quads=True, live=False, name='tube')` *(class)* — Build a tube along each given curve.
-- **[`class CurveToTubeSlots(pythontk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/curve_to_tube.py#L201)** — Switchboard slot wiring for the Curve to Tube panel — structural mirror of mayatk's
-  - `CurveToTubeSlots.header_init(self, widget)` — Configure header help text.
-  - `CurveToTubeSlots.b001_init(self, widget)` — Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the
-  - `CurveToTubeSlots.perform_operation(self, objects)` — Build the tube(s) from the selected curves (Preview entry point).
+  - `CurveToTube.describe(tubes)` *(static)* — One line of stats for built tubes — a polygon tube's triangle count, a beveled curve's
 
 <a id="nurbs_utils--image_tracer"></a>
 ### `nurbs_utils/image_tracer.py`
 
 Image Tracer tool — Blender port of mayatk's ``nurbs_utils.image_tracer``.
 
-- **[`class ImageTracer(pythontk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/image_tracer.py#L51)** — Trace a raster image into curves / filled meshes — Blender mirror of mayatk's ``ImageTracer``.
+- **[`class ImageTracer(pythontk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/image_tracer.py#L49)** — Trace a raster image into curves / filled meshes — Blender mirror of mayatk's ``ImageTracer``.
   - `ImageTracer.trace_curves(self, name='traced_curve')` — Trace the image into ONE curve object — one cyclic POLY spline per contour (so nested
   - `ImageTracer.create_mesh(self, curve=None, name='traced_mesh')` — Fill the traced contours into a mesh (positive space;
   - `ImageTracer.create_negative_space_mesh(self, curve=None, margin_scale=0.1, name='negative_space_mesh')` — Fill the **inverse**: a boundary rectangle (margin-padded bbox) around the contours, with
   - `ImageTracer.project_on_plane(self, curve=None, name='projected_curves')` — Project the traced curves onto a construction plane — Blender analogue of Maya's
-- **[`class ImageTracerSlots(pythontk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/image_tracer.py#L194)** — Switchboard slot wiring for the co-located ``image_tracer.ui`` (structural mirror of
-  - `ImageTracerSlots.header_init(self, widget)` — Initialize the header widget.
-  - `ImageTracerSlots.txt000_init(self, widget)` — Configure the path field's option box (▸) as an image file browser.
-  - `ImageTracerSlots.browse_image(self)` — Kept for structural parity with mayatk (unused in practice — txt000's option-box
-  - `ImageTracerSlots.chk000(self, state)` — Use Blue Pencil (disabled — kept wired for structural parity, see header_init).
-  - `ImageTracerSlots.b002(self)` — Trace the source image into curves.
-  - `ImageTracerSlots.b003(self)` — Build a mesh from the traced curves.
-  - `ImageTracerSlots.b004(self)` — Build a mesh from the traced negative space.
-  - `ImageTracerSlots.b005(self)` — Project the traced result onto a plane.
 
 <a id="rig_utils--_rig_utils"></a>
 ### `rig_utils/_rig_utils.py`

@@ -2,7 +2,7 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (141)
+## Moved out (158)
 
 - `anim_utils/shots/shot_manifest/export_preview.py::ExportPreviewMixin` → `tentacle.slots.tools._shot_manifest.export_preview.ExportPreviewMixin` (from 0.23.0)
 - `anim_utils/shots/shot_manifest/export_preview.py::ExportPreviewMixin.export` → `tentacle.slots.tools._shot_manifest.export_preview.ExportPreviewMixin` (from 0.23.0)
@@ -107,6 +107,10 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `edit_utils/dynamic_pipe.py::DynamicPipeSlots` → `tentacle.slots.tools.dynamic_pipe.DynamicPipeSlots` (from 0.23.0)
 - `edit_utils/dynamic_pipe.py::DynamicPipeSlots.b000` → `tentacle.slots.tools.dynamic_pipe.DynamicPipeSlots` (from 0.23.0)
 - `edit_utils/dynamic_pipe.py::DynamicPipeSlots.header_init` → `tentacle.slots.tools.dynamic_pipe.DynamicPipeSlots` (from 0.23.0)
+- `edit_utils/mirror.py::MirrorSlots` → `tentacle.slots.tools.mirror.MirrorSlots` (from 0.23.0)
+- `edit_utils/mirror.py::MirrorSlots.header_init` → `tentacle.slots.tools.mirror.MirrorSlots` (from 0.23.0)
+- `edit_utils/mirror.py::MirrorSlots.perform_operation` → `tentacle.slots.tools.mirror.MirrorSlots` (from 0.23.0)
+- `edit_utils/mirror.py::MirrorSlots.prepare_operation` → `tentacle.slots.tools.mirror.MirrorSlots` (from 0.23.0)
 - `edit_utils/snap.py::SnapSlots` → `tentacle.slots.tools.snap.SnapSlots` (from 0.23.0)
 - `edit_utils/snap.py::SnapSlots.b000` → `tentacle.slots.tools.snap.SnapSlots` (from 0.23.0)
 - `edit_utils/snap.py::SnapSlots.b000_init` → `tentacle.slots.tools.snap.SnapSlots` (from 0.23.0)
@@ -134,6 +138,19 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.txt000_init` → `tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.weights_all_off` → `tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
 - `mat_utils/emissive_groups.py::EmissiveGroupsSlots.weights_all_on` → `tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots` (from 0.23.0)
+- `nurbs_utils/curve_to_tube.py::CurveToTubeSlots` → `tentacle.slots.tools.curve_to_tube.CurveToTubeSlots` (from 0.23.0)
+- `nurbs_utils/curve_to_tube.py::CurveToTubeSlots.b001_init` → `tentacle.slots.tools.curve_to_tube.CurveToTubeSlots` (from 0.23.0)
+- `nurbs_utils/curve_to_tube.py::CurveToTubeSlots.header_init` → `tentacle.slots.tools.curve_to_tube.CurveToTubeSlots` (from 0.23.0)
+- `nurbs_utils/curve_to_tube.py::CurveToTubeSlots.perform_operation` → `tentacle.slots.tools.curve_to_tube.CurveToTubeSlots` (from 0.23.0)
+- `nurbs_utils/image_tracer.py::ImageTracerSlots` → `tentacle.slots.tools.image_tracer.ImageTracerSlots` (from 0.23.0)
+- `nurbs_utils/image_tracer.py::ImageTracerSlots.b002` → `tentacle.slots.tools.image_tracer.ImageTracerSlots` (from 0.23.0)
+- `nurbs_utils/image_tracer.py::ImageTracerSlots.b003` → `tentacle.slots.tools.image_tracer.ImageTracerSlots` (from 0.23.0)
+- `nurbs_utils/image_tracer.py::ImageTracerSlots.b004` → `tentacle.slots.tools.image_tracer.ImageTracerSlots` (from 0.23.0)
+- `nurbs_utils/image_tracer.py::ImageTracerSlots.b005` → `tentacle.slots.tools.image_tracer.ImageTracerSlots` (from 0.23.0)
+- `nurbs_utils/image_tracer.py::ImageTracerSlots.browse_image` → `tentacle.slots.tools.image_tracer.ImageTracerSlots` (from 0.23.0)
+- `nurbs_utils/image_tracer.py::ImageTracerSlots.chk000` → `tentacle.slots.tools.image_tracer.ImageTracerSlots` (from 0.23.0)
+- `nurbs_utils/image_tracer.py::ImageTracerSlots.header_init` → `tentacle.slots.tools.image_tracer.ImageTracerSlots` (from 0.23.0)
+- `nurbs_utils/image_tracer.py::ImageTracerSlots.txt000_init` → `tentacle.slots.tools.image_tracer.ImageTracerSlots` (from 0.23.0)
 - `ui_utils/calculator.py::CalculatorSlots` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
 - `ui_utils/calculator.py::CalculatorSlots.frames_to_sec` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
 - `ui_utils/calculator.py::CalculatorSlots.get_current_time` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
@@ -146,7 +163,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `ui_utils/calculator.py::CalculatorSlots.on_input` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
 - `ui_utils/calculator.py::CalculatorSlots.sec_to_frames` → `tentacle.slots.tools.calculator.CalculatorSlots` (from 0.23.0)
 
-## Added (58)
+## Added (60)
 
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
 - `anim_utils/shots/_shots.py::BlenderShotStore.fcurve_for_key(key: str)`
@@ -155,6 +172,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `anim_utils/shots/shot_manifest/manifest_host.py::ManifestHost.range_resolver_cls()`
 - `core_utils/_core_utils.py::CoreUtils.active_view_layer()`
 - `core_utils/_core_utils.py::CoreUtils.selected(func: Callable) -> Callable`
+- `core_utils/preview.py::Preview.apply_result_selection(widget, results)`
 - `display_utils/exploded_view.py::ExplodedView(class)`
 - `display_utils/exploded_view.py::ExplodedView.explode(self, objects: Optional[list] = None) -> list`
 - `display_utils/exploded_view.py::ExplodedView.objects(self) -> list`
@@ -205,6 +223,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/render_opacity/render_effects.py::RenderEffects.ensure_highlight_props(cls, obj, color=None, dim_color=None)`
 - `mat_utils/render_opacity/render_effects.py::RenderEffects.ensure_opacity_prop(cls, obj, value=1.0)`
 - `mat_utils/render_opacity/render_effects.py::RenderEffects.set_key(obj, data_path, frame, value, interp, index=-1)`
+- `nurbs_utils/curve_to_tube.py::CurveToTube.describe(tubes)`
 - `ui_utils/node_icons.py::NodeIcons.audio_icon(size: int = 16)`
 
 ## Deprecations (14)
@@ -246,3 +265,9 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/emissive_groups.py::EmissiveGroups.transfer_in`
 - `mat_utils/emissive_groups.py::EmissiveGroups.transfer_out`
 - `mat_utils/emissive_groups.py::EmissiveGroups.validate`
+
+## Signature changed (1)
+
+- `edit_utils/_edit_utils.py::EditUtils.mirror`
+  - was: `(objects, axis='x', pivot='object', merge_mode=1, delete_original=False, merge_threshold=0.001, center_pivot=True, axis_frame=None)`
+  - now: `(objects, axis='x', pivot='object', mergeMode=-1, delete_original=False, merge_threshold=0.001, center_pivot=True, axis_frame=None)`

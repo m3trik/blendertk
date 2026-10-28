@@ -1255,13 +1255,17 @@ class EditUtils(_EditUtilsInternal):
                 )
         return value
 
+    #: The ``mergeMode`` values :meth:`mirror` does -- mirror of mayatk's,
+    #: without 2 (extrude: bridging the seam needs edge-loop matching).
+    MIRROR_MERGE_MODES = (-1, 0, 1)
+
     @staticmethod
     @CoreUtils._object_mode
     def mirror(
         objects,
         axis="x",
         pivot="object",
-        merge_mode=1,
+        mergeMode=-1,
         delete_original=False,
         merge_threshold=0.001,
         center_pivot=True,
@@ -1269,10 +1273,10 @@ class EditUtils(_EditUtilsInternal):
     ):
         """Mirror mesh object(s) across an axis plane — mirror of ``mtk.EditUtils.mirror``.
 
-        ``merge_mode``: ``-1`` the mirrored half becomes a **separate object**
+        ``mergeMode``: ``-1`` the mirrored half becomes a **separate object**
         (``<name>_mirror``); ``0`` mirrored into the same mesh, seam left unwelded;
         ``1`` same mesh with seam verts welded (``merge_threshold``).
-        ``delete_original`` (merge_mode ``-1`` only): remove the source object afterwards.
+        ``delete_original`` (mergeMode ``-1`` only): remove the source object afterwards.
         Shared (linked) mesh data is **always** made single-user first — mirroring in place
         would otherwise rewrite every linked duplicate's geometry, and there is no way to
         surface that in a UI; edit the shared datablock directly if you want that. The
@@ -1281,12 +1285,12 @@ class EditUtils(_EditUtilsInternal):
         :func:`cut_along_axis` ``(delete=True, mirror=True)`` like the Maya slot does.
         ``center_pivot`` (default True): give each result an origin on its own bounding-box
         center — the pre-mirror origin is meaningless once the halves are combined
-        (``merge_mode >= 0``) or a new half is created. In separate mode (``merge_mode == -1``)
+        (``mergeMode >= 0``) or a new half is created. In separate mode (``mergeMode == -1``)
         only the new half is centered; the source object's origin is left untouched.
         ``axis_frame`` picks which axes the plane is normal to — ``None``/``"auto"``
         derives it from the pivot, ``"world"`` forces world axes, ``"object"`` /
         ``"manip"`` force the object's. Same vocabulary as ``mtk.EditUtils.mirror``.
-        Returns the created objects (merge_mode ``-1``) or the modified sources.
+        Returns the created objects (mergeMode ``-1``) or the modified sources.
         """
         import bpy
 
@@ -1303,7 +1307,7 @@ class EditUtils(_EditUtilsInternal):
                 obj, axis, pivot, axis_frame
             )
             refl = _EditUtilsInternal._local_reflection(obj, point, normal)
-            if merge_mode < 0:
+            if mergeMode < 0:
 
                 def _reflect_all(bm, refl=refl):
                     import bmesh
@@ -1330,7 +1334,7 @@ class EditUtils(_EditUtilsInternal):
             else:
                 weld = (
                     _EditUtilsInternal._local_bisect_plane(obj, point, normal)
-                    if merge_mode >= 1
+                    if mergeMode >= 1
                     else None
                 )
                 _EditUtilsInternal._bmesh_edit(

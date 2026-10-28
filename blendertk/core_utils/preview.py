@@ -27,6 +27,11 @@ Constraints on ``perform_operation(objects)`` authors:
   - Raise with a clear message for user-facing failures — the message lands in
     ``message_func`` and the preview switches itself off.
 
+Optional **Select Result** (mirror of mayatk's): pass ``select_result_checkbox`` plus a
+``result_provider`` callable returning the operation's result object(s). The preview then selects
+them after every build and on commit, or deselects them with the box unchecked, and a toggle of
+the box applies at once without re-running the operation (:meth:`Preview.apply_result_selection`).
+
 No Qt import — the checkbox/button are duck-typed (``.toggled.connect`` /
 ``.clicked.connect`` / ``.setChecked`` / ``.setEnabled``), so the class is headless-testable
 with stubs.
@@ -46,6 +51,8 @@ class Preview:
         message_func=print,
         undo_message=None,
         require_preview=False,
+        select_result_checkbox=None,
+        result_provider=None,
     ):
         self.operation = operation
         self.enable_checkbox = enable_checkbox
@@ -55,6 +62,10 @@ class Preview:
         self.message_func = message_func
         self.undo_message = undo_message or type(operation).__name__
         self.require_preview = require_preview
+        # Optional first-class Select Result (mayatk's names): the panel's checkbox
+        # plus a callable returning the operation's result object(s).
+        self.select_result_checkbox = select_result_checkbox
+        self.result_provider = result_provider
 
         self._enabled = False
         self._guard = False  # suppress toggled-handler on programmatic setChecked
@@ -72,6 +83,9 @@ class Preview:
         enable_checkbox.restore_state = False
         enable_checkbox.toggled.connect(self._on_toggled)
         commit_button.clicked.connect(self.commit)
+        if select_result_checkbox is not None and result_provider is not None:
+            # Live: a toggle (de)selects the current result at once, never a re-run.
+            select_result_checkbox.toggled.connect(self._apply_select_result)
         # The co-located ``.ui`` files ship the commit button ``enabled=false`` (the old gated
         # contract). Previewing is optional here — ``commit`` runs the op once on the live
         # selection when no preview is running — so the button is asserted live rather than
@@ -224,10 +238,74 @@ class Preview:
             self._sync_commit_enabled(False)
         if self.finalize_func:
             self.finalize_func()
+        self._apply_select_result()
         # From a Qt click this runs window-less, where a bare ed.undo_push raised.
         CoreUtils.undo_push(self.undo_message)
 
+    @staticmethod
+    def apply_result_selection(widget, results):
+        """Select the operation's result(s), or deselect them, per a Select Result checkbox
+        -- mirror of mayatk's ``Preview.apply_result_selection``.
+
+        Checked, the results become the selection (the first one active); unchecked, they are
+        deselected, as an operation can leave its result selected. A result a rollback removed
+        is skipped, and a dead widget reads as checked.
+
+        Parameters:
+            widget: The Select Result checkbox (``isChecked``).
+            results: The result object(s) or object name(s).
+        """
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        if results is None:
+            results = []
+        elif isinstance(results, (str, bpy.types.ID)):
+            results = [results]
+        objects = []
+        for result in results:
+            try:
+                name = result if isinstance(result, str) else result.name
+            except ReferenceError:  # removed by a rollback
+                continue
+            obj = bpy.data.objects.get(name)
+            if obj is not None:
+                objects.append(obj)
+        if not objects:
+            return
+        try:
+            select = widget.isChecked()
+        except Exception:
+            select = True
+        # the window's view layer: windowless, select_all / select_set / the active
+        # write address the scene's default layer, not the one the window shows
+        with CoreUtils.window_context_override():
+            if select:
+                bpy.ops.object.select_all(action="DESELECT")
+            for obj in objects:
+                obj.select_set(select)
+            if select:
+                bpy.context.view_layer.objects.active = objects[0]
+
     # ------------------------------------------------------------------ internals
+    def _apply_select_result(self, *args):
+        """Apply the Select Result checkbox to the operation's current result (after a
+        build, on commit, on a toggle). A no-op unless the panel passed both
+        ``select_result_checkbox`` and ``result_provider``; a cosmetic step, so a failure
+        is printed, never raised into the operation."""
+        if self.select_result_checkbox is None or self.result_provider is None:
+            return
+        try:
+            self._ensure_object_mode()
+            self.apply_result_selection(
+                self.select_result_checkbox, self.result_provider()
+            )
+        except Exception:
+            import traceback
+
+            traceback.print_exc()
+
     def _on_toggled(self, state):
         if self._guard:
             return
@@ -267,6 +345,7 @@ class Preview:
             self.disable()
             return
         bpy.context.view_layer.update()
+        self._apply_select_result()
 
     def _report(self, err):
         import traceback

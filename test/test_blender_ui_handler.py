@@ -49,12 +49,9 @@ def _sandbox_qsettings():
 # Co-located tool panels that BlenderUiHandler must discover from the blendertk package.
 PANELS = [
     "curtain",
-    "mirror",
     "bridge",
     "audio_clips",
     "blendshape_animator",
-    "image_tracer",
-    "curve_to_tube",
     "naming",
     "hdr_manager",
     "lightmap_baker",
@@ -279,7 +276,6 @@ try:
     # 2. Loading a panel whose Slots.__init__ is bpy-free wires the co-located <Tool>Slots
     #    FROM blendertk (not tentacle) and stamps the blendertk source tag (hide-button style).
     for panel, slot_cls in (
-        ("mirror", "MirrorSlots"),
         ("curtain", "CurtainSlots"),
         (
             "bridge",
@@ -344,14 +340,6 @@ try:
             "HdrManagerSlots",
         ),  # __init__ + header/cmb _init are bpy-free (os dir scan)
         (
-            "image_tracer",
-            "ImageTracerSlots",
-        ),  # __init__ + header/txt000 _init are bpy-free
-        (
-            "curve_to_tube",
-            "CurveToTubeSlots",
-        ),  # __init__ (Preview/connect_multi/combo) is bpy-free
-        (
             "image_to_plane",
             "ImageToPlaneSlots",
         ),  # __init__ (button connects) is bpy-free
@@ -396,7 +384,7 @@ try:
         # Preview panels ship the commit button enabled=false in the .ui; Preview must enable
         # it on construction or Create is a dead button (preview can never be committed). Verify
         # end-to-end on the real loaded widget — the unit test only covers the stub.
-        if panel in ("mirror", "curtain", "bridge"):
+        if panel in ("curtain", "bridge"):
             b000 = getattr(ui, "b000", None)
             check(
                 f"{panel} Create button enabled after load (Preview manages it)",
@@ -413,7 +401,7 @@ try:
 
     check(
         "blendertk-tagged panels default to sticky (hide button)",
-        handler.default_persistence(sb.get_ui("mirror"))
+        handler.default_persistence(sb.get_ui("curtain"))
         == _UiHandler.PERSISTENCE_STICKY,
     )
     check(
@@ -423,15 +411,15 @@ try:
     )
     check(
         "a UI Browser override outranks the blendertk default",
-        handler.resolve_persistence(sb.get_ui("mirror"), "mirror", context_default=None)
+        handler.resolve_persistence(sb.get_ui("curtain"), context_default=None)
         == _UiHandler.PERSISTENCE_STICKY
         and (
-            handler.set_persistence_override("mirror", _UiHandler.PERSISTENCE_TRANSIENT)
-            or handler.resolve_persistence(sb.get_ui("mirror"), "mirror")
+            handler.set_persistence_override("curtain", _UiHandler.PERSISTENCE_TRANSIENT)
+            or handler.resolve_persistence(sb.get_ui("curtain"))
         )
         == _UiHandler.PERSISTENCE_TRANSIENT,
     )
-    handler.set_persistence_override("mirror", None)  # leave the store clean
+    handler.set_persistence_override("curtain", None)  # leave the store clean
 
     # Gesture-scoped panels opt into the pin + auto-hide-on-key_show-release behavior by declaring a
     # "pin" header button in header_init (overriding BlenderUiHandler's blanket "blendertk"->hide
@@ -441,7 +429,6 @@ try:
         "reference_manager",
         "color_id",
         "bridge",
-        "mirror",
         "shell_xform",
         "naming",
     ]

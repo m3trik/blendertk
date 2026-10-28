@@ -1,10 +1,10 @@
-"""blendertk CurveToTube (btk.CurveToTube engine + CurveToTubeSlots) headless test.
+"""blendertk CurveToTube (btk.CurveToTube engine) headless test.
 Run: blender --background --factory-startup --python blendertk/test/test_curve_to_tube.py
 
 Covers the engine — NURBS output (a live beveled curve; in-place vs duplicate per Keep History),
 polygon output (a baked mesh with exactly `sections` sides via a bevel_object circle, ring density
 from Path Res, caps, quads/triangulate), source-curve preservation, and the under-selection guard.
-Also exercises CurveToTubeSlots.perform_operation routing (stub ui/sb) + Select Result.
+Also exercises ``CurveToTube.describe`` (the shared panel's footer stats).
 """
 import sys, os, traceback
 
@@ -23,7 +23,7 @@ def check(name, cond, detail=""):
 try:
     import bpy
     import blendertk as btk
-    from blendertk.nurbs_utils.curve_to_tube import CurveToTube, CurveToTubeSlots
+    from blendertk.nurbs_utils.curve_to_tube import CurveToTube
     from blendertk.nurbs_utils._nurbs_utils import NurbsUtils
 
     def reset():
@@ -82,8 +82,7 @@ try:
           len(poly.data.vertices) % 6 == 0 and len(poly.data.vertices) > 0,
           f"verts={len(poly.data.vertices)}")
     check("polygon (no caps) baked to a mesh with faces", len(poly.data.polygons) > 0)
-    check("polygon preserves the source curve (baked keeps it via live=False? no→consumed)",
-          "c" not in bpy.data.objects)  # live=False consumes the source
+    check("polygon bake keeps the source curve (as Maya's does)", "c" in bpy.data.objects)
     check("polygon bake leaves no orphan profile circle",
           not any(o.name.endswith("_profile") for o in bpy.data.objects))
 
@@ -132,41 +131,17 @@ try:
         raised = True
     check("non-curve selection raises RuntimeError", raised)
 
-    # ---- CurveToTubeSlots.perform_operation routing ------------------------------------------
-    class _W:
-        def __init__(self, v):
-            self.v = v
-        def value(self):
-            return self.v
-        def isChecked(self):
-            return self.v
-        def currentData(self):
-            return self.v
-
-    class _SB:
-        def __init__(self, ui):
-            self.loaded_ui = type("L", (), {"curve_to_tube": ui})()
-            self.messages = []
-        def message_box(self, msg):
-            self.messages.append(msg)
-
+    # ---- describe: the stats line the shared panel's footer shows ----------------------------
     reset()
-    src = make_curve("sc")
-    src.select_set(True)
-    bpy.context.view_layer.objects.active = src
-    ui = type("U", (), {})()
-    ui.cmb000 = _W("polygon")
-    ui.s000, ui.s001, ui.s002, ui.s003 = _W(0.5), _W(8), _W(1), _W(3)
-    ui.chk001, ui.chk003, ui.chk004 = _W(False), _W(False), _W(True)
-    ui.cmb_topology = _W("quads")  # Quads/Triangles combo (replaced the chk002 'Quads' checkbox)
-    slots = CurveToTubeSlots.__new__(CurveToTubeSlots)  # bypass Qt-heavy __init__
-    slots.sb = _SB(ui)
-    slots.ui = ui
-    slots.last_tubes = []
-    slots.perform_operation([src])
-    check("slot perform_operation builds a tube", len(slots.last_tubes) == 1 and slots.last_tubes[0].type == "MESH")
-    check("slot Select Result selects the tube",
-          slots.last_tubes[0].select_get() and bpy.context.view_layer.objects.active is slots.last_tubes[0])
+    poly = CurveToTube.create([make_curve("p")], output_type="polygon", sections=8)
+    text = CurveToTube.describe(poly)
+    check("describe reports a polygon tube's triangles", text.endswith(" tris"), text)
+    reset()
+    bevel = CurveToTube.create([make_curve("n")], output_type="nurbs", live=False)
+    text = CurveToTube.describe(bevel)
+    check("describe reports a beveled curve's points", "bevel res" in text, text)
+    reset()  # the tube is gone (as after a preview rollback)
+    check("describe says nothing once the tube is gone", CurveToTube.describe(bevel) == "")
 
 except Exception:
     traceback.print_exc()

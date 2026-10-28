@@ -23,7 +23,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 436,
+          "line": 435,
           "deprecated": false
         }
       ]
@@ -5715,7 +5715,7 @@
         {
           "name": "Preview",
           "summary": "Snapshot-based live preview: ``Preview(slot, ui.chk000, ui.b000, …)``.",
-          "line": 36,
+          "line": 41,
           "bases": [],
           "members": [
             {
@@ -5724,7 +5724,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 85,
+              "line": 99,
               "deprecated": false
             },
             {
@@ -5733,7 +5733,7 @@
               "kind": "method",
               "signature": "(self, *args)",
               "summary": "Roll back to the snapshot and re-run the operation (parameter-change hook).",
-              "line": 88,
+              "line": 102,
               "deprecated": false
             },
             {
@@ -5742,7 +5742,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "",
-              "line": 147,
+              "line": 161,
               "deprecated": false
             },
             {
@@ -5751,7 +5751,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Roll back and drop the snapshot (the un-check path).",
-              "line": 188,
+              "line": 202,
               "deprecated": false
             },
             {
@@ -5760,7 +5760,16 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Keep the current result and push one undo step.",
-              "line": 201,
+              "line": 215,
+              "deprecated": false
+            },
+            {
+              "name": "apply_result_selection",
+              "qualname": "Preview.apply_result_selection",
+              "kind": "staticmethod",
+              "signature": "(widget, results)",
+              "summary": "Select the operation's result(s), or deselect them, per a Select Result checkbox",
+              "line": 246,
               "deprecated": false
             }
           ]
@@ -6719,9 +6728,9 @@
               "name": "mirror",
               "qualname": "EditUtils.mirror",
               "kind": "staticmethod",
-              "signature": "(objects, axis='x', pivot='object', merge_mode=1, delete_original=False, merge_threshold=0.001, center_pivot=True, axis_frame=None)",
+              "signature": "(objects, axis='x', pivot='object', mergeMode=-1, delete_original=False, merge_threshold=0.001, center_pivot=True, axis_frame=None)",
               "summary": "Mirror mesh object(s) across an axis plane — mirror of ``mtk.EditUtils.mirror``.",
-              "line": 1260,
+              "line": 1264,
               "deprecated": false
             },
             {
@@ -6730,7 +6739,7 @@
               "kind": "staticmethod",
               "signature": "(objects, axis='x', pivot='object', axis_frame=None)",
               "summary": "Mirror as **linked duplicates**: each object gets a copy that shares its mesh data,",
-              "line": 1356,
+              "line": 1360,
               "deprecated": false
             },
             {
@@ -6739,7 +6748,7 @@
               "kind": "staticmethod",
               "signature": "(objects, axis='x', pivot='center', amount=1, offset=0.0, spacing=0.0, distribution='linear', weight_bias=0.5, weight_curve=2.0, invert=False, delete=False, mirror=False, merge_threshold=0.0001, center_pivot=True, axis_frame=None)",
               "summary": "Cut mesh object(s) along an axis — mirror of ``mtk.EditUtils.cut_along_axis``.",
-              "line": 1388,
+              "line": 1392,
               "deprecated": false
             },
             {
@@ -6748,7 +6757,7 @@
               "kind": "staticmethod",
               "signature": "(objects, angle=90.0, divisions=4)",
               "summary": "Wedge the selected faces about a selected hinge edge — mirror of Maya's",
-              "line": 1509,
+              "line": 1513,
               "deprecated": false
             },
             {
@@ -6757,7 +6766,7 @@
               "kind": "staticmethod",
               "signature": "(obj_a, obj_b, tolerance=10.0)",
               "summary": "Snap each vertex of ``obj_a`` onto the closest vertex of ``obj_b`` within",
-              "line": 1582,
+              "line": 1586,
               "deprecated": false
             },
             {
@@ -6766,7 +6775,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, grid_size=1.0, axes='xyz')",
               "summary": "Snap to the nearest grid point — mirror of ``mtk.Snap.snap_to_grid``.",
-              "line": 1611,
+              "line": 1615,
               "deprecated": false
             },
             {
@@ -6775,7 +6784,7 @@
               "kind": "staticmethod",
               "signature": "(source_meshes, target, offset=0.0, threshold=None, invert=False)",
               "summary": "Project the source meshes' vertices onto the closest point of ``target``'s surface —",
-              "line": 1710,
+              "line": 1714,
               "deprecated": false
             },
             {
@@ -6784,7 +6793,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, target, sample_limit=None)",
               "summary": "Measure how far each mesh in *objects* stands off *target*'s surface —",
-              "line": 1772,
+              "line": 1776,
               "deprecated": false
             },
             {
@@ -6793,7 +6802,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, *, tolerance=0.0, inc_orig=False, select=False, vertex=False, edge=False, face=False, triangle=False, shell=False, uvcoord=False, area=False, world_area=False, bounding_box=False)",
               "summary": "Find scene mesh objects similar to ``objects`` by topology / area / bounding-box metrics —",
-              "line": 1842,
+              "line": 1846,
               "deprecated": false
             },
             {
@@ -6802,7 +6811,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Dissolve the given group Empties (or the selection's) — mirror of mayatk's",
-              "line": 1914,
+              "line": 1918,
               "deprecated": false
             },
             {
@@ -6811,7 +6820,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, *, by_material=False, rename=False, center_pivots=True, uninstance=True)",
               "summary": "Separate mesh(es) into loose parts, or one object per material (``by_material``) — Blender",
-              "line": 1973,
+              "line": 1977,
               "deprecated": false
             },
             {
@@ -6820,7 +6829,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, *, group_by_material=False, cluster_by_distance=False, threshold=10000.0, uninstance=True)",
               "summary": "Combine mesh objects into one — Blender mirror of mayatk's ``EditUtils.combine_objects``",
-              "line": 2040,
+              "line": 2044,
               "deprecated": false
             },
             {
@@ -6829,7 +6838,7 @@
               "kind": "staticmethod",
               "signature": "(*, duplicate=False, separate=True, separate_each=False, center_pivot=True)",
               "summary": "Detach the active mesh's selected faces — Blender mirror of mayatk's",
-              "line": 2098,
+              "line": 2102,
               "deprecated": false
             },
             {
@@ -6838,7 +6847,7 @@
               "kind": "staticmethod",
               "signature": "(objects, delete=False, select=True, round_ndigits=5)",
               "summary": "Find faces geometrically coincident with another face — doubled geometry on *distinct*",
-              "line": 2184,
+              "line": 2188,
               "deprecated": false
             },
             {
@@ -6847,7 +6856,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, retain=None, select=False, delete=False, round_ndigits=5)",
               "summary": "Find duplicate mesh objects overlapping in world space — mirror of",
-              "line": 2231,
+              "line": 2235,
               "deprecated": false
             },
             {
@@ -6856,7 +6865,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, *, close=False, reverse_normals=False, section_spans=1)",
               "summary": "Loft a mesh surface across a sequence of profile curves / mesh edge-loops — a Blender mesh",
-              "line": 2322,
+              "line": 2326,
               "deprecated": false
             }
           ]
@@ -7909,51 +7918,6 @@
             "UiMacros"
           ],
           "members": []
-        }
-      ],
-      "constants": []
-    },
-    {
-      "relpath": "edit_utils/mirror.py",
-      "summary": "Mirror tool panel — Switchboard slot wiring for the co-located ``mirror.ui``.",
-      "functions": [],
-      "classes": [
-        {
-          "name": "MirrorSlots",
-          "summary": "Switchboard slot wiring for the mirror UI (live preview + axis/pivot/merge combos).",
-          "line": 29,
-          "bases": [
-            "pythontk.LoggingMixin"
-          ],
-          "members": [
-            {
-              "name": "header_init",
-              "qualname": "MirrorSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Configure header help text.",
-              "line": 115,
-              "deprecated": false
-            },
-            {
-              "name": "prepare_operation",
-              "qualname": "MirrorSlots.prepare_operation",
-              "kind": "method",
-              "signature": "(self, objects)",
-              "summary": "Break linked-data sharing once, before the preview snapshots are taken.",
-              "line": 168,
-              "deprecated": false
-            },
-            {
-              "name": "perform_operation",
-              "qualname": "MirrorSlots.perform_operation",
-              "kind": "method",
-              "signature": "(self, objects)",
-              "summary": "",
-              "line": 183,
-              "deprecated": false
-            }
-          ]
         }
       ],
       "constants": []
@@ -20507,7 +20471,7 @@
         {
           "name": "CurveToTube",
           "summary": "Sweep a circular profile along curve(s) to build a tube — Blender mirror of mayatk's",
-          "line": 46,
+          "line": 41,
           "bases": [
             "pythontk.LoggingMixin"
           ],
@@ -20518,44 +20482,16 @@
               "kind": "classmethod",
               "signature": "(cls, curves, output_type='nurbs', radius=1.0, sections=8, path_divisions=1, degree=3, caps=True, quads=True, live=False, name='tube')",
               "summary": "Build a tube along each given curve.",
-              "line": 54,
-              "deprecated": false
-            }
-          ]
-        },
-        {
-          "name": "CurveToTubeSlots",
-          "summary": "Switchboard slot wiring for the Curve to Tube panel — structural mirror of mayatk's",
-          "line": 201,
-          "bases": [
-            "pythontk.LoggingMixin"
-          ],
-          "members": [
-            {
-              "name": "header_init",
-              "qualname": "CurveToTubeSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Configure header help text.",
-              "line": 270,
+              "line": 49,
               "deprecated": false
             },
             {
-              "name": "b001_init",
-              "qualname": "CurveToTubeSlots.b001_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the",
-              "line": 309,
-              "deprecated": false
-            },
-            {
-              "name": "perform_operation",
-              "qualname": "CurveToTubeSlots.perform_operation",
-              "kind": "method",
-              "signature": "(self, objects)",
-              "summary": "Build the tube(s) from the selected curves (Preview entry point).",
-              "line": 316,
+              "name": "describe",
+              "qualname": "CurveToTube.describe",
+              "kind": "staticmethod",
+              "signature": "(tubes)",
+              "summary": "One line of stats for built tubes — a polygon tube's triangle count, a beveled curve's",
+              "line": 106,
               "deprecated": false
             }
           ]
@@ -20571,7 +20507,7 @@
         {
           "name": "ImageTracer",
           "summary": "Trace a raster image into curves / filled meshes — Blender mirror of mayatk's ``ImageTracer``.",
-          "line": 51,
+          "line": 49,
           "bases": [
             "pythontk.LoggingMixin"
           ],
@@ -20582,7 +20518,7 @@
               "kind": "method",
               "signature": "(self, name='traced_curve')",
               "summary": "Trace the image into ONE curve object — one cyclic POLY spline per contour (so nested",
-              "line": 95,
+              "line": 97,
               "deprecated": false
             },
             {
@@ -20591,7 +20527,7 @@
               "kind": "method",
               "signature": "(self, curve=None, name='traced_mesh')",
               "summary": "Fill the traced contours into a mesh (positive space;",
-              "line": 116,
+              "line": 118,
               "deprecated": false
             },
             {
@@ -20600,7 +20536,7 @@
               "kind": "method",
               "signature": "(self, curve=None, margin_scale=0.1, name='negative_space_mesh')",
               "summary": "Fill the **inverse**: a boundary rectangle (margin-padded bbox) around the contours, with",
-              "line": 124,
+              "line": 126,
               "deprecated": false
             },
             {
@@ -20609,89 +20545,7 @@
               "kind": "method",
               "signature": "(self, curve=None, name='projected_curves')",
               "summary": "Project the traced curves onto a construction plane — Blender analogue of Maya's",
-              "line": 162,
-              "deprecated": false
-            }
-          ]
-        },
-        {
-          "name": "ImageTracerSlots",
-          "summary": "Switchboard slot wiring for the co-located ``image_tracer.ui`` (structural mirror of",
-          "line": 194,
-          "bases": [
-            "pythontk.LoggingMixin"
-          ],
-          "members": [
-            {
-              "name": "header_init",
-              "qualname": "ImageTracerSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize the header widget.",
-              "line": 227,
-              "deprecated": false
-            },
-            {
-              "name": "txt000_init",
-              "qualname": "ImageTracerSlots.txt000_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Configure the path field's option box (▸) as an image file browser.",
-              "line": 269,
-              "deprecated": false
-            },
-            {
-              "name": "browse_image",
-              "qualname": "ImageTracerSlots.browse_image",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Kept for structural parity with mayatk (unused in practice — txt000's option-box",
-              "line": 275,
-              "deprecated": false
-            },
-            {
-              "name": "chk000",
-              "qualname": "ImageTracerSlots.chk000",
-              "kind": "method",
-              "signature": "(self, state)",
-              "summary": "Use Blue Pencil (disabled — kept wired for structural parity, see header_init).",
-              "line": 318,
-              "deprecated": false
-            },
-            {
-              "name": "b002",
-              "qualname": "ImageTracerSlots.b002",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Trace the source image into curves.",
-              "line": 322,
-              "deprecated": false
-            },
-            {
-              "name": "b003",
-              "qualname": "ImageTracerSlots.b003",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Build a mesh from the traced curves.",
-              "line": 334,
-              "deprecated": false
-            },
-            {
-              "name": "b004",
-              "qualname": "ImageTracerSlots.b004",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Build a mesh from the traced negative space.",
-              "line": 344,
-              "deprecated": false
-            },
-            {
-              "name": "b005",
-              "qualname": "ImageTracerSlots.b005",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Project the traced result onto a plane.",
-              "line": 354,
+              "line": 164,
               "deprecated": false
             }
           ]

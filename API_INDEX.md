@@ -248,7 +248,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `core_utils/preview.py` — Live-preview driver for the tentacle Blender tool panels — the Blender analogue of
 - `class Preview`
-  - methods: is_enabled, refresh, enable, disable, commit
+  - methods: is_enabled, refresh, enable, disable, commit, apply_result_selection
 
 ### `core_utils/script_job_manager.py` — Centralized Blender event-subscription manager — the Blender counterpart of mayatk's
 - `class ScriptJobManager`
@@ -346,10 +346,6 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class MacroManager`
   - methods: set_macros, call_with_input, set_macro, remove_macros, list_available_macros, macro_label, macro_category, list_categories, macro_help, get_current_bindings, apply_bindings, clear_hotkey, find_conflicts, qt_sequence_to_maya_key, maya_key_to_qt_sequence, list_presets, load_preset, save_preset, delete_preset, get_active_preset, set_active_preset, apply_saved_macros, editor_categories, get_editor_registry, apply_editor_binding, export_bindings, import_bindings, show_editor
 - `class Macros(MacroManager, DisplayMacros, EditMacros, SelectionMacros, AnimationMacros, UiMacros)`
-
-### `edit_utils/mirror.py` — Mirror tool panel — Switchboard slot wiring for the co-located ``mirror.ui``.
-- `class MirrorSlots(pythontk.LoggingMixin)`
-  - methods: header_init, prepare_operation, perform_operation
 
 ### `edit_utils/naming/_naming.py` — Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
 - `class Naming(pythontk.HelpMixin, pythontk.LoggingMixin)`
@@ -839,15 +835,11 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `nurbs_utils/curve_to_tube.py` — Curve to Tube tool — Blender port of mayatk's ``nurbs_utils.curve_to_tube``.
 - `class CurveToTube(pythontk.LoggingMixin)`
-  - methods: create
-- `class CurveToTubeSlots(pythontk.LoggingMixin)`
-  - methods: header_init, b001_init, perform_operation
+  - methods: create, describe
 
 ### `nurbs_utils/image_tracer.py` — Image Tracer tool — Blender port of mayatk's ``nurbs_utils.image_tracer``.
 - `class ImageTracer(pythontk.LoggingMixin)`
   - methods: trace_curves, create_mesh, create_negative_space_mesh, project_on_plane
-- `class ImageTracerSlots(pythontk.LoggingMixin)`
-  - methods: header_init, txt000_init, browse_image, chk000, b002, b003, b004, b005
 
 ### `rig_utils/_rig_utils.py` — Shared procedural-rig primitives — Blender port of mayatk's ``rig_utils.RigUtils``.
 - `class RigUtils`
