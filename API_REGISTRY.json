@@ -4704,7 +4704,7 @@
         {
           "name": "UvDiagnostics",
           "summary": "UV layout checks (mirror of ``mtk.UvDiagnostics``).",
-          "line": 18,
+          "line": 20,
           "bases": [
             "object"
           ],
@@ -4715,7 +4715,16 @@
               "kind": "classmethod",
               "signature": "(cls, obj, uv_set: str) -> bool",
               "summary": "True if *uv_set* is usable as a lightmap: has UVs, non-overlapping, and",
-              "line": 26,
+              "line": 28,
+              "deprecated": false
+            },
+            {
+              "name": "cleanup_uv_sets",
+              "qualname": "UvDiagnostics.cleanup_uv_sets",
+              "kind": "staticmethod",
+              "signature": "(objects, remove_empty=True, keep_only_primary=True, rename_to_map1=True, force_rename=False, prefer_largest_area=False, dry_run=False)",
+              "summary": "Clean up the meshes' UV maps -- mirror of mayatk's",
+              "line": 45,
               "deprecated": false
             }
           ]
@@ -22749,9 +22758,61 @@
       "functions": [],
       "classes": [
         {
+          "name": "UvSetCleanupResult",
+          "summary": "One processed mesh of :meth:`UvUtils.cleanup_uv_sets`.",
+          "line": 34,
+          "bases": [
+            "namedtuple('UvSetCleanupResult', 'object error initial_sets primary_set deleted final_name')"
+          ],
+          "members": [
+            {
+              "name": "shape",
+              "qualname": "UvSetCleanupResult.shape",
+              "kind": "property",
+              "signature": "(self)",
+              "summary": "",
+              "line": 46,
+              "deprecated": false
+            },
+            {
+              "name": "sets_to_delete",
+              "qualname": "UvSetCleanupResult.sets_to_delete",
+              "kind": "property",
+              "signature": "(self)",
+              "summary": "",
+              "line": 50,
+              "deprecated": false
+            }
+          ]
+        },
+        {
+          "name": "PackUvsResult",
+          "summary": "Per-object outcome of a :meth:`UvUtils.pack_uvs` run (mirror of mayatk's).",
+          "line": 55,
+          "bases": [],
+          "members": [
+            {
+              "name": "objects",
+              "qualname": "PackUvsResult.objects",
+              "kind": "property",
+              "signature": "(self) -> List[str]",
+              "summary": "The objects that packed, once each.",
+              "line": 72,
+              "deprecated": false
+            }
+          ]
+        },
+        {
+          "name": "UnfoldResult",
+          "summary": "What a :meth:`UvUtils.unfold_uvs` run did.",
+          "line": 78,
+          "bases": [],
+          "members": []
+        },
+        {
           "name": "UvUtils",
           "summary": "Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level).",
-          "line": 484,
+          "line": 545,
           "bases": [
             "_UvUtilsInternal"
           ],
@@ -22762,7 +22823,7 @@
               "kind": "staticmethod",
               "signature": "(map_size: int, normalize: bool = False, factor: int = 256)",
               "summary": "The texture gutter for a given map size — Blender-side name for the ecosystem rule.",
-              "line": 488,
+              "line": 555,
               "deprecated": false
             },
             {
@@ -22771,7 +22832,7 @@
               "kind": "staticmethod",
               "signature": "(objects, du=0.0, dv=0.0)",
               "summary": "Translate the UVs of the given mesh object(s) by ``(du, dv)`` — \"move to UV space\"",
-              "line": 512,
+              "line": 579,
               "deprecated": false
             },
             {
@@ -22780,7 +22841,7 @@
               "kind": "staticmethod",
               "signature": "(objects, u, v, relative=True)",
               "summary": "Move the UVs of *objects* by ``(u, v)`` — or, with ``relative=False``, onto that",
-              "line": 528,
+              "line": 595,
               "deprecated": false
             },
             {
@@ -22789,7 +22850,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "The UV-space bounding box of *objects*, as one box over the whole input —",
-              "line": 547,
+              "line": 614,
               "deprecated": false
             },
             {
@@ -22798,7 +22859,7 @@
               "kind": "staticmethod",
               "signature": "(obj, uv_set=None)",
               "summary": "``(N, 3, 2)`` array of *obj*'s UV-space triangles for *uv_set* —",
-              "line": 584,
+              "line": 651,
               "deprecated": false
             },
             {
@@ -22807,7 +22868,7 @@
               "kind": "staticmethod",
               "signature": "(obj, uv_set=None)",
               "summary": "*obj*'s UV-space triangles paired with the world-space corners they map —",
-              "line": 624,
+              "line": 691,
               "deprecated": false
             },
             {
@@ -22816,7 +22877,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Per-island UV boxes that share *objects*' UV space, excluding their own —",
-              "line": 661,
+              "line": 728,
               "deprecated": false
             },
             {
@@ -22825,7 +22886,7 @@
               "kind": "classmethod",
               "signature": "(cls, source, candidates=None, tolerance=0.9)",
               "summary": "Transfer UVs from one source mesh to every geometrically similar mesh — mirror of",
-              "line": 736,
+              "line": 803,
               "deprecated": false
             },
             {
@@ -22834,7 +22895,7 @@
               "kind": "staticmethod",
               "signature": "(objects, su=1.0, sv=1.0, pivot=(0.0, 0.0))",
               "summary": "Scale the UVs of the given mesh object(s) by ``(su, sv)`` about ``pivot`` (UV-space",
-              "line": 791,
+              "line": 858,
               "deprecated": false
             },
             {
@@ -22843,7 +22904,7 @@
               "kind": "staticmethod",
               "signature": "(objects, flip_u=False, flip_v=False, angle=0.0, per_shell=False)",
               "summary": "Flip and/or rotate (``angle`` degrees, CCW) the UVs of the given mesh object(s).",
-              "line": 809,
+              "line": 876,
               "deprecated": false
             },
             {
@@ -22852,7 +22913,7 @@
               "kind": "staticmethod",
               "signature": "(objects, angle)",
               "summary": "Rotate the UVs of *objects* by *angle* degrees, counter-clockwise, about their shared",
-              "line": 866,
+              "line": 933,
               "deprecated": false
             },
             {
@@ -22861,16 +22922,16 @@
               "kind": "staticmethod",
               "signature": "(objects, axis='u', per_shell=True, preserve_position=True)",
               "summary": "Mirror UVs across U or V — mirror of ``mtk.UvUtils.mirror_uvs``.",
-              "line": 910,
+              "line": 977,
               "deprecated": false
             },
             {
               "name": "pin_uvs",
               "qualname": "UvUtils.pin_uvs",
               "kind": "staticmethod",
-              "signature": "(objects, pin=True, selected_only=True, whole_shells=False)",
-              "summary": "Pin/unpin UVs (bmesh ``pin_uv``).",
-              "line": 1021,
+              "signature": "(objects=None, pin=True, selected_only=None, whole_shells=False)",
+              "summary": "Pin / unpin the meshes' UVs -- one undo step;",
+              "line": 1090,
               "deprecated": false
             },
             {
@@ -22879,7 +22940,7 @@
               "kind": "staticmethod",
               "signature": "(objects, map_size)",
               "summary": "Texel density (px per scene unit) of the meshes' faces against a ``map_size`` map —",
-              "line": 1046,
+              "line": 1131,
               "deprecated": false
             },
             {
@@ -22888,7 +22949,7 @@
               "kind": "staticmethod",
               "signature": "(objects, density=1.0, map_size=4096)",
               "summary": "Scale each object's UVs (about its own UV bbox center) to the target texel density —",
-              "line": 1070,
+              "line": 1156,
               "deprecated": false
             },
             {
@@ -22897,7 +22958,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Remove all but the first UV map on the given mesh object(s) — \"Cleanup UV Sets\".",
-              "line": 1094,
+              "line": 1180,
               "deprecated": false
             },
             {
@@ -22906,7 +22967,7 @@
               "kind": "staticmethod",
               "signature": "(objects, *, remove_empty=True, keep_only_primary=False, rename_to_map1=True, force_rename=False, prefer_largest_area=True, dry_run=False)",
               "summary": "Standardize / clean up the UV sets (``uv_layers``) of the given mesh object(s).",
-              "line": 1102,
+              "line": 1188,
               "deprecated": false
             },
             {
@@ -22915,7 +22976,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Name of *obj*'s existing lightmap UV layer, or ``None`` (mirror of",
-              "line": 1248,
+              "line": 1334,
               "deprecated": false
             },
             {
@@ -22924,7 +22985,7 @@
               "kind": "staticmethod",
               "signature": "(objects, uv_set=None)",
               "summary": "Serialize each mesh's *uv_set* as a per-loop UV array, for another app to replay.",
-              "line": 1269,
+              "line": 1355,
               "deprecated": false
             },
             {
@@ -22933,7 +22994,7 @@
               "kind": "staticmethod",
               "signature": "(layouts, uv_set=None, quiet=False)",
               "summary": "Write per-loop UV layouts onto meshes (mirror of ``mtk.UvUtils.apply_uv_layout``).",
-              "line": 1315,
+              "line": 1401,
               "deprecated": false
             },
             {
@@ -22942,7 +23003,7 @@
               "kind": "staticmethod",
               "signature": "(objects, uv_set=LIGHTMAP_UV_SET, margin=0.02, quiet=True, force=False)",
               "summary": "Ensure each mesh has a packed, non-overlapping lightmap UV layer (UV2).",
-              "line": 1393,
+              "line": 1479,
               "deprecated": false
             },
             {
@@ -22951,7 +23012,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects=None, method: str = 'hard', map_size: int = 4096, pack: bool = None, orient: bool = True, engine_params: dict = None)",
               "summary": "Automatically unwrap meshes with an external unwrapping engine.",
-              "line": 1499,
+              "line": 1585,
               "deprecated": false
             },
             {
@@ -22960,7 +23021,7 @@
               "kind": "classmethod",
               "signature": "(cls, source, target, tolerance=0.1, match_by_similarity=True)",
               "summary": "Copy the active UV layer from *source* mesh(es) onto *target* mesh(es).",
-              "line": 1612,
+              "line": 1698,
               "deprecated": false
             },
             {
@@ -22969,7 +23030,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, whole_shells=False)",
               "summary": "The UV shells of *objects*' faces, as ``[(object, [face indices]), ...]``.",
-              "line": 1710,
+              "line": 1796,
               "deprecated": false
             },
             {
@@ -22978,7 +23039,7 @@
               "kind": "staticmethod",
               "signature": "(objects, pins=False)",
               "summary": "Snapshot the active-layer UV coordinates per object (``{name: [(u, v), …]}`` in",
-              "line": 1751,
+              "line": 1837,
               "deprecated": false
             },
             {
@@ -22987,7 +23048,7 @@
               "kind": "staticmethod",
               "signature": "(objects, snapshot)",
               "summary": "Restore a :func:`get_uv_coords` snapshot (objects whose topology changed since the",
-              "line": 1779,
+              "line": 1866,
               "deprecated": false
             },
             {
@@ -22996,16 +23057,16 @@
               "kind": "staticmethod",
               "signature": "(objects, tolerance=1.0, include_reference=False, select=False)",
               "summary": "The UV islands of *objects* (EDIT mode) that share the topology and shape of the",
-              "line": 1806,
+              "line": 1893,
               "deprecated": false
             },
             {
               "name": "stack_uv_shells",
               "qualname": "UvUtils.stack_uv_shells",
               "kind": "staticmethod",
-              "signature": "(objects, tolerance=None)",
-              "summary": "Stack UV islands on top of each other.",
-              "line": 1868,
+              "signature": "(objects=None, tolerance=None, pin=False)",
+              "summary": "Stack UV islands on top of each other -- one undo step;",
+              "line": 1957,
               "deprecated": false
             },
             {
@@ -23014,7 +23075,88 @@
               "kind": "staticmethod",
               "signature": "(objects, mode='LENGTH_AVERAGE')",
               "summary": "Rectangularize the targeted UV shell(s) — mirror of Maya's ``texStraightenShell`` — via",
-              "line": 1946,
+              "line": 2057,
+              "deprecated": false
+            },
+            {
+              "name": "pack_uvs",
+              "qualname": "UvUtils.pack_uvs",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None, map_size: int = 1024, udim: int = 1001, coverage=(1.0, 1.0), rotate: bool = True, preserve_3d: bool = True, padding=None, engine: str = 'standard', margin=None)",
+              "summary": "Pack the meshes' UV islands into a UDIM tile: Blender's",
+              "line": 2122,
+              "deprecated": false
+            },
+            {
+              "name": "auto_project",
+              "qualname": "UvUtils.auto_project",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None, map_size: int = 4096, scale_mode: int = 1, angle_limit: float = 66.0, margin: float = 0.0, progress_callback=None)",
+              "summary": "Project UVs with the host's own automatic projection: Blender's Smart",
+              "line": 2205,
+              "deprecated": false
+            },
+            {
+              "name": "unfold_uvs",
+              "qualname": "UvUtils.unfold_uvs",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None, optimize: bool = True, orient: bool = True, stack_similar: bool = True, tolerance: float = 1.0, map_size: int = 4096, repair: bool = False, method: str = 'angle_based', margin: float = 0.0)",
+              "summary": "Unfold the meshes' UVs along their seams (``uv.unwrap``), then",
+              "line": 2255,
+              "deprecated": false
+            },
+            {
+              "name": "cut_uvs",
+              "qualname": "UvUtils.cut_uvs",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None)",
+              "summary": "Cut UVs: mark UV seams on the selected edges of the meshes in Edit",
+              "line": 2312,
+              "deprecated": false
+            },
+            {
+              "name": "sew_uvs",
+              "qualname": "UvUtils.sew_uvs",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None)",
+              "summary": "Sew UVs: clear the UV seams on the selected edges of the meshes in",
+              "line": 2329,
+              "deprecated": false
+            },
+            {
+              "name": "cut_hard_edges",
+              "qualname": "UvUtils.cut_hard_edges",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None, low_angle: float = 70.0, high_angle: float = 180.0, uv_borders: bool = False, auto_seams: bool = False)",
+              "summary": "Mark UV seams on the meshes' hard edges -- those whose dihedral angle",
+              "line": 2365,
+              "deprecated": false
+            },
+            {
+              "name": "unwrap_cylinder",
+              "qualname": "UvUtils.unwrap_cylinder",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None, angle=45.0, invert_seam=False, unfold=True, orient=True, map_size=4096, sew=True, taper_angle=20.0, camera=None, flat_angle=60.0, trim_ratio=0.12)",
+              "summary": "Seam cylinder / tube / turned meshes by crease angle, then unfold:",
+              "line": 2407,
+              "deprecated": false
+            },
+            {
+              "name": "uv_scope_key",
+              "qualname": "UvUtils.uv_scope_key",
+              "kind": "staticmethod",
+              "signature": "(objects=None)",
+              "summary": "A key that changes when the UV scope *objects* name changes: object",
+              "line": 2460,
+              "deprecated": false
+            },
+            {
+              "name": "export_uv_image",
+              "qualname": "UvUtils.export_uv_image",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "Export the UV layout as an image through the host's own dialog:",
+              "line": 2487,
               "deprecated": false
             },
             {
@@ -23023,7 +23165,7 @@
               "kind": "staticmethod",
               "signature": "(objects, angle=66.0, margin=0.0)",
               "summary": "Auto-detect UV seams via a temporary Smart UV Project pass — mirror of Maya's",
-              "line": 2009,
+              "line": 2512,
               "deprecated": false
             },
             {
@@ -23032,7 +23174,7 @@
               "kind": "staticmethod",
               "signature": "(objects, axis='u', spacing=None)",
               "summary": "Distribute UV islands along ``axis`` (``\"u\"`` or ``\"v\"``).",
-              "line": 2053,
+              "line": 2556,
               "deprecated": false
             },
             {
@@ -23041,7 +23183,7 @@
               "kind": "staticmethod",
               "signature": "(objects, u=True, v=True, angle=30.0)",
               "summary": "Straighten the selected UV edges — edges within ``angle`` degrees of horizontal",
-              "line": 2104,
+              "line": 2607,
               "deprecated": false
             },
             {
@@ -23050,7 +23192,7 @@
               "kind": "staticmethod",
               "signature": "(objects, axis='u', mode='avg')",
               "summary": "Align the selected UVs — mirror of Maya's ``performAlignUV`` (min/avg/max) and",
-              "line": 2162,
+              "line": 2665,
               "deprecated": false
             },
             {
@@ -23059,7 +23201,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Gather the targeted UV shells back into the 0-1 tile — mirror of Maya's ``UVGatherShells``:",
-              "line": 2220,
+              "line": 2723,
               "deprecated": false
             },
             {
@@ -23068,7 +23210,7 @@
               "kind": "staticmethod",
               "signature": "(objects, udim=None, map_size=4096)",
               "summary": "Move UV shells sitting outside the target UDIM tile into it — mirror of mayatk's",
-              "line": 2247,
+              "line": 2750,
               "deprecated": false
             },
             {
@@ -23077,7 +23219,7 @@
               "kind": "staticmethod",
               "signature": "(objects, to_edge=False)",
               "summary": "Orient the selected UV shells — mirror of Maya's ``texOrientShells`` /",
-              "line": 2310,
+              "line": 2813,
               "deprecated": false
             },
             {
@@ -23086,7 +23228,7 @@
               "kind": "staticmethod",
               "signature": "(objects, to_edge=False)",
               "summary": "Orient the selected UV shells — mirror of mayatk's ``UvUtils.orient_shells`` (the",
-              "line": 2327,
+              "line": 2830,
               "deprecated": false
             },
             {
@@ -23095,7 +23237,7 @@
               "kind": "staticmethod",
               "signature": "(objects, seed=0)",
               "summary": "Randomly offset the selected UV shells — mirror of Maya's ``RandomizeShells`` (a per-shell",
-              "line": 2334,
+              "line": 2837,
               "deprecated": false
             }
           ]
@@ -23108,7 +23250,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 22,
+          "line": 25,
           "deprecated": false
         },
         {
@@ -23117,7 +23259,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 41,
+          "line": 102,
           "deprecated": false
         },
         {
@@ -23126,7 +23268,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 45,
+          "line": 106,
           "deprecated": false
         }
       ]

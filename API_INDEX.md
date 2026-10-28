@@ -177,7 +177,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `core_utils/diagnostics/uv_diag.py` — UV diagnostics -- the Blender counterpart of mayatk's
 - `class UvDiagnostics(object)`
-  - methods: is_bakeable_lightmap
+  - methods: is_bakeable_lightmap, cleanup_uv_sets
 
 ### `core_utils/preview.py` — Live-preview driver for the tentacle Blender tool panels — the Blender analogue of
 - `class Preview`
@@ -832,8 +832,13 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `uv_utils/_uv_utils.py` — UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
 - constants: DEFAULT_UV_SET, LIGHTMAP_UV_SET, LIGHTMAP_OVERLAP_TOLERANCE
+- `class UvSetCleanupResult(namedtuple('UvSetCleanupResult', 'object error initial_sets primary_set deleted final_name'))`
+  - methods: shape, sets_to_delete
+- `class PackUvsResult`
+  - methods: objects
+- `class UnfoldResult`
 - `class UvUtils(_UvUtilsInternal)`
-  - methods: calculate_uv_padding, move_uvs, move_to_uv_space, get_uv_bounds, get_uv_triangles, get_uv_world_triangles, get_neighbor_shell_bounds, transfer_uvs_to_similar, scale_uvs, transform_uvs, rotate_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, export_uv_layout, apply_uv_layout, create_lightmap_uvs, auto_unwrap, transfer_uvs, get_uv_shell_sets, get_uv_coords, set_uv_coords, get_similar_uv_shells, stack_uv_shells, straighten_uv_shells, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, gather_to_udim, orient_uv_shells, orient_shells, randomize_uv_shells
+  - methods: calculate_uv_padding, move_uvs, move_to_uv_space, get_uv_bounds, get_uv_triangles, get_uv_world_triangles, get_neighbor_shell_bounds, transfer_uvs_to_similar, scale_uvs, transform_uvs, rotate_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, export_uv_layout, apply_uv_layout, create_lightmap_uvs, auto_unwrap, transfer_uvs, get_uv_shell_sets, get_uv_coords, set_uv_coords, get_similar_uv_shells, stack_uv_shells, straighten_uv_shells, pack_uvs, auto_project, unfold_uvs, cut_uvs, sew_uvs, cut_hard_edges, unwrap_cylinder, uv_scope_key, export_uv_image, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, gather_to_udim, orient_uv_shells, orient_shells, randomize_uv_shells
 
 ### `uv_utils/rizom_bridge/_rizom_bridge.py` — RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 - constants: APP

@@ -909,8 +909,9 @@ Transform diagnostics — the Blender counterpart of mayatk's
 
 UV diagnostics -- the Blender counterpart of mayatk's
 
-- **[`class UvDiagnostics(object)`](blendertk/blendertk/core_utils/diagnostics/uv_diag.py#L18)** — UV layout checks (mirror of ``mtk.UvDiagnostics``).
+- **[`class UvDiagnostics(object)`](blendertk/blendertk/core_utils/diagnostics/uv_diag.py#L20)** — UV layout checks (mirror of ``mtk.UvDiagnostics``).
   - `UvDiagnostics.is_bakeable_lightmap(cls, obj, uv_set: str) -> bool` *(class)* — True if *uv_set* is usable as a lightmap: has UVs, non-overlapping, and
+  - `UvDiagnostics.cleanup_uv_sets(objects, remove_empty=True, keep_only_primary=True, rename_to_map1=True, force_rename=False, prefer_largest_area=False, dry_run=False)` *(static)* — Clean up the meshes' UV maps -- mirror of mayatk's
 
 <a id="core_utils--preview"></a>
 ### `core_utils/preview.py`
@@ -3589,10 +3590,16 @@ External auto-unwrap round-trip: OBJ out, engine, OBJ back, UVs transferred.
 
 UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
 
-- [`DEFAULT_UV_SET`](blendertk/blendertk/uv_utils/_uv_utils.py#L22) — constant
-- [`LIGHTMAP_UV_SET`](blendertk/blendertk/uv_utils/_uv_utils.py#L41) — constant
-- [`LIGHTMAP_OVERLAP_TOLERANCE`](blendertk/blendertk/uv_utils/_uv_utils.py#L45) — constant
-- **[`class UvUtils(_UvUtilsInternal)`](blendertk/blendertk/uv_utils/_uv_utils.py#L484)** — Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level).
+- [`DEFAULT_UV_SET`](blendertk/blendertk/uv_utils/_uv_utils.py#L25) — constant
+- [`LIGHTMAP_UV_SET`](blendertk/blendertk/uv_utils/_uv_utils.py#L102) — constant
+- [`LIGHTMAP_OVERLAP_TOLERANCE`](blendertk/blendertk/uv_utils/_uv_utils.py#L106) — constant
+- **[`class UvSetCleanupResult(namedtuple('UvSetCleanupResult', 'object error initial_sets primary_set deleted final_name'))`](blendertk/blendertk/uv_utils/_uv_utils.py#L34)** — One processed mesh of :meth:`UvUtils.cleanup_uv_sets`.
+  - `UvSetCleanupResult.shape(self)` *(property)*
+  - `UvSetCleanupResult.sets_to_delete(self)` *(property)*
+- **[`class PackUvsResult`](blendertk/blendertk/uv_utils/_uv_utils.py#L55)** — Per-object outcome of a :meth:`UvUtils.pack_uvs` run (mirror of mayatk's).
+  - `PackUvsResult.objects(self) -> List[str]` *(property)* — The objects that packed, once each.
+- **[`class UnfoldResult`](blendertk/blendertk/uv_utils/_uv_utils.py#L78)** — What a :meth:`UvUtils.unfold_uvs` run did.
+- **[`class UvUtils(_UvUtilsInternal)`](blendertk/blendertk/uv_utils/_uv_utils.py#L545)** — Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level).
   - `UvUtils.calculate_uv_padding(map_size: int, normalize: bool = False, factor: int = 256)` *(static)* — The texture gutter for a given map size — Blender-side name for the ecosystem rule.
   - `UvUtils.move_uvs(objects, du=0.0, dv=0.0)` *(static)* — Translate the UVs of the given mesh object(s) by ``(du, dv)`` — "move to UV space"
   - `UvUtils.move_to_uv_space(objects, u, v, relative=True)` *(static)* — Move the UVs of *objects* by ``(u, v)`` — or, with ``relative=False``, onto that
@@ -3605,7 +3612,7 @@ UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk'
   - `UvUtils.transform_uvs(objects, flip_u=False, flip_v=False, angle=0.0, per_shell=False)` *(static)* — Flip and/or rotate (``angle`` degrees, CCW) the UVs of the given mesh object(s).
   - `UvUtils.rotate_uvs(objects, angle)` *(static)* — Rotate the UVs of *objects* by *angle* degrees, counter-clockwise, about their shared
   - `UvUtils.mirror_uvs(objects, axis='u', per_shell=True, preserve_position=True)` *(static)* — Mirror UVs across U or V — mirror of ``mtk.UvUtils.mirror_uvs``.
-  - `UvUtils.pin_uvs(objects, pin=True, selected_only=True, whole_shells=False)` *(static)* — Pin/unpin UVs (bmesh ``pin_uv``).
+  - `UvUtils.pin_uvs(objects=None, pin=True, selected_only=None, whole_shells=False)` *(static)* — Pin / unpin the meshes' UVs -- one undo step;
   - `UvUtils.get_texel_density(objects, map_size)` *(static)* — Texel density (px per scene unit) of the meshes' faces against a ``map_size`` map —
   - `UvUtils.set_texel_density(objects, density=1.0, map_size=4096)` *(static)* — Scale each object's UVs (about its own UV bbox center) to the target texel density —
   - `UvUtils.delete_extra_uv_sets(objects)` *(static)* — Remove all but the first UV map on the given mesh object(s) — "Cleanup UV Sets".
@@ -3620,8 +3627,17 @@ UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk'
   - `UvUtils.get_uv_coords(objects, pins=False)` *(static)* — Snapshot the active-layer UV coordinates per object (``{name: [(u, v), …]}`` in
   - `UvUtils.set_uv_coords(objects, snapshot)` *(static)* — Restore a :func:`get_uv_coords` snapshot (objects whose topology changed since the
   - `UvUtils.get_similar_uv_shells(objects, tolerance=1.0, include_reference=False, select=False)` *(static)* — The UV islands of *objects* (EDIT mode) that share the topology and shape of the
-  - `UvUtils.stack_uv_shells(objects, tolerance=None)` *(static)* — Stack UV islands on top of each other.
+  - `UvUtils.stack_uv_shells(objects=None, tolerance=None, pin=False)` *(static)* — Stack UV islands on top of each other -- one undo step;
   - `UvUtils.straighten_uv_shells(objects, mode='LENGTH_AVERAGE')` *(static)* — Rectangularize the targeted UV shell(s) — mirror of Maya's ``texStraightenShell`` — via
+  - `UvUtils.pack_uvs(cls, objects=None, map_size: int = 1024, udim: int = 1001, coverage=(1.0, 1.0), rotate: bool = True, preserve_3d: bool = True, padding=None, engine: str = 'standard', margin=None)` *(class)* — Pack the meshes' UV islands into a UDIM tile: Blender's
+  - `UvUtils.auto_project(cls, objects=None, map_size: int = 4096, scale_mode: int = 1, angle_limit: float = 66.0, margin: float = 0.0, progress_callback=None)` *(class)* — Project UVs with the host's own automatic projection: Blender's Smart
+  - `UvUtils.unfold_uvs(cls, objects=None, optimize: bool = True, orient: bool = True, stack_similar: bool = True, tolerance: float = 1.0, map_size: int = 4096, repair: bool = False, method: str = 'angle_based', margin: float = 0.0)` *(class)* — Unfold the meshes' UVs along their seams (``uv.unwrap``), then
+  - `UvUtils.cut_uvs(cls, objects=None)` *(class)* — Cut UVs: mark UV seams on the selected edges of the meshes in Edit
+  - `UvUtils.sew_uvs(cls, objects=None)` *(class)* — Sew UVs: clear the UV seams on the selected edges of the meshes in
+  - `UvUtils.cut_hard_edges(cls, objects=None, low_angle: float = 70.0, high_angle: float = 180.0, uv_borders: bool = False, auto_seams: bool = False)` *(class)* — Mark UV seams on the meshes' hard edges -- those whose dihedral angle
+  - `UvUtils.unwrap_cylinder(cls, objects=None, angle=45.0, invert_seam=False, unfold=True, orient=True, map_size=4096, sew=True, taper_angle=20.0, camera=None, flat_angle=60.0, trim_ratio=0.12)` *(class)* — Seam cylinder / tube / turned meshes by crease angle, then unfold:
+  - `UvUtils.uv_scope_key(objects=None)` *(static)* — A key that changes when the UV scope *objects* name changes: object
+  - `UvUtils.export_uv_image()` *(static)* — Export the UV layout as an image through the host's own dialog:
   - `UvUtils.derive_auto_seams(objects, angle=66.0, margin=0.0)` *(static)* — Auto-detect UV seams via a temporary Smart UV Project pass — mirror of Maya's
   - `UvUtils.distribute_uv_shells(objects, axis='u', spacing=None)` *(static)* — Distribute UV islands along ``axis`` (``"u"`` or ``"v"``).
   - `UvUtils.straighten_uvs(objects, u=True, v=True, angle=30.0)` *(static)* — Straighten the selected UV edges — edges within ``angle`` degrees of horizontal

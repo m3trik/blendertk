@@ -1179,6 +1179,165 @@ try:
         and [uv.name for uv in sphere.data.uv_layers] == sphere_layers,
     )
 
+    # ---- the operations tentacle's composed UV panel calls (slots/uv.py) ----
+    import inspect as _inspect
+
+    from blendertk.uv_utils._uv_utils import UvUtils as _Uv
+
+    def _panel_cube(name, location=(0.0, 0.0, 0.0)):
+        bpy.ops.mesh.primitive_cube_add(location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        return obj
+
+    def _seams(obj):
+        return sum(1 for e in obj.data.edges if e.use_seam)
+
+    def _pins(obj):
+        return sum(1 for loop in obj.data.uv_layers.active.data if loop.pin_uv)
+
+    reset()
+    empties = {
+        op.__name__: op()
+        for op in (
+            _Uv.cut_uvs, _Uv.sew_uvs, _Uv.cut_hard_edges, _Uv.pin_uvs, _Uv.stack_uv_shells,
+            _Uv.unfold_uvs, _Uv.auto_project, _Uv.unwrap_cylinder, _Uv.pack_uvs,
+        )
+    }
+    check(
+        "panel ops: nothing selected -> []",
+        all(v == [] for v in empties.values()),
+        str(empties),
+    )
+    params = _inspect.signature(_Uv.pack_uvs).parameters
+    check(
+        "PACK_ENGINES names pack_uvs parameters",
+        all(o in params for opts in _Uv.PACK_ENGINES.values() for o in opts),
+    )
+
+    # pack_uvs: into the UDIM tile, then the coverage
+    reset()
+    o = _panel_cube("PackMe")
+    packed = _Uv.pack_uvs(None, udim=1012, margin=0.001)
+    b = uv_bounds(o)
+    check(
+        "pack_uvs lands the map in UDIM 1012",
+        packed.objects == ["PackMe"]
+        and 1.0 - 1e-3 <= b[0] and b[1] <= 2.0 + 1e-3
+        and 1.0 - 1e-3 <= b[2] and b[3] <= 2.0 + 1e-3,
+        f"bounds={b} objects={packed.objects}",
+    )
+    _Uv.pack_uvs(o, udim=1001, coverage=(0.5, 1.0))
+    b = uv_bounds(o)
+    check("pack_uvs coverage Half (U) packs into u 0-0.5", b[1] <= 0.5 + 1e-3, f"bounds={b}")
+
+    # auto_project / unfold_uvs
+    reset()
+    o = _panel_cube("Projected")
+    result = _Uv.auto_project(o, angle_limit=66.0)
+    b = uv_bounds(o)
+    check(
+        "auto_project: Smart UV Project into 0-1",
+        result.engine == "standard" and result.succeeded == ["Projected"]
+        and -1e-3 <= b[0] and b[1] <= 1.0 + 1e-3,
+        f"{result} bounds={b}",
+    )
+    result = _Uv.unfold_uvs(o, method="conformal")
+    check("unfold_uvs unfolds the mesh", bool(result) and result.unfolded == ["Projected"], str(result))
+
+    # cut_uvs / sew_uvs: Edit-Mode seams only
+    reset()
+    o = _panel_cube("Seams")
+    try:
+        _Uv.cut_uvs(o)
+        refused = False
+    except ValueError:
+        refused = True
+    check("cut_uvs in Object Mode refuses (ValueError)", refused)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    _Uv.cut_uvs()
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check("cut_uvs seams the selected edges", _seams(o) == 12, f"seams={_seams(o)}")
+    bpy.ops.object.mode_set(mode="EDIT")
+    _Uv.sew_uvs()
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check("sew_uvs clears them", _seams(o) == 0, f"seams={_seams(o)}")
+
+    # cut_hard_edges / unwrap_cylinder(unfold=False)
+    reset()
+    o = _panel_cube("Hard")
+    check("cut_hard_edges returns the meshes", _Uv.cut_hard_edges(o) == [o])
+    check("cut_hard_edges seams the 12 cube edges", _seams(o) == 12, f"seams={_seams(o)}")
+    reset()
+    bpy.ops.mesh.primitive_cylinder_add()
+    o = bpy.context.active_object
+    check("unwrap_cylinder returns the meshes", _Uv.unwrap_cylinder(o, unfold=False) == [o])
+    check("unwrap_cylinder unfold=False seams the crease edges", _seams(o) > 0, f"seams={_seams(o)}")
+
+    # pin_uvs (the mode's scope), stack_uv_shells(pin=True) and set_uv_coords
+    reset()
+    bpy.ops.mesh.primitive_plane_add()
+    o = bpy.context.active_object
+    _Uv.pin_uvs()
+    check("pin_uvs: Object Mode pins the whole map", _pins(o) == 4, f"pins={_pins(o)}")
+    _Uv.pin_uvs(pin=False)
+    check("pin_uvs pin=False unpins", _pins(o) == 0, f"pins={_pins(o)}")
+    bm = bmesh.new()
+    uvl = bm.loops.layers.uv.new("UVMap")
+    for n, (u0, v0, u1, v1) in enumerate(((0.0, 0.0, 0.2, 0.2), (0.6, 0.6, 0.8, 0.8))):
+        verts = [bm.verts.new((n * 3.0 + dx, dy, 0.0)) for dx, dy in ((0, 0), (1, 0), (1, 1), (0, 1))]
+        face = bm.faces.new(verts)
+        for loop, uv in zip(face.loops, ((u0, v0), (u1, v0), (u1, v1), (u0, v1))):
+            loop[uvl].uv = uv
+    me = bpy.data.meshes.new("Quads")
+    bm.to_mesh(me)
+    bm.free()
+    quads = bpy.data.objects.new("Quads", me)
+    bpy.context.collection.objects.link(quads)
+    snapshot = _Uv.get_uv_coords([quads], pins=True)
+    moved = _Uv.stack_uv_shells([quads], pin=True)
+    check("stack_uv_shells(pin=True) stacks and pins", moved == 1 and _pins(quads) == 8, f"moved={moved} pins={_pins(quads)}")
+    _Uv.set_uv_coords([quads], snapshot)
+    check("set_uv_coords restores positions and pins", _Uv.get_uv_coords([quads], pins=True) == snapshot)
+
+    # uv_scope_key: the Edit-Mode vertex selection is part of the key
+    reset()
+    o = _panel_cube("Scope")
+    key_object = _Uv.uv_scope_key()
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    key_all = _Uv.uv_scope_key()
+    bpy.ops.mesh.select_all(action="DESELECT")
+    key_none = _Uv.uv_scope_key()
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check(
+        "uv_scope_key changes with the mode and the vertex selection",
+        key_object == (("Scope", -1, 0),) and len({key_object, key_all, key_none}) == 3,
+        f"{key_object} {key_all} {key_none}",
+    )
+
+    # Diagnostics.cleanup_uv_sets: mayatk's field names on the rows
+    reset()
+    o = _panel_cube("Sets")
+    o.data.uv_layers.new(name="extra", do_init=False)
+    rows = btk.Diagnostics.cleanup_uv_sets([o], keep_only_primary=True, dry_run=True)
+    check(
+        "Diagnostics.cleanup_uv_sets rows read shape / sets_to_delete",
+        len(rows) == 1 and rows[0].shape == "Sets" and rows[0].sets_to_delete == rows[0].deleted
+        and "extra" in rows[0].sets_to_delete,
+        str(rows),
+    )
+
+    # export_uv_image refuses without an active mesh
+    reset()
+    try:
+        _Uv.export_uv_image()
+        refused = False
+    except ValueError:
+        refused = True
+    check("export_uv_image without an active mesh refuses (ValueError)", refused)
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

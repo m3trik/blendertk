@@ -855,7 +855,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (550)
+## Added (566)
 
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
 - `anim_utils/_anim_utils.py::AnimUtils.remove_fcurve(action, slot, fc) -> bool`
@@ -976,6 +976,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `core_utils/diagnostics/scene_diag.py::SceneDiagnostics(class)`
 - `core_utils/diagnostics/scene_diag.py::SceneDiagnostics.fix_missing_color_spaces(images=None, force_update=False, dry_run=False, verbose=True)`
 - `core_utils/diagnostics/transform_diag.py::TransformDiagnostics.transforms_in_scope(scope='selection')`
+- `core_utils/diagnostics/uv_diag.py::UvDiagnostics.cleanup_uv_sets(objects, remove_empty=True, keep_only_primary=True, rename_to_map1=True, force_rename=False, prefer_largest_area=False, dry_run=False)`
 - `core_utils/preview.py::Preview.apply_result_selection(widget, results)`
 - `display_utils/_display_utils.py::DisplayUtils.clear_xray()`
 - `display_utils/_display_utils.py::DisplayUtils.cycle_component_ids()`
@@ -1378,9 +1379,24 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `ui_utils/_ui_utils.py::UiUtils.open_preferences(cls, section=None)`
 - `ui_utils/_ui_utils.py::UiUtils.set_tool(cls, tool)`
 - `ui_utils/node_icons.py::NodeIcons.audio_icon(size: int = 16)`
+- `uv_utils/_uv_utils.py::PackUvsResult(class)`
+- `uv_utils/_uv_utils.py::PackUvsResult.objects(self) -> List[str]`
+- `uv_utils/_uv_utils.py::UnfoldResult(class)`
+- `uv_utils/_uv_utils.py::UvSetCleanupResult(class)`
+- `uv_utils/_uv_utils.py::UvSetCleanupResult.sets_to_delete(self)`
+- `uv_utils/_uv_utils.py::UvSetCleanupResult.shape(self)`
+- `uv_utils/_uv_utils.py::UvUtils.auto_project(cls, objects=None, map_size: int = 4096, scale_mode: int = 1, angle_limit: float = 66.0, margin: float = 0.0, progress_callback=None)`
+- `uv_utils/_uv_utils.py::UvUtils.cut_hard_edges(cls, objects=None, low_angle: float = 70.0, high_angle: float = 180.0, uv_borders: bool = False, auto_seams: bool = False)`
+- `uv_utils/_uv_utils.py::UvUtils.cut_uvs(cls, objects=None)`
+- `uv_utils/_uv_utils.py::UvUtils.export_uv_image()`
 - `uv_utils/_uv_utils.py::UvUtils.move_to_uv_space(objects, u, v, relative=True)`
 - `uv_utils/_uv_utils.py::UvUtils.orient_shells(objects, to_edge=False)`
+- `uv_utils/_uv_utils.py::UvUtils.pack_uvs(cls, objects=None, map_size: int = 1024, udim: int = 1001, coverage=(1.0, 1.0), rotate: bool = True, preserve_3d: bool = True, padding=None, engine: str = 'standard', margin=None)`
 - `uv_utils/_uv_utils.py::UvUtils.rotate_uvs(objects, angle)`
+- `uv_utils/_uv_utils.py::UvUtils.sew_uvs(cls, objects=None)`
+- `uv_utils/_uv_utils.py::UvUtils.unfold_uvs(cls, objects=None, optimize: bool = True, orient: bool = True, stack_similar: bool = True, tolerance: float = 1.0, map_size: int = 4096, repair: bool = False, method: str = 'angle_based', margin: float = 0.0)`
+- `uv_utils/_uv_utils.py::UvUtils.unwrap_cylinder(cls, objects=None, angle=45.0, invert_seam=False, unfold=True, orient=True, map_size=4096, sew=True, taper_angle=20.0, camera=None, flat_angle=60.0, trim_ratio=0.12)`
+- `uv_utils/_uv_utils.py::UvUtils.uv_scope_key(objects=None)`
 - `uv_utils/rizom_bridge/_rizom_bridge.py::RizomUVBridge.list_template_modes(self) -> 'list[tuple[str, str]]'`
 - `uv_utils/rizom_bridge/_rizom_bridge.py::RizomUVBridge.pack_into_existing(self, objects, params=None)`
 - `uv_utils/rizom_bridge/_rizom_bridge.py::RizomUVBridge.params_registry(cls)`
@@ -1445,7 +1461,7 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/emissive_groups.py::EmissiveGroups.validate`
 - `ui_utils/blender_ui_handler.py::BlenderUiHandler.default_persistence`
 
-## Signature changed (45)
+## Signature changed (47)
 
 - `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.edit_frame_based`
   - was: `(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None) -> List[Target]`
@@ -1558,6 +1574,12 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `uv_utils/_uv_utils.py::UvUtils.distribute_uv_shells`
   - was: `(objects, axis='u')`
   - now: `(objects, axis='u', spacing=None)`
+- `uv_utils/_uv_utils.py::UvUtils.pin_uvs`
+  - was: `(objects, pin=True, selected_only=True, whole_shells=False)`
+  - now: `(objects=None, pin=True, selected_only=None, whole_shells=False)`
+- `uv_utils/_uv_utils.py::UvUtils.stack_uv_shells`
+  - was: `(objects, tolerance=None)`
+  - now: `(objects=None, tolerance=None, pin=False)`
 - `uv_utils/texture_combine/texture_combine.py::TextureCombine.combine`
   - was: `(self, objects=None, *, name: Optional[str] = None, rows: Sequence[Dict[str, Any]] = (), sizing: str = 'proportional', normalize: str = 'resolution', map_size: int = 4096, padding: Optional[int] = None, rotate: bool = True, supersample: int = 2, texture_padding: int = -1, output_dir: Optional[str] = None, assign_prefix: str = '', assign_suffix: Optional[str] = None, lightmaps: bool = True, inputs: Optional[CombineInputs] = None) -> Dict[str, Any]`
   - now: `(self, objects=None, *, name: Optional[str] = None, rows: Sequence[Dict[str, Any]] = (), sizing: str = 'proportional', normalize: str = 'resolution', map_size: int = 4096, padding: Optional[int] = None, rotate: bool = True, supersample: int = 2, texture_padding: int = -1, output_dir: Optional[str] = None, assign_prefix: str = '', assign_suffix: Optional[str] = None, assign_shader_type: Optional[str] = None, lightmaps: bool = True, inputs: Optional[CombineInputs] = None) -> Dict[str, Any]`
