@@ -12,11 +12,12 @@ A key's TIME goes through the controller's own shot-aware key path
 (``_expand_and_compensate`` + ``_commit_curve_moves`` inside one
 ``store.scene_edit``), so a graph move grows and ripples shot bounds and moves
 the system's claims exactly as a track-row key drag does; its VALUE through
-:meth:`AnimUtils.shift_key_values`, first, at the keys' old times.  Handles,
-handle types, interpolation and break / unify go through the key menu's own
-writers (``_edit_key_tangents`` and the rest), so a graph edit and a track-row
-edit are one code path.  A Blender handle always carries its length: the graph
-offers no weighting rows here.  Infinity is the fcurve's extrapolation -- one
+:meth:`AnimUtils.shift_key_values`, first, at the keys' old times.  Handle
+types, interpolation and break / unify go through the panel's key-menu writers
+(``_set_key_tangents`` and the rest), and a dragged handle through
+``SequencerHost.set_dragged_handles``, the writer the track view's handle drag
+uses too -- so a graph edit and a track-row edit are one code path.  A Blender
+handle always carries its length: the graph offers no weighting rows here.  Infinity is the fcurve's extrapolation -- one
 for both ends, as Blender has it -- or a Cycles modifier's side.
 
 Curve ids are ``"<object>|<data_path>|<index>"`` -- per object, since one
@@ -33,7 +34,6 @@ from typing import Dict, List, Optional, Tuple
 
 from blendertk.anim_utils._anim_utils import AnimUtils
 from blendertk.anim_utils.shots._shots import BlenderShotStore
-from blendertk.anim_utils.shots.shot_sequencer.key_menu import KeyMenuMixin
 from blendertk.anim_utils.shots.shot_sequencer.segment_collector import (
     SegmentCollector,
 )
@@ -45,14 +45,35 @@ __all__ = ["GraphSync"]
 class GraphSync:
     """Feeds the sequencer's graph editor and commits its edits (module docstring).
 
+    The Shot Sequencer panel is tentacle's, one for both hosts; this class is
+    Blender's half of its graph view, built by the panel through
+    ``SequencerHost.graph_sync_cls()``.  It reaches the panel's controller
+    through this protocol and nothing else of it:
+
+    * state: ``sequencer``, ``active_shot_id``, ``_syncing`` (held around an
+      edit), ``_segment_cache`` / ``_sub_row_cache`` (cleared after one),
+      ``_content_stale`` (set when the track rows are left stale) and
+      ``_key_target_sources``;
+    * reads: ``_visible_shots(shot)``;
+    * the key path: ``_expand_and_compensate(curve_moves, shot_extents)`` and
+      ``_commit_curve_moves(curve_moves, ledger=...)`` with Blender's
+      ``curve_moves`` -- ``{fcurve pointer: {"curve": FCurve, "obj": name,
+      "pairs": [(old, new, shot_id), ...]}}`` -- ``register_key_targets(name,
+      source)`` and ``_add_selection_key_actions(menu, targets, suffix)``;
+    * the key-menu writers: ``_set_key_tangents(targets, handle_type)``,
+      ``_set_key_interpolation(targets, mode)`` and
+      ``_lock_key_tangents(targets, lock)``;
+    * after an edit: ``_sync_to_widget()``, ``_sync_combobox()`` and
+      ``_set_footer(text)``.
+
     Parameters:
-        controller: The panel's ``ShotSequencerController``.
+        controller: The panel's controller (the protocol above).
         widget: Its ``SequencerWidget``.
     """
 
     #: Blender's handle types, then its interpolations, as the graph offers
     #: them -- one list, as Maya's tangent types span both.  ``FLAT`` is the
-    #: key menu's horizontal handle (``KeyMenuMixin._set_key_tangents``).
+    #: key menu's horizontal handle (the panel's ``_set_key_tangents``).
     TANGENT_TYPES = (
         ("AUTO_CLAMPED", "Auto Clamped"),
         ("AUTO", "Automatic"),
@@ -245,7 +266,7 @@ class GraphSync:
         out) and the frame window those shots span.
 
         Read from the store, not from the track rows: those are not built
-        while the graph shows (``WidgetSyncMixin._rebuild_content``).
+        while the graph shows (the panel's ``_rebuild_content``).
         """
         ctl = self.controller
         seq = ctl.sequencer
@@ -421,7 +442,7 @@ class GraphSync:
     def key_targets(self, groups=None) -> list:
         """``[(obj, attr, [times], shot_id), ...]`` for the graph's key
         selection (or *groups*, ``[(curve, [times])]``): the shape the key
-        menu and the key shortcuts act on (``KeyMenuMixin._key_targets``)."""
+        menu and the key shortcuts act on (the panel's ``_key_targets``)."""
         if groups is None:
             groups = self.editor.selected_keys()
         targets = []
@@ -464,7 +485,7 @@ class GraphSync:
             if shifted:
                 values[fc] = shifted  # an fcurve hashes by its pointer
             entry = curve_moves.setdefault(
-                fc.as_pointer(), {"fc": fc, "obj": self._ids[cid][0], "pairs": []}
+                fc.as_pointer(), {"curve": fc, "obj": self._ids[cid][0], "pairs": []}
             )
             known = {round(t, 6) for t, _n, _s in entry["pairs"]}
             for t, dt, _dv in rows:
@@ -506,27 +527,21 @@ class GraphSync:
 
     def on_tangents_edited(self, rows) -> None:
         """Commit dragged handles: ``[(curve, [(t, side, dt, dv, broken), ...])]``,
-        through the key menu's handle writer (``place_dragged_handle``)."""
-        vectors = {}
-        groups = []
-        for cid, items in rows:
-            owner = self._owners.get(cid)
-            if owner is None:
-                continue
-            for t, side, dt, dv, broken in items:
-                vectors[owner + (round(float(t), 6),)] = (side, dt, dv, broken)
-            groups.append((cid, [t for t, *_rest in items]))
+        through the host's one handle writer (``SequencerHost.set_dragged_handles``,
+        which the track view's handle drag writes through too)."""
+        from blendertk.anim_utils.shots.shot_sequencer.sequencer_host import (
+            SequencerHost,
+        )
 
-        def apply(obj, attr, time, kp):
-            vector = vectors.get((obj, attr, round(float(time), 6)))
-            if vector is not None:
-                side, dt, dv, broken = vector
-                KeyMenuMixin.place_dragged_handle(kp, side, dt, dv, broken=broken)
-
-        targets = self.key_targets(groups)
-        if targets:
-            self.controller._edit_key_tangents(targets, apply, "dragged in the graph")
-            self._after_key_menu_edit([c for c, _t in groups])
+        n = 0
+        with self._edit(None, "Graph tangents"):
+            for cid, items in rows:
+                n += SequencerHost.set_dragged_handles(self._fcurve(cid), items)
+        self._after(
+            f"Tangents set on {n} key{'s' if n != 1 else ''}",
+            bounds=False,
+            curves=[c for c, _i in rows],
+        )
 
     def on_keys_deleted(self, groups) -> None:
         """Remove keys: ``[(curve, [time, ...])]``; their claims go with them."""
@@ -668,7 +683,11 @@ class GraphSync:
 
     def on_key_selection(self, groups) -> None:
         """Mirror the graph's key selection into Blender's (not an undo step)."""
-        self.controller._apply_key_selection(
+        from blendertk.anim_utils.shots.shot_sequencer.sequencer_host import (
+            SequencerHost,
+        )
+
+        SequencerHost.select_keys(
             [(o, a, t) for o, a, t, _s in self.key_targets(groups)]
         )
 

@@ -46,11 +46,6 @@ def _sandbox_qsettings():
     spec.loader.exec_module(mod)  # activates the QSettings sandbox at import time
 
 
-# Co-located tool panels that BlenderUiHandler must discover from the blendertk package.
-PANELS = [
-    "shot_sequencer",
-]
-
 lines = []
 
 
@@ -225,48 +220,31 @@ try:
         BlenderUiHandler._instances.clear()
         BlenderUiHandler._instances.update(_saved_instances)
 
-    # 1. The handler's recursive scan of the blendertk package registers exactly the
-    #    co-located tool panels listed in PANELS (and nothing spurious) — the core
-    #    architectural guarantee.
-    registry = sb.registry.ui_registry
-    registered = set(registry.get("filename") or [])
-    for panel in PANELS:
-        check(f"panel discovered: {panel}", panel in registered, "in ui_registry")
-    check(
-        "no spurious panels registered",
-        registered == set(PANELS),
-        f"{sorted(registered)}",
-    )
+    # 1. Every tool panel is tentacle's: the handler's scan of the blendertk
+    #    package registers none.
+    registered = set(sb.registry.ui_registry.get("filename") or [])
+    check("the blendertk scan registers no panels", not registered, f"{sorted(registered)}")
 
-    # 2. Loading a panel whose Slots.__init__ is bpy-free wires the co-located <Tool>Slots
-    #    FROM blendertk (not tentacle) and stamps the blendertk source tag (hide-button style).
-    for panel, slot_cls in (
-    ):
-        ui = sb.get_ui(panel)
-        check(f"{panel} ui loads", ui is not None)
-        slot = getattr(ui, "slots", None)
-        check(
-            f"{panel} wires {slot_cls} from blendertk",
-            slot is not None
-            and type(slot).__name__ == slot_cls
-            and type(slot).__module__.startswith("blendertk."),
-            type(slot).__module__ if slot else "no slot",
-        )
-        check(
-            f"{panel} carries the blendertk source tag",
-            hasattr(ui, "has_tags") and ui.has_tags(["blendertk"]),
-        )
-
-    # 2b. The "blendertk" -> hide rule is a DEFAULT declared through
+    # 2. The "blendertk" -> hide rule is a DEFAULT declared through
     #     UiHandler.default_persistence, not a hardcoded header_buttons swap in
     #     apply_styles. That distinction is the whole point: a hardcoded set is a
     #     value the UI Browser's window-persistence override has no way to outrank
     #     (which is why the setting had no effect on marking-menu panels).
     from uitk.handlers.ui_handler import UiHandler as _UiHandler
 
+    class _TaggedPanel:
+        """A loaded window as the handler reads it: its name and source tags."""
+
+        def objectName(self):
+            return "handler_test_panel"
+
+        def has_tags(self, tags):
+            return set(tags) <= {"blendertk"}
+
+    _panel = _TaggedPanel()
     check(
         "blendertk-tagged panels default to sticky (hide button)",
-        handler.default_persistence(sb.get_ui("shot_sequencer"))
+        handler.default_persistence(_panel)
         == _UiHandler.PERSISTENCE_STICKY,
     )
     check(
@@ -276,15 +254,15 @@ try:
     )
     check(
         "a UI Browser override outranks the blendertk default",
-        handler.resolve_persistence(sb.get_ui("shot_sequencer"), context_default=None)
+        handler.resolve_persistence(_panel, context_default=None)
         == _UiHandler.PERSISTENCE_STICKY
         and (
-            handler.set_persistence_override("shot_sequencer", _UiHandler.PERSISTENCE_TRANSIENT)
-            or handler.resolve_persistence(sb.get_ui("shot_sequencer"))
+            handler.set_persistence_override("handler_test_panel", _UiHandler.PERSISTENCE_TRANSIENT)
+            or handler.resolve_persistence(_panel)
         )
         == _UiHandler.PERSISTENCE_TRANSIENT,
     )
-    handler.set_persistence_override("shot_sequencer", None)  # leave the store clean
+    handler.set_persistence_override("handler_test_panel", None)  # leave the store clean
 
     # maya_bridge: render_template substitutes the FBX path + params (Qt path; needs no bpy, so it
     # belongs here rather than in the headless test_maya_bridge harness which lacks Qt).

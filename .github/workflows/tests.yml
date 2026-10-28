@@ -126,7 +126,6 @@ jobs:
           test_qt_dock
           test_rizom_construction
           test_script_output
-          test_shot_sequencer_panel
           test_shot_sequencer_hooks
           test_workspace
           "

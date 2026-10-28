@@ -2258,7 +2258,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         """Shift the keys of fcurve *crv* at *times* by *delta* (handles travel too).
 
         Public for the same two consumers as mayatk's (shot moves and the
-        clip-motion drag handler).  *plug* is accepted for signature parity
+        Shot Sequencer panel's key drags, ``SequencerHost.commit_curve_moves``).  *plug* is accepted for signature parity
         (Maya needs the driven plug when ``cutKey`` deletes the curve node;
         a Blender fcurve survives with zero points).
 
@@ -2409,11 +2409,11 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         if o is None:
             return []
         if attr:
-            from blendertk.anim_utils.shots.shot_sequencer.clip_motion import (
-                ClipMotionMixin,
+            from blendertk.anim_utils.shots.shot_sequencer.sequencer_host import (
+                SequencerHost,
             )
 
-            return list(ClipMotionMixin.curves_for_attr(obj, attr))
+            return list(SequencerHost.curves_for_attr(obj, attr))
         return list(AnimUtils.get_fcurves(o))
 
     def _animator_key_times(self, obj_name: str, fc, window=None) -> List[float]:
@@ -2603,11 +2603,11 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         if o is None:
             return []
         if attr_name:
-            from blendertk.anim_utils.shots.shot_sequencer.clip_motion import (
-                ClipMotionMixin,
+            from blendertk.anim_utils.shots.shot_sequencer.sequencer_host import (
+                SequencerHost,
             )
 
-            return list(ClipMotionMixin.curves_for_attr(obj, attr_name))
+            return list(SequencerHost.curves_for_attr(obj, attr_name))
         out = []
         for fc in _ShotSequencerInternal._transform_fcurves(o):
             if shot is None:

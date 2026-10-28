@@ -22,22 +22,9 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`anim_utils/shots/shot_manifest/manifest_host.py`](#anim_utils--shots--shot_manifest--manifest_host) — What the Shot Manifest panel needs from Blender: its store, engine, detection,
 - [`anim_utils/shots/shot_manifest/range_resolver.py`](#anim_utils--shots--shot_manifest--range_resolver) — Range resolution for the Shot Manifest build pipeline (Blender-bound facade).
 - [`anim_utils/shots/shot_sequencer/_shot_sequencer.py`](#anim_utils--shots--shot_sequencer--_shot_sequencer) — Blender shot sequencer engine — ripple editing + key motion over the shared planner.
-- [`anim_utils/shots/shot_sequencer/clip_menu.py`](#anim_utils--shots--shot_sequencer--clip_menu) — Clip context menus and clip-level key operations.
-- [`anim_utils/shots/shot_sequencer/clip_motion.py`](#anim_utils--shots--shot_sequencer--clip_motion) — Clip motion, resize, and key-scaling logic for the shot sequencer (Blender).
-- [`anim_utils/shots/shot_sequencer/gap_manager.py`](#anim_utils--shots--shot_sequencer--gap_manager) — Gap and range-highlight handlers for the shot sequencer controller (Blender).
 - [`anim_utils/shots/shot_sequencer/graph_sync.py`](#anim_utils--shots--shot_sequencer--graph_sync) — Graph editor glue: the shot sequencer's curves in uitk's graph editor (Blender).
-- [`anim_utils/shots/shot_sequencer/key_menu.py`](#anim_utils--shots--shot_sequencer--key_menu) — Key context menus and key-selection edits.
-- [`anim_utils/shots/shot_sequencer/marker_manager.py`](#anim_utils--shots--shot_sequencer--marker_manager) — Marker persistence for the shot sequencer controller (Blender).
-- [`anim_utils/shots/shot_sequencer/scene_callbacks.py`](#anim_utils--shots--shot_sequencer--scene_callbacks) — Blender scene handlers for the shot sequencer.
-- [`anim_utils/shots/shot_sequencer/scene_selection.py`](#anim_utils--shots--shot_sequencer--scene_selection) — Tracks and the Blender selection.
 - [`anim_utils/shots/shot_sequencer/segment_collector.py`](#anim_utils--shots--shot_sequencer--segment_collector) — Segment collection and attribute extraction for the shot sequencer (Blender).
-- [`anim_utils/shots/shot_sequencer/shot_lane.py`](#anim_utils--shots--shot_sequencer--shot_lane) — The shot lane: its context menu and the shot structure edits.
-- [`anim_utils/shots/shot_sequencer/shot_nav.py`](#anim_utils--shots--shot_sequencer--shot_nav) — Shot navigation and combobox synchronization (Blender).
-- [`anim_utils/shots/shot_sequencer/shot_sequencer_controller.py`](#anim_utils--shots--shot_sequencer--shot_sequencer_controller) — The Shot Sequencer panel's controller: :class:`ShotSequencerController` (Blender).
-- [`anim_utils/shots/shot_sequencer/shot_sequencer_slots.py`](#anim_utils--shots--shot_sequencer--shot_sequencer_slots) — Switchboard slots for the Shot Sequencer UI (Blender).
-- [`anim_utils/shots/shot_sequencer/transport.py`](#anim_utils--shots--shot_sequencer--transport) — Transport: the playhead, audio scrub and the transport row.
-- [`anim_utils/shots/shot_sequencer/undo_ledger.py`](#anim_utils--shots--shot_sequencer--undo_ledger) — The shot sequencer's undo ledger.
-- [`anim_utils/shots/shot_sequencer/widget_sync.py`](#anim_utils--shots--shot_sequencer--widget_sync) — Widget sync: rebuilding the sequencer from the scene.
+- [`anim_utils/shots/shot_sequencer/sequencer_host.py`](#anim_utils--shots--shot_sequencer--sequencer_host) — What the Shot Sequencer panel needs from Blender: :class:`SequencerHost`.
 - [`anim_utils/smart_bake/_smart_bake.py`](#anim_utils--smart_bake--_smart_bake) — Smart Bake engine — mirror of mayatk's ``anim_utils.smart_bake._smart_bake`` at the
 - [`anim_utils/smart_bake/bake_session.py`](#anim_utils--smart_bake--bake_session) — Persistence and restore engine for SmartBake's nondestructive manifest — mirror of mayatk's
 - [`anim_utils/stagger_keys.py`](#anim_utils--stagger_keys) — Dedicated stagger-keys module to keep AnimUtils lean and testable (mirror of mayatk's
@@ -202,7 +189,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L443) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L445) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -507,48 +494,6 @@ Blender shot sequencer engine — ripple editing + key motion over the shared pl
   - `ShotSequencer.scale_object_keys(self, obj: str, old_start: float, old_end: float, new_start: float, new_end: float) -> None` — Scale one object's keys from ``[old_start, old_end]`` into ``[new_start, new_end]``.
   - `ShotSequencer.scale_shot_keys(self, old_start: float, old_end: float, new_start: float, new_end: float) -> None` — Retime every key inside ``[old_start, old_end]`` into the new span.
 
-<a id="anim_utils--shots--shot_sequencer--clip_menu"></a>
-### `anim_utils/shots/shot_sequencer/clip_menu.py`
-
-Clip context menus and clip-level key operations.
-
-- **[`class ClipMenuMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/clip_menu.py#L16)** — Clip and gap context menus, and the clip-level key operations they run.
-  - `ClipMenuMixin.on_clip_menu(self, menu, clip_id: int) -> None` — Add Delete-key + lock actions to a clip's context menu.
-  - `ClipMenuMixin.on_gap_menu(self, menu, gap_start: float, gap_end: float) -> None` — Add domain-specific actions to a gap overlay's context menu (none by default).
-
-<a id="anim_utils--shots--shot_sequencer--clip_motion"></a>
-### `anim_utils/shots/shot_sequencer/clip_motion.py`
-
-Clip motion, resize, and key-scaling logic for the shot sequencer (Blender).
-
-- [`FLOAT_ZERO_EPS`](blendertk/blendertk/anim_utils/shots/shot_sequencer/clip_motion.py#L29) — constant
-- **[`class ClipMotionMixin(_ClipMotionMixinInternal)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/clip_motion.py#L61)** — Mixin supplying clip move, resize, and batch-move handlers.
-  - `ClipMotionMixin.on_clip_resized(self, clip_id: int, new_start: float, new_duration: float) -> None` — Resize one clip — see :meth:`_commit_clip_resizes`.
-  - `ClipMotionMixin.on_clips_batch_resized(self, resizes) -> None` — An edge drag that scaled a SELECTION of clips as one unit.
-  - `ClipMotionMixin.on_clip_moved(self, clip_id: int, new_start: float) -> None` — Handle clip move — routes to audio (deferred) or shot-level logic.
-  - `ClipMotionMixin.on_clips_batch_moved(self, moves) -> None` — Handle a batch of clip moves (group drag), syncing once at the end.
-  - `ClipMotionMixin.on_keys_moved(self, clip_id: int, changes: list) -> None` — Move individual keyframes on the fcurves, then refresh.
-  - `ClipMotionMixin.on_keys_batch_moved(self, groups) -> None` — Commit one key drag that spanned any number of clips.
-  - `ClipMotionMixin.on_keys_deleted(self, clip_id: int, times: list) -> None` — Delete individual keyframes from the fcurves, then refresh.
-  - `ClipMotionMixin.curves_for_attr(obj_name: str, attr_name: str) -> list` *(static)* — Return the fcurves driving *attr_name* (a ``translateX``-style label) on *obj_name*.
-  - `ClipMotionMixin.curves_for_attrs(obj_name: str, attr_names) -> list` *(static)* — :meth:`curves_for_attr` over several labels: every fcurve behind
-  - `ClipMotionMixin.scale_attribute_keys(obj_name: str, attr_name: str, old_start: float, old_end: float, new_start: float, new_end: float, ledger=None) -> bool` *(static)* — Scale only the fcurves driving *attr_name* on *obj_name* (sub-row clip resize).
-
-<a id="anim_utils--shots--shot_sequencer--gap_manager"></a>
-### `anim_utils/shots/shot_sequencer/gap_manager.py`
-
-Gap and range-highlight handlers for the shot sequencer controller (Blender).
-
-- [`TIME_SNAP_EPS`](blendertk/blendertk/anim_utils/shots/shot_sequencer/gap_manager.py#L16) — constant
-- **[`class GapManagerMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/gap_manager.py#L21)** — Mixin supplying gap-overlay and range-highlight handlers.
-  - `GapManagerMixin.on_range_highlight_changed(self, start: float, end: float) -> None` — Update the active shot when a range-highlight handle is dragged.
-  - `GapManagerMixin.on_gap_resized(self, original_next_start: float, new_next_start: float) -> None` — Handle a right-edge gap drag: the following shot's ``.start``.
-  - `GapManagerMixin.on_gap_left_resized(self, original_prev_end: float, new_prev_end: float) -> None` — Handle a left-edge gap drag: the preceding shot's ``.end``.
-  - `GapManagerMixin.on_gap_moved(self, old_start: float, old_end: float, new_start: float, new_end: float) -> None` — Handle body gap drag — slide the gap while preserving its width.
-  - `GapManagerMixin.on_gap_lock_changed(self, gap_start: float, gap_end: float, locked: bool) -> None` — Handle a single gap's lock state being toggled via context menu.
-  - `GapManagerMixin.on_gap_lock_all(self) -> None` — Lock all gaps so they are preserved during respace.
-  - `GapManagerMixin.on_gap_unlock_all(self) -> None` — Unlock all gaps so they follow the global gap value.
-
 <a id="anim_utils--shots--shot_sequencer--graph_sync"></a>
 ### `anim_utils/shots/shot_sequencer/graph_sync.py`
 
@@ -569,54 +514,6 @@ Graph editor glue: the shot sequencer's curves in uitk's graph editor (Blender).
   - `GraphSync.on_infinity(self, side: str, mode: str, curves) -> None` — Pre / post infinity.
   - `GraphSync.on_key_selection(self, groups) -> None` — Mirror the graph's key selection into Blender's (not an undo step).
 
-<a id="anim_utils--shots--shot_sequencer--key_menu"></a>
-### `anim_utils/shots/shot_sequencer/key_menu.py`
-
-Key context menus and key-selection edits.
-
-- **[`class KeyMenuMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/key_menu.py#L19)** — Key context menus, tangent edits and drags, and the key-selection edits.
-  - `KeyMenuMixin.on_key_menu(self, menu, key_groups: list) -> None` — Add the key actions to a key's context menu.
-  - `KeyMenuMixin.register_key_targets(self, editor_name: str, source) -> None` — Resolve the key shortcuts' targets through *source* while the
-  - `KeyMenuMixin.place_dragged_handle(kp, side: str, dt: float, dv: float, broken: bool = False) -> None` *(static)* — Put one handle of keyframe point *kp* at ``co + (dt, dv)``.
-  - `KeyMenuMixin.on_keys_tangent_dragged(self, groups: list, side: str, broken: bool) -> None` — Write the handles a dragged tangent grab point asks for (see
-
-<a id="anim_utils--shots--shot_sequencer--marker_manager"></a>
-### `anim_utils/shots/shot_sequencer/marker_manager.py`
-
-Marker persistence for the shot sequencer controller (Blender).
-
-- **[`class MarkerManagerMixin(_MarkerManagerMixinInternal)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/marker_manager.py#L40)** — Mixin supplying marker CRUD persistence.
-  - `MarkerManagerMixin.on_marker_added(self, marker_id: int, time: float) -> None` — Persist a newly added marker.
-  - `MarkerManagerMixin.on_marker_moved(self, marker_id: int, new_time: float) -> None` — Update persisted marker time.
-  - `MarkerManagerMixin.on_marker_changed(self, marker_id: int) -> None` — Update persisted marker note/color.
-  - `MarkerManagerMixin.on_marker_removed(self, marker_id: int) -> None` — Remove marker from persistent store.
-
-<a id="anim_utils--shots--shot_sequencer--scene_callbacks"></a>
-### `anim_utils/shots/shot_sequencer/scene_callbacks.py`
-
-Blender scene handlers for the shot sequencer.
-
-- **[`class SceneCallbacksMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/scene_callbacks.py#L16)** — Scene event hooks: undo/redo, key edits and time changes refresh the widget.
-  - `SceneCallbacksMixin.remove_callbacks(self) -> None` — Detach all scene handlers + listeners (call on teardown).
-
-<a id="anim_utils--shots--shot_sequencer--scene_selection"></a>
-### `anim_utils/shots/shot_sequencer/scene_selection.py`
-
-Tracks and the Blender selection.
-
-- **[`class SceneSelectionMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/scene_selection.py#L17)** — Tracks, and the DCC selection that follows the sequencer's.
-  - `SceneSelectionMixin.hide_track(self, track_names) -> None`
-  - `SceneSelectionMixin.show_track(self, track_name: str) -> None`
-  - `SceneSelectionMixin.delete_track(self, track_names) -> None`
-  - `SceneSelectionMixin.on_selection_changed(self, clip_ids: list) -> None` — Select the clicked clips' objects, and their CHANNEL if they name one.
-  - `SceneSelectionMixin.on_track_selected(self, track_names: list) -> None`
-  - `SceneSelectionMixin.on_sub_track_selected(self, rows: list) -> None` — Select a channel when its sub-row label is clicked in the header.
-  - `SceneSelectionMixin.on_clip_locked(self, clip_id: int, locked: bool) -> None`
-  - `SceneSelectionMixin.on_track_menu(self, menu, track_names) -> None`
-  - `SceneSelectionMixin.on_header_menu(self, menu) -> None` — Header background context menu — no domain actions this phase.
-  - `SceneSelectionMixin.on_clip_renamed(self, clip_id: int, new_label: str) -> None` — Renaming a clip is display-only in Blender (object names own identity).
-  - `SceneSelectionMixin.on_key_selection_changed(self, key_groups: list) -> None` — Sync the Graph Editor's key selection to match the sequencer.
-
 <a id="anim_utils--shots--shot_sequencer--segment_collector"></a>
 ### `anim_utils/shots/shot_sequencer/segment_collector.py`
 
@@ -633,77 +530,71 @@ Segment collection and attribute extraction for the shot sequencer (Blender).
   - `SegmentCollector.summary_times(segments, claimed_times) -> list` *(static)* — Every key time an object row ticks in the flat key style.
   - `SegmentCollector.build_curve_preview(fcurve, t_start, t_end, hidden_times=())` *(static)* — Bezier shape data for one Blender fcurve, clipped to ``[t_start, t_end]``.
 
-<a id="anim_utils--shots--shot_sequencer--shot_lane"></a>
-### `anim_utils/shots/shot_sequencer/shot_lane.py`
+<a id="anim_utils--shots--shot_sequencer--sequencer_host"></a>
+### `anim_utils/shots/shot_sequencer/sequencer_host.py`
 
-The shot lane: its context menu and the shot structure edits.
+What the Shot Sequencer panel needs from Blender: :class:`SequencerHost`.
 
-- **[`class ShotLaneMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_lane.py#L14)** — The shot lane's menus and the shot structure edits they run.
-  - `ShotLaneMixin.on_zone_context_menu(self, zone: str, time: float, global_pos) -> None` — ``"shot_lane"`` is every click on the lane, plus every click over
-  - `ShotLaneMixin.delete_shot(self, shot_id: int) -> None` — Delete *shot_id* with its contents, closing the timeline behind it.
-  - `ShotLaneMixin.delete_shots(self, scope: str = 'stale') -> None` — Delete the shots of *scope*, after naming them (mirror of mayatk's).
-  - `ShotLaneMixin.delete_stale_shots(self) -> None` **DEPRECATED (remove in 0.16.0)**
-  - `ShotLaneMixin.move_shot_to_position(self, shot_id: int, position: int) -> None` — Re-slot *shot_id* at 1-based *position*, pushing the rest along.
-  - `ShotLaneMixin.merge_shot_with(self, shot_id: int, other_id: int) -> None` — Fuse two neighbouring shots into one spanning both.
-  - `ShotLaneMixin.split_shot_at(self, shot_id: int, time: float) -> None` — Cut *shot_id* in two at *time*, leaving its content where it is.
-
-<a id="anim_utils--shots--shot_sequencer--shot_nav"></a>
-### `anim_utils/shots/shot_sequencer/shot_nav.py`
-
-Shot navigation and combobox synchronization (Blender).
-
-- **[`class ShotNavMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_nav.py#L18)** — Mixin supplying shot selection and navigation.
-  - `ShotNavMixin.select_shot(self, shot_id: int) -> None` — Set the view playback range to the shot and select its objects.
-  - `ShotNavMixin.on_shot_block_clicked(self, shot_name: str) -> None` — Select a shot by name when its block is clicked in the shot lane.
-
-<a id="anim_utils--shots--shot_sequencer--shot_sequencer_controller"></a>
-### `anim_utils/shots/shot_sequencer/shot_sequencer_controller.py`
-
-The Shot Sequencer panel's controller: :class:`ShotSequencerController` (Blender).
-
-- **[`class ShotSequencerController(SceneCallbacksMixin, UndoLedgerMixin, ShotLaneMixin, ClipMenuMixin, KeyMenuMixin, WidgetSyncMixin, SceneSelectionMixin, TransportMixin, GapManagerMixin, ClipMotionMixin, ShotNavMixin, MarkerManagerMixin, pythontk.LoggingMixin, _ShotSequencerControllerInternal)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_controller.py#L88)** — Business logic controller bridging SequencerWidget ↔ ShotSequencer.
-  - `ShotSequencerController.sequencer(self) -> Optional[ShotSequencer]` *(property)*
-  - `ShotSequencerController.active_shot_id(self) -> Optional[int]` *(property)*
-
-<a id="anim_utils--shots--shot_sequencer--shot_sequencer_slots"></a>
-### `anim_utils/shots/shot_sequencer/shot_sequencer_slots.py`
-
-Switchboard slots for the Shot Sequencer UI (Blender).
-
-- **[`class ShotEditDialog`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L30)** — Lightweight dialog for creating or editing a shot (plain Qt widgets).
-  - `ShotEditDialog.show(parent=None, name: str = '', start: float = 1.0, end: float = 100.0, description: str = '', title: str = 'Shot', validate=None)` *(static)* — Show a modal dialog and return the result tuple or ``None``.
-- **[`class ShotSequencerSlots(pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L116)** — Switchboard slot class — routes UI events to the controller.
-  - `ShotSequencerSlots.header_init(self, widget)` — Build the header menu controls (mirror of mayatk's sequencer header).
-  - `ShotSequencerSlots.btn_colors(self)` — Open the attribute color configuration dialog.
-  - `ShotSequencerSlots.spn_snap(self, value)` — Set the snap interval on the sequencer widget.
-  - `ShotSequencerSlots.btn_shortcuts(self)` — Open the sequencer shortcut editor.
-  - `ShotSequencerSlots.btn_shot_settings(self)` — Open the shared shots settings panel (pinned, as Edit Shot does).
-  - `ShotSequencerSlots.cmb_shot(self, index)` — Handle direct combobox selection of a shot or marker.
-
-<a id="anim_utils--shots--shot_sequencer--transport"></a>
-### `anim_utils/shots/shot_sequencer/transport.py`
-
-Transport: the playhead, audio scrub and the transport row.
-
-- **[`class TransportMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/transport.py#L81)** — The playhead, audible scrubbing and the transport button row.
-  - `TransportMixin.on_playhead_moved(self, frame: float) -> None` — Widget playhead drag → set the scene frame (scrub audio via Blender).
-
-<a id="anim_utils--shots--shot_sequencer--undo_ledger"></a>
-### `anim_utils/shots/shot_sequencer/undo_ledger.py`
-
-The shot sequencer's undo ledger.
-
-- **[`class UndoLedgerMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/undo_ledger.py#L14)** — Shot-boundary restore points, and how one undo/redo splits between them and the DCC.
-  - `UndoLedgerMixin.on_undo(self) -> None` — Widget undo_requested -- Blender's undo;
-  - `UndoLedgerMixin.on_redo(self) -> None` — Widget redo_requested -- Blender's redo;
-
-<a id="anim_utils--shots--shot_sequencer--widget_sync"></a>
-### `anim_utils/shots/shot_sequencer/widget_sync.py`
-
-Widget sync: rebuilding the sequencer from the scene.
-
-- **[`class WidgetSyncMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/widget_sync.py#L21)** — Rebuilding the widget from the scene: tracks, clips, sub-rows, decoration.
-  - `WidgetSyncMixin.refresh(self) -> None` — Clear cached segments and rebuild the sequencer widget.
+- **[`class SequencerHost`](blendertk/blendertk/anim_utils/shots/shot_sequencer/sequencer_host.py#L414)** — Blender's answers to the Shot Sequencer panel's host calls.
+  - `SequencerHost.current_time(cls) -> Optional[float]` *(class)* — The playhead's frame, or ``None`` without a scene.
+  - `SequencerHost.set_current_time(cls, frame: float) -> None` *(class)* — Move the playhead to *frame*.
+  - `SequencerHost.playback_range(cls) -> Optional[Tuple[float, float]]` *(class)* — The scene's playback range: the preview range when it is on
+  - `SequencerHost.set_playback_range(cls, start: float, end: float) -> None` *(class)* — Set the playback range: the PREVIEW range, turned on (the scene
+  - `SequencerHost.watch_scene(*, busy: Callable[[], bool], on_keys_edited: Callable[[set], None], on_time_changed: Callable[[float], None], on_scene_changed: Callable[[], None], cap: int = 400) -> _SceneWatch` *(static)* — Attach the panel's scene hooks;
+  - `SequencerHost.newly_keyed_members(edited: Iterable[str], shot, sequencer) -> List[str]` *(static)* — The objects keyed in *shot*'s frames that are not its members yet.
+  - `SequencerHost.step_undo(store, redo: bool = False) -> bool` *(static)* — One step of Blender's undo (*redo*: redo) for the panel's Undo / Redo.
+  - `SequencerHost.play_controller(before_play: Optional[Callable[[], None]] = None)` *(static)* — The transport row's ``PlayController``: Blender's timeline through
+  - `SequencerHost.bind_timeline_audio(cls, current: str = '') -> str` *(class)* — Make scrubbing audible: Blender's own ``use_audio_scrub`` on the scene.
+  - `SequencerHost.timeline_audio_wav(source: str) -> str` *(static)* — The WAV the widget's scrub player would play: none in Blender, which
+  - `SequencerHost.scene_fps(cls) -> float` *(class)* — The scene's frame rate (24.0 outside Blender).
+  - `SequencerHost.segment_collector() -> type` *(static)* — The library's ``SegmentCollector``: the shots' motion segments, a
+  - `SequencerHost.existing(names: Iterable[str]) -> set` *(static)* — The subset of *names* that are objects in ``bpy.data.objects``.
+  - `SequencerHost.leaf_name(name: str) -> str` *(static)* — *name*'s last ``|`` segment: a Blender name is flat, but a member a
+  - `SequencerHost.node_icon(cls, name: str)` *(class)* — The object's type icon (a ``QIcon``), or ``None``.
+  - `SequencerHost.select_objects(names: Iterable[str], add: bool = False) -> List[str]` *(static)* — Select the objects *names* name, on the window's view layer.
+  - `SequencerHost.claimed_key_times(sequencer, obj: str, curve) -> List[float]` *(static)* — The samples the shot system created on *curve* (its ledger claims).
+  - `SequencerHost.motion_segments(objects: Iterable[str], time_range: Tuple[float, float], attributes: Optional[Iterable[str]] = None, ignore_holds: bool = True) -> List[Dict[str, Any]]` *(static)* — The motion segments of *objects* inside *time_range*.
+  - `SequencerHost.attribute_curves(name: str) -> Tuple[Optional[str], Dict[str, Any]]` *(static)* — The object *name* and its animated channels.
+  - `SequencerHost.audio_segments(start: float, end: float) -> list` *(static)* — The sound strips overlapping ``[start, end]`` as audio segments,
+  - `SequencerHost.audio_track_icon(track_id: str)` *(static)* — The icon of an audio track: a sound strip has no object, so the
+  - `SequencerHost.delete_span_keys(cls, obj: str, attrs: Sequence[str], start: float, end: float, release: Optional[Callable] = None) -> int` *(class)* — Remove *obj*'s keys on *attrs* inside ``[start, end]``.
+  - `SequencerHost.stash_keys(cls, targets: Sequence[Tuple[str, Sequence[str], float, float]], source_shot_id: Optional[int] = None)` *(class)* — Park the keys of *targets* in the file's key stash as ONE clip.
+  - `SequencerHost.curves_for_attr(cls, obj_name: str, attr_name: str) -> list` *(class)* — The fcurves driving *attr_name* (a ``translateX``-style label) on
+  - `SequencerHost.curves_for_attrs(obj_name: str, attr_names: Iterable[str]) -> list` *(static)* — :meth:`curves_for_attr` over several labels: every fcurve behind
+  - `SequencerHost.curve_id(curve) -> int` *(static)* — A curve's identity across reads: its data pointer.
+  - `SequencerHost.object_curves(obj_name: str) -> list` *(static)* — Every fcurve animating *obj_name*.
+  - `SequencerHost.first_key(curves) -> Optional[float]` *(static)* — The earliest key time across the fcurves *curves*, or ``None``.
+  - `SequencerHost.keyed_at(curve, times: Iterable[float], eps: float = 0.001) -> List[bool]` *(static)* — Whether *curve* holds a key within *eps* of each of *times* (one
+  - `SequencerHost.any_key_at(curves, frame: float) -> bool` *(static)* — Whether any fcurve of *curves* holds a key on *frame*: the
+  - `SequencerHost.scale_attribute_keys(cls, obj_name: str, attr_name: str, old_start: float, old_end: float, new_start: float, new_end: float, ledger=None) -> bool` *(class)* — Scale only the fcurves driving *attr_name* on *obj_name* (a sub-row
+  - `SequencerHost.commit_curve_moves(curve_moves: Dict, ledger=None, eps: float = 0.001) -> None` *(static)* — Land merged key moves, one primitive call per fcurve.
+  - `SequencerHost.delete_keys_at(curves, times: Iterable[float], release: Optional[Callable] = None) -> int` *(static)* — Remove the keyframe points of *curves* on each of *times*.
+  - `SequencerHost.moving_audio_track(track_id: str, ledger=None)` *(static)* — Yield ``(move, lowest)`` for moving an audio track's content.
+  - `SequencerHost.undo_chunk(label: str)` *(static)* — One named undo step (``CoreUtils.undo_chunk``) for an edit made
+  - `SequencerHost.tangent_from_handle(side: str, dt: float, dv: float) -> Tuple[float, float]` *(static)* — ``(angle_degrees, weight)`` of the tangent a dragged handle stands
+  - `SequencerHost.tangent_type_edit(tangent: str, sides=('in', 'out')) -> Callable` *(static)* — The edit that sets the handle type *tangent* (a
+  - `SequencerHost.interpolation_edit(mode: str) -> Callable` *(static)* — The edit that sets interpolation *mode* (an :attr:`INTERPOLATIONS`
+  - `SequencerHost.tangent_lock_edit(cls, lock: bool) -> Callable` *(class)* — The edit that unifies (aligned handles) or breaks (free handles)
+  - `SequencerHost.handle_drag_edit(vectors: Dict, side: str, broken: bool) -> Callable` *(static)* — The edit a dragged tangent handle asks for: each key's handle on
+  - `SequencerHost.edit_key_tangents(cls, targets: list, edit) -> int` *(class)* — Run *edit* -- ``apply(obj, attr, time, kp)`` -- on every selected
+  - `SequencerHost.target_curves(cls, targets: list) -> list` *(class)* — The fcurves behind *targets*' (object, attribute) pairs.
+  - `SequencerHost.simplify_keys(cls, targets: list, span: Tuple[float, float], on_delete=None) -> Tuple[int, int]` *(class)* — Drop the selected keys that do not change the curve's shape.
+  - `SequencerHost.thin_keys(cls, targets: list, span: Tuple[float, float], on_delete=None) -> int` *(class)* — Keep only the first and last key of each selected fcurve.
+  - `SequencerHost.snap_keys(cls, targets: list, span: Tuple[float, float], on_move=None) -> int` *(class)* — Pull the selected keys off fractional frames onto whole ones.
+  - `SequencerHost.euler_filter_keys(cls, targets: list) -> list` *(class)* — Unflip the rotation fcurves behind *targets* (whole curves).
+  - `SequencerHost.invert_keys(cls, targets: list, on_replace=None, on_move=None) -> int` *(class)* — Mirror the selected keys in time, in place: only the SELECTED keys,
+  - `SequencerHost.align_keys(targets: list, on_replace=None, on_move=None) -> int` *(static)* — Line the selected keys up on the earliest one's frame.
+  - `SequencerHost.copy_keys(cls, sequencer, targets: list) -> dict` *(class)* — The panel's key clipboard for *targets*' keys.
+  - `SequencerHost.paste_keys(cls, clipboard: dict, pairs: list, now: float, on_replace=None) -> list` *(class)* — Paste :meth:`copy_keys` rows at the playhead.
+  - `SequencerHost.graph_sync_cls() -> type` *(static)* — The library's ``GraphSync`` (the graph view's host half).
+  - `SequencerHost.object_exists(name: str) -> bool` *(static)* — Whether *name* names an object in the file.
+  - `SequencerHost.full_name(name: str) -> str` *(static)* — *name* as the scene names it: Blender object names are flat and
+  - `SequencerHost.undo_disabled()` *(static)* — A context in which scene changes record no undo step: Blender pushes
+  - `SequencerHost.mirror_selection(cls, names) -> None` *(class)* — Put *names* on the scene selection as a view mirror (the Outliner
+  - `SequencerHost.select_channels(cls, objects, attrs=()) -> None` *(class)* — Select *attrs*' fcurves on the named objects;
+  - `SequencerHost.select_keys(cls, rows) -> int` *(class)* — Select exactly the ``(obj, attr, times)`` *rows*' keys;
+  - `SequencerHost.open_attribute_spreadsheet() -> bool` *(static)* — Maya's Attribute Spread Sheet has no Blender counterpart: ``False``
+  - `SequencerHost.set_dragged_handles(cls, curve, items) -> int` *(class)* — Write dragged tangent handles on *curve*;
 
 <a id="anim_utils--smart_bake--_smart_bake"></a>
 ### `anim_utils/smart_bake/_smart_bake.py`

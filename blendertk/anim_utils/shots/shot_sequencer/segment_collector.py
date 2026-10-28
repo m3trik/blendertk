@@ -86,8 +86,9 @@ class SegmentCollector:
     def abbreviate_attrs(attrs) -> str:
         """Compact, sorted summary of channel labels (``translateX`` -> ``tx``).
 
-        Mirror of mayatk's ``Attributes.abbreviate_attrs`` for the clip centre
-        label: first character + every following uppercase letter, lowercased.
+        Twin of mayatk's ``SegmentCollector.abbreviate_attrs`` (its
+        ``Attributes.abbreviate_attrs``) for the clip centre label: first
+        character + every following uppercase letter, lowercased.
         """
         out = set()
         for a in attrs:

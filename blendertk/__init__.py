@@ -300,8 +300,10 @@ DEFAULT_INCLUDE = {
     "anim_utils.segment_keys": "SegmentKeys",
     # Shot sequencer engine — full mayatk ``ShotSequencer`` surface (define /
     # detect / sequences / fit / key motion / ripple / reorder / respace) over
-    # the shared planner; the Sequencer panel is co-located and discovered.
+    # the shared planner, plus ``SequencerHost``, every scene call tentacle's
+    # shared Shot Sequencer panel makes.
     "anim_utils.shots.shot_sequencer._shot_sequencer": ["ShotSequencer"],
+    "anim_utils.shots.shot_sequencer.sequencer_host": ["SequencerHost"],
     # Shot Manifest adapter — Blender scene hooks over the shared manifest engine
     # (CSV → shots + fade/audio behaviors); its panel is tentacle's shared tool.
     "anim_utils.shots.shot_manifest._shot_manifest": ["BlenderShotManifest"],
@@ -799,6 +801,74 @@ MOVED_NAMES = {
     ),
     # RizomUVBridge.send took mayatk's name (no alias: the panel was its one caller).
     "send": ("blendertk.RizomUVBridge.send_to_rizomuv", "0.23.0"),
+    "ShotSequencerSlots": (
+        "tentacle.slots.tools.shot_sequencer.ShotSequencerSlots",
+        "0.23.0",
+    ),
+    "ShotEditDialog": (
+        "tentacle.slots.tools._shot_sequencer.shot_edit_dialog.ShotEditDialog",
+        "0.23.0",
+    ),
+    "ShotSequencerController": (
+        "tentacle.slots.tools._shot_sequencer.controller.ShotSequencerController",
+        "0.23.0",
+    ),
+    "ClipMenuMixin": (
+        "tentacle.slots.tools._shot_sequencer.clip_menu.ClipMenuMixin",
+        "0.23.0",
+    ),
+    "ClipMotionMixin": (
+        "tentacle.slots.tools._shot_sequencer.clip_motion.ClipMotionMixin",
+        "0.23.0",
+    ),
+    "GapManagerMixin": (
+        "tentacle.slots.tools._shot_sequencer.gap_manager.GapManagerMixin",
+        "0.23.0",
+    ),
+    "KeyMenuMixin": (
+        "tentacle.slots.tools._shot_sequencer.key_menu.KeyMenuMixin",
+        "0.23.0",
+    ),
+    "MarkerManagerMixin": (
+        "tentacle.slots.tools._shot_sequencer.marker_manager.MarkerManagerMixin",
+        "0.23.0",
+    ),
+    "SceneCallbacksMixin": (
+        "tentacle.slots.tools._shot_sequencer.scene_callbacks.SceneCallbacksMixin",
+        "0.23.0",
+    ),
+    "SceneSelectionMixin": (
+        "tentacle.slots.tools._shot_sequencer.scene_selection.SceneSelectionMixin",
+        "0.23.0",
+    ),
+    "ShotLaneMixin": (
+        "tentacle.slots.tools._shot_sequencer.shot_lane.ShotLaneMixin",
+        "0.23.0",
+    ),
+    "ShotNavMixin": (
+        "tentacle.slots.tools._shot_sequencer.shot_nav.ShotNavMixin",
+        "0.23.0",
+    ),
+    "TransportMixin": (
+        "tentacle.slots.tools._shot_sequencer.transport.TransportMixin",
+        "0.23.0",
+    ),
+    "UndoLedgerMixin": (
+        "tentacle.slots.tools._shot_sequencer.undo_ledger.UndoLedgerMixin",
+        "0.23.0",
+    ),
+    "WidgetSyncMixin": (
+        "tentacle.slots.tools._shot_sequencer.widget_sync.WidgetSyncMixin",
+        "0.23.0",
+    ),
+    "FLOAT_ZERO_EPS": (
+        "tentacle.slots.tools._shot_sequencer.clip_motion.FLOAT_ZERO_EPS",
+        "0.23.0",
+    ),
+    "TIME_SNAP_EPS": (
+        "tentacle.slots.tools._shot_sequencer.gap_manager.TIME_SNAP_EPS",
+        "0.23.0",
+    ),
 }
 
 bootstrap_package(

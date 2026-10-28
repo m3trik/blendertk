@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-28 -- Shot Sequencer panel moved to tentacle (`anim_utils/shots/shot_sequencer/`, `__init__.py`).** New `SequencerHost` (root export), mayatk's mirror. `MOVED_NAMES` (0.23.0): `ShotSequencerSlots`, `ShotEditDialog`, `ShotSequencerController` and its 12 mixins. No blendertk tool panel is left.
+  - Test(s): `test_shot_sequencer.py` keeps the engine and host cases; `test_shot_sequencer_panel.py`, `test_graph_sync.py` and `shot_sequencer_live_check.py` moved to tentacle; the handler test's persistence checks read a stand-in window.
 - **2026-10-28 -- RizomUV Bridge and Maya Bridge panels moved to tentacle (`uv_utils/rizom_bridge/`, `env_utils/maya_bridge/`, `__init__.py`).** Mirror of mayatk's `RizomUVBridge` additions; `MayaBridge` gains `TEMPLATE_DIR` and `params_registry()`. Renamed, no alias: `RizomUVBridge.send` -> `send_to_rizomuv(objects, params=None)` (mayatk's name; the LOAD_* options come from `params`). `MOVED_NAMES` (0.23.0): `RizomBridgeSlots`, `MayaBridgeSlots`.
   - Test(s): `test_rizom_construction.py`, `test_rizom_roundtrip.py`, `test_maya_bridge.py`, `test_bridges.py`; the handler test's bridge-resolver and scope-closure blocks went with the panels (`BridgeHost` pins the closure), its persistence checks use the Shot Sequencer panel.
 - **2026-10-28 -- Marmoset and Substance Bridge panels moved to tentacle (`mat_utils/marmoset_bridge/`, `mat_utils/substance_bridge/`, `ui_utils/blender_bridge_slots_base.py`, `__init__.py`).** Mirror of mayatk's engine additions; the Bake Source row left `BlenderBridgeSlotsBase`. `MOVED_NAMES` (0.23.0).
