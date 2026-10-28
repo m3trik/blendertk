@@ -69,8 +69,6 @@ PANELS = [
     "game_shader",
     "hierarchy_sync",
     "scene_exporter",
-    "smart_bake",
-    "key_stash",
     "channels",
     "shadow_rig",
     "render_effects",

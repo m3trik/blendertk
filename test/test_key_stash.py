@@ -451,6 +451,141 @@ try:
     )
     reset_store()
 
+    # ---- the Key Stash panel's API (mirror of mayatk's): stash_from, select_clip_objects,
+    #      watch_undo, AnimUtils.get_current_frame ----
+    from blendertk.core_utils.script_job_manager import ScriptJobManager
+
+    def select_only(*objs):
+        for o in bpy.data.objects:
+            o.select_set(o in objs)
+
+    reset()
+    cube = keyed_cube()
+    select_only(cube)
+    scene = bpy.context.scene
+    scene.frame_start, scene.frame_end = 10, 30
+    clip = KeyStash.active().stash_from("playback_range")
+    check(
+        "stash_from playback_range takes the selected objects' keys in the scene frame range",
+        clip is not None and clip.key_count == 3 and frames(fc_x(cube)) == [1, 40],
+        f"{clip} {frames(fc_x(cube))}",
+    )
+
+    reset()
+    cube = keyed_cube()
+    select_only(cube)
+    bpy.context.scene.use_preview_range = False
+    refused = ""
+    try:
+        KeyStash.active().stash_from("timeline_selection")
+    except ValueError as exc:
+        refused = str(exc)
+    check("stash_from timeline_selection needs a preview range", "preview range" in refused,
+          refused)
+    scene = bpy.context.scene
+    scene.use_preview_range = True
+    scene.frame_preview_start, scene.frame_preview_end = 10, 20
+    clip = KeyStash.active().stash_from("timeline_selection")
+    check(
+        "stash_from timeline_selection reads the preview range",
+        clip is not None and clip.key_count == 2 and frames(fc_x(cube)) == [1, 30, 40],
+        f"{clip} {frames(fc_x(cube))}",
+    )
+    scene.use_preview_range = False
+
+    reset()
+    cube = keyed_cube()
+    for k in fc_x(cube).keyframe_points:
+        k.select_control_point = k.co.x in (10.0, 20.0)
+    clip = KeyStash.active().stash_from("selected_keys")
+    check(
+        "stash_from selected_keys takes the selected keys",
+        clip is not None and clip.key_count == 2 and frames(fc_x(cube)) == [1, 30, 40],
+        f"{clip} {frames(fc_x(cube))}",
+    )
+
+    reset()
+    cube = keyed_cube()
+    select_only()
+    refusals = []
+    for source in ("playback_range", "everything"):
+        try:
+            KeyStash.active().stash_from(source)
+        except ValueError as exc:
+            refusals.append(str(exc))
+    check(
+        "stash_from refuses no selection and an unknown source, storing nothing",
+        len(refusals) == 2
+        and "Select the object" in refusals[0]
+        and "source must be one of" in refusals[1]
+        and KeyStash.active().is_empty(),
+        f"{refusals}",
+    )
+
+    reset()
+    cube = keyed_cube()
+    clip = KeyStash.active().stash(objects=[cube], time_range=(10, 30))
+    select_only()
+    names = KeyStash.active().select_clip_objects(clip.clip_id)
+    check(
+        "select_clip_objects selects the clip's objects, the first active",
+        names == ["Cube"]
+        and cube.select_get()
+        and bpy.context.view_layer.objects.active == cube,
+        f"{names}",
+    )
+    bpy.data.objects.remove(cube, do_unlink=True)
+    check(
+        "select_clip_objects returns nothing once the objects are gone",
+        KeyStash.active().select_clip_objects(clip.clip_id) == [],
+    )
+    unknown = False
+    try:
+        KeyStash.active().select_clip_objects(999)
+    except KeyError:
+        unknown = True
+    check("select_clip_objects refuses an unknown clip", unknown)
+
+    class _MovedRecord:
+        """A backend whose record an undo moved, until it is read again."""
+
+        def __init__(self, data):
+            self.data, self.moved = data, False
+
+        def save(self, data):
+            self.data = data
+
+        def load(self):
+            self.moved = False
+            return self.data
+
+        def record_changed(self):
+            return self.moved
+
+    reset_store()
+    owner = type("Owner", (), {})()
+    backend = _MovedRecord(KeyStash().to_dict())
+    KeyStash.set_persistence(backend)
+    store = KeyStash.active()
+    events = []
+    store.add_listener(events.append)
+    tokens = KeyStash.watch_undo(owner=owner)
+    seed = KeyStash()
+    seed.add_clip(["Cube"], [{"times": [10.0, 20.0]}])
+    backend.data, backend.moved = seed.to_dict(), True
+    ScriptJobManager.instance()._dispatch("Undo")
+    check(
+        "watch_undo: an undo re-reads a record it moved into the loaded store",
+        len(tokens) == 2 and len(KeyStash.active().clips) == 1 and bool(events),
+        f"tokens={tokens} clips={KeyStash.active().clips} events={events}",
+    )
+    ScriptJobManager.instance().unsubscribe_all(owner)
+    reset_store()
+
+    bpy.context.scene.frame_set(12)
+    check("AnimUtils.get_current_frame reads the scene's frame",
+          AnimUtils.get_current_frame() == 12.0, f"{AnimUtils.get_current_frame()}")
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

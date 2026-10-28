@@ -298,13 +298,11 @@ DEFAULT_INCLUDE = {
     "anim_utils.shots.shot_manifest._shot_manifest": ["BlenderShotManifest"],
     "anim_utils.shots.shot_manifest.manifest_host": ["ManifestHost"],
     # Key stash — key clips parked out of the working animation (Blender adapter
-    # over ``ptk.KeyStash``; same name as mayatk's so the tentacle slots stay
-    # branch-free). Co-located ``KeyStashSlots`` panel discovered by
-    # ``BlenderUiHandler``, not registered here.
+    # over ``ptk.KeyStash``; same name as mayatk's so tentacle's shared Key Stash
+    # tool stays branch-free).
     "anim_utils.key_stash._key_stash": "KeyStash",
     # Smart Bake — engine + session/restore store, mirror of mayatk's
-    # ``anim_utils.smart_bake`` (the ``SmartBakeSlots`` panel is discovered by
-    # ``BlenderUiHandler``, not registered here).
+    # ``anim_utils.smart_bake`` (its panel is tentacle's shared Smart Bake tool).
     "anim_utils.smart_bake._smart_bake": "SmartBake",
     "anim_utils.smart_bake.bake_session": "RestoreResult",
     # Blendshape Animator — morph-authoring engine (base+target mesh -> keyed shape key, with
@@ -604,6 +602,14 @@ MOVED_NAMES = {
     ),
     "ImageToPlaneSlots": (
         "tentacle.slots.tools.image_to_plane.ImageToPlaneSlots",
+        "0.23.0",
+    ),
+    "KeyStashSlots": (
+        "tentacle.slots.tools.key_stash.KeyStashSlots",
+        "0.23.0",
+    ),
+    "SmartBakeSlots": (
+        "tentacle.slots.tools.smart_bake.SmartBakeSlots",
         "0.23.0",
     ),
 }

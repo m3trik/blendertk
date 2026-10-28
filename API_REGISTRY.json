@@ -23,7 +23,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 433,
+          "line": 431,
           "deprecated": false
         }
       ]
@@ -195,12 +195,21 @@
               "deprecated": false
             },
             {
+              "name": "get_current_frame",
+              "qualname": "AnimUtils.get_current_frame",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "The scene's current frame (``scene.frame_current``): the read",
+              "line": 1578,
+              "deprecated": false
+            },
+            {
               "name": "set_current_frame",
               "qualname": "AnimUtils.set_current_frame",
               "kind": "staticmethod",
               "signature": "(time=None, update=True, relative=False, snap_mode=None, invert_snap=False)",
               "summary": "Set the scene's current frame, with optional relative offset and clean-number snapping —",
-              "line": 1578,
+              "line": 1591,
               "deprecated": false
             },
             {
@@ -209,7 +218,7 @@
               "kind": "staticmethod",
               "signature": "(objects, offset)",
               "summary": "Shift every key of the given objects by ``offset`` frames.",
-              "line": 1629,
+              "line": 1642,
               "deprecated": false
             },
             {
@@ -218,7 +227,7 @@
               "kind": "staticmethod",
               "signature": "(objects, frame=None, retain_spacing=True, selected_keys_only=False, align='auto', on_replace=None, on_move=None)",
               "summary": "Move the objects' keys so they align to ``frame`` (default: the current frame).",
-              "line": 1634,
+              "line": 1647,
               "deprecated": false
             },
             {
@@ -227,7 +236,7 @@
               "kind": "staticmethod",
               "signature": "(objects, spacing=1, frame=None, relative=False, preserve_keys=False, selected_keys_only=False, exact_gap=False, on_replace=None, on_move=None)",
               "summary": "Add (+) or remove (−) ``spacing`` frames of space at ``frame`` (default: the current",
-              "line": 1742,
+              "line": 1755,
               "deprecated": false
             },
             {
@@ -236,7 +245,7 @@
               "kind": "staticmethod",
               "signature": "(objects, target_frame=None, use_earliest=True, on_replace=None, on_move=None)",
               "summary": "Shift each object's SELECTED keyframes (``select_control_point``, e.g.",
-              "line": 1865,
+              "line": 1878,
               "deprecated": false
             },
             {
@@ -245,7 +254,7 @@
               "kind": "staticmethod",
               "signature": "(objects, visible=True, frame=None, when='current', offset=0, group_overlapping=False, on_replace=None)",
               "summary": "Key viewport + render visibility (``hide_viewport``/``hide_render``) — mirror of",
-              "line": 1932,
+              "line": 1945,
               "deprecated": false
             },
             {
@@ -254,7 +263,7 @@
               "kind": "staticmethod",
               "signature": "(objects, step=1.0, time_range=None, ignore_visibility=False, percent=None)",
               "summary": "Insert sampled keys every ``step`` frames between each fcurve's first and last key",
-              "line": 1987,
+              "line": 2000,
               "deprecated": false
             },
             {
@@ -263,7 +272,7 @@
               "kind": "staticmethod",
               "signature": "(objects, time_range=None, ignore_visibility=False, on_delete=None)",
               "summary": "Remove every key strictly between each fcurve's first and last (keeps only the",
-              "line": 2053,
+              "line": 2066,
               "deprecated": false
             },
             {
@@ -272,7 +281,7 @@
               "kind": "staticmethod",
               "signature": "(objects, time=None, add_to_selection=False)",
               "summary": "Select keyframe points (``select_control_point`` — visible in the Dope Sheet /",
-              "line": 2092,
+              "line": 2105,
               "deprecated": false
             },
             {
@@ -281,7 +290,7 @@
               "kind": "staticmethod",
               "signature": "(objects, mode='time', value_pivot=0.0, start_frame=None, relative=True, delete_original=False, selected_only=False, on_replace=None, on_move=None)",
               "summary": "Mirror keys to reverse motion — Blender analogue of Maya's invert (modes mirror its X/Y/both",
-              "line": 2127,
+              "line": 2140,
               "deprecated": false
             },
             {
@@ -290,7 +299,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, selected_only=False, time_range=None, method='nearest', on_move=None)",
               "summary": "Snap keys to whole frames (or \"clean\" numbers) — mirror of ``mtk.snap_keys_to_frames``.",
-              "line": 2311,
+              "line": 2324,
               "deprecated": false
             },
             {
@@ -299,7 +308,7 @@
               "kind": "staticmethod",
               "signature": "(objects, interpolation='CONSTANT', handle=None)",
               "summary": "Set fcurve key ``interpolation`` (``CONSTANT`` / ``LINEAR`` / ``BEZIER`` / ``SINE`` …) on",
-              "line": 2393,
+              "line": 2406,
               "deprecated": false
             },
             {
@@ -308,7 +317,7 @@
               "kind": "staticmethod",
               "signature": "(objects, stepped=True)",
               "summary": "Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.",
-              "line": 2410,
+              "line": 2423,
               "deprecated": false
             },
             {
@@ -317,7 +326,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Force CONSTANT interpolation on the ``hide_viewport`` / ``hide_render``",
-              "line": 2415,
+              "line": 2428,
               "deprecated": false
             },
             {
@@ -326,7 +335,7 @@
               "kind": "staticmethod",
               "signature": "(obj, keys, frame_offset=0.0)",
               "summary": "Key a carried visibility curve onto *obj* as its ``hide_viewport`` +",
-              "line": 2437,
+              "line": 2450,
               "deprecated": false
             },
             {
@@ -335,7 +344,7 @@
               "kind": "staticmethod",
               "signature": "(objects, time=None, on_delete=None)",
               "summary": "Remove animation from the given objects — mirror of ``mtk.delete_keys``.",
-              "line": 2465,
+              "line": 2478,
               "deprecated": false
             },
             {
@@ -344,7 +353,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Set the scene frame range to the keyed extent of ``objects`` (or every scene object).",
-              "line": 2518,
+              "line": 2531,
               "deprecated": false
             },
             {
@@ -353,7 +362,7 @@
               "kind": "staticmethod",
               "signature": "(source, mode='action')",
               "summary": "Return a copy-buffer for :func:`paste_keys` — mirror of ``mtk.AnimUtils.copy_keys`` (same",
-              "line": 2535,
+              "line": 2548,
               "deprecated": false
             },
             {
@@ -362,7 +371,7 @@
               "kind": "staticmethod",
               "signature": "(objects, buffer, target_time=None, on_replace=None)",
               "summary": "Paste a copy-buffer from :func:`copy_keys` onto ``objects`` — mirror of",
-              "line": 2606,
+              "line": 2619,
               "deprecated": false
             },
             {
@@ -371,7 +380,7 @@
               "kind": "staticmethod",
               "signature": "(objects, relative=False, optimize=False, on_replace=None, on_delete=None)",
               "summary": "Transfer keyframes from the first object (source) onto the rest (targets) — mirror of",
-              "line": 2668,
+              "line": 2681,
               "deprecated": false
             },
             {
@@ -380,7 +389,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, value_tolerance=0.001, stats=None, max_error=None, on_delete=None)",
               "summary": "Reduce baked fcurves to their shape-defining keys and refit the handles —",
-              "line": 2772,
+              "line": 2785,
               "deprecated": false
             },
             {
@@ -389,7 +398,7 @@
               "kind": "staticmethod",
               "signature": "(objects, value_tolerance=1e-05, remove=False, time_range=None, selected_only=False)",
               "summary": "Interior keys of a flat run — mirror of ``mtk.AnimUtils.get_redundant_flat_keys``.",
-              "line": 2828,
+              "line": 2841,
               "deprecated": false
             },
             {
@@ -398,7 +407,7 @@
               "kind": "staticmethod",
               "signature": "(objects) -> list",
               "summary": "Unwrap Euler rotation curves -- mirror of ``mtk.AnimUtils.euler_filter``.",
-              "line": 2885,
+              "line": 2898,
               "deprecated": false
             },
             {
@@ -407,7 +416,7 @@
               "kind": "staticmethod",
               "signature": "(objects, value_tolerance=0.001, time_range=None, selected_only=False, on_delete=None)",
               "summary": "Drop the keys that do not contribute to a curve's shape — mirror of",
-              "line": 2920,
+              "line": 2933,
               "deprecated": false
             },
             {
@@ -416,7 +425,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None, max_error=None, on_delete=None)",
               "summary": "Remove redundant animation data — mirror of ``mtk.AnimUtils.optimize_keys``.",
-              "line": 3001,
+              "line": 3014,
               "deprecated": false
             },
             {
@@ -425,7 +434,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0, on_delete=None)",
               "summary": "Detect and repair corrupted animation fcurves — mirror of",
-              "line": 3094,
+              "line": 3107,
               "deprecated": false
             },
             {
@@ -434,7 +443,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, untie=False, frame_range=None, absolute=False, on_delete=None)",
               "summary": "Add (tie) or remove (untie) bookend keys at the playback-range boundaries — mirror of",
-              "line": 3193,
+              "line": 3206,
               "deprecated": false
             },
             {
@@ -443,7 +452,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, frame_range=None, step=1, only_selected=False, visual_keying=True, clear_constraints=False, clear_parents=False, use_current_action=True, bake_types=None)",
               "summary": "Bake animation to plain keyframes — the Blender analogue of Maya's Smart Bake (wraps the",
-              "line": 3256,
+              "line": 3269,
               "deprecated": false
             },
             {
@@ -452,7 +461,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, frame_range=None, step=1)",
               "summary": "Bake driven/animated blend-shape (shape-key) weights to explicit keyframes — the Blender",
-              "line": 3328,
+              "line": 3341,
               "deprecated": false
             },
             {
@@ -461,7 +470,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, by_time=False, ignore_holds=False)",
               "summary": "Per-object animation summary — mirror of ``mtk`` get-animation-info.",
-              "line": 3405,
+              "line": 3418,
               "deprecated": false
             },
             {
@@ -470,7 +479,7 @@
               "kind": "staticmethod",
               "signature": "(records)",
               "summary": "Render :func:`get_animation_info` records as CSV (paste into a spreadsheet) — mirror of",
-              "line": 3456,
+              "line": 3469,
               "deprecated": false
             },
             {
@@ -479,7 +488,7 @@
               "kind": "staticmethod",
               "signature": "(records)",
               "summary": "Render :func:`get_animation_info` records as an HTML table for the text-view dialog.",
-              "line": 3486,
+              "line": 3499,
               "deprecated": false
             },
             {
@@ -488,7 +497,7 @@
               "kind": "staticmethod",
               "signature": "(scene, file_format='PNG', container=None, codec=None, quality=None)",
               "summary": "Apply playblast/render output settings to ``scene.render`` — the engine behind the rendering",
-              "line": 3512,
+              "line": 3525,
               "deprecated": false
             },
             {
@@ -497,7 +506,7 @@
               "kind": "staticmethod",
               "signature": "() -> None",
               "summary": "Deselect every key, whatever is or is not selected.",
-              "line": 3553,
+              "line": 3566,
               "deprecated": false
             },
             {
@@ -506,7 +515,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Graph Editor / Dope Sheet key selection, per fcurve.",
-              "line": 3601,
+              "line": 3614,
               "deprecated": false
             },
             {
@@ -515,7 +524,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The timeline's preview range, or ``None`` when it is off.",
-              "line": 3635,
+              "line": 3648,
               "deprecated": false
             },
             {
@@ -524,7 +533,7 @@
               "kind": "staticmethod",
               "signature": "(sources, gate=None, name='previewLayer')",
               "summary": "Play foreign actions on objects through throwaway NLA tracks.",
-              "line": 3652,
+              "line": 3665,
               "deprecated": false
             },
             {
@@ -533,7 +542,7 @@
               "kind": "staticmethod",
               "signature": "(handle) -> bool",
               "summary": "Tear down :meth:`create_preview_layer`'s tracks and restore the active action.",
-              "line": 3730,
+              "line": 3743,
               "deprecated": false
             },
             {
@@ -1266,7 +1275,16 @@
               "kind": "classmethod",
               "signature": "(cls) -> 'KeyStash'",
               "summary": "The active store, auto-installing the Blender backend once.",
-              "line": 233,
+              "line": 239,
+              "deprecated": false
+            },
+            {
+              "name": "watch_undo",
+              "qualname": "KeyStash.watch_undo",
+              "kind": "classmethod",
+              "signature": "(cls, owner, widget=None) -> List[int]",
+              "summary": "Keep the loaded store in step with undo and redo, for *owner* --",
+              "line": 253,
               "deprecated": false
             },
             {
@@ -1275,7 +1293,7 @@
               "kind": "method",
               "signature": "(self, new_fps: float) -> None",
               "summary": "Record the new rate only.",
-              "line": 249,
+              "line": 289,
               "deprecated": false
             },
             {
@@ -1284,7 +1302,7 @@
               "kind": "method",
               "signature": "(self) -> List[int]",
               "summary": "Bring the record in line with the file.",
-              "line": 293,
+              "line": 333,
               "deprecated": false
             },
             {
@@ -1293,7 +1311,7 @@
               "kind": "classmethod",
               "signature": "(cls, carriers, other, ctx) -> None",
               "summary": "Another file's parked clips merged into the record: reload the",
-              "line": 328,
+              "line": 368,
               "deprecated": false
             },
             {
@@ -1302,7 +1320,7 @@
               "kind": "classmethod",
               "signature": "(cls, carriers, other, ctx) -> None",
               "summary": "Another file's parked clips were dropped: remove their stash",
-              "line": 336,
+              "line": 376,
               "deprecated": false
             },
             {
@@ -1311,7 +1329,7 @@
               "kind": "method",
               "signature": "(self, objects=None, time_range: Optional[Tuple[float, float]] = None, selected_keys: bool = False, attributes: Optional[Sequence[str]] = None, fcurves=None, label: Optional[str] = None, source_shot_id: Optional[int] = None, metadata: Optional[Dict[str, Any]] = None, targets: Optional[Sequence[Tuple[str, Any, float, float]]] = None) -> Optional[StashedClip]",
               "summary": "Move keys off the working animation into a stored clip.",
-              "line": 373,
+              "line": 413,
               "deprecated": false
             },
             {
@@ -1320,7 +1338,7 @@
               "kind": "method",
               "signature": "(self, clip_id: int, at: Optional[float] = None, mode: str = 'merge', target: Optional[str] = None) -> int",
               "summary": "Put a stored clip's keys back and forget the clip.",
-              "line": 543,
+              "line": 583,
               "deprecated": false
             },
             {
@@ -1329,7 +1347,25 @@
               "kind": "method",
               "signature": "(self, clip_id: int) -> None",
               "summary": "Discard a stored clip and delete its stash action.",
-              "line": 627,
+              "line": 667,
+              "deprecated": false
+            },
+            {
+              "name": "stash_from",
+              "qualname": "KeyStash.stash_from",
+              "kind": "method",
+              "signature": "(self, source: str) -> Optional[StashedClip]",
+              "summary": ":meth:`stash` the keys one of :attr:`STASH_SOURCES` names, read",
+              "line": 694,
+              "deprecated": false
+            },
+            {
+              "name": "select_clip_objects",
+              "qualname": "KeyStash.select_clip_objects",
+              "kind": "method",
+              "signature": "(self, clip_id: int) -> List[str]",
+              "summary": "Select a stored clip's objects that still exist, replacing the",
+              "line": 732,
               "deprecated": false
             },
             {
@@ -1338,7 +1374,7 @@
               "kind": "method",
               "signature": "(self, clip_id: int, in_context: bool = True, set_playback_range: bool = True) -> Dict[str, Any]",
               "summary": "Play a stored clip on its objects without retrieving it.",
-              "line": 656,
+              "line": 756,
               "deprecated": false
             },
             {
@@ -1347,97 +1383,7 @@
               "kind": "method",
               "signature": "(self) -> bool",
               "summary": "Tear the preview tracks down and restore the preview range.",
-              "line": 714,
-              "deprecated": false
-            }
-          ]
-        }
-      ],
-      "constants": []
-    },
-    {
-      "relpath": "anim_utils/key_stash/key_stash_slots.py",
-      "summary": "Slots for the Key Stash panel (key_stash.ui) — mirror of mayatk's ``KeyStashSlots``.",
-      "functions": [],
-      "classes": [
-        {
-          "name": "KeyStashSlots",
-          "summary": "Controller wiring key_stash.ui to the :class:`KeyStash` store.",
-          "line": 15,
-          "bases": [
-            "pythontk.LoggingMixin"
-          ],
-          "members": [
-            {
-              "name": "header_init",
-              "qualname": "KeyStashSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Configure header buttons, the refresh action and the help text.",
-              "line": 42,
-              "deprecated": false
-            },
-            {
-              "name": "store",
-              "qualname": "KeyStashSlots.store",
-              "kind": "property",
-              "signature": "(self) -> KeyStash",
-              "summary": "The active store, (re)bound to this panel's change listener.",
-              "line": 97,
-              "deprecated": false
-            },
-            {
-              "name": "refresh",
-              "qualname": "KeyStashSlots.refresh",
-              "kind": "method",
-              "signature": "(self) -> None",
-              "summary": "Repaint the clip list from the store.",
-              "line": 116,
-              "deprecated": false
-            },
-            {
-              "name": "refresh_from_scene",
-              "qualname": "KeyStashSlots.refresh_from_scene",
-              "kind": "method",
-              "signature": "(self) -> None",
-              "summary": "Header refresh: prune clips whose stash actions are gone, then repaint.",
-              "line": 153,
-              "deprecated": false
-            },
-            {
-              "name": "b000",
-              "qualname": "KeyStashSlots.b000",
-              "kind": "method",
-              "signature": "(self) -> None",
-              "summary": "Store Keys",
-              "line": 221,
-              "deprecated": false
-            },
-            {
-              "name": "b001",
-              "qualname": "KeyStashSlots.b001",
-              "kind": "method",
-              "signature": "(self) -> None",
-              "summary": "Retrieve",
-              "line": 257,
-              "deprecated": false
-            },
-            {
-              "name": "chk001",
-              "qualname": "KeyStashSlots.chk001",
-              "kind": "method",
-              "signature": "(self, checked: bool) -> None",
-              "summary": "Preview (toggle)",
-              "line": 281,
-              "deprecated": false
-            },
-            {
-              "name": "b003",
-              "qualname": "KeyStashSlots.b003",
-              "kind": "method",
-              "signature": "(self) -> None",
-              "summary": "Drop",
-              "line": 301,
+              "line": 814,
               "deprecated": false
             }
           ]
@@ -3950,7 +3896,7 @@
               "kind": "method",
               "signature": "(self, key: str, reason: str) -> None",
               "summary": "Record *key* as skipped, and why -- the one way into ``skipped`` (mirror of",
-              "line": 138,
+              "line": 147,
               "deprecated": false
             },
             {
@@ -3959,7 +3905,7 @@
               "kind": "property",
               "signature": "(self) -> Dict[str, str]",
               "summary": "``{key: reason}`` for what the bake REFUSED or failed to key --",
-              "line": 153,
+              "line": 162,
               "deprecated": false
             },
             {
@@ -3968,7 +3914,7 @@
               "kind": "property",
               "signature": "(self) -> int",
               "summary": "Number of objects successfully baked.",
-              "line": 168,
+              "line": 177,
               "deprecated": false
             },
             {
@@ -3977,7 +3923,16 @@
               "kind": "property",
               "signature": "(self) -> bool",
               "summary": "True if any objects were baked.",
-              "line": 173,
+              "line": 182,
+              "deprecated": false
+            },
+            {
+              "name": "describe",
+              "qualname": "BakeResult.describe",
+              "kind": "method",
+              "signature": "(self) -> List[str]",
+              "summary": "What the bake did, one line per fact, for a report (the Smart Bake panel's",
+              "line": 186,
               "deprecated": false
             }
           ]
@@ -3985,7 +3940,7 @@
         {
           "name": "SmartBake",
           "summary": "Intelligent bake+restore with automatic detection of what needs baking.",
-          "line": 351,
+          "line": 384,
           "bases": [
             "_SmartBakeInternal"
           ],
@@ -3996,7 +3951,7 @@
               "kind": "method",
               "signature": "(self) -> Dict[str, BakeAnalysis]",
               "summary": "Analyze objects to determine what needs baking.",
-              "line": 466,
+              "line": 517,
               "deprecated": false
             },
             {
@@ -4005,7 +3960,7 @@
               "kind": "method",
               "signature": "(self, analysis: Optional[Dict[str, BakeAnalysis]] = None) -> Tuple[int, int]",
               "summary": "Determine the optimal bake time range from driver/constraint-target animation.",
-              "line": 557,
+              "line": 608,
               "deprecated": false
             },
             {
@@ -4014,7 +3969,7 @@
               "kind": "method",
               "signature": "(self, analysis: Optional[Dict[str, BakeAnalysis]] = None, time_range: Optional[Tuple[int, int]] = None) -> BakeResult",
               "summary": "Bake every driven source :func:`analyze` found.",
-              "line": 670,
+              "line": 721,
               "deprecated": false
             },
             {
@@ -4023,7 +3978,7 @@
               "kind": "method",
               "signature": "(self) -> BakeResult",
               "summary": "High-level entry point: :func:`analyze` then :func:`bake` in one call.",
-              "line": 1101,
+              "line": 1154,
               "deprecated": false
             },
             {
@@ -4032,7 +3987,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> List[str]",
               "summary": "Ids of restorable bake sessions recorded on this scene's ``data_internal`` carrier,",
-              "line": 1111,
+              "line": 1164,
               "deprecated": false
             },
             {
@@ -4041,7 +3996,7 @@
               "kind": "classmethod",
               "signature": "(cls, session_id: Optional[str] = None) -> 'RestoreResult'",
               "summary": "Reverse a bake session recorded by ``bake(restorable=True)``.",
-              "line": 1120,
+              "line": 1178,
               "deprecated": false
             },
             {
@@ -4050,7 +4005,7 @@
               "kind": "classmethod",
               "signature": "(cls, **kwargs)",
               "summary": "Context manager: bake on enter, restore on exit.",
-              "line": 1163,
+              "line": 1221,
               "deprecated": false
             },
             {
@@ -4059,7 +4014,7 @@
               "kind": "classmethod",
               "signature": "(cls, **kwargs) -> BakeResult",
               "summary": "Quick entry point for a one-shot bake: ``cls(**kwargs).execute()``.",
-              "line": 1189,
+              "line": 1247,
               "deprecated": false
             }
           ]
@@ -4232,69 +4187,6 @@
           "line": 680,
           "bases": [],
           "members": []
-        }
-      ],
-      "constants": []
-    },
-    {
-      "relpath": "anim_utils/smart_bake/smart_bake_slots.py",
-      "summary": "Slots for the Smart Bake tool panel (``smart_bake.ui``) — Blender port of mayatk's",
-      "functions": [],
-      "classes": [
-        {
-          "name": "SmartBakeSlots",
-          "summary": "Controller wiring ``smart_bake.ui`` to the :class:`SmartBake` engine.",
-          "line": 35,
-          "bases": [
-            "pythontk.LoggingMixin"
-          ],
-          "members": [
-            {
-              "name": "cmb_scope_init",
-              "qualname": "SmartBakeSlots.cmb_scope_init",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "",
-              "line": 114,
-              "deprecated": false
-            },
-            {
-              "name": "cmb_backup_init",
-              "qualname": "SmartBakeSlots.cmb_backup_init",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "",
-              "line": 120,
-              "deprecated": false
-            },
-            {
-              "name": "header_init",
-              "qualname": "SmartBakeSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Configure header menu, refresh button, and help text.",
-              "line": 123,
-              "deprecated": false
-            },
-            {
-              "name": "b000",
-              "qualname": "SmartBakeSlots.b000",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Bake.",
-              "line": 187,
-              "deprecated": false
-            },
-            {
-              "name": "b001",
-              "qualname": "SmartBakeSlots.b001",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Unbake.",
-              "line": 271,
-              "deprecated": false
-            }
-          ]
         }
       ],
       "constants": []

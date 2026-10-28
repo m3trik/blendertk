@@ -96,7 +96,7 @@ class BakeResult:
 
     baked: Dict[str, List[str]] = field(default_factory=dict)
     """Objects that were baked. Maps object name to the constraint/driver names that were muted
-    (or removed, if ``delete_sources=True``) for it."""
+    (or removed by a ``delete_inputs`` Base Layer bake -- see ``deleted``) for it."""
 
     skipped: List[str] = field(default_factory=list)
     """Objects/keys analyzed but not baked (no live source, or the bake attempt failed). Every
@@ -134,6 +134,15 @@ class BakeResult:
     optimized: List[str] = field(default_factory=list)
     """Objects (or shape-key datablock owners) that had keys optimized via
     ``AnimUtils.optimize_keys()`` (when ``optimize_keys`` names a level)."""
+
+    deleted: List[str] = field(default_factory=list)
+    """Constraint names and driver ``data_path`` strings a ``delete_inputs`` Base Layer bake
+    removed -- mirror of mayatk's ``deleted`` (its driver nodes)."""
+
+    restorable: bool = False
+    """Whether :meth:`SmartBake.restore` can fully reverse the session in ``session_id`` --
+    mirror of mayatk's: ``False`` for a ``delete_inputs`` bake, whose session records what
+    Unbake then reports it cannot rebuild."""
 
     def skip(self, key: str, reason: str) -> None:
         """Record *key* as skipped, and why -- the one way into ``skipped`` (mirror of
@@ -173,6 +182,30 @@ class BakeResult:
     def success(self) -> bool:
         """True if any objects were baked."""
         return bool(self.baked)
+
+    def describe(self) -> List[str]:
+        """What the bake did, one line per fact, for a report (the Smart Bake panel's
+        output) -- mirror of mayatk's: each baked key with the sources it bakes; what was
+        declined and why (never what merely had nothing to bake); the constraints and drivers
+        muted or deleted; the keys optimized; the backup. The session is the caller's to word
+        (:attr:`session_id`, :attr:`restorable`).
+
+        Returns:
+            List[str]: The lines, in that order.
+        """
+        lines = [f"{key}: {', '.join(sources)}" for key, sources in self.baked.items()]
+        lines.extend(f"Declined {key}: {reason}" for key, reason in self.declined.items())
+        if self.muted_constraints:
+            lines.append(f"Muted {len(self.muted_constraints)} constraint(s).")
+        if self.muted_drivers:
+            lines.append(f"Muted {len(self.muted_drivers)} driver(s).")
+        if self.deleted:
+            lines.append(f"Deleted {len(self.deleted)} constraint(s) / driver(s).")
+        if self.optimized:
+            lines.append(f"Optimized {len(self.optimized)} item(s).")
+        if self.backup_path:
+            lines.append(f"Backup saved: {self.backup_path}")
+        return lines
 
 
 # ---------------------------------------------------------------------------
@@ -366,13 +399,14 @@ class SmartBake(_SmartBakeInternal):
         self,
         objects: Optional[List[Any]] = None,
         sample_by: int = 1,
-        use_override: bool = True,
-        delete_sources: bool = False,
-        bake_blend_shapes: bool = True,
         preserve_outside_keys: bool = True,
+        delete_inputs: bool = False,
         optimize_keys: Union[bool, str, None] = False,
-        restorable: bool = True,
+        bake_blend_shapes: bool = True,
+        use_override_layer: bool = True,
+        mute_drivers: bool = False,
         backup_file: Any = None,
+        restorable: bool = True,
     ):
         """Initialize SmartBake with configuration.
 
@@ -382,15 +416,22 @@ class SmartBake(_SmartBakeInternal):
                 ``data_export`` carriers).
             sample_by: Keyframe sample interval forwarded to ``AnimUtils.bake_keys()``'s
                 ``nla.bake`` step (1 = every frame).
-            use_override: Non-destructive mode (default). ``bake()`` bakes each object into a
-                brand-new Action (``bake_keys(..., use_current_action=False)``) while the
-                original stays alive via ``Action.use_fake_user``, and mutes every source
-                :func:`analyze` found instead of touching it; ``restore()`` swaps the original
-                action back in and unmutes everything to its recorded prior state.
-            delete_sources: Destructive alternative to ``use_override`` (mirrors mayatk's
-                ``delete_inputs``) — removes the identified constraints/drivers outright instead
-                of muting them. That portion of the session is recorded as non-restorable,
-                matching mayatk's own ``delete_inputs`` precedent.
+            use_override_layer: mayatk's bake target (default: True, an override layer
+                there). Blender has no animation layers, so either way ``bake()`` bakes each
+                object into a brand-new Action (``bake_keys(..., use_current_action=False)``)
+                while the original stays alive via ``Action.use_fake_user``, and mutes every
+                source :func:`analyze` found (a live constraint or driver evaluates over the
+                baked action); ``restore()`` swaps the original action back in and unmutes
+                everything to its recorded prior state. As in mayatk, ``False`` (Base Layer)
+                is what lets ``delete_inputs`` act.
+            delete_inputs: Remove the identified constraints/drivers outright instead of
+                muting them -- mayatk's keyword and precedence: a Base Layer bake only
+                (ignored with ``use_override_layer``), and ``mute_drivers`` wins over it.
+                That portion of the session is recorded non-restorable, as mayatk's is; the
+                removed sources are listed in :attr:`BakeResult.deleted`.
+            mute_drivers: mayatk's keyword. The sources are muted whenever they are not
+                removed, so here it only keeps a ``delete_inputs`` bake from removing them,
+                as it does in mayatk.
             bake_blend_shapes: Analyze and bake driven/animated shape-key weights via
                 ``AnimUtils.bake_blend_shapes()``. Required for Unity/FBX export when shape keys
                 are driven, since ``nla.bake`` only bakes object/pose transforms.
@@ -421,15 +462,16 @@ class SmartBake(_SmartBakeInternal):
                 ``"<scene>_prebake.blend"`` path in the scene's incremental-save folder
                 (``<blend dir>/incrementalSave/<blend file>/``, ``ptk.Workspace.backup_dir``,
                 shared with mayatk), or pass an explicit
-                path string. ``None`` (default) auto-resolves to ``True`` only when
-                ``delete_sources=True`` (the one non-restorable path) — same auto-backup rule as
-                mayatk's. No-op (returns ``None``, warns) if the scene has never been saved —
+                path string. ``None`` (default) auto-resolves to ``True`` only for a
+                ``delete_inputs`` Base Layer bake (the one non-restorable path) — mayatk's
+                auto-backup rule. No-op (returns ``None``, warns) if the scene has never been saved —
                 there is no folder of its own to write the backup into.
         """
         self.objects = objects
         self.sample_by = sample_by
-        self.use_override = use_override
-        self.delete_sources = delete_sources
+        self.use_override_layer = use_override_layer
+        self.delete_inputs = delete_inputs
+        self.mute_drivers = mute_drivers
         self.bake_blend_shapes = bake_blend_shapes
         self.preserve_outside_keys = preserve_outside_keys
         self.optimize_keys = optimize_keys
@@ -441,8 +483,17 @@ class SmartBake(_SmartBakeInternal):
         self._optimize_kwargs = AnimUtils.resolve_optimize_level(optimize_keys)
         self.restorable = restorable
         if backup_file is None:
-            backup_file = bool(delete_sources)
+            backup_file = bool(delete_inputs and not use_override_layer)
         self.backup_file = backup_file
+
+    @property
+    def _deletes_inputs(self) -> bool:
+        """Whether :meth:`bake` removes the identified sources rather than muting them --
+        mayatk's rule: ``delete_inputs`` on a Base Layer bake (``use_override_layer=False``),
+        unless ``mute_drivers`` keeps them."""
+        return bool(
+            self.delete_inputs and not self.use_override_layer and not self.mute_drivers
+        )
 
     # -------------------------------------------------------------------------
     # Analysis
@@ -679,7 +730,7 @@ class SmartBake(_SmartBakeInternal):
         from that manifest (:meth:`_roll_back`) and its error re-raised -- the
         scene is handed back as the bake found it: the pre-bake Actions and their
         ``use_fake_user``, the sources' mute state, the shape-key snapshots. A
-        non-restorable bake (``restorable=False``, or ``delete_sources``) records
+        non-restorable bake (``restorable=False``, or a ``delete_inputs`` one) records
         nothing it could reverse, so its partial state is left and named in a
         warning.
 
@@ -688,12 +739,11 @@ class SmartBake(_SmartBakeInternal):
         a brand-new Action (confirmed live: ``nla.bake`` never touches an existing Action under
         ``use_current_action=False``) while the pre-bake action, if any, is kept alive via
         ``Action.use_fake_user`` so :func:`restore` can swap it back in. Once an object's new
-        action is in place, every constraint/driver :func:`analyze` identified for it is muted
-        (``use_override=True``, the default) or removed outright (``delete_sources=True`` —
-        destructive; ``delete_sources`` always wins over ``use_override`` when both are set, and
-        that portion of the session is recorded non-restorable, mirroring mayatk's
-        ``delete_inputs`` precedent). Neither flag set leaves the identified sources live —
-        baked, but still fighting the new action every evaluation.
+        action is in place, every constraint/driver :func:`analyze` identified for it is muted,
+        or removed outright by a ``delete_inputs`` Base Layer bake (``use_override_layer=False``,
+        without ``mute_drivers`` -- mayatk's precedence; destructive, and that portion of the
+        session is recorded non-restorable, as mayatk's is). The removed sources are listed in
+        :attr:`BakeResult.deleted`.
 
         Blend-shape (shape key) sources go through the separate
         ``AnimUtils.bake_blend_shapes()`` pass, which resamples each driven/animated key in
@@ -750,7 +800,7 @@ class SmartBake(_SmartBakeInternal):
             logger.warning(
                 "SmartBake: a bake that raised part-way was not rolled back -- it "
                 "recorded no restorable session (restorable=False or "
-                f"delete_sources). Baked so far: {sorted(result.baked) or 'nothing'}."
+                f"delete_inputs). Baked so far: {sorted(result.baked) or 'nothing'}."
             )
             return
         try:
@@ -811,7 +861,7 @@ class SmartBake(_SmartBakeInternal):
             session = {
                 "version": bake_session.BakeSessionStore.SCHEMA_VERSION,
                 "id": bake_session.BakeSessionStore.new_session_id(),
-                "restorable": not self.delete_sources,
+                "restorable": not self._deletes_inputs,
                 "time_range": list(time_range),
                 "baked_objects": [],
                 "muted_constraints": [],
@@ -894,7 +944,7 @@ class SmartBake(_SmartBakeInternal):
                 frame_range=time_range,
                 step=self.sample_by,
                 visual_keying=True,
-                # NEVER forward delete_sources here: nla.bake's own clear_constraints wipes an
+                # NEVER forward delete_inputs here: nla.bake's own clear_constraints wipes an
                 # object's/bone's ENTIRE constraint collection unconditionally, not just the
                 # ones analyze() identified — deletion of identified sources only happens in the
                 # scoped per-source loop below.
@@ -933,6 +983,9 @@ class SmartBake(_SmartBakeInternal):
                     )
 
         # ---- Mute (or delete) every identified constraint/IK/driver source ----
+        # A live source evaluates over the baked action, so each one is muted (recorded, and
+        # unmuted by restore) unless a delete_inputs Base Layer bake removes it.
+        delete = self._deletes_inputs
         muted_constraints: List[str] = []
         muted_drivers: List[str] = []
         for key, data in transform_keys.items():
@@ -949,21 +1002,20 @@ class SmartBake(_SmartBakeInternal):
                     c = constraints.get(name)
                     if c is None:
                         continue
-                    if self.delete_sources:
+                    if delete:
                         constraints.remove(c)
-                    elif self.use_override:
-                        if session is not None:
-                            session["muted_constraints"].append(
-                                {
-                                    "ref": bake_session.BakeSessionStore.constraint_ref(
-                                        obj, c, bone=bone_name
-                                    ),
-                                    "prior_mute": c.mute,
-                                }
-                            )
-                        c.mute = True
-                    else:
+                        result.deleted.append(name)
                         continue
+                    if session is not None:
+                        session["muted_constraints"].append(
+                            {
+                                "ref": bake_session.BakeSessionStore.constraint_ref(
+                                    obj, c, bone=bone_name
+                                ),
+                                "prior_mute": c.mute,
+                            }
+                        )
+                    c.mute = True
                     muted_constraints.append(name)
 
             driver_paths = data.driven_sources.get("driver", [])
@@ -971,24 +1023,24 @@ class SmartBake(_SmartBakeInternal):
                 ad = getattr(obj, "animation_data", None)
                 if ad is not None:
                     for fc in list(ad.drivers):
-                        if fc.data_path not in driver_paths:
+                        path = fc.data_path  # read first: a removed fcurve is gone
+                        if path not in driver_paths:
                             continue
-                        if self.delete_sources:
+                        if delete:
                             ad.drivers.remove(fc)
-                        elif self.use_override:
-                            if session is not None:
-                                session["muted_drivers"].append(
-                                    {
-                                        "ref": bake_session.BakeSessionStore.driver_ref(
-                                            obj, fc
-                                        ),
-                                        "prior_mute": fc.mute,
-                                    }
-                                )
-                            fc.mute = True
-                        else:
+                            result.deleted.append(path)
                             continue
-                        muted_drivers.append(fc.data_path)
+                        if session is not None:
+                            session["muted_drivers"].append(
+                                {
+                                    "ref": bake_session.BakeSessionStore.driver_ref(
+                                        obj, fc
+                                    ),
+                                    "prior_mute": fc.mute,
+                                }
+                            )
+                        fc.mute = True
+                        muted_drivers.append(path)
 
             result.baked[key] = constraint_names + list(driver_paths)
             result.object_time_ranges[key] = tuple(time_range)
@@ -1095,6 +1147,7 @@ class SmartBake(_SmartBakeInternal):
         if session is not None and result.baked:
             bake_session.BakeSessionStore.push(session)
             result.session_id = session["id"]
+            result.restorable = bool(session["restorable"])
 
         return result
 
@@ -1110,7 +1163,12 @@ class SmartBake(_SmartBakeInternal):
     @classmethod
     def list_sessions(cls) -> List[str]:
         """Ids of restorable bake sessions recorded on this scene's ``data_internal`` carrier,
-        oldest first."""
+        oldest first; none without a Blender runtime (a Qt-only load of the Smart Bake panel,
+        whose Unbake button reads this as it opens)."""
+        try:
+            import bpy  # noqa: F401
+        except ImportError:
+            return []
         from blendertk.anim_utils.smart_bake.bake_session import BakeSessionStore
 
         return BakeSessionStore.list_ids()
@@ -1191,7 +1249,9 @@ class SmartBake(_SmartBakeInternal):
 
         Example:
             >>> result = SmartBake.run()
-            >>> result = SmartBake.run(objects=[cube], delete_sources=True)
+            >>> result = SmartBake.run(
+            ...     objects=[cube], use_override_layer=False, delete_inputs=True
+            ... )
             >>> if result.success:
             ...     print(f"Baked {result.baked_count} objects")
         """

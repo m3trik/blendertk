@@ -1575,6 +1575,19 @@ class AnimUtils(_AnimUtilsInternal):
         )
 
     @staticmethod
+    def get_current_frame():
+        """The scene's current frame (``scene.frame_current``): the read
+        :meth:`set_current_frame` pairs with -- mirror of mayatk's
+        ``AnimUtils.get_current_frame``.
+
+        Returns:
+            float: The current frame.
+        """
+        import bpy
+
+        return float(bpy.context.scene.frame_current)
+
+    @staticmethod
     def set_current_frame(
         time=None, update=True, relative=False, snap_mode=None, invert_snap=False
     ):

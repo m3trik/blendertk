@@ -225,6 +225,12 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
 
     #: The private record carrying the clip manifest (the declaration's key).
     ATTR_NAME = ptk.SceneRecords.KEY_STASH.key
+    #: The sources :meth:`stash_from` reads -- mirror of mayatk's (the Key
+    #: Stash panel's Source combo).
+    STASH_SOURCES = ("selected_keys", "timeline_selection", "playback_range")
+    #: The events after which the record may have moved under the loaded store
+    #: (:meth:`watch_undo`; ``undo_post`` / ``redo_post`` behind them).
+    UNDO_EVENTS = ("Undo", "Redo")
     _flush_pending: bool = False
 
     # ---- singleton / hooks ---------------------------------------------
@@ -242,6 +248,40 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
                     BlenderScenePersistence(attr_name=cls.ATTR_NAME, store_cls=cls)
                 )
         return super().active()  # type: ignore[return-value]
+
+    @classmethod
+    def watch_undo(cls, owner, widget=None) -> List[int]:
+        """Keep the loaded store in step with undo and redo, for *owner* --
+        mirror of mayatk's.
+
+        Each operation writes the record inside its undo step, so an undo or
+        redo can move the record under the loaded store. This subscribes
+        :meth:`active` -- which re-reads a moved record, and the store's change
+        event tells its listeners -- to :attr:`UNDO_EVENTS` (``undo_post`` /
+        ``redo_post``) through the ``ScriptJobManager``, under *owner*; with
+        *widget*, the subscriptions end when it is destroyed. A subscription
+        that fails is skipped, never raised: a panel watching the store must
+        still open (without bpy the manager only books them).
+
+        Parameters:
+            owner: The subscriptions' owner (``ScriptJobManager.unsubscribe_all``).
+            widget: A Qt widget whose destruction ends them.
+
+        Returns:
+            The subscription tokens.
+        """
+        from blendertk.core_utils.script_job_manager import ScriptJobManager
+
+        jobs = ScriptJobManager.instance()
+        tokens: List[int] = []
+        for event in cls.UNDO_EVENTS:
+            try:
+                tokens.append(jobs.subscribe(event, cls.active, owner=owner))
+            except Exception as error:  # noqa: BLE001 -- see the docstring
+                _log.debug("KeyStash.watch_undo: %r unavailable (%s)", event, error)
+        if widget is not None:
+            jobs.connect_cleanup(widget, owner=owner)
+        return tokens
 
     def _scene_fps(self) -> float:
         return _BlenderShotStoreInternal._get_scene_fps()
@@ -650,6 +690,66 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
                 action = bpy.data.actions.get(name)
                 if action is not None:
                     bpy.data.actions.remove(action)
+
+    def stash_from(self, source: str) -> Optional[StashedClip]:
+        """:meth:`stash` the keys one of :attr:`STASH_SOURCES` names, read
+        from the file as it stands -- mirror of mayatk's (the Key Stash
+        panel's Store Keys).
+
+        * ``"selected_keys"`` -- the Graph Editor / Dope Sheet key selection.
+        * ``"timeline_selection"`` -- the selected objects' keys inside the
+          timeline's preview range (Blender has no drag-selected slider range;
+          :meth:`AnimUtils.get_timeline_selection`).
+        * ``"playback_range"`` -- theirs inside the scene frame range.
+
+        Returns:
+            The new clip, or ``None`` when the source held no keys.
+
+        Raises:
+            ValueError: An unknown *source*, or one the file can't answer yet
+                (nothing selected, no preview range), worded for the user.
+        """
+        if source not in self.STASH_SOURCES:
+            raise ValueError(
+                f"stash_from: source must be one of {self.STASH_SOURCES}, got {source!r}"
+            )
+        if source == "selected_keys":
+            return self.stash(selected_keys=True)
+        objects = list(CoreUtils.selected_objects())  # absent windowless
+        if not objects:
+            raise ValueError("Select the object(s) whose keys to store.")
+        if source == "timeline_selection":
+            time_range = AnimUtils.get_timeline_selection()
+            if time_range is None:
+                raise ValueError("Set a preview range (P) on the timeline first.")
+        else:
+            import bpy
+
+            scene = bpy.context.scene
+            time_range = (scene.frame_start, scene.frame_end)
+        return self.stash(objects=objects, time_range=time_range)
+
+    def select_clip_objects(self, clip_id: int) -> List[str]:
+        """Select a stored clip's objects that still exist, replacing the
+        selection, the first one active -- mirror of mayatk's (the Key Stash
+        panel's double-click on a clip).
+
+        Returns:
+            The names of the objects selected; empty, and the selection
+            untouched, when none of them exists.
+
+        Raises:
+            KeyError: Unknown *clip_id*.
+        """
+        import bpy
+
+        clip = self.get_clip(clip_id)
+        if clip is None:
+            raise KeyError(f"no stashed clip {clip_id}")
+        present = [o for o in map(bpy.data.objects.get, clip.objects) if o is not None]
+        if present:
+            CoreUtils.select(present)
+        return [o.name for o in present]
 
     # ---- preview -------------------------------------------------------
 

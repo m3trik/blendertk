@@ -1,18 +1,8 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Smart Bake panel/engine test — Blender port of mayatk's ``test_smart_bake_panel.py`` +
-``test_smart_bake.py`` (kept in one file per this repo's "one test file per module" convention).
-
-Two independent suites share this file, gated on which runtime is importable — each only makes
-sense in one of the two environments this repo tests in, and neither needs the other:
-
-``TestSmartBakePanelLoads`` needs **Qt, not bpy** — it loads ``smart_bake.ui`` + wires
-``SmartBakeSlots`` through a real (offscreen) Qt/Switchboard/BlenderUiHandler stack, none of
-which touch Blender (``SmartBakeSlots._refresh_session_state`` swallows the ``bpy``-import
-failure from ``SmartBake.list_sessions()`` the same way ``render_effects_slots`` guards its
-``ScriptJobManager`` touch — see its docstring). Run under the workspace ``.venv``::
-
-    .venv\\Scripts\\python.exe blendertk/test/test_smart_bake.py
+"""Smart Bake engine test — Blender port of mayatk's ``test_smart_bake.py`` (the panel is
+tentacle's shared ``slots/tools/smart_bake.py``, tested by tentacle's
+``test/test_smart_bake_panel.py``). Every check here needs **bpy**:
 
 ``_run_data_internal_export_exclusion_checks`` needs **bpy, not Qt** — it builds a real scene
 (a ``data_internal`` carrier via ``DataNodes.ensure_internal()`` plus two ordinary meshes) and
@@ -69,26 +59,24 @@ the same 9->1 result ``_run_task_manager_wiring_checks`` already proves for
 
 ``_run_backup_mode_checks`` also needs **bpy, not Qt** -- proves ``cmb_backup``'s 3-way mapping
 onto the engine's own (pre-existing) ``backup_file`` parameter: Auto (``None``) backs up only a
-``delete_sources`` bake, Always (``True``) always does, Never (``False``) never does. Unlike
+``delete_inputs`` Base Layer bake, Always (``True``) always does, Never (``False``) never does. Unlike
 every other check in this file, ``SmartBake._save_backup`` no-ops on an unsaved scene, so this
 one saves a real ``.blend`` under ``test/temp_tests/`` and cleans up after itself.
 
-When launched by the Blender harness (``--background --factory-startup``, which ships no Qt),
-the Qt import fails, ``TestSmartBakePanelLoads`` SKIPS, and the bpy-driven checks run instead,
-printing the ``===RESULT: PASS/FAIL===`` sentinel ``Run-Tests.ps1`` greps for. When run directly
-under the workspace ``.venv`` (Qt present, no ``bpy``), the Qt suite runs via ``unittest`` and
-the bpy-driven checks are skipped (nothing to assert without Blender running) — either way this
-file never needs both runtimes at once. Engine round-trip coverage (bake analyze/mute/restore
-against real ``bpy`` state) is exercised separately during this port's live-Blender verification
-passes (see ``_smart_bake.py`` / ``bake_session.py`` module docstrings for what was proven).
+``_run_option_parity_checks`` -- mayatk's option keywords (``use_override_layer`` /
+``delete_inputs`` / ``mute_drivers``) with mayatk's precedence and auto-backup rule, and what the
+shared panel reports of a bake (``BakeResult.deleted`` / ``restorable`` / ``describe()``).
+
+When launched by the Blender harness (``--background --factory-startup``), the bpy-driven
+checks run and print the ``===RESULT: PASS/FAIL===`` sentinel ``Run-Tests.ps1`` greps for;
+without ``bpy`` there is nothing to assert and the run reports itself skipped. Engine
+round-trip coverage (bake analyze/mute/restore against real ``bpy`` state) is exercised
+separately during this port's live-Blender verification passes (see ``_smart_bake.py`` /
+``bake_session.py`` module docstrings for what was proven).
 """
 
 import os
 import sys
-import unittest
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("QT_API", "pyside6")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -96,132 +84,6 @@ MONO = os.path.dirname(REPO)
 for p in (REPO, os.path.join(MONO, "pythontk"), os.path.join(MONO, "uitk")):
     if p not in sys.path:
         sys.path.insert(0, p)
-
-try:
-    from qtpy import QtWidgets
-except Exception:  # pragma: no cover - Qt not installed / Blender's headless Python
-    QtWidgets = None
-
-if QtWidgets is not None:
-    # Keep the Qt half off the real QSettings store (uitk/test/conftest.py owns
-    # the shim): loading the panel through Switchboard otherwise reads AND
-    # writes the developer's live ``uitk\shared`` state.
-    import importlib.util
-
-    _conftest = os.path.join(MONO, "uitk", "test", "conftest.py")
-    if os.path.isfile(_conftest):
-        _spec = importlib.util.spec_from_file_location("_uitk_conftest", _conftest)
-        _mod = importlib.util.module_from_spec(_spec)
-        _spec.loader.exec_module(_mod)  # activates the QSettings sandbox
-    else:  # refuse to run panel loads against the live store
-        QtWidgets = None
-
-
-@unittest.skipUnless(
-    QtWidgets is not None,
-    "Qt test — run under the workspace .venv (PySide6), not the Blender harness.",
-)
-class TestSmartBakePanelLoads(unittest.TestCase):
-    """The panel loads through the real discovery + compile path."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-        from uitk import Switchboard
-        from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
-
-        cls.sb = Switchboard()
-        cls.handler = BlenderUiHandler(switchboard=cls.sb)
-        # A process singleton: in a run that built it earlier (another panel
-        # module) it keeps ITS switchboard, which is the one holding the UIs.
-        cls.sb = cls.handler.sb
-        cls.ui = cls.handler.get("smart_bake")
-        # Flush the QTimer.singleShot(0, self._initialize_ui) deferred in __init__ — Blender's
-        # own event loop does this immediately in real use.
-        for _ in range(5):
-            cls.app.processEvents()
-
-    def test_ui_loads(self):
-        self.assertIsNotNone(self.ui, "smart_bake UI failed to load")
-
-    def test_resolves_to_slots_class_not_bare_engine(self):
-        """SmartBake (the engine) is also a registered blendertk class — confirm the Slots
-        suffix disambiguates it during discovery."""
-        self.assertEqual(type(self.ui.slots).__name__, "SmartBakeSlots")
-
-    def test_all_referenced_widgets_exist(self):
-        expected = [
-            "cmb_scope",
-            "options_group",
-            "spn_sample_by",
-            "chk_preserve_outside",
-            "chk_optimize",
-            "chk_bake_blend_shapes",
-            "safety_group",
-            "chk_use_override",
-            "chk_delete_sources",
-            "cmb_backup",
-            "b000",
-            "b001",
-            "output_grp",
-            "txt000",
-            "footer",
-            "header",
-        ]
-        missing = [w for w in expected if not hasattr(self.ui, w)]
-        self.assertEqual(missing, [])
-
-    def test_scope_combo_items(self):
-        items = [
-            self.ui.cmb_scope.itemText(i) for i in range(self.ui.cmb_scope.count())
-        ]
-        self.assertEqual(items, ["Auto (Whole Scene)", "Selected"])
-
-    def test_backup_combo_items(self):
-        items = [
-            self.ui.cmb_backup.itemText(i) for i in range(self.ui.cmb_backup.count())
-        ]
-        self.assertEqual(items, ["Auto", "Always", "Never"])
-
-    def test_preserve_outside_defaults_checked(self):
-        self.assertTrue(self.ui.chk_preserve_outside.isChecked())
-
-    def test_optimize_defaults_unchecked(self):
-        self.assertFalse(self.ui.chk_optimize.isChecked())
-
-    def test_backup_value_mapping(self):
-        # Index is the source of truth (see SmartBakeSlots._BACKUP_MODES): Auto -> None,
-        # Always -> True, Never -> False, regardless of label text.
-        expected = [None, True, False]
-        slots = self.ui.slots
-        actual = []
-        for i in range(self.ui.cmb_backup.count()):
-            self.ui.cmb_backup.setCurrentIndex(i)
-            actual.append(slots._backup_value())
-        self.assertEqual(actual, expected)
-
-    def test_use_override_defaults_checked(self):
-        self.assertTrue(self.ui.chk_use_override.isChecked())
-
-    def test_delete_sources_defaults_unchecked(self):
-        self.assertFalse(self.ui.chk_delete_sources.isChecked())
-
-    def test_bake_blend_shapes_defaults_checked(self):
-        self.assertTrue(self.ui.chk_bake_blend_shapes.isChecked())
-
-    def test_use_override_disabled_when_delete_sources_checked(self):
-        self.ui.chk_delete_sources.setChecked(True)
-        self.assertFalse(self.ui.chk_use_override.isEnabled())
-        self.ui.chk_delete_sources.setChecked(False)  # restore default
-
-    def test_use_override_enabled_when_delete_sources_unchecked(self):
-        self.ui.chk_delete_sources.setChecked(False)
-        self.assertTrue(self.ui.chk_use_override.isEnabled())
-
-    def test_unbake_disabled_with_no_pending_sessions(self):
-        # No running Blender under this Qt-only harness — SmartBake.list_sessions() can't
-        # touch bpy, so SmartBakeSlots._refresh_session_state() falls back to an empty list.
-        self.assertFalse(self.ui.b001.isEnabled())
 
 
 def _run_data_internal_export_exclusion_checks():
@@ -652,7 +514,7 @@ def _run_driver_bake_restore_regression_checks():
         scene.frame_set(10)
         bpy.context.view_layer.update()
 
-        baker = SmartBake(objects=[target], sample_by=1, use_override=True)
+        baker = SmartBake(objects=[target], sample_by=1, use_override_layer=True)
         analysis = baker.analyze()
         check(
             "driver detected on target",
@@ -770,7 +632,7 @@ def _run_ik_bake_restore_regression_checks():
         scene.frame_set(10)
         pre_bake_tip_10 = tip_world()
 
-        baker = SmartBake(objects=[arm_obj], sample_by=1, use_override=True)
+        baker = SmartBake(objects=[arm_obj], sample_by=1, use_override_layer=True)
         analysis = baker.analyze()
         key = "Rig:Bone2"
         check(
@@ -1309,7 +1171,7 @@ def _run_skip_reason_checks():
 
 def _run_backup_mode_checks():
     """bpy-driven checks proving ``cmb_backup``'s 3-way mapping onto
-    ``SmartBake(backup_file=...)`` -- ``None`` (Auto) backs up only when ``delete_sources=True``,
+    ``SmartBake(backup_file=...)`` -- ``None`` (Auto) backs up only a ``delete_inputs`` Base Layer bake,
     ``True`` (Always) always backs up, ``False`` (Never) never backs up -- against a REAL saved
     ``.blend`` (``SmartBake._save_backup`` no-ops on an unsaved scene, unlike every other check
     in this file, which is why this one saves to ``test/temp_tests/`` and cleans up after
@@ -1385,7 +1247,7 @@ def _run_backup_mode_checks():
             bpy.data.filepath,
         )
 
-        # ---- Auto (None): no backup for a plain (non-delete_sources) bake ----
+        # ---- Auto (None): no backup for a plain (no delete_inputs) bake ----
         clear_backup_file()
         _reset_smart_bake_regression_scene()
         driven_a1 = build_driven_rig("AutoNoDelete")
@@ -1393,7 +1255,7 @@ def _run_backup_mode_checks():
             objects=[driven_a1],
             bake_blend_shapes=False,
             backup_file=None,
-            delete_sources=False,
+            delete_inputs=False,
         )
         check(
             "Auto (None) does NOT back up a plain bake",
@@ -1403,7 +1265,7 @@ def _run_backup_mode_checks():
         if result_a1.session_id:
             SmartBake.restore(result_a1.session_id)
 
-        # ---- Auto (None): backs up when delete_sources=True (the one non-restorable path) ----
+        # ---- Auto (None): backs up a delete_inputs Base Layer bake (the one non-restorable path) ----
         clear_backup_file()
         _reset_smart_bake_regression_scene()
         driven_a2 = build_driven_rig("AutoDelete")
@@ -1411,15 +1273,16 @@ def _run_backup_mode_checks():
             objects=[driven_a2],
             bake_blend_shapes=False,
             backup_file=None,
-            delete_sources=True,
+            use_override_layer=False,
+            delete_inputs=True,
         )
         check(
-            "Auto (None) DOES back up a delete_sources bake",
+            "Auto (None) DOES back up a delete_inputs Base Layer bake",
             bool(result_a2.backup_path) and os.path.exists(expected_backup_path),
             f"{result_a2.backup_path}",
         )
 
-        # ---- Always (True): backs up even without delete_sources ----
+        # ---- Always (True): backs up even without delete_inputs ----
         clear_backup_file()
         _reset_smart_bake_regression_scene()
         driven_always = build_driven_rig("Always")
@@ -1427,10 +1290,10 @@ def _run_backup_mode_checks():
             objects=[driven_always],
             bake_blend_shapes=False,
             backup_file=True,
-            delete_sources=False,
+            delete_inputs=False,
         )
         check(
-            "Always (True) backs up even without delete_sources",
+            "Always (True) backs up even without delete_inputs",
             bool(result_always.backup_path) and os.path.exists(expected_backup_path),
             f"{result_always.backup_path}",
         )
@@ -1444,7 +1307,7 @@ def _run_backup_mode_checks():
         if result_always.session_id:
             SmartBake.restore(result_always.session_id)
 
-        # ---- Never (False): never backs up, even WITH delete_sources ----
+        # ---- Never (False): never backs up, even a delete_inputs Base Layer bake ----
         clear_backup_file()
         _reset_smart_bake_regression_scene()
         driven_never = build_driven_rig("Never")
@@ -1452,10 +1315,11 @@ def _run_backup_mode_checks():
             objects=[driven_never],
             bake_blend_shapes=False,
             backup_file=False,
-            delete_sources=True,
+            use_override_layer=False,
+            delete_inputs=True,
         )
         check(
-            "Never (False) does not back up even WITH delete_sources",
+            "Never (False) does not back up even a delete_inputs Base Layer bake",
             result_never.backup_path is None
             and not os.path.exists(expected_backup_path),
             f"{result_never.backup_path}",
@@ -2933,6 +2797,151 @@ def _run_restore_exactness_checks():
     return lines
 
 
+def _run_option_parity_checks():
+    """mayatk's option keywords on Blender's engine (the shared panel passes them):
+    ``use_override_layer`` / ``delete_inputs`` / ``mute_drivers`` with mayatk's precedence -- a
+    source is removed only by a ``delete_inputs`` Base Layer bake without ``mute_drivers``, and
+    muted otherwise -- and mayatk's auto-backup rule; plus what the panel reports of a bake
+    (``BakeResult.deleted`` / ``restorable`` / ``describe()``). Returns ``"OK ..."``/``"FAIL ..."``
+    lines (see ``_run_data_internal_export_exclusion_checks``).
+    """
+    lines = []
+
+    def check(name, cond, detail=""):
+        lines.append(
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
+        )
+
+    try:
+        import bpy
+
+        from blendertk.anim_utils.smart_bake._smart_bake import BakeResult, SmartBake
+
+        def bake(name, **kwargs):
+            """An empty following a keyed empty (COPY_LOCATION on x/y) with a driver on its
+            z, baked with *kwargs*: ``(result, constraint or None, its drivers)``."""
+            _reset_smart_bake_regression_scene()
+            target = bpy.data.objects.new(f"{name}Target", None)
+            bpy.context.collection.objects.link(target)
+            for frame, x in ((1, 0.0), (10, 5.0)):
+                target.location.x = x
+                target.keyframe_insert("location", index=0, frame=frame)
+            driven = bpy.data.objects.new(name, None)
+            bpy.context.collection.objects.link(driven)
+            con = driven.constraints.new("COPY_LOCATION")
+            con.name = "CopyLoc"
+            con.target = target
+            con.use_z = False
+            fc = driven.driver_add("location", 2)
+            fc.driver.type = "SCRIPTED"
+            fc.driver.expression = "x * 0.5"
+            var = fc.driver.variables.new()
+            var.name = "x"
+            var.type = "SINGLE_PROP"
+            var.targets[0].id_type = "OBJECT"
+            var.targets[0].id = target
+            var.targets[0].data_path = "location.x"
+            result = SmartBake(
+                objects=[driven], bake_blend_shapes=False, backup_file=False, **kwargs
+            ).execute()
+            ad = driven.animation_data
+            return result, driven.constraints.get("CopyLoc"), list(ad.drivers) if ad else []
+
+        def muted(name, result, con, drivers):
+            check(
+                f"{name}: the sources are muted, not removed, and the session is restorable",
+                con is not None
+                and con.mute
+                and len(drivers) == 1
+                and drivers[0].mute
+                and result.muted_constraints == ["CopyLoc"]
+                and result.muted_drivers == ["location"]
+                and result.deleted == []
+                and result.restorable,
+                f"con={con} drivers={drivers} deleted={result.deleted} "
+                f"restorable={result.restorable}",
+            )
+            if result.session_id:
+                SmartBake.restore(result.session_id)
+
+        result, con, drivers = bake("ParityOverride")
+        muted("an override-layer bake (the default)", result, con, drivers)
+        lines_ = result.describe()
+        check(
+            "describe: the baked sources and the mutes, no session wording",
+            "ParityOverride: CopyLoc, location" in lines_
+            and "Muted 1 constraint(s)." in lines_
+            and "Muted 1 driver(s)." in lines_
+            and not any("session" in line.lower() for line in lines_),
+            f"{lines_}",
+        )
+
+        result, con, drivers = bake("ParityIgnored", delete_inputs=True)
+        muted("delete_inputs with an override layer (ignored, as in mayatk)", result, con,
+              drivers)
+
+        result, con, drivers = bake("ParityKept", use_override_layer=False,
+                                    delete_inputs=True, mute_drivers=True)
+        muted("delete_inputs with mute_drivers (mute wins, as in mayatk)", result, con, drivers)
+
+        result, con, drivers = bake("ParityBase", use_override_layer=False)
+        muted("a Base Layer bake without delete_inputs", result, con, drivers)
+
+        result, con, drivers = bake("ParityDeleted", use_override_layer=False,
+                                    delete_inputs=True)
+        check(
+            "a delete_inputs Base Layer bake removes the sources and reports them",
+            con is None
+            and drivers == []
+            and sorted(result.deleted) == ["CopyLoc", "location"]
+            and result.muted_constraints == []
+            and result.muted_drivers == [],
+            f"con={con} drivers={drivers} deleted={result.deleted}",
+        )
+        check(
+            "its session is recorded but not restorable",
+            bool(result.session_id) and not result.restorable,
+            f"session={result.session_id} restorable={result.restorable}",
+        )
+        check(
+            "describe names the removed sources",
+            "Deleted 2 constraint(s) / driver(s)." in result.describe(),
+            f"{result.describe()}",
+        )
+        if result.session_id:
+            from blendertk.anim_utils.smart_bake.bake_session import BakeSessionStore
+
+            BakeSessionStore.pop(result.session_id)
+
+        check(
+            "auto backup: only a delete_inputs Base Layer bake (mayatk's rule)",
+            SmartBake(use_override_layer=False, delete_inputs=True).backup_file is True
+            and SmartBake(delete_inputs=True).backup_file is False
+            and SmartBake().backup_file is False,
+        )
+
+        probe = BakeResult(baked={"Kept": ["CopyLoc"]}, backup_path="/tmp/x_prebake.blend")
+        probe.skip("Plain", "nothing to bake: no live source")
+        probe.skip("Refused", "its bake keyed nothing")
+        lines_ = probe.describe()
+        check(
+            "describe names the refusals only, then the backup",
+            lines_
+            == [
+                "Kept: CopyLoc",
+                "Declined Refused: its bake keyed nothing",
+                "Backup saved: /tmp/x_prebake.blend",
+            ],
+            f"{lines_}",
+        )
+        _reset_smart_bake_regression_scene()
+    except Exception as exc:  # noqa: BLE001 -- reported as a FAIL line
+        import traceback
+
+        check("option-parity checks ran", False, f"{exc!r}\n{traceback.format_exc()}")
+    return lines
+
+
 if __name__ == "__main__":
     import importlib
 
@@ -2955,6 +2964,7 @@ if __name__ == "__main__":
         result_lines += _run_failed_bake_rollback_checks()
         result_lines += _run_restore_exactness_checks()
         result_lines += _run_skip_reason_checks()
+        result_lines += _run_option_parity_checks()
         # Saves a REAL .blend under temp_tests/ — run last so its bpy.data.filepath side
         # effect (persists for the rest of this process) can't affect any earlier check.
         result_lines += _run_backup_mode_checks()
@@ -2965,8 +2975,5 @@ if __name__ == "__main__":
             f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({passed}/{len(result_lines)})"
         )
     else:
-        _runner = unittest.TextTestRunner(verbosity=2)
-        _result = _runner.run(
-            unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
-        )
-        print(f"===RESULT: {'PASS' if _result.wasSuccessful() else 'FAIL'}===")
+        # Every check needs Blender: nothing to assert in this interpreter.
+        print("===RESULT: PASS=== (skipped)")
