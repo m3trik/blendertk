@@ -94,7 +94,6 @@ PANELS = [
     "tube_rig",
     "articulated_rig",
     "shots",
-    "shot_manifest",
     "shot_sequencer",
 ]
 

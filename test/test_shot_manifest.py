@@ -320,14 +320,10 @@ A03.),Fuselage fades out,fuselage_geo,
         f"{zero_result}",
     )
 
-    # ---- _show_in_outliner guards objects outside the active view layer ----
+    # ---- Show in Outliner: ManifestHost.find_nodes / reveal (the panel's host calls) ----
     # (pre-fix: select_set raised RuntimeError on an object in an excluded
     # collection, killing the context-menu reveal action)
-    from types import SimpleNamespace
-
-    from blendertk.anim_utils.shots.shot_manifest.shot_manifest_slots import (
-        ShotManifestController,
-    )
+    from blendertk import BlenderShotStore, ManifestHost
 
     vlg_col = bpy.data.collections.new("VlgExcluded")
     bpy.context.scene.collection.children.link(vlg_col)
@@ -336,54 +332,45 @@ A03.),Fuselage fades out,fuselage_geo,
     bpy.context.view_layer.layer_collection.children["VlgExcluded"].exclude = True
     bpy.context.view_layer.update()
 
-    from blendertk import BlenderShotStore
-    from blendertk.anim_utils._anim_utils import AnimUtils
-
-    footer_msgs = []
-    stub = SimpleNamespace(
-        _active_store=BlenderShotStore,
-        _set_footer=lambda text, **kw: footer_msgs.append(text),
-    )
-    stub._reveal_targets = ShotManifestController._reveal_targets
-    reveal_err = ""
+    store = BlenderShotStore.active()
+    reveal_err, notes = "", []
     try:
-        ShotManifestController._show_in_outliner(stub, ["VlgOutside"])
+        notes = ManifestHost.reveal(ManifestHost.find_nodes("VlgOutside", store))
         reveal_ok = True
     except RuntimeError as e:
         reveal_ok, reveal_err = False, repr(e)
     check(
-        "_show_in_outliner: outside-view-layer object doesn't raise",
+        "reveal: outside-view-layer object doesn't raise",
         reveal_ok,
         reveal_err,
     )
     check(
-        "_show_in_outliner: outside-view-layer object reported via footer",
-        any("view layer" in m for m in footer_msgs),
-        f"{footer_msgs}",
+        "reveal: outside-view-layer object reported in its notes",
+        any("view layer" in m for m in notes),
+        f"{notes}",
     )
-    ShotManifestController._show_in_outliner(stub, ["aileron_geo"])
+    ManifestHost.reveal(ManifestHost.find_nodes("aileron_geo", store))
     check(
-        "_show_in_outliner: in-layer object selected + active",
+        "reveal: in-layer object selected + active",
         bpy.data.objects["aileron_geo"].select_get()
         and bpy.context.view_layer.objects.active is bpy.data.objects["aileron_geo"],
     )
-    # A name two objects answer to selects both (the duplicates to fix),
-    # with the other names, and says so.
+    # A name two objects answer to finds both (the duplicates to fix).
     for dup in ("AC:twin_geo", "BC:twin_geo"):
         bpy.context.scene.collection.objects.link(bpy.data.objects.new(dup, None))
     bpy.context.view_layer.update()  # a new link joins the layer's objects here
-    footer_msgs.clear()
-    ShotManifestController._show_in_outliner(stub, ["twin_geo", "wing_geo"])
+    twins = ManifestHost.find_nodes("twin_geo", store)
     check(
-        "_show_in_outliner: a shared name selects every object it answers to",
+        "find_nodes: a shared name answers with every object it names",
+        sorted(twins) == ["AC:twin_geo", "BC:twin_geo"],
+        f"{twins}",
+    )
+    ManifestHost.reveal(twins + ManifestHost.find_nodes("wing_geo", store))
+    check(
+        "reveal: every found object selected",
         sorted(o.name for o in bpy.data.objects if o.select_get())
         == ["AC:twin_geo", "BC:twin_geo", "wing_geo"],
         f"{[o.name for o in bpy.data.objects if o.select_get()]}",
-    )
-    check(
-        "_show_in_outliner: a shared name is reported",
-        any("'twin_geo' (2)" in m for m in footer_msgs),
-        f"{footer_msgs}",
     )
     for dup in ("AC:twin_geo", "BC:twin_geo"):
         bpy.data.objects.remove(bpy.data.objects[dup], do_unlink=True)

@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-28 -- The Shot Manifest panel moved to tentacle; `ManifestHost` is the seam it calls (`anim_utils/shots/shot_manifest/`, `__init__.py`).** Mirror of mayatk's: the panel is one copy in tentacle; the Blender side stays (`BlenderShotManifest`, the behaviors, the range facade and `ManifestHost`, now on the root as `btk.ManifestHost`, with `behaviors_cls()` and `range_resolver_cls()`). The panel's 24 names are in `MOVED_NAMES` (0.23.0).
+  - Test(s): `test_shot_manifest_panel.py` moved to tentacle (`test_shot_manifest_panel_blender.py`, 66); `test_shot_manifest_csv_load.py` is gone, its URL cases a mirror of the ones tentacle keeps.
 - **2026-10-27 -- `NodeIcons.audio_icon(size=16)`: an audio item's icon, Blender's speaker, from the type alone (`ui_utils/node_icons.py`, `anim_utils/shots/shot_manifest/manifest_host.py`).** Twin of mayatk's; the Shot Manifest host built it inline with `IconManager`.
   - Test(s): `test_blender_ui_handler.py` +1 check (the icon resolves, non-null).
 - **2026-10-27 -- Five helpers the Shot Manifest's Blender half calls are public (`anim_utils/shots/_shots.py`, `mat_utils/render_opacity/render_effects.py`).** `BlenderShotStore.is_transform_path` and `fcurve_for_key` (moved up from the private store base), and `RenderEffects.ensure_opacity_prop`, `ensure_highlight_props` and `set_key` lose their underscore: once that half lives in tentacle it may call only public names. Every caller in the package is renamed with them, and the manifest host reads the public `CoreUtils.active_view_layer`. Behavior is unchanged.
