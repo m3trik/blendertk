@@ -162,8 +162,6 @@ class Components(_ComponentsInternal):
             ValueError: An unknown ``space``, fewer than two meshes, no selected
                 active mesh for ``None``, or the transfer failing.
         """
-        import bpy
-
         mappings = {
             "world": "POLYINTERP_NEAREST",
             "local": "POLYINTERP_NEAREST",
@@ -174,6 +172,45 @@ class Components(_ComponentsInternal):
             raise ValueError(
                 f"space parameter must be one of: {', '.join(mappings)}"
             )
+        targets = Components.transfer_mesh_data(
+            objects,
+            "CUSTOM_NORMAL",
+            loop_mapping=mappings[space],
+            use_object_transform=space != "local",
+        )
+        return targets if targets == [] else None  # mayatk's: None once it ran
+
+    @staticmethod
+    def transfer_mesh_data(objects, data_type, **options):
+        """Copy *data_type* from the first mesh of *objects* to the rest with Blender's
+        Data Transfer (``object.data_transfer``): the primitive under the transfer
+        operations (:meth:`transfer_normals`; UVs, colors, weights, creases).
+
+        ``None`` takes the selection, the active mesh as the source (it must be
+        selected); with nothing selected, ``[]`` (mayatk's ``CoreUtils.selected``
+        contract). Blender's vocabulary, so no mayatk twin: an operation a panel
+        shared by both hosts calls is named for what it transfers
+        (``transfer_normals``), its blendertk half built on this and its mayatk
+        half on ``transferAttributes``. No undo step of its own: its callers are.
+
+        Parameters:
+            objects (list/None): The meshes, the source first; others are dropped.
+            data_type (str): ``object.data_transfer``'s ``data_type`` (``"UV"``,
+                ``"CUSTOM_NORMAL"``, ``"VGROUP_WEIGHTS"``, ``"COLOR_VERTEX"``,
+                ``"CREASE"`` ...).
+            **options: The operator's other properties (``vert_mapping``,
+                ``edge_mapping``, ``layers_select_src`` ...); ``loop_mapping``
+                defaults to ``"POLYINTERP_NEAREST"`` (nearest face, interpolated).
+
+        Returns:
+            (list): The target meshes; ``[]`` with nothing selected.
+
+        Raises:
+            ValueError: No selected active mesh for ``None``, fewer than two
+                meshes, or the operator's own report.
+        """
+        import bpy
+
         if objects is None:
             selection = CoreUtils.selected_objects()
             if not selection:
@@ -185,7 +222,8 @@ class Components(_ComponentsInternal):
         meshes = Components._meshes(objects)
         if len(meshes) < 2:
             raise ValueError("Transfer needs a source mesh and one or more target meshes.")
-        source = meshes[0]
+        source, targets = meshes[0], meshes[1:]
+        options = {"loop_mapping": "POLYINTERP_NEAREST", **options}
         with CoreUtils.window_context_override():
             with bpy.context.temp_override(
                 active_object=source,
@@ -194,10 +232,7 @@ class Components(_ComponentsInternal):
                 selected_editable_objects=meshes,
             ):
                 try:
-                    bpy.ops.object.data_transfer(
-                        data_type="CUSTOM_NORMAL",
-                        loop_mapping=mappings[space],
-                        use_object_transform=space != "local",
-                    )
+                    bpy.ops.object.data_transfer(data_type=data_type, **options)
                 except RuntimeError as error:  # the operator's own report
                     raise ValueError(str(error)) from error
+        return targets

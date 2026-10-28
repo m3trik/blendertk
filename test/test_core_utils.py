@@ -1350,6 +1350,65 @@ try:
         "; ".join(loops),
     )
 
+    # --- ensure_component_mode / ensure_object_mode: Maya's component / object mode ----------
+    # (mayatk's names: what a Slots class shared by both hosts calls through ``self.tk``)
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    cm_mesh = bpy.context.view_layer.objects.active
+    bpy.ops.curve.primitive_bezier_curve_add(location=(4, 0, 0))
+    cm_curve = bpy.context.view_layer.objects.active
+    cm_vl = bpy.context.view_layer
+    cm_modes = bpy.context.scene.tool_settings
+    btk.CoreUtils.select([cm_mesh, cm_curve])
+    cm_vl.objects.active = cm_curve  # the active object is not of the type asked for
+    got = btk.CoreUtils.ensure_component_mode("mesh", "edge")
+    check(
+        "ensure_component_mode: a selected mesh that is not active is made active, edited",
+        got is cm_mesh
+        and cm_mesh.mode == "EDIT"
+        and cm_vl.objects.active is cm_mesh
+        and cm_curve.mode == "OBJECT",
+        f"got={getattr(got, 'name', got)} modes={cm_mesh.mode}/{cm_curve.mode}",
+    )
+    check(
+        "ensure_component_mode: the component mask is set",
+        tuple(cm_modes.mesh_select_mode) == (False, True, False),
+        f"{tuple(cm_modes.mesh_select_mode)}",
+    )
+    got = btk.CoreUtils.ensure_component_mode("MESH", "VERT")
+    check(
+        "ensure_component_mode: already editing -> the same object, Blender's names too",
+        got is cm_mesh
+        and cm_mesh.mode == "EDIT"
+        and tuple(cm_modes.mesh_select_mode) == (True, False, False),
+    )
+    check(
+        "ensure_object_mode: Edit Mode is left, True returned",
+        btk.CoreUtils.ensure_object_mode() is True and cm_mesh.mode == "OBJECT",
+    )
+    check("ensure_object_mode: a no-op in Object Mode", btk.CoreUtils.ensure_object_mode() is True)
+    btk.CoreUtils.select([cm_curve])
+    check(
+        "ensure_component_mode: no object of the type -> None, nothing entered",
+        btk.CoreUtils.ensure_component_mode("mesh") is None and cm_curve.mode == "OBJECT",
+    )
+    check(
+        "ensure_component_mode: a curve enters Edit Mode for the curve type",
+        btk.CoreUtils.ensure_component_mode("curve") is cm_curve and cm_curve.mode == "EDIT",
+    )
+    btk.CoreUtils.ensure_object_mode()
+    # the Qt-pump state (no context window): both still act on the window's layer
+    btk.CoreUtils.select([cm_mesh])
+    with bpy.context.temp_override(window=None):
+        got = btk.CoreUtils.ensure_component_mode("mesh")
+        pump_mode = cm_mesh.mode
+        left = btk.CoreUtils.ensure_object_mode()
+    check(
+        "ensure_component_mode / ensure_object_mode work windowless (the Qt-pump state)",
+        got is cm_mesh and pump_mode == "EDIT" and left is True and cm_mesh.mode == "OBJECT",
+        f"got={getattr(got, 'name', got)} inside={pump_mode} after={cm_mesh.mode}",
+    )
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

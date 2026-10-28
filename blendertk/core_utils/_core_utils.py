@@ -1201,6 +1201,83 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         return vl.objects.active if vl is not None else None
 
     @staticmethod
+    def ensure_component_mode(object_type="mesh", component=None):
+        """Put an object of *object_type* into Edit Mode -- Maya's component mode --
+        optionally setting the mesh component mask. Mirror of mayatk's
+        ``CoreUtils.ensure_component_mode``: what a tool calls before it works on
+        components. The mode stays (:func:`edit_mode` is the bracket that restores).
+
+        The active object is preferred; else the first selected object of the type
+        becomes active, since Maya's component tools act on the *selection* (a curve
+        tool must work on a selected curve that is not the active one;
+        ``TargetWeld.activate`` falls back the same way). ``mode_set`` then enters
+        every selected object of that type, as Maya edits every hilited one. Runs
+        under :func:`window_context_override`: ``mode_set``'s poll reads the active
+        object from screen context, dead in the Qt-pump state, and windowless
+        ``context.view_layer`` is the scene's default layer, not the window's.
+
+        Parameters:
+            object_type (str): ``"mesh"`` or ``"curve"`` -- any ``Object.type``,
+                case-insensitive (``"MESH"``).
+            component (str, optional): ``"vertex"``, ``"edge"`` or ``"face"``
+                (Blender's ``"VERT"`` / ``"EDGE"`` / ``"FACE"`` too): the mesh
+                select mode to set.
+
+        Returns:
+            The object in Edit Mode, or None when no active or selected object is
+            of the type, or it cannot enter Edit Mode (hidden, linked). The message
+            is the caller's: the useful wording differs per tool.
+        """
+        import bpy
+
+        kind = object_type.upper()
+        obj = CoreUtils.active_object()
+        if obj is None or obj.type != kind:
+            # selected_objects reads the window's view layer, which is what makes the
+            # ``active`` assignment below safe (an object outside it raises).
+            candidates = [o for o in CoreUtils.selected_objects() if o.type == kind]
+            if not candidates:
+                return None
+            obj = candidates[0]
+        select_mode = None
+        if component:
+            select_mode = {"vertex": "VERT"}.get(component.lower(), component.upper())
+        with CoreUtils.window_context_override():
+            bpy.context.view_layer.objects.active = obj  # no-op when already active
+            if obj.mode != "EDIT":
+                try:
+                    bpy.ops.object.mode_set(mode="EDIT")
+                except RuntimeError:  # hidden / linked: not editable
+                    return None
+            if select_mode:
+                bpy.ops.mesh.select_mode(type=select_mode)
+        return obj
+
+    @staticmethod
+    def ensure_object_mode():
+        """Leave Edit (or any other) Mode for Object Mode -- Maya's object mode.
+        Mirror of mayatk's ``CoreUtils.ensure_object_mode``: what object-level work
+        calls first (data-block reassignment, ``transform_apply`` and ``origin_set``
+        reject or poll-fail on an object in Edit Mode, and a panel is reachable
+        mid-edit). Unlike ``_object_mode`` the prior mode is not restored; a no-op
+        in Object Mode. ``mode_set`` runs under :func:`window_context_override`
+        (its poll reads screen context, dead in the Qt-pump state).
+
+        Returns:
+            bool: ``True``, in Object Mode.
+
+        Raises:
+            RuntimeError: Blender refused to leave the mode (its report).
+        """
+        import bpy
+
+        active = CoreUtils.active_object()
+        if active is not None and active.mode != "OBJECT":
+            with CoreUtils.window_context_override():
+                bpy.ops.object.mode_set(mode="OBJECT")
+        return True
+
+    @staticmethod
     @contextmanager
     def preserved_selection():
         """Restore the viewport selection after a scene-mutating block — mirror of

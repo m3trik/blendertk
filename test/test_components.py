@@ -152,6 +152,48 @@ try:
     except ValueError:
         check("transfer_normals of an unknown space raises", True)
 
+    # ---- transfer_mesh_data: Data Transfer from the first mesh (None: the active one)
+    reset()
+    src, tgt = cube(), cube(x=4.0)
+    probe = src.vertex_groups.new(name="TransferProbe")
+    probe.add([v.index for v in src.data.vertices], 1.0, "REPLACE")
+    btk.CoreUtils.select([src, tgt])  # replace: the first one (src) is active
+    targets = Components.transfer_mesh_data(
+        None,
+        "VGROUP_WEIGHTS",
+        vert_mapping="NEAREST",
+        layers_select_src="ALL",
+        layers_select_dst="NAME",
+    )
+    check(
+        "transfer_mesh_data(None): the active mesh is the source, the rest the targets",
+        targets == [tgt] and "TransferProbe" in tgt.vertex_groups,
+        f"{targets}",
+    )
+    btk.CoreUtils.select([])
+    check(
+        "transfer_mesh_data(None) with nothing selected is []",
+        Components.transfer_mesh_data(None, "VGROUP_WEIGHTS") == [],
+    )
+    try:
+        Components.transfer_mesh_data([src], "UV")
+        check("transfer_mesh_data of one mesh raises", False)
+    except ValueError as error:
+        check(
+            "transfer_mesh_data of one mesh raises",
+            str(error) == "Transfer needs a source mesh and one or more target meshes.",
+        )
+    tgt.select_set(True)
+    bpy.context.view_layer.objects.active = src  # active, NOT selected
+    try:
+        Components.transfer_mesh_data(None, "UV")
+        check("transfer_mesh_data: an unselected active mesh is never the source", False)
+    except ValueError as error:
+        check(
+            "transfer_mesh_data: an unselected active mesh is never the source",
+            str(error) == "Select target mesh(es) with the source mesh active.",
+        )
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

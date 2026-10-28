@@ -554,6 +554,152 @@ class UiUtils(_UiUtilsInternal):
         return hasattr(bpy.types, menu_idname)
 
     @staticmethod
+    def get_operator(idname):
+        """The ``bpy.ops`` callable for a dotted operator id (``"wm.link"``), or None
+        when no such operator is registered in this Blender (an add-on's that is off,
+        one a newer Blender removed: Collada left in 5.0). The operator analogue of
+        :func:`menu_exists`.
+
+        ``bpy.ops.<group>.<name>`` resolves for ANY name -- the callable fails only
+        when called -- so registration is proven by the operator's RNA type, which
+        an unregistered one lacks.
+        """
+        import bpy
+
+        group, _, name = idname.partition(".")
+        if not (group and name):
+            return None
+        try:
+            op = getattr(getattr(bpy.ops, group), name)
+            op.get_rna_type()  # raises for an unregistered operator
+        except Exception:  # noqa: BLE001 - KeyError / RuntimeError / AttributeError by version
+            return None
+        return op
+
+    @classmethod
+    def invoke_operator_dialog(cls, idname, **props):
+        """Invoke an operator by dotted id as a menu click does (``INVOKE_DEFAULT``):
+        its file browser or properties popup opens, an operator without one runs.
+
+        Runs under :func:`window_context_override`: an invoked dialog attaches to
+        ``context.window`` and the operator reads its targets from screen context,
+        both dead in the Qt-pump state, where a bare invoke raised or opened nothing.
+        Unlike ``MenuHarvest.invoke_operator`` it runs now, not on the next timer
+        tick, and raises rather than popping the error.
+
+        Returns:
+            The operator's result set (``{"RUNNING_MODAL"}``, ``{"FINISHED"}`` ...),
+            or None when it is not registered (:meth:`get_operator`) -- the caller
+            words that message.
+
+        Raises:
+            RuntimeError: The operator refused the context (its poll) or failed.
+        """
+        op = cls.get_operator(idname)
+        if op is None:
+            return None
+        with CoreUtils.window_context_override():
+            return op("INVOKE_DEFAULT", **props)
+
+    #: Friendly tool name -> ``(workspace tool idname, the Object.type whose Edit
+    #: Mode it needs, or None)``: the registry behind :meth:`get_tool_types` /
+    #: :meth:`set_tool`, named as the shared ``.ui`` names the tools. Mirror of
+    #: mayatk's ``UiUtils._TOOLS`` (MEL there). Per-mode availability verified on
+    #: Blender 5.1: knife / loop_cut / poly_build exist only in mesh Edit Mode, pen /
+    #: draw only in curve Edit Mode; measure / annotate / select_* in every mode.
+    _TOOLS = {
+        "Multi-Cut": ("builtin.knife", "MESH"),
+        "Insert Edgeloop": ("builtin.loop_cut", "MESH"),
+        "Quad Draw": ("builtin.poly_build", "MESH"),
+        "Edit Curve Tool": ("builtin.pen", "CURVE"),
+        "Add Points Tool": ("builtin.draw", "CURVE"),
+        "Measure": ("builtin.measure", None),
+        "Annotation": ("builtin.annotate", None),
+        "Marquee Select": ("builtin.select_box", None),
+        "Lasso Select": ("builtin.select_lasso", None),
+        "Paint Select": ("builtin.select_circle", None),
+    }
+
+    @classmethod
+    def get_tool_types(cls):
+        """The friendly-name -> ``(tool idname, object type)`` map understood by
+        :meth:`set_tool` (mirror of mayatk's ``UiUtils.get_tool_types``, MEL there).
+        A copy: editing it changes nothing."""
+        return dict(cls._TOOLS)
+
+    @classmethod
+    def set_tool(cls, tool):
+        """Activate a viewport tool: a friendly name from :meth:`get_tool_types`, or a
+        workspace tool idname (``"builtin.knife"``). Mirror of mayatk's
+        ``UiUtils.set_tool``, the call a panel shared by both hosts makes.
+
+        A tool that exists only in an object type's Edit Mode (registered with that
+        type; a raw idname of a registered tool keeps it) enters the mode first
+        (:func:`ensure_component_mode`), the way Maya's tools enter component mode on
+        their own: Blender resolves a tool by (space, *mode*), and from Object Mode it
+        only logs "Tool ... not found" -- a warning, not an error -- while nothing
+        changes. The tool is set under a VIEW_3D override (bare, ``wm.tool_set_by_id``
+        targets the active space, which is not the viewport when a Qt panel calls it,
+        and reports success having changed nothing), and the viewports are tagged for
+        redraw, since a scripted change does not refresh the toolbar.
+
+        Returns:
+            str: The tool idname that was set.
+
+        Raises:
+            RuntimeError: No 3D viewport is open, or Blender refused the tool.
+            ValueError: The tool needs Edit Mode on an object type none of the
+                active or selected objects is.
+        """
+        import bpy
+
+        idname, object_type = cls._TOOLS.get(tool, (tool, None))
+        if object_type is None:
+            object_type = next(
+                (kind for known, kind in cls._TOOLS.values() if known == idname), None
+            )
+        ctx = CoreUtils.get_view3d_context()
+        if not ctx:
+            raise RuntimeError(
+                "No 3D viewport available \u2014 open a 3D view to use this tool."
+            )
+        if object_type and not CoreUtils.ensure_component_mode(object_type):
+            raise ValueError(
+                f"{tool} needs an active or selected {object_type.lower()} object."
+            )
+        # ``get_view3d_context`` may give ``region=None``; setting a tool needs none.
+        ctx = {k: v for k, v in ctx.items() if v is not None}
+        try:
+            with bpy.context.temp_override(**ctx):
+                bpy.ops.wm.tool_set_by_id(name=idname)
+        except Exception as error:  # noqa: BLE001 - a poll failure or bad context
+            raise RuntimeError(str(error)) from error
+        CoreUtils.tag_redraw("VIEW_3D")
+        return idname
+
+    @classmethod
+    def current_tool(cls):
+        """The 3D viewport's active tool: its friendly name from :meth:`get_tool_types`,
+        else its idname; None without a workspace. Mirror of mayatk's
+        ``UiUtils.current_tool``. Blender keeps one active tool per workspace and
+        mode, so the answer follows the mode the active object is in. Read under
+        :func:`window_context_override` (``context.workspace`` is the window's).
+        """
+        import bpy
+
+        with CoreUtils.window_context_override():
+            workspace = getattr(bpy.context, "workspace", None)
+            if workspace is None:
+                return None
+            tool = workspace.tools.from_space_view3d_mode(bpy.context.mode, create=False)
+        idname = getattr(tool, "idname", None)
+        if not idname:
+            return None
+        return next(
+            (name for name, (known, _) in cls._TOOLS.items() if known == idname), idname
+        )
+
+    @staticmethod
     def dispatch_log_link(url, logger=None) -> bool:
         """Handle ``action://`` links emitted by ``logger.log_link()`` in a QTextBrowser.
 

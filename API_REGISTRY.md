@@ -770,6 +770,8 @@ Core blendertk utilities — DCC-environment info + cross-cutting decorators.
   - `CoreUtils.selected_objects()` *(static)* — The current object selection, filtered of ``None`` (mirror of Maya's
   - `CoreUtils.select(objects, mode: str = 'replace') -> list` *(static)* — Set the object selection (Blender's counterpart of ``cmds.select``).
   - `CoreUtils.active_object()` *(static)* — The active object, resolved window-independently (``view_layer.objects.active``).
+  - `CoreUtils.ensure_component_mode(object_type='mesh', component=None)` *(static)* — Put an object of *object_type* into Edit Mode -- Maya's component mode --
+  - `CoreUtils.ensure_object_mode()` *(static)* — Leave Edit (or any other) Mode for Object Mode -- Maya's object mode.
   - `CoreUtils.preserved_selection()` *(static)* — Restore the viewport selection after a scene-mutating block — mirror of
   - `CoreUtils.reorder_objects(objects=None, method='name', reverse=False)` *(static)* — Reorder a set of objects by a sorting method — mirror of ``mtk.reorder_objects``
   - `CoreUtils.get_areas(area_type=None)` *(static)* — All areas of ``area_type`` (``"VIEW_3D"``, ``"IMAGE_EDITOR"``, …) across every open
@@ -1071,6 +1073,7 @@ Component-level mesh operations — mirror of mayatk's ``core_utils.components``
   - `Components.reverse_normals(objects, mode=0)` *(static)* — Reverse the normals of *objects* by Maya's ``polyNormal`` modes:
   - `Components.toggle_normal_lock(objects)` *(static)* — Lock the normals of *objects* (bake them as custom split normals), or
   - `Components.transfer_normals(objects, space='world')` *(static)* — Transfer normals from the first mesh of *objects* to the rest, as
+  - `Components.transfer_mesh_data(objects, data_type, **options)` *(static)* — Copy *data_type* from the first mesh of *objects* to the rest with Blender's
 
 <a id="edit_utils--curtain--_curtain"></a>
 ### `edit_utils/curtain/_curtain.py`
@@ -3251,6 +3254,11 @@ UI utilities — opening Blender editors (the analogue of Maya's editor-window m
   - `UiUtils.toggle_fullscreen_area(editor=None, hide_panels=True, window=None)` *(static)* — Toggle fullscreen-area mode — one editor fills the window (Ctrl+Alt+Space).
   - `UiUtils.toggle_window_bars(visible=None, window=None)` *(static)* — Show/hide the main window's topbar (File/Edit/Render… menus + workspace tabs) and
   - `UiUtils.menu_exists(menu_idname)` *(static)* — True if ``menu_idname`` (e.g.
+  - `UiUtils.get_operator(idname)` *(static)* — The ``bpy.ops`` callable for a dotted operator id (``"wm.link"``), or None
+  - `UiUtils.invoke_operator_dialog(cls, idname, **props)` *(class)* — Invoke an operator by dotted id as a menu click does (``INVOKE_DEFAULT``):
+  - `UiUtils.get_tool_types(cls)` *(class)* — The friendly-name -> ``(tool idname, object type)`` map understood by
+  - `UiUtils.set_tool(cls, tool)` *(class)* — Activate a viewport tool: a friendly name from :meth:`get_tool_types`, or a
+  - `UiUtils.current_tool(cls)` *(class)* — The 3D viewport's active tool: its friendly name from :meth:`get_tool_types`,
   - `UiUtils.dispatch_log_link(url, logger=None) -> bool` *(static)* — Handle ``action://`` links emitted by ``logger.log_link()`` in a QTextBrowser.
   - `UiUtils.call_native_menu(menu_idname)` *(static)* — Pop Blender's own native menu ``menu_idname`` (e.g.
   - `UiUtils.popup_message(text, title='Info', icon='INFO')` *(static)* — Show a small native Blender info popup at the cursor (multi-line ``text`` supported).

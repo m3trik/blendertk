@@ -3941,12 +3941,30 @@
               "deprecated": false
             },
             {
+              "name": "ensure_component_mode",
+              "qualname": "CoreUtils.ensure_component_mode",
+              "kind": "staticmethod",
+              "signature": "(object_type='mesh', component=None)",
+              "summary": "Put an object of *object_type* into Edit Mode -- Maya's component mode --",
+              "line": 1204,
+              "deprecated": false
+            },
+            {
+              "name": "ensure_object_mode",
+              "qualname": "CoreUtils.ensure_object_mode",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "Leave Edit (or any other) Mode for Object Mode -- Maya's object mode.",
+              "line": 1257,
+              "deprecated": false
+            },
+            {
               "name": "preserved_selection",
               "qualname": "CoreUtils.preserved_selection",
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Restore the viewport selection after a scene-mutating block — mirror of",
-              "line": 1205,
+              "line": 1282,
               "deprecated": false
             },
             {
@@ -3955,7 +3973,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, method='name', reverse=False)",
               "summary": "Reorder a set of objects by a sorting method — mirror of ``mtk.reorder_objects``",
-              "line": 1256,
+              "line": 1333,
               "deprecated": false
             },
             {
@@ -3964,7 +3982,7 @@
               "kind": "staticmethod",
               "signature": "(area_type=None)",
               "summary": "All areas of ``area_type`` (``\"VIEW_3D\"``, ``\"IMAGE_EDITOR\"``, …) across every open",
-              "line": 1331,
+              "line": 1408,
               "deprecated": false
             },
             {
@@ -3973,7 +3991,7 @@
               "kind": "classmethod",
               "signature": "(cls, area_type=None) -> int",
               "summary": "Queue a redraw of every area of ``area_type`` (all areas when None);",
-              "line": 1354,
+              "line": 1431,
               "deprecated": false
             },
             {
@@ -3982,7 +4000,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Context-override dict targeting the first VIEW_3D area/region, or ``None`` if there is no",
-              "line": 1373,
+              "line": 1450,
               "deprecated": false
             },
             {
@@ -3991,7 +4009,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Yield with a valid ``window`` in context when ``bpy.context.window`` is ``None``.",
-              "line": 1403,
+              "line": 1480,
               "deprecated": false
             },
             {
@@ -4000,7 +4018,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Yield with *objects* -- and only them -- in Edit Mode;",
-              "line": 1440,
+              "line": 1517,
               "deprecated": false
             }
           ]
@@ -5778,6 +5796,15 @@
               "signature": "(objects, space='world')",
               "summary": "Transfer normals from the first mesh of *objects* to the rest, as",
               "line": 151,
+              "deprecated": false
+            },
+            {
+              "name": "transfer_mesh_data",
+              "qualname": "Components.transfer_mesh_data",
+              "kind": "staticmethod",
+              "signature": "(objects, data_type, **options)",
+              "summary": "Copy *data_type* from the first mesh of *objects* to the rest with Blender's",
+              "line": 184,
               "deprecated": false
             }
           ]
@@ -20445,12 +20472,57 @@
               "deprecated": false
             },
             {
+              "name": "get_operator",
+              "qualname": "UiUtils.get_operator",
+              "kind": "staticmethod",
+              "signature": "(idname)",
+              "summary": "The ``bpy.ops`` callable for a dotted operator id (``\"wm.link\"``), or None",
+              "line": 557,
+              "deprecated": false
+            },
+            {
+              "name": "invoke_operator_dialog",
+              "qualname": "UiUtils.invoke_operator_dialog",
+              "kind": "classmethod",
+              "signature": "(cls, idname, **props)",
+              "summary": "Invoke an operator by dotted id as a menu click does (``INVOKE_DEFAULT``):",
+              "line": 580,
+              "deprecated": false
+            },
+            {
+              "name": "get_tool_types",
+              "qualname": "UiUtils.get_tool_types",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "The friendly-name -> ``(tool idname, object type)`` map understood by",
+              "line": 624,
+              "deprecated": false
+            },
+            {
+              "name": "set_tool",
+              "qualname": "UiUtils.set_tool",
+              "kind": "classmethod",
+              "signature": "(cls, tool)",
+              "summary": "Activate a viewport tool: a friendly name from :meth:`get_tool_types`, or a",
+              "line": 631,
+              "deprecated": false
+            },
+            {
+              "name": "current_tool",
+              "qualname": "UiUtils.current_tool",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "The 3D viewport's active tool: its friendly name from :meth:`get_tool_types`,",
+              "line": 681,
+              "deprecated": false
+            },
+            {
               "name": "dispatch_log_link",
               "qualname": "UiUtils.dispatch_log_link",
               "kind": "staticmethod",
               "signature": "(url, logger=None) -> bool",
               "summary": "Handle ``action://`` links emitted by ``logger.log_link()`` in a QTextBrowser.",
-              "line": 557,
+              "line": 703,
               "deprecated": false
             },
             {
@@ -20459,7 +20531,7 @@
               "kind": "staticmethod",
               "signature": "(menu_idname)",
               "summary": "Pop Blender's own native menu ``menu_idname`` (e.g.",
-              "line": 687,
+              "line": 833,
               "deprecated": false
             },
             {
@@ -20468,7 +20540,7 @@
               "kind": "staticmethod",
               "signature": "(text, title='Info', icon='INFO')",
               "summary": "Show a small native Blender info popup at the cursor (multi-line ``text`` supported).",
-              "line": 713,
+              "line": 859,
               "deprecated": false
             }
           ]
