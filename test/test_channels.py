@@ -68,6 +68,17 @@ try:
     ch.pin_targets(None)
     check("pin clear -> not pinned", not ch.is_pinned)
 
+    # each instance keeps its own targets
+    other = Channels()
+    ch.pin_targets([A])
+    ch.single_object_mode = True
+    check(
+        "targets are per instance",
+        not other.is_pinned and not other.single_object_mode,
+    )
+    ch.pin_targets(None)
+    ch.single_object_mode = False
+
     # --- Channel collection / filters --------------------------------------
     reset()
     A = cube("A", (1.0, 2.0, 3.0))

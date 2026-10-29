@@ -22,9 +22,103 @@ package surface — resolves under headless ``--background`` without a running B
 
 import math
 
-import pythontk as ptk
-
 from blendertk.core_utils._core_utils import CoreUtils
+
+
+class _Targets:
+    """The objects a :class:`Channels` acts on: the selection, or a pinned
+    list; every one of them, or only the active one.
+
+    A private part of :class:`Channels`; call it through the facade.
+    """
+
+    def __init__(self) -> None:
+        self._pinned_targets = None
+        self._single_object_mode = False
+
+    @property
+    def is_pinned(self):
+        return self._pinned_targets is not None
+
+    @property
+    def single_object_mode(self):
+        return self._single_object_mode
+
+    @single_object_mode.setter
+    def single_object_mode(self, value):
+        self._single_object_mode = bool(value)
+
+    def pin_targets(self, objects):
+        self._pinned_targets = list(objects) if objects else None
+
+    def get_selected_nodes(self):
+        try:
+            import bpy
+        except ImportError:
+            return []
+
+        if self._pinned_targets is not None:
+            names = {o.name for o in bpy.data.objects}
+            # Tolerate a deleted pinned object per element: reading ``.name`` on a dead
+            # StructRNA raises ReferenceError (getattr's default only catches AttributeError),
+            # so skip the removed reference instead of aborting the whole resolution.
+            objs = []
+            for o in self._pinned_targets:
+                try:
+                    if o.name in names:
+                        objs.append(o)
+                except (ReferenceError, AttributeError):
+                    continue
+        else:
+            # not bpy.context's screen members: absent windowless (the Qt pump)
+            objs = list(CoreUtils.selected_objects())
+        if self._single_object_mode and len(objs) > 1:
+            active = CoreUtils.active_object()
+            return [active] if active in objs else [objs[-1]]
+        return objs
+
+
+class _Clipboard:
+    """Channel values copied off one object, for pasting onto others.
+
+    A private part of :class:`Channels`; call it through the facade.
+    """
+
+    def __init__(self, channels: "Channels") -> None:
+        self._channels = channels  # the facade: its public names are read through it
+        self._values = {}  # {name: (descriptor, value)}
+
+    def copy_attr_values(self, objects, attr_names):
+        self._values = {}
+        if not objects or not attr_names:
+            return {}
+        primary = objects[0]
+        for channel in attr_names:
+            d = self._channels._channel(primary, channel)
+            if d is not None:
+                self._values[d["name"]] = (
+                    d,
+                    self._channels.get_channel_value(primary, d),
+                )
+        return self._values
+
+    def paste_attr_values(self, objects):
+        if not objects or not self._values:
+            return
+        with CoreUtils.undo_chunk("Paste Attribute Values"):
+            for obj in objects:
+                for name, (descriptor, value) in self._values.items():
+                    if value is None:
+                        continue
+                    # Re-serialize the (already display-space) value for parse_value. str()
+                    # renders scalars faithfully, but yields an unparseable repr for an array
+                    # (vector) prop; format_value emits the "(x, y, z)" form parse_value's
+                    # vector branch round-trips.
+                    is_array = hasattr(value, "__len__") and not isinstance(value, str)
+                    text = (
+                        self._channels.format_value(value) if is_array else str(value)
+                    )
+                    self._channels.set_channel_value([obj], descriptor, text)
 
 
 class Channels:
@@ -125,9 +219,9 @@ class Channels:
     }
 
     def __init__(self):
-        self._pinned_targets = None
-        self._single_object_mode = False
-        self._clipboard = {}
+        # The instance's own state lives in the parts it holds.
+        self._targets = _Targets()
+        self._clipboard = _Clipboard(self)
 
     # ------------------------------------------------------------------
     # Target resolution
@@ -135,19 +229,19 @@ class Channels:
 
     @property
     def is_pinned(self):
-        return self._pinned_targets is not None
+        return self._targets.is_pinned
 
     @property
     def single_object_mode(self):
-        return self._single_object_mode
+        return self._targets.single_object_mode
 
     @single_object_mode.setter
     def single_object_mode(self, value):
-        self._single_object_mode = bool(value)
+        self._targets.single_object_mode = value
 
     def pin_targets(self, objects):
         """Pin the manager to a fixed object list; ``None`` (or empty) clears the pin."""
-        self._pinned_targets = list(objects) if objects else None
+        return self._targets.pin_targets(objects)
 
     def get_selected_nodes(self):
         """Return the target object list.
@@ -157,30 +251,7 @@ class Channels:
         returned (mirror of Maya's "most recently selected"). Without Blender (no ``bpy``: the
         panel loading in plain Qt) there are none.
         """
-        try:
-            import bpy
-        except ImportError:
-            return []
-
-        if self._pinned_targets is not None:
-            names = {o.name for o in bpy.data.objects}
-            # Tolerate a deleted pinned object per element: reading ``.name`` on a dead
-            # StructRNA raises ReferenceError (getattr's default only catches AttributeError),
-            # so skip the removed reference instead of aborting the whole resolution.
-            objs = []
-            for o in self._pinned_targets:
-                try:
-                    if o.name in names:
-                        objs.append(o)
-                except (ReferenceError, AttributeError):
-                    continue
-        else:
-            # not bpy.context's screen members: absent windowless (the Qt pump)
-            objs = list(CoreUtils.selected_objects())
-        if self._single_object_mode and len(objs) > 1:
-            active = CoreUtils.active_object()
-            return [active] if active in objs else [objs[-1]]
-        return objs
+        return self._targets.get_selected_nodes()
 
     # ------------------------------------------------------------------
     # Channel description / querying
@@ -1084,32 +1155,11 @@ class Channels:
     def copy_attr_values(self, objects, attr_names):
         """Copy the channels' values (names or descriptors) from the primary object into
         the instance clipboard. Returns it (``{name: (descriptor, value)}``)."""
-        self._clipboard = {}
-        if not objects or not attr_names:
-            return {}
-        primary = objects[0]
-        for channel in attr_names:
-            d = self._channel(primary, channel)
-            if d is not None:
-                self._clipboard[d["name"]] = (d, self.get_channel_value(primary, d))
-        return self._clipboard
+        return self._clipboard.copy_attr_values(objects, attr_names)
 
     def paste_attr_values(self, objects):
         """Paste previously copied values onto *objects* (matched by channel name)."""
-        if not objects or not self._clipboard:
-            return
-        with CoreUtils.undo_chunk("Paste Attribute Values"):
-            for obj in objects:
-                for name, (descriptor, value) in self._clipboard.items():
-                    if value is None:
-                        continue
-                    # Re-serialize the (already display-space) value for parse_value. str()
-                    # renders scalars faithfully, but yields an unparseable repr for an array
-                    # (vector) prop; format_value emits the "(x, y, z)" form parse_value's
-                    # vector branch round-trips.
-                    is_array = hasattr(value, "__len__") and not isinstance(value, str)
-                    text = self.format_value(value) if is_array else str(value)
-                    self.set_channel_value([obj], descriptor, text)
+        return self._clipboard.paste_attr_values(objects)
 
     # ------------------------------------------------------------------
     # Transform freeze (Maya's Freeze Transforms → Blender Apply Transform)
