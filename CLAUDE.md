@@ -1,10 +1,10 @@
 # blendertk
 
-**Role**: Blender 4.x+ utils (dev/test on **5.1 / Python 3.13**). Does for the tentacle
-Blender slots what mayatk does for the Maya slots; built to mirror mayatk's public API and
-released in the cascade beside it.
+**Role**: Blender 4.x+ utils (dev/test on **5.1 / Python 3.13**): the Blender host library and
+each tool's Blender API half, as mayatk is Maya's; tentacle's shared panels call it through
+`self.tk`. Built to mirror mayatk's public API and released in the cascade beside it.
 
-**Nav**: [← root](../CLAUDE.md) · [docs](docs/README.md) · **Deps**: [pythontk](../pythontk/CLAUDE.md) · [uitk](../uitk/CLAUDE.md) · **Mirrors**: [mayatk](../mayatk/CLAUDE.md) · **Used by**: [tentacle](../tentacle/CLAUDE.md) (`slots/blender`)
+**Nav**: [← root](../CLAUDE.md) · [docs](docs/README.md) · **Deps**: [pythontk](../pythontk/CLAUDE.md) · [uitk](../uitk/CLAUDE.md) · **Mirrors**: [mayatk](../mayatk/CLAUDE.md) · **Used by**: [tentacle](../tentacle/CLAUDE.md) (`self.tk` in Blender)
 **Parity**: [tentacle/docs/PARITY_AUDIT.md](../tentacle/docs/PARITY_AUDIT.md) (measured gap, auto-gen) · [tentacle/docs/PARITY_PORTING_PLAN.md](../tentacle/docs/PARITY_PORTING_PLAN.md) (port-this-next recipes) — read these before adding scope.
 
 > **1:1 check — do NOT eyeball.** The per-element parity matrix is [tentacle/docs/PARITY_SURFACE.md](../tentacle/docs/PARITY_SURFACE.md) (regenerate: `python m3trik/scripts/compare_panel_surface.py --all --write`; one pair: `--panel <name>`). It unrolls loop-built controls, resolves menu aliases + f-string objectNames, skips `__main__` demo blocks, diffs twin `.ui` XML (widgets + defaults + `<customwidgets>` lint), combo item lists, and control defaults. Every delta is classified through the triage ledger [tentacle/docs/parity_map.py](../tentacle/docs/parity_map.py) — **fix it or ledger it with a reason; UNTRIAGED rows fail the sweep (exit 1)**. Manual reads repeatedly missed flat-out-missing controls; the sweep does not.
@@ -25,14 +25,14 @@ process every time). No exceptions for speed.
 > correspondence with mayatk + which subpackages are intentionally absent. Consult it (and update
 > it) whenever you add/move/rename, so a change in one package mirrors mechanically to the other.
 
-- **Mirror mayatk's public names** (`btk.X` ↔ `mtk.X`) at the *name + behavior* level, NOT
-  signatures (mayatk = string-node idioms, bpy = object refs). This keeps the shared tentacle
-  slots branch-free.
+- **Mirror mayatk's public names** (`btk.X` ↔ `mtk.X`) at the *name + behavior* level, and the
+  signature too where a shared tentacle panel calls the operation (otherwise mayatk = string-node
+  idioms, bpy = object refs). This keeps the shared tentacle slots branch-free.
 - **Relax the mirror where concepts diverge** (rigging → Armature + vertex groups, NURBS,
   shader graphs) — use Blender-idiomatic names there, don't cargo-cult a Maya concept.
 - **Prefer a native `bpy.ops` / `bmesh.ops` / object property over reimplementing a mayatk
   algorithm.** Many mayatk helpers exist only because Maya's `cmds` API is low-level; Blender
-  often ships the same capability as one operator. See the plan's §5 capability map.
+  often ships the same capability as one operator.
 - **Before reimplementing a helper, check if it's DCC-agnostic and belongs in `pythontk`**
   (HTML formatters, file/recent-files logic, key-timing math) — extract there, don't duplicate.
 - Don't pre-create empty `*_utils` groups — implement lazily as slots demand (YAGNI).
@@ -55,7 +55,7 @@ and blendertk holds the host operations, no UI. Blender specifics:
 - **Defer `import bpy` into call bodies** (not module top) so importing a module / resolving
   the package surface never needs a running Blender — matches the no-import-side-effects rule.
 - Public surface is registered via root `DEFAULT_INCLUDE` + `bootstrap_package` (mirror mayatk);
-  subpackage `__init__.py` = docstring only.
+  subpackage `__init__.py` = docstring, plus one `lazy_exports` call when it publishes names.
 
 ## Test
 

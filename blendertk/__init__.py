@@ -6,13 +6,14 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 __package__ = "blendertk"
 __version__ = "0.22.0"
 
-"""blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
-for the Maya slots.
+"""blendertk — the Blender host library: each tool's API half (its operations and record
+rows), as mayatk is Maya's. tentacle holds the panels and their Slots, shared by both
+hosts, and reaches this package as ``self.tk``.
 
 The public surface **mirrors mayatk's names** (``btk.X`` ↔ ``mtk.X``) so the shared
-tentacle slots stay branch-free. Lazy attribute resolution via pythontk's
-``bootstrap_package`` keeps this module lean; helpers are implemented lazily as the
-Blender slots demand them (do not pre-create empty ``*_utils`` groups — YAGNI).
+tentacle Slots stay branch-free. Lazy attribute resolution via pythontk's
+``bootstrap_package`` keeps this module lean; helpers are implemented as the shared
+Slots demand them (do not pre-create empty ``*_utils`` groups — YAGNI).
 
 Mirror at the *name + behavior* level, not signatures (mayatk speaks string-node idioms,
 bpy speaks object refs). Where a domain's data model diverges (rigging, NURBS, shader
@@ -26,8 +27,6 @@ graphs) the name mirror is relaxed in favor of Blender-idiomatic names. Prefer a
 # module-level helpers flat, so a symbol resolves as both ``btk.<method>`` and
 # ``btk.<Namespace>.<method>`` with no per-name upkeep. Hide internals with a leading
 # underscore — the default predicate ignores ``_``-prefixed names — never by omission.
-# Tool modules that co-locate a public ``<Tool>Slots`` panel (name-discovered by
-# BlenderUiHandler) stay explicit class-only, so "*" never leaks the Slots onto the surface.
 DEFAULT_INCLUDE = {
     "core_utils._core_utils": "*",
     "core_utils.preview": ["Preview"],
@@ -347,7 +346,7 @@ DEFAULT_INCLUDE = {
     "edit_utils.components": "Components",
     # Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``
     # (``btk.Selection`` <-> ``mtk.Selection``), backing the shared ``list000`` "Select by Type"
-    # list in ``tentacle/slots/*/selection.py``.
+    # list in ``tentacle/slots/selection.py``.
     # SelectionOrder: rolled ordered-object-selection tracker (Blender records no object
     # click order natively) — backs Reorder Selection + any order-consuming tool.
     "edit_utils.selection": [
@@ -400,10 +399,9 @@ DEFAULT_INCLUDE = {
     "edit_utils.macros._macros": [
         "Macros",
     ],
-    # Procedural rigs — mirror of mayatk's ``rig_utils`` (one self-contained module per rig: engine
-    # + co-located ``<rig>.ui`` + ``<Rig>Slots``). ``RigUtils`` is the shared constraint/driver/handle
-    # base (mirror of mayatk's ``rig_utils.RigUtils``); each rig engine is exposed too, while the
-    # ``<Rig>Slots`` panels are discovered by ``BlenderUiHandler`` (not registered), as mayatk's are.
+    # Procedural rigs — mirror of mayatk's ``rig_utils`` (one module or subpackage per rig engine;
+    # each rig's panel is tentacle's). ``RigUtils`` is the shared constraint/driver/handle base
+    # (mirror of mayatk's ``rig_utils.RigUtils``); each rig engine is exposed too.
     "rig_utils._rig_utils": "*",
     "rig_utils.rig_graph_build": "RigGraphBuilder",
     "rig_utils.rig_graph_extract": "RigGraphExtractor",

@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-29 -- The README and the structure map describe the shared-panel layout (docs/README.md, docs/STRUCTURE.md).** Panels are tentacle's; the mirror holds signatures where a shared panel calls them; main modules hold only the namespace class; both packages register wildcard main modules and `MOVED_NAMES`. The `calculator` and `rig_utils` docstrings no longer describe library panels.
+  - Test(s): none (docs).
 - **2026-10-29 -- `Channels` keeps its per-instance state in `_Targets` and `_Clipboard` (`node_utils/attributes/channels/_channels.py`).** No public change; an unused `pythontk` import dropped.
   - Test(s): `test_channels.py` (targets are per instance).
 - **2026-10-28 -- `btk.ShotStore` is pythontk's one store; Blender's half is `BlenderShotsHost` (`anim_utils/shots/_shots.py`).** `BlenderShotStore` is retired (`MOVED_NAMES`; a module binding stays for three uncommitted files, BACKLOG); its Blender-only members are on `BlenderShotsHost`. `iter_action_fcurves` is gone: use `AnimUtils.get_fcurves`. `RenderEffects.write_keys` / `apply_effect` take the ledger curve spelling as `curve_key=` (the manifest passes `BlenderShotsHost.curve_key`; without it nothing is looked up). The `FbxUtils.PRODUCERS` shot row names `ShotStore`. The saved record is unchanged.

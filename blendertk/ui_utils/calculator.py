@@ -1,22 +1,13 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Calculator tool panel — Switchboard slot wiring for the co-located ``calculator.ui``.
+"""Calculator — the Blender half of the Calculator tool (mirror of mayatk's ``CalculatorController``).
 
-Blender counterpart of mayatk's Calculator: an expression-based calculator with length-unit
-conversion and DCC time helpers. The pure engine (safe expression eval + unit conversion) is
-the **shared** ``pythontk.MathUtils`` — identical to the Maya panel, no duplication — while the
-time helpers read Blender's scene (``scene.render.fps`` / ``scene.frame_current``) instead of
-Maya's. Served by ``BlenderUiHandler`` (``marking_menu.show("calculator")``).
-
-Self-contained (``ptk.LoggingMixin`` only) so blendertk carries no back-dependency on tentacle.
-The Qt-only (``qtpy``/``uitk``) and ``bpy`` imports are deferred into their methods (headless
-Blender ships no Qt binding and the module surface must import without a running Blender).
-
-The ``.ui`` is a verbatim copy of mayatk's — same objectNames (including ``maya_container`` /
-``grid_maya`` for the animation-helpers group), same widget tree, same layout — a true 1:1 mirror.
-Identical objectNames between the mayatk and blendertk copies of this panel are safe: uitk's
-``Switchboard.add_ui`` / ``MainWindow._relative_state`` host-namespace the QSettings branch by
-context tag (``mirror_maya`` vs ``mirror_blender``), so the two panels never collide.
+An expression-based calculator with length-unit conversion and scene time helpers. The pure
+engine (safe expression eval + unit conversion) is the **shared** ``pythontk.MathUtils``, as
+in Maya; the time helpers read Blender's scene (``scene.render.fps`` / ``scene.frame_current``)
+instead of Maya's. The panel is tentacle's shared ``slots/tools/calculator.py``, which calls
+``self.tk.CalculatorController``. ``bpy`` is imported inside the methods that use it, so the
+module surface imports without a running Blender.
 """
 
 import pythontk as ptk

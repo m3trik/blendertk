@@ -7,10 +7,10 @@
 # blendertk
 
 <!-- short_description_start -->
-*Blender 4.x+ tech-art toolkit mirroring [mayatk](https://github.com/m3trik/mayatk)'s public API (`btk.X` ↔ `mtk.X`) — modeling, animation, materials, rigging, and scene-pipeline automation over native `bpy`/`bmesh`, plus tool panels and one-click bridges into Marmoset, Substance Painter, RizomUV, Maya, Unity, and the browser.*
+*Blender 4.x+ tech-art toolkit mirroring [mayatk](https://github.com/m3trik/mayatk)'s public API (`btk.X` ↔ `mtk.X`) — modeling, animation, materials, rigging, and scene-pipeline automation over native `bpy`/`bmesh`, plus one-click bridges into Marmoset, Substance Painter, RizomUV, Maya, Unity, and the browser. The tool panels over it are [tentacle](https://github.com/m3trik/tentacle)'s.*
 <!-- short_description_end -->
 
-blendertk is the Blender layer of the `pythontk → uitk → {mayatk, blendertk} → tentacle` ecosystem. It mirrors mayatk at the **name + behavior** level — not signatures, not line counts — so the shared [tentacle](https://github.com/m3trik/tentacle) slot/UI layer stays branch-free across DCCs. Where Blender ships the capability natively, blendertk stays a thin adapter over `bpy`/`bmesh` operators; where it doesn't, the DCC-agnostic core lives upstream in [pythontk](https://github.com/m3trik/pythontk) and both DCC layers adapt it.
+blendertk is the Blender layer of the `pythontk → uitk → {mayatk, blendertk} → tentacle` ecosystem. It mirrors mayatk at the **name + behavior** level — and by signature where a shared panel calls the operation, never by line count — so the shared [tentacle](https://github.com/m3trik/tentacle) panels stay branch-free across DCCs. Where Blender ships the capability natively, blendertk stays a thin adapter over `bpy`/`bmesh` operators; where it doesn't, the DCC-agnostic core lives upstream in [pythontk](https://github.com/m3trik/pythontk) and both DCC layers adapt it.
 
 ## Installation
 
@@ -26,7 +26,7 @@ Same subpackage names, main-module filenames, and namespace classes as mayatk �
 
 | Package | What it covers |
 |---|---|
-| `anim_utils` | Shots suite (store, manifest, sequencer panels over the shared pythontk shots engine), smart bake, blendshape animation, key scaling/staggering |
+| `anim_utils` | Shots suite (the Blender host of the shared pythontk shots engine, and the manifest and sequencer hosts tentacle's panels call), smart bake, blendshape animation, key scaling/staggering |
 | `audio_utils` | Sound-strip CRUD over the Video Sequence Editor (deliberately not a mirror of Maya's DG-node audio machinery) |
 | `cam_utils` | Camera utilities |
 | `core_utils` | `CoreUtils`, `AutoInstancer`, `Preview`, script-job manager over `bpy.app.handlers`, diagnostics |
@@ -61,7 +61,7 @@ Full public surface (auto-generated): [`API_REGISTRY.md`](../API_REGISTRY.md); c
 - **Drive Blender from outside** — `BlenderConnection` mirrors mayatk's `MayaConnection`: fresh `--background` instances only, the backbone of the test suite. An artist's open session is never touched.
 - **Hierarchy sync** — diff a scene against a reference `.blend` (or `.fbx`, staged to a temp `.blend`) linked as a library, then repair drift: stub missing objects, quarantine extras, fix fuzzy renames and reparents; `ObjectSwapper` pulls matched reference objects in fresh.
 - **Shared workspaces** — one project folder serves Maya natively and Blender via blendertk: the `workspace.mel` codec and template store live in pythontk, and the editor part of tentacle's Workspaces panel mirrors Maya's Project Window.
-- **Tool panels** — every engine that warrants one ships a co-located uitk panel (`<tool>.py` + `<tool>.ui`), discovered by `BlenderUiHandler` — the same split mayatk uses, so tentacle's navigation stays a thin layer.
+- **Tool panels** — blendertk holds no UI: each tool's panel is one [tentacle](https://github.com/m3trik/tentacle) panel shared with Maya, calling this package's API, so a script gets everything the panel does.
 
 ## Parity — how the mirror stays honest
 
