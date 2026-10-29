@@ -28,6 +28,7 @@ from typing import Callable, ContextManager, List, Optional
 import pythontk as ptk
 
 from blendertk.env_utils._env_utils import EnvUtils
+from blendertk.env_utils.workspace_map import BlenderWorkspaceMapHost
 
 # Scratch twins of foreign scenes opened "as new" (see ReferenceManager.open_scene): one
 # per source under the system temp dir, age-swept, discarded on close/next open while
@@ -223,12 +224,8 @@ class ReferenceManager(ptk.LoggingMixin, _ReferenceManagerInternal):
         the open file's), or '' with neither. Unlike mayatk's -- Maya always has a
         project, its default one at worst -- there is no Documents fallback: a
         browser scans the folder it is given for workspaces, recursively, and a
-        whole personal folder is no project."""
-        try:
-            root = EnvUtils.workspace_root()
-        except Exception:  # noqa: BLE001 - no Blender (the Qt-only harness)
-            root = ""
-        return os.path.normpath(root) if root and os.path.isdir(root) else ""
+        whole personal folder is no project (the Workspace Map's rule)."""
+        return BlenderWorkspaceMapHost.current_workspace()
 
     @property
     def current_working_dir(self) -> str:
@@ -298,18 +295,9 @@ class ReferenceManager(ptk.LoggingMixin, _ReferenceManagerInternal):
 
     @staticmethod
     def _scene_files(workspace: str) -> List[str]:
-        """Every .blend under *workspace*, its scene-rule folder included even when
-        that lies outside it (a shared project's ``scenes/``)."""
-        files = EnvUtils.find_blend_files(workspace, recursive=True)
-        scene_dir = EnvUtils.workspace_scenes_dir(workspace)
-        if scene_dir:
-            seen = {os.path.normcase(p) for p in files}
-            files += [
-                p
-                for p in EnvUtils.find_blend_files(scene_dir, recursive=True)
-                if os.path.normcase(p) not in seen
-            ]
-        return files
+        """Every .blend under *workspace*, its scene-rule folder included (the
+        Workspace Map's ``BlenderWorkspaceMapHost.scene_files``)."""
+        return BlenderWorkspaceMapHost.scene_files(workspace)
 
     # ------------------------------------------------------------------ references
     @property

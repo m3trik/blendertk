@@ -11,7 +11,7 @@ names the host is answered here (``btk.ManifestHost``), as mayatk's
 
 from typing import List, Optional
 
-from blendertk.anim_utils.shots._shots import BlenderShotStore
+from blendertk.anim_utils.shots._shots import ShotStore
 from blendertk.anim_utils.shots.shot_manifest._shot_manifest import (
     BlenderShotManifest,
 )
@@ -27,8 +27,8 @@ class ManifestHost:
 
     @staticmethod
     def store_cls():
-        """The host's store class (``BlenderShotStore``)."""
-        return BlenderShotStore
+        """The host's store class (``ShotStore``: pythontk's, on the Blender host)."""
+        return ShotStore
 
     @staticmethod
     def manifest_cls():

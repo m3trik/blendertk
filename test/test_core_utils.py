@@ -265,16 +265,15 @@ try:
 
     # The five call sites agree with the primitive.
     from blendertk.edit_utils._edit_utils import _EditUtilsInternal
-    from blendertk.core_utils.auto_instancer.instancing_strategy import (
-        InstancingStrategy, StrategyConfig,
-    )
+    from blendertk.core_utils.auto_instancer._auto_instancer import AutoInstancer
 
     expected_tris = old_idiom(grid.data)[0]
     check("EditUtils._mesh_metrics 'triangle' matches the primitive",
           _EditUtilsInternal._mesh_metrics(grid, ["triangle"]) == [expected_tris],
           str(_EditUtilsInternal._mesh_metrics(grid, ["triangle"])))
     check("InstancingStrategy._get_triangle_count matches the primitive",
-          InstancingStrategy(StrategyConfig())._get_triangle_count(grid) == expected_tris)
+          AutoInstancer(verbose=False).strategy_analyzer._get_triangle_count(grid)
+          == expected_tris)
     info = btk.get_scene_info(objects=[grid])
     check("get_scene_info triangles/ngons match the primitive",
           (info["triangles"], info["ngons"]) == _CoreUtilsInternal._mesh_face_counts(grid.data),

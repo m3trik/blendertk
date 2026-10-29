@@ -576,7 +576,7 @@ class SequencerHost:
 
         mayatk decides up front from the queue's step names; with no names to
         read, Blender decides from what the undo did: the store follows it
-        (``BlenderShotStore.follow_native_step``, its ``undo_post`` handler --
+        (``ShotStore.follow_native_step``, its ``undo_post`` handler --
         the same path as a Ctrl+Z in a viewport, with the panel open or not)
         and applies the restore point for our own step alone.  An unrelated
         step on top is undone by itself, as mayatk's plan passes it straight
@@ -1488,7 +1488,7 @@ class SequencerHost:
         """
         if sequencer is None:
             return {}
-        from blendertk.anim_utils.shots._shots import BlenderShotStore
+        from blendertk.anim_utils.shots._shots import BlenderShotsHost
 
         ledger = sequencer.ledger
         rows, paths = [], {}
@@ -1497,7 +1497,7 @@ class SequencerHost:
             if not fcurves:
                 continue
             fc = fcurves[0]
-            curve = BlenderShotStore.curve_key(obj, fc.data_path, fc.array_index)
+            curve = BlenderShotsHost.curve_key(obj, fc.data_path, fc.array_index)
             key_times, points = AnimUtils.key_times(fc), fc.keyframe_points
             keys = []
             for t in times:

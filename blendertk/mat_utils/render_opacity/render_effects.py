@@ -1046,7 +1046,9 @@ class RenderEffects(ptk.LoggingMixin):
         return keyed
 
     @classmethod
-    def write_keys(cls, obj, keys, channel="opacity", interp="LINEAR", mirror=None):
+    def write_keys(
+        cls, obj, keys, channel="opacity", interp="LINEAR", mirror=None, curve_key=None
+    ):
         """Key a planned ``[(frame, value), ...]`` on *obj*'s channel prop -- the
         one writer every render effect keys through (mirror of mayatk's
         ``OpacityAttributeMode.write_keys``).
@@ -1055,25 +1057,31 @@ class RenderEffects(ptk.LoggingMixin):
         *mirror* keys the stepped ``hide_render`` mirror too (hidden when the
         value is ``<= 0``); by default when *channel* is the presence channel.
 
+        Parameters:
+            curve_key: ``curve_key(object name, data path) -> ledger key``:
+                the shot ledger's curve spelling (``BlenderShotsHost.curve_key``),
+                which sits above this layer, so the caller that records the
+                keys passes it.  ``None``: nothing is recorded.
+
         Returns:
             ``(ledger curve key, frame)`` for every key set, the mirror's
-            included -- what the manifest records as its own.
+            included -- what the manifest records as its own; ``[]`` without
+            *curve_key*.
         """
-        # The ledger's curve spelling is the shot store's, reached through
-        # the record owners (it sits above this layer).
-        store = cls.scene_store()
         if mirror is None:
             mirror = channel == cls.ATTR_NAME
         path = f'["{channel}"]'
         written = []
         for frame, value in keys:
             cls.set_key(obj, path, frame, value, interp)
-            written.append((store.curve_key(obj.name, path), float(frame)))
+            if curve_key is not None:
+                written.append((curve_key(obj.name, path), float(frame)))
             if mirror:
                 cls.set_key(
                     obj, cls.VIS_PATH, frame, 0.0 if value > 0 else 1.0, "CONSTANT"
                 )
-                written.append((store.curve_key(obj.name, cls.VIS_PATH), float(frame)))
+                if curve_key is not None:
+                    written.append((curve_key(obj.name, cls.VIS_PATH), float(frame)))
         return written
 
     @staticmethod
@@ -1113,6 +1121,7 @@ class RenderEffects(ptk.LoggingMixin):
         fps=None,
         place=None,
         anchor=None,
+        curve_key=None,
     ):
         """Key one recipe effect on *obj*, placed in the range ``start..end``.
 
@@ -1121,9 +1130,12 @@ class RenderEffects(ptk.LoggingMixin):
         (``ptk.EffectRecipe.plan``), placed where a behavior template puts it
         (``EffectRecipe.window``), written by :meth:`write_keys`. It deletes
         nothing, and writes the recipe's colours only on a channel it creates.
+        *curve_key* spells the returned keys' curves (:meth:`write_keys`; the
+        manifest passes ``BlenderShotsHost.curve_key``).
 
         Returns:
-            ``(ledger curve key, frame)`` for every key written.
+            ``(ledger curve key, frame)`` for every key written; ``[]`` without
+            *curve_key*.
 
         Raises:
             ValueError: An effect with no channel (``"clip"`` places audio).
@@ -1148,7 +1160,7 @@ class RenderEffects(ptk.LoggingMixin):
             cls.ensure_highlight_props(node, *recipe.colors)
         else:
             cls.ensure_opacity_prop(node)
-        return cls.write_keys(node, plan, channel)
+        return cls.write_keys(node, plan, channel, curve_key=curve_key)
 
     @classmethod
     def sync_visibility_from_opacity(cls, objects=None) -> None:

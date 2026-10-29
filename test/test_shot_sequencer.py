@@ -50,12 +50,12 @@ def _run_sequencer_checks():
 
     import bpy
 
-    from blendertk import BlenderShotStore
+    from blendertk import BlenderShotsHost, ShotStore
     from blendertk.anim_utils._anim_utils import AnimUtils
     from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import ShotSequencer
 
-    BlenderShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_seq_prefs_")
-    BlenderShotStore.clear_active()
+    ShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_seq_prefs_")
+    ShotStore.clear_active()
 
     def key_times(obj_name):
         obj = bpy.data.objects.get(obj_name)
@@ -87,8 +87,8 @@ def _run_sequencer_checks():
         keyed("C", list(range(40, 51)))  # keys 40..50
 
     def fresh_store():
-        BlenderShotStore.clear_active()
-        store = BlenderShotStore()
+        ShotStore.clear_active()
+        store = ShotStore()
         store.define_shot("A", 0, 10, objects=["A"])
         store.define_shot("B", 20, 30, objects=["B"])
         store.define_shot("C", 40, 50, objects=["C"])
@@ -329,8 +329,8 @@ def _run_sequencer_checks():
     keyed("B", list(range(20, 31)))  # keys 20..30 (content)
     keyed("C", list(range(45, 56)))  # keys 45..55
 
-    BlenderShotStore.clear_active()
-    store = BlenderShotStore()
+    ShotStore.clear_active()
+    store = ShotStore()
     store.define_shot("A", 0, 10, objects=["A"])
     store.define_shot("B", 15, 40, objects=["B"])  # padded: content is 20..30
     store.define_shot("C", 45, 55, objects=["C"])
@@ -571,8 +571,8 @@ def _run_sequencer_checks():
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete()
     keyed("A", list(range(20, 31)))
-    BlenderShotStore.clear_active()
-    store = BlenderShotStore()
+    ShotStore.clear_active()
+    store = ShotStore()
     store.define_shot("A", 10, 40, objects=["A"])  # padded both sides
     seq = ShotSequencer(store)
     a_id = store.shot_by_name("A").shot_id
@@ -604,8 +604,8 @@ def _run_sequencer_checks():
         hold.location = (60 * 0.1, 0.0, 0.0)
         hold.keyframe_insert(data_path="location", frame=f)
     keyed("N", [160, 190])
-    BlenderShotStore.clear_active()
-    store = BlenderShotStore()
+    ShotStore.clear_active()
+    store = ShotStore()
     store.define_shot("H", 0, 120, objects=["H"])
     store.define_shot("N", 160, 200, objects=["N"])
     seq = ShotSequencer(store)
@@ -631,8 +631,8 @@ def _run_sequencer_checks():
     bpy.ops.object.delete()
     keyed("SA", [0, 100])
     keyed("SB", [100, 200])
-    BlenderShotStore.clear_active()
-    store = BlenderShotStore()
+    ShotStore.clear_active()
+    store = ShotStore()
     store.define_shot("SA", 0, 100, objects=["SA"])  # zero gap: no room at all
     store.define_shot("SB", 100, 200, objects=["SB"])
     seq = ShotSequencer(store)
@@ -682,8 +682,8 @@ def _run_sequencer_checks():
         "LA", [0, 60]
     )  # content ends short of the tail: the shrink is over empty space
     keyed("LB", [115, 200])
-    BlenderShotStore.clear_active()
-    store = BlenderShotStore()
+    ShotStore.clear_active()
+    store = ShotStore()
     la = store.define_shot("LA", 0, 100, objects=["LA"])
     lb = store.define_shot("LB", 115, 200, objects=["LB"])
     seq = ShotSequencer(store)
@@ -704,8 +704,8 @@ def _run_sequencer_checks():
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete()
     keyed("A", [70, 90])  # ALL content past the shot's end
-    BlenderShotStore.clear_active()
-    store = BlenderShotStore()
+    ShotStore.clear_active()
+    store = ShotStore()
     store.define_shot("A", 0, 50, objects=["A"])
     seq = ShotSequencer(store)
     a_id = store.shot_by_name("A").shot_id
@@ -831,8 +831,6 @@ def _run_sequencer_checks():
         SegmentCollector,
     )
     from blendertk.anim_utils.shots.shot_sequencer.sequencer_host import SequencerHost
-    from blendertk.anim_utils.shots._shots import BlenderShotStore
-    from blendertk.anim_utils._anim_utils import AnimUtils
 
     build_scene()
     store = fresh_store()
@@ -954,7 +952,7 @@ def _run_sequencer_checks():
         The previous seam scene's cube goes first: the sequencer moves (and
         checks for collisions on) the scene's whole keyed content, so a cube
         left keyed from the case before is part of the next one."""
-        BlenderShotStore.clear_active()
+        ShotStore.clear_active()
         while _seam_objects:
             _old = bpy.data.objects.get(_seam_objects.pop())
             if _old is not None:
@@ -966,7 +964,7 @@ def _run_sequencer_checks():
         for f, v in keys:
             o.location = (float(v), 0.0, 0.0)
             o.keyframe_insert(data_path="location", index=0, frame=f)
-        st = BlenderShotStore()
+        st = ShotStore()
         for sname, s, e in shots:
             st.define_shot(sname, s, e, objects=[o.name])
         return o, st, ShotSequencer(st)
@@ -1198,7 +1196,7 @@ def _run_sequencer_checks():
     # value its last key held over every shot after it, the ramp out of the
     # previous shot's last key, a step held into the next shot, an object
     # keyed only in the shot that goes.
-    BlenderShotStore.clear_active()
+    ShotStore.clear_active()
     while _seam_objects:  # the last seam scene's cube is keyed content too
         _old = bpy.data.objects.get(_seam_objects.pop())
         if _old is not None:
@@ -1224,7 +1222,7 @@ def _run_sequencer_checks():
     for _kp in _fcs[("location", 2)].keyframe_points:
         if round(_kp.co[0]) == 80:
             _kp.interpolation = "CONSTANT"
-    _st = BlenderShotStore()
+    _st = ShotStore()
     for _n, _s, _e in (("A", 0, 50), ("B", 60, 100), ("C", 110, 150)):
         _st.define_shot(_n, _s, _e, objects=[_o.name])
     _sq = ShotSequencer(_st)
@@ -1820,8 +1818,8 @@ def _run_sequencer_checks():
     for f, x in ((0, 0.0), (10, 1.0), (30, 1.0), (50, 1.0), (60, 2.0)):  # hold 10..50
         h.location = (x, 0.0, 0.0)
         h.keyframe_insert(data_path="location", index=0, frame=f)
-    BlenderShotStore.clear_active()
-    store = BlenderShotStore()
+    ShotStore.clear_active()
+    store = ShotStore()
     hid = store.define_shot("H", 0, 60, objects=["Holder"]).shot_id
     seq = ShotSequencer(store)
     segs = seq.collect_object_segments(hid)
@@ -2118,8 +2116,8 @@ def _run_sequencer_checks():
 
     # ---- detect_shots / detect_next_shot -----------------------------------
     build_scene()
-    BlenderShotStore.clear_active()
-    store = BlenderShotStore()
+    ShotStore.clear_active()
+    store = ShotStore()
     seq = ShotSequencer(store)
     cands = seq.detect_shots(gap_threshold=5.0)
     check(
@@ -2176,8 +2174,8 @@ def _run_sequencer_checks():
     data = seq.to_dict()
     seq2 = ShotSequencer.from_dict(data)
     check(
-        "to_dict/from_dict: round-trips shots onto a BlenderShotStore",
-        isinstance(seq2.store, BlenderShotStore)
+        "to_dict/from_dict: round-trips shots onto a ShotStore",
+        isinstance(seq2.store, ShotStore)
         and [(s.name, s.start, s.end) for s in seq2.sorted_shots()]
         == [(s.name, s.start, s.end) for s in seq.sorted_shots()],
     )
@@ -2316,7 +2314,7 @@ def _run_sequencer_checks():
     # 40 (3) and Blender kept one of the two.
     build_scene()
     fc = _lone_curve("collide_object", [(10, 0.0), (20, 5.0), (40, 3.0), (60, 9.0)])
-    ShotSequencer(BlenderShotStore()).move_object_keys("collide_object", 10, 20, 30)
+    ShotSequencer(ShotStore()).move_object_keys("collide_object", 10, 20, 30)
     got = [(round(kp.co[0], 3), round(kp.co[1], 3)) for kp in fc.keyframe_points]
     check(
         "landing zone: an object move pushes the pose it lands on, never drops it",
@@ -2361,9 +2359,9 @@ def _run_sequencer_checks():
     def fresh(name_keys):
         """A store + sequencer over freshly keyed cubes.  ``{obj: {frame: x}}``."""
         bpy.ops.wm.read_factory_settings(use_empty=True)
-        BlenderShotStore.clear_active()
-        st = BlenderShotStore()
-        BlenderShotStore.set_active(st)
+        ShotStore.clear_active()
+        st = ShotStore()
+        ShotStore.set_active(st)
         made = {}
         for obj_name, keys in name_keys.items():
             bpy.ops.mesh.primitive_cube_add()
@@ -4065,7 +4063,7 @@ def _run_sequencer_checks():
     with st.scene_edit("Hold Gaps"):  # as the panel brackets it
         sq._enforce_gap_holds()
     bone_held = sq.ledger.owns_step(
-        BlenderShotStore.curve_key("rfRig", f'pose.bones["{rf_bone}"].location', 0),
+        BlenderShotsHost.curve_key("rfRig", f'pose.bones["{rf_bone}"].location', 0),
         10.0,
     )
     rf_rig.data.bones[rf_bone].name = "rfBone_L"
@@ -4161,7 +4159,7 @@ def _run_sequencer_checks():
     )
 
     # -- undo pairing: only OUR step consumes a restore point (2026-10-04) --------
-    # The store follows Blender's undo by itself (``BlenderShotStore.set_active``);
+    # The store follows Blender's undo by itself (``ShotStore.set_active``);
     # the panel's Undo / Redo over it -- its one-click New Shot and shot change
     # landing the playhead too -- is
     # tentacle's ``test/blender/shot_sequencer_panel_check.py``,
@@ -4169,7 +4167,7 @@ def _run_sequencer_checks():
     st, sq, obs = fresh({"unA": {0: 0, 10: 5}})
     un_shot = sq.define_shot("U", 0, 10, objects=["unA"])
     bpy.ops.ed.undo_push(message="baseline")
-    serial0 = BlenderShotStore.edit_serial()
+    serial0 = BlenderShotsHost.edit_serial()
     with st.scene_edit("Probe Edit"):
         st.update_shot(un_shot.shot_id, end=20.0)
     tag = st.peek_boundary_tag()
@@ -4177,16 +4175,16 @@ def _run_sequencer_checks():
         "scene_edit: stamps a fresh serial inside its step and tags the point with it",
         isinstance(tag, tuple)
         and tag[0] is True
-        and tag[1] == BlenderShotStore.edit_serial()
+        and tag[1] == BlenderShotsHost.edit_serial()
         and tag[1] != serial0,
-        f"tag={tag} serial={BlenderShotStore.edit_serial()} before={serial0}",
+        f"tag={tag} serial={BlenderShotsHost.edit_serial()} before={serial0}",
     )
     depth = len(st._boundary_undo)
     with st.scene_edit("No-op") as edit:
         edit.cancel()
     check(
         "scene_edit: a cancelled edit leaves no restore point and no serial stamp",
-        len(st._boundary_undo) == depth and BlenderShotStore.edit_serial() == tag[1],
+        len(st._boundary_undo) == depth and BlenderShotsHost.edit_serial() == tag[1],
         f"depth {depth}->{len(st._boundary_undo)}",
     )
 
@@ -4235,9 +4233,9 @@ def _run_sequencer_checks():
     # restoring only the newest point left the earlier edits' bounds behind,
     # and a redo jump re-applied nothing.
     bpy.ops.wm.read_factory_settings(use_empty=True)  # an empty undo history
-    BlenderShotStore.clear_active()
-    st = BlenderShotStore()
-    BlenderShotStore.set_active(st)
+    ShotStore.clear_active()
+    st = ShotStore()
+    ShotStore.set_active(st)
     # No operator, so no undo step: the history holds exactly what is pushed.
     jump_obj = bpy.data.objects.new("jumpA", None)
     bpy.context.scene.collection.objects.link(jump_obj)
@@ -4264,7 +4262,7 @@ def _run_sequencer_checks():
     # its bounds and claims (measured: claims stayed [9] after an Align undo).
     st, sq, obs = fresh({"nsA": {0: 0, 10: 5, 20: 9}})
     ns_shot = sq.define_shot("NS", 0, 30, objects=["nsA"])
-    ns_key = BlenderShotStore.curve_key("nsA", "location", 0)
+    ns_key = BlenderShotsHost.curve_key("nsA", "location", 0)
     st.edit_ledger.record_authored(ns_key, 10.0, 0, "fade_in", "nsA")
     bpy.ops.ed.undo_push(message="baseline")
     with st.scene_edit("Shots Window End"):
@@ -4287,13 +4285,13 @@ def _run_sequencer_checks():
     names = {"undo_pre", "redo_pre", "undo_post", "redo_post"}
     installed = {
         n
-        for n, fn in BlenderShotStore.__dict__.get("_native_undo_handlers", ())
+        for n, fn in BlenderShotsHost._native_undo_handlers.get(ShotStore._on_native_step, ())
         if fn in getattr(bpy.app.handlers, n)
     }
-    BlenderShotStore.clear_active()
+    ShotStore.clear_active()
     left = {
         n
-        for n, fn in BlenderShotStore.__dict__.get("_native_undo_handlers", ())
+        for n, fn in BlenderShotsHost._native_undo_handlers.get(ShotStore._on_native_step, ())
         if fn in getattr(bpy.app.handlers, n)
     }
     check(
@@ -4661,7 +4659,7 @@ def _run_sequencer_checks():
         },
         "authored": {"v1Gone|location|0": [[5.0, 0, "fade_in", "v1Gone"]]},
     }
-    v1_store = BlenderShotStore.from_dict(v1_data)
+    v1_store = ShotStore.from_dict(v1_data)
     v1_led = v1_store.edit_ledger
     v1_key = _SSI._fc_key("v1A", fc_of(obs["v1A"]))
     check(
@@ -4673,7 +4671,7 @@ def _run_sequencer_checks():
         and v1_led.source_version == v1_led.FORMAT_VERSION,
         str(v1_led.to_dict()),
     )
-    BlenderShotStore.set_active(v1_store)
+    ShotStore.set_active(v1_store)
     v1_store.update_shot(v1_b.shot_id, start=20.0)  # the gap closes
     ShotSequencer(store=v1_store)._enforce_gap_holds()
     check(
@@ -4705,8 +4703,8 @@ def _run_sequencer_checks():
         f"followed={ar_follows} {sq.ledger.to_dict()}",
     )
 
-    BlenderShotStore.clear_active()
-    BlenderShotStore._prefs_dir_override = None
+    ShotStore.clear_active()
+    ShotStore._prefs_dir_override = None
     return lines
 
 

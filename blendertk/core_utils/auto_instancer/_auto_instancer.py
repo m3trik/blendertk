@@ -105,6 +105,13 @@ class _AutoInstancerInternal(object):
     """Internal helpers for AutoInstancer."""
 
     @staticmethod
+    def _triangle_count(obj) -> int:
+        """*obj*'s fan-triangle count (``n - 2`` per face of its mesh): the read
+        the group pass totals, and the ``count_triangles`` adapter the strategy
+        is injected with; 0 for an object with no mesh."""
+        return CoreUtils._mesh_face_counts(getattr(obj, "data", None))[0]
+
+    @staticmethod
     def _is_instanced(obj) -> bool:
         """True if the object's mesh datablock is shared with another object."""
         me = GeometryMatcher._mesh(obj)
@@ -215,7 +222,9 @@ class AutoInstancer(ptk.LoggingMixin, _AutoInstancerInternal):
             will_be_lightmapped=will_be_lightmapped,
             can_gpu_instance=can_gpu_instance,
         )
-        self.strategy_analyzer = InstancingStrategy(self.strategy_config)
+        self.strategy_analyzer = InstancingStrategy(
+            self.strategy_config, count_triangles=self._triangle_count
+        )
 
         self.matcher = GeometryMatcher(
             tolerance=tolerance,
@@ -887,7 +896,7 @@ class AutoInstancer(ptk.LoggingMixin, _AutoInstancerInternal):
                 ]
             for m in meshes:
                 try:
-                    tri_count += CoreUtils._mesh_face_counts(m.data)[0]
+                    tri_count += self._triangle_count(m)
                 except Exception:
                     pass
         return (

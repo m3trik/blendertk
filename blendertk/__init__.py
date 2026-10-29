@@ -95,6 +95,8 @@ DEFAULT_INCLUDE = {
     "env_utils._env_utils": "*",
     # Reference Manager's engine over linked libraries (its panel is tentacle's shared tool).
     "env_utils.reference_manager": ["ReferenceManager"],
+    # The workspaces under a root as a tree (the Workspaces tool's map) — mirror of mayatk's.
+    "env_utils.workspace_map": "WorkspaceMap",
     # FBX import/export — mirror of mayatk's ``env_utils.fbx_utils.FbxUtils`` (``btk.FbxUtils`` ↔
     # ``mtk.FbxUtils``). Scope-limited to the class on purpose: ``FbxUtils.export`` is a generic name
     # that would collide flat with ``UsdUtils.export`` under "*" — the source-side fix for the
@@ -120,7 +122,7 @@ DEFAULT_INCLUDE = {
         "ScriptConsole",
     ],
     # Maya bridge engine — one-way send of the selection to a fresh Maya (its panel is
-    # tentacle's Blender-only Maya Bridge tool). Counterpart of mayatk's
+    # tentacle's DCC Bridge, the Maya Bridge in Blender). Counterpart of mayatk's
     # ``BlenderBridge``.
     "env_utils.maya_bridge._maya_bridge": [
         "MayaBridge",
@@ -286,13 +288,14 @@ DEFAULT_INCLUDE = {
     # via a cycle-safe re-import in ``_anim_utils``.
     "anim_utils.scale_keys": "*",
     "anim_utils.stagger_keys": "*",
-    # Shots — Blender acquisition + persistence adapter over pythontk's shots
-    # engine (``core_utils.engines.shots``).  The shot model / planner / detection
-    # math is shared upstream; only ``BlenderShotStore`` (scene hooks) and
-    # ``BlenderScenePersistence`` (scene-property JSON) live here.  The Shots panel
-    # is tentacle's shared tool.
+    # Shots — Blender acquisition + persistence under pythontk's shots engine
+    # (``core_utils.engines.shots``).  The one store (``ptk.ShotStore``,
+    # re-exported), its model / planner / detection math and hand-off transfer
+    # are shared upstream; only ``BlenderShotsHost`` (the store's host adapter)
+    # and ``BlenderScenePersistence`` (scene-property JSON) live here.  The
+    # Shots panel is tentacle's shared tool.
     "anim_utils.shots._shots": [
-        "BlenderShotStore",
+        "BlenderShotsHost",
         "BlenderScenePersistence",
         "ShotStore",
     ],
@@ -448,6 +451,8 @@ DEFAULT_INCLUDE = {
 #: read raises MovedNameError naming the new home. ``{name: (new home, version)}``;
 #: a move adds its names here in the same change set.
 MOVED_NAMES = {
+    # The curtain drape, written once for both hosts (CurtainMesh subclasses it).
+    "CurtainDrape": ("pythontk.CurtainDrape", "0.23.0"),
     "DuplicateRadialSlots": (
         "tentacle.slots.tools.duplicate_radial.DuplicateRadialSlots",
         "0.23.0",
@@ -772,7 +777,7 @@ MOVED_NAMES = {
         "0.23.0",
     ),
     "WorkspaceEditorSlots": (
-        "tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots",
+        "tentacle.slots.tools.workspaces.WorkspacesSlots",
         "0.23.0",
     ),
     "MarmosetBridgeSlots": (
@@ -801,7 +806,7 @@ MOVED_NAMES = {
         "0.23.0",
     ),
     "MayaBridgeSlots": (
-        "tentacle.slots.tools.maya_bridge.MayaBridgeSlots",
+        "tentacle.slots.tools.dcc_bridge.DccBridgeSlots",
         "0.23.0",
     ),
     # RizomUVBridge.send took mayatk's name (no alias: the panel was its one caller).
@@ -881,6 +886,35 @@ MOVED_NAMES = {
     "loft": ("blendertk.NurbsUtils.loft", "0.23.0"),
     "get_recent_files": ("blendertk.EnvUtils.get_recent_files", "0.23.0"),
     "get_recent_autosave": ("blendertk.EnvUtils.get_recent_autosave", "0.23.0"),
+    # The Blender store subclass became pythontk's one store plus the host
+    # adapter it is injected with: the store is ``ShotStore``, its
+    # Blender-only members are ``BlenderShotsHost``'s.
+    "BlenderShotStore": ("blendertk.ShotStore", "0.23.0"),
+    "BlenderShotStore.is_transform_path": (
+        "blendertk.BlenderShotsHost.is_transform_path",
+        "0.23.0",
+    ),
+    "BlenderShotStore.fcurve_for_key": (
+        "blendertk.BlenderShotsHost.fcurve_for_key",
+        "0.23.0",
+    ),
+    "BlenderShotStore.curve_key": ("blendertk.BlenderShotsHost.curve_key", "0.23.0"),
+    "BlenderShotStore.edit_serial": (
+        "blendertk.BlenderShotsHost.edit_serial",
+        "0.23.0",
+    ),
+    "BlenderShotStore.iter_action_fcurves": (
+        "blendertk.AnimUtils.get_fcurves",
+        "0.23.0",
+    ),
+    "BlenderShotStore.collect_transform_segments": (
+        "blendertk.BlenderShotsHost.collect_transform_segments",
+        "0.23.0",
+    ),
+    "BlenderShotStore.collect_selected_key_entries": (
+        "blendertk.BlenderShotsHost.collect_selected_key_entries",
+        "0.23.0",
+    ),
 }
 
 bootstrap_package(

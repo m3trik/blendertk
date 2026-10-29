@@ -11,7 +11,7 @@ cluster_segments_by_gap` / :meth:`~pythontk.ShotDetection.
 boundaries_from_key_entries`).
 
 The scene *walks* (slotted-action fcurve iteration, per-object motion
-segments, selected-key triples) live on :class:`BlenderShotStore` — the
+segments, selected-key triples) live on :class:`BlenderShotsHost` — the
 sequencer and manifest depend on them by name — so this module is a thin
 :class:`Detection` namespace over them with the Maya signatures.
 
@@ -28,7 +28,7 @@ Divergence from mayatk (by design):
       splits a curve into moving / held intervals by sampling; Blender has no
       equivalent, so a transform channel's motion intervals are the key pairs
       whose per-frame rate of change exceeds *motion_rate* (see
-      :meth:`BlenderShotStore.collect_transform_segments`).  A baked hold
+      :meth:`BlenderShotsHost.collect_transform_segments`).  A baked hold
       inside a channel therefore still splits the object's segment — the
       property the Maya docstring calls out ("boundaries hidden by baked
       animation are correctly detected").
@@ -57,12 +57,9 @@ class _DetectionInternal(object):
         ``CONTENT_ATTRS`` destinations).  *ignore* channel patterns are
         honoured.
         """
-        from blendertk.anim_utils.shots._shots import (
-            BlenderShotStore,
-            _BlenderShotStoreInternal,
-        )
+        from blendertk.anim_utils.shots._shots import BlenderShotsHost
 
-        scene = _BlenderShotStoreInternal._active_scene(scene)
+        scene = BlenderShotsHost._active_scene(scene)
         if scene is None:
             return {}
         result: Dict[str, list] = {}
@@ -70,8 +67,8 @@ class _DetectionInternal(object):
             curves = [
                 fc
                 for fc in AnimUtils.get_fcurves(obj)
-                if BlenderShotStore.is_transform_path(fc.data_path)
-                and not _BlenderShotStoreInternal._is_ignored_path(fc.data_path, ignore)
+                if BlenderShotsHost.is_transform_path(fc.data_path)
+                and not BlenderShotsHost._is_ignored_path(fc.data_path, ignore)
             ]
             if curves:
                 result[obj.name] = curves
@@ -197,13 +194,13 @@ class Detection(_DetectionInternal):
             import bpy
         except ImportError:
             return []
-        from blendertk.anim_utils.shots._shots import BlenderShotStore
+        from blendertk.anim_utils.shots._shots import BlenderShotsHost
 
         if objects is not None:
             objects = [n for n in objects if n in bpy.data.objects]
             if not objects:
                 return []
-        segments = BlenderShotStore.collect_transform_segments(
+        segments = BlenderShotsHost.collect_transform_segments(
             gap_threshold=gap_threshold,
             objects=objects,
             ignore=ignore,
@@ -243,9 +240,9 @@ class Detection(_DetectionInternal):
             import bpy  # noqa: F401
         except ImportError:
             return []
-        from blendertk.anim_utils.shots._shots import BlenderShotStore
+        from blendertk.anim_utils.shots._shots import BlenderShotsHost
 
-        entries = BlenderShotStore.collect_selected_key_entries()
+        entries = BlenderShotsHost.collect_selected_key_entries()
         if not entries:
             return []
         candidates = ShotDetection.boundaries_from_key_entries(

@@ -45,7 +45,7 @@ _QUAT_AXES = ("W", "X", "Y", "Z")  # Blender stores quaternions W-first
 _VECTOR_PATHS = tuple(_PATH_LABELS) + ("rotation_axis_angle",)
 # Scalar channels that stand in for a Maya attribute of another name:
 # ``hide_render`` is the deliverable visibility (what a Maya ``visibility``
-# replay keys -- ``BlenderShotStore._TRANSFER_LABEL_ALIASES``), so it reads as
+# replay keys -- ``_BlenderShotTransfer._TRANSFER_LABEL_ALIASES``), so it reads as
 # Maya's channel and takes its colour.  ``hide_viewport`` is a viewport aid
 # with no Maya twin and keeps its own name.
 _SCALAR_LABELS = {"hide_render": "visibility"}

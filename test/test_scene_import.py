@@ -2584,7 +2584,7 @@ try:
         except ImportError:
             _bpy_shots = None
         if _bpy_shots is not None:
-            from blendertk.anim_utils.shots._shots import BlenderShotStore as _BSS
+            from blendertk.anim_utils.shots._shots import ShotStore as _BSS
 
             check(
                 "import_payload: the shot is rebuilt on the scene's store, at the "

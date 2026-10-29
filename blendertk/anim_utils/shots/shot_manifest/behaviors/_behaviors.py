@@ -263,7 +263,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
         """Apply a named behavior template to an object over a time range.
 
         Returns ``(curve_key, time)`` for every key it set, the curve named
-        by :meth:`BlenderShotStore.curve_key` -- what the manifest records as
+        by :meth:`BlenderShotsHost.curve_key` -- what the manifest records as
         its own (``ShotEditLedger``), so a re-apply can replace exactly those.
         An audio clip returns ``[]`` (its strip belongs to the audio track).
 
@@ -316,7 +316,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
             return []
 
         from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
-        from blendertk.anim_utils.shots._shots import BlenderShotStore
+        from blendertk.anim_utils.shots._shots import BlenderShotsHost
 
         effect = Behaviors.effect_of(template)
         if effect is not None:
@@ -329,6 +329,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
                 fps=fps,
                 place=Behaviors.place_of(template),
                 anchor=anchor_override,
+                curve_key=BlenderShotsHost.curve_key,
             )
 
         written: List[Tuple[str, float]] = []
@@ -366,7 +367,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
                         node, target_path, k["time"], k["value"], interp
                     )
                     written.append(
-                        (BlenderShotStore.curve_key(node.name, target_path), k["time"])
+                        (BlenderShotsHost.curve_key(node.name, target_path), k["time"])
                     )
                     # Mirror: stepped render-visibility key so exports carry a
                     # real visibility curve (hide_render is the inverse).
@@ -380,7 +381,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
                         )
                         written.append(
                             (
-                                BlenderShotStore.curve_key(
+                                BlenderShotsHost.curve_key(
                                     node.name, RenderEffects.VIS_PATH
                                 ),
                                 k["time"],

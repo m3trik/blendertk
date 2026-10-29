@@ -25,7 +25,7 @@ scene hooks:
   fades dual-keyed on :class:`RenderOpacity`'s ``opacity`` + stepped
   ``hide_render``, audio placed as VSE sound strips;
 - ``_key_samples`` / ``_delete_keys`` → a behavior's fcurve keys, named by
-  :meth:`BlenderShotStore.curve_key` -- what a build claims as its own and
+  :meth:`BlenderShotsHost.curve_key` -- what a build claims as its own and
   releases;
 - ``rewire_audio`` → no-op (a VSE strip is its own playback node; Maya needs
   the compositor to materialise DG audio nodes from keyed tracks);
@@ -50,7 +50,7 @@ from typing import Dict, List, Optional, Tuple
 from pythontk import ShotManifest, BuilderObject
 
 from blendertk.anim_utils._anim_utils import AnimUtils
-from blendertk.anim_utils.shots._shots import BlenderShotStore
+from blendertk.anim_utils.shots._shots import BlenderShotsHost, ShotStore
 
 log = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ class _ShotManifestInternal(object):
         return [
             fc
             for fc in AnimUtils.get_fcurves(obj)
-            if BlenderShotStore.is_transform_path(fc.data_path)
+            if BlenderShotsHost.is_transform_path(fc.data_path)
         ]
 
 
@@ -236,12 +236,11 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
         self, obj: str, behavior: str, start: float, end: float
     ) -> List[Tuple[str, float]]:
         """Keys in ``[start, end]`` on the fcurves *behavior* keys on *obj*
-        (``Behaviors._behavior_paths``), by :meth:`BlenderShotStore.curve_key`."""
+        (``Behaviors._behavior_paths``), by :meth:`BlenderShotsHost.curve_key`."""
         try:
             import bpy
         except ImportError:
             return []
-        from blendertk.anim_utils.shots._shots import BlenderShotStore
         from blendertk.anim_utils.shots.shot_manifest.behaviors import Behaviors
 
         node = bpy.data.objects.get(obj)
@@ -252,7 +251,7 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
         for fc in AnimUtils.get_fcurves(node):
             if fc.data_path not in paths:
                 continue
-            key = BlenderShotStore.curve_key(node.name, fc.data_path, fc.array_index)
+            key = BlenderShotsHost.curve_key(node.name, fc.data_path, fc.array_index)
             for kp in fc.keyframe_points:
                 if start - 1e-6 <= kp.co[0] <= end + 1e-6:
                     out.append((key, kp.co[0]))
@@ -263,10 +262,8 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
             import bpy  # noqa: F401
         except ImportError:
             return
-        from blendertk.anim_utils.shots._shots import BlenderShotStore
-
-        # The curve by its identity (``BlenderShotStore.curve_key``).
-        fc = BlenderShotStore.fcurve_for_key(curve)
+        # The curve by its identity (``BlenderShotsHost.curve_key``).
+        fc = BlenderShotsHost.fcurve_for_key(curve)
         if fc is None:
             return
         doomed = [
@@ -321,7 +318,7 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
         return [
             name
             for name in sorted(animated)
-            if BlenderShotStore.member_key(name) not in exclude
+            if ShotStore.member_key(name) not in exclude
             and any(
                 self._curve_varies_in_range(crv, start, end) for crv in animated[name]
             )
@@ -432,14 +429,12 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
     def from_csv(cls, filepath, store=None, columns=None, post_process=None):
         """Parse a CSV and return a ready-to-build engine.
 
-        Overrides the engine version so the default store is the **Blender**
-        :meth:`BlenderShotStore.active` (auto-installing scene persistence) —
-        the inherited default would silently create a separate, persistence-less
-        pure-engine store.
+        The default store is the active one (:meth:`ShotStore.active`, which
+        installs Blender's scene persistence through the store's host).
         """
         return super().from_csv(
             filepath,
-            store=store or BlenderShotStore.active(),
+            store=store or ShotStore.active(),
             columns=columns,
             post_process=post_process,
         )

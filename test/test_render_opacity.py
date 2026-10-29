@@ -538,14 +538,14 @@ try:
     # STORED shot record, and an assembly commits only after every producer
     # has run, so the takes the shots producer had just built were invisible
     # to the visibility producer that runs after it.
-    from blendertk import BlenderShotStore
+    from blendertk import ShotStore
 
     ptk.SceneRecords.SHOTS.clear(DataNodes)
-    BlenderShotStore._prefs_dir_override = ptk.TempArtifacts(
+    ShotStore._prefs_dir_override = ptk.TempArtifacts(
         "btk_render_opacity_prefs"
     ).dir_path()
-    BlenderShotStore.clear_active()
-    BlenderShotStore.active().define_shot("Late", 90, 140, objects=[c.name])
+    ShotStore.clear_active()
+    ShotStore.active().define_shot("Late", 90, 140, objects=[c.name])
     _fresh = _Fbx.publish(
         _Fbx.export_context(),
         only=[ptk.SceneRecords.SHOTS, ptk.SceneRecords.VISIBILITY],
@@ -555,8 +555,8 @@ try:
         (_fresh.get("clip_span") or {}).get("*") == [0.0, 140.0],
         detail=repr(_fresh.get("clip_span")),
     )
-    BlenderShotStore.clear_active()
-    BlenderShotStore._prefs_dir_override = None
+    ShotStore.clear_active()
+    ShotStore._prefs_dir_override = None
     for _spec in (
         ptk.SceneRecords.SHOTS,
         ptk.SceneRecords.SHOT_STORE,
@@ -1130,7 +1130,11 @@ try:
         return [round(c, 6) for c in list(obj[prop])[:3]]
 
     _fade = _ptk.EffectRecipe(fade_frames=12)
-    written = RenderEffects.apply_effect(fx, "fade_in", 10, 100, _fade, fps=24)
+    from blendertk.anim_utils.shots._shots import BlenderShotsHost
+
+    written = RenderEffects.apply_effect(
+        fx, "fade_in", 10, 100, _fade, fps=24, curve_key=BlenderShotsHost.curve_key
+    )
     RenderEffects.apply_effect(fx, "fade_out", 10, 100, _fade, fps=24)
     check(
         "apply_effect: a fade is the recipe's length where it is placed",

@@ -1,4 +1,4 @@
-"""blendertk curtain (vendored CurtainDrape-backed) headless test.
+"""blendertk curtain (ptk.CurtainDrape-backed) headless test.
 Run: blender --background --factory-startup --python blendertk/test/test_curtain.py
 """
 
@@ -29,7 +29,8 @@ try:
     import blendertk as btk
 
     from blendertk.edit_utils.curtain import Curtain, CurtainMesh, Rail
-    from blendertk.edit_utils.curtain._curtain_drape import CurtainDrape
+
+    CurtainDrape = ptk.CurtainDrape
 
     # ---- surface: mayatk's names and shape (Rail + CurtainMesh), unregistered
     # like mayatk's; CurtainRig and the tool API Curtain are the registered twins

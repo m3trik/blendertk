@@ -39,7 +39,7 @@ try:
     from blendertk.anim_utils.key_stash._key_stash import KeyStash
     from blendertk.anim_utils.shots._shots import (
         BlenderScenePersistence,
-        BlenderShotStore,
+        ShotStore,
     )
     from blendertk.anim_utils._anim_utils import AnimUtils
 
@@ -208,7 +208,7 @@ try:
         "channel is isolated from the shot store",
         DataNodes.read(ptk.Scope.PRIVATE, "key_stash") is not None
         and DataNodes.read(ptk.Scope.PRIVATE, "shot_store") is None
-        and BlenderScenePersistence().store_cls is BlenderShotStore,
+        and BlenderScenePersistence().store_cls is ShotStore,
     )
     path = os.path.join(TEMP, "key_stash_roundtrip.blend")
     bpy.ops.wm.save_as_mainfile(filepath=path)

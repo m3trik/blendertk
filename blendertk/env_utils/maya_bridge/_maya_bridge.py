@@ -18,10 +18,10 @@ and ``save_as`` (:meth:`~pythontk.ScriptLaunchBridge.save_as`) runs ``mayapy`` h
 ``templates/_save_scene.py`` and returns a written ``.ma`` -- same FBX, same material sidecar, no
 second export path.
 
-Its panel is tentacle's Maya Bridge (a Blender tool, ``slots/tools/maya_bridge.py``), which reads
-:meth:`MayaBridge.params_registry` and :attr:`MayaBridge.TEMPLATE_DIR` off this engine. ``import
-bpy`` and the Qt-only ``parameters`` import are deferred so the engine surface resolves under
-headless ``blender --background`` (no Qt).
+Its panel is tentacle's DCC Bridge (the Maya Bridge in Blender, ``slots/tools/dcc_bridge.py``),
+which reads :meth:`MayaBridge.params_registry` and :attr:`MayaBridge.TEMPLATE_DIR` off this
+engine. ``import bpy`` and the Qt-only ``parameters`` import are deferred so the engine surface
+resolves under headless ``blender --background`` (no Qt).
 Windows-focused (Maya install layout).
 """
 

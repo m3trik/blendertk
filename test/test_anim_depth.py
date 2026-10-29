@@ -791,7 +791,9 @@ try:
         btk.CoreUtils.select(list(objs), mode="replace")
         bpy.context.view_layer.objects.active = objs[0]
 
-    check("ShotStore is mayatk's name for the store class", btk.ShotStore is btk.BlenderShotStore)
+    import pythontk as ptk
+
+    check("ShotStore is the one store on both hosts", btk.ShotStore is ptk.ShotStore)
 
     # invert_keys: None is the selection; mayatk's mode and time names
     reset()

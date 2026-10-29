@@ -41,7 +41,7 @@ from pythontk.core_utils.engines.key_stash.key_stash_model import (
 from blendertk.anim_utils._anim_utils import AnimUtils, _AnimUtilsInternal
 from blendertk.anim_utils.shots._shots import (
     BlenderScenePersistence,
-    _BlenderShotStoreInternal,
+    BlenderShotsHost,
 )
 from blendertk.core_utils._core_utils import CoreUtils
 
@@ -284,7 +284,7 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
         return tokens
 
     def _scene_fps(self) -> float:
-        return _BlenderShotStoreInternal._get_scene_fps()
+        return BlenderShotsHost.scene_fps()
 
     def rescale_to_fps(self, new_fps: float) -> None:
         """Record the new rate only.

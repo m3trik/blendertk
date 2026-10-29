@@ -985,15 +985,15 @@ try:
         shutil.rmtree(star_root, ignore_errors=True)
 
     # ---- shots sidecar (the send half of the shot transfer) -------------------
-    from blendertk.anim_utils.shots._shots import BlenderShotStore
+    from blendertk.anim_utils.shots._shots import ShotStore
 
-    BlenderShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_mb_prefs_")
-    BlenderShotStore.clear_active()
+    ShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_mb_prefs_")
+    ShotStore.clear_active()
     bpy.context.scene.pop("shot_store", None)
     for f in (1, 24):
         cube_a.location.x = float(f)
         cube_a.keyframe_insert(data_path="location", index=0, frame=f)
-    _shot_store = BlenderShotStore.active()
+    _shot_store = ShotStore.active()
     _shot = _shot_store.define_shot("Intro", 1, 24, objects=[cube_a.name, "stayed"])
     _shot_store.edit_ledger.record_key(
         f"{cube_a.name}|location|0", 24.0, _shot.shot_id, "end"
@@ -1032,8 +1032,8 @@ try:
         str(_merged.get("INCLUDE_SCENE_DATA")),
     )
     os.remove(manifest_path)
-    BlenderShotStore.clear_active()
-    BlenderShotStore._prefs_dir_override = None
+    ShotStore.clear_active()
+    ShotStore._prefs_dir_override = None
     bpy.context.scene.pop("shot_store", None)
     os.remove(tex_path)
 

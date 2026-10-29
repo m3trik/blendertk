@@ -391,7 +391,7 @@ try:
     bpy.ops.mesh.primitive_cube_add()
     takes_mesh = bpy.context.active_object
     takes_mesh.name = "TakesMesh"
-    from blendertk.anim_utils.shots._shots import BlenderShotStore as _TakesStore
+    from blendertk.anim_utils.shots._shots import ShotStore as _TakesStore
 
     _TakesStore.clear_active()
     _takes_store = _TakesStore.active()
@@ -2594,7 +2594,7 @@ try:
     # mayatk's. Added: 2026-10-20
     import wave as _ev_wave
 
-    from blendertk.anim_utils.shots._shots import BlenderShotStore
+    from blendertk.anim_utils.shots._shots import ShotStore
     from blendertk.audio_utils._audio_utils import AudioUtils as _EvAudio
     from blendertk.mat_utils._mat_utils import MatUtils as _EvMatUtils
     from blendertk.mat_utils.emissive_groups import EmissiveGroups
@@ -2609,8 +2609,8 @@ try:
     ev_mat = bpy.data.materials.new("EvMat")
     _EvMatUtils.get_node_tree(ev_mat, create=True)
     ev_cube.data.materials.append(ev_mat)
-    BlenderShotStore.clear_active()
-    BlenderShotStore.active().define_shot("Intro", 1, 20, objects=[ev_cube.name])
+    ShotStore.clear_active()
+    ShotStore.active().define_shot("Intro", 1, 20, objects=[ev_cube.name])
     RenderEffects.create([ev_cube])
     RenderEffects.key_fade([ev_cube], start=1, end=11, direction="out")
     EmissiveGroups.add_group("glow", {ev_cube.name: [0]})
@@ -2684,7 +2684,7 @@ try:
     finally:
         ev_log.removeHandler(ev_pruned)
         _EvAudio.remove_all_clips()
-        BlenderShotStore.clear_active()
+        ShotStore.clear_active()
 
     EnvUtils.set_current_workspace(ru_pin)
     ru_store.cleanup()

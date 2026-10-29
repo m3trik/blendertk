@@ -2034,7 +2034,7 @@ class FbxUtils(_FbxUtilsInternal):
     PRODUCERS: Dict[Any, Tuple[str, str, str]] = {
         ptk.SceneRecords.SHOTS: (
             "blendertk.anim_utils.shots._shots",
-            "BlenderShotStore",
+            "ShotStore",
             "produce_export_records",
         ),
         # The sound strips (mayatk's row is its AudioClips; Blender's engine

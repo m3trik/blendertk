@@ -60,7 +60,7 @@ Full public surface (auto-generated): [`API_REGISTRY.md`](../API_REGISTRY.md); c
 - **Lightmap pipeline** — `LightmapBaker` commits bake state (markers + manifest) that every exporter reads on its own: Unity via the FBX carrier, GLB via pythontk's lightmap applier, and `LightmapWebExport` wraps Blender's own glTF exporter for the [live WebXR preview](https://github.com/m3trik/pythontk/blob/main/docs/webxr_preview.md) — a clean no-op on unbaked scenes. mayatk's Blender bridge drives this baker headlessly for the Maya round trip.
 - **Drive Blender from outside** — `BlenderConnection` mirrors mayatk's `MayaConnection`: fresh `--background` instances only, the backbone of the test suite. An artist's open session is never touched.
 - **Hierarchy sync** — diff a scene against a reference `.blend` (or `.fbx`, staged to a temp `.blend`) linked as a library, then repair drift: stub missing objects, quarantine extras, fix fuzzy renames and reparents; `ObjectSwapper` pulls matched reference objects in fresh.
-- **Shared workspaces** — one project folder serves Maya natively and Blender via blendertk: the `workspace.mel` codec and template store live in pythontk, and the co-located Workspace Editor panel mirrors Maya's Project Window.
+- **Shared workspaces** — one project folder serves Maya natively and Blender via blendertk: the `workspace.mel` codec and template store live in pythontk, and the editor part of tentacle's Workspaces panel mirrors Maya's Project Window.
 - **Tool panels** — every engine that warrants one ships a co-located uitk panel (`<tool>.py` + `<tool>.ui`), discovered by `BlenderUiHandler` — the same split mayatk uses, so tentacle's navigation stays a thin layer.
 
 ## Parity — how the mirror stays honest

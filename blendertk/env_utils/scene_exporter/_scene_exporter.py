@@ -59,6 +59,7 @@ from typing import List, Dict, Optional, Callable, Union, Any
 import pythontk as ptk
 
 from blendertk.env_utils.scene_exporter.task_manager import TaskManager
+from blendertk.node_utils.data_nodes import DataNodes
 from blendertk.env_utils.usd import UsdUtils
 
 # The engine's game-asset baseline (also shipped as the "game_asset" built-in preset -- see
@@ -119,9 +120,13 @@ _DEFAULT_FBX_OPTIONS: Dict[str, Any] = {
 class SceneExporter(ptk.SceneExporterBase):
     """Blender's Scene Exporter: the export write, its scope and its FBX
     presets over ``ptk.SceneExporterBase`` (progress, consent, run config
-    and the log file, shared with mayatk)."""
+    and the log file, shared with mayatk). It configures the shell and adds
+    to it; it overrides none of it."""
 
     TASK_MANAGER_CLASS = TaskManager
+    #: The scene store the shell reads the saved .blend's path from
+    #: (``DataNodes.scene_path``: ``bpy.data.filepath``).
+    STORE = DataNodes
 
     # PresetStore identity for FBX export-option presets (see module docstring).
     # NOT "scene_exporter": that name is taken by the panel's uitk window-template
@@ -145,12 +150,6 @@ class SceneExporter(ptk.SceneExporterBase):
     #: One-shot guard for :meth:`_migrate_legacy_preset_dir` (the legacy scan is
     #: pure filesystem work; once per process is enough).
     _legacy_fbx_presets_migrated = False
-
-    def _saved_scene_path(self) -> str:
-        """The saved .blend's path (``bpy.data.filepath``)."""
-        import bpy
-
-        return bpy.data.filepath or ""
 
     def _initialize_objects(self, objects: Optional[Union[List, Callable]]) -> List:
         """Initialize objects for the scene."""

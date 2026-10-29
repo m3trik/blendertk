@@ -36,7 +36,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from blendertk.anim_utils.shots._shots import BlenderShotStore
+from blendertk.anim_utils.shots._shots import BlenderShotsHost
 from blendertk.anim_utils._anim_utils import AnimUtils
 
 _log = logging.getLogger(__name__)
@@ -321,7 +321,7 @@ class SegmentKeys(_SegmentKeysInternal):
                 fc
                 for fc in AnimUtils.get_fcurves(obj)
                 if not transform_only
-                or BlenderShotStore.is_transform_path(fc.data_path)
+                or BlenderShotsHost.is_transform_path(fc.data_path)
             ]
             curves_to_use = cls._filter_curves_by_ignore(all_curves, ignore)
             curves_to_use = cls._filter_curves_by_channel_box(

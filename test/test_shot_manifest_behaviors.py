@@ -54,7 +54,7 @@ def _run_checks():
     import bpy
     from types import SimpleNamespace
 
-    from blendertk import BlenderShotStore
+    from blendertk import ShotStore
     from blendertk.anim_utils._anim_utils import AnimUtils
     from blendertk.anim_utils.shots.shot_manifest.behaviors import Behaviors
     from blendertk.audio_utils._audio_utils import AudioUtils
@@ -279,7 +279,7 @@ def _run_checks():
     )
 
     # ---- apply_to_shots: anchors distributed, audio-first, failures recorded
-    store = BlenderShotStore()
+    store = ShotStore()
     s1 = store.define_shot("S1", 100, 200, objects=["both_geo"])
     s1.metadata["behaviors"] = [
         {"name": "both_geo", "behavior": "fade_in", "kind": "scene"},

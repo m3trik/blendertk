@@ -14,7 +14,7 @@ store's scene walks against a real headless Blender scene:
 - ``regions_from_selected_keys`` builds boundaries from selected keys and prunes
   flat objects (``_filter_flat_objects``);
 - ``resolve_to_transform`` maps Object / object-data / name / Material owners;
-- ``BlenderShotStore.detect_regions`` delegates to ``Detection`` in both modes.
+- ``ShotStore.detect_regions`` delegates to ``Detection`` in both modes.
 
 Run headless (fresh instance — session-safety rule):
   & "C:\\Program Files\\Blender Foundation\\Blender 5.1\\blender.exe" --background \\
@@ -48,7 +48,7 @@ def _run_detection_checks():
     import bpy
 
     from blendertk.anim_utils.shots._detection import Detection
-    from blendertk.anim_utils.shots._shots import BlenderShotStore
+    from blendertk.anim_utils.shots._shots import BlenderShotsHost, ShotStore
     from blendertk.anim_utils._anim_utils import AnimUtils
 
     scene = bpy.context.scene
@@ -152,7 +152,7 @@ def _run_detection_checks():
         [(r["start"], r["end"]) for r in hold_regions] == [(1.0, 10.0), (40.0, 50.0)],
         f"{hold_regions}",
     )
-    segs = BlenderShotStore.collect_transform_segments(objects=["CubeHold"])
+    segs = BlenderShotsHost.collect_transform_segments(objects=["CubeHold"])
     check(
         "collect_transform_segments emits a segment per moving run",
         [(s["start"], s["end"]) for s in segs] == [(1.0, 10.0), (40.0, 50.0)],
@@ -220,8 +220,8 @@ def _run_detection_checks():
         == {"CubeA", "CubeB", "CubeFlat", "CubeScale", "CubeHold"},
     )
 
-    # ---- BlenderShotStore.detect_regions delegates to Detection ----------
-    store = BlenderShotStore()
+    # ---- ShotStore.detect_regions delegates to Detection ----------
+    store = ShotStore()
     store.detection_threshold = 5.0
     store.detection_mode = "auto"
     auto = store.detect_regions()

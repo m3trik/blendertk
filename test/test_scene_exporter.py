@@ -2825,7 +2825,7 @@ try:
     # name the stale shots as well -- the stale-shot note and its Open Shots
     # link reached the log only through the carrier task (mirror of mayatk's).
     import logging as _note_logging
-    from blendertk.anim_utils.shots._shots import BlenderShotStore as _NoteStore
+    from blendertk.anim_utils.shots._shots import ShotStore as _NoteStore
 
     class _NoteLog(_note_logging.Handler):
         def __init__(self):
@@ -4218,13 +4218,13 @@ try:
     # task refreshes, folds the carrier in, arms FbxUtils, and the write ships
     # one AnimStack per shot with the metadata as user properties — with every staged
     # mutation (armed takes, widened frame range) undone after the write.
-    from blendertk.anim_utils.shots._shots import BlenderShotStore
+    from blendertk.anim_utils.shots._shots import ShotStore
 
     reset_scene()
     for a in list(bpy.data.actions):
         bpy.data.actions.remove(a)
-    BlenderShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_takes_prefs_")
-    BlenderShotStore.clear_active()
+    ShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_takes_prefs_")
+    ShotStore.clear_active()
     scene = bpy.context.scene
     scene.frame_start, scene.frame_end = 1, 25  # takes will widen to 30
 
@@ -4235,7 +4235,7 @@ try:
         shot_cube.location.x = x
         shot_cube.keyframe_insert("location", frame=frame)
 
-    takes_store = BlenderShotStore.active()
+    takes_store = ShotStore.active()
     takes_store.define_shot("open", 1, 10, objects=["ShotCube"])
     takes_store.define_shot("close", 20, 30, objects=["ShotCube"])
     # Saving publishes at authoring time; the export refreshes again through
@@ -4359,8 +4359,8 @@ try:
         and FbxUtils._pending_takes is None,
         f"result={result}",
     )
-    BlenderShotStore.clear_active()
-    BlenderShotStore._prefs_dir_override = None
+    ShotStore.clear_active()
+    ShotStore._prefs_dir_override = None
 
     # ---- ignore_groups match mode: the Ignore row's option-box "Aa" toggle -----------
     # Insensitive is the default and the behavior the task shipped with, so the
@@ -4537,11 +4537,11 @@ try:
     # shots meant arming a split you might not want, and which won was decided by
     # TASK_ORDER rather than by anything visible in the panel.  Mirrors mayatk's
     # TestBakeRangeModes.
-    from blendertk.anim_utils.shots._shots import BlenderShotStore
+    from blendertk.anim_utils.shots._shots import ShotStore
 
     def _br_manager():
         reset_scene()
-        BlenderShotStore.clear_active()
+        ShotStore.clear_active()
         obj = bpy.data.objects.new("br_probe", None)
         bpy.context.collection.objects.link(obj)
         obj.location.x = 0.0
@@ -4555,8 +4555,8 @@ try:
         return tm, scene
 
     def _br_shots(*spans):
-        store = BlenderShotStore()
-        BlenderShotStore.set_active(store)
+        store = ShotStore()
+        ShotStore.set_active(store)
         for i, (start, end) in enumerate(spans):
             store.define_shot(f"Shot_{i}", start, end)
         return store
@@ -4776,7 +4776,7 @@ try:
 
     # Static Curves Only must keep every flat key of a curve that carries motion.
     reset_scene()
-    BlenderShotStore.clear_active()
+    ShotStore.clear_active()
     _ok_obj = bpy.data.objects.new("ok_probe", None)
     bpy.context.collection.objects.link(_ok_obj)
     for _f, _v in ((1, 0.0), (10, 5.0), (20, 5.0), (30, 5.0), (40, 9.0)):
@@ -4815,7 +4815,7 @@ try:
         f"{_ok_counts()}",
     )
     reset_scene()
-    BlenderShotStore.clear_active()
+    ShotStore.clear_active()
 
     # ---- progress stream (mirror of mayatk, 2026-09-04): ONE (current, total, message)
     # feed drives the panel footer's bar; a False from it cancels before the write and is
@@ -5171,7 +5171,7 @@ try:
     # conversion measures each take's span from the FBX it reads.
     bpy.ops.wm.read_factory_settings(use_empty=True)
     reset_scene()
-    from blendertk import BlenderShotStore
+    from blendertk import ShotStore
     from blendertk.mat_utils.render_opacity.render_effects import (
         RenderEffects as _GateRE,
     )
@@ -5193,9 +5193,9 @@ try:
     for _kp in _GateRE._fcurve(_g_blink, _GateRE.VIS_PATH).keyframe_points:
         _kp.interpolation = "CONSTANT"
     _g_blink.hide_render = False
-    BlenderShotStore._prefs_dir_override = os.path.join(tmp, "gate_prefs")
-    BlenderShotStore.clear_active()
-    _g_store = BlenderShotStore.active()
+    ShotStore._prefs_dir_override = os.path.join(tmp, "gate_prefs")
+    ShotStore.clear_active()
+    _g_store = ShotStore.active()
     for _name, _start, _end in (("ShotA", 1, 20), ("ShotB", 21, 40)):
         _g_store.define_shot(_name, _start, _end, objects=["gate_mover", "gate_blink"])
     _g_store.publish_export_view()
@@ -5306,8 +5306,8 @@ try:
         [row.status for row in _g_origin.rows] == ["PASS"],
         _g_origin.summary(),
     )
-    BlenderShotStore.clear_active()
-    BlenderShotStore._prefs_dir_override = None
+    ShotStore.clear_active()
+    ShotStore._prefs_dir_override = None
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     reset_scene()

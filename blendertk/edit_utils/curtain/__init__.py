@@ -3,8 +3,8 @@
 """Curtain tool — procedural draped cloth (Blender).
 
 Mirror of mayatk's ``edit_utils/curtain/``: ``_curtain.py`` is the engine
-(:class:`Rail`, :class:`CurtainMesh`, :class:`CurtainRig`) over the vendored
-drape math in ``_curtain_drape.py`` (code-identical with mayatk's copy), and
+(:class:`Rail`, :class:`CurtainMesh`, :class:`CurtainRig`) over the drape
+math in ``ptk.CurtainDrape`` (the one mayatk builds from too), and
 :class:`Curtain`, the tool's API that tentacle's Curtain panel calls;
 ``presets/`` holds the shipped presets.
 """

@@ -1,14 +1,14 @@
 # !/usr/bin/python
 # coding=utf-8
 """Procedural draped-cloth (curtain) generator for Blender -- mirror of mayatk's
-``edit_utils.curtain``: same classes, same parameters, same drape math (the
-vendored ``_curtain_drape``, code-identical with mayatk's copy); only the
-selection readers, the mesh build and the rig differ.
+``edit_utils.curtain``: same classes, same parameters, same drape math (one
+``ptk.CurtainDrape`` both build from); only the selection readers, the mesh
+build and the rig differ.
 
 - :class:`Rail` -- *rail geometry*: the pure parts (``make`` / ``length`` /
   ``resample`` / ``frames``) from :class:`ptk.Polyline`, plus the Blender
   resolvers (edit-mode mesh edges / a curve object / 2+ object positions).
-- :class:`CurtainMesh` -- *deformation*: the :class:`CurtainDrape` engine plus
+- :class:`CurtainMesh` -- *deformation*: the :class:`ptk.CurtainDrape` engine plus
   the Blender mesh build (a bmesh grid with grid UVs) and post-ops
   (``thickness`` -> applied Solidify, ``reduce`` -> :func:`blendertk.decimate`,
   ``invert`` -> reversed faces, ``soften`` -> smooth shading).
@@ -28,7 +28,6 @@ import pythontk as ptk
 
 from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.edit_utils._edit_utils import EditUtils
-from blendertk.edit_utils.curtain._curtain_drape import CurtainDrape
 
 Vec = Tuple[float, float, float]
 
@@ -109,16 +108,15 @@ class Rail(ptk.Polyline):
 
 
 # ----------------------------------------------------------------------------
-# Curtain generator -- the vendored CurtainDrape engine + the Blender mesh build
+# Curtain generator -- the ptk.CurtainDrape engine + the Blender mesh build
 # ----------------------------------------------------------------------------
 
 
-class CurtainMesh(CurtainDrape):
+class CurtainMesh(ptk.CurtainDrape):
     """Generate a pleated, gravity-draped curtain mesh from a rail polyline.
 
-    The drape math and its parameters are :class:`CurtainDrape`'s (the
-    vendored twin of mayatk's -- see it, or mayatk's ``CurtainMesh``, for the
-    parameter reference); this subclass adds the Blender mesh build. It
+    The drape math and its parameters are :class:`ptk.CurtainDrape`'s (see it
+    for the parameter reference); this subclass adds the Blender mesh build. It
     consumes plain rail points (see :class:`Rail`) and emits a mesh object.
     """
 

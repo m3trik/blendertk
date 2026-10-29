@@ -33,7 +33,7 @@ from contextlib import contextmanager
 from typing import Dict, List, Optional, Tuple
 
 from blendertk.anim_utils._anim_utils import AnimUtils
-from blendertk.anim_utils.shots._shots import BlenderShotStore
+from blendertk.anim_utils.shots._shots import ShotStore
 from blendertk.anim_utils.shots.shot_sequencer.segment_collector import (
     SegmentCollector,
 )
@@ -135,7 +135,7 @@ class GraphSync:
         # A file load drops every msgbus subscription: subscribe again on the
         # store's invalidation (a scene opened), as the controller does its own
         # -- and let go of both when the widget goes, as the controller does.
-        BlenderShotStore.add_invalidation_listener(self._on_scene_swap)
+        ShotStore.add_invalidation_listener(self._on_scene_swap)
         widget.destroyed.connect(lambda *_: self.detach())
         if widget.active_editor is self.editor:
             self.sync()
@@ -197,7 +197,7 @@ class GraphSync:
 
     def detach(self) -> None:
         """Disconnect everything (a panel re-init builds a new one)."""
-        BlenderShotStore.remove_invalidation_listener(self._on_scene_swap)
+        ShotStore.remove_invalidation_listener(self._on_scene_swap)
         try:
             import bpy
 
