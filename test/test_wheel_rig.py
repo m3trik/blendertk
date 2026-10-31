@@ -92,15 +92,18 @@ try:
     check("rebuild does not stack drivers", len(drivers_on_axis) == 1, f"n={len(drivers_on_axis)}")
 
     # ---- one Undo takes the rig off the existing wheels; Redo puts it back, driving ----
-    # The build ends in a real undo step (pushed AFTER the body, then the drivers are
+    # rig_rotation is ONE undo step (pushed AFTER the body, then the drivers are
     # recompiled so the recompile stays their last op): Undo restores the wheels'
-    # driver-free state, and the redone drivers still roll the wheel.
+    # driver-free state, and the redone drivers still roll the wheel. The constructor
+    # freezes nothing here: its freeze (XformUtils.freeze_transforms, undoable) is a
+    # step of its own when called bare; the panel's from_selection nests both in one
+    # step (checked below).
     reset()
     control = empty("control", (0, 0, 0))
     w1 = empty("wheel_L", (2, 0, 0))
     bpy.context.view_layer.update()
     bpy.ops.ed.undo_push(message="baseline")
-    WheelRig(control, [w1]).rig_rotation(
+    WheelRig(control, [w1], freeze_transforms=False).rig_rotation(
         movement_axis="translateY", rotation_axis="rotateX", wheel_height=2.0
     )
     bpy.ops.ed.undo()

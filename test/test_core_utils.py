@@ -1000,10 +1000,24 @@ try:
     def undoable_edit(o):
         o["edit"] = 2
 
+    @CoreUtils.undoable
+    def nested_undoable(o):
+        o["inner"] = 1
+
+    def nested_edit(o):
+        # Maya's chunks nest, and a Blender chunk does too: global undo is off inside
+        # the outer one, so a nested undoable's or chunk's push records nothing and the
+        # outer push is the one step (the Wheel Rig's build nests freeze_transforms).
+        with CoreUtils.undo_chunk("Outer edit"):
+            nested_undoable(o)
+            with CoreUtils.undo_chunk("Inner edit"):
+                o["edit"] = 2
+
     for name, edit in (
         ("undo_chunk", chunk_edit),
         ("undo_push", push_edit),
         ("undoable", undoable_edit),
+        ("nested undo_chunk / undoable", nested_edit),
     ):
         try:
             got = undo_round(edit)
