@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-31 -- Fix: installing the Substance bridge's Painter plugin turns on Painter's switch to start it (`mat_utils/substance_bridge/substance_rpc/installer.py` new `Installer.enable_launch_at_start`, `painter_settings`).** Painter starts a `python/plugins/` module at launch only when `QSettings("Adobe", "Adobe Substance 3D Painter")` `python_plugins/<name>/launch_at_start` reads `on`, default off (read from Painter's `painter_plugins_ui.py`), so a fresh install's first send or reimport found no server until the user found `substance_rpc` in the Python menu. `install()` now sets the switch when it is unset; a user who turned it off keeps that choice. Maintainer's call between this, an always-on `startup/` install, and saying so on the first send. Twin of mayatk's (the source of truth) (held equal by `extapps/test/test_vendor_sync.py`).
+  - Test(s): `test_substance_rpc_plugin.py` `TestInstallerLaunchAtStart` (a fresh install sets it on; a user's off stands).
 - **2026-10-31 -- Added `HdrManager.import_hdrs(paths, folder, mode="copy", on_conflict="reuse", strict=False)` (`light_utils/hdr_manager.py`).** The HDR Manager's Add as a library call, delegating to pythontk `FileUtils.import_files` with `ImgUtils.validate_image_integrity`. Twin of the other host's.
   - Test(s): `test_hdr_manager.py` / `test_light_utils.py` (real copies; a missing project refused in words).
 - **2026-10-31 -- Docs describe the parity gate (`CLAUDE.md`, `docs/README.md`, `docs/STRUCTURE.md`).** Every call tentacle's shared Slots make through `self.tk` resolves here, or the panel hides or guards it on the host that lacks it; `compare_panel_surface.py` checks it.
