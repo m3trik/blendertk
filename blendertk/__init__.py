@@ -928,6 +928,9 @@ MOVED_NAMES = {
         "blendertk.BlenderShotsHost.collect_selected_key_entries",
         "0.23.0",
     ),
+    # Preview is uitk's PreviewController bound to BlenderPreviewSession, the
+    # one controller mayatk's binds too: the commit is mayatk's name.
+    "Preview.commit": ("blendertk.Preview.finalize_changes", "0.23.0"),
 }
 
 bootstrap_package(

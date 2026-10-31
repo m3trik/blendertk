@@ -10,7 +10,8 @@ import traceback
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 MONO = os.path.dirname(REPO)
-for p in (REPO, os.path.join(MONO, "pythontk")):
+# uitk: the Preview is its PreviewController bound to blendertk's session (Qt-free).
+for p in (REPO, os.path.join(MONO, "pythontk"), os.path.join(MONO, "uitk")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
@@ -489,6 +490,135 @@ try:
     pick.setChecked(False)  # a toggle over a removed result is harmless
     check("a toggle after the rollback leaves the source alone",
           "Src" in bpy.data.objects and len(bpy.data.objects) == 1, f"n={len(bpy.data.objects)}")
+
+    # ---- one undo step per commit (Maya's one chunk): a commit -- previewed or straight
+    #      from the selection -- pushes ONE step named for the panel, its finalize step
+    #      inside it; a preview pass, a refresh and a discard push none.
+    from blendertk.core_utils._core_utils import CoreUtils as _CoreUtils
+
+    events = []
+    _real_push = _CoreUtils.__dict__["undo_push"]
+    _CoreUtils.undo_push = staticmethod(lambda message="": events.append(("push", message)))
+    try:
+        reset()
+        o = cube("Src")
+        chk, btn = FakeCheck(), FakeButton()
+        pv = btk.Preview(CreatorOp(), chk, btn, message_func=msgs.append,
+                         undo_message="Creator", finalize_func=lambda: events.append("finalize"))
+        chk.setChecked(True)
+        pv.refresh()
+        chk.setChecked(False)
+        check("a preview pass, a refresh and a discard push no undo step", not events,
+              f"{events}")
+        chk.setChecked(True)
+        btn.click()
+        check("a previewed commit is one undo step, its finalize step inside",
+              events == ["finalize", ("push", "Creator")], f"{events}")
+
+        events.clear()
+        reset()
+        o = cube("Src")
+        chk, btn = FakeCheck(), FakeButton()
+        pv = btk.Preview(CreatorOp(), chk, btn, message_func=msgs.append,
+                         finalize_func=lambda: events.append("finalize"))
+        btn.click()
+        check("a commit with no preview is one undo step named for the operation",
+              events == ["finalize", ("push", "CreatorOp")], f"{events}")
+
+        # A refused commit (its precondition raised) changed nothing: no empty step.
+        events.clear()
+        reset()
+        o = cube("Src")
+        boom = BoomPrepareOp()
+        chk, btn = FakeCheck(), FakeButton()
+        pv = btk.Preview(boom, chk, btn, message_func=msgs.append)
+        btn.click()
+        check("a refused commit pushes no undo step", boom.ran == 0 and not events,
+              f"ran={boom.ran} {events}")
+    finally:
+        _CoreUtils.undo_push = _real_push
+
+    # ---- the panel window's show / hide hooks (mayatk's enable_on_show / disable_on_hide,
+    #      one controller now): a show previews when asked, a hide discards by default.
+    class FakeWindow:
+        def __init__(self):
+            self.on_show, self.on_hide = _Sig(), _Sig()
+
+    class WindowedButton(FakeButton):
+        def __init__(self, window):
+            super().__init__()
+            self._window = window
+
+        def window(self):
+            return self._window
+
+    reset()
+    o = cube("Src")
+    win = FakeWindow()
+    chk, btn = FakeCheck(), WindowedButton(win)
+    pv = btk.Preview(CreatorOp(), chk, btn, message_func=msgs.append, enable_on_show=True)
+    win.on_show.emit()
+    check("enable_on_show previews as the window shows",
+          pv.is_enabled and chk.isChecked() and len(bpy.data.objects) == 4,
+          f"n={len(bpy.data.objects)}")
+    win.on_show.emit()
+    check("a second show builds no second pass", len(bpy.data.objects) == 4,
+          f"n={len(bpy.data.objects)}")
+    win.on_hide.emit()
+    check("a hide discards the preview", not pv.is_enabled and len(bpy.data.objects) == 1,
+          f"n={len(bpy.data.objects)}")
+
+    reset()
+    o = cube("Src")
+    win = FakeWindow()
+    chk, btn = FakeCheck(), WindowedButton(win)
+    pv = btk.Preview(CreatorOp(), chk, btn, message_func=msgs.append, disable_on_hide=False)
+    win.on_show.emit()
+    check("a show previews nothing by default", not pv.is_enabled)
+    chk.setChecked(True)
+    win.on_hide.emit()
+    check("disable_on_hide=False keeps the preview through a hide",
+          pv.is_enabled and len(bpy.data.objects) == 4, f"n={len(bpy.data.objects)}")
+    chk.setChecked(False)
+
+    # ---- validation_func gates a preview and a commit alike
+    reset()
+    o = cube("Src")
+    chk, btn = FakeCheck(), FakeButton()
+    n_msgs = len(msgs)
+    pv = btk.Preview(CreatorOp(), chk, btn, message_func=msgs.append,
+                     validation_func=lambda objects: False)
+    chk.setChecked(True)
+    btn.click()
+    check("validation_func refuses the preview and the commit",
+          not pv.is_enabled and not chk.isChecked() and len(bpy.data.objects) == 1,
+          f"n={len(bpy.data.objects)}")
+    check("a refused validation reports", len(msgs) > n_msgs and "validation" in msgs[-1].lower(),
+          f"{msgs[n_msgs:]}")
+
+    # ---- reselect_on_disable: a discard selects the captured objects again (the
+    #      default), or leaves the selection the operation made
+    class SelectsCopyOp:
+        def perform_operation(self, objects):
+            copy = objects[0].copy()
+            bpy.context.scene.collection.objects.link(copy)
+            bpy.ops.object.select_all(action="DESELECT")
+            copy.select_set(True)
+
+    for reselect in (True, False):
+        reset()
+        o = cube("Src")
+        other = cube("Other", x=4.0)
+        bpy.ops.object.select_all(action="DESELECT")
+        o.select_set(True)
+        chk, btn = FakeCheck(), FakeButton()
+        pv = btk.Preview(SelectsCopyOp(), chk, btn, message_func=msgs.append,
+                         reselect_on_disable=reselect)
+        chk.setChecked(True)
+        chk.setChecked(False)
+        selected = sorted(ob.name for ob in bpy.context.view_layer.objects if ob.select_get())
+        check(f"reselect_on_disable={reselect}: the discard's selection",
+              selected == (["Src"] if reselect else []), f"{selected}")
 
 except Exception:
     traceback.print_exc()

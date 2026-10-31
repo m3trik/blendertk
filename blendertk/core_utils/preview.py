@@ -1,14 +1,19 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Live-preview driver for the tentacle Blender tool panels — the Blender analogue of
-mayatk's hermetic ``Preview`` (same slot-facing API: an enable checkbox + a commit button
-+ ``refresh()``), built on **snapshot/restore** instead of Maya's node-diff CleanupContract.
+"""Live preview for the tentacle Blender tool panels: Blender's preview session.
 
-On enable it captures the current selection, snapshots each captured object (a copy of its
-datablock, its world matrix, its collection links) plus the scene's object/mesh/collection
-name sets, then runs ``operation.perform_operation(objects)``. ``refresh()`` rolls the scene
-back to the snapshot and re-runs (wire it to every parameter widget). Commit keeps the
-current result and pushes a **single undo step**; un-checking rolls everything back.
+The widgets and the lifecycle -- the enable checkbox, the commit button, the
+window's show / hide hooks, Select Result, the error popup -- are uitk's
+``PreviewController``, shared with mayatk; :class:`Preview` is it bound to
+:class:`BlenderPreviewSession`, the scene half written here, built on
+**snapshot/restore** where mayatk's is a node-diff ``CleanupContract``.
+
+On enable the session captures the current selection, snapshots each captured object (a
+copy of its datablock, its world matrix, its collection links) plus the scene's
+object/mesh/collection name sets, then runs ``operation.perform_operation(objects)``.
+``refresh()`` rolls the scene back to the snapshot and re-runs (wire it to every parameter
+widget). Commit keeps the current result as a **single undo step**; un-checking rolls
+everything back.
 
 The preview is **optional**: the commit button is live from the start and a click with the
 preview off runs the operation once on the current selection. Panels that must not commit
@@ -27,48 +32,29 @@ Constraints on ``perform_operation(objects)`` authors:
   - Raise with a clear message for user-facing failures — the message lands in
     ``message_func`` and the preview switches itself off.
 
-Optional **Select Result** (mirror of mayatk's): pass ``select_result_checkbox`` plus a
-``result_provider`` callable returning the operation's result object(s). The preview then selects
-them after every build and on commit, or deselects them with the box unchecked, and a toggle of
-the box applies at once without re-running the operation (:meth:`Preview.apply_result_selection`).
-
-No Qt import — the checkbox/button are duck-typed (``.toggled.connect`` /
-``.clicked.connect`` / ``.setChecked`` / ``.setEnabled``), so the class is headless-testable
-with stubs.
+No Qt import, and ``bpy`` is imported in the call bodies: the class imports and binds its
+duck-typed widgets headless.
 """
 
+import contextlib
 
-class Preview:
-    """Snapshot-based live preview: ``Preview(slot, ui.chk000, ui.b000, …)``."""
+import uitk
 
-    def __init__(
-        self,
-        operation,
-        enable_checkbox,
-        commit_button,
-        finalize_func=None,
-        restore_func=None,
-        message_func=print,
-        undo_message=None,
-        require_preview=False,
-        select_result_checkbox=None,
-        result_provider=None,
-    ):
+
+class BlenderPreviewSession:
+    """Blender's scene half of a preview (:class:`uitk.PreviewSession`).
+
+    A pass runs on the captured objects; a rollback removes what it created and puts each
+    captured object's data, matrix and collection links back from the enable-time
+    snapshot (a deleted one is recreated). A commit keeps the result: the controller's
+    undo step pushes it.
+
+    Parameters:
+        operation: The operation, ``perform_operation(objects)``.
+    """
+
+    def __init__(self, operation):
         self.operation = operation
-        self.enable_checkbox = enable_checkbox
-        self.commit_button = commit_button
-        self.finalize_func = finalize_func
-        self.restore_func = restore_func
-        self.message_func = message_func
-        self.undo_message = undo_message or type(operation).__name__
-        self.require_preview = require_preview
-        # Optional first-class Select Result (mayatk's names): the panel's checkbox
-        # plus a callable returning the operation's result object(s).
-        self.select_result_checkbox = select_result_checkbox
-        self.result_provider = result_provider
-
-        self._enabled = False
-        self._guard = False  # suppress toggled-handler on programmatic setChecked
         self._captured = []  # captured selection (object names)
         self._active = None
         self._snapshots = []
@@ -76,101 +62,32 @@ class Preview:
         self._prior_collections = set()
         self._prior_data = set()
 
-        # Previews must start disabled on UI load, and a panel's Reset / Save as Defaults
-        # must never switch one on (that runs the op): uitk's state restore and every
-        # defaults operation skip a widget tagged this way. Mirrors mayatk's Preview.
-        enable_checkbox.exclude_from_reset = True
-        enable_checkbox.restore_state = False
-        enable_checkbox.toggled.connect(self._on_toggled)
-        commit_button.clicked.connect(self.commit)
-        if select_result_checkbox is not None and result_provider is not None:
-            # Live: a toggle (de)selects the current result at once, never a re-run.
-            select_result_checkbox.toggled.connect(self._apply_select_result)
-        # The tools' ``.ui`` files ship the commit button ``enabled=false`` (the old gated
-        # contract). Previewing is optional here — ``commit`` runs the op once on the live
-        # selection when no preview is running — so the button is asserted live rather than
-        # left to whatever each ``.ui`` carries (otherwise it is dead: a preview could never be
-        # committed and a no-preview commit would be impossible). ``require_preview=True``
-        # restores the gate for panels that must not commit blind (mirrors mayatk).
-        self._sync_commit_enabled(False)
-
-    # ------------------------------------------------------------------ public surface
     @property
-    def is_enabled(self):
-        return self._enabled
+    def captured_objects(self):
+        """The names of the objects the preview captured."""
+        return list(self._captured)
 
-    def refresh(self, *args):
-        """Roll back to the snapshot and re-run the operation (parameter-change hook)."""
-        if not self._enabled:
-            return
-        self._rollback()
-        self._run()
-
-    @staticmethod
-    def _ensure_object_mode():
-        """The preview workflow is object-level: rollback replaces datablocks and runs
-        object-selection ops, both unsafe under a live edit session. Unlike the
-        ``_object_mode`` guard this does NOT restore the prior mode — restoring EDIT
-        after ``_run`` would re-create the hazard on the next rollback."""
-        import bpy
-
-        from blendertk.core_utils._core_utils import CoreUtils
-
-        # the window's view layer + context (windowless: the scene's default layer,
-        # and mode_set's poll fails)
-        with CoreUtils.window_context_override():
-            active = bpy.context.view_layer.objects.active
-            if active and active.mode != "OBJECT":
-                bpy.ops.object.mode_set(mode="OBJECT")
-
-    def _prepared_selection(self, hint=""):
-        """Object-mode selection with the precondition applied, or None to abort.
-
-        Shared front gate for BOTH entry points — ``enable`` and the no-preview
-        ``commit`` — so a bypassed commit is gated exactly like a previewed one:
-        force OBJECT mode (the whole workflow is object-level; ops run from a live
-        edit session are unsafe), read the selection, then run the optional one-shot
-        ``prepare_operation`` precondition (mirror of mayatk's hook). Mirror needs it
-        to break linked-data sharing — mirroring shared geometry rewrites every linked
-        duplicate — so skipping it on the commit path silently corrupted the siblings.
-
-        In ``enable`` this ordering is additionally load-bearing: ``_prior_data`` is the
-        set of datablocks that already existed and anything outside it is purged as
-        "new" on rollback, so forking AFTER that snapshot would mark the new datablock
-        for deletion and strip the object's mesh. Reports the reason through
-        ``message_func``; the caller only decides how to abort.
-        """
+    # ------------------------------------------------------ PreviewSession
+    def selection(self):
+        """The selected objects, in OBJECT mode: the whole workflow is object-level
+        (rollback replaces datablocks and runs object-selection ops, unsafe under a
+        live edit session). Read from the view layer: robust from the Qt-pump timer
+        context."""
         from blendertk.core_utils._core_utils import CoreUtils
 
         self._ensure_object_mode()
-        objects = (
-            CoreUtils.selected_objects()
-        )  # view-layer read: robust from the Qt-pump timer context
-        if not objects:
-            self.message_func(f"<strong>Nothing selected.</strong>{hint}")
-            return None
-        prepare = getattr(self.operation, "prepare_operation", None)
-        if callable(prepare):
-            try:
-                prepare(objects)
-            except Exception as e:
-                self.message_func(f"<strong>{type(e).__name__}</strong><br>{e}")
-                return None
-        return objects
+        return CoreUtils.selected_objects()
 
-    def enable(self):
+    def begin(self, objects):
+        """Snapshot *objects* and the scene's name sets.
+
+        ``_prior_data`` is the set of datablocks that already existed, and anything
+        outside it is purged as "new" on rollback, which is why the controller runs
+        the operation's ``prepare_operation`` (a fork of linked data) BEFORE this.
+        """
         import bpy
 
         from blendertk.core_utils._core_utils import CoreUtils
-
-        objects = self._prepared_selection(
-            "<br>Select object(s) before enabling the preview."
-        )
-        if objects is None:
-            # A failed precondition aborts the enable — if it can't be met,
-            # previewing isn't safe — and leaves no half-populated capture state.
-            self._set_checked(False)
-            return
 
         self._captured = [o.name for o in objects]
         active = CoreUtils.active_object()  # the window's layer, not the default
@@ -194,53 +111,167 @@ class Preview:
                     "collections": [c.name for c in o.users_collection],
                 }
             )
-        self._enabled = True
-        self._set_checked(True)
-        self._sync_commit_enabled(True)
-        self._run()
 
-    def disable(self):
-        """Roll back and drop the snapshot (the un-check path)."""
-        if self._enabled:
-            self._rollback()
-            if self.restore_func:
-                # The preview is being DISCARDED — let the operation repair
-                # state the snapshot can't cover (see the module docstring).
-                self.restore_func()
+    def run(self):
+        """One pass over the captured objects, the captured selection and active
+        object in place first (the operation may read them)."""
+        import bpy
+
+        self._restore_selection()
+        self.operation.perform_operation(self._objects())
+        bpy.context.view_layer.update()
+
+    def rollback(self):
+        """Remove what the passes created and restore each captured object."""
+        if not self._snapshots:
+            return
+        import bpy
+
+        self._ensure_object_mode()
+        # 1. anything created since enable goes (objects, then collections, then orphans)
+        for o in [o for o in bpy.data.objects if o.name not in self._prior_objects]:
+            bpy.data.objects.remove(o, do_unlink=True)
+        for c in [
+            c for c in bpy.data.collections if c.name not in self._prior_collections
+        ]:
+            bpy.data.collections.remove(c)
+        orphans = [  # datablocks the op created, now unowned — would leak per refresh
+            d
+            for d in list(bpy.data.meshes) + list(bpy.data.curves)
+            if d.users == 0 and d.name not in self._prior_data
+        ]
+        if orphans:
+            bpy.data.batch_remove(orphans)
+        # 2. restore the captured sources (recreate any the operation deleted)
+        for snap in self._snapshots:
+            obj = bpy.data.objects.get(snap["name"])
+            if obj is None:
+                fresh = self._fresh_copy(snap["data"])
+                obj = bpy.data.objects.new(snap["name"], fresh)
+                for cname in snap["collections"]:
+                    coll = bpy.data.collections.get(cname)
+                    (coll or bpy.context.scene.collection).objects.link(obj)
+                obj.name = snap["name"]  # reclaim the exact name (old holder is gone)
+            elif snap["data"] is not None:
+                old = obj.data
+                obj.data = self._fresh_copy(snap["data"])
+                if old is not None and old.users == 0:
+                    bpy.data.batch_remove([old])
+            obj.matrix_world = snap["matrix"]
+        bpy.context.view_layer.update()
+
+    def discard(self, reselect):
+        """Drop the snapshot, the captured selection back first with *reselect*."""
+        if reselect:
+            self._restore_selection()
         self._drop_snapshots()
-        self._enabled = False
-        self._set_checked(False)
-        self._sync_commit_enabled(False)
 
     def commit(self):
-        """Keep the current result and push one undo step. With the preview off, runs the
-        operation once directly on the current selection (the Maya commit-without-preview
-        behavior) — unless the panel opted into ``require_preview``, where a commit with no
-        preview running is a no-op."""
+        """Keep the result: drop the snapshot."""
+        self._drop_snapshots()
+
+    def apply(self, objects):
+        """Run the operation once over *objects*."""
+        self.operation.perform_operation(list(objects))
+
+    @staticmethod
+    def undo_step(name):
+        """ONE undo step named *name*, nested operators' own steps folded in
+        (``CoreUtils.undo_chunk``)."""
         from blendertk.core_utils._core_utils import CoreUtils
 
-        if not self._enabled:
-            if self.require_preview:
-                return
-            # Same gate as enable(): OBJECT mode + selection + prepare_operation.
-            objects = self._prepared_selection()
-            if objects is None:
-                return
+        return CoreUtils.undo_chunk(name)
+
+    @staticmethod
+    def unrecorded():
+        """Blender records a step only when one is pushed, which a discard never does:
+        nothing to suspend."""
+        return contextlib.nullcontext()
+
+    def select_result(self, checkbox, results, committed):
+        """:meth:`Preview.apply_result_selection`, in OBJECT mode."""
+        self._ensure_object_mode()
+        Preview.apply_result_selection(checkbox, results)
+
+    # ------------------------------------------------------------ internals
+    @staticmethod
+    def _ensure_object_mode():
+        """The preview workflow is object-level: rollback replaces datablocks and runs
+        object-selection ops, both unsafe under a live edit session. Unlike the
+        ``_object_mode`` guard this does NOT restore the prior mode — restoring EDIT
+        after a pass would re-create the hazard on the next rollback."""
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        # the window's view layer + context (windowless: the scene's default layer,
+        # and mode_set's poll fails)
+        with CoreUtils.window_context_override():
+            active = bpy.context.view_layer.objects.active
+            if active and active.mode != "OBJECT":
+                bpy.ops.object.mode_set(mode="OBJECT")
+
+    def _objects(self):
+        """Re-resolve the captured selection by name — rollback may have recreated them."""
+        import bpy
+
+        return [bpy.data.objects[n] for n in self._captured if n in bpy.data.objects]
+
+    def _restore_selection(self):
+        """Select the captured objects, the captured active one active (none
+        captured: the selection is left alone)."""
+        if not self._captured:
+            return
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        CoreUtils.select(bpy.data.objects.get(n) for n in self._captured)
+        if self._active and self._active in bpy.data.objects:
+            view_layer = CoreUtils.active_view_layer()
             try:
-                self.operation.perform_operation(objects)
-            except Exception as e:
-                self._report(e)
-                return
-        else:
-            self._drop_snapshots()
-            self._enabled = False
-            self._set_checked(False)
-            self._sync_commit_enabled(False)
-        if self.finalize_func:
-            self.finalize_func()
-        self._apply_select_result()
-        # From a Qt click this runs window-less, where a bare ed.undo_push raised.
-        CoreUtils.undo_push(self.undo_message)
+                view_layer.objects.active = bpy.data.objects[self._active]
+            except RuntimeError:  # not in the window's layer
+                pass
+
+    @staticmethod
+    def _fresh_copy(data):
+        """A working copy of a snapshot datablock (the snapshot itself stays pristine)."""
+        if data is None:
+            return None
+        fresh = data.copy()
+        fresh.use_fake_user = False
+        return fresh
+
+    def _drop_snapshots(self):
+        import bpy
+
+        orphans = []
+        for snap in self._snapshots:
+            d = snap["data"]
+            if d is not None:
+                d.use_fake_user = False
+                if d.users == 0:
+                    orphans.append(d)
+        if orphans:
+            bpy.data.batch_remove(orphans)
+        self._snapshots = []
+        self._captured = []
+        self._active = None
+        self._prior_objects = set()
+        self._prior_collections = set()
+        self._prior_data = set()
+
+
+class Preview(uitk.PreviewController):
+    """Snapshot-based live preview: ``Preview(slot, ui.chk000, ui.b000, ...)``.
+
+    :class:`uitk.PreviewController` bound to :class:`BlenderPreviewSession`
+    (its session, plus the host's Select Result primitive; the signature and
+    every lifecycle method are the controller's). Mirror of mayatk's ``Preview``.
+    """
+
+    SESSION_CLASS = BlenderPreviewSession
 
     @staticmethod
     def apply_result_selection(widget, results):
@@ -279,143 +310,3 @@ class Preview:
         except Exception:
             select = True
         CoreUtils.select(objects, mode="replace" if select else "remove")
-
-    # ------------------------------------------------------------------ internals
-    def _apply_select_result(self, *args):
-        """Apply the Select Result checkbox to the operation's current result (after a
-        build, on commit, on a toggle). A no-op unless the panel passed both
-        ``select_result_checkbox`` and ``result_provider``; a cosmetic step, so a failure
-        is printed, never raised into the operation."""
-        if self.select_result_checkbox is None or self.result_provider is None:
-            return
-        try:
-            self._ensure_object_mode()
-            self.apply_result_selection(
-                self.select_result_checkbox, self.result_provider()
-            )
-        except Exception:
-            import traceback
-
-            traceback.print_exc()
-
-    def _on_toggled(self, state):
-        if self._guard:
-            return
-        if state:
-            self.enable()
-        else:
-            self.disable()
-
-    def _set_checked(self, state):
-        self._guard = True
-        try:
-            self.enable_checkbox.setChecked(state)
-        finally:
-            self._guard = False
-
-    def _sync_commit_enabled(self, previewing):
-        """Commit is only gated on the preview in ``require_preview`` mode; otherwise it
-        stays live so the user can commit without previewing."""
-        try:
-            self.commit_button.setEnabled(previewing or not self.require_preview)
-        except Exception:  # duck-typed / dead widget — never abort a commit
-            pass
-
-    def _objects(self):
-        """Re-resolve the captured selection by name — rollback may have recreated them."""
-        import bpy
-
-        return [bpy.data.objects[n] for n in self._captured if n in bpy.data.objects]
-
-    def _run(self):
-        import bpy
-
-        try:
-            self.operation.perform_operation(self._objects())
-        except Exception as e:
-            self._report(e)
-            self.disable()
-            return
-        bpy.context.view_layer.update()
-        self._apply_select_result()
-
-    def _report(self, err):
-        import traceback
-
-        traceback.print_exc()
-        first_line = next((ln for ln in str(err).splitlines() if ln.strip()), "")
-        self.message_func(first_line or type(err).__name__)
-
-    def _rollback(self):
-        import bpy
-
-        from blendertk.core_utils._core_utils import CoreUtils
-
-        self._ensure_object_mode()
-        # 1. anything created since enable goes (objects, then collections, then orphans)
-        for o in [o for o in bpy.data.objects if o.name not in self._prior_objects]:
-            bpy.data.objects.remove(o, do_unlink=True)
-        for c in [
-            c for c in bpy.data.collections if c.name not in self._prior_collections
-        ]:
-            bpy.data.collections.remove(c)
-        orphans = [  # datablocks the op created, now unowned — would leak per refresh
-            d
-            for d in list(bpy.data.meshes) + list(bpy.data.curves)
-            if d.users == 0 and d.name not in self._prior_data
-        ]
-        if orphans:
-            bpy.data.batch_remove(orphans)
-        # 2. restore the captured sources (recreate any the operation deleted)
-        for snap in self._snapshots:
-            obj = bpy.data.objects.get(snap["name"])
-            if obj is None:
-                fresh = self._fresh_copy(snap["data"])
-                obj = bpy.data.objects.new(snap["name"], fresh)
-                for cname in snap["collections"]:
-                    coll = bpy.data.collections.get(cname)
-                    (coll or bpy.context.scene.collection).objects.link(obj)
-                obj.name = snap["name"]  # reclaim the exact name (old holder is gone)
-            elif snap["data"] is not None:
-                old = obj.data
-                obj.data = self._fresh_copy(snap["data"])
-                if old is not None and old.users == 0:
-                    bpy.data.batch_remove([old])
-            obj.matrix_world = snap["matrix"]
-        bpy.context.view_layer.update()
-        # 3. restore selection + active
-        CoreUtils.select(bpy.data.objects.get(n) for n in self._captured)
-        if self._active and self._active in bpy.data.objects:
-            view_layer = CoreUtils.active_view_layer()
-            try:
-                view_layer.objects.active = bpy.data.objects[self._active]
-            except RuntimeError:  # not in the window's layer
-                pass
-
-    @staticmethod
-    def _fresh_copy(data):
-        """A working copy of a snapshot datablock (the snapshot itself stays pristine)."""
-        if data is None:
-            return None
-        fresh = data.copy()
-        fresh.use_fake_user = False
-        return fresh
-
-    def _drop_snapshots(self):
-        import bpy
-
-        orphans = []
-        for snap in self._snapshots:
-            d = snap["data"]
-            if d is not None:
-                d.use_fake_user = False
-                if d.users == 0:
-                    orphans.append(d)
-        if orphans:
-            bpy.data.batch_remove(orphans)
-        self._snapshots = []
-        self._captured = []
-        self._active = None
-        self._prior_objects = set()
-        self._prior_collections = set()
-        self._prior_data = set()
