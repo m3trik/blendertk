@@ -361,17 +361,17 @@ try:
 
     # unity_bridge: params_defaults() (Qt path via uitk.bridge.AttributeSpec; needs no bpy, so it
     # belongs here rather than in the headless test_unity_bridge harness which lacks Qt). The
-    # panel's mode combo is tentacle's shared tool's (test_unity_bridge_panel).
+    # engine's rows are the export rows the Unity Workflow app shows for its Current Scene
+    # source; the delivery's rows (Assets subfolder, launch, version, scripts) are the app's.
     from blendertk.env_utils.unity_bridge._unity_bridge import UnityBridge
 
     _ub_defaults = UnityBridge().params_defaults()
     check(
-        "unity_bridge params_defaults (Assets subdir / no-launch / scope / version)",
-        _ub_defaults.get("ASSETS_SUBDIR") == "Imported"
-        and _ub_defaults.get("LAUNCH_MODE") == ""
+        "unity_bridge params_defaults: the export rows only (scope / materials / ...)",
+        set(_ub_defaults)
+        == {"SCOPE", "INCLUDE_MATERIALS", "EMBED_TEXTURES", "TRIANGULATE"}
         and _ub_defaults.get("INCLUDE_MATERIALS") is True
-        and _ub_defaults.get("SCOPE") == "selected"
-        and _ub_defaults.get("UNITY_VERSION") == "",
+        and _ub_defaults.get("SCOPE") == "selected",
         f"{_ub_defaults}",
     )
 

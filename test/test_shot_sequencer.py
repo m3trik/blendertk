@@ -4434,7 +4434,6 @@ def _run_sequencer_checks():
     # non-member keyed in the active shot's frames to its members -- after the
     # scene had been put back.  Both producers now hold
     # ``ShotStore.transient_edit`` and the watcher reports no key edit inside one.
-    sys.path.insert(0, os.path.join(MONO, "unitytk"))  # the Unity send's deliverer
     from blendertk.env_utils.scene_exporter._scene_exporter import SceneExporter
     from blendertk.env_utils.unity_bridge._unity_bridge import UnityBridge
 

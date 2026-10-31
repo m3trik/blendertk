@@ -135,8 +135,9 @@ DEFAULT_INCLUDE = {
     "env_utils.webxr_preview": [
         "WebXrPreview",
     ],
-    # Unity Bridge — mirror of mayatk's ``env_utils.unity_bridge._unity_bridge`` (its panel
-    # is tentacle's shared tool).
+    # The Unity hand-off's Blender half — mirror of mayatk's
+    # ``env_utils.unity_bridge._unity_bridge`` (its panel is extapps' Unity Workflow
+    # app, opened by tentacle with this engine injected).
     "env_utils.unity_bridge._unity_bridge": [
         "UnityBridge",
     ],
@@ -748,13 +749,13 @@ MOVED_NAMES = {
     # Workflow, which tentacle opens with ``UnityBridge`` as its engine.
     "UnityBridgeSlots": ("extapps.UnityWorkflowSlots", "0.23.0"),
     "UnityPanelMixin": ("extapps.UnityWorkflowSlots", "0.23.0"),
-    # The delivery is the app's: its mode combo, over unitytk's modes.
+    # The delivery is the app's, over unitytk's file bridge and its modes.
     "UnityBridge.list_template_modes": (
-        "extapps.UnityWorkflowSlots.list_template_modes",
+        "unitytk.FileToUnityBridge.list_template_modes",
         "0.23.0",
     ),
-    "UnityPanelMixin": (
-        "tentacle.slots.tools._unity_bridge._unity_panel.UnityPanelMixin",
+    "UnityBridge.list_delivery_modes": (
+        "unitytk.CopyToAssetsDeliverer.DELIVERY_MODES",
         "0.23.0",
     ),
     "ShotsSlots": (
