@@ -2756,6 +2756,28 @@ try:
         and (ptk.SceneRecords.SHADOWS.load(_ScDataNodes) or {}).get("planes"),
         sc_after,
     )
+    # A raw selected write (no bracket: Blender has no before-export event)
+    # ships them narrowed too (mirror of mayatk's raw Export Selection;
+    # measured 2026-10-31, ``_scope_probe.py`` path D). Added: 2026-10-31
+    sc_keys = [ptk.SceneRecords.LIGHTMAPS.key, ptk.SceneRecords.SHADOWS.key]
+    sc_raw = os.path.join(tmp, "raw_selection.fbx")
+    FbxUtils.export(
+        filepath=sc_raw, objects=[sc_grp, _ScDataNodes.EXPORT], selection_only=True
+    )
+    sc_raw_records = ptk.FbxMedia.records(sc_raw, sc_keys)
+    check(
+        "a raw selected write ships the stored records of what it writes",
+        [o["name"] for o in (sc_raw_records.get(sc_keys[0]) or {}).get("objects") or []]
+        == ["KEEP_cube"]
+        and sc_keys[1] not in sc_raw_records,
+        sc_raw_records,
+    )
+    check(
+        "...and the scene keeps its whole copy",
+        len((ptk.SceneRecords.LIGHTMAPS.load(_ScDataNodes) or {}).get("objects") or [])
+        == 2,
+        ptk.SceneRecords.LIGHTMAPS.load(_ScDataNodes),
+    )
     ptk.SceneRecords.LIGHTMAPS.clear(_ScDataNodes)
     ptk.SceneRecords.SHADOWS.clear(_ScDataNodes)
 

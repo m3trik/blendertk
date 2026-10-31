@@ -2460,6 +2460,35 @@ class FbxUtils(_FbxUtilsInternal):
         finally:
             cls._export_depth = max(cls._export_depth - 1, 0)
 
+    @classmethod
+    @contextlib.contextmanager
+    def _raw_write_scoped(cls, shipped):
+        """Ship the carrier's records narrowed to *shipped* for the block --
+        a selected write outside any bracket -- and put the scene's whole
+        copy back after it.
+
+        mayatk's session hook scopes a raw Export Selection the same way
+        (``FbxUtils._raw_export_scope``); Blender has no before-export event,
+        so the write does it. Only the narrowing: no producer or stager
+        runs, as none does on a raw Blender write. A write inside a bracket,
+        or one that ships no carrier, is left alone (measured 2026-10-31:
+        both cubes' lightmaps and the other cube's shadow plane shipped)."""
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        names = tuple(obj.name for obj in shipped)
+        if cls._export_depth or DataNodes.EXPORT not in names:
+            yield
+            return
+        snapshot = ptk.ExportSnapshot.assemble({}, cls.export_context(scope=names))
+        snapshot.commit(DataNodes)
+        try:
+            yield
+        finally:
+            try:
+                snapshot.restore_scene_wide(DataNodes)
+            except Exception:  # noqa: BLE001 - never costs the export
+                logger.warning("Scene records not restored after the write.", exc_info=True)
+
     # -- opt-ins (parity with mayatk's session hook) ---------------------------
 
     @classmethod
@@ -2967,6 +2996,8 @@ class FbxUtils(_FbxUtilsInternal):
                 with _FbxUtilsInternal._range_covering(
                     scene,
                     (FbxUtils._pending_takes or ()) if opts.get("bake_anim") else (),
+                ), FbxUtils._raw_write_scoped(
+                    CoreUtils.selected_objects() if selection_only else ()
                 ):
                     bpy.ops.export_scene.fbx(filepath=filepath, **opts)
                     # One rewrite of the file for what the exporter cannot
