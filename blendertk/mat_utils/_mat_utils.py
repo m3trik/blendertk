@@ -11,7 +11,6 @@ Blender image datablock directly (Blender's bundled Python ships no PIL).
 """
 
 import contextlib
-import fnmatch
 import hashlib
 import logging
 import os
@@ -574,16 +573,17 @@ class _MatUtilsInternal:
         target_stem = target_orig_stem.lower()
 
         def hit(paths, tier):
-            """``(path, ambiguous)`` for one tier: the single path behind the key, else a warning."""
-            if not paths:
-                return None, False
-            if len(paths) > 1:
+            """``(path, ambiguous)`` for one tier, by the one rule a lookup by name
+            follows (``ptk.FileDependencies.choose``: identical copies are one file,
+            several different ones are never settled by walk order)."""
+            found, several = ptk.FileDependencies.choose(paths or [])
+            if several:
                 logging.getLogger(__name__).warning(
-                    f"'{base}': {tier} match resolves to {len(paths)} files "
-                    f"({', '.join(sorted(paths)[:3])}); skipped to avoid a wrong-file rebind."
+                    f"'{base}': {tier} match resolves to {len(several)} different files "
+                    f"({', '.join(several[:3])}); skipped to avoid a wrong-file rebind."
                 )
                 return None, True
-            return paths[0], False
+            return found, False
 
         found, ambiguous = hit(index.get(base.lower()), "exact")
         if not found and not ambiguous and use_stem:
@@ -671,6 +671,29 @@ class _MatUtilsInternal:
             return "relocated"
         except (OSError, shutil.Error):
             return "error"
+
+    @staticmethod
+    def _copy_files(sources, dest_dir, mode, progress=None):
+        """``[(src, dst)]`` for each of *sources* now in *dest_dir* -- copied (or,
+        ``mode="move"``, moved) under :meth:`_safe_relocate`'s policy: identical
+        bytes already there are reused, a different file is never replaced.
+        The copier a Collect (``ptk.FileCollect.apply``) hands its files to; it
+        asks for copies and takes a moved source away itself, once it landed.
+        *progress* ``(done, total)`` ticks per file; a False back stops."""
+        landed = []
+        sources = list(sources)
+        for done, src in enumerate(sources, 1):
+            if progress is not None and done > 1 and progress(done - 1, len(sources)) is False:
+                break
+            dst = ptk.FileUtils.format_path(
+                os.path.join(dest_dir, os.path.basename(src))
+            )
+            if _MatUtilsInternal._safe_relocate(src, dst, mode) in (
+                "relocated",
+                "rebind",
+            ):
+                landed.append((src, dst))
+        return landed
 
     @staticmethod
     def _relocate(path, dest_dir, mode):
@@ -2828,7 +2851,7 @@ class MatUtils(_MatUtilsInternal):
         The Blender analogue of mayatk's Texture Path Editor ``_project_relative_converter`` (which
         rewrites a path relative to *sourceimages* when it lands inside that folder). Shared by every
         workflow that (re)points an image at a resolved file — :func:`set_texture_directory`,
-        :func:`find_and_copy_textures`, :func:`resolve_missing_textures`, and the ``"relative"`` mode
+        the Texture Path Editor's Find & Copy, :func:`resolve_missing_textures`, and the ``"relative"`` mode
         of :func:`normalize_texture_paths` — so a repathed image always ends up relative when possible,
         the same way every one of mayatk's equivalent commands does.
 
@@ -3195,151 +3218,6 @@ class MatUtils(_MatUtilsInternal):
                 f"{', ...' if len(absent) > 5 else ''}). Copy / move brings the files along; "
                 "allow_missing points them there anyway."
             )
-        return count
-
-    @staticmethod
-    def plan_find_and_copy_textures(
-        images=None, search_dir=None, dest_dir=None, use_valid_paths=True
-    ):
-        """What :func:`find_and_copy_textures` WOULD relocate and repath — nothing written.
-
-        The live call's own first half, so the two cannot disagree about which
-        file a texture would come from or where it would land: a preview that
-        can promise a different answer than the commit is worse than no preview.
-        Reads the disk (a walk is the only way to know what would be found) but
-        creates no folder, relocates no file and touches no datablock.
-
-        With ``use_valid_paths`` (default) an image whose filepath already resolves on disk is
-        its own source: a walk could only rediscover the same bytes, so ``search_dir`` is walked
-        only for what does not resolve, and may be omitted entirely when nothing does. A
-        resolving path outranks a walk hit of the same basename — it is the file the scene is
-        rendering with.
-
-        A TILED set (its path a ``<UDIM>`` pattern) resolves when its tiles are on disk, and the
-        walk finds a missing one by the tiles its pattern spells, taken whole from ONE folder --
-        the one holding its newest tile -- so two copies' tiles are never mixed. Its record's
-        ``source`` / ``destination`` are patterns; the commit relocates every tile.
-
-        Returns:
-            list[dict]: one record per texture that would be relocated —
-            ``source``, ``destination``, ``in_place`` (the source is already at
-            the destination, so only the stored path would change) and
-            ``images`` (the datablocks that would repath onto it)."""
-        import bpy
-
-        if not dest_dir:
-            return []
-        wanted = {}  # basename -> [image datablocks]
-        for img in _MatUtilsInternal._resolve_images(images):
-            # ``bpy.path.basename`` strips Blender's ``//`` relative prefix, which
-            # ``os.path`` (ntpath) misreads as a UNC root — yielding an empty tail.
-            base = bpy.path.basename(getattr(img, "filepath", "") or "").lower()
-            if base:
-                wanted.setdefault(base, []).append(img)
-        if not wanted:
-            return []
-
-        sources = {}  # basename -> source path
-        unresolved = dict(wanted)
-        if use_valid_paths:
-            unresolved = {}
-            for base, imgs in wanted.items():
-                hit = ""
-                for img in imgs:
-                    path = _MatUtilsInternal._abspath(img)
-                    if path and ptk.TiledPath.tiles(path):  # a set: its tiles
-                        hit = path
-                        break
-                if hit:
-                    sources[base] = hit
-                else:
-                    unresolved[base] = imgs
-
-        if unresolved and search_dir and os.path.isdir(search_dir):
-
-            def mtime_of(path):
-                try:
-                    return os.path.getmtime(path)
-                except OSError:
-                    return 0.0
-
-            # basename -> (mtime, source path). NEWEST wins, matching mayatk's dedup: a recursive
-            # walk routinely turns up versioned / archived / cloud-conflict copies of the same
-            # filename, and taking whichever the walk reached first binds to an arbitrary stale one.
-            found = {}
-            # A set's pattern -> the tiles it spells (each token's own glob), and per set
-            # {folder: its newest tile there}: the set is taken whole from one folder.
-            patterns = {
-                key: ptk.TiledPath.wildcard(key, None)
-                for key in unresolved
-                if ptk.TiledPath.has_token(key)
-            }
-            sets = {}
-            for root, _dirs, files in ptk.FileDependencies.walk(search_dir):
-                for f in files:
-                    key = f.lower()
-                    path = os.path.join(root, f)
-                    if key in unresolved:
-                        mtime = mtime_of(path)
-                        current = found.get(key)
-                        if current is None or mtime > current[0]:
-                            found[key] = (mtime, path)
-                        continue
-                    for set_key, pattern in patterns.items():
-                        if fnmatch.fnmatchcase(key, pattern):
-                            folders = sets.setdefault(set_key, {})
-                            folders[root] = max(folders.get(root, 0.0), mtime_of(path))
-            for key, (_mtime, path) in found.items():
-                sources[key] = path
-            for key, folders in sets.items():
-                folder = max(sorted(folders), key=folders.get)
-                spelled = bpy.path.basename(unresolved[key][0].filepath)
-                sources[key] = os.path.join(folder, spelled)
-
-        dest_key = os.path.normcase(os.path.abspath(dest_dir))
-        return [
-            {
-                "source": src_path,
-                "destination": os.path.join(dest_dir, os.path.basename(src_path)),
-                "in_place": os.path.normcase(os.path.dirname(os.path.abspath(src_path)))
-                == dest_key,
-                "images": wanted[key],
-            }
-            for key, src_path in sources.items()
-        ]
-
-    @staticmethod
-    def find_and_copy_textures(
-        images=None, search_dir=None, dest_dir=None, mode="copy", use_valid_paths=True
-    ):
-        """Gather the textures used by ``images`` and relocate them into ``dest_dir`` (``mode``
-        copy/move), then repath — mirror of the Texture Path Editor's *Find & Copy Textures*.
-
-        Which file comes from where is decided by :func:`plan_find_and_copy_textures`; this
-        commits that plan, a TILED set's every tile (:meth:`_relocate`). A match whose
-        destination already holds a different file is skipped (no overwrite, no wrong-file
-        rebind). Returns the number of images repathed."""
-        plan = MatUtils.plan_find_and_copy_textures(
-            images, search_dir, dest_dir, use_valid_paths
-        )
-        if not plan:
-            return 0
-        os.makedirs(dest_dir, exist_ok=True)
-        count = 0
-        for record in plan:
-            dst = record["destination"]
-            if _MatUtilsInternal._relocate(record["source"], dest_dir, mode) in (
-                "skip",
-                "error",
-            ):
-                continue  # different-size collision — don't clobber / wrong-rebind
-            for img in record["images"]:
-                img.filepath = MatUtils.to_project_relative(dst)
-                try:
-                    img.reload()
-                except RuntimeError:
-                    pass
-                count += 1
         return count
 
     @classmethod

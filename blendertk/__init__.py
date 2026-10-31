@@ -744,8 +744,13 @@ MOVED_NAMES = {
         "tentacle.slots.tools._hierarchy_sync.tree_matcher.TreePathMatcher",
         "0.23.0",
     ),
-    "UnityBridgeSlots": (
-        "tentacle.slots.tools.unity_bridge.UnityBridgeSlots",
+    # The Unity panel: tentacle's for a while, now the one Unity app, extapps' Unity
+    # Workflow, which tentacle opens with ``UnityBridge`` as its engine.
+    "UnityBridgeSlots": ("extapps.UnityWorkflowSlots", "0.23.0"),
+    "UnityPanelMixin": ("extapps.UnityWorkflowSlots", "0.23.0"),
+    # The delivery is the app's: its mode combo, over unitytk's modes.
+    "UnityBridge.list_template_modes": (
+        "extapps.UnityWorkflowSlots.list_template_modes",
         "0.23.0",
     ),
     "UnityPanelMixin": (
@@ -929,6 +934,25 @@ MOVED_NAMES = {
     # Preview is uitk's PreviewController bound to BlenderPreviewSession, the
     # one controller mayatk's binds too: the commit is mayatk's name.
     "Preview.commit": ("blendertk.Preview.finalize_changes", "0.23.0"),
+    # Find & Copy keyed its files by NAME (two same-named textures shared one
+    # copy); it is the Texture Path Editor's Resolve-then-Collect now, keyed by
+    # image, mayatk's shape (ptk.FileCollect).
+    "plan_find_and_copy_textures": (
+        "blendertk.TexturePathEditor.plan_find_and_copy",
+        "0.23.0",
+    ),
+    "find_and_copy_textures": (
+        "blendertk.TexturePathEditor.find_and_copy_textures",
+        "0.23.0",
+    ),
+    "MatUtils.plan_find_and_copy_textures": (
+        "blendertk.TexturePathEditor.plan_find_and_copy",
+        "0.23.0",
+    ),
+    "MatUtils.find_and_copy_textures": (
+        "blendertk.TexturePathEditor.find_and_copy_textures",
+        "0.23.0",
+    ),
 }
 
 bootstrap_package(

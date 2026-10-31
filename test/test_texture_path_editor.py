@@ -4,6 +4,7 @@ itself is tested with a fake toolkit in tentacle's ``test/test_texture_path_edit
 
 Run: blender --background --factory-startup --python blendertk/test/test_texture_path_editor.py
 """
+import filecmp
 import os
 import shutil
 import sys
@@ -40,15 +41,39 @@ try:
             if i.users == 0:
                 bpy.data.images.remove(i)
 
-    def write_png(path, name="gen"):
-        """Write a real 4x4 PNG to disk and return the path."""
+    def write_png(path, name="gen", size=4):
+        """Write a real *size* x *size* PNG to disk and return the path (two sizes
+        are two different files; one size twice is the same bytes)."""
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        gen = bpy.data.images.new(name, 4, 4)
+        gen = bpy.data.images.new(name, size, size)
         gen.filepath_raw = path
         gen.file_format = "PNG"
         gen.save()
         bpy.data.images.remove(gen)
         return path
+
+    def samepath(a, b):
+        return os.path.normcase(os.path.abspath(a or "")) == os.path.normcase(
+            os.path.abspath(b or "")
+        )
+
+    def find_copy(images, search, dest, mode="Copy", plan=None):
+        """The editor's Find & Copy over *images* (mirror of mayatk's)."""
+        return btk.TexturePathEditor().find_and_copy_textures(
+            [i.name for i in images],
+            {"source_dir": search or "", "dest_dir": dest, "mode": mode},
+            plan=plan,
+        )
+
+    def plan_find_copy(images, search, dest, choices=None):
+        """The editor's plan for it -- the rows the commit acts on."""
+        return btk.TexturePathEditor().plan_find_and_copy(
+            [i.name for i in images],
+            {"source_dir": search or "", "dest_dir": dest, "mode": "Copy"},
+            choices=choices,
+        )
+
+    Collect = ptk.FileCollect
 
     reset()
     src_dir = os.path.join(tmp, "src")
@@ -129,37 +154,34 @@ try:
     mat2.node_tree.nodes.new("ShaderNodeTexImage").image = img2
     img2.filepath = os.path.join(tmp, "gone", "metal_NRM.png")  # break so we must find it
     find_dest = os.path.join(tmp, "find_dest")
-    # 6a. plan_find_and_copy_textures — the same decision, written nowhere. The panel's
-    # Dry Run reports from this, so it must name the exact source and destination the
-    # commit then uses, and must not create the destination or touch the datablock.
-    planned = btk.plan_find_and_copy_textures(
-        [img2], os.path.join(tmp, "search"), find_dest
-    )
+    # 6a. plan_find_and_copy — the same decision, written nowhere. The panel's Dry Run
+    # shows it, so it must name the exact source and destination the commit then
+    # uses, and must not create the destination or touch the datablock.
+    planned = plan_find_copy([img2], os.path.join(tmp, "search"), find_dest)
     before = img2.filepath
-    check("plan_find_and_copy_textures finds the one texture", len(planned) == 1,
-          repr(planned))
+    check("plan_find_and_copy finds the one texture", len(planned) == 1, repr(planned))
     check("...naming the source the walk found",
-          planned and planned[0]["source"] == find_tex, repr(planned))
+          planned and samepath(planned[0]["source"], find_tex), repr(planned))
     check("...and the destination it would land at",
-          planned and planned[0]["destination"] == os.path.join(find_dest, "metal_NRM.png"))
-    check("...listing the image that would repath",
-          planned and planned[0]["images"] == [img2])
+          planned and samepath(planned[0]["destination"], os.path.join(find_dest, "metal_NRM.png")))
+    check("...keyed by the image that would repath",
+          planned and planned[0]["owner"] == img2.name)
     check("...flagging that it is not already in place",
-          planned and planned[0]["in_place"] is False)
+          planned and planned[0]["status"] == Collect.RELOCATE)
     check("plan writes nothing: no destination folder", not os.path.exists(find_dest))
     check("plan writes nothing: the image is untouched", img2.filepath == before)
 
-    n = btk.find_and_copy_textures([img2], os.path.join(tmp, "search"), find_dest, mode="copy")
+    ok = find_copy([img2], os.path.join(tmp, "search"), find_dest)
     check("find_and_copy_textures relocates + repaths",
-          n == 1 and os.path.exists(os.path.join(find_dest, "metal_NRM.png")))
+          ok and samepath(_abspath(img2), os.path.join(find_dest, "metal_NRM.png")))
     check("the commit landed the file the plan named",
           os.path.exists(planned[0]["destination"]) if planned else False)
 
-    # 6b. A source already at the destination is flagged in_place: only the stored path
-    # would change, and Move must not treat it as a self-copy.
-    in_place_plan = btk.plan_find_and_copy_textures([img2], None, find_dest)
+    # 6b. A source already at the destination is in place: only the stored path would
+    # change, and Move must not treat it as a self-copy.
+    in_place_plan = plan_find_copy([img2], None, find_dest)
     check("plan flags a source already at the destination",
-          len(in_place_plan) == 1 and in_place_plan[0]["in_place"] is True,
+          len(in_place_plan) == 1 and in_place_plan[0]["status"] == Collect.IN_PLACE,
           repr(in_place_plan))
 
     # 7. normalize_texture_paths(absolute) — make the path absolute.
@@ -266,29 +288,66 @@ try:
     # 7e. Ambiguity guard — the same basename in two folders must NOT auto-resolve (mayatk skips
     # with a warning rather than binding to whichever copy the walk reached first).
     amb_dir = os.path.join(tmp, "ambiguous")
-    write_png(os.path.join(amb_dir, "a", "amb_DIFF.png"))
-    write_png(os.path.join(amb_dir, "b", "amb_DIFF.png"))
+    write_png(os.path.join(amb_dir, "a", "amb_DIFF.png"), size=4)
+    write_png(os.path.join(amb_dir, "b", "amb_DIFF.png"), size=8)  # a different file
     img5 = bpy.data.images.load(write_png(os.path.join(tmp, "ambsrc", "amb_DIFF.png")))
     img5.filepath = os.path.join(tmp, "gone", "amb_DIFF.png")  # missing
     n_amb = btk.resolve_missing_textures(amb_dir, stem=True, texture=True, fuzzy=True)
     check("resolve_missing_textures refuses an ambiguous multi-hit", n_amb == 0, f"n={n_amb}")
 
-    # 7f. Find & Copy picks the NEWEST duplicate, not the shallowest (mayatk's dedup rule).
+    # 7f. Find & Copy never guesses between two DIFFERENT same-named files: it took the
+    # NEWEST; the row lists both now and waits for a pick (BACKLOG 2026-10-23).
     reset()
     dup_root = os.path.join(tmp, "dups")
-    shallow = write_png(os.path.join(dup_root, "dup_DIFF.png"))
-    deep = write_png(os.path.join(dup_root, "nested", "dup_DIFF.png"))
+    shallow = write_png(os.path.join(dup_root, "dup_DIFF.png"), size=4)
+    deep = write_png(os.path.join(dup_root, "nested", "dup_DIFF.png"), size=8)
     os.utime(shallow, (1_000_000, 1_000_000))  # shallow = OLD
-    os.utime(deep, (2_000_000, 2_000_000))  # nested = NEW
     img6 = bpy.data.images.load(shallow)
     img6.filepath = os.path.join(tmp, "gone", "dup_DIFF.png")
     dup_dest = os.path.join(tmp, "dup_dest")
-    n = btk.find_and_copy_textures([img6], dup_root, dup_dest, mode="copy")
+    (row6,) = plan_find_copy([img6], dup_root, dup_dest)
+    check("an ambiguous name is never guessed: its row lists both files",
+          row6["status"] == Collect.AMBIGUOUS and len(row6["candidates"]) == 2, repr(row6))
+    find_copy([img6], dup_root, dup_dest)
     picked = os.path.join(dup_dest, "dup_DIFF.png")
-    check("find_and_copy_textures copies a match", n == 1 and os.path.exists(picked))
-    check("find_and_copy_textures picks the newest duplicate",
-          abs(os.path.getmtime(picked) - os.path.getmtime(deep)) < 1.0,
-          f"picked={os.path.getmtime(picked)} deep={os.path.getmtime(deep)} shallow={os.path.getmtime(shallow)}")
+    check("...and a run leaves its image on its path",
+          "gone" in _abspath(img6) and not os.path.exists(picked), _abspath(img6))
+    find_copy([img6], dup_root, dup_dest,
+              plan=plan_find_copy([img6], dup_root, dup_dest, choices={("texture", img6.name): shallow}))
+    check("...until a pick names its file: that one lands",
+          samepath(_abspath(img6), picked) and filecmp.cmp(picked, shallow, shallow=False),
+          _abspath(img6))
+
+    # 7f1. Same-named textures each keep their own (BACKLOG 2026-10-23, S1): keyed by
+    # NAME, wood/diffuse.png and metal/diffuse.png collapsed into one copy and both
+    # images repathed to it. Mirror of mayatk's.
+    reset()
+    wood = bpy.data.images.load(write_png(os.path.join(tmp, "s1", "wood", "diffuse.png"), size=4))
+    metal = bpy.data.images.load(
+        write_png(os.path.join(tmp, "s1", "metal", "diffuse.png"), size=8), check_existing=False
+    )
+    apart = os.path.join(tmp, "apart_dest")
+    find_copy([wood, metal], None, apart)
+    check("same-named textures land apart, each image on its own",
+          samepath(_abspath(wood), os.path.join(apart, "wood", "diffuse.png"))
+          and samepath(_abspath(metal), os.path.join(apart, "metal", "diffuse.png"))
+          and not os.path.exists(os.path.join(apart, "diffuse.png")),
+          f"{_abspath(wood)} {_abspath(metal)}")
+    one = write_png(os.path.join(tmp, "s2", "one", "diffuse.png"), size=4)
+    two = os.path.join(tmp, "s2", "two", "diffuse.png")
+    os.makedirs(os.path.dirname(two), exist_ok=True)
+    shutil.copy2(one, two)  # identical bytes
+    pair = [bpy.data.images.load(one), bpy.data.images.load(two, check_existing=False)]
+    other = bpy.data.images.load(
+        write_png(os.path.join(tmp, "s2", "three", "diffuse.png"), size=8), check_existing=False
+    )
+    share = os.path.join(tmp, "share_dest")
+    find_copy(pair + [other], None, share)
+    check("an identical pair shares one copy; a different namesake is kept apart",
+          samepath(_abspath(pair[0]), _abspath(pair[1]))
+          and samepath(_abspath(pair[0]), os.path.join(share, "one", "diffuse.png"))
+          and samepath(_abspath(other), os.path.join(share, "three", "diffuse.png")),
+          f"{[_abspath(i) for i in pair]} {_abspath(other)}")
 
     # 7f2. Neither walk enters a folder of stale copies (ptk.FileDependencies.walk; 2026-09-27):
     # sync caches, the Recycle Bin, a _superseded folder, version control. Both walked everything,
@@ -301,9 +360,7 @@ try:
         img_s = bpy.data.images.load(write_png(os.path.join(tmp, "stalesrc", "stale_DIFF.png")))
         img_s.filepath = os.path.join(tmp, "gone", "stale_DIFF.png")  # missing
         n_stale = btk.resolve_missing_textures(stale_root, stem=True)
-        planned_s = btk.plan_find_and_copy_textures(
-            [img_s], stale_root, os.path.join(tmp, "stale_dest")
-        )
+        planned_s = plan_find_copy([img_s], stale_root, os.path.join(tmp, "stale_dest"))
         check(
             f"a copy in {folder} is never bound by Resolve Missing",
             n_stale == 0 and "gone" in _abspath(img_s),
@@ -311,7 +368,7 @@ try:
         )
         check(
             "...nor found by Find & Copy",
-            not planned_s,
+            planned_s and planned_s[0]["status"] == Collect.MISSING,
             f"{planned_s}",
         )
         os.remove(copy)
@@ -322,21 +379,13 @@ try:
     valid_src = write_png(os.path.join(tmp, "valid_src", "keep_DIFF.png"))
     img7 = bpy.data.images.load(valid_src)
     vp_dest = os.path.join(tmp, "vp_dest")
-    n = btk.find_and_copy_textures([img7], None, vp_dest, mode="copy")
+    ok = find_copy([img7], None, vp_dest)
     check("find_and_copy_textures relocates from a valid path with no search dir",
-          n == 1 and os.path.exists(os.path.join(vp_dest, "keep_DIFF.png")), f"n={n}")
+          ok and os.path.exists(os.path.join(vp_dest, "keep_DIFF.png")), f"ok={ok}")
     check("find_and_copy_textures repaths the image to the destination",
           os.path.normcase(_abspath(img7))
           == os.path.normcase(os.path.normpath(os.path.join(vp_dest, "keep_DIFF.png"))),
           _abspath(img7))
-
-    # use_valid_paths=False is the old contract — nothing but the walk is a source.
-    reset()
-    img8 = bpy.data.images.load(write_png(os.path.join(tmp, "off_src", "off_DIFF.png")))
-    n = btk.find_and_copy_textures(
-        [img8], None, os.path.join(tmp, "off_dest"), mode="copy", use_valid_paths=False
-    )
-    check("use_valid_paths=False ignores the valid path and needs a search dir", n == 0, f"n={n}")
 
     # 7h. A valid path outranks a NEWER same-name hit under the search tree: it is the file the
     # scene is actually rendering with, so the newest-wins walk rule must not displace it.
@@ -347,7 +396,7 @@ try:
     os.utime(real, (1_000_000, 1_000_000))
     img9 = bpy.data.images.load(real)
     rank_dest = os.path.join(tmp, "rank_dest")
-    btk.find_and_copy_textures([img9], os.path.join(tmp, "stale_src"), rank_dest, mode="copy")
+    find_copy([img9], os.path.join(tmp, "stale_src"), rank_dest)
     picked9 = os.path.join(rank_dest, "dup2_DIFF.png")
     check("a valid path outranks a newer search hit of the same name",
           os.path.exists(picked9) and abs(os.path.getmtime(picked9) - 1_000_000) < 1.0,
@@ -359,9 +408,9 @@ try:
     inplace_dir = os.path.join(tmp, "inplace_dest")
     in_place = write_png(os.path.join(inplace_dir, "here_DIFF.png"))
     img10 = bpy.data.images.load(in_place)
-    n = btk.find_and_copy_textures([img10], None, inplace_dir, mode="move")
+    ok = find_copy([img10], None, inplace_dir, mode="Move")
     check("move leaves a texture already at the destination intact",
-          n == 1 and os.path.exists(in_place), f"n={n}")
+          ok and os.path.exists(in_place), f"ok={ok}")
 
     # 8. _abspath is LIBRARY-aware — an image linked from a library .blend stores its
     # ``//`` path relative to the LIBRARY file, not the current .blend, so resolving it
@@ -476,15 +525,6 @@ try:
     # TestFindAndCopyLightmaps). The rows, their scope and the Find & Copy form
     # are tentacle's shared panel (its test_texture_path_editor_panel.py).
     from blendertk.mat_utils.texture_path_editor import TexturePathEditor
-    from blendertk.mat_utils.texture_path_editor import _file_name
-
-    # A Blender-relative path is a UNC share to ntpath, whose basename is '' on Windows.
-    check(
-        "a '//'-relative image path names its file",
-        _file_name("//textures/rock_Normal.png") == "rock_Normal.png"
-        and _file_name(r"C:\tex\a.png") == "a.png"
-        and _file_name(None) == "",
-    )
     from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
 
     bpy.ops.mesh.primitive_cube_add()
@@ -1517,7 +1557,7 @@ try:
         folder = _udim_case("find_copy")
         img = _tiled(os.path.join(folder, "src"))
         dest = os.path.join(folder, "dest")
-        n = btk.find_and_copy_textures([img], None, dest)
+        n = int(bool(find_copy([img], None, dest)))
         check(
             "Find & Copy relocates a set that resolves, every tile",
             n == 1
@@ -1533,7 +1573,7 @@ try:
         for name in os.listdir(lost_dir):
             shutil.move(os.path.join(lost_dir, name), archive)
         dest2 = os.path.join(folder, "dest2")
-        n = btk.find_and_copy_textures([lost], os.path.join(folder, "archive"), dest2)
+        n = int(bool(find_copy([lost], os.path.join(folder, "archive"), dest2)))
         check(
             "...and finds a missing set by its pattern, every tile",
             n == 1

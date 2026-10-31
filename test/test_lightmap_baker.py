@@ -1885,6 +1885,34 @@ try:
         bool(deps) and deps[0]["path"] is None and deps[0]["found_by"] is None,
         f"{deps}",
     )
+    # A name two DIFFERENT files carry is never settled by search-folder order
+    # (BACKLOG 2026-10-21): the plain search folders were tried first, so a stale
+    # namesake was "found" and healed in for good. Mirror of mayatk's
+    # test_heal_refuses_a_name_two_different_files_carry.
+    stale_dir = os.path.join(tmp_dir, "stale")
+    os.makedirs(stale_dir, exist_ok=True)
+    stale = os.path.join(stale_dir, "dep_cube_LightMap.exr")
+    with open(stale, "wb") as fh:
+        fh.write(b"an older bake")
+    deps = dep_baker.lightmap_dependencies(search_dirs=[stale_dir, moved_dir], walk=False)
+    check(
+        "a name two different files carry is ambiguous, its candidates listed",
+        bool(deps) and deps[0]["path"] is None and len(deps[0]["candidates"]) == 2,
+        f"{deps}",
+    )
+    own_dirs = dep_baker.__dict__["_texture_search_dirs"]
+    dep_baker._texture_search_dirs = classmethod(lambda cls: [stale_dir, moved_dir])
+    try:
+        report = dep_baker.heal_lightmap_paths()
+    finally:
+        dep_baker._texture_search_dirs = own_dirs
+    check(
+        "heal refuses the ambiguous map and names it with its candidates",
+        report["healed"] == []
+        and [len(d["candidates"]) for d in report["missing"]] == [2],
+        f"{report}",
+    )
+    os.remove(stale)
 
     dest = os.path.join(tmp_dir, "dest")
     plan = dep_baker.relocate_lightmaps(dest, source_dir=moved_dir, dry_run=True)

@@ -11,8 +11,8 @@ existing ``sourceimages`` / ``textures`` folder), and paths are made
 ``//``-relative where mayatk's are made project-relative. The work is
 ``MatUtils``' (``get_image_records`` / ``set_texture_directory`` /
 ``normalize_texture_paths`` / ``resolve_missing_textures`` /
-``plan_find_and_copy_textures`` / ``find_and_copy_textures`` /
-``rename_texture_file`` / ``sync_material_names`` ...) and ``LightmapRecords``';
+``rename_texture_file`` / ``sync_material_names`` ...), ``LightmapRecords``' and,
+for Find & Copy, ``ptk.FileCollect``'s (this class is its ``CollectHost``);
 this class gives it mayatk's one call shape. Its panel is tentacle's shared
 Texture Path Editor (``slots/tools/texture_path_editor.py``).
 
@@ -21,18 +21,11 @@ panel) the listings answer empty.
 """
 
 import os
-import posixpath
 
 import pythontk as ptk
 
 import blendertk as btk
 from blendertk.core_utils._core_utils import CoreUtils
-
-
-def _file_name(path) -> str:
-    """The file name of an image path, '' for none. posixpath, not os.path: a
-    Blender-relative "//textures/x.png" is a UNC share to ntpath, whose name is ''."""
-    return posixpath.basename((path or "").replace("\\", "/"))
 
 
 class TexturePathEditor(ptk.LoggingMixin):
@@ -89,9 +82,6 @@ class TexturePathEditor(ptk.LoggingMixin):
     RELOCATE_MODES = ("rewrite", "copy", "move")
     NORMALIZE_MODES = ("rewrite", "copy", "move")
     RESOLVE_STRATEGY_ORDER = ("stem", "texture", "fuzzy")
-
-    #: Rows of a dry-run listing shown in full before it collapses to a count.
-    _PLAN_PREVIEW_ROWS = 12
 
     #: Said when Keep Names In Sync leaves a rename to the file or image edited
     #: (:meth:`_sync_carries`).
@@ -466,126 +456,158 @@ class TexturePathEditor(ptk.LoggingMixin):
         return count
 
     # ------------------------------------------------------------------
-    # Find & Copy
+    # Find & Copy -- Resolve, then Collect
     # ------------------------------------------------------------------
 
     def unresolved_file_nodes(self, file_nodes):
         """The images whose stored path does not resolve -- what a Find & Copy
         search folder is for (resolved library-aware, a set by its tiles, the way
-        ``find_and_copy_textures`` judges it)."""
+        :meth:`plan_find_and_copy` judges it)."""
         return [
             img.name for img in self._images(file_nodes) if not self._path_resolves(img)
         ]
 
-    def find_and_copy_textures(
-        self, file_nodes, answers, lightmaps=(), dry_run=False, progress=None
-    ) -> bool:
-        """Collect sources, relocate them into one directory, repath the images.
+    @staticmethod
+    def _find_copy_answers(answers):
+        """``(source_dir, dest_dir, mode)`` of a Find & Copy answer dict, the mode
+        normalized (mirror of mayatk's)."""
+        mode = "move" if str(answers.get("mode", "")).lower() == "move" else "copy"
+        return answers.get("source_dir") or "", answers.get("dest_dir") or "", mode
 
-        Mirror of mayatk's: the answers arrive as a plain dict; an empty search
-        folder skips the unresolved and relocates the rest; *dry_run* reports
-        the plan (``MatUtils.plan_find_and_copy_textures``, the commit's own
-        first half) and changes nothing. *lightmaps* ride along, relocated after
-        the textures by the same folders, their bake markers repointed.
+    def plan_find_and_copy(
+        self, file_nodes, answers, lightmaps=(), choices=None, progress=None
+    ):
+        """What Find & Copy would do: one row per image and per lightmap.
+
+        Mirror of mayatk's: a Resolve, then a Collect (``ptk.FileCollect``). An
+        image whose path resolves (library-aware; a TILED set by its tiles) is
+        its own source; one that does not is searched for by name under
+        ``answers["source_dir"]``, and several different same-named files leave
+        it AMBIGUOUS with its candidates, waiting for *choices*. Each file keeps
+        its name, flat in ``answers["dest_dir"]`` unless a different file of the
+        name is there or gathered with it -- then under the shortest run of its
+        own parent folders that tells it apart. Nothing is written: the ONE call
+        a preview and its commit derive destinations through.
 
         Parameters:
             file_nodes: The images (names or datablocks).
             answers: ``source_dir``, ``dest_dir``, ``mode`` (``"Copy"`` /
                 ``"Move"``, any case).
             lightmaps: The lightmap dependency records in scope.
+            choices: ``{row key: path}`` -- the file picked for an ambiguous row
+                (``ptk.FileCollect.row_key``).
+            progress: ``progress(text)`` -> a context manager; ``None``: none.
+
+        Returns:
+            list[dict]: ``ptk.FileCollect.plan`` rows, each with its ``kind``.
+        """
+        source_dir, dest_dir, mode = self._find_copy_answers(answers)
+        images = self._images(file_nodes)
+        # A linked image's path is its library's: it is never repathed here, so
+        # it is never collected (a move would take the library's file away).
+        linked = [i.name for i in images if getattr(i, "library", None) is not None]
+        if linked:
+            self._log(f"Linked, their library's path: {', '.join(linked)}.", "warning")
+        with self._progress(progress, f"Searching {source_dir or 'the paths'}…"):
+            entries = ptk.FileCollect(self).entries(
+                [i.name for i in images if i.name not in linked], search_dir=source_dir
+            )
+        entries = [dict(e, kind="texture") for e in entries] + self._lightmap_entries(
+            lightmaps, source_dir, dest_dir, mode
+        )
+        return ptk.FileCollect.plan(entries, dest_dir, choices)
+
+    def find_and_copy_textures(
+        self, file_nodes, answers, lightmaps=(), dry_run=False, progress=None, plan=None
+    ) -> bool:
+        """Find & Copy: gather the scope's textures into one folder and repath.
+
+        Mirror of mayatk's: the plan is :meth:`plan_find_and_copy`'s (*plan*:
+        rows a preview returned, picks applied, committed as shown); the
+        report, the file work and the honest close are
+        ``ptk.FileCollect.run``'s; the repath is :meth:`repath`, one undo step.
+
+        Parameters:
+            file_nodes: The images (names or datablocks).
+            answers: ``source_dir``, ``dest_dir``, ``mode``.
+            lightmaps: The lightmap dependency records in scope.
             dry_run: Report the plan; change nothing.
-            progress: ``progress(text)`` -> a context manager (a busy marquee
-                around the commit); ``None``: none.
+            progress: ``progress(text)`` -> a context manager; ``None``: none.
+            plan: :meth:`plan_find_and_copy` rows to commit.
 
         Returns:
             bool: whether there was anything to do.
         """
-        images = self._images(file_nodes)
-        search_dir = (answers.get("source_dir") or "") or None
-        dest_dir = answers.get("dest_dir") or ""
-        relocate_mode = (
-            "move" if str(answers.get("mode", "")).lower() == "move" else "copy"
+        source_dir, dest_dir, mode = self._find_copy_answers(answers)
+        rows = list(plan) if plan is not None else self.plan_find_and_copy(
+            file_nodes, answers, lightmaps=lightmaps, progress=progress
         )
-        lightmaps = list(lightmaps or [])
-        plan = btk.plan_find_and_copy_textures(images, search_dir, dest_dir)
-
-        # Name what the search did NOT find, by image: a run that found 46 of
-        # 48 read as a success, and the export then failed on the two.
-        unresolved = [img for img in images if not self._path_resolves(img)]
-        if unresolved and search_dir:
-            planned = {img for r in plan for img in r["images"]}
-            not_found = [img for img in unresolved if img not in planned]
-            if not_found:
-                self._log(
-                    f"{len(not_found)} of {len(unresolved)} unresolved texture(s) not "
-                    f"found under {search_dir} -- their images keep their current path",
-                    "warning",
-                    items=[
-                        f"{img.name}:  {_file_name(img.filepath) or '<no path>'}"
-                        for img in not_found
-                    ],
-                )
-
-        if dry_run:
-            return self._report_find_and_copy_plan(
-                plan,
-                dest_dir,
-                relocate_mode,
-                lightmap_plan=self._plan_lightmaps(
-                    lightmaps, search_dir, dest_dir, relocate_mode
-                ),
-            )
-
-        # Created if missing: a folder that does not exist yet is a normal
-        # answer to "put them here".
-        try:
-            os.makedirs(dest_dir, exist_ok=True)
-        except OSError as e:
-            self._log(f"Cannot create '{dest_dir}': {e}", "error")
-            return False
-
-        record = self._snapshot(images)
-        verb = "Moving" if relocate_mode == "move" else "Copying"
-        with self._progress(progress, f"{verb} textures…"):
-            count = (
-                btk.find_and_copy_textures(
-                    images, search_dir, dest_dir, mode=relocate_mode
-                )
-                if images
-                else 0
-            )
-        record()
-        if count:
-            self._log(
-                f"{'Moved' if relocate_mode == 'move' else 'Copied'} + repathed "
-                f"{count} texture(s).",
-                "success",
-            )
-        elif images:
-            self._log(
-                "No textures to relocate -- nothing resolved and nothing matched.",
-                "warning",
-            )
-
-        landed = (
-            self._relocate_lightmaps(lightmaps, search_dir, dest_dir, relocate_mode)
-            if lightmaps
-            else False
+        return ptk.FileCollect(self, report=self._log).run(
+            rows,
+            dest_dir,
+            mode=mode,
+            dry_run=dry_run,
+            search_dir=source_dir,
+            copy=self._copy_into,
+            progress=progress,
         )
 
-        # The honest close: what is STILL broken after this run, by image.
-        if images:
-            still = [img for img in images if not self._path_resolves(img)]
-            if still:
-                self._log(
-                    f"{len(still)} texture(s) still unresolved after this run -- the "
-                    "export's path check will fail on them",
-                    "warning",
-                    items=[
-                        f"{img.name}:  {img.filepath or '<no path>'}" for img in still
-                    ],
-                )
-        return bool(count) or landed
+    @staticmethod
+    def stored_form(path: str, file_node=None) -> str:
+        """The path an image stores for the absolute *path*: ``//``-relative
+        inside the project (``MatUtils.to_project_relative``), as every repath
+        here writes it (``ptk.CollectHost``; mirror of mayatk's)."""
+        return btk.to_project_relative(path)
+
+    def repath(self, rows) -> int:
+        """Point each landed Collect row at its destination (``ptk.CollectHost``),
+        one undo step: a texture row's image (:meth:`_repath_nodes`), a lightmap
+        row's bake markers (each at the folder its map landed in). Mirror of
+        mayatk's."""
+        maps = [r for r in rows if r.get("kind") == "lightmap"]
+        textures = [r for r in rows if r.get("kind") != "lightmap"]
+        with CoreUtils.undo_chunk("Remap Found Textures") as step:
+            count = self._repath_nodes(textures) + self._repoint_lightmaps(maps)
+            if not count:
+                step.cancel()  # nothing changed: no empty undo step
+        return count
+
+    def _repoint_lightmaps(self, rows) -> int:
+        """Repoint the markers of the landed lightmap rows, each map at the
+        folder it landed in (``LightmapRecords.landed_dirs``)."""
+        if not rows:
+            return 0
+        records = self._lightmap_records()
+        dirs = records.landed_dirs(r["destination"] for r in rows)
+        markers = records.repath_lightmaps(dirs)
+        self._log(f"{markers} bake marker(s) repointed.", "success")
+        return markers
+
+    def _repath_nodes(self, rows) -> int:
+        """Repath each texture row's image to its destination (inside
+        :meth:`repath`'s one undo step); an image already storing its final
+        form is left alone."""
+        count = unchanged = 0
+        for row in rows:
+            img = self._image(row["owner"])
+            if img is None:
+                continue
+            current = img.filepath
+            final = self.stored_form(row["destination"], img)
+            if final == current:
+                unchanged += 1
+                continue
+            img.filepath = final
+            try:
+                img.reload()
+            except RuntimeError:
+                pass
+            self.previous_paths[img.name] = current
+            count += 1
+        self._log(f"Repathed {count} image(s).", "success" if count else "info")
+        if unchanged:
+            self._log(f"{unchanged} already pointed at the destination.")
+        return count
 
     @staticmethod
     def _progress(progress, text):
@@ -596,72 +618,28 @@ class TexturePathEditor(ptk.LoggingMixin):
 
         return contextlib.nullcontext(None)
 
-    def _report_find_and_copy_plan(
-        self, plan, dest_dir, relocate_mode, lightmap_plan=None
-    ):
-        """Report what a live pass WOULD do, having written nothing: every line
-        comes from the engine's own plan -- the records the commit acts on."""
-        verb = "Move" if relocate_mode == "move" else "Copy"
-        lightmaps_change = bool(
-            lightmap_plan and (lightmap_plan["relocate"] or lightmap_plan["in_place"])
-        )
-        if not plan and not lightmaps_change:
-            self._log(
-                "Dry run -- nothing would change: nothing resolved and nothing matched.",
-                "warning",
-            )
-            self._report_lightmap_plan(lightmap_plan, dest_dir, verb)
-            return False
-        if not plan:
-            self._report_lightmap_plan(lightmap_plan, dest_dir, verb)
-            self._log(
-                f"Nothing has been written -- press Apply to {verb.lower()} and repath "
-                "exactly this.",
-                "warning",
-            )
-            return True
+    @staticmethod
+    def _copy_into(sources, dest_dir, mode, progress=None):
+        """The Collect's copier: the editor's own collision policy
+        (``_MatUtilsInternal._copy_files``: identical bytes reused, a different
+        file never replaced)."""
+        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
 
-        moving = [r for r in plan if not r["in_place"]]
-        in_place = [r for r in plan if r["in_place"]]
-        if moving:
-            self._log(
-                f"Dry run -- would {verb.lower()} {len(moving)} texture(s) into {dest_dir}"
-                + (f" ({len(in_place)} already there)" if in_place else ""),
-                items=self._plan_lines(
-                    f"{os.path.basename(r['source'])}  ←  {os.path.dirname(r['source'])}"
-                    for r in moving
-                ),
-            )
-        else:
-            self._log(
-                f"Dry run -- all {len(in_place)} texture(s) are already at the "
-                "destination; only the stored paths would change."
-            )
-        repathed = [(img, r) for r in plan for img in r["images"]]
-        self._log(
-            f"Would repath {len(repathed)} image(s)",
-            items=self._plan_lines(
-                f"{img.name}:  {img.filepath}  →  "
-                f"{btk.to_project_relative(r['destination'])}"
-                for img, r in repathed
-            ),
-        )
-        self._report_lightmap_plan(lightmap_plan, dest_dir, verb)
-        self._log(
-            f"Nothing has been written -- press Apply to {verb.lower()} and repath "
-            "exactly this.",
-            "warning",
-        )
-        return True
+        return _MatUtilsInternal._copy_files(sources, dest_dir, mode, progress)
 
-    @classmethod
-    def _plan_lines(cls, lines):
-        """*lines* capped at :attr:`_PLAN_PREVIEW_ROWS`, with the remainder counted."""
-        listed = list(lines)
-        if len(listed) <= cls._PLAN_PREVIEW_ROWS:
-            return listed
-        hidden = len(listed) - cls._PLAN_PREVIEW_ROWS
-        return listed[: cls._PLAN_PREVIEW_ROWS] + [f"… and {hidden} more"]
+    def _lightmap_entries(self, lightmaps, source_dir, dest_dir, mode):
+        """The lightmap rows to plan beside the textures: the records' own dry
+        Collect (``LightmapRecords.relocate_lightmaps``). Mirror of mayatk's."""
+        if not lightmaps:
+            return []
+        planned = self._lightmap_records().relocate_lightmaps(
+            dest_dir,
+            source_dir=source_dir,
+            mode=mode,
+            maps=self._lightmap_maps(lightmaps),
+            dry_run=True,
+        )
+        return [dict(row, kind="lightmap") for row in planned["plan"]]
 
     # ------------------------------------------------------------------
     # Repath one image / a typed path
@@ -1197,96 +1175,6 @@ class TexturePathEditor(ptk.LoggingMixin):
         manifest republished, the map left on disk). One undo step. Returns the
         objects cleared."""
         return self._lightmap_records().revert(list(objects))
-
-    def _plan_lightmaps(self, lightmaps, source_dir, dest_dir, relocate_mode):
-        """The records' dry run over *lightmaps*, or ``None`` when none are in scope."""
-        if not lightmaps:
-            return None
-        try:
-            return self._lightmap_records().relocate_lightmaps(
-                dest_dir,
-                source_dir=source_dir or "",
-                mode=relocate_mode,
-                maps=self._lightmap_maps(lightmaps),
-                dry_run=True,
-            )
-        except Exception as e:  # noqa: BLE001 -- a preview must not raise
-            self._log(f"Lightmaps not planned: {e}", "error")
-            return None
-
-    def _report_lightmap_plan(self, plan, dest_dir, verb) -> None:
-        """The dry-run lines for the lightmaps -- same shape as the texture ones."""
-        if not plan:
-            return
-        if plan["relocate"]:
-            self._log(
-                f"Dry run -- would {verb.lower()} {len(plan['relocate'])} lightmap(s) "
-                f"into {dest_dir} and repoint their bake markers"
-                + (
-                    f" ({len(plan['in_place'])} already there)"
-                    if plan["in_place"]
-                    else ""
-                ),
-                items=self._plan_lines(
-                    f"{os.path.basename(src)}  ←  {os.path.dirname(src)}"
-                    for src, _dst in plan["relocate"]
-                ),
-            )
-        elif plan["in_place"]:
-            self._log(
-                f"Dry run -- all {len(plan['in_place'])} lightmap(s) are already at the "
-                "destination; only the bake markers would change."
-            )
-        if plan["missing"]:
-            self._log(
-                f"{len(plan['missing'])} lightmap(s) found nowhere -- their markers "
-                "would keep pointing at the recorded folder",
-                "warning",
-                items=[
-                    f"{dep['map']}  (recorded in {dep['dir'] or '<no folder>'})"
-                    + (f"  {dep['note']}" if dep.get("note") else "")
-                    for dep in plan["missing"]
-                ],
-            )
-
-    def _relocate_lightmaps(self, lightmaps, source_dir, dest_dir, relocate_mode):
-        """Relocate *lightmaps* for real and report; returns whether any landed."""
-        try:
-            result = self._lightmap_records().relocate_lightmaps(
-                dest_dir,
-                source_dir=source_dir or "",
-                mode=relocate_mode,
-                maps=self._lightmap_maps(lightmaps),
-            )
-        except Exception as e:  # noqa: BLE001 -- the textures already landed
-            self._log(f"Lightmaps not relocated: {e}", "error")
-            return False
-        landed = len(result["copied"]) + len(result["in_place"])
-        if landed:
-            self._log(
-                f"Lightmaps -- {len(result['copied'])} relocated, "
-                f"{len(result['in_place'])} already at destination; "
-                f"{result['updated']} bake marker(s) repointed, manifest republished.",
-                "success",
-            )
-        failed = len(result["relocate"]) - len(result["copied"])
-        if failed:
-            self._log(
-                f"{failed} lightmap(s) did not copy -- see the system console.",
-                "warning",
-            )
-        if result["missing"]:
-            self._log(
-                f"{len(result['missing'])} lightmap(s) found nowhere -- the export's "
-                "path check will fail on them",
-                "warning",
-                items=[
-                    f"{dep['map']}  (recorded in {dep['dir'] or '<no folder>'})"
-                    + (f"  {dep['note']}" if dep.get("note") else "")
-                    for dep in result["missing"]
-                ],
-            )
-        return bool(landed)
 
     # ------------------------------------------------------------------
     # Reporting
