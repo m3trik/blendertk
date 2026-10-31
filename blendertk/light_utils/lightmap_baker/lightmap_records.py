@@ -1977,8 +1977,10 @@ class LightmapRecords(ptk.LoggingMixin):
         per map (:meth:`_folder_hints`) -- in its portable spelling
         (``//``-relative when inside the project) unless ``relative=False`` --
         the Make Paths Absolute case; a LEGACY marker's own ``dir`` naming the
-        map is lifted off it on the way. Returns how many markers now resolve
-        to a different folder; one already there is untouched.
+        map is lifted off it on the way. Returns how many markers it changed:
+        each that now resolves to a different folder, and each legacy marker
+        rewritten without its ``dir`` (an undo step is pushed for it); one
+        already there, in the current shape, is untouched.
         """
         hints = cls._folder_hints()
         before = dict(hints)
@@ -1994,12 +1996,13 @@ class LightmapRecords(ptk.LoggingMixin):
             else:
                 spelling = ptk.FileUtils.format_path(os.path.abspath(new_dir))
             current = cls._folder_hint(info, hints, obj, libraries)
-            if ptk.FileUtils.format_path(current) != spelling:
-                count += 1
+            changed = ptk.FileUtils.format_path(current) != spelling
             hints[cls._hint_key(basename)] = spelling
-            if "dir" in info:
+            if "dir" in info:  # the marker itself is rewritten: a change
                 info.pop("dir")
                 cls._write_marker(obj, info)
+                changed = True
+            count += changed
         # The probe has no marker and no objects: it follows when its file is
         # named, whatever the scope.
         probe = cls.probe()

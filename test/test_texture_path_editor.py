@@ -445,6 +445,20 @@ try:
     check("get_image_records marks the linked texture as existing on disk",
           bool(rec and rec["exists"]), f"{rec}")
 
+    # 8b. A move never takes a file from a reader outside its plan: the LINKED image
+    # (left out -- its path is its library's) reads the very file a local image does.
+    # Moved, the library's image read a deleted file (review, 2026-10-31). Mirror of
+    # mayatk's test_a_move_leaves_a_file_a_reader_outside_the_scope_reads.
+    local_twin = bpy.data.images.load(lib_tex, check_existing=False)
+    keep_dest = os.path.join(tmp, "keep_dest")
+    find_copy([local_twin], None, keep_dest, mode="Move")
+    check("a move leaves the file a linked image reads",
+          os.path.exists(lib_tex) and samepath(_abspath(linked), lib_tex),
+          f"{lib_tex} {_abspath(linked)}")
+    check("...and still relocates the local image",
+          samepath(_abspath(local_twin), os.path.join(keep_dest, "lib_tex.png")),
+          _abspath(local_twin))
+
     # 13. image_texture_nodes / select_image_nodes -- the Blender answer to Maya's
     # "Select File Node". Maya's file node is ONE object; Blender splits it into the image
     # datablock (owns the path) and the ShaderNodeTexImage nodes referencing it, so a row maps

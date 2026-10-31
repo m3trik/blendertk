@@ -1956,6 +1956,21 @@ try:
         dep_baker.lightmap_dependencies(search_dirs=[], walk=False)[0]["found_by"]
         == LightmapBaker.FOUND_BY_HINT,
     )
+    # Lifting a legacy marker's own ``dir`` is a change: counted, so the Texture
+    # Path Editor keeps its undo step (review, 2026-10-31; mirror of mayatk's
+    # test_lifting_a_legacy_markers_folder_is_a_change).
+    legacy = dict(
+        json.loads(dep_cube[LightmapBaker.LIGHTMAP_INFO_PROP]),
+        dir=LightmapRecords._portable_dir(os.path.join(dest, "dep_cube_LightMap.exr")),
+    )
+    dep_cube[LightmapBaker.LIGHTMAP_INFO_PROP] = json.dumps(legacy)
+    lifted = dep_baker.repath_lightmaps({"dep_cube_lightmap.exr": dest})
+    check(
+        "lifting a legacy marker's folder counts as a change",
+        lifted == 1
+        and "dir" not in json.loads(dep_cube[LightmapBaker.LIGHTMAP_INFO_PROP]),
+        f"{lifted}",
+    )
 
     bpy.ops.mesh.primitive_cube_add()
     lost_cube = bpy.context.active_object

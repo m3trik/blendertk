@@ -504,18 +504,21 @@ class TexturePathEditor(ptk.LoggingMixin):
         source_dir, dest_dir, mode = self._find_copy_answers(answers)
         images = self._images(file_nodes)
         # A linked image's path is its library's: it is never repathed here, so
-        # it is never collected (a move would take the library's file away).
+        # it is never collected -- and its file is kept by a move
+        # (:meth:`read_elsewhere`), which would take it from the library.
         linked = [i.name for i in images if getattr(i, "library", None) is not None]
         if linked:
             self._log(f"Linked, their library's path: {', '.join(linked)}.", "warning")
+        local = [i.name for i in images if getattr(i, "library", None) is None]
         with self._progress(progress, f"Searching {source_dir or 'the paths'}…"):
-            entries = ptk.FileCollect(self).entries(
-                [i.name for i in images if i.name not in linked], search_dir=source_dir
+            return ptk.FileCollect(self).plan_nodes(
+                local,
+                dest_dir,
+                search_dir=source_dir,
+                choices=choices,
+                kind="texture",
+                extra=self._lightmap_entries(lightmaps, source_dir, dest_dir, mode),
             )
-        entries = [dict(e, kind="texture") for e in entries] + self._lightmap_entries(
-            lightmaps, source_dir, dest_dir, mode
-        )
-        return ptk.FileCollect.plan(entries, dest_dir, choices)
 
     def find_and_copy_textures(
         self, file_nodes, answers, lightmaps=(), dry_run=False, progress=None, plan=None
@@ -551,6 +554,23 @@ class TexturePathEditor(ptk.LoggingMixin):
             copy=self._copy_into,
             progress=progress,
         )
+
+    def read_elsewhere(self, nodes):
+        """The files the file reads through images other than *nodes*
+        (``ptk.CollectHost``): every image, linked ones included, resolved
+        library-aware. A Move copies these instead of taking them away --
+        moved, a linked image (or one out of scope) reading the same file was
+        left on a deleted path. Mirror of mayatk's."""
+        try:
+            import bpy
+        except ImportError:
+            return []
+        held = {img.as_pointer() for img in self._images(nodes)}
+        return [
+            self._resolve(img.filepath, getattr(img, "library", None))
+            for img in bpy.data.images
+            if img.filepath and img.as_pointer() not in held
+        ]
 
     @staticmethod
     def stored_form(path: str, file_node=None) -> str:
