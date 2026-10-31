@@ -11,6 +11,10 @@ deliverer copies the FBX into the project rather than rendering a live-session
 script. Visibility gates on the selected combo entry: the export/Unity params
 show for Copy to Project, the SCRIPTS checklist + SCRIPTS_ACTION for Manage
 Unity Scripts.
+
+mayatk's copy is the SSoT: this file is the same text, host names in prose aside,
+and ``extapps/test/test_vendor_sync.py`` fails the moment the two differ. Edit
+mayatk's, then mirror.
 """
 
 from __future__ import annotations

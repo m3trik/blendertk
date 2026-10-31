@@ -19,8 +19,10 @@ To expose a new RizomUV knob:
 
 The registry is intentionally non-exhaustive -- it covers the params real RizomUV bridge
 implementations actually expose (SideFX Labs, the C4D bridge, the 3ds Max bridge), not every flag
-in the Lua API. Kept in sync with ``mayatk/mayatk/uv_utils/rizom_bridge/parameters.py`` -- when one
-side gains a knob, pull it into the other verbatim.
+in the Lua API.
+
+mayatk's copy is the SSoT: this file is the same text, host names in prose aside, and
+``m3trik/scripts/check_dcc_twins.py`` fails the moment the two differ. Edit mayatk's, then mirror.
 """
 
 from __future__ import annotations
@@ -188,8 +190,8 @@ PARAMS: "dict[str, AttributeSpec]" = {
             "texel density. Shells that merely overlap (an unpacked layout,\n"
             "a partial overlap) are unstacked and packed as usual.\n"
             "\n"
-            "Stack in Blender first (UV panel: Stack, or Stack Similar in\n"
-            "the Unfold options), then send. Off (default): stacked\n"
+            "Stack in Blender first (UV panel: Stack, or Stack Similar in the\n"
+            "Unfold options), then send. Off (default): stacked\n"
             "shells are unstacked and packed individually -- Rizom's normal\n"
             "behaviour. Pack-type presets only (pack, optimize)."
         ),
@@ -400,8 +402,9 @@ PARAMS: "dict[str, AttributeSpec]" = {
     # These only show in the panel when the ``send`` preset is active --
     # the ``send.lua`` body references each placeholder so the existing
     # ``_refresh_param_visibility`` scanner picks them up. The bridge's
-    # ``send`` flow substitutes the boolean values into the load script;
-    # the round-trip flow ignores them.
+    # one-way send substitutes the boolean values into its load script
+    # (mayatk: ``templates/send_wrapper.lua``; blendertk:
+    # ``build_send_script``); the round-trip flow ignores them.
     "LOAD_UVS": AttributeSpec(
         key="LOAD_UVS",
         label="Load UVs",
@@ -409,7 +412,7 @@ PARAMS: "dict[str, AttributeSpec]" = {
         default=True,
         tooltip=(
             "Load existing UVs along with positions (XYZUVW=true).\n"
-            "Off = load positions only; RizomUV starts from a clean slate."
+            "Off = load positions only; Rizom starts from a clean slate."
         ),
     ),
     "LOAD_UVW_PROPS": AttributeSpec(
@@ -428,8 +431,9 @@ PARAMS: "dict[str, AttributeSpec]" = {
         kind="bool",
         default=True,
         tooltip=(
-            "Keep each object as a separate RizomUV island group.\n"
-            "Off = every mesh imports as a flat list."
+            "Give each exported object (and any group above it the export\n"
+            "carries) its own Rizom island group. Off = every mesh imports\n"
+            "as a flat list."
         ),
     ),
     "LOAD_TEXTURES": AttributeSpec(
@@ -438,9 +442,9 @@ PARAMS: "dict[str, AttributeSpec]" = {
         kind="bool",
         default=True,
         tooltip=(
-            "Auto-collect file textures from the selection's materials and bind them in\n"
-            "RizomUV (ZomLoadTexture) so they show on the model in the 3D view.\n"
-            "Off = open with no textures."
+            "Auto-collect file textures from the selection's materials\n"
+            "and bind them in Rizom (ZomLoadTexture) so they show on the\n"
+            "model in the 3D view. Off = open with no textures."
         ),
     ),
 }
@@ -491,19 +495,21 @@ _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 
 # Pack gutter tokens that are COMPUTED, not exposed. They render into
 # ``ZomPack.SpacingSize`` / ``PaddingSize`` (island-to-island) and
-# ``MarginSize`` (tile border) -- the same two gutters the DCC-side pack
-# operation uses.
+# ``MarginSize`` (tile border) -- the same two gutters the host's own pack
+# operation uses (Maya feeds them to ``u3dLayout`` as ``shellSpacing`` /
+# ``tileMargin``; Blender's ``pack_islands`` takes the island margin alone).
 #
-# Why derived: a Rizom round-trip and an in-DCC repack must land on the same
-# gutter, or re-packing a Rizom result silently reflows the layout. Two
-# hand-dialed spinboxes made that agreement the user's problem; one ecosystem
-# rule (:meth:`UvUtils.calculate_uv_padding`) makes it structural. The ratio
-# mirrors the pack op exactly: tile margin is HALF the island spacing.
+# Why derived: a Rizom round-trip and an in-host repack must land on the
+# same gutter, or re-packing a Rizom result silently reflows the layout.
+# Two hand-dialed spinboxes made that agreement the user's problem; one
+# ecosystem rule (:meth:`UvUtils.calculate_uv_padding`) makes it structural.
+# The ratio mirrors Maya's pack exactly: tile margin is HALF the island
+# spacing (``UvUtils._pack_shells``).
 #
 # Resolution-invariant by construction: normalized padding is
-# ``(map_size / 256) / map_size`` == 1/256 for every map size, so the value is
-# stable whatever PACK_RESOLUTION is set to -- 4 px at 1024, 16 px at 4096,
-# always the same fraction of the tile.
+# ``(map_size / 256) / map_size`` == 1/256 for every map size, so the value
+# is stable whatever PACK_RESOLUTION is set to -- 4 px at 1024, 16 px at
+# 4096, always the same fraction of the tile.
 DERIVED_KEYS = ("PACK_SPACING", "PACK_MARGIN")
 
 # Host-injected tokens (never panel knobs) and what they render when the host
@@ -601,10 +607,11 @@ class Parameters(ParamRegistry):
         round-trip packs to the same gutter an in-Blender pack would -- island
         spacing = the normalized padding, tile margin = half of it.
 
-        Imported lazily to keep this module importable from the panel without
-        pulling the rest of the UV surface.
+        Imported lazily and relatively (the same text in mayatk's copy), to keep
+        this module importable from the panel without pulling the rest of the UV
+        surface.
         """
-        from blendertk.uv_utils._uv_utils import UvUtils
+        from .._uv_utils import UvUtils
 
         try:
             map_size = int(values.get("PACK_RESOLUTION") or 0)
@@ -694,7 +701,7 @@ class Parameters(ParamRegistry):
 # ``PACK_RESOLUTION`` is deliberately NOT listed: probed safe on a real 2020.1
 # (rc 0, file saved) and it is what makes a single send converge. Stripping it
 # was the cause of the reported "pack has to be sent twice before it fills the
-# UV space" -- verified on the Maya side through the real bridge, two sends per
+# UV space" -- verified in mayapy through the real bridge, two sends per
 # config: 4 DAG instances packed to 0.5766 of the tile on send 1 and needed a
 # second send to reach 0.6655, while sending Resolution lands send 1 at 0.6777
 # (better than the old two-send result) and send 2 changes nothing. A mixed

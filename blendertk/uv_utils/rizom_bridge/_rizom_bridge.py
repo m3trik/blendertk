@@ -1000,12 +1000,12 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         mid-run overwrite of that script (see :meth:`_process_tag`), so compare what's on disk
         against what we handed RizomUV instead of guessing.
         """
-        # Both rendered OS-native: ``export_path`` is a POSIX string (Rizom's Lua wants forward
-        # slashes) and ``_script_path`` a Path, so quoting them as-is mixed separators in one
-        # message the user has to act on.
+        # Both rendered OS-native: ``export_path`` is a POSIX string (Rizom's
+        # Lua wants forward slashes) and ``_script_path`` a Path, so quoting
+        # them as-is mixed separators in one message the user has to act on.
         lines = [
-            "RizomUV exited cleanly but never wrote the FBX -- the Lua script stopped before "
-            "ZomSave.",
+            "RizomUV exited cleanly but never wrote the FBX -- the Lua "
+            "script stopped before ZomSave.",
             f"Script: {Path(self._script_path)}",
             f"FBX:    {Path(self.export_path)}",
         ]
@@ -1016,15 +1016,17 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         else:
             if on_disk != expected_script:
                 lines.append(
-                    "The script on disk no longer matches what the bridge wrote -- another "
-                    "process replaced it while RizomUV was running (RizomUV re-reads the -cfi "
-                    "file after launch). Run one bridge at a time."
+                    "The script on disk no longer matches what the bridge "
+                    "wrote -- another process replaced it while RizomUV was "
+                    "running (RizomUV re-reads the -cfi file after launch). "
+                    "Run one bridge at a time."
                 )
         lines.append(
-            "RizomUV prints no diagnostics in -cfi mode, so no amount of debug logging will "
-            "surface the failing Lua line -- open the script above in RizomUV's Script Editor "
-            "and run it there. Degenerate input UVs (every coordinate collapsed onto one point) "
-            "are one known trigger."
+            "RizomUV prints no diagnostics in -cfi mode, so no amount of "
+            "debug logging will surface the failing Lua line -- open the "
+            "script above in RizomUV's Script Editor and run it there. "
+            "Degenerate input UVs (every coordinate collapsed onto one "
+            "point) are one known trigger."
         )
         return "\n".join(lines)
 

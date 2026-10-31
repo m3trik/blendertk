@@ -102,15 +102,9 @@ class _EditUtilsInternal(object):
         :class:`pythontk.ProgressionCurves` curve evaluated on a symmetric ``t`` in ``[0, 1]``:
         ``"linear"`` yields the historical even fill; non-linear modes warp interior density
         toward one end while endpoints stay at ``±span/2``."""
-        if amount <= 0:
-            return []
-        curve_fn = ptk.ProgressionCurves.get_curve_function(distribution)
-        offsets = []
-        for i in range(amount):
-            t = i / (amount - 1) if amount > 1 else 0.5
-            f = curve_fn(t, weight_curve, weight_bias)
-            offsets.append((f - 0.5) * span)
-        return offsets
+        return ptk.ProgressionCurves.centered_offsets(
+            amount, span, distribution, weight_bias, weight_curve
+        )
 
     @staticmethod
     def _face_shells(bm):
