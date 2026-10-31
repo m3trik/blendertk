@@ -2620,7 +2620,7 @@ class ShadowRig(ptk.LoggingMixin):
                 "ShadowRig.refresh_silhouette) before exporting."
             )
         return ptk.SceneRecords.SHADOWS.make(
-            {"unit_scale": cls.unit_scale(), "planes": records}
+            {"unit_scale": ctx.unit(cls.unit_scale), "planes": records}
         )
 
     @classmethod

@@ -2745,6 +2745,51 @@ try:
     ptk.SceneRecords.LIGHTMAPS.clear(_ScDataNodes)
     ptk.SceneRecords.SHADOWS.clear(_ScDataNodes)
 
+    # ---- the writer states the records' unit (mirror of mayatk's): the FBX
+    # writer's scale_length with apply_unit_scale on, one BU a metre with it
+    # off or through the native glTF writer; a producer labels its record with
+    # it and converts nothing. Measured 2026-10-17. Added: 2026-10-31 --------
+    from unittest import mock as _un_mock
+    from blendertk.rig_utils.shadow_rig._shadow_rig import ShadowRig as _UnRig
+
+    un_units = bpy.context.scene.unit_settings
+    un_was = (un_units.system, un_units.scale_length)
+    un_units.system, un_units.scale_length = "METRIC", 0.01
+    try:
+        un_got = {
+            "fbx": FbxUtils.export_context().unit_scale,
+            "fbx_off": FbxUtils.export_context(
+                writer_options={"apply_unit_scale": False}
+            ).unit_scale,
+            "gltf": FbxUtils.export_context(writer="gltf").unit_scale,
+            "none": FbxUtils.export_context(writer=None).unit_scale,
+        }
+        check(
+            "each writer states the metres one BU is in its file",
+            un_got["none"] is None
+            and abs(un_got["fbx"] - 0.01) < 1e-9
+            and un_got["fbx_off"] == 1.0
+            and un_got["gltf"] == 1.0,
+            un_got,
+        )
+        with _un_mock.patch.object(
+            _UnRig, "find_shadow_planes", return_value=["plane"]
+        ), _un_mock.patch.object(
+            _UnRig, "plane_record", return_value={"name": "plane"}
+        ), _un_mock.patch.object(_UnRig, "silhouette_is_stale", return_value=False):
+            un_stated = _UnRig.export_record(
+                FbxUtils.export_context(writer_options={"apply_unit_scale": False})
+            )
+            un_bare = _UnRig.export_record(ptk.ExportContext())
+        check(
+            "a producer labels its record with the writer's unit, else the scene's",
+            un_stated.payload["unit_scale"] == 1.0
+            and abs(un_bare.payload["unit_scale"] - 0.01) < 1e-9,
+            (un_stated.payload, un_bare.payload),
+        )
+    finally:
+        un_units.system, un_units.scale_length = un_was
+
     # ---- finish_deliverable: a scene that cannot say where its files are
     # still gets the split, the copies and the drop, which need none of them
     # (mirror of mayatk). Added: 2026-10-19 --------------------------------

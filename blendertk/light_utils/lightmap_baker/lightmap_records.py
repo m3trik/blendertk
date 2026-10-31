@@ -1428,12 +1428,18 @@ class LightmapRecords(ptk.LoggingMixin):
         and never writes.
 
         Parameters:
-            ctx: The export's decisions; only its ``scope`` is read. A scoped
-                export names the export set's objects alone (the record is
-                ``export_scoped``): a marker outside it ships its map with
-                nothing to bind it to.
+            ctx: The export's decisions; its ``scope`` and its writer's unit
+                are read. A scoped export names the export set's objects alone
+                (the record is ``export_scoped``): a marker outside it ships
+                its map with nothing to bind it to. The record's
+                ``unit_scale`` is the writer's (``ctx.unit``), the scene's
+                without one (mirror of mayatk's).
         """
-        return cls._record(ctx.scope)
+        from blendertk.core_utils.units import Units
+
+        return cls._record(
+            ctx.scope, unit_scale=ctx.unit(lambda: Units.metres_per("internal"))
+        )
 
     @classmethod
     def refresh_export_metadata(cls) -> Optional[str]:
@@ -1478,12 +1484,14 @@ class LightmapRecords(ptk.LoggingMixin):
         return chain[::-1]
 
     @classmethod
-    def _record(cls, objects=None) -> Optional[ptk.Record]:
+    def _record(cls, objects=None, unit_scale=None) -> Optional[ptk.Record]:
         """(Re)build the lightmap manifest record from the file's markers.
 
         One entry per marked object, or ``None`` when no lightmapped object
         remains; *objects* scopes it like :meth:`_marker_records` (``None`` =
-        the file). camelCase keys match unitytk's ``LightmapRecord``. Each
+        the file). *unit_scale* labels its lengths, which stay in Blender
+        units (the writer's metres per BU, ``ExportContext.unit``); ``None``
+        labels them with the scene's. camelCase keys match unitytk's ``LightmapRecord``. Each
         entry carries its object's ``hierarchy`` (:meth:`_hierarchy`), as
         mayatk's carries its DAG path: Blender names are unique in a file, but
         the record has one shape for every host, and a reader whose import
@@ -1547,16 +1555,17 @@ class LightmapRecords(ptk.LoggingMixin):
         from blendertk.core_utils.units import Units
 
         probe = cls.probe()
-        # The probe in its Blender units, labelled with the metres per unit NOW
-        # -- what the FBX write scales the geometry by (``apply_unit_scale``:
-        # io_scene_fbx writes BU x 100 x that into a centimetre file, so
-        # lengths x unit_scale follow the geometry; the Scene Exporter sets the
-        # units before it produces this) -- never the bake's: a centimetre
-        # bake exported in metres labelled its probe 100x too near.
+        # The probe in its Blender units, labelled with the metres per BU the
+        # WRITER gives the file (``ptk.ExportContext.WRITER_UNITS``: the FBX
+        # writer's scale_length with apply_unit_scale on), else the scene's
+        # NOW -- never the bake's: a centimetre bake exported in metres
+        # labelled its probe 100x too near.
         payload = ptk.LightmapRecord.payload(
             entries,
             probe=probe,
-            unit_scale=Units.metres_per("internal"),
+            unit_scale=(
+                unit_scale if unit_scale is not None else Units.metres_per("internal")
+            ),
         )
         return ptk.SceneRecords.LIGHTMAPS.make(payload) if payload else None
 

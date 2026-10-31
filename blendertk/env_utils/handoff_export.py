@@ -152,7 +152,9 @@ class BlenderExportMixin:
     #: never hands geometry back. Mirror of mayatk's flag of the same name.
     usd_flattens_instances: bool = False
 
-    def _data_export_carrier(self, objects=None) -> List[Any]:
+    def _data_export_carrier(
+        self, objects=None, writer: Optional[str] = "fbx", writer_options=None
+    ) -> List[Any]:
         """``[data_export]`` when this bridge ships it and the scene has one, else ``[]``.
 
         Never *creates* the carrier: absent means the scene has no in-band metadata to
@@ -181,7 +183,12 @@ class BlenderExportMixin:
         )
         try:
             FbxUtils.publish(
-                FbxUtils.export_context(mode=ptk.ExportContext.HANDOFF, scope=scope)
+                FbxUtils.export_context(
+                    mode=ptk.ExportContext.HANDOFF,
+                    writer=writer,
+                    writer_options=writer_options,
+                    scope=scope,
+                )
             )
         except Exception:  # noqa: BLE001
             self.logger.debug("data_export refresh skipped.", exc_info=True)
@@ -419,7 +426,9 @@ class BlenderExportMixin:
         btk.FbxUtils.begin_export(stagers=self._export_stagers())
         try:
             fbx_opts = self._fbx_options(params)
-            carrier = self._data_export_carrier(objects)
+            # The records labelled with the unit this write gives the file
+            # (``apply_unit_scale`` off ships one BU as one metre).
+            carrier = self._data_export_carrier(objects, "fbx", fbx_opts)
             # Forced HERE rather than declared in _fbx_options, which subclasses
             # override wholesale: the exporter drops custom properties by default and
             # excluded object types outright, so either omission ships an Empty named
@@ -655,7 +664,9 @@ class BlenderExportMixin:
         with btk.FbxUtils.export_prepared(stagers=self._export_stagers()):
             usd_opts = self._usd_options(params, objects)
             frame_range = usd_opts.pop("frame_range", None)
-            carrier = self._data_export_carrier(objects)
+            # No USD row states Blender's unit yet (unmeasured): each record
+            # keeps the scene's.
+            carrier = self._data_export_carrier(objects, writer=None)
             if carrier:
                 usd_opts["export_custom_properties"] = True
                 self.logger.warning(

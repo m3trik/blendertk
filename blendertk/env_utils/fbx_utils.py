@@ -2168,7 +2168,11 @@ class FbxUtils(_FbxUtilsInternal):
 
     @classmethod
     def export_context(
-        cls, mode: str = ptk.ExportContext.PIPELINE, **decisions
+        cls,
+        mode: str = ptk.ExportContext.PIPELINE,
+        writer: str = "fbx",
+        writer_options: Optional[Dict[str, Any]] = None,
+        **decisions,
     ) -> ptk.ExportContext:
         """A context for this file: provenance filled in, *decisions*
         (``clip_mode``, ``clip_span``, ``rendering``, ``scope``) as given.
@@ -2176,7 +2180,11 @@ class FbxUtils(_FbxUtilsInternal):
         A *scope* names the objects the write ships as well (``nodes``: each
         object it names and all its descendants, :meth:`_shipped_nodes`),
         what the snapshot narrows each export-scoped record by (mirror of
-        mayatk's)."""
+        mayatk's). The *writer* (``"fbx"``, ``"gltf"``) and its
+        *writer_options* (the exporter's keyword arguments:
+        ``apply_unit_scale``, ``global_scale``) state the unit every record
+        is labelled with (``unit_scale``: ``ptk.ExportContext.WRITER_UNITS``);
+        ``writer=None`` states none, and each record keeps the scene's."""
         try:
             import bpy
 
@@ -2189,7 +2197,26 @@ class FbxUtils(_FbxUtilsInternal):
             source = {"application": "blender"}
         if decisions.get("scope") is not None and "nodes" not in decisions:
             decisions["nodes"] = cls._shipped_nodes(decisions["scope"])
+        if "unit_scale" not in decisions:
+            decisions["unit_scale"] = cls._writer_unit(writer, writer_options)
         return ptk.ExportContext(mode=mode, source=source, **decisions)
+
+    @classmethod
+    def _writer_unit(
+        cls, writer: Optional[str], options: Optional[Dict[str, Any]] = None
+    ) -> Optional[float]:
+        """The metres one Blender unit is in the file Blender's *writer*
+        writes with *options* (``ptk.ExportContext.writer_unit``); ``None``
+        for no writer, or outside Blender."""
+        if writer is None:
+            return None
+        try:
+            from blendertk.core_utils.units import Units
+
+            scene = Units.metres_per("internal")
+        except Exception:  # noqa: BLE001 - no scene: no unit to state
+            return None
+        return ptk.ExportContext.writer_unit(cls.HOST, writer, scene, options)
 
     @staticmethod
     def _shipped_nodes(roots: Iterable[Any]) -> frozenset:
