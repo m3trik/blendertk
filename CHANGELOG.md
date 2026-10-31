@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-31 -- Docstrings and the UI handler name `uitk.ParamPanelSlots`, the new name of `BridgeSlotsBase` (`env_utils/unity_bridge/_unity_bridge.py`, `mat_utils/marmoset_bridge/_marmoset_bridge.py`, `ui_utils/blender_ui_handler.py`).** The log-link handler registers on `ParamPanelSlots`; no behaviour change.
+  - Test(s): `test_blender_ui_handler.py` (reference renamed).
 - **2026-10-31 -- Fix: a scoped write names its armatures' bones, and the USD hand-off states its writer (`env_utils/fbx_utils.py` `_shipped_nodes`, `env_utils/handoff_export.py`).** The FBX writes each bone as a node of its own, so an articulated rig's joints are bones; unnamed, the Scene Exporter's GLB dropped the rig's `articulation` record. The USD route labels its records with Blender's USD writer row (one BU a metre).
   - Test(s): `test_fbx_utils.py` (an armature's bones ship with it; the USD row), `test_articulated_rig.py` (extras.articulation binds the rig), `test_material_records.py` (the transmission check's own material name).
 - **2026-10-31 -- Removed `SceneState` (`env_utils/scene_state.py`; `MOVED_NAMES` row to `MaterialRecords`); `MaterialRecords` hands a Principled transmission to the model's note (`env_utils/material_records.py`); the Maya-scene pull weighs an openPBR surface as Maya does (`env_utils/maya_bridge/templates/_import_scene.py`).** The pull template read openPBR's `emissionLuminance` (nits) as a multiplier clamped to 1 and never read `geometryOpacity`, so a dim openPBR glowed at full and its fade arrived opaque; it now takes each surface's emission weight as mayatk's `ShaderAttributeMap` does (openPBR a gate, the others a multiplier as is) and openPBR's opacity from `geometryOpacity`.

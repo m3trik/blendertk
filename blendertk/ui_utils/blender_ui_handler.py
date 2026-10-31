@@ -66,10 +66,10 @@ class BlenderUiHandler(UiHandler):
         # Before this, uitk hard-imported mayatk, so Blender-session node links
         # were dead despite blendertk shipping its own dispatch_log_link.
         try:
-            from uitk import BridgeSlotsBase
+            from uitk import ParamPanelSlots
             from blendertk.ui_utils._ui_utils import UiUtils
 
-            BridgeSlotsBase.register_log_link_handler(UiUtils.dispatch_log_link)
+            ParamPanelSlots.register_log_link_handler(UiUtils.dispatch_log_link)
         except Exception:  # never let a wiring hiccup block UI-handler startup
             pass
 

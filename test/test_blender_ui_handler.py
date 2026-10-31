@@ -130,12 +130,12 @@ try:
     #    blendertk). A POSITIVE check: the registration is wrapped in try/except
     #    in __init__, so a wrong import path would silently skip it and this is
     #    the only thing that would catch that drift.
-    from uitk.bridge.slots import _BridgeSlotsInternal
+    from uitk.bridge.slots import _ParamPanelSlotsInternal
     from blendertk.ui_utils._ui_utils import UiUtils
 
     check(
         "BlenderUiHandler registers dispatch_log_link with uitk",
-        UiUtils.dispatch_log_link in _BridgeSlotsInternal._LOG_LINK_HANDLERS,
+        UiUtils.dispatch_log_link in _ParamPanelSlotsInternal._LOG_LINK_HANDLERS,
     )
 
     # 0b. ...and point ptk.Deprecation.sink at the console, once: a

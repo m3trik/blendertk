@@ -247,7 +247,7 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
     def __init__(self, toolbag_path: Optional[str] = None):
         super().__init__()
         self.deliverer = MarmosetEngine(toolbag_path)
-        # The panel redirects only the bridge's logger (`BridgeSlotsBase`); route the engine's
+        # The panel redirects only the bridge's logger (`ParamPanelSlots`); route the engine's
         # delivery-phase output through the SAME logger so it reaches the log panel.
         self.deliverer.logger = self.logger
 
