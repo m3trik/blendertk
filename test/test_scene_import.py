@@ -47,6 +47,68 @@ try:
         "_import_scene" not in {p.stem for p in mb.MayaBridge.list_templates()},
     )
     txt = _IMPORT_TEMPLATE.read_text()
+
+    # ---- the template weighs a surface as its shader does -------------------
+    # openPBR's emissionLuminance is a GATE (nits, mayatk's ShaderAttributeMap)
+    # and its opacity is the scalar geometryOpacity: read as a clamped
+    # multiplier and through "opacity", a dim openPBR glowed at full and its
+    # fade shipped opaque. Run on the template's own functions against a
+    # stand-in cmds (the live conversion needs Maya). Added: 2026-10-31
+    import ast as _ast
+
+    _tree = _ast.parse(txt)
+    _wanted = {
+        "_get_first",
+        "_emission_weight",
+        "_opacity",
+        "EMISSION_WEIGHT_ATTRS",
+        "OPACITY_ATTRS",
+    }
+    _nodes = [
+        n
+        for n in _tree.body
+        if (isinstance(n, _ast.FunctionDef) and n.name in _wanted)
+        or (
+            isinstance(n, _ast.Assign)
+            and any(getattr(t, "id", None) in _wanted for t in n.targets)
+        )
+    ]
+    _ns = {}
+    exec(compile(_ast.Module(body=_nodes, type_ignores=[]), "_tmpl", "exec"), _ns)
+
+    class _Cmds:
+        def __init__(self, node_type, **attrs):
+            self.node_type, self.attrs = node_type, attrs
+
+        def nodeType(self, node):
+            return self.node_type
+
+        def getAttr(self, plug):
+            return self.attrs[plug.split(".", 1)[1]]
+
+    _weight = _ns.get("_emission_weight")
+    _opacity = _ns.get("_opacity")
+    check(
+        "template: openPBR emission is a gate, not a multiplier",
+        _weight is not None
+        and _weight(_Cmds("openPBRSurface", emissionLuminance=0.25), "m") == 1.0
+        and _weight(_Cmds("openPBRSurface", emissionLuminance=0.0), "m") == 0.0,
+    )
+    check(
+        "template: a standardSurface emission weight multiplies as it is",
+        _weight is not None
+        and _weight(_Cmds("standardSurface", emission=0.25), "m") == 0.25
+        and _weight(_Cmds("standardSurface", emission=2.0), "m") == 2.0,
+    )
+    check(
+        "template: openPBR opacity is its geometryOpacity",
+        _opacity is not None
+        and _opacity(_Cmds("openPBRSurface", geometryOpacity=0.4), "m")
+        == (0.4, 0.4, 0.4)
+        and _opacity(_Cmds("standardSurface", opacity=[(0.5, 1.0, 1.0)]), "m")
+        == (0.5, 1.0, 1.0),
+    )
+
     check(
         "template: standalone.initialize before cmds",
         txt.index("maya.standalone") < txt.index("import maya.cmds"),

@@ -135,11 +135,6 @@ DEFAULT_INCLUDE = {
     "env_utils.webxr_preview": [
         "WebXrPreview",
     ],
-    # Retired 2026-10-20 (removed in 0.21.0): the sections of live-scene state
-    # a GLB took beside its FBX -- the materials record states every material.
-    "env_utils.scene_state": [
-        "SceneState",
-    ],
     # Unity Bridge — mirror of mayatk's ``env_utils.unity_bridge._unity_bridge`` (its panel
     # is tentacle's shared tool).
     "env_utils.unity_bridge._unity_bridge": [
@@ -449,6 +444,9 @@ DEFAULT_INCLUDE = {
 #: read raises MovedNameError naming the new home. ``{name: (new home, version)}``;
 #: a move adds its names here in the same change set.
 MOVED_NAMES = {
+    # The sections of live-scene state a GLB took beside its FBX: the FBX's
+    # materials record states every material (removed 2026-10-31).
+    "SceneState": ("blendertk.MaterialRecords", "0.23.0"),
     # The curtain drape, written once for both hosts (CurtainMesh subclasses it).
     "CurtainDrape": ("pythontk.CurtainDrape", "0.23.0"),
     "DuplicateRadialSlots": (

@@ -122,8 +122,6 @@ class MaterialRecords(ptk.HelpMixin):
                     notes=notes,
                 )
             )
-            if notes is not None and node is not None:
-                notes.extend(cls._unstated(material, node))
         return found
 
     # ---------------------------------------------------------------- values
@@ -161,6 +159,10 @@ class MaterialRecords(ptk.HelpMixin):
             "alpha_mode": authored.get("mode") or "OPAQUE",
             "alpha_cutoff": authored.get("cutoff"),
             "normal_scale": cls._normal_strength(node),
+            # The record has no field for it; the family says so.
+            "transmission": constant("Transmission Weight")
+            if node.inputs.get("Transmission Weight") is not None
+            else constant("Transmission"),
         }
 
     @classmethod
@@ -206,23 +208,6 @@ class MaterialRecords(ptk.HelpMixin):
         if strength is None or strength.is_linked:
             return None
         return float(strength.default_value)
-
-    @staticmethod
-    def _unstated(material: Any, node: Any) -> List[str]:
-        """What *material* renders with that the record has no field for: a
-        Principled transmission (glass), which every reader then shows as its
-        opacity alone."""
-        socket = node.inputs.get("Transmission Weight") or node.inputs.get("Transmission")
-        try:
-            weight = 0.0 if socket is None or socket.is_linked else float(socket.default_value)
-        except (TypeError, ValueError):
-            weight = 0.0
-        if weight > 0.0:
-            return [
-                f"Material {material.name}: its transmission is not stated (the "
-                "record has no transmission); it reads as its opacity alone."
-            ]
-        return []
 
     @classmethod
     def _opacity_factor(cls, material: Any) -> Optional[float]:
