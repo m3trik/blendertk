@@ -275,7 +275,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `edit_utils/naming/_naming.py` — Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
 - `class Naming(pythontk.HelpMixin, pythontk.LoggingMixin)`
-  - methods: SUFFIX_TYPES, affix_rules, scene_objects, scope_objects, select_by_name, select_link, rename, generate_unique_name, strip_illegal_chars, strip_chars, set_case, type_key, affix_for, suffix_by_type, append_location_based_suffix
+  - methods: SUFFIX_TYPES, affix_rules, scene_objects, scope_objects, select_by_name, select_link, rename, generate_unique_name, strip_illegal_chars, strip_chars, set_case, type_key, affix_for, suffix_by_type, append_location_based_suffix, legalize
 
 ### `edit_utils/primitives.py` — Primitive creation -- mirror of mayatk's ``edit_utils.primitives.Primitives``.
 - `class Primitives(_PrimitivesInternal)`
@@ -372,7 +372,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `stepped_keys(spell)`
 - `main()`
 - `scene_data_sections(cmds, spell)`
-- constants: SRC_PATH, OUT_FBX, EMBED_TEXTURES, INCLUDE_ANIMATION, SMART_BAKE, RIG_MODE, RIG_CAPABILITY, MODERN_SHADER_TYPES, STINGRAY_SHADER_TYPES, STINGRAY_TEX_SLOTS, STINGRAY_SLOT_CHANNELS
+- constants: SRC_PATH, OUT_FBX, EMBED_TEXTURES, INCLUDE_ANIMATION, SMART_BAKE, RIG_MODE, RIG_CAPABILITY, MODERN_SHADER_TYPES, EMISSION_WEIGHT_ATTRS, OPACITY_ATTRS, STINGRAY_SHADER_TYPES, STINGRAY_TEX_SLOTS, STINGRAY_SLOT_CHANNELS
 
 ### `env_utils/maya_bridge/templates/_import_scene_usd.py` — Open a Maya scene headlessly (mayapy) and export it as USD for a Blender import.
 - `usd_safe_materials(cmds)`
@@ -429,19 +429,15 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class TaskManager(TaskFactory, _SceneTasksMixin, _TextureTasksMixin, _AnimationTasksMixin, _TaskChecksMixin, _TaskDefinitionsMixin)`
   - methods: run_tasks, objects, write_scene_data_sidecar, create_glb, set_linear_unit, exclude_hdr, ignore_groups, export_path, begin_run, reassign_duplicate_materials, convert_to_relative_paths, resolve_invalid_texture_paths, convert_textures, optimize_textures, smart_bake, optimize_keys, tie_all_keyframes, snap_keys_to_frame, set_bake_animation_range, export_data_node, ensure_scene_records_published, apply_declared_takes, ship_declared_takes, check_framerate, check_referenced_objects, check_geometry_lod_suffix, check_duplicate_names, check_root_default_transforms, check_hidden_geometry, check_overlapping_duplicate_mesh, check_objects_below_floor, check_duplicate_materials, check_material_compatibility, check_texture_optimization, check_path_length, check_output_writable, check_valid_paths, check_texture_file_size, check_untied_keyframes, check_floating_point_keys, task_definitions, check_definitions, definitions
 
-### `env_utils/scene_state.py` — Read named sections of live-scene state for transport.
-- `class SceneState`
-  - methods: source, read
-
 ### `env_utils/script_output.py` — Blender script-output console — the blendertk analogue of mayatk's ``ScriptConsole``.
 - `class ScriptConsole`
   - methods: instance, widget, show, hide, toggle, begin_capture, restore, is_open, teardown
 
-### `env_utils/unity_bridge/_unity_bridge.py` — Unity bridge engine -- export the Blender selection into a Unity project's Assets/.
+### `env_utils/unity_bridge/_unity_bridge.py` — Unity bridge engine -- the Blender half of the Unity Workflow app.
 - `class UnityBridge(BlenderExportMixin, pythontk.HandoffBridge)`
-  - methods: list_template_modes, params_registry, params_defaults, list_delivery_modes
+  - methods: params_registry, params_defaults, install_package
 
-### `env_utils/unity_bridge/parameters.py` — User-tunable parameters for the Blender->Unity bridge panel -- mirror of mayatk's
+### `env_utils/unity_bridge/parameters.py` — The Blender export rows of the Unity hand-off -- mirror of mayatk's
 - constants: PARAMS
 - `class Parameters(ParamRegistry)`
 
@@ -482,7 +478,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `light_utils/lightmap_baker/lightmap_records.py` — The scene record a lightmap bake leaves in Blender: markers, manifest, and the files they name.
 - `class LightmapRecords(pythontk.LoggingMixin)`
-  - methods: foreign_writer, baked_objects, lightmap_info, commit, bake_state, scene_state, untracked, track, revert, probe, commit_probe, project_root, superseding, migrate_legacy, migrate_folder_hints, export_record, refresh_export_metadata, claims, wrote, strangers, lightmap_dependencies, search_dirs, heal_lightmap_paths, normalize_lightmap_paths, relocate_lightmaps, repath_lightmaps, rename_lightmap, fork_lightmap, transfer_lightmaps
+  - methods: foreign_writer, baked_objects, lightmap_info, commit, bake_state, scene_state, untracked, track, revert, probe, commit_probe, project_root, superseding, migrate_legacy, migrate_folder_hints, export_record, refresh_export_metadata, claims, wrote, strangers, lightmap_dependencies, search_dirs, heal_lightmap_paths, normalize_lightmap_paths, relocate_lightmaps, keep_sources, landed_dirs, repath_lightmaps, rename_lightmap, fork_lightmap, transfer_lightmaps
 
 ### `light_utils/lightmap_baker/web_export.py` — Ship a committed lightmap bake in a web (GLB) deliverable.
 - `class LightmapWebExport(pythontk.LoggingMixin)`
@@ -493,7 +489,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class MatUpdater(pythontk.LoggingMixin, _MatUtilsInternal)`
   - methods: shader_type_choices, texture_root, selected_materials, materials_using_textures, update_materials
 - `class MatUtils(_MatUtilsInternal)`
-  - methods: get_node_tree, get_mats, get_mat_names, get_scene_mat_names, get_mat_facts, create_mat, assign_mat, find_by_mat_id, find_unassigned, select_by_mat, select_unassigned, show_mat_attributes, assign_random_mat, assign_new_mat, rename_mat, delete_mats, select_by_material, reload_textures, get_scene_mats, is_mat_assigned, get_mat_swatch_color, get_texture_paths, get_texture_scopes, get_texture_info, get_mat_info, format_mat_info_html, format_texture_info_html, find_materials_with_duplicate_textures, reassign_duplicate_materials, find_duplicate_materials, merge_duplicate_materials, delete_unused_materials, image_texture_nodes, select_image_nodes, graph_materials, get_image_records, image_paths_scope, repath_image, to_project_relative, resolve_missing_textures, normalize_texture_paths, get_image_material_map, materials_for_textures, fix_color_spaces, set_texture_directory, plan_find_and_copy_textures, find_and_copy_textures, rename_texture_file, sync_material_names, format_texture_paths_html, get_shader_templates, apply_shader_template, create_shader_template, serialize_material, restore_material, resolve_pbr_plan, create_pbr_material, create_pbr_materials, update_materials
+  - methods: get_node_tree, get_mats, get_mat_names, get_scene_mat_names, get_mat_facts, create_mat, assign_mat, find_by_mat_id, find_unassigned, select_by_mat, select_unassigned, show_mat_attributes, assign_random_mat, assign_new_mat, rename_mat, delete_mats, select_by_material, reload_textures, get_scene_mats, is_mat_assigned, get_mat_swatch_color, get_texture_paths, get_texture_scopes, get_texture_info, get_mat_info, format_mat_info_html, format_texture_info_html, find_materials_with_duplicate_textures, reassign_duplicate_materials, find_duplicate_materials, merge_duplicate_materials, delete_unused_materials, image_texture_nodes, select_image_nodes, graph_materials, get_image_records, image_paths_scope, repath_image, to_project_relative, resolve_missing_textures, normalize_texture_paths, get_image_material_map, materials_for_textures, fix_color_spaces, set_texture_directory, rename_texture_file, sync_material_names, format_texture_paths_html, get_shader_templates, apply_shader_template, create_shader_template, serialize_material, restore_material, resolve_pbr_plan, create_pbr_material, create_pbr_materials, update_materials
 
 ### `mat_utils/arnold_bridge.py` — Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_bridge``.
 - `class ArnoldBridge(pythontk.LoggingMixin)`
@@ -633,9 +629,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
   - methods: wait_until_ready, invoke, eval_js, eval_py, reload_mesh, reload_status, project_info
 
 ### `mat_utils/substance_bridge/substance_rpc/installer.py` — Install the substance_rpc plugin into Painter's user plugin folder.
-- constants: PLUGIN_NAME
+- constants: PLUGIN_NAME, PAINTER_SETTINGS, LAUNCH_AT_START_KEY
 - `class Installer(_InstallerInternal)`
-  - methods: user_plugin_dir, is_installed, is_current, install, uninstall
+  - methods: user_plugin_dir, is_installed, is_current, install, painter_settings, enable_launch_at_start, uninstall
 
 ### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py` — Substance 3D Painter RPC plugin -- entry point.
 - `start_server(port=None, host=None)`
@@ -689,7 +685,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `mat_utils/texture_path_editor.py` — Texture Path Editor engine (Blender): the file's texture paths and the commands
 - `class TexturePathEditor(pythontk.LoggingMixin)`
-  - methods: texture_dir, resolve_path, is_absolute_path, rows, file_nodes, node_exists, stored_path, selected_file_nodes, reload_textures, set_texture_directory, make_paths_absolute, normalize_paths, resolve_missing_textures, unresolved_file_nodes, find_and_copy_textures, set_texture_path, is_file_rename, apply_path_edit, rename_texture, can_rename_shader, rename_shader, rename_file_node, select_objects, select_file_nodes, graph_file_nodes, delete_consequences, delete_file_nodes, lightmap_dependencies, lightmap_labels, normalize_lightmaps, repath_lightmap, rename_lightmap, lightmap_revert_scope, revert_lightmaps
+  - methods: texture_dir, resolve_path, is_absolute_path, rows, file_nodes, node_exists, stored_path, selected_file_nodes, reload_textures, set_texture_directory, make_paths_absolute, normalize_paths, resolve_missing_textures, unresolved_file_nodes, plan_find_and_copy, find_and_copy_textures, read_elsewhere, stored_form, repath, set_texture_path, is_file_rename, apply_path_edit, rename_texture, can_rename_shader, rename_shader, rename_file_node, select_objects, select_file_nodes, graph_file_nodes, delete_consequences, delete_file_nodes, lightmap_dependencies, lightmap_labels, normalize_lightmaps, repath_lightmap, rename_lightmap, lightmap_revert_scope, revert_lightmaps
 
 ### `node_utils/_node_utils.py` — Node / datablock utilities — instancing via shared object data.
 - `class NodeUtils(_NodeUtilsInternal)`

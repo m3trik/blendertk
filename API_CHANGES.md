@@ -2,7 +2,7 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (883)
+## Moved out (890)
 
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b000` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
@@ -510,14 +510,19 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `env_utils/scene_exporter/scene_exporter_slots.py::SceneExporterSlots.txt000_init` → `tentacle.slots.tools.scene_exporter.SceneExporterSlots` (from 0.23.0)
 - `env_utils/scene_exporter/scene_exporter_slots.py::SceneExporterSlots.txt001_init` → `tentacle.slots.tools.scene_exporter.SceneExporterSlots` (from 0.23.0)
 - `env_utils/scene_exporter/scene_exporter_slots.py::SceneExporterSlots.workspace` → `tentacle.slots.tools.scene_exporter.SceneExporterSlots` (from 0.23.0)
-- `env_utils/unity_bridge/_unity_panel.py::UnityPanelMixin` → `tentacle.slots.tools._unity_bridge._unity_panel.UnityPanelMixin` (from 0.23.0)
-- `env_utils/unity_bridge/_unity_panel.py::UnityPanelMixin.default_output_dir` → `tentacle.slots.tools._unity_bridge._unity_panel.UnityPanelMixin` (from 0.23.0)
-- `env_utils/unity_bridge/_unity_panel.py::UnityPanelMixin.list_template_modes` → `tentacle.slots.tools._unity_bridge._unity_panel.UnityPanelMixin` (from 0.23.0)
-- `env_utils/unity_bridge/_unity_panel.py::UnityPanelMixin.template_dir` → `tentacle.slots.tools._unity_bridge._unity_panel.UnityPanelMixin` (from 0.23.0)
-- `env_utils/unity_bridge/unity_bridge_slots.py::UnityBridgeSlots` → `tentacle.slots.tools.unity_bridge.UnityBridgeSlots` (from 0.23.0)
-- `env_utils/unity_bridge/unity_bridge_slots.py::UnityBridgeSlots.b000` → `tentacle.slots.tools.unity_bridge.UnityBridgeSlots` (from 0.23.0)
-- `env_utils/unity_bridge/unity_bridge_slots.py::UnityBridgeSlots.make_bridge` → `tentacle.slots.tools.unity_bridge.UnityBridgeSlots` (from 0.23.0)
-- `env_utils/unity_bridge/unity_bridge_slots.py::UnityBridgeSlots.params_module` → `tentacle.slots.tools.unity_bridge.UnityBridgeSlots` (from 0.23.0)
+- `env_utils/scene_state.py::SceneState` → `blendertk.MaterialRecords` (from 0.23.0)
+- `env_utils/scene_state.py::SceneState.read` → `blendertk.MaterialRecords` (from 0.23.0)
+- `env_utils/scene_state.py::SceneState.source` → `blendertk.MaterialRecords` (from 0.23.0)
+- `env_utils/unity_bridge/_unity_bridge.py::UnityBridge.list_delivery_modes` → `unitytk.CopyToAssetsDeliverer.DELIVERY_MODES` (from 0.23.0)
+- `env_utils/unity_bridge/_unity_bridge.py::UnityBridge.list_template_modes` → `unitytk.FileToUnityBridge.list_template_modes` (from 0.23.0)
+- `env_utils/unity_bridge/_unity_panel.py::UnityPanelMixin` → `extapps.UnityWorkflowSlots` (from 0.23.0)
+- `env_utils/unity_bridge/_unity_panel.py::UnityPanelMixin.default_output_dir` → `extapps.UnityWorkflowSlots` (from 0.23.0)
+- `env_utils/unity_bridge/_unity_panel.py::UnityPanelMixin.list_template_modes` → `extapps.UnityWorkflowSlots` (from 0.23.0)
+- `env_utils/unity_bridge/_unity_panel.py::UnityPanelMixin.template_dir` → `extapps.UnityWorkflowSlots` (from 0.23.0)
+- `env_utils/unity_bridge/unity_bridge_slots.py::UnityBridgeSlots` → `extapps.UnityWorkflowSlots` (from 0.23.0)
+- `env_utils/unity_bridge/unity_bridge_slots.py::UnityBridgeSlots.b000` → `extapps.UnityWorkflowSlots` (from 0.23.0)
+- `env_utils/unity_bridge/unity_bridge_slots.py::UnityBridgeSlots.make_bridge` → `extapps.UnityWorkflowSlots` (from 0.23.0)
+- `env_utils/unity_bridge/unity_bridge_slots.py::UnityBridgeSlots.params_module` → `extapps.UnityWorkflowSlots` (from 0.23.0)
 - `env_utils/workspace_editor.py::WorkspaceEditorSlots` → `tentacle.slots.tools.workspaces.WorkspacesSlots` (from 0.23.0)
 - `env_utils/workspace_editor.py::WorkspaceEditorSlots.add_rule` → `tentacle.slots.tools.workspaces.WorkspacesSlots` (from 0.23.0)
 - `env_utils/workspace_editor.py::WorkspaceEditorSlots.clear_rules` → `tentacle.slots.tools.workspaces.WorkspacesSlots` (from 0.23.0)
@@ -578,7 +583,9 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.track_selected` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
 - `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.txt000_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
 - `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.txt_output_dir_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `mat_utils/_mat_utils.py::MatUtils.find_and_copy_textures` → `blendertk.TexturePathEditor.find_and_copy_textures` (from 0.23.0)
 - `mat_utils/_mat_utils.py::MatUtils.get_mat_swatch_icon` → `blendertk.MatUtils.get_mat_swatch_color` (from 0.23.0)
+- `mat_utils/_mat_utils.py::MatUtils.plan_find_and_copy_textures` → `blendertk.TexturePathEditor.plan_find_and_copy` (from 0.23.0)
 - `mat_utils/arnold_bridge.py::ArnoldBridgeSlots` → `tentacle.slots.tools.arnold_bridge.ArnoldBridgeSlots` (from 0.23.0)
 - `mat_utils/arnold_bridge.py::ArnoldBridgeSlots.cmb000_init` → `tentacle.slots.tools.arnold_bridge.ArnoldBridgeSlots` (from 0.23.0)
 - `mat_utils/arnold_bridge.py::ArnoldBridgeSlots.header_init` → `tentacle.slots.tools.arnold_bridge.ArnoldBridgeSlots` (from 0.23.0)
@@ -888,7 +895,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (649)
+## Added (663)
 
 - `anim_utils/_anim_utils.py::AnimUtils.copied_key_counts(copied_data)`
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
@@ -1146,6 +1153,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `edit_utils/cut_on_axis.py::CutOnAxis.perform_cut_on_axis(objects, axis='-x', cuts=0, cut_offset=0, cut_spacing=0.0, distribution='linear', weight_bias=0.5, weight_curve=2.0, delete=False, mirror=False, pivot='manip', axis_frame=None)`
 - `edit_utils/duplicate_radial.py::DuplicateRadial.regroup_copies(copies)`
 - `edit_utils/dynamic_pipe.py::DynamicPipe.from_selection(cls, **kwargs) -> 'DynamicPipe'`
+- `edit_utils/naming/_naming.py::Naming.legalize(name: str) -> str`
 - `edit_utils/naming/_naming.py::Naming.scope_objects(cls, scene=False) -> List`
 - `edit_utils/naming/_naming.py::Naming.select_by_name(cls, pattern, regex=False, ignore_case=False, locators_only=False) -> Tuple[List, int]`
 - `edit_utils/naming/_naming.py::Naming.select_link(cls, obj) -> str`
@@ -1223,6 +1231,8 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `env_utils/hierarchy_sync/scene_data_sidecar.py::BlenderSidecarHost(class)`
 - `env_utils/hierarchy_sync/scene_data_sidecar.py::BlenderSidecarHost.expand_to_descendants(objects) -> list`
 - `env_utils/maya_bridge/_maya_bridge.py::MayaBridge.params_registry(cls)`
+- `env_utils/maya_bridge/templates/_import_scene.py::EMISSION_WEIGHT_ATTRS(constant)`
+- `env_utils/maya_bridge/templates/_import_scene.py::OPACITY_ATTRS(constant)`
 - `env_utils/reference_manager.py::ReferenceManager(class)`
 - `env_utils/reference_manager.py::ReferenceManager.add_reference(self, namespace: str, file_path: str) -> bool`
 - `env_utils/reference_manager.py::ReferenceManager.bake_project_root(self) -> Optional[str]`
@@ -1267,6 +1277,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.presets(self) -> Dict[str, Optional[str]]`
 - `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.refresh_fbx_presets(self) -> Dict[str, Optional[str]]`
 - `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.restore_fbx_preset(self, metadata: Optional[Dict[str, str]]) -> Optional[str]`
+- `env_utils/unity_bridge/_unity_bridge.py::UnityBridge.install_package(spec: str) -> None`
 - `env_utils/unity_bridge/_unity_bridge.py::UnityBridge.params_registry(cls)`
 - `env_utils/workspace_map.py::BlenderWorkspaceMapHost(class)`
 - `env_utils/workspace_map.py::BlenderWorkspaceMapHost.create_workspace(root: str) -> Optional[ptk.Workspace]`
@@ -1302,6 +1313,8 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.scope_lights(cls, scope: str = 'selected') -> List[Any]`
 - `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.scope_meshes(scope: str = 'selected') -> List[Any]`
 - `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.select(objects) -> List[Any]`
+- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.keep_sources(cls, deps: List[Dict[str, Any]], mode: str) -> List[str]`
+- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.landed_dirs(paths: Iterable[str]) -> Dict[str, str]`
 - `mat_utils/_mat_utils.py::MatUpdater.materials_using_textures(paths, shader_type=None)`
 - `mat_utils/_mat_utils.py::MatUpdater.selected_materials(cls, shader_type=None)`
 - `mat_utils/_mat_utils.py::MatUpdater.shader_type_choices()`
@@ -1364,13 +1377,17 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/shader_templates.py::ShaderTemplates.store(cls) -> 'ptk.PresetStore'`
 - `mat_utils/shader_templates.py::ShaderTemplates.suggested_name(cls, nodes) -> str`
 - `mat_utils/substance_bridge/_substance_bridge.py::SubstanceBridge.params_registry(cls)`
+- `mat_utils/substance_bridge/substance_rpc/installer.py::Installer.enable_launch_at_start() -> bool`
+- `mat_utils/substance_bridge/substance_rpc/installer.py::Installer.painter_settings()`
+- `mat_utils/substance_bridge/substance_rpc/installer.py::LAUNCH_AT_START_KEY(constant)`
+- `mat_utils/substance_bridge/substance_rpc/installer.py::PAINTER_SETTINGS(constant)`
 - `mat_utils/texture_path_editor.py::TexturePathEditor(class)`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.apply_path_edit(self, file_node, typed: str, shader=None, sync=None) -> str`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.can_rename_shader(self, shader) -> bool`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.delete_consequences(self, file_nodes)`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.delete_file_nodes(self, file_nodes) -> int`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.file_nodes(self, exclude_arnold: bool = False)`
-- `mat_utils/texture_path_editor.py::TexturePathEditor.find_and_copy_textures(self, file_nodes, answers, lightmaps=(), dry_run=False, progress=None) -> bool`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.find_and_copy_textures(self, file_nodes, answers, lightmaps=(), dry_run=False, progress=None, plan=None) -> bool`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.graph_file_nodes(self, file_nodes) -> None`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.is_absolute_path(path: str) -> bool`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.is_file_rename(self, stored: str, typed: str, file_node=None) -> bool`
@@ -1381,11 +1398,14 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/texture_path_editor.py::TexturePathEditor.node_exists(self, node) -> bool`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.normalize_lightmaps(self, lightmaps, relative: bool) -> int`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.normalize_paths(self, file_nodes, external_mode: str = 'rewrite') -> int`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.plan_find_and_copy(self, file_nodes, answers, lightmaps=(), choices=None, progress=None)`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.read_elsewhere(self, nodes)`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.reload_textures() -> None`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.rename_file_node(self, file_node, new_name: str, shader=None, sync=None) -> str`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.rename_lightmap(self, dep, new_name: str) -> None`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.rename_shader(self, shader, new_name: str, sync=None) -> str`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.rename_texture(self, context, new_name: str, sync=None) -> bool`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.repath(self, rows) -> int`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.repath_lightmap(self, dep, folder: str) -> bool`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.resolve_missing_textures(self, modes, file_nodes=None) -> int`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.resolve_path(self, path: str, file_node=None)`
@@ -1396,6 +1416,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/texture_path_editor.py::TexturePathEditor.selected_file_nodes(self)`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.set_texture_directory(self, file_nodes, target_dir: str, relocate_mode: str = 'rewrite', allow_missing: bool = False) -> int`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.set_texture_path(self, file_node, path: str, relative: bool = False) -> str`
+- `mat_utils/texture_path_editor.py::TexturePathEditor.stored_form(path: str, file_node=None) -> str`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.stored_path(self, node) -> str`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.texture_dir(self) -> str`
 - `mat_utils/texture_path_editor.py::TexturePathEditor.unresolved_file_nodes(self, file_nodes)`
@@ -1540,12 +1561,10 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `xform_utils/_xform_utils.py::XformUtils.set_transform_snap(kind, state=None, increment=None)`
 - `xform_utils/_xform_utils.py::XformUtils.world_align_pivot(objects=None, pivot_type='object', mode='set')`
 
-## Deprecations (9)
+## Deprecations (7)
 
 _Live retirement debt, earliest deadline first. An **EXPIRED** row has outlived its window: delete the alias and its tests rather than moving the date. A **HELD** row is due by version, but its notice has not yet had its calendar window._
 
-- **HELD** `env_utils/scene_state.py::SceneState.read` — remove in 0.21.0, not before 2026-11-23
-- **HELD** `env_utils/scene_state.py::SceneState.source` — remove in 0.21.0, not before 2026-11-23
 - `env_utils/_env_utils.py::EnvUtils.scene_project_root` — remove in 0.23.0, not before 2026-11-24
 - `env_utils/_env_utils.py::EnvUtils.scene_source` — remove in 0.23.0, not before 2026-11-24
 - `env_utils/_env_utils.py::EnvUtils.scene_source_images_dir` — remove in 0.23.0, not before 2026-11-24
@@ -1586,7 +1605,7 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/emissive_groups.py::EmissiveGroups.validate`
 - `ui_utils/blender_ui_handler.py::BlenderUiHandler.default_persistence`
 
-## Signature changed (63)
+## Signature changed (65)
 
 - `anim_utils/_anim_utils.py::AnimUtils.add_intermediate_keys`
   - was: `(objects, step=1.0, time_range=None, ignore_visibility=False, percent=None)`
@@ -1687,9 +1706,15 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `edit_utils/bridge.py::Bridge.bridge`
   - was: `(objects=None, divisions=0, smoothing_angle=None, offset=0, merge=False)`
   - now: `(objects=None, divisions=0, smoothing_angle=None, offset=0, merge=False, *, curve_type=None, taper=None, twist=None, cleanup_curves=False)`
+- `edit_utils/naming/_naming.py::Naming.append_location_based_suffix`
+  - was: `(cls, objects, first_obj_as_ref=False, alphabetical=False, strip_trailing_ints=True, strip_defined_suffixes=True, valid_suffixes=None, reverse=False, independent_groups=False, dry_run=False)`
+  - now: `(cls, objects, first_obj_as_ref=False, alphabetical=False, strip_trailing_ints=True, strip_defined_suffixes=True, valid_suffixes=None, reverse=False, independent_groups=False, order='distance', dry_run=False)`
 - `edit_utils/selection.py::Selection.select_by_type`
   - was: `(selection_type, objects=None, mode='replace')`
   - now: `(selection_type, objects=None, mode='replace', scope=None)`
+- `env_utils/fbx_utils.py::FbxUtils.export_context`
+  - was: `(cls, mode: str = ptk.ExportContext.PIPELINE, **decisions) -> ptk.ExportContext`
+  - now: `(cls, mode: str = ptk.ExportContext.PIPELINE, writer: str = 'fbx', writer_options: Optional[Dict[str, Any]] = None, **decisions) -> ptk.ExportContext`
 - `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.perform_export`
   - was: `(self, export_dir: str, objects: Optional[Union[List, Callable]] = None, preset_name: Optional[str] = None, output_name: Optional[str] = None, export_visible: bool = True, create_log_file: bool = False, *, log_level: Optional[str] = None, log_handler: Optional[object] = None, tasks: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None, progress_callback: Optional[Callable[[int, int, Optional[str]], Any]] = None) -> bool`
   - now: `(self, export_dir: str, objects: Optional[Union[List, Callable]] = None, preset_file: Optional[str] = None, output_name: Optional[str] = None, export_visible: bool = True, create_log_file: bool = False, *, log_level: Optional[str] = None, log_handler: Optional[object] = None, tasks: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None, progress_callback: Optional[Callable[[int, int, Optional[str]], Any]] = None) -> bool`

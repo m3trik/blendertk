@@ -88,10 +88,9 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`env_utils/reference_manager.py`](#env_utils--reference_manager) — Reference Manager engine -- the workspace's scene files, the scene's references
 - [`env_utils/scene_exporter/_scene_exporter.py`](#env_utils--scene_exporter--_scene_exporter) — Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 - [`env_utils/scene_exporter/task_manager.py`](#env_utils--scene_exporter--task_manager) — The Scene Exporter's task/check manager -- mirror of mayatk's ``TaskManager``.
-- [`env_utils/scene_state.py`](#env_utils--scene_state) — Read named sections of live-scene state for transport.
 - [`env_utils/script_output.py`](#env_utils--script_output) — Blender script-output console — the blendertk analogue of mayatk's ``ScriptConsole``.
-- [`env_utils/unity_bridge/_unity_bridge.py`](#env_utils--unity_bridge--_unity_bridge) — Unity bridge engine -- export the Blender selection into a Unity project's Assets/.
-- [`env_utils/unity_bridge/parameters.py`](#env_utils--unity_bridge--parameters) — User-tunable parameters for the Blender->Unity bridge panel -- mirror of mayatk's
+- [`env_utils/unity_bridge/_unity_bridge.py`](#env_utils--unity_bridge--_unity_bridge) — Unity bridge engine -- the Blender half of the Unity Workflow app.
+- [`env_utils/unity_bridge/parameters.py`](#env_utils--unity_bridge--parameters) — The Blender export rows of the Unity hand-off -- mirror of mayatk's
 - [`env_utils/upstream_patches.py`](#env_utils--upstream_patches) — Defects in Blender's own Python that blendertk corrects, each with the probe
 - [`env_utils/usd.py`](#env_utils--usd) — USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.usd``
 - [`env_utils/webxr_preview.py`](#env_utils--webxr_preview) — Push the Blender selection to a live browser / WebXR preview.
@@ -191,7 +190,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L30) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L451) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L447) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -1315,11 +1314,12 @@ Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
   - `Naming.generate_unique_name(cls, base_name, suffix='_', padding=3)` *(class)* — A unique object name based on ``base_name`` (``Cube`` → ``Cube_001``) — mirror of
   - `Naming.strip_illegal_chars(input_data, replace_with='_')` *(static)* — Replace characters outside ``[A-Za-z0-9_]`` (engine-export-safe naming).
   - `Naming.strip_chars(cls, objects, num_chars=1, trailing=False, dry_run=False)` *(class)* — Delete ``num_chars`` leading (or ``trailing``) characters from each object's name —
-  - `Naming.set_case(cls, objects, case='capitalize', dry_run=False)` *(class)* — Rename objects by Python string case op — ``upper`` / ``lower`` / ``capitalize`` /
+  - `Naming.set_case(cls, objects, case='capitalize', dry_run=False)` *(class)* — Rename objects by a :meth:`pythontk.StrUtils.set_case` case — ``upper`` / ``lower`` /
   - `Naming.type_key(cls, item) -> str` *(class)* — Resolve an object (or Material / Image datablock) to its suffix-by-type key.
   - `Naming.affix_for(cls, item, overrides=None, modes=None)` *(class)* — The convention's affix rule for *item*'s OWN type -- mirror of mayatk's.
   - `Naming.suffix_by_type(cls, objects, group_suffix=None, locator_suffix=None, joint_suffix=None, mesh_suffix=None, nurbs_curve_suffix=None, camera_suffix=None, light_suffix=None, display_layer_suffix=None, ik_handle_suffix=None, nurbs_surface_suffix=None, cluster_suffix=None, lattice_suffix=None, skin_cluster_suffix=None, blend_shape_suffix=None, constraint_suffix=None, material_suffix=None, shading_group_suffix=None, texture_suffix=None, set_suffix=None, custom_suffixes=None, affix_mode=None, affix_modes=None, strip=None, strip_trailing_ints=False, strip_trailing_underscores=False, strip_trailing_padding=True, dry_run=False)` *(class)* — Apply each object's conventional type **affix** (stripping any other it
-  - `Naming.append_location_based_suffix(cls, objects, first_obj_as_ref=False, alphabetical=False, strip_trailing_ints=True, strip_defined_suffixes=True, valid_suffixes=None, reverse=False, independent_groups=False, dry_run=False)` *(class)* — Suffix objects by their distance from a reference point (origin, or the first object's
+  - `Naming.append_location_based_suffix(cls, objects, first_obj_as_ref=False, alphabetical=False, strip_trailing_ints=True, strip_defined_suffixes=True, valid_suffixes=None, reverse=False, independent_groups=False, order='distance', dry_run=False)` *(class)* — Suffix objects by location — ``_A``/``_B`` (``alphabetical``, ≤26) or ``_01``/``_02``.
+  - `Naming.legalize(name: str) -> str` *(static)* — *name* as an engine-safe name, or ``""`` when it holds no name at all -- mirror of
 
 <a id="edit_utils--primitives"></a>
 ### `edit_utils/primitives.py`
@@ -1499,7 +1499,7 @@ FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.
 - **[`class FbxUtils(_FbxUtilsInternal)`](blendertk/blendertk/env_utils/fbx_utils.py#L1985)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
   - `FbxUtils.hook(cls, role: str) -> Optional[Callable]` *(class)* — The callable :attr:`HOOKS` names for *role*, else the one an installed
   - `FbxUtils.producers(cls, only: Optional[Iterable[Any]] = None) -> Dict[Any, Callable]` *(class)* — :attr:`PRODUCERS` resolved to callables, unimportable ones skipped;
-  - `FbxUtils.export_context(cls, mode: str = ptk.ExportContext.PIPELINE, **decisions) -> ptk.ExportContext` *(class)* — A context for this file: provenance filled in, *decisions*
+  - `FbxUtils.export_context(cls, mode: str = ptk.ExportContext.PIPELINE, writer: str = 'fbx', writer_options: Optional[Dict[str, Any]] = None, **decisions) -> ptk.ExportContext` *(class)* — A context for this file: provenance filled in, *decisions*
   - `FbxUtils.publish(cls, ctx: Optional[ptk.ExportContext] = None, only: Optional[Iterable[Any]] = None) -> ptk.ExportSnapshot` *(class)* — Assemble every producer's record and commit the carrier ONCE
   - `FbxUtils.publish_authored(cls, records) -> ptk.ExportSnapshot` *(class)* — Commit records a tool already holds -- its AUTHORING-time publish
   - `FbxUtils.stagers(cls, names: Optional[Iterable[str]] = None) -> Dict[str, Tuple[Optional[Callable], Optional[Callable]]]` *(class)* — The stager table for a bracket: the known stagers (*names* narrows
@@ -1534,7 +1534,7 @@ Blender-side selection + export hooks shared by the hand-off bridge engines.
   - `BlenderExportMixin.lightmap_search_dirs(self) -> List[str]` — Where Blender's map files live now (:class:`pythontk.PreviewBridge` hook).
   - `BlenderExportMixin.hdr_codec(self) -> Any` — What a GLB built here encodes its float images with (:class:`pythontk.PreviewBridge` hook).
   - `BlenderExportMixin.scope_closure(cls, objects, params: Optional[Dict[str, Any]] = None) -> List[Any]` *(class)* — What a send of *objects* under *params*' Scope ships: their hierarchy closure.
-- **[`class BridgeHost`](blendertk/blendertk/env_utils/handoff_export.py#L700)** — What a bridge panel asks of Blender: a Scope's objects, what a send of them
+- **[`class BridgeHost`](blendertk/blendertk/env_utils/handoff_export.py#L711)** — What a bridge panel asks of Blender: a Scope's objects, what a send of them
   - `BridgeHost.resolve_scope(scope: str, bridge=None) -> List[Any]` *(static)* — The objects a ``SCOPE`` word names (``uitk.bridge.Parameters.scope_spec``).
   - `BridgeHost.scope_closure(objects, params: Optional[Dict[str, Any]] = None) -> List[Any]` *(static)* — What a send of the scoped *objects* ships: their hierarchy closure.
   - `BridgeHost.install_package(spec: str) -> None` *(static)* — Install the pip requirement *spec* where Blender imports it from.
@@ -1709,16 +1709,16 @@ Import a converted intermediate (USD or FBX) headlessly and save it as a ``.blen
 
 Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
 
-- [`uniquify_short_names(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L380) — Rename transforms until no two share a short name;
-- [`fbx_safe_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L459) — Swap every FBX-hostile shader for an equivalent phong on its shading group.
-- [`skinning_methods(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L612) — ``{mesh transform name: skinning method}`` for the manifest's ``skins``
-- [`scene_node_types(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L633) — ``{leaf name: "locator" | "group"}`` -- the node-type sidecar section.
-- [`scene_settings(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L677) — The scene's time setup -- the manifest's ``scene`` section, the one part of a
-- [`write_manifest(entries, visibility, node_types, scene, path, lights=(), skins=None, bones=None, scene_data=None, rig=None, machinery=None, stepped=None)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L704) — The ONE conversion sidecar, consumed by MayaSceneImport: ``materials`` =
-- [`scene_lights(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L770) — The manifest's ``lights`` section: every light in the scene, as data.
-- [`stepped_keys(spell)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1091) — The manifest's ``stepped_keys``: ``{node: {channel: [frames]}}`` -- the
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1259)
-- [`scene_data_sections(cmds, spell)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1376) — The scene's portable records as manifest sections (``shots``,
+- [`uniquify_short_names(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L416) — Rename transforms until no two share a short name;
+- [`fbx_safe_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L495) — Swap every FBX-hostile shader for an equivalent phong on its shading group.
+- [`skinning_methods(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L648) — ``{mesh transform name: skinning method}`` for the manifest's ``skins``
+- [`scene_node_types(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L669) — ``{leaf name: "locator" | "group"}`` -- the node-type sidecar section.
+- [`scene_settings(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L713) — The scene's time setup -- the manifest's ``scene`` section, the one part of a
+- [`write_manifest(entries, visibility, node_types, scene, path, lights=(), skins=None, bones=None, scene_data=None, rig=None, machinery=None, stepped=None)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L740) — The ONE conversion sidecar, consumed by MayaSceneImport: ``materials`` =
+- [`scene_lights(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L806) — The manifest's ``lights`` section: every light in the scene, as data.
+- [`stepped_keys(spell)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1127) — The manifest's ``stepped_keys``: ``{node: {channel: [frames]}}`` -- the
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1295)
+- [`scene_data_sections(cmds, spell)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1412) — The scene's portable records as manifest sections (``shots``,
 - [`SRC_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L48) — constant
 - [`OUT_FBX`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L49) — constant
 - [`EMBED_TEXTURES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L50) — constant
@@ -1727,9 +1727,11 @@ Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
 - [`RIG_MODE`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L58) — constant
 - [`RIG_CAPABILITY`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L59) — constant
 - [`MODERN_SHADER_TYPES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L76) — constant
-- [`STINGRAY_SHADER_TYPES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L79) — constant
-- [`STINGRAY_TEX_SLOTS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L82) — constant
-- [`STINGRAY_SLOT_CHANNELS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L96) — constant
+- [`EMISSION_WEIGHT_ATTRS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L83) — constant
+- [`OPACITY_ATTRS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L90) — constant
+- [`STINGRAY_SHADER_TYPES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L93) — constant
+- [`STINGRAY_TEX_SLOTS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L96) — constant
+- [`STINGRAY_SLOT_CHANNELS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L110) — constant
 
 <a id="env_utils--maya_bridge--templates--_import_scene_usd"></a>
 ### `env_utils/maya_bridge/templates/_import_scene_usd.py`
@@ -1931,15 +1933,6 @@ The Scene Exporter's task/check manager -- mirror of mayatk's ``TaskManager``.
   - `TaskManager.check_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the check definitions for the UI.
   - `TaskManager.definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return all definitions combined for backward compatibility.
 
-<a id="env_utils--scene_state"></a>
-### `env_utils/scene_state.py`
-
-Read named sections of live-scene state for transport.
-
-- **[`class SceneState`](blendertk/blendertk/env_utils/scene_state.py#L43)** — Section-registry reader of scene state the FBX cannot express --
-  - `SceneState.source() -> Dict[str, str]` *(static)* **DEPRECATED (remove in 0.21.0)** — This host's identity for the envelope's ``source`` key.
-  - `SceneState.read(cls, objects: List[Any], include_textures: bool = True, sections: Optional[List[str]] = None) -> Dict[str, Any]` *(class)* **DEPRECATED (remove in 0.21.0)** — Scene state the FBX cannot express, one key per requested section.
-
 <a id="env_utils--script_output"></a>
 ### `env_utils/script_output.py`
 
@@ -1959,21 +1952,20 @@ Blender script-output console — the blendertk analogue of mayatk's ``ScriptCon
 <a id="env_utils--unity_bridge--_unity_bridge"></a>
 ### `env_utils/unity_bridge/_unity_bridge.py`
 
-Unity bridge engine -- export the Blender selection into a Unity project's Assets/.
+Unity bridge engine -- the Blender half of the Unity Workflow app.
 
-- **[`class UnityBridge(BlenderExportMixin, pythontk.HandoffBridge)`](blendertk/blendertk/env_utils/unity_bridge/_unity_bridge.py#L40)** — Export the Blender selection and copy it into a Unity project's ``Assets/``.
-  - `UnityBridge.list_template_modes(self)`
-  - `UnityBridge.params_registry(cls)` *(class)* — The panel's parameter registry (``parameters.Parameters``, a
+- **[`class UnityBridge(BlenderExportMixin, pythontk.HandoffBridge)`](blendertk/blendertk/env_utils/unity_bridge/_unity_bridge.py#L34)** — Export the Blender scope for a Unity project, through the delivery the caller attaches.
+  - `UnityBridge.params_registry(cls)` *(class)* — The export rows the Unity Workflow app shows for its Current Scene
   - `UnityBridge.params_defaults(self)`
-  - `UnityBridge.list_delivery_modes(cls) -> List[Tuple[str, str]]` *(class)* — ``[(mode_stem, ""), ...]`` for the panel's delivery combo.
+  - `UnityBridge.install_package(spec: str) -> None` *(static)* — Install the pip requirement *spec* where this Blender session imports
 
 <a id="env_utils--unity_bridge--parameters"></a>
 ### `env_utils/unity_bridge/parameters.py`
 
-User-tunable parameters for the Blender->Unity bridge panel -- mirror of mayatk's
+The Blender export rows of the Unity hand-off -- mirror of mayatk's
 
-- [`PARAMS`](blendertk/blendertk/env_utils/unity_bridge/parameters.py#L26) — constant
-- **[`class Parameters(ParamRegistry)`](blendertk/blendertk/env_utils/unity_bridge/parameters.py#L167)** — Parameters — module namespace.
+- [`PARAMS`](blendertk/blendertk/env_utils/unity_bridge/parameters.py#L23) — constant
+- **[`class Parameters(ParamRegistry)`](blendertk/blendertk/env_utils/unity_bridge/parameters.py#L61)** — Parameters — module namespace.
 
 <a id="env_utils--upstream_patches"></a>
 ### `env_utils/upstream_patches.py`
@@ -2169,6 +2161,8 @@ The scene record a lightmap bake leaves in Blender: markers, manifest, and the f
   - `LightmapRecords.heal_lightmap_paths(cls, objects=None) -> Dict[str, Any]` *(class)* — Rewrite stale marker hints to where the maps actually are;
   - `LightmapRecords.normalize_lightmap_paths(cls, objects=None, relative: bool = True) -> int` *(class)* — Rewrite every in-scope marker's folder to its portable (or absolute) spelling.
   - `LightmapRecords.relocate_lightmaps(cls, dest_dir: str, source_dir: str = '', mode: str = 'copy', objects=None, dry_run: bool = False, maps: Optional[Iterable[str]] = None) -> Dict[str, Any]` *(class)* — Gather the scene's lightmaps into *dest_dir* and repoint the markers.
+  - `LightmapRecords.keep_sources(cls, deps: List[Dict[str, Any]], mode: str) -> List[str]` *(class)* — Mark the records a MOVE must copy instead (``keep_source``), and say
+  - `LightmapRecords.landed_dirs(paths: Iterable[str]) -> Dict[str, str]` *(static)* — ``{lower-case map name: its folder}`` for maps now at *paths* -- what
   - `LightmapRecords.repath_lightmaps(cls, dirs_by_map: Dict[str, str], objects=None, relative: bool = True) -> int` *(class)* — Point every in-scope marker naming a map in *dirs_by_map* at its new folder.
   - `LightmapRecords.rename_lightmap(cls, old_name: str, new_name: str) -> int` *(class)* — Re-stamp every record naming map *old_name* with *new_name*.
   - `LightmapRecords.fork_lightmap(cls, old_name: str, new_name: str) -> int` *(class)* — Make *new_name* -- this file's copy of a map another file wrote
@@ -2195,14 +2189,14 @@ Ship a committed lightmap bake in a web (GLB) deliverable.
 
 Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
 
-- [`SHADER_TEMPLATES`](blendertk/blendertk/mat_utils/_mat_utils.py#L1351) — constant
-- **[`class MatUpdater(pythontk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1463)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
+- [`SHADER_TEMPLATES`](blendertk/blendertk/mat_utils/_mat_utils.py#L1374) — constant
+- **[`class MatUpdater(pythontk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1486)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
   - `MatUpdater.shader_type_choices()` *(static)* — No retype targets: Blender has one surface shader (Principled BSDF), so there is
   - `MatUpdater.texture_root()` *(static)* — Where a run resolves a relative Output Folder and discovers sibling maps
   - `MatUpdater.selected_materials(cls, shader_type=None)` *(class)* — The materials a run over the selection acts on: those on the selected objects
   - `MatUpdater.materials_using_textures(paths, shader_type=None)` *(static)* — The scene materials whose shader graph reads an image at one of *paths* (the
   - `MatUpdater.update_materials(cls, materials=None, config=None, verbose=False, progress_callback=None, shader_type=None)` *(class)* — Reprocess the textures of ``materials`` and repath their image nodes to the results.
-- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1809)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
+- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1832)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
   - `MatUtils.get_node_tree(idblock, create: bool = False)` *(static)* — The node tree *idblock* renders through, or ``None``.
   - `MatUtils.get_mats(objects)` *(static)* — Unique materials assigned to the given object(s), in slot order.
   - `MatUtils.get_mat_names(objects=None)` *(static)* — The names of the materials on *objects* (None: the selection), in slot
@@ -2248,8 +2242,6 @@ Material utilities — mirror of mayatk's ``MatUtils`` public names where the co
   - `MatUtils.materials_for_textures(paths)` *(static)* — Scene materials whose shader graph references an image at one of ``paths`` (matched by
   - `MatUtils.fix_color_spaces(images=None, force_update=False, dry_run=False)` *(static)* — Assign each texture image its correct color space by map type — the Blender counterpart of
   - `MatUtils.set_texture_directory(images: Any = None, target_dir: Optional[str] = None, mode: str = 'rewrite', allow_missing: bool = False) -> int` *(static)* — Repath each image so its file lives directly under ``target_dir`` — mirror of the Texture
-  - `MatUtils.plan_find_and_copy_textures(images=None, search_dir=None, dest_dir=None, use_valid_paths=True)` *(static)* — What :func:`find_and_copy_textures` WOULD relocate and repath — nothing written.
-  - `MatUtils.find_and_copy_textures(images=None, search_dir=None, dest_dir=None, mode='copy', use_valid_paths=True)` *(static)* — Gather the textures used by ``images`` and relocate them into ``dest_dir`` (``mode``
   - `MatUtils.rename_texture_file(cls, path: str, new_name: str, images: Any = None) -> Dict[str, Any]` *(class)* — Rename a texture file on disk and repoint every image reading it.
   - `MatUtils.sync_material_names(cls, material: Any, base: str, material_affix: Tuple[str, str] = ('', ''), image_affix: Tuple[str, str] = ('', ''), images: Any = None, dry_run: bool = False, lightmaps: Optional[Any] = None) -> Dict[str, Any]` *(class)* — Name a material, its texture set, lightmap and images for ONE base.
   - `MatUtils.format_texture_paths_html(records=None)` *(static)* — Render :func:`get_image_records` as an HTML table for the panel/report (missing flagged).
@@ -2736,12 +2728,16 @@ HTTP RPC client for the Painter-side ``substance_rpc`` plugin.
 
 Install the substance_rpc plugin into Painter's user plugin folder.
 
-- [`PLUGIN_NAME`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/installer.py#L33) — constant
-- **[`class Installer(_InstallerInternal)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/installer.py#L110)** — Installer — module namespace.
+- [`PLUGIN_NAME`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/installer.py#L34) — constant
+- [`PAINTER_SETTINGS`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/installer.py#L114) — constant
+- [`LAUNCH_AT_START_KEY`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/installer.py#L115) — constant
+- **[`class Installer(_InstallerInternal)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/installer.py#L118)** — Installer — module namespace.
   - `Installer.user_plugin_dir() -> Optional[Path]` *(static)* — Resolve Painter's Python plugins folder.
   - `Installer.is_installed() -> bool` *(static)* — True if the plugin is present at the resolved user plugin dir.
   - `Installer.is_current() -> bool` *(static)* — True if the installed plugin matches the one this package ships.
   - `Installer.install(force: bool = False) -> Optional[Path]` *(static)* — Install the plugin into Painter's user plugin folder.
+  - `Installer.painter_settings()` *(static)* — Painter's own QSettings store, or ``None`` without Qt.
+  - `Installer.enable_launch_at_start() -> bool` *(static)* — Turn on Painter's switch to start the plugin at launch, unless the
   - `Installer.uninstall() -> bool` *(static)* — Remove the plugin from the user plugin folder.
 
 <a id="mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--__init__"></a>
@@ -2884,7 +2880,7 @@ Bake an object's shaded surface (material under scene lighting) to a texture —
 
 Texture Path Editor engine (Blender): the file's texture paths and the commands
 
-- **[`class TexturePathEditor(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/texture_path_editor.py#L38)** — The Texture Path Editor's scene half: images, their paths, and the commands
+- **[`class TexturePathEditor(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/texture_path_editor.py#L31)** — The Texture Path Editor's scene half: images, their paths, and the commands
   - `TexturePathEditor.texture_dir(self) -> str` — The project's texture folder -- Blender analogue of Maya's sourceimages:
   - `TexturePathEditor.resolve_path(self, path: str, file_node=None)` — ``(exists, absolute path)`` for a stored or typed *path* -- a linked
   - `TexturePathEditor.is_absolute_path(path: str) -> bool` *(static)* — Whether *path* is stored absolute (not a ``//`` .blend-relative path).
@@ -2899,7 +2895,11 @@ Texture Path Editor engine (Blender): the file's texture paths and the commands
   - `TexturePathEditor.normalize_paths(self, file_nodes, external_mode: str = 'rewrite') -> int` — Rewrite (selected) paths relative to the saved .blend (``//`` paths).
   - `TexturePathEditor.resolve_missing_textures(self, modes, file_nodes=None) -> int` — Rebind missing textures to files found under the texture folder.
   - `TexturePathEditor.unresolved_file_nodes(self, file_nodes)` — The images whose stored path does not resolve -- what a Find & Copy
-  - `TexturePathEditor.find_and_copy_textures(self, file_nodes, answers, lightmaps=(), dry_run=False, progress=None) -> bool` — Collect sources, relocate them into one directory, repath the images.
+  - `TexturePathEditor.plan_find_and_copy(self, file_nodes, answers, lightmaps=(), choices=None, progress=None)` — What Find & Copy would do: one row per image and per lightmap.
+  - `TexturePathEditor.find_and_copy_textures(self, file_nodes, answers, lightmaps=(), dry_run=False, progress=None, plan=None) -> bool` — Find & Copy: gather the scope's textures into one folder and repath.
+  - `TexturePathEditor.read_elsewhere(self, nodes)` — The files the file reads through images other than *nodes*
+  - `TexturePathEditor.stored_form(path: str, file_node=None) -> str` *(static)* — The path an image stores for the absolute *path*: ``//``-relative
+  - `TexturePathEditor.repath(self, rows) -> int` — Point each landed Collect row at its destination (``ptk.CollectHost``),
   - `TexturePathEditor.set_texture_path(self, file_node, path: str, relative: bool = False) -> str` — Point *file_node*'s image at *path* -- Browse for File, or a typed path.
   - `TexturePathEditor.is_file_rename(self, stored: str, typed: str, file_node=None) -> bool` — Whether a typed path renames *stored*'s file rather than repointing.
   - `TexturePathEditor.apply_path_edit(self, file_node, typed: str, shader=None, sync=None) -> str` — A path typed into *file_node*'s row: rename its file, or repoint it
