@@ -361,6 +361,34 @@ try:
         bpy.context.collection.objects.link(obj)
         return obj
 
+    # ---- S2-C: a swap renames both (two phases in every operation) -----------------------------
+    reset()
+    a, b = empty("obj1"), empty("obj2")
+    Naming.rename([a, b], "obj2|obj1", fltr="obj1|obj2")
+    check("swap renames both", (a.name, b.name) == ("obj2", "obj1"), f"{a.name},{b.name}")
+
+    # ---- S1-D / E: a linked object is skipped in one line, nothing stranded -------------------
+    lk = linked_object("lk")
+    a, b = empty("a", x=0.0), empty("b", x=2.0)
+    lk_x = lk.matrix_world.translation.x
+    with Captured() as log:
+        Naming.append_location_based_suffix([a, lk, b])
+    names = sorted(o.name for o in bpy.data.objects)
+    check(
+        "location: linked object skipped, nothing parked",
+        lk.name == "lk" and not [n for n in names if "naming" in n] and a.name == "a_01",
+        f"{names} lk_x={lk_x}",
+    )
+    check("location: one skip line", len(log.lines("Skipped")) == 1, log.texts)
+    with Captured() as log:
+        result = Naming.rename([lk, a], "**_x")
+    check(
+        "rename: linked skipped, no failure",
+        not log.lines("Could not rename") and len(log.lines("Skipped")) == 1
+        and result == ["lk", "a_01_x"],
+        f"{result} {log.texts}",
+    )
+
     # ---- G: a numbered duplicate is re-affixed, not decorated ----------------------------------
     reset()
     dup, idx = typed("crate_GEO.001", "MESH"), typed("wall_GEO_01", "MESH")
@@ -369,6 +397,37 @@ try:
         "suffix_by_type re-affixes a numbered duplicate",
         (dup.name, idx.name) == ("crate_001_GEO", "wall_01_GEO"),
         f"{dup.name},{idx.name}",
+    )
+
+    # ---- K / L: every planned name is legalized ------------------------------------------------
+    reset()
+    o = empty("a1box")
+    Naming.strip_chars([o], num_chars=1)
+    check("strip leading keeps the digit", o.name == "_1box", o.name)
+    reset()
+    o = empty("c4")
+    Naming.rename([o], "1box")
+    check("leading digit gets '_'", o.name == "_1box", o.name)
+    o = empty("c7")
+    with Captured() as log:
+        Naming.rename([o], "---")
+    check("nothing legal left: skipped", o.name == "c7" and log.lines("no letters or digits"), f"{o.name} {log.texts}")
+    o = empty("c6")
+    with Captured() as log:
+        Naming.rename([o], "crate_#")
+    check("'#' is not a counter", bool(log.lines("not a counter")), log.texts)
+
+    # ---- M: the dry run predicts Blender's numbering -------------------------------------------
+    reset()
+    empty("box")
+    cs = [empty(f"c{i}") for i in range(3)]
+    dry = Naming.rename(cs, "box", dry_run=True)
+    with Captured() as log:
+        live = Naming.rename(cs, "box")
+    check(
+        "dry run predicts the live numbering",
+        dry == live == ["box.001", "box.002", "box.003"] and not log.lines("instead of"),
+        f"dry={dry} live={live} {log.texts}",
     )
 
 except Exception:

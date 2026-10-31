@@ -74,6 +74,12 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
         "objectSet": "No Blender equivalent: Sets are Maya-only (a collection is a membership group, not an object type).",
     }
 
+    #: What a rename pattern holding ``#`` is told -- mirror of mayatk's.
+    HASH_NOTE = (
+        "'#' is not a counter here: it is replaced by '_'. A name already taken "
+        "is numbered the way Blender numbers it (box, box.001, box.002)."
+    )
+
     @ptk.ClassProperty
     def SUFFIX_TYPES(cls) -> Tuple[Tuple[str, str, str, str], ...]:
         """``(keyword, affix, label, type key)`` -- the live convention, joined
@@ -170,6 +176,8 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
         renaming. Returns the new names parallel to ``objects`` (the planned names on a dry run).
         """
         objects = [o for o in ptk.make_iterable(objects) if o]
+        if "#" in to:
+            cls.logger.warning(cls.HASH_NOTE)
         name_to_obj = {
             o.name: o for o in objects
         }  # Blender object names are globally unique
@@ -253,7 +261,8 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
     @classmethod
     def strip_chars(cls, objects, num_chars=1, trailing=False, dry_run=False):
         """Delete ``num_chars`` leading (or ``trailing``) characters from each object's name —
-        mirror of mayatk's ``strip_chars``. Returns the new names (one per object renamed)."""
+        mirror of mayatk's ``strip_chars``. A digit left in front is kept, legalized
+        (``a1box`` minus ``a`` -> ``_1box``). Returns the new names (one per object renamed)."""
         plan = []
         for o in (o for o in ptk.make_iterable(objects) if o):
             s = o.name
@@ -269,8 +278,10 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
 
     @classmethod
     def set_case(cls, objects, case="capitalize", dry_run=False):
-        """Rename objects by Python string case op — ``upper`` / ``lower`` / ``capitalize`` /
-        ``swapcase`` / ``title``. Mirror of mayatk's ``set_case``. Returns the new names."""
+        """Rename objects by a :meth:`pythontk.StrUtils.set_case` case — ``upper`` / ``lower`` /
+        ``capitalize`` / ``swapcase`` / ``title`` (Python's, which lower every other letter) or
+        ``upper_first`` / ``upper_initials`` (first letters raised, the rest kept). Mirror of
+        mayatk's ``set_case``. Returns the new names."""
         plan = [
             (o, o.name, ptk.set_case(o.name, case))
             for o in ptk.make_iterable(objects)
@@ -531,18 +542,32 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
         plan = [
             (o, o.name, cls.strip_illegal_chars(name)) for o, name in new_names.items()
         ]
-        if not dry_run:
-            # Two-pass (placeholder then final) so a target name freed by a later rename doesn't
-            # collide into a ``.001`` artifact. Unchanged entries are never renamed back by the
-            # plan, so they must keep their name here.
-            for o, old, new in plan:
-                if new != old:
-                    o.name = f"__naming_tmp_{id(o)}"
+        # Two phases (no target collides with a name the batch still holds) are the shared
+        # plan step's, after its skip filter. Mirrors mayatk.
         return cls._apply_plan(plan, "Suffix By Location", dry_run)
 
     # ------------------------------------------------------------------
     # Plan execution — shared by every operation
     # ------------------------------------------------------------------
+
+    #: Where each datablock type's names live (a name is unique per type): the pools
+    #: :meth:`_predict` checks a new name against, by ``ID.id_type``.
+    _NAME_POOLS = {
+        "OBJECT": "objects",
+        "MATERIAL": "materials",
+        "IMAGE": "images",
+        "TEXTURE": "textures",
+    }
+
+    @staticmethod
+    def legalize(name: str) -> str:
+        """*name* as an engine-safe name, or ``""`` when it holds no name at all -- mirror of
+        mayatk's. Every planned name passes through here (the shared plan step): each character
+        outside letters, digits and ``_`` becomes ``_`` and a leading digit gets a ``_`` in
+        front, so a name survives the trip to Maya or an engine; a name of underscores alone
+        (``---``) or nothing is skipped, with a warning."""
+        legal = ptk.StrUtils.to_identifier(name)
+        return legal if legal.strip("_") else ""
 
     @staticmethod
     def _rename_object(obj, new_name: str) -> str:
@@ -551,24 +576,108 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
         return obj.name  # Blender may append .001 on collision
 
     @classmethod
+    def _park(cls, obj, index: int) -> None:
+        """The two-phase run's placeholder (:meth:`pythontk.RenamePlan.apply`'s ``park``)."""
+        obj.name = f"__naming_park_{index}"
+
+    @classmethod
     def _object_link(cls, obj, name: str) -> str:
         """Render a report item as a link that selects the object in the viewport."""
         return cls.log_link(name, "select", node=obj.name)
 
+    @staticmethod
+    def _uniquify(name: str, taken) -> str:
+        """Blender's rule for a taken *name*, measured in Blender 5.1: the lowest free
+        ``.NNN`` (from ``.001``) on the name less any ``.NNN`` it carries -- past ``box`` and
+        ``box.002`` comes ``box.001``; ``box1`` gives ``box1.001``."""
+        base = re.sub(r"\.\d{3,}$", "", name)
+        n = 1
+        while f"{base}.{n:03d}" in taken:
+            n += 1
+        return f"{base}.{n:03d}"
+
+    @classmethod
+    def _predict(cls, plan) -> List[str]:
+        """The names Blender gives *plan*'s entries on collision, in order
+        (:meth:`pythontk.RenamePlan.predict`), so a dry run previews the live run -- mirror of
+        mayatk's. A name is unique among the local datablocks of its type."""
+        import bpy
+
+        def pool_of(item):
+            return getattr(item, "id_type", None) or type(item).__name__
+
+        def scopes(item):
+            pool = (pool_of(item),)
+            return pool, pool
+
+        def names(pool):
+            attr = cls._NAME_POOLS.get(pool)
+            blocks = getattr(bpy.data, attr, None) if attr else None
+            return [b.name for b in blocks or () if getattr(b, "library", None) is None]
+
+        return ptk.RenamePlan.predict(plan, scopes, names, cls._uniquify)
+
+    @staticmethod
+    def _listed(items, limit: int = 10) -> str:
+        """``a, b, …`` -- a tally line's names, the first *limit* of them."""
+        shown = ", ".join(items[:limit])
+        return f"{shown}, …" if len(items) > limit else shown
+
     @classmethod
     def _apply_plan(cls, plan, title: str, dry_run: bool) -> List[str]:
-        """Apply ``(obj, old, new)`` entries and report; returns the resulting names."""
-        results = ptk.RenamePlan.apply(
-            plan,
+        """Apply ``(obj, old, new)`` entries and report; returns the resulting names, parallel
+        to *plan* -- mirror of mayatk's plan step (Blender has no shapes to follow): each new
+        name legalized (:meth:`legalize`, one with no name left skipped in one warning); what
+        Blender will not rename (a library-linked datablock) skipped in one line; the names
+        Blender numbers on a collision predicted (:meth:`_predict`) and reported in one line;
+        then a two-phase run (``park``), so no rename meets a name the batch still holds and
+        nothing is left on a placeholder. A dry run returns the predicted names."""
+        plan = list(plan)
+        staged, nameless = [], []
+        for obj, old, new in plan:
+            if new != old:
+                legal = cls.legalize(new)
+                if not legal:
+                    nameless.append(f"{old} → '{new}'")
+                    continue
+                new = legal
+            staged.append((obj, old, new))
+        if nameless:
+            cls.logger.warning(
+                f"Skipped {len(nameless)} name(s) with no letters or digits left: "
+                f"{cls._listed(nameless)}"
+            )
+        locked = [old for obj, old, _new in staged if not getattr(obj, "is_editable", True)]
+        if locked:
+            cls.logger.info(
+                f"Skipped {len(locked)} object(s) Blender will not rename (linked from a "
+                f"library): {cls._listed(locked)}"
+            )
+        live = [e for e in staged if getattr(e[0], "is_editable", True)]
+        predicted = cls._predict(live)
+        numbered = [
+            f"{old} → {got}" for (_o, old, new), got in zip(live, predicted) if got != new
+        ]
+        if numbered:
+            cls.logger.warning(
+                f"{len(numbered)} name(s) already taken, numbered as Blender numbers them: "
+                f"{cls._listed(numbered)}"
+            )
+        live = [(obj, old, got) for (obj, old, _new), got in zip(live, predicted)]
+        ptk.RenamePlan.apply(
+            live,
             cls._rename_object,
             title=title,
             dry_run=dry_run,
             logger=cls.logger,
             link=cls._object_link,
             unit="object",
+            park=cls._park,
         )
-        return [new for _old, new in results]
-
+        if dry_run:
+            planned = {id(obj): new for obj, _old, new in live}
+            return [planned.get(id(obj), old) for obj, old, _new in plan]
+        return [obj.name for obj, _old, _new in plan]
 
 # -----------------------------------------------------------------------------
 
