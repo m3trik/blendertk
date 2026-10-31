@@ -2,7 +2,7 @@
 
 _Diff vs the last release (origin/main @ 8cca703)._
 
-## Moved out (850)
+## Moved out (883)
 
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
 - `anim_utils/blendshape_animator/blendshape_animator_slots.py::BlendshapeAnimatorSlots.b000` → `tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots` (from 0.23.0)
@@ -38,6 +38,28 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots.refresh` → `tentacle.slots.tools.key_stash.KeyStashSlots` (from 0.23.0)
 - `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots.refresh_from_scene` → `tentacle.slots.tools.key_stash.KeyStashSlots` (from 0.23.0)
 - `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots.store` → `tentacle.slots.tools.key_stash.KeyStashSlots` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore` → `blendertk.ShotStore` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.active` → `blendertk.ShotStore` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.apply_transfer` → `blendertk.ShotStore` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.assess` → `blendertk.ShotStore` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.collect_selected_key_entries` → `blendertk.BlenderShotsHost.collect_selected_key_entries` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.collect_transform_segments` → `blendertk.BlenderShotsHost.collect_transform_segments` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.curve_key` → `blendertk.BlenderShotsHost.curve_key` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.detect_regions` → `blendertk.ShotStore` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.discard_carrier` → `blendertk.ShotStore` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.edit_serial` → `blendertk.BlenderShotsHost.edit_serial` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.export_transfer` → `blendertk.ShotStore` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.follow_renames` → `blendertk.ShotStore` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.from_dict` → `blendertk.ShotStore` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.has_animation` → `blendertk.ShotStore` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.iter_action_fcurves` → `blendertk.AnimUtils.get_fcurves` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.member_nodes` → `blendertk.ShotStore` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.merge_carrier` → `blendertk.ShotStore` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.publish_export_view` → `blendertk.ShotStore` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.rescale_to_fps` → `blendertk.ShotStore` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.scene_edit` → `blendertk.ShotStore` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.transfer_in` → `blendertk.ShotStore` (from 0.23.0)
+- `anim_utils/shots/_shots.py::BlenderShotStore.transfer_out` → `blendertk.ShotStore` (from 0.23.0)
 - `anim_utils/shots/shot_manifest/export_preview.py::ExportPreviewMixin` → `tentacle.slots.tools._shot_manifest.export_preview.ExportPreviewMixin` (from 0.23.0)
 - `anim_utils/shots/shot_manifest/export_preview.py::ExportPreviewMixin.export` → `tentacle.slots.tools._shot_manifest.export_preview.ExportPreviewMixin` (from 0.23.0)
 - `anim_utils/shots/shot_manifest/header_menu.py::HeaderMenuMixin` → `tentacle.slots.tools._shot_manifest.header_menu.HeaderMenuMixin` (from 0.23.0)
@@ -280,8 +302,11 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `audio_utils/audio_clips.py::AudioClipsSlots.select_track` → `tentacle.slots.tools.audio_clips.AudioClipsSlots` (from 0.23.0)
 - `audio_utils/audio_clips.py::AudioClipsSlots.tb001` → `tentacle.slots.tools.audio_clips.AudioClipsSlots` (from 0.23.0)
 - `audio_utils/audio_clips.py::AudioClipsSlots.tb001_init` → `tentacle.slots.tools.audio_clips.AudioClipsSlots` (from 0.23.0)
+- `core_utils/_core_utils.py::CoreUtils.cleanup_scene` → `blendertk.CoreUtils.purge_unused_data` (from 0.23.0)
+- `core_utils/_core_utils.py::CoreUtils.get_env_info` → `blendertk.EnvUtils.get_env_info` (from 0.23.0)
 - `core_utils/_core_utils.py::CoreUtils.get_recent_autosave` → `blendertk.EnvUtils.get_recent_autosave` (from 0.23.0)
 - `core_utils/_core_utils.py::CoreUtils.get_recent_files` → `blendertk.EnvUtils.get_recent_files` (from 0.23.0)
+- `core_utils/preview.py::Preview.commit` → `blendertk.Preview.finalize_changes` (from 0.23.0)
 - `display_utils/color_id.py::ColorIdSlots` → `tentacle.slots.tools.color_id.ColorIdSlots` (from 0.23.0)
 - `display_utils/color_id.py::ColorIdSlots.b000` → `tentacle.slots.tools.color_id.ColorIdSlots` (from 0.23.0)
 - `display_utils/color_id.py::ColorIdSlots.b001` → `tentacle.slots.tools.color_id.ColorIdSlots` (from 0.23.0)
@@ -297,6 +322,8 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `display_utils/exploded_view.py::ExplodedViewSlots.b002` → `tentacle.slots.tools.exploded_view.ExplodedViewSlots` (from 0.23.0)
 - `display_utils/exploded_view.py::ExplodedViewSlots.b003` → `tentacle.slots.tools.exploded_view.ExplodedViewSlots` (from 0.23.0)
 - `display_utils/exploded_view.py::ExplodedViewSlots.header_init` → `tentacle.slots.tools.exploded_view.ExplodedViewSlots` (from 0.23.0)
+- `edit_utils/_edit_utils.py::EditUtils.clean_geometry` → `blendertk.Diagnostics.clean_geometry` (from 0.23.0)
+- `edit_utils/_edit_utils.py::EditUtils.get_standoff_distances` → `blendertk.Components.get_standoff_distances` (from 0.23.0)
 - `edit_utils/_edit_utils.py::EditUtils.loft` → `blendertk.NurbsUtils.loft` (from 0.23.0)
 - `edit_utils/bevel.py::BevelSlots` → `tentacle.slots.tools.bevel.BevelSlots` (from 0.23.0)
 - `edit_utils/bevel.py::BevelSlots.header_init` → `tentacle.slots.tools.bevel.BevelSlots` (from 0.23.0)
@@ -304,6 +331,10 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `edit_utils/bridge.py::BridgeSlots` → `tentacle.slots.tools.bridge.BridgeSlots` (from 0.23.0)
 - `edit_utils/bridge.py::BridgeSlots.header_init` → `tentacle.slots.tools.bridge.BridgeSlots` (from 0.23.0)
 - `edit_utils/bridge.py::BridgeSlots.perform_operation` → `tentacle.slots.tools.bridge.BridgeSlots` (from 0.23.0)
+- `edit_utils/curtain/_curtain_drape.py::CurtainDrape` → `pythontk.CurtainDrape` (from 0.23.0)
+- `edit_utils/curtain/_curtain_drape.py::CurtainDrape.drape` → `pythontk.CurtainDrape` (from 0.23.0)
+- `edit_utils/curtain/_curtain_drape.py::CurtainDrape.grid_points` → `pythontk.CurtainDrape` (from 0.23.0)
+- `edit_utils/curtain/_curtain_drape.py::CurtainDrape.prepare` → `pythontk.CurtainDrape` (from 0.23.0)
 - `edit_utils/curtain/curtain_slots.py::CurtainSlots` → `tentacle.slots.tools.curtain.CurtainSlots` (from 0.23.0)
 - `edit_utils/curtain/curtain_slots.py::CurtainSlots.b001_init` → `tentacle.slots.tools.curtain.CurtainSlots` (from 0.23.0)
 - `edit_utils/curtain/curtain_slots.py::CurtainSlots.b002` → `tentacle.slots.tools.curtain.CurtainSlots` (from 0.23.0)
@@ -426,12 +457,12 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `env_utils/hierarchy_sync/tree_utils.py::TreePathMatcher.get_selected_tree_items` → `tentacle.slots.tools._hierarchy_sync.tree_matcher.TreePathMatcher` (from 0.23.0)
 - `env_utils/hierarchy_sync/tree_utils.py::TreePathMatcher.log_matching_debug` → `tentacle.slots.tools._hierarchy_sync.tree_matcher.TreePathMatcher` (from 0.23.0)
 - `env_utils/hierarchy_sync/tree_utils.py::TreePathMatcher.log_tree_index_debug` → `tentacle.slots.tools._hierarchy_sync.tree_matcher.TreePathMatcher` (from 0.23.0)
-- `env_utils/maya_bridge/maya_bridge_slots.py::MayaBridgeSlots` → `tentacle.slots.tools.maya_bridge.MayaBridgeSlots` (from 0.23.0)
-- `env_utils/maya_bridge/maya_bridge_slots.py::MayaBridgeSlots.b000` → `tentacle.slots.tools.maya_bridge.MayaBridgeSlots` (from 0.23.0)
-- `env_utils/maya_bridge/maya_bridge_slots.py::MayaBridgeSlots.list_template_modes` → `tentacle.slots.tools.maya_bridge.MayaBridgeSlots` (from 0.23.0)
-- `env_utils/maya_bridge/maya_bridge_slots.py::MayaBridgeSlots.make_bridge` → `tentacle.slots.tools.maya_bridge.MayaBridgeSlots` (from 0.23.0)
-- `env_utils/maya_bridge/maya_bridge_slots.py::MayaBridgeSlots.params_module` → `tentacle.slots.tools.maya_bridge.MayaBridgeSlots` (from 0.23.0)
-- `env_utils/maya_bridge/maya_bridge_slots.py::MayaBridgeSlots.template_dir` → `tentacle.slots.tools.maya_bridge.MayaBridgeSlots` (from 0.23.0)
+- `env_utils/maya_bridge/maya_bridge_slots.py::MayaBridgeSlots` → `tentacle.slots.tools.dcc_bridge.DccBridgeSlots` (from 0.23.0)
+- `env_utils/maya_bridge/maya_bridge_slots.py::MayaBridgeSlots.b000` → `tentacle.slots.tools.dcc_bridge.DccBridgeSlots` (from 0.23.0)
+- `env_utils/maya_bridge/maya_bridge_slots.py::MayaBridgeSlots.list_template_modes` → `tentacle.slots.tools.dcc_bridge.DccBridgeSlots` (from 0.23.0)
+- `env_utils/maya_bridge/maya_bridge_slots.py::MayaBridgeSlots.make_bridge` → `tentacle.slots.tools.dcc_bridge.DccBridgeSlots` (from 0.23.0)
+- `env_utils/maya_bridge/maya_bridge_slots.py::MayaBridgeSlots.params_module` → `tentacle.slots.tools.dcc_bridge.DccBridgeSlots` (from 0.23.0)
+- `env_utils/maya_bridge/maya_bridge_slots.py::MayaBridgeSlots.template_dir` → `tentacle.slots.tools.dcc_bridge.DccBridgeSlots` (from 0.23.0)
 - `env_utils/reference_manager.py::ReferenceManagerSlots` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
 - `env_utils/reference_manager.py::ReferenceManagerSlots.cmb000_init` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
 - `env_utils/reference_manager.py::ReferenceManagerSlots.copy_path_selected` → `tentacle.slots.tools.reference_manager.ReferenceManagerSlots` (from 0.23.0)
@@ -487,17 +518,17 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `env_utils/unity_bridge/unity_bridge_slots.py::UnityBridgeSlots.b000` → `tentacle.slots.tools.unity_bridge.UnityBridgeSlots` (from 0.23.0)
 - `env_utils/unity_bridge/unity_bridge_slots.py::UnityBridgeSlots.make_bridge` → `tentacle.slots.tools.unity_bridge.UnityBridgeSlots` (from 0.23.0)
 - `env_utils/unity_bridge/unity_bridge_slots.py::UnityBridgeSlots.params_module` → `tentacle.slots.tools.unity_bridge.UnityBridgeSlots` (from 0.23.0)
-- `env_utils/workspace_editor.py::WorkspaceEditorSlots` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
-- `env_utils/workspace_editor.py::WorkspaceEditorSlots.add_rule` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
-- `env_utils/workspace_editor.py::WorkspaceEditorSlots.clear_rules` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
-- `env_utils/workspace_editor.py::WorkspaceEditorSlots.create_project` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
-- `env_utils/workspace_editor.py::WorkspaceEditorSlots.header_init` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
-- `env_utils/workspace_editor.py::WorkspaceEditorSlots.open_folder` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
-- `env_utils/workspace_editor.py::WorkspaceEditorSlots.remove_row` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
-- `env_utils/workspace_editor.py::WorkspaceEditorSlots.reset_row` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
-- `env_utils/workspace_editor.py::WorkspaceEditorSlots.reset_rules` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
-- `env_utils/workspace_editor.py::WorkspaceEditorSlots.tbl000_init` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
-- `env_utils/workspace_editor.py::WorkspaceEditorSlots.txt000_init` → `tentacle.slots.tools.workspace_editor.WorkspaceEditorSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots` → `tentacle.slots.tools.workspaces.WorkspacesSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.add_rule` → `tentacle.slots.tools.workspaces.WorkspacesSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.clear_rules` → `tentacle.slots.tools.workspaces.WorkspacesSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.create_project` → `tentacle.slots.tools.workspaces.WorkspacesSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.header_init` → `tentacle.slots.tools.workspaces.WorkspacesSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.open_folder` → `tentacle.slots.tools.workspaces.WorkspacesSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.remove_row` → `tentacle.slots.tools.workspaces.WorkspacesSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.reset_row` → `tentacle.slots.tools.workspaces.WorkspacesSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.reset_rules` → `tentacle.slots.tools.workspaces.WorkspacesSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.tbl000_init` → `tentacle.slots.tools.workspaces.WorkspacesSlots` (from 0.23.0)
+- `env_utils/workspace_editor.py::WorkspaceEditorSlots.txt000_init` → `tentacle.slots.tools.workspaces.WorkspacesSlots` (from 0.23.0)
 - `light_utils/hdr_manager.py::HdrManagerSlots` → `tentacle.slots.tools.hdr_manager.HdrManagerSlots` (from 0.23.0)
 - `light_utils/hdr_manager.py::HdrManagerSlots.add_hdr` → `tentacle.slots.tools.hdr_manager.HdrManagerSlots` (from 0.23.0)
 - `light_utils/hdr_manager.py::HdrManagerSlots.clear_network` → `tentacle.slots.tools.hdr_manager.HdrManagerSlots` (from 0.23.0)
@@ -547,6 +578,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.track_selected` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
 - `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.txt000_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
 - `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.txt_output_dir_init` → `tentacle.slots.tools.lightmap_baker.LightmapBakerSlots` (from 0.23.0)
+- `mat_utils/_mat_utils.py::MatUtils.get_mat_swatch_icon` → `blendertk.MatUtils.get_mat_swatch_color` (from 0.23.0)
 - `mat_utils/arnold_bridge.py::ArnoldBridgeSlots` → `tentacle.slots.tools.arnold_bridge.ArnoldBridgeSlots` (from 0.23.0)
 - `mat_utils/arnold_bridge.py::ArnoldBridgeSlots.cmb000_init` → `tentacle.slots.tools.arnold_bridge.ArnoldBridgeSlots` (from 0.23.0)
 - `mat_utils/arnold_bridge.py::ArnoldBridgeSlots.header_init` → `tentacle.slots.tools.arnold_bridge.ArnoldBridgeSlots` (from 0.23.0)
@@ -662,6 +694,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/texture_path_editor.py::TexturePathEditorSlots.tb_set_texture_directory` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
 - `mat_utils/texture_path_editor.py::TexturePathEditorSlots.tb_set_texture_directory_init` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
 - `mat_utils/texture_path_editor.py::TexturePathEditorSlots.tbl000_init` → `tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots` (from 0.23.0)
+- `node_utils/_node_utils.py::NodeUtils.reparent` → `blendertk.NodeUtils.set_parent` (from 0.23.0)
 - `node_utils/attributes/channels/_channels.py::Channels.copy_values` → `blendertk.Channels.copy_attr_values` (from 0.23.0)
 - `node_utils/attributes/channels/_channels.py::Channels.paste_values` → `blendertk.Channels.paste_attr_values` (from 0.23.0)
 - `node_utils/attributes/channels/channels_slots.py::ChannelsSlots` → `tentacle.slots.tools.channels.ChannelsSlots` (from 0.23.0)
@@ -855,7 +888,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (572)
+## Added (649)
 
 - `anim_utils/_anim_utils.py::AnimUtils.copied_key_counts(copied_data)`
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
@@ -873,21 +906,61 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.selected_base(cls) -> Optional[str]`
 - `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.target_mesh(self) -> Optional[str]`
 - `anim_utils/blendshape_animator/_blendshape_animator.py::BlendshapeAnimator.tween_topology(self)`
+- `anim_utils/key_stash/_key_stash.py::BlenderKeyStashHost(class)`
+- `anim_utils/key_stash/_key_stash.py::BlenderKeyStashHost.persistence(store_cls: type) -> Optional[BlenderScenePersistence]`
+- `anim_utils/key_stash/_key_stash.py::BlenderKeyStashHost.reconcile(store) -> List[int]`
+- `anim_utils/key_stash/_key_stash.py::BlenderKeyStashHost.save_in_step(backend, data: Dict[str, Any]) -> bool`
+- `anim_utils/key_stash/_key_stash.py::BlenderKeyStashHost.scene_fps() -> float`
+- `anim_utils/key_stash/_key_stash.py::BlenderKeyStashHost.schedule_flush(store) -> None`
+- `anim_utils/key_stash/_key_stash.py::BlenderKeyStashHost.script_jobs()`
+- `anim_utils/key_stash/_key_stash.py::BlenderKeyStashHost.store_state() -> '_KeyStashState'`
+- `anim_utils/key_stash/_key_stash.py::BlenderKeyStashHost.undo_chunk(name: str) -> ContextManager[Any]`
 - `anim_utils/key_stash/_key_stash.py::KeyStash.select_clip_objects(self, clip_id: int) -> List[str]`
-- `anim_utils/key_stash/_key_stash.py::KeyStash.stash_from(self, source: str) -> Optional[StashedClip]`
-- `anim_utils/key_stash/_key_stash.py::KeyStash.watch_undo(cls, owner, widget=None) -> List[int]`
+- `anim_utils/key_stash/_key_stash.py::KeyStash.stash_from(self, source: str) -> Optional[ptk.StashedClip]`
+- `anim_utils/playblast_exporter.py::BlenderPlayblastHost(class)`
+- `anim_utils/playblast_exporter.py::BlenderPlayblastHost.capture_frames(self, exporter: ptk.SequenceExporter, directory: str, prefix: str, start: int, end: int, camera: Any, image_format: str, padding: int, overrides: Dict[str, Any]) -> None`
+- `anim_utils/playblast_exporter.py::BlenderPlayblastHost.capture_movie(self, exporter: ptk.SequenceExporter, filepath: str, fmt: str, compression: str, start: int, end: int, camera: Any, sound: Optional[str], overrides: Dict[str, Any]) -> str`
+- `anim_utils/playblast_exporter.py::BlenderPlayblastHost.frame_range(self, mode: str) -> Tuple[float, float]`
+- `anim_utils/playblast_exporter.py::BlenderPlayblastHost.resolve_path(path: str) -> str`
+- `anim_utils/playblast_exporter.py::BlenderPlayblastHost.sequence_fps(self) -> float`
+- `anim_utils/playblast_exporter.py::BlenderPlayblastHost.sequence_name() -> str`
+- `anim_utils/playblast_exporter.py::BlenderPlayblastHost.sound_source() -> Optional[str]`
 - `anim_utils/playblast_exporter.py::PlayblastExporter(class)`
 - `anim_utils/playblast_exporter.py::PlayblastExporter.capture_movie(self, filepath: str, container: str = 'MPEG4', codec: str = 'H264', start: Optional[int] = None, end: Optional[int] = None, camera=None, sound: Optional[str] = None, **overrides: Any) -> str`
-- `anim_utils/playblast_exporter.py::PlayblastExporter.capture_sequence(self, directory: str, prefix: Optional[str] = None, start: Optional[int] = None, end: Optional[int] = None, camera=None, image_format: str = 'png', **overrides: Any) -> CaptureResult`
-- `anim_utils/playblast_exporter.py::PlayblastExporter.capture_still(self, filepath: str, frame: Optional[int] = None, camera=None, image_format: str = 'png', **overrides: Any) -> str`
-- `anim_utils/playblast_exporter.py::PlayblastExporter.export(self, output_dir: str, *args: Any, **kwargs: Any) -> List[Any]`
-- `anim_utils/playblast_exporter.py::PlayblastExporter.scene_fps(cls) -> float`
-- `anim_utils/playblast_exporter.py::PlayblastExporter.scene_name() -> str`
-- `anim_utils/playblast_exporter.py::PlayblastExporter.sequence_fps(self) -> float`
-- `anim_utils/playblast_exporter.py::PlayblastExporter.sequence_name(self) -> str`
 - `anim_utils/segment_keys.py::SegmentKeys.format_scene_info_html(cls, objects=None, detailed: bool = True, csv_output: bool = False, by_time: bool = False, ignore_holds: bool = True, traversal: Optional[str] = None, progress_callback=None) -> str`
-- `anim_utils/shots/_shots.py::BlenderShotStore.fcurve_for_key(key: str)`
-- `anim_utils/shots/_shots.py::BlenderShotStore.is_transform_path(data_path: str) -> bool`
+- `anim_utils/shots/_shots.py::BlenderShotsHost(class)`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.assess(store) -> Dict[int, str]`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.audio_spans() -> List[tuple]`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.available() -> bool`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.collect_selected_key_entries(scene=None) -> List[Tuple[float, float, str]]`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.collect_transform_segments(scene=None, gap_threshold: float = 5.0, objects: Optional[List[str]] = None, ignore=None, motion_rate: float = 0.001) -> List[Dict[str, Any]]`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.curve_key(obj_name: str, data_path: str, index: int = 0) -> str`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.curve_ledger_keys(cls, store, objects=None)`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.detection()`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.edit_serial(cls) -> int`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.existing_objects(store, names) -> set`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.export_producer(enabled: bool) -> None`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.fcurve_for_key(key: str)`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.follow_renames(cls, store) -> bool`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.has_animation(cls) -> bool`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.install_undo_sync(cls, on_step) -> None`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.is_transform_path(data_path: str) -> bool`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.keyed_windows(cls, store, windows) -> List[bool]`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.legacy_prefs() -> None`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.member_ids(names) -> Dict[str, str]`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.member_nodes(name: str) -> List[str]`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.members_keyed_windows(cls, store, entries) -> List[Optional[bool]]`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.migrate_ledger(cls, store) -> None`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.persistence() -> Optional[BlenderScenePersistence]`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.publish_records(records) -> Optional[str]`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.remove_undo_sync(cls, on_step) -> None`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.resolve(cls) -> Optional['BlenderShotsHost']`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.scene_fps() -> float`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.schedule_flush(store) -> None`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.step_crossed(cls, marker, redo: bool = False) -> bool`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.store_state(cls) -> _BlenderStoreState`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.transfer() -> '_BlenderShotTransfer'`
+- `anim_utils/shots/_shots.py::BlenderShotsHost.undo_step(cls, store, label: str = 'edit', snapshot: bool = True)`
 - `anim_utils/shots/shot_manifest/manifest_host.py::ManifestHost.behaviors_cls()`
 - `anim_utils/shots/shot_manifest/manifest_host.py::ManifestHost.range_resolver_cls()`
 - `anim_utils/shots/shot_sequencer/sequencer_host.py::SequencerHost(class)`
@@ -978,11 +1051,25 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `core_utils/_core_utils.py::CoreUtils.select(objects, mode: str = 'replace') -> list`
 - `core_utils/_core_utils.py::CoreUtils.selected(func: Callable) -> Callable`
 - `core_utils/_core_utils.py::CoreUtils.suspended_refresh()`
+- `core_utils/diagnostics/mesh_diag.py::MeshDiagnostics.clean_geometry(objects, *, merge=True, merge_distance=0.0001, delete_loose=True, degenerate=True, recalculate=True, fill_holes=False)`
 - `core_utils/diagnostics/mesh_diag.py::MeshDiagnostics.cleanup_meshes(cls, scope='selected', repair=False, *, checks=(), area_tolerance=1e-05, edge_length_tolerance=1e-05, uv_area_tolerance=1e-05, merge_vertices=False, merge_distance=0.0001, delete_history=False, delete_loose=False, dissolve_degenerate=False, recalculate_normals=False, fill_holes=False, overlapping_faces=False, overlapping_objects=False, omit_selected=False)`
 - `core_utils/diagnostics/scene_diag.py::SceneDiagnostics(class)`
 - `core_utils/diagnostics/scene_diag.py::SceneDiagnostics.fix_missing_color_spaces(images=None, force_update=False, dry_run=False, verbose=True)`
 - `core_utils/diagnostics/transform_diag.py::TransformDiagnostics.transforms_in_scope(scope='selection')`
 - `core_utils/diagnostics/uv_diag.py::UvDiagnostics.cleanup_uv_sets(objects, remove_empty=True, keep_only_primary=True, rename_to_map1=True, force_rename=False, prefer_largest_area=False, dry_run=False)`
+- `core_utils/diagnostics/uv_diag.py::UvDiagnostics.find_lightmap_uv_set(obj)`
+- `core_utils/preview.py::BlenderPreviewSession(class)`
+- `core_utils/preview.py::BlenderPreviewSession.apply(self, objects)`
+- `core_utils/preview.py::BlenderPreviewSession.begin(self, objects)`
+- `core_utils/preview.py::BlenderPreviewSession.captured_objects(self)`
+- `core_utils/preview.py::BlenderPreviewSession.commit(self)`
+- `core_utils/preview.py::BlenderPreviewSession.discard(self, reselect)`
+- `core_utils/preview.py::BlenderPreviewSession.rollback(self)`
+- `core_utils/preview.py::BlenderPreviewSession.run(self)`
+- `core_utils/preview.py::BlenderPreviewSession.select_result(self, checkbox, results, committed)`
+- `core_utils/preview.py::BlenderPreviewSession.selection(self)`
+- `core_utils/preview.py::BlenderPreviewSession.undo_step(name)`
+- `core_utils/preview.py::BlenderPreviewSession.unrecorded()`
 - `core_utils/preview.py::Preview.apply_result_selection(widget, results)`
 - `display_utils/_display_utils.py::DisplayUtils.clear_xray()`
 - `display_utils/_display_utils.py::DisplayUtils.cycle_component_ids()`
@@ -1033,6 +1120,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `edit_utils/components.py::Components.edit_edge_flow(edges=None)`
 - `edit_utils/components.py::Components.extrude(components=None, keep_faces_together=True, divisions=1, thickness=0.0)`
 - `edit_utils/components.py::Components.fill_holes(components=None)`
+- `edit_utils/components.py::Components.get_standoff_distances(cls, objects, target, sample_limit=None)`
 - `edit_utils/components.py::Components.get_transfer_types(cls)`
 - `edit_utils/components.py::Components.inset_faces(faces=None, offset=0.1, depth=0.0, individual=False)`
 - `edit_utils/components.py::Components.offset_edge_loops(edges=None)`
@@ -1089,6 +1177,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `env_utils/_env_utils.py::EnvUtils.foreign_scene_bridge()`
 - `env_utils/_env_utils.py::EnvUtils.foreign_scene_import()`
 - `env_utils/_env_utils.py::EnvUtils.frame_rates()`
+- `env_utils/_env_utils.py::EnvUtils.get_env_info(key=None)`
 - `env_utils/_env_utils.py::EnvUtils.get_file_commands(cls, direction='import')`
 - `env_utils/_env_utils.py::EnvUtils.get_linear_unit()`
 - `env_utils/_env_utils.py::EnvUtils.get_recent_autosave(filter_time=24, timestamp_format='%H:%M:%S')`
@@ -1131,6 +1220,8 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `env_utils/hierarchy_sync/hierarchy_sync_session.py::HierarchySyncSession.scene_path() -> str`
 - `env_utils/hierarchy_sync/hierarchy_sync_session.py::HierarchySyncSession.select_nodes(nodes: Sequence[Any]) -> int`
 - `env_utils/hierarchy_sync/hierarchy_sync_session.py::HierarchySyncSession.workspace() -> str`
+- `env_utils/hierarchy_sync/scene_data_sidecar.py::BlenderSidecarHost(class)`
+- `env_utils/hierarchy_sync/scene_data_sidecar.py::BlenderSidecarHost.expand_to_descendants(objects) -> list`
 - `env_utils/maya_bridge/_maya_bridge.py::MayaBridge.params_registry(cls)`
 - `env_utils/reference_manager.py::ReferenceManager(class)`
 - `env_utils/reference_manager.py::ReferenceManager.add_reference(self, namespace: str, file_path: str) -> bool`
@@ -1177,6 +1268,13 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.refresh_fbx_presets(self) -> Dict[str, Optional[str]]`
 - `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.restore_fbx_preset(self, metadata: Optional[Dict[str, str]]) -> Optional[str]`
 - `env_utils/unity_bridge/_unity_bridge.py::UnityBridge.params_registry(cls)`
+- `env_utils/workspace_map.py::BlenderWorkspaceMapHost(class)`
+- `env_utils/workspace_map.py::BlenderWorkspaceMapHost.create_workspace(root: str) -> Optional[ptk.Workspace]`
+- `env_utils/workspace_map.py::BlenderWorkspaceMapHost.current_workspace() -> str`
+- `env_utils/workspace_map.py::BlenderWorkspaceMapHost.find_workspaces(cls, root_dir: str, recursive: bool) -> List[str]`
+- `env_utils/workspace_map.py::BlenderWorkspaceMapHost.promote_workspace(root: str) -> Optional[ptk.Workspace]`
+- `env_utils/workspace_map.py::BlenderWorkspaceMapHost.scene_files(cls, workspace: str) -> List[str]`
+- `env_utils/workspace_map.py::WorkspaceMap(class)`
 - `light_utils/hdr_manager.py::HdrManager(class)`
 - `light_utils/hdr_manager.py::HdrManager.clear(self) -> None`
 - `light_utils/hdr_manager.py::HdrManager.create_network(self, hdrMap: str = '', hdrMapVisibility: bool = False, intensity: Optional[float] = None, exposure: Optional[float] = None, rotation: Optional[float] = None, resolution: Optional[int] = None, samples: Optional[int] = None, diffuse: Optional[float] = None, specular: Optional[float] = None, preview: Optional[bool] = None)`
@@ -1185,11 +1283,21 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `light_utils/hdr_manager.py::HdrManager.exposure(self) -> float`
 - `light_utils/hdr_manager.py::HdrManager.hdr_env(self)`
 - `light_utils/hdr_manager.py::HdrManager.hdr_file_path(self) -> Optional[str]`
+- `light_utils/hdr_manager.py::HdrManager.import_hdrs(cls, paths, folder: Optional[str], mode: str = 'copy', on_conflict='reuse', strict: bool = False) -> dict`
 - `light_utils/hdr_manager.py::HdrManager.intensity(self) -> float`
 - `light_utils/hdr_manager.py::HdrManager.resolution(self) -> Optional[int]`
 - `light_utils/hdr_manager.py::HdrManager.rotation(self) -> float`
 - `light_utils/hdr_manager.py::HdrManager.specular(self) -> float`
 - `light_utils/hdr_manager.py::HdrManager.visibility(self) -> bool`
+- `light_utils/lightmap_baker/_probe_placement.py::BlenderProbeHost(class)`
+- `light_utils/lightmap_baker/_probe_placement.py::BlenderProbeHost.bounds(self, nodes: Sequence[str]) -> Box`
+- `light_utils/lightmap_baker/_probe_placement.py::BlenderProbeHost.intersect(tree, origin, direction, far)`
+- `light_utils/lightmap_baker/_probe_placement.py::BlenderProbeHost.lights() -> Tuple[List[Tuple[Vec, Optional[str]]], bool]`
+- `light_utils/lightmap_baker/_probe_placement.py::BlenderProbeHost.nodes(objects: Sequence[Any]) -> List[str]`
+- `light_utils/lightmap_baker/_probe_placement.py::BlenderProbeHost.normal(tree, face) -> Vec`
+- `light_utils/lightmap_baker/_probe_placement.py::BlenderProbeHost.rays(self, names: Sequence[str]) -> ptk.ProbeRays`
+- `light_utils/lightmap_baker/_probe_placement.py::BlenderProbeHost.to_internal(point: Sequence[float]) -> List[float]`
+- `light_utils/lightmap_baker/_probe_placement.py::BlenderProbeHost.to_scene(value: float) -> float`
 - `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.preset_name(cls, name: str) -> str`
 - `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.scope_lights(cls, scope: str = 'selected') -> List[Any]`
 - `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.scope_meshes(scope: str = 'selected') -> List[Any]`
@@ -1204,6 +1312,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `mat_utils/_mat_utils.py::MatUtils.find_duplicate_materials(materials=None)`
 - `mat_utils/_mat_utils.py::MatUtils.get_mat_facts(materials)`
 - `mat_utils/_mat_utils.py::MatUtils.get_mat_names(objects=None)`
+- `mat_utils/_mat_utils.py::MatUtils.get_mat_swatch_color(mat)`
 - `mat_utils/_mat_utils.py::MatUtils.get_scene_mat_names(exclude_defaults=False, exc_renderer=None)`
 - `mat_utils/_mat_utils.py::MatUtils.get_texture_scopes()`
 - `mat_utils/_mat_utils.py::MatUtils.merge_duplicate_materials(pairs)`
@@ -1293,6 +1402,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `node_utils/_node_utils.py::NodeUtils.lock_nodes(objects=None, lock=True)`
 - `node_utils/_node_utils.py::NodeUtils.select_instances(objects=None, whole_scene=False)`
 - `node_utils/_node_utils.py::NodeUtils.selection_summary(limit=10)`
+- `node_utils/_node_utils.py::NodeUtils.set_parent(objects, parent, keep_transform=True)`
 - `node_utils/attributes/channels/_channels.py::Channels.can_freeze_selection(cls, attr_names)`
 - `node_utils/attributes/channels/_channels.py::Channels.collect_value_strings(cls, objects, attr_names)`
 - `node_utils/attributes/channels/_channels.py::Channels.copy_attr_values(self, objects, attr_names)`
@@ -1430,13 +1540,12 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `xform_utils/_xform_utils.py::XformUtils.set_transform_snap(kind, state=None, increment=None)`
 - `xform_utils/_xform_utils.py::XformUtils.world_align_pivot(objects=None, pivot_type='object', mode='set')`
 
-## Deprecations (10)
+## Deprecations (9)
 
 _Live retirement debt, earliest deadline first. An **EXPIRED** row has outlived its window: delete the alias and its tests rather than moving the date. A **HELD** row is due by version, but its notice has not yet had its calendar window._
 
 - **HELD** `env_utils/scene_state.py::SceneState.read` — remove in 0.21.0, not before 2026-11-23
 - **HELD** `env_utils/scene_state.py::SceneState.source` — remove in 0.21.0, not before 2026-11-23
-- `anim_utils/shots/_shots.py::BlenderShotStore.iter_action_fcurves` — remove in 0.23.0, not before 2026-11-26
 - `env_utils/_env_utils.py::EnvUtils.scene_project_root` — remove in 0.23.0, not before 2026-11-24
 - `env_utils/_env_utils.py::EnvUtils.scene_source` — remove in 0.23.0, not before 2026-11-24
 - `env_utils/_env_utils.py::EnvUtils.scene_source_images_dir` — remove in 0.23.0, not before 2026-11-24
@@ -1445,10 +1554,20 @@ _Live retirement debt, earliest deadline first. An **EXPIRED** row has outlived 
 - `env_utils/_env_utils.py::EnvUtils.twin_save_target` — remove in 0.23.0, not before 2026-11-24
 - `mat_utils/_mat_utils.py::MatUtils.update_materials` — remove in 0.23.0, not before 2026-11-24
 
-## Moved (17)
+## Moved (27)
 
 _Still resolvable at the same call site -- hoisted to a base class or re-exported from another module. NOT a removal: no alias or minor bump is owed._
 
+- `anim_utils/key_stash/_key_stash.py::KeyStash.active`
+- `anim_utils/key_stash/_key_stash.py::KeyStash.merge_carrier`
+- `anim_utils/key_stash/_key_stash.py::KeyStash.reconcile`
+- `anim_utils/key_stash/_key_stash.py::KeyStash.rescale_to_fps`
+- `core_utils/auto_instancer/instancing_strategy.py::InstancingStrategy`
+- `core_utils/preview.py::Preview.disable`
+- `core_utils/preview.py::Preview.enable`
+- `core_utils/preview.py::Preview.is_enabled`
+- `core_utils/preview.py::Preview.refresh`
+- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.expand_to_descendants`
 - `mat_utils/emissive_groups.py::EmissiveGroups.add_group`
 - `mat_utils/emissive_groups.py::EmissiveGroups.bake_mask`
 - `mat_utils/emissive_groups.py::EmissiveGroups.bake_vertex_colors`
@@ -1467,7 +1586,7 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/emissive_groups.py::EmissiveGroups.validate`
 - `ui_utils/blender_ui_handler.py::BlenderUiHandler.default_persistence`
 
-## Signature changed (60)
+## Signature changed (63)
 
 - `anim_utils/_anim_utils.py::AnimUtils.add_intermediate_keys`
   - was: `(objects, step=1.0, time_range=None, ignore_visibility=False, percent=None)`
@@ -1511,6 +1630,9 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `anim_utils/blendshape_animator/creator.py::Creator.create_frame_based_tween`
   - was: `(self, target_frame: int) -> Optional[Target]`
   - now: `(self, target_frame: int, group_name: str = Targets.GROUP_NAME, name_prefix: str = 'tween') -> Optional[Target]`
+- `anim_utils/key_stash/_key_stash.py::KeyStash.stash`
+  - was: `(self, objects=None, time_range: Optional[Tuple[float, float]] = None, selected_keys: bool = False, attributes: Optional[Sequence[str]] = None, fcurves=None, label: Optional[str] = None, source_shot_id: Optional[int] = None, metadata: Optional[Dict[str, Any]] = None, targets: Optional[Sequence[Tuple[str, Any, float, float]]] = None) -> Optional[StashedClip]`
+  - now: `(self, objects=None, time_range: Optional[Tuple[float, float]] = None, selected_keys: bool = False, attributes: Optional[Sequence[str]] = None, fcurves=None, label: Optional[str] = None, source_shot_id: Optional[int] = None, metadata: Optional[Dict[str, Any]] = None, targets: Optional[Sequence[Tuple[str, Any, float, float]]] = None) -> Optional[ptk.StashedClip]`
 - `anim_utils/scale_keys.py::ScaleKeys.scale_keys`
   - was: `(objects, factor, pivot=None, mode='uniform', absolute=False, group_mode='single_group', snap_mode='none', samples=64, include_rotation=False, split_static=True, merge_touching=False, on_replace=None, on_move=None)`
   - now: `(objects, factor, pivot=None, mode='uniform', absolute=False, group_mode='single_group', snap_mode='none', samples=64, include_rotation=False, split_static=True, merge_touching=False, on_replace=None, on_move=None, keys=None, channel_box_attrs_only=False, prevent_overlap=False, verbose=False)`
@@ -1589,6 +1711,12 @@ _Still resolvable at the same call site -- hoisted to a base class or re-exporte
 - `mat_utils/_mat_utils.py::MatUtils.reload_textures`
   - was: `()`
   - now: `(reset_viewport=False)`
+- `mat_utils/render_opacity/render_effects.py::RenderEffects.apply_effect`
+  - was: `(cls, obj, effect, start, end, recipe=None, fps=None, place=None, anchor=None)`
+  - now: `(cls, obj, effect, start, end, recipe=None, fps=None, place=None, anchor=None, curve_key=None)`
+- `mat_utils/render_opacity/render_effects.py::RenderEffects.write_keys`
+  - was: `(cls, obj, keys, channel='opacity', interp='LINEAR', mirror=None)`
+  - now: `(cls, obj, keys, channel='opacity', interp='LINEAR', mirror=None, curve_key=None)`
 - `node_utils/_node_utils.py::NodeUtils.replace_with_instances`
   - was: `(objects, freeze_transforms=False, center_pivot=False, delete_history=False, retain_bbox_scale=False, retain_bbox_per_axis=False)`
   - now: `(objects=None, freeze_transforms=False, center_pivot=False, delete_history=False, retain_bbox_scale=False, retain_bbox_per_axis=False)`

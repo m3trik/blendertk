@@ -38,12 +38,16 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
   - methods: validate_meshes, validate_shape_setup
 
 ### `anim_utils/key_stash/_key_stash.py` — Key Stash — park keyframes outside the working animation, retrieve later (Blender).
-- `class KeyStash(pythontk.core_utils.engines.key_stash.key_stash_model.KeyStash, _KeyStashInternal)`
-  - methods: active, watch_undo, rescale_to_fps, reconcile, merge_carrier, discard_carrier, stash, retrieve, drop, stash_from, select_clip_objects, preview, end_preview
+- `class BlenderKeyStashHost(object)`
+  - methods: persistence, store_state, scene_fps, schedule_flush, undo_chunk, save_in_step, reconcile, script_jobs
+- `class KeyStash(pythontk.KeyStash, _KeyStashInternal)`
+  - methods: discard_carrier, stash, retrieve, drop, stash_from, select_clip_objects, preview, end_preview
 
 ### `anim_utils/playblast_exporter.py` — Playblast capture and export for Blender -- mirror of mayatk's
+- `class BlenderPlayblastHost(pythontk.PureSequenceHost)`
+  - methods: frame_range, sequence_name, sequence_fps, sound_source, resolve_path, capture_frames, capture_movie
 - `class PlayblastExporter(pythontk.SequenceExporter)`
-  - methods: scene_name, scene_fps, sequence_name, sequence_fps, capture_sequence, capture_still, capture_movie, export
+  - methods: capture_movie
 
 ### `anim_utils/scale_keys.py` — Dedicated scale-keys module to keep AnimUtils lean and testable (mirror of mayatk's
 - `class ScaleKeys(_ScaleKeysInternal)`
@@ -57,11 +61,11 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class Detection(_DetectionInternal)`
   - methods: resolve_to_transform, detect_shot_regions, regions_from_selected_keys
 
-### `anim_utils/shots/_shots.py` — Blender shot-store adapter — the DCC layer over ``pythontk``'s shots engine.
+### `anim_utils/shots/_shots.py` — Blender shots host — the DCC layer under ``pythontk``'s one shot store.
 - `class BlenderScenePersistence`
   - methods: store_cls, remove_callbacks, save, load, record_changed
-- `class BlenderShotStore(pythontk.ShotStore, _BlenderShotStoreInternal)`
-  - methods: is_transform_path, fcurve_for_key, from_dict, member_nodes, curve_key, follow_renames, edit_serial, scene_edit, active, rescale_to_fps, has_animation, detect_regions, assess, publish_export_view, export_transfer, apply_transfer, transfer_out, transfer_in, merge_carrier, discard_carrier, iter_action_fcurves, collect_transform_segments, collect_selected_key_entries
+- `class BlenderShotsHost(_BlenderShotsHostInternal)`
+  - methods: resolve, is_transform_path, fcurve_for_key, curve_key, available, persistence, store_state, scene_fps, schedule_flush, legacy_prefs, migrate_ledger, follow_renames, has_animation, detection, assess, member_nodes, existing_objects, member_ids, keyed_windows, members_keyed_windows, audio_spans, curve_ledger_keys, edit_serial, undo_step, step_crossed, install_undo_sync, remove_undo_sync, publish_records, export_producer, transfer, collect_transform_segments, collect_selected_key_entries
 
 ### `anim_utils/shots/shot_manifest/_shot_manifest.py` — Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
 - `class BlenderShotManifest(ShotManifest, _ShotManifestInternal)`
@@ -134,9 +138,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class CameraVisibility`
   - methods: set_exclusive, set_hidden, remove_from_exclusive, remove_from_hidden, remove_all, remove_all_for_all, get_sets, apply, restore, enable_auto, disable_auto
 
-### `core_utils/_core_utils.py` — Core blendertk utilities — DCC-environment info + cross-cutting decorators.
+### `core_utils/_core_utils.py` — Core blendertk utilities — the cross-cutting decorators and context helpers.
 - `class CoreUtils(pythontk.CoreUtils, _CoreUtilsInternal)`
-  - methods: strip_dup_suffix, all_ids, suspended_refresh, undo_chunk, undo_push, visible_override, undoable, undo_checkpoint, get_env_info, ensure_packages, ensure_image_deps, user_config_path, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, purge_unused_data, selected, active_view_layer, leaf_name, selected_objects, select, active_object, ensure_component_mode, ensure_object_mode, preserved_selection, reorder_objects, get_areas, tag_redraw, get_view3d_context, window_context_override, edit_mode
+  - methods: strip_dup_suffix, all_ids, suspended_refresh, undo_chunk, undo_push, visible_override, undoable, undo_checkpoint, ensure_packages, ensure_image_deps, user_config_path, get_scene_info, format_scene_info_html, analyze_scene, purge_unused_data, selected, active_view_layer, leaf_name, selected_objects, select, active_object, ensure_component_mode, ensure_object_mode, preserved_selection, reorder_objects, get_areas, tag_redraw, get_view3d_context, window_context_override, edit_mode
 
 ### `core_utils/auto_instancer/_auto_instancer.py` — Scene auto-instancer: convert geometrically identical meshes to instances.
 - `class InstanceCandidate`
@@ -154,12 +158,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class GeometryMatcher(_GeometryMatcherInternal)`
   - methods: clear_cache, invalidate, quantize, get_pca_basis, get_mesh_signature, get_hierarchy_signature, are_meshes_identical, are_meshes_identical_with_transform, are_hierarchies_identical
 
-### `core_utils/auto_instancer/instancing_strategy.py` — AutoInstancer's instancing strategy: the Blender binding of the ptk engine.
-- `class InstancingStrategy(pythontk.InstancingStrategy)`
-
 ### `core_utils/diagnostics/mesh_diag.py` — Mesh diagnostics — the Blender counterpart of mayatk's ``core_utils.diagnostics.mesh_diag``
 - `class MeshDiagnostics(_MeshDiagnosticsInternal)`
-  - methods: find_problem_geometry, cleanup_meshes
+  - methods: find_problem_geometry, clean_geometry, cleanup_meshes
 
 ### `core_utils/diagnostics/scene_audit.py` — Scene audit -- the Blender port of mayatk's ``core_utils.diagnostics.scene_audit``.
 - `class SceneInfoSection`
@@ -177,11 +178,13 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `core_utils/diagnostics/uv_diag.py` — UV diagnostics -- the Blender counterpart of mayatk's
 - `class UvDiagnostics(object)`
-  - methods: is_bakeable_lightmap, cleanup_uv_sets
+  - methods: is_bakeable_lightmap, find_lightmap_uv_set, cleanup_uv_sets
 
-### `core_utils/preview.py` — Live-preview driver for the tentacle Blender tool panels — the Blender analogue of
-- `class Preview`
-  - methods: is_enabled, refresh, enable, disable, commit, apply_result_selection
+### `core_utils/preview.py` — Live preview for the tentacle Blender tool panels: Blender's preview session.
+- `class BlenderPreviewSession`
+  - methods: captured_objects, selection, begin, run, rollback, discard, commit, apply, undo_step, unrecorded, select_result
+- `class Preview(uitk.PreviewController)`
+  - methods: apply_result_selection
 
 ### `core_utils/script_job_manager.py` — Centralized Blender event-subscription manager — the Blender counterpart of mayatk's
 - `class ScriptJobManager`
@@ -210,7 +213,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `edit_utils/_edit_utils.py` — Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
 - `class EditUtils(_EditUtilsInternal)`
-  - methods: get_symmetry, set_symmetry, hook_bind_inverse, hook_curve_point, decimate, dissolve_coplanar, triangulate, quadrangulate, tris_to_quads, subdivide_mesh, merge_vertices, boolean_objects, boolean_op, set_subdivision, apply_subdivision, set_shading, average_normals, select_edges_by_angle, set_edge_hardness, clear_custom_split_normals, add_custom_split_normals, has_custom_split_normals, flip_normals, recalculate_normals, propagate_normals, conform_normals, extract_reversed_faces, clean_geometry, crease_edges, mirror, mirror_instance, cut_along_axis, wedge, snap_closest_verts, snap_to_grid, snap_to_surface, get_standoff_distances, get_similar_mesh, ungroup_objects, separate_objects, combine_objects, detach_components, get_overlapping_faces, get_overlapping_duplicates, delete_selected, get_conversion_types, convert_objects
+  - methods: get_symmetry, set_symmetry, hook_bind_inverse, hook_curve_point, decimate, dissolve_coplanar, triangulate, quadrangulate, tris_to_quads, subdivide_mesh, merge_vertices, boolean_objects, boolean_op, set_subdivision, apply_subdivision, set_shading, average_normals, select_edges_by_angle, set_edge_hardness, clear_custom_split_normals, add_custom_split_normals, has_custom_split_normals, flip_normals, recalculate_normals, propagate_normals, conform_normals, extract_reversed_faces, crease_edges, mirror, mirror_instance, cut_along_axis, wedge, snap_closest_verts, snap_to_grid, snap_to_surface, get_similar_mesh, ungroup_objects, separate_objects, combine_objects, detach_components, get_overlapping_faces, get_overlapping_duplicates, delete_selected, get_conversion_types, convert_objects
 
 ### `edit_utils/bevel.py` — Bevel tool engine.
 - `class Bevel`
@@ -222,21 +225,17 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `edit_utils/components.py` — Component-level mesh operations — mirror of mayatk's ``core_utils.components``.
 - `class Components(_ComponentsInternal)`
-  - methods: crease_edges, transfer_creased_edges, set_edge_hardness, average_normals, set_edge_softness, set_to_face_normals, reverse_normals, toggle_normal_lock, transfer_normals, transfer_mesh_data, extrude, inset_faces, divide_faces, circularize, fill_holes, symmetrize, bridge_edges, collapse_components, connect_components, poke_faces, slide_edges, offset_edge_loops, edit_edge_flow, adjusted_distance_between_vertices, get_transfer_types, transfer
+  - methods: crease_edges, transfer_creased_edges, set_edge_hardness, average_normals, set_edge_softness, set_to_face_normals, reverse_normals, toggle_normal_lock, transfer_normals, transfer_mesh_data, extrude, inset_faces, divide_faces, circularize, fill_holes, symmetrize, bridge_edges, collapse_components, connect_components, poke_faces, slide_edges, offset_edge_loops, edit_edge_flow, adjusted_distance_between_vertices, get_standoff_distances, get_transfer_types, transfer
 
 ### `edit_utils/curtain/_curtain.py` — Procedural draped-cloth (curtain) generator for Blender -- mirror of mayatk's
 - `class Rail(pythontk.Polyline)`
   - methods: from_selection, sample_curve
-- `class CurtainMesh(CurtainDrape)`
+- `class CurtainMesh(pythontk.CurtainDrape)`
   - methods: create, build
 - `class CurtainRig`
   - methods: attach
 - `class Curtain`
   - methods: rail_from_selection, create, rail_curve, delete_rail_curve, triangle_count
-
-### `edit_utils/curtain/_curtain_drape.py` — Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.
-- `class CurtainDrape(_CurtainDrapeInternal)`
-  - methods: prepare, grid_points, drape
 
 ### `edit_utils/cut_on_axis.py` — Cut On Axis: slice meshes along an axis -- mirror of mayatk's
 - `class CutOnAxis`
@@ -299,7 +298,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/_env_utils.py` — blendertk environment / scene-library utilities — the engine behind the Reference Manager panel.
 - `class EnvUtils(_EnvUtilsInternal)`
-  - methods: find_blend_files, list_libraries, linked_blend_paths, is_blend_linked, link_blend_file, reload_library, remove_library, make_library_local, set_current_workspace, current_workspace, workspace_root, set_scene_source, twin_save_target, scene_source, scene_project_root, scene_workspace, scene_source_images_dir, scene_artifact_path, source_images_dir, texture_search_dirs, scenes_dir, workspace_scenes_dir, list_workspace_templates, workspace_template_rules, save_workspace_template, delete_workspace_template, create_workspace, promote_workspace, find_workspaces, is_workspace, saved_scene_path, get_recent_files, get_recent_autosave, get_recent_projects, find_workspace_using_path, python_executable, open_scene, new_scene, scene_has_content, scene_has_unsaved_changes, scene_status, scene_settings, apply_scene_settings, get_linear_unit, set_linear_unit, frame_rates, autosave_settings, set_autosave_settings, format_scene_name, scene_save_path, save_scene_as, export_scene_as_obj, foreign_scene_bridge, foreign_scene_import, get_file_commands, run_file_command, scene_triangle_count, export_scene, rename_scene_file, delete_scene_file, set_reference_display_mode, get_reference_display_mode
+  - methods: find_blend_files, list_libraries, linked_blend_paths, is_blend_linked, link_blend_file, reload_library, remove_library, make_library_local, set_current_workspace, current_workspace, workspace_root, set_scene_source, twin_save_target, scene_source, scene_project_root, scene_workspace, scene_source_images_dir, scene_artifact_path, source_images_dir, texture_search_dirs, scenes_dir, workspace_scenes_dir, list_workspace_templates, workspace_template_rules, save_workspace_template, delete_workspace_template, create_workspace, promote_workspace, find_workspaces, is_workspace, get_env_info, saved_scene_path, get_recent_files, get_recent_autosave, get_recent_projects, find_workspace_using_path, python_executable, open_scene, new_scene, scene_has_content, scene_has_unsaved_changes, scene_status, scene_settings, apply_scene_settings, get_linear_unit, set_linear_unit, frame_rates, autosave_settings, set_autosave_settings, format_scene_name, scene_save_path, save_scene_as, export_scene_as_obj, foreign_scene_bridge, foreign_scene_import, get_file_commands, run_file_command, scene_triangle_count, export_scene, rename_scene_file, delete_scene_file, set_reference_display_mode, get_reference_display_mode
 
 ### `env_utils/blender_connection.py` — Launch a FRESH headless Blender to run a script / code string and capture its output — the
 - constants: RESULT_PASS
@@ -335,9 +334,10 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class HierarchySyncSession(pythontk.LoggingMixin)`
   - methods: loggers, fuzzy_matching, is_loaded, load_reference, release_reference, analyze, clear_analysis, repair, pull, current_scene_nodes, hierarchy_structure, clean_path, node_path, node_name, node_alive, rename_nodes, reparent_nodes, delete_nodes, select_nodes, scene_path, workspace, recent_scenes, open_scene, reference_formats
 
-### `env_utils/hierarchy_sync/scene_data_sidecar.py` — Scene-data sidecar -- Blender's scene hook over ``ptk.SceneDataSidecarBase``.
-- `class SceneDataSidecar(pythontk.SceneDataSidecarBase)`
+### `env_utils/hierarchy_sync/scene_data_sidecar.py` — Scene-data sidecar -- Blender's host adapter for ``ptk.SceneDataSidecarBase``.
+- `class BlenderSidecarHost(pythontk.PureSidecarHost)`
   - methods: expand_to_descendants
+- `class SceneDataSidecar(pythontk.SceneDataSidecarBase)`
 
 ### `env_utils/material_records.py` — The ``materials`` record's Blender producer -- mirror of mayatk's
 - `class MaterialRecords(pythontk.HelpMixin)`
@@ -456,15 +456,22 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `env_utils/webxr_preview.py` — Push the Blender selection to a live browser / WebXR preview.
 - `class WebXrPreview(BlenderExportMixin, pythontk.PreviewBridge)`
 
+### `env_utils/workspace_map.py` — Workspace Map -- Blender's host adapter for ``ptk.WorkspaceMapBase``.
+- `class BlenderWorkspaceMapHost`
+  - methods: current_workspace, find_workspaces, scene_files, create_workspace, promote_workspace
+- `class WorkspaceMap(pythontk.WorkspaceMapBase, pythontk.HelpMixin)`
+
 ### `light_utils/_light_utils.py` — Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 - `class LightUtils(_LightUtilsInternal)`
   - methods: set_world_hdri, get_world_hdri, set_world_ray_visibility, get_world_ray_visibility, set_world_importance_resolution, get_world_importance_resolution, clear_world_hdri, world_emits, lights_from_geometry, remove_lights, set_world_environment, lights_from_records, scale_light_energy, set_emission_strength
 
 ### `light_utils/hdr_manager.py` — Blender world-HDRI environment manager.
 - `class HdrManager(pythontk.LoggingMixin)`
-  - methods: hdr_env, hdr_file_path, visibility, rotation, intensity, exposure, resolution, diffuse, specular, create_network, clear, defer_apply
+  - methods: hdr_env, hdr_file_path, visibility, rotation, intensity, exposure, resolution, diffuse, specular, create_network, clear, defer_apply, import_hdrs
 
 ### `light_utils/lightmap_baker/_probe_placement.py` — Where a lightmap bake's reflection probe stands -- Blender's scene for the placement.
+- `class BlenderProbeHost`
+  - methods: nodes, rays, intersect, normal, bounds, lights, to_scene, to_internal
 - `class ProbePlacement(pythontk.ProbePlacement)`
 
 ### `light_utils/lightmap_baker/lightmap_baker.py` — High-level lightmap baking workflow for Blender -> game engines (Unity-first).
@@ -486,7 +493,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class MatUpdater(pythontk.LoggingMixin, _MatUtilsInternal)`
   - methods: shader_type_choices, texture_root, selected_materials, materials_using_textures, update_materials
 - `class MatUtils(_MatUtilsInternal)`
-  - methods: get_node_tree, get_mats, get_mat_names, get_scene_mat_names, get_mat_facts, create_mat, assign_mat, find_by_mat_id, find_unassigned, select_by_mat, select_unassigned, show_mat_attributes, assign_random_mat, assign_new_mat, rename_mat, delete_mats, select_by_material, reload_textures, get_scene_mats, is_mat_assigned, get_mat_swatch_icon, get_texture_paths, get_texture_scopes, get_texture_info, get_mat_info, format_mat_info_html, format_texture_info_html, find_materials_with_duplicate_textures, reassign_duplicate_materials, find_duplicate_materials, merge_duplicate_materials, delete_unused_materials, image_texture_nodes, select_image_nodes, graph_materials, get_image_records, image_paths_scope, repath_image, to_project_relative, resolve_missing_textures, normalize_texture_paths, get_image_material_map, materials_for_textures, fix_color_spaces, set_texture_directory, plan_find_and_copy_textures, find_and_copy_textures, rename_texture_file, sync_material_names, format_texture_paths_html, get_shader_templates, apply_shader_template, create_shader_template, serialize_material, restore_material, resolve_pbr_plan, create_pbr_material, create_pbr_materials, update_materials
+  - methods: get_node_tree, get_mats, get_mat_names, get_scene_mat_names, get_mat_facts, create_mat, assign_mat, find_by_mat_id, find_unassigned, select_by_mat, select_unassigned, show_mat_attributes, assign_random_mat, assign_new_mat, rename_mat, delete_mats, select_by_material, reload_textures, get_scene_mats, is_mat_assigned, get_mat_swatch_color, get_texture_paths, get_texture_scopes, get_texture_info, get_mat_info, format_mat_info_html, format_texture_info_html, find_materials_with_duplicate_textures, reassign_duplicate_materials, find_duplicate_materials, merge_duplicate_materials, delete_unused_materials, image_texture_nodes, select_image_nodes, graph_materials, get_image_records, image_paths_scope, repath_image, to_project_relative, resolve_missing_textures, normalize_texture_paths, get_image_material_map, materials_for_textures, fix_color_spaces, set_texture_directory, plan_find_and_copy_textures, find_and_copy_textures, rename_texture_file, sync_material_names, format_texture_paths_html, get_shader_templates, apply_shader_template, create_shader_template, serialize_material, restore_material, resolve_pbr_plan, create_pbr_material, create_pbr_materials, update_materials
 
 ### `mat_utils/arnold_bridge.py` — Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_bridge``.
 - `class ArnoldBridge(pythontk.LoggingMixin)`
@@ -686,7 +693,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `node_utils/_node_utils.py` — Node / datablock utilities — instancing via shared object data.
 - `class NodeUtils(_NodeUtilsInternal)`
-  - methods: get_maya_node_type, set_maya_node_type, lock_nodes, is_locator, expand_sets, is_group, selection_summary, get_instances, select_instances, replace_with_instances, uninstance, get_parent, get_children, get_shape, reparent
+  - methods: get_maya_node_type, set_maya_node_type, lock_nodes, is_locator, expand_sets, is_group, selection_summary, get_instances, select_instances, replace_with_instances, uninstance, get_parent, get_children, get_shape, set_parent
 
 ### `node_utils/attributes/channels/_channels.py` — Channels — Blender attribute query / mutation logic.
 - `class Channels`
@@ -797,7 +804,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class BlenderWindow`
   - methods: process_ghost_hwnds, window_hwnd, is_window, client_origin, client_size, region_client_rect, set_clip_children, move_child, keyboard_focus, cursor_over, set_keyboard_focus, set_owner
 
-### `ui_utils/calculator.py` — Calculator tool panel — Switchboard slot wiring for the co-located ``calculator.ui``.
+### `ui_utils/calculator.py` — Calculator — the Blender half of the Calculator tool (mirror of mayatk's ``CalculatorController``).
 - `class CalculatorController`
   - methods: calculate, convert_unit, get_fps_value, get_current_time, frames_to_sec, sec_to_frames
 
