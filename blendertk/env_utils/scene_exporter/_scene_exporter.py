@@ -216,7 +216,7 @@ class SceneExporter(ptk.SceneExporterBase):
 
         *tasks* is EXACT (mirror of mayatk): only the entries it names run, and
         an absent task or check is off -- there are no implicit defaults. The
-        panel sends every row (``ptk.ExportProfile.read_values``), so a headless
+        panel sends every row (tentacle's ``SceneExporterSlots`` reads them), so a headless
         caller that wants the panel's behaviour passes every row it wants on.
 
         ``tasks["version"]`` is the retired Version input (warns; removed in

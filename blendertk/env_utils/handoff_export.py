@@ -62,7 +62,7 @@ class BlenderExportMixin:
     #: consumer for a ``<node>__opacity`` child and would ship it as a stray
     #: Empty.  Which RECORDS a hand-off refreshes is
     #: not a bridge decision: the write runs with a HANDOFF context, which
-    #: refreshes exactly the ``ptk.Kind.DERIVED`` records (the visibility tracks
+    #: refreshes exactly the ``ptk.SceneRecords.Kind.DERIVED`` records (the visibility tracks
     #: read the curves themselves, which an artist edits between one push and
     #: the next) and leaves the authored ones alone -- a producer with nothing
     #: to publish clears its record, and a bridge that merely ships the carrier
