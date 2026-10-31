@@ -10,8 +10,8 @@ This is the **structural** SSoT only. Everything measured or per-element lives e
 
 | Question | Source of truth |
 |:--|:--|
-| Which controls/widgets/handlers differ, per panel? | [`tentacle/docs/PARITY_SURFACE.md`](../../tentacle/docs/PARITY_SURFACE.md) (auto-gen) |
-| Why is a given Maya element absent/different in Blender? | [`tentacle/docs/parity_map.py`](../../tentacle/docs/parity_map.py) (triage ledger — every conscious divergence, with reason) |
+| Which calls a shared panel makes does one host lack, and what hides them there? | [`tentacle/docs/PARITY_SURFACE.md`](../../tentacle/docs/PARITY_SURFACE.md) (the parity gate, auto-gen) |
+| Why is a given Maya element absent/different in Blender? | the comment at its `requires` tag / guard in the shared panel; the twin-panel era's [`tentacle/docs/parity_map.py`](../../tentacle/docs/parity_map.py) for older ones |
 | Coarse depth/coverage numbers | [`tentacle/docs/PARITY_AUDIT.md`](../../tentacle/docs/PARITY_AUDIT.md) (auto-gen) |
 | What to port next + how | [`tentacle/docs/PARITY_PORTING_PLAN.md`](../../tentacle/docs/PARITY_PORTING_PLAN.md) |
 | Public API surface | [`API_REGISTRY.md`](../API_REGISTRY.md) |
@@ -30,9 +30,11 @@ Ship history (what landed when, test tallies, realized-mapping essays) belongs i
    is tentacle's (`ui/tools/<tool>.ui` + `slots/tools/<tool>.py`, reaching the host through
    `self.tk`).
 2. **Extend native ops like mayatk does — unless little benefit.** Where the native Blender op
-   already covers the need, ledger the divergence in `parity_map.py` rather than rebuild.
-3. **Every intentional divergence gets a `parity_map.py` entry.** A gap without a ledger entry
-   is un-triaged and fails the parity sweep — that is the contract that keeps the mirror honest.
+   already covers the need, let the shared panel call that op through `self.tk` rather than rebuild.
+3. **Every call a shared panel makes resolves here, or is hidden or guarded where it does not.**
+   A chain blendertk lacks that the panel neither hides (`requires`, `slots.tools.HOSTS`) nor
+   guards (`hasattr` / `getattr`) fails the parity gate (`compare_panel_surface.py`) — that is
+   the contract that keeps the mirror honest.
 
 ## Subpackage correspondence
 
@@ -104,7 +106,8 @@ blendertk registers is either DCC-named (`BlenderUiHandler` ↔ `MayaUiHandler`,
 3. New public symbol → add to `DEFAULT_INCLUDE` (verify `btk.<name>` / `mtk.<name>` resolves).
 4. New tool → its API half in both libraries (`<tool>.py` or `<tool>/`); its panel in tentacle
    (`ui/tools/<tool>.ui` + `slots/tools/<tool>.py`).
-5. Intentional divergence → entry in `tentacle/docs/parity_map.py` (status + reason).
+5. Intentional divergence → the shared panel hides or guards the call on the host that lacks
+   it (`requires`, `slots.tools.HOSTS`, a `hasattr` / `getattr` test), its comment saying why.
 6. Update this table + the package `CHANGELOG.md`; refresh registries if the surface changed
-   (`python m3trik/scripts/generate_api_registry.py blendertk`); re-run
+   (`python m3trik/scripts/generate_api_registry.py blendertk`); re-run the parity gate
    `python m3trik/scripts/compare_panel_surface.py --all --write` — it must exit 0.

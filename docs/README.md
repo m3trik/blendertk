@@ -65,7 +65,7 @@ Full public surface (auto-generated): [`API_REGISTRY.md`](../API_REGISTRY.md); c
 
 ## Parity — how the mirror stays honest
 
-Parity is measured, not eyeballed: `compare_panel_surface.py` regenerates a per-element matrix ([tentacle/docs/PARITY_SURFACE.md](https://github.com/m3trik/tentacle/blob/main/docs/PARITY_SURFACE.md)), every conscious divergence is ledgered with a reason in tentacle's `parity_map.py`, and untriaged deltas fail the sweep. The coarse gap and port-this-next recipes live in [PARITY_AUDIT.md](https://github.com/m3trik/tentacle/blob/main/docs/PARITY_AUDIT.md) and [PARITY_PORTING_PLAN.md](https://github.com/m3trik/tentacle/blob/main/docs/PARITY_PORTING_PLAN.md).
+Parity is measured, not eyeballed: `compare_panel_surface.py` resolves every call tentacle's shared panels make through `self.tk` on both mayatk and blendertk ([tentacle/docs/PARITY_SURFACE.md](https://github.com/m3trik/tentacle/blob/main/docs/PARITY_SURFACE.md)); a call one host lacks must be hidden (`requires`) or guarded there, else it fails the gate. The coarse gap and port-this-next recipes live in [PARITY_AUDIT.md](https://github.com/m3trik/tentacle/blob/main/docs/PARITY_AUDIT.md) and [PARITY_PORTING_PLAN.md](https://github.com/m3trik/tentacle/blob/main/docs/PARITY_PORTING_PLAN.md).
 
 ## Session safety
 
