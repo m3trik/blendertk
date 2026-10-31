@@ -1,12 +1,13 @@
 """blendertk.PlayblastExporter (mirror of mayatk's) -- headless test.
 Run: blender --background --factory-startup --python blendertk/test/test_playblast_exporter.py
 
-``render.opengl`` needs a GPU context ``--background`` does not have, so the one
-call the capture makes to it (``PlayblastExporter._opengl``) is substituted by a
-writer that records what the render would read (the scene's frame range, output
-path and format, the overlays) and writes the files Blender would. Everything
-else -- the plan, the scene borrow and its restore, the file naming, the
-registry -- runs for real.
+``PlayblastExporter`` is ``ptk.SequenceExporter`` bound to Blender's host adapter
+(``BlenderPlayblastHost``). ``render.opengl`` needs a GPU context ``--background``
+does not have, so the one call the capture makes to it
+(``BlenderPlayblastHost._opengl``) is substituted by a writer that records what
+the render would read (the scene's frame range, output path and format, the
+overlays) and writes the files Blender would. Everything else -- the plan, the
+scene borrow and its restore, the file naming, the registry -- runs for real.
 """
 
 import os
@@ -32,7 +33,10 @@ def check(name, cond, detail=""):
 try:
     import bpy
     import pythontk as ptk
-    from blendertk.anim_utils.playblast_exporter import PlayblastExporter
+    from blendertk.anim_utils.playblast_exporter import (
+        BlenderPlayblastHost,
+        PlayblastExporter,
+    )
 
     scene = bpy.context.scene
     seen = []
@@ -47,7 +51,9 @@ try:
             "range": (scene.frame_start, scene.frame_end),
             "format": render.image_settings.file_format,
             "size": (render.resolution_x, render.resolution_y),
+            "percent": render.resolution_percentage,
             "audio": render.ffmpeg.audio_codec,
+            "container": (render.ffmpeg.format, render.ffmpeg.codec),
             "camera": scene.camera.name if scene.camera else None,
         })
         if render.image_settings.file_format == "FFMPEG":
@@ -61,7 +67,7 @@ try:
                 f.write(b"frame")
         return {"FINISHED"}
 
-    PlayblastExporter._opengl = staticmethod(fake_opengl)
+    BlenderPlayblastHost._opengl = staticmethod(fake_opengl)
 
     # ---- the registry: Blender's own movies, no external encode
     names = [n for n, _ in PlayblastExporter.available_targets()]
@@ -76,6 +82,9 @@ try:
 
     check("btk.PlayblastExporter is the root name",
           getattr(btk, "PlayblastExporter", None) is PlayblastExporter)
+    check("...the shared exporter bound to Blender's host adapter",
+          isinstance(PlayblastExporter.HOST, BlenderPlayblastHost)
+          and issubclass(PlayblastExporter, ptk.SequenceExporter))
 
     # ---- ranges
     scene.frame_start, scene.frame_end, scene.frame_current = 1, 20, 7
@@ -126,6 +135,45 @@ try:
                                                            range_mode="custom", start=1, end=2)
         check("a missing camera fails its target, not the run",
               not bad[0].ok and "NoSuchCam" in bad[0].error, str(bad[0].error))
+
+        # ---- the default range, the view, padding, OpenEXR and the other movies
+        scene.use_preview_range = True
+        del seen[:]
+        out2 = os.path.join(out, "second")
+        results = PlayblastExporter(percent=50, show_ornaments=False, frame_padding=3).export(
+            out2, targets=["exr_sequence", "avi", "mov"])
+        by = {r.target: r for r in results}
+        check("a default export plays back the preview range, named after the scene",
+              all(r.ok for r in results)
+              and [os.path.basename(f) for f in by["exr_sequence"].output]
+              == [f"playblast.{n:03d}.exr" for n in range(5, 10)]
+              and all(s["range"] == (5, 9) for s in seen),
+              str([(r.target, r.output, r.error) for r in results]))
+        check("...each movie by Blender's FFmpeg in its container, without sound unless asked",
+              [s["container"] for s in seen if s["format"] == "FFMPEG"]
+              == [("AVI", "FFV1"), ("QUICKTIME", "H264")]
+              and all(s["audio"] == "NONE" for s in seen if s["format"] == "FFMPEG")
+              and sorted(os.listdir(out2)) == ["playblast.avi", "playblast.mov", "playblast_exr"])
+        check("...through the view at the capture scale",
+              all(s["kwargs"].get("view_context") is True and s["percent"] == 50
+                  and s["size"] == (1920, 1080) for s in seen))
+        scene.use_preview_range = False
+
+        # ---- a still: the current frame, one file, exactly where asked
+        del seen[:]
+        still = PlayblastExporter().capture_still(os.path.join(out, "st", "one.jpg"),
+                                                   image_format="jpg")
+        check("a still is the current frame, moved to exactly its path",
+              os.path.basename(still) == "one.jpg"
+              and sorted(os.listdir(os.path.dirname(still))) == ["one.jpg"]
+              and [s["range"] for s in seen] == [(7, 7)]
+              and seen[0]["format"] == "JPEG", str((still, seen)))
+        try:
+            PlayblastExporter().capture_sequence(os.path.join(out, "bmp"), image_format="bmp")
+            refused = False
+        except ValueError as exc:
+            refused = "bmp" in str(exc)
+        check("an image format Blender cannot write is refused", refused)
     finally:
         tmp.cleanup()
 

@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-29 -- `PlayblastExporter` is `ptk.SequenceExporter` bound to `BlenderPlayblastHost` (`anim_utils/playblast_exporter.py`).** As in mayatk: the binding sets its host adapter and overrides nothing; public names and outputs are unchanged.
+  - Test(s): `test_playblast_exporter.py` 21/21.
 - **2026-10-29 -- blendertk mirrors mayatk's names and behavior; no Qt in the library (`env_utils/`, `edit_utils/`, `core_utils/`, `node_utils/`, `mat_utils/`, `ui_utils/`).** Re-homed onto mayatk's class names (moved names): `EnvUtils.get_env_info`, `Components.get_standoff_distances` / `STANDOFF_SAMPLES`, `Diagnostics.clean_geometry`; added `Diagnostics.find_lightmap_uv_set`. `EnvUtils.get_env_info` now behaves like mayatk's: mayatk's key names, `|`-joined keys, KeyError on an unknown key; the camelCase keys (`sceneName`, `blenderVersion`, `fps`, `currentFrame`, `frameRange`, `unitSystem`, `selectionCount`) are retired. `NodeUtils.reparent` is renamed `NodeUtils.set_parent` (moved name), so `btk.reparent` no longer reads as mayatk's `reparent` decorator. `MatUtils.get_mat_swatch_color` replaces `get_mat_swatch_icon`. `CoreUtils.cleanup_scene` is retired for `purge_unused_data` (moved name). `BlenderUiHandler` installs `BlenderCancelProvider` when it is built (a Blender window only).
   - Test(s): `test_env_utils.py`, `test_node_utils.py`, `test_diagnostics.py`, `test_components.py`, `test_blender_ui_handler.py`, `test_mat_utils.py`; 13 suites 1085/1085.
 - **2026-10-29 -- `KeyStash` binds `BlenderKeyStashHost` (`anim_utils/key_stash`).** As in mayatk; `keys_keep_time = False` keeps a frame-rate change from moving stashed times, as before, and the deferred flush is `BlenderShotsHost`'s one coalescer, keyed per store.
