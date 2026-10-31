@@ -328,11 +328,98 @@ try:
     )
 
     # ---- frame-rate change leaves Blender frames alone ----
-    reopened.rescale_to_fps(reopened.scene_fps * 2)
+    rescale_events = []
+    reopened.add_listener(rescale_events.append)
+    fps = reopened.scene_fps
+    reopened.rescale_to_fps(fps * 2)
     check(
         "rescale_to_fps records the rate but does not move Blender keys",
-        reopened.clips[0].times == [10.0, 20.0, 30.0],
-        f"{reopened.clips[0].times}",
+        reopened.clips[0].times == [10.0, 20.0, 30.0]
+        and reopened.scene_fps == fps * 2
+        and rescale_events == [],
+        f"{reopened.clips[0].times} fps={reopened.scene_fps} events={rescale_events}",
+    )
+
+    # ---- ... and live: the backend's frame-rate hook (msgbus in a session;
+    #      a Python-side write never notifies msgbus, so it is run as msgbus would) ----
+    scene = bpy.context.scene
+    scene.render.fps, scene.render.fps_base = 50, 1.0
+    KeyStash._persistence._on_time_unit_changed()
+    rec = reopened.clips[0].curves[0]
+    _, parked_fc = KeyStash._stash_fcurve(bpy.data.actions.get(rec["action"]), rec)
+    parked = [k.co.x for k in parked_fc.keyframe_points] if parked_fc else None
+    check(
+        "a live frame-rate change records the rate; record and parked action keep their frames",
+        KeyStash.active() is reopened
+        and reopened.scene_fps == 50.0
+        and reopened.clips[0].times == [10.0, 20.0, 30.0]
+        and parked == [10.0, 20.0, 30.0],
+        f"fps={reopened.scene_fps} times={reopened.clips[0].times} parked={parked}",
+    )
+    reset_store()
+
+    # ---- the deferred write: the shot store's coalescer, one flag per store ----
+    import types
+    from unittest import mock
+    from blendertk.anim_utils.shots._shots import BlenderShotsHost
+
+    first, second = KeyStash(), KeyStash()
+    with mock.patch.object(BlenderShotsHost, "schedule_flush") as shared:
+        KeyStash.HOST.schedule_flush(first)
+    check(
+        "the key stash's deferred write is the shot store's coalescer (written once)",
+        [c.args for c in shared.call_args_list] == [(first,)],
+        f"{shared.call_args_list}",
+    )
+    queued, writes = [], []
+    first._flush_dirty = lambda: writes.append("first")
+    second._flush_dirty = lambda: writes.append("second")
+    session = types.SimpleNamespace(  # a GUI session's timers, recorded
+        app=types.SimpleNamespace(
+            background=False,
+            timers=types.SimpleNamespace(
+                register=lambda fn, first_interval=0.0: queued.append(fn)
+            ),
+        )
+    )
+    with mock.patch.dict(sys.modules, {"bpy": session}):
+        for store in (first, first, second):
+            KeyStash.HOST.schedule_flush(store)
+        burst = len(queued)
+        queued[0]()  # the first store's timer runs
+        KeyStash.HOST.schedule_flush(first)
+    state = getattr(first, "host_state", None)
+    check(
+        "a burst queues one write per store, its flag on that store's host_state",
+        burst == 2
+        and writes == ["first"]
+        and len(queued) == 3
+        and state is not None
+        and state.flush_pending is True
+        and getattr(second, "host_state", None) is not state,
+        f"burst={burst} writes={writes} queued={len(queued)} state={state}",
+    )
+
+    # ---- the saved record: the golden case every host's store is held to ----
+    from pythontk.core_utils.engines.key_stash.key_stash_model import (
+        KeyStashConformance,
+    )
+
+    reset()
+    backend = BlenderScenePersistence(attr_name=KeyStash.ATTR_NAME, store_cls=KeyStash)
+    KeyStash.set_persistence(backend)
+    KeyStashConformance.fill(KeyStash()).save()
+    raw = DataNodes.read(ptk.Scope.PRIVATE, KeyStash.ATTR_NAME)
+    check(
+        "the saved key stash record is pinned byte for byte",
+        raw == KeyStashConformance.payload(),
+        repr(raw),
+    )
+    again = ptk.SceneRecords.KEY_STASH.encode(KeyStash.from_dict(backend.load()).to_dict())
+    check(
+        "a reloaded key stash saves the same bytes",
+        again == KeyStashConformance.payload(),
+        repr(again),
     )
     reset_store()
 

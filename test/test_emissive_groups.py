@@ -463,9 +463,21 @@ try:
     )
     for obj in bpy.data.objects:
         obj.select_set(obj.name == "eg_gone")
-    EmissiveGroups.add_group("picked", {})
+    # An EMPTY face map is no faces, as in Maya -- never the selection: it
+    # raised there and authored a group from whatever was selected here.
+    refused = ""
+    try:
+        EmissiveGroups.add_group("unpicked", {})
+    except ValueError as exc:
+        refused = str(exc)
     check(
-        "an empty face map takes the selection",
+        "an empty face map is no faces, not the selection (as in Maya)",
+        "No faces" in refused and "unpicked" not in EmissiveGroups.list_groups(),
+        refused or EmissiveGroups.list_groups().get("unpicked"),
+    )
+    EmissiveGroups.add_group("picked")
+    check(
+        "no face map takes the selection",
         EmissiveGroups.list_groups()["picked"]["faces"] == 6,
         EmissiveGroups.list_groups()["picked"],
     )

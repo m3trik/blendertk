@@ -25,18 +25,19 @@ the clip stays and is retrieved onto a *target*.
 in-context pushes the live action down under a REPLACE strip of the stash
 action; isolated solos the stash strip.  Ending removes the tracks and hands
 the live action back.
+
+**Host.** The store is pythontk's, written once; :class:`BlenderKeyStashHost`
+is what it asks of Blender (a :class:`pythontk.KeyStashHost`: the persistence,
+the scene clock, the coalesced flush, the undo step, the reconcile, the script
+jobs).  :class:`KeyStash` binds it and adds the scene operations; it overrides
+nothing.
 """
 
 import logging
 import math
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, ContextManager, Dict, List, Optional, Sequence, Tuple
 
 import pythontk as ptk
-from pythontk.core_utils.engines.key_stash.key_stash_model import (
-    KeyStash as _KeyStashCore,
-    StashChanged,
-    StashedClip,
-)
 
 from blendertk.anim_utils._anim_utils import AnimUtils, _AnimUtilsInternal
 from blendertk.anim_utils.shots._shots import (
@@ -209,9 +210,100 @@ class _KeyStashInternal(object):
         scene.frame_preview_start = int(rng[1])
         scene.frame_preview_end = int(rng[2])
 
+    @classmethod
+    def _end_scene_preview(cls, payload: Dict[str, Any]) -> None:
+        """Tear down the scene side of a preview whose record held *payload*:
+        its NLA tracks, and the preview range it set."""
+        AnimUtils.remove_preview_layer(payload.get("handle"))
+        cls._restore_playback(payload)
 
-class KeyStash(_KeyStashCore, _KeyStashInternal):
-    """:class:`pythontk.KeyStash` with the scene side bound to Blender.
+
+class _KeyStashState(object):
+    """What Blender keeps per key stash (:meth:`BlenderKeyStashHost.store_state`):
+    ``flush_pending``, a deferred write queued for it -- the flag the shot
+    store's coalescer keeps (``BlenderShotsHost.schedule_flush``)."""
+
+    __slots__ = ("flush_pending",)
+
+    def __init__(self):
+        self.flush_pending = False
+
+
+class BlenderKeyStashHost(object):
+    """Blender's half of the key stash: the :class:`pythontk.KeyStashHost` the
+    one :class:`pythontk.KeyStash` asks about the file (:attr:`KeyStash.HOST`).
+    Each member answers the pure default without ``bpy``.  Mirror of mayatk's
+    ``MayaKeyStashHost``.
+    """
+
+    #: Blender keys live in frames and stay put when the frame rate changes,
+    #: so the store records the new rate and moves no stashed time (Maya's
+    #: keys keep real time: its twin rescales).
+    keys_keep_time = False
+
+    @staticmethod
+    def persistence(store_cls: type) -> Optional[BlenderScenePersistence]:
+        """A :class:`BlenderScenePersistence` on *store_cls*'s private record,
+        or ``None`` without ``bpy``."""
+        try:
+            import bpy  # noqa: F401
+        except ImportError:
+            return None
+        return BlenderScenePersistence(attr_name=store_cls.ATTR_NAME, store_cls=store_cls)
+
+    @staticmethod
+    def store_state() -> "_KeyStashState":
+        """A new store's pending-write flag (:class:`_KeyStashState`)."""
+        return _KeyStashState()
+
+    @staticmethod
+    def scene_fps() -> float:
+        """The scene's effective frame rate (the shot store's reading)."""
+        return BlenderShotsHost.scene_fps()
+
+    @staticmethod
+    def schedule_flush(store) -> None:
+        """Coalesce rapid mutations into one deferred write -- the shot store's
+        coalescer, its flag on the store's ``host_state``."""
+        BlenderShotsHost.schedule_flush(store)
+
+    @staticmethod
+    def undo_chunk(name: str) -> ContextManager[Any]:
+        """One Blender undo step (:meth:`CoreUtils.undo_chunk`)."""
+        return CoreUtils.undo_chunk(name)
+
+    @staticmethod
+    def save_in_step(backend, data: Dict[str, Any]) -> bool:
+        """``False``: the record is a scene property, which Blender's undo step
+        restores with the scene, so the ordinary save already writes it into
+        the step."""
+        return False
+
+    @staticmethod
+    def reconcile(store) -> List[int]:
+        """Drop the clips whose stash action is gone and end a recorded
+        preview's tracks (``KeyStash.reconcile``); nothing without ``bpy``."""
+        try:
+            import bpy
+        except ImportError:
+            return []
+        return store._reconcile_with(
+            lambda rec: bpy.data.actions.get(rec.get("action") or ""),
+            _KeyStashInternal._end_scene_preview,
+        )
+
+    @staticmethod
+    def script_jobs():
+        """Blender's ``ScriptJobManager`` (``undo_post`` / ``redo_post`` behind
+        ``Undo`` / ``Redo``; without bpy it only books subscriptions)."""
+        from blendertk.core_utils.script_job_manager import ScriptJobManager
+
+        return ScriptJobManager.instance()
+
+
+class KeyStash(ptk.KeyStash, _KeyStashInternal):
+    """:class:`pythontk.KeyStash` bound to Blender (:class:`BlenderKeyStashHost`),
+    plus Blender's scene operations.
 
     ``KeyStash.active()`` auto-installs :class:`BlenderScenePersistence` on the
     ``key_stash`` channel, loads any clips saved in the ``.blend``, prunes
@@ -223,154 +315,12 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
     record, and :meth:`active` re-reads a record an undo or redo moved.
     """
 
-    #: The private record carrying the clip manifest (the declaration's key).
-    ATTR_NAME = ptk.SceneRecords.KEY_STASH.key
+    HOST = BlenderKeyStashHost()
     #: The sources :meth:`stash_from` reads -- mirror of mayatk's (the Key
     #: Stash panel's Source combo).
     STASH_SOURCES = ("selected_keys", "timeline_selection", "playback_range")
-    #: The events after which the record may have moved under the loaded store
-    #: (:meth:`watch_undo`; ``undo_post`` / ``redo_post`` behind them).
-    UNDO_EVENTS = ("Undo", "Redo")
-    _flush_pending: bool = False
-
-    # ---- singleton / hooks ---------------------------------------------
-
-    @classmethod
-    def active(cls) -> "KeyStash":
-        """The active store, auto-installing the Blender backend once."""
-        if cls._active is None and cls._persistence is None:
-            try:
-                import bpy  # noqa: F401
-            except ImportError:
-                pass
-            else:
-                cls.set_persistence(
-                    BlenderScenePersistence(attr_name=cls.ATTR_NAME, store_cls=cls)
-                )
-        return super().active()  # type: ignore[return-value]
-
-    @classmethod
-    def watch_undo(cls, owner, widget=None) -> List[int]:
-        """Keep the loaded store in step with undo and redo, for *owner* --
-        mirror of mayatk's.
-
-        Each operation writes the record inside its undo step, so an undo or
-        redo can move the record under the loaded store. This subscribes
-        :meth:`active` -- which re-reads a moved record, and the store's change
-        event tells its listeners -- to :attr:`UNDO_EVENTS` (``undo_post`` /
-        ``redo_post``) through the ``ScriptJobManager``, under *owner*; with
-        *widget*, the subscriptions end when it is destroyed. A subscription
-        that fails is skipped, never raised: a panel watching the store must
-        still open (without bpy the manager only books them).
-
-        Parameters:
-            owner: The subscriptions' owner (``ScriptJobManager.unsubscribe_all``).
-            widget: A Qt widget whose destruction ends them.
-
-        Returns:
-            The subscription tokens.
-        """
-        from blendertk.core_utils.script_job_manager import ScriptJobManager
-
-        jobs = ScriptJobManager.instance()
-        tokens: List[int] = []
-        for event in cls.UNDO_EVENTS:
-            try:
-                tokens.append(jobs.subscribe(event, cls.active, owner=owner))
-            except Exception as error:  # noqa: BLE001 -- see the docstring
-                _log.debug("KeyStash.watch_undo: %r unavailable (%s)", event, error)
-        if widget is not None:
-            jobs.connect_cleanup(widget, owner=owner)
-        return tokens
-
-    def _scene_fps(self) -> float:
-        return BlenderShotsHost.scene_fps()
-
-    def rescale_to_fps(self, new_fps: float) -> None:
-        """Record the new rate only.
-
-        Blender keys live in frames and stay put when the frame rate changes,
-        so the stashed times need no rescale (the Maya twin's do — its curve
-        keys live in ticks).
-        """
-        if abs(float(new_fps) - self.scene_fps) < 0.01:
-            return
-        self.scene_fps = float(new_fps)
-        self.mark_dirty()
-
-    def _schedule_flush(self) -> None:
-        """Coalesce rapid mutations into one deferred write (mirror of the shot store)."""
-        try:
-            import bpy
-        except ImportError:
-            self._flush_dirty()
-            return
-        if bpy.app.background:
-            self._flush_dirty()
-            return
-        if self._flush_pending:
-            return
-        self._flush_pending = True
-
-        def _run():
-            self._flush_pending = False
-            self._flush_dirty()
-            return None  # one-shot
-
-        try:
-            bpy.app.timers.register(_run, first_interval=0.0)
-        except Exception:
-            self._flush_pending = False
-            self._flush_dirty()
-
-    def _undo_chunk(self, name: str):
-        """One Blender undo step (:meth:`CoreUtils.undo_chunk`)."""
-        return CoreUtils.undo_chunk(name)
-
-    def _on_activated(self) -> None:
-        self.reconcile()
-
-    def reconcile(self) -> List[int]:
-        """Bring the record in line with the file.
-
-        Drops every clip whose stash action is gone and ends a preview the
-        record says is active (a file saved mid-preview must not reopen
-        silently overridden).
-
-        Returns:
-            The ids of the pruned clips.
-        """
-        try:
-            import bpy
-        except ImportError:
-            return []
-        gone: List[int] = []
-        for clip in list(self.clips):
-            if not any(
-                bpy.data.actions.get(rec.get("action") or "") for rec in clip.curves
-            ):
-                self.clips.remove(clip)
-                gone.append(clip.clip_id)
-        changed = bool(gone)
-        if self.active_preview:
-            AnimUtils.remove_preview_layer(self.active_preview.get("handle"))
-            self._restore_playback(self.active_preview)
-            self.active_preview = None
-            changed = True
-        if changed:
-            self.mark_dirty()
-            self._notify(StashChanged("reloaded"))
-        return gone
 
     # ---- scene-record crossings (``DataNodes.OWNERS``) -----------------
-
-    @classmethod
-    def merge_carrier(cls, carriers, other, ctx) -> None:
-        """Another file's parked clips merged into the record: reload the
-        active stash from it (their actions came local with the library).
-        Mirror of mayatk's."""
-        if ptk.SceneRecords.KEY_STASH in other:
-            cls.invalidate()
 
     @classmethod
     def discard_carrier(cls, carriers, other, ctx) -> None:
@@ -421,7 +371,7 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
         source_shot_id: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
         targets: Optional[Sequence[Tuple[str, Any, float, float]]] = None,
-    ) -> Optional[StashedClip]:
+    ) -> Optional[ptk.StashedClip]:
         """Move keys off the working animation into a stored clip.
 
         Three selection sources, as in mayatk, all producing ONE clip:
@@ -691,7 +641,7 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
                 if action is not None:
                     bpy.data.actions.remove(action)
 
-    def stash_from(self, source: str) -> Optional[StashedClip]:
+    def stash_from(self, source: str) -> Optional[ptk.StashedClip]:
         """:meth:`stash` the keys one of :attr:`STASH_SOURCES` names, read
         from the file as it stands -- mirror of mayatk's (the Key Stash
         panel's Store Keys).
@@ -820,7 +770,5 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
         if not self.active_preview:
             return False
         with self._undo_step("End Stored Keys Preview"):
-            payload = self.clear_preview()
-            AnimUtils.remove_preview_layer(payload.get("handle"))
-            self._restore_playback(payload)
+            self._end_scene_preview(self.clear_preview())
         return True

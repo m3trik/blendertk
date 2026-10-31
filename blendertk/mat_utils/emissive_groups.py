@@ -88,7 +88,7 @@ class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal):
     def faces(self, faces=None) -> FaceMap:
         import bpy
 
-        if not faces:  # None or empty: the selection, as Blender's engine read it
+        if faces is None:  # the selection; an empty map is no faces, as in Maya
             return self._selected_faces()
         out: FaceMap = {}
         for name, indices in dict(faces).items():

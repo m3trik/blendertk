@@ -1,6 +1,10 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-29 -- `KeyStash` binds `BlenderKeyStashHost` (`anim_utils/key_stash`).** As in mayatk; `keys_keep_time = False` keeps a frame-rate change from moving stashed times, as before, and the deferred flush is `BlenderShotsHost`'s one coalescer, keyed per store.
+  - Test(s): `test_key_stash.py` (byte pin, per-store flush burst, frame-rate hook).
+- **2026-10-29 -- Emissive Groups: an empty face map is no faces (`mat_utils/emissive_groups.py`).** `add_group(name, {})` now raises as it does in Maya; `faces=None` still takes the selection.
+  - Test(s): `test_emissive_groups.py`, red first.
 - **2026-10-29 -- The README and the structure map describe the shared-panel layout (docs/README.md, docs/STRUCTURE.md).** Panels are tentacle's; the mirror holds signatures where a shared panel calls them; main modules hold only the namespace class; both packages register wildcard main modules and `MOVED_NAMES`. The `calculator` and `rig_utils` docstrings no longer describe library panels.
   - Test(s): none (docs).
 - **2026-10-29 -- `Channels` keeps its per-instance state in `_Targets` and `_Clipboard` (`node_utils/attributes/channels/_channels.py`).** No public change; an unused `pythontk` import dropped.
