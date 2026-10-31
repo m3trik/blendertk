@@ -283,6 +283,52 @@ try:
         "clear removes the environment",
         mgr.hdr_env is None and btk.get_world_hdri() is None,
     )
+    # import_hdrs: the panel's Add (pythontk's FileUtils.import_files into the
+    # texture folder it is handed), on mayatk's signature.
+    import inspect
+
+    params = inspect.signature(btk.HdrManager.import_hdrs).parameters
+    check(
+        "import_hdrs has mayatk's signature",
+        [(p.name, p.default) for p in params.values()]
+        == [
+            ("paths", inspect.Parameter.empty),
+            ("folder", inspect.Parameter.empty),
+            ("mode", "copy"),
+            ("on_conflict", "reuse"),
+            ("strict", False),
+        ],
+    )
+    tex_dir = os.path.join(tmp_dir, "sourceimages")
+    os.makedirs(tex_dir)
+    partial = os.path.join(tmp_dir, "partial.hdr")
+    with open(partial, "wb") as fh:  # a 2:1 header whose scanlines never arrive
+        fh.write(b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 16 +X 32\n\x02\x02\x00\x20")
+    imported = btk.HdrManager.import_hdrs([paths[0], partial], tex_dir)
+    copied = os.path.normpath(os.path.join(tex_dir, "env_a.hdr"))
+    check(
+        "import_hdrs copies a complete HDR into sourceimages, leaves an incomplete out",
+        imported["added"] == [copied]
+        and os.path.isfile(copied)
+        and [source for source, _ in imported["skipped"]] == [partial]
+        and imported["io"] is True,
+        f"result={imported}",
+    )
+    try:
+        btk.HdrManager.import_hdrs([paths[0]], "")
+        refused = ""
+    except ValueError as error:
+        refused = str(error)
+    linked = btk.HdrManager.import_hdrs([paths[0]], None, mode="link")
+    check(
+        "import_hdrs: a copy needs a project, a link does not",
+        "set a project" in refused and linked["added"] == [paths[0]],
+        f"refused={refused!r} linked={linked}",
+    )
+    for p in (copied, partial):
+        if os.path.exists(p):
+            os.remove(p)
+    os.rmdir(tex_dir)
     btk.set_world_importance_resolution(0)
 
     # ---- scale_light_energy: the Maya->Cycles unit dial ----------------------

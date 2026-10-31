@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-31 -- Added `HdrManager.import_hdrs(paths, folder, mode="copy", on_conflict="reuse", strict=False)` (`light_utils/hdr_manager.py`).** The HDR Manager's Add as a library call, delegating to pythontk `FileUtils.import_files` with `ImgUtils.validate_image_integrity`. Twin of the other host's.
+  - Test(s): `test_hdr_manager.py` / `test_light_utils.py` (real copies; a missing project refused in words).
 - **2026-10-31 -- Docs describe the parity gate (`CLAUDE.md`, `docs/README.md`, `docs/STRUCTURE.md`).** Every call tentacle's shared Slots make through `self.tk` resolves here, or the panel hides or guards it on the host that lacks it; `compare_panel_surface.py` checks it.
   - Test(s): none (docs).
 - **2026-10-29 -- Lightmap records and atlases, FBX rows, bake sessions and cut offsets call pythontk's rules (`light_utils/lightmap_baker/`, `env_utils/fbx_utils.py`, `anim_utils/smart_bake/bake_session.py`, `edit_utils/_edit_utils.py`).** `LightmapRecords._keep_bake_state` / `strangers`, `LightmapBaker._atlas_files` / `_splits`, `FbxUtils._resolve_row` / `producers` / `stagers` (still logged on this module's logger), `BakeSessionStore.peek` / `pop` and `EditUtils._cut_offsets` delegate; behaviour unchanged. The Rizom `parameters.py` is one whole-file twin (mayatk the SSoT) and the Unity one names the SSoT. Rizom tooltips: Import Groups now reads "Give each exported object (and any group above it the export carries) its own Rizom island group. Off = every mesh imports as a flat list.", and Load Textures collects from "the selection's materials".

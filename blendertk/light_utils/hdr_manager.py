@@ -49,7 +49,7 @@ class HdrManager(ptk.LoggingMixin):
     """
 
     #: The knob properties of this host's environment: tentacle's HDR Manager
-    #: enables a control only for a knob listed here (mayatk's also lists
+    #: shows a control only for a knob listed here (mayatk's also lists
     #: ``samples`` and ``preview``).
     KNOBS: tuple = (
         "rotation",
@@ -289,6 +289,58 @@ class HdrManager(ptk.LoggingMixin):
         Maya's idle queue (a live Arnold IPR re-translating inside the popup's
         re-entrant Qt loop sticks the render black)."""
         callback()
+
+    # ------------------------------------------------------------------
+    # Import
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def import_hdrs(
+        cls,
+        paths,
+        folder: Optional[str],
+        mode: str = "copy",
+        on_conflict="reuse",
+        strict: bool = False,
+    ) -> dict:
+        """Bring HDR/EXR *paths* into the project's texture folder (``sourceimages``)
+        -- the HDR Manager's Add, for a script too. Mirror of mayatk's (signature
+        and behavior).
+
+        ``ptk.FileUtils.import_files`` into *folder*, each file checked by
+        ``ptk.ImgUtils.validate_image_integrity`` (a partly synced cloud HDR is
+        left out: Blender's loader chokes on one). Lighting the scene from an
+        imported file is :attr:`hdr_env`'s. The folder is the caller's: it is
+        the one the panel lists, and ``env_utils`` ranks above ``light_utils``.
+
+        Parameters:
+            paths: The HDR/EXR files.
+            folder: The project's texture folder -- the one the panel lists
+                (``EnvUtils.source_images_dir()``); a link does not read it.
+            mode: ``"copy"`` / ``"move"`` into sourceimages (a file already under
+                it is used in place), or ``"link"``: used where they are.
+            on_conflict: A same-named file already in sourceimages: ``"reuse"``
+                (when complete; else the source is left out), ``"overwrite"``, or
+                ``(existing) -> bool`` -- True replaces it, False cancels.
+            strict: Stop at the first refusal (the result's ``failed``) instead
+                of leaving it out -- the one file a user picked by hand.
+
+        Returns:
+            dict: ``ptk.FileUtils.import_files``' result (``added``, ``skipped``,
+            ``io``, ``failed``, ``cancelled``).
+
+        Raises:
+            ValueError: ``"copy"`` / ``"move"`` without an existing *folder*
+                (``import_files``' refusal, worded for the user).
+        """
+        return ptk.FileUtils.import_files(
+            paths,
+            folder,
+            mode=mode,
+            on_conflict=on_conflict,
+            validate=ptk.ImgUtils.validate_image_integrity,
+            strict=strict,
+        )
 
 
 # -----------------------------------------------------------------------------
