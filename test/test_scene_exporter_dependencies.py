@@ -166,6 +166,23 @@ try:
         embedded.get(f"{track}.wav") == os.path.getsize(wav),
         f"embedded={sorted(embedded)}",
     )
+    # The record's digest of the track is the SHA-256 of the bytes inside --
+    # what Unity hashes an extracted or library clip to before it stands in
+    # for the track (ptk.AudioUtils.media_digests; mayatk's too). Added:
+    # 2026-10-31
+    import hashlib
+
+    inside = os.path.join(root, "inside")
+    os.makedirs(inside, exist_ok=True)
+    written = ptk.FbxMedia.extract(fbx, inside, names=[f"{track}.wav"])
+    with open(written.get(f"{track}.wav", wav), "rb") as fh:
+        inside_digest = hashlib.sha256(fh.read()).hexdigest()
+    check(
+        "the audio record's digest of the strip is the SHA-256 of the bytes inside",
+        f"{track}.wav" in written
+        and [m.get("media") for m in manifests] == [{track: inside_digest}],
+        f"{[m.get('media') for m in manifests]} vs {inside_digest}",
+    )
     beside = sorted(os.listdir(out))
     check("nothing ships beside the FBX", beside == ["embedded_deps.fbx"], f"{beside}")
     from blendertk.env_utils.hierarchy_sync.scene_data_sidecar import (

@@ -558,9 +558,11 @@ class AudioUtils(ptk.LoggingMixin):
                 one.
 
         Returns:
-            The record (``{"version", "events": [...], "fps"}``: the frames
-            count at the scene's rate, which travels with them), or ``None``
-            when no strip plays.
+            The record (``{"version", "events": [...], "fps", "media"}``: the
+            frames count at the scene's rate, which travels with them, and
+            ``media`` digests each played strip's file by its name --
+            ``ptk.AudioUtils.media_digests``, the content a same-named clip
+            must match to stand in for it), or ``None`` when no strip plays.
         """
         import bpy
 
@@ -602,6 +604,13 @@ class AudioUtils(ptk.LoggingMixin):
             )
         if not scoped:
             return None
+        # Each played strip's file as the SHA-256 of the bytes the FBX embeds
+        # under its name (FbxUtils.embed_dependencies reads the same
+        # track_files): Unity reuses a same-named clip only when it hashes
+        # alike -- mayatk's producer too.
+        media = ptk.AudioUtils.media_digests(
+            scoped, lambda names: cls.track_files(names, scene)
+        )
         return ptk.SceneRecords.AUDIO.make(
-            {"events": scoped, "fps": cls.get_fps(scene)}
+            {"events": scoped, "fps": cls.get_fps(scene), "media": media}
         )
