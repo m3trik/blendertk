@@ -13,7 +13,7 @@ Toolbag.
 Everything Marmoset-specific but DCC-agnostic (Toolbag discovery/launch, log handling, template
 rendering, the in-Toolbag helpers, the RPC client) is vendored alongside this module in the
 ``marmoset_bridge`` subpackage -- an identical copy to mayatk's, per the established pattern
-(extapps' ``marmoset_workflow`` keeps its own copy too, for tentacle's standalone Marmoset
+(extapps' ``marmoset_workflow`` keeps its own copy too, for its standalone Marmoset
 Workflow panel, since none of the three can import each other). This module owns only what genuinely needs Blender.
 
 ``import bpy`` is deferred so the engine surface resolves headlessly.
