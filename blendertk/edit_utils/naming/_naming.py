@@ -467,39 +467,89 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
         valid_suffixes=None,
         reverse=False,
         independent_groups=False,
+        order="distance",
         dry_run=False,
     ):
-        """Suffix objects by their distance from a reference point (origin, or the first object's
-        bbox center when ``first_obj_as_ref``) — ``_A``/``_B`` (``alphabetical``, ≤26) or ``_01``/
-        ``_02``. Mirror of mayatk's ``append_location_based_suffix`` (uses ``order_by_distance``).
-        ``dry_run`` plans and reports only. Returns the final names in distance order."""
+        """Suffix objects by location — ``_A``/``_B`` (``alphabetical``, ≤26) or ``_01``/``_02``.
+        Mirror of mayatk's ``append_location_based_suffix``, same signature and default.
+
+        An object's location is its pivot (``matrix_world.translation``), as mayatk reads the
+        world rotate pivot, and the order is :meth:`pythontk.PointCloud.order_points`'s, so both
+        hosts number one layout the same way. ``order``: ``"distance"`` (default; from the world
+        origin, or the first object's pivot when ``first_obj_as_ref``), ``"x"`` / ``"y"`` /
+        ``"z"`` (signed position along that world axis; ties go to the other axes, then the
+        name), or ``"auto"`` (the axis the objects are most spread along). ``reverse`` numbers
+        from the far end. A letter this tool wrote (the batch's letters run ``A, B, C, ...``) is
+        stripped first, so an alphabetical re-run is stable; a side marker (``_L``) is content.
+        Only objects have a location: anything else is skipped. ``dry_run`` plans and reports
+        only. Returns the final names in order."""
         import bpy
 
-        from blendertk.xform_utils._xform_utils import XformUtils
-
-        objects = [o for o in ptk.make_iterable(objects) if o]
+        objects = [
+            o for o in ptk.make_iterable(objects) if o and hasattr(o, "matrix_world")
+        ]
         if not objects:
+            cls.logger.warning("No objects to suffix by location.")
             return []
 
-        # order_by_distance / get_world_bbox read matrix_world — settle the depsgraph first so a
-        # just-moved (or just-created) object's world position is current, not stale at the origin.
+        # matrix_world must be current -- settle the depsgraph first so a just-moved (or
+        # just-created) object's world position is not stale at the origin.
         bpy.context.view_layer.update()
+        positions = {o.name: tuple(o.matrix_world.translation) for o in objects}
+        by_name = {o.name: o for o in objects}
+        order = (order or "distance").lower()
+        if order == "auto":  # one axis for the whole batch, groups included
+            order = ptk.PointCloud.spread_axis(list(positions.values()))
+        reference = positions[objects[0].name] if first_obj_as_ref else (0.0, 0.0, 0.0)
 
-        reference_point = (0.0, 0.0, 0.0)
-        if first_obj_as_ref:
-            mn, mx = XformUtils.get_world_bbox(objects[0])
-            reference_point = tuple((mn[i] + mx[i]) / 2.0 for i in range(3))
+        def ordered(objs):
+            keys = ptk.PointCloud.order_points(
+                [(o.name, positions[o.name]) for o in objs],
+                order_by=order,
+                reference=reference,
+                reverse=reverse,
+            )
+            return [by_name[k] for k in keys]
 
         strip_for_grouping = strip_defined_suffixes and not independent_groups
         sorted_suffixes = sorted(valid_suffixes or [], key=len, reverse=True)
 
+        def strip_ints(name):
+            # '.001' too: Blender's own duplicate numbering ('tile.001' left 'tile.' -> 'tile__B').
+            if strip_trailing_ints and name and name[-1].isdigit():
+                m = re.search(r"([._]\d+|\d+)$", name)
+                if m:
+                    return name[: m.start()]
+            return name
+
+        def peel_suffix(name):
+            """``(root, suffix)``: *name* less the defined suffix it ends with."""
+            for s in sorted_suffixes:
+                if name.endswith(s):
+                    return name[: -len(s)], s
+            return name, ""
+
+        # The letters a previous alphabetical run wrote: the batch's '_A', '_B', ... (before a
+        # kept type suffix too) running from A with no gap. Only those are stripped (a re-run
+        # gave 'tile_C_C'); a side marker ('_L', '_R') is name content. Mirrors mayatk.
+        letters = set()
+        for o in objects:
+            m = re.search(r"_([A-Z])$", strip_ints(peel_suffix(strip_ints(o.name))[0]))
+            if m:
+                letters.add(m.group(1))
+        own_letters = (
+            alphabetical
+            and bool(letters)
+            and sorted(letters) == list(string.ascii_uppercase[: len(letters)])
+        )
+
+        def strip_own_letter(name):
+            return name[:-2] if own_letters and re.search(r"_[A-Z]$", name) else name
+
         def base_of(name):
             while True:
                 before = name
-                if strip_trailing_ints and name and name[-1].isdigit():
-                    m = re.search(r"(_\d+|\d+)$", name)
-                    if m:
-                        name = name[: m.start()]
+                name = strip_own_letter(strip_ints(name))
                 if strip_for_grouping and sorted_suffixes:
                     for s in sorted_suffixes:
                         if name.endswith(s):
@@ -518,33 +568,38 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
         if independent_groups:
             groups = {}
             for o in objects:
-                groups.setdefault(base_of(o.name), []).append(o)
+                # A kept type suffix: the number or letter before it is this tool's too
+                # (Container_01_GRP), so a re-run groups as before. Mirrors mayatk.
+                key = base_of(o.name)
+                root, suffix = peel_suffix(key)
+                groups.setdefault(base_of(root) + suffix if suffix else key, []).append(o)
             for base, members in groups.items():
-                ordered = XformUtils.order_by_distance(
-                    members, reference_point=reference_point, reverse=reverse
-                )
+                ranked = ordered(members)
                 root, type_suffix = base, ""
                 for s in sorted_suffixes:
                     if base.endswith(s):
-                        root, type_suffix = base[: -len(s)], s
+                        root = base[: -len(s)]
+                        type_suffix = s
                         break
                 if strip_defined_suffixes:
                     type_suffix = ""
-                for i, (o, sfx) in enumerate(zip(ordered, suffixes_for(len(ordered)))):
-                    new_names[o] = f"{root}_{sfx}{type_suffix}"
+                for o, sfx in zip(ranked, suffixes_for(len(ranked))):
+                    new_names[o.name] = f"{root}_{sfx}{type_suffix}"
         else:
-            ordered = XformUtils.order_by_distance(
-                objects, reference_point=reference_point, reverse=reverse
-            )
-            for o, sfx in zip(ordered, suffixes_for(len(ordered))):
-                new_names[o] = f"{base_of(o.name)}_{sfx}"
+            ranked = ordered(objects)
+            for o, sfx in zip(ranked, suffixes_for(len(ranked))):
+                new_names[o.name] = f"{base_of(o.name)}_{sfx}"
 
         plan = [
-            (o, o.name, cls.strip_illegal_chars(name)) for o, name in new_names.items()
+            (by_name[name], name, cls.strip_illegal_chars(new))
+            for name, new in new_names.items()
         ]
+        title = "Suffix By Location"
+        if order in ("x", "y", "z"):
+            title += f" (along {order.upper()})"
         # Two phases (no target collides with a name the batch still holds) are the shared
         # plan step's, after its skip filter. Mirrors mayatk.
-        return cls._apply_plan(plan, "Suffix By Location", dry_run)
+        return cls._apply_plan(plan, title, dry_run)
 
     # ------------------------------------------------------------------
     # Plan execution — shared by every operation

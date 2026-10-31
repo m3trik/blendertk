@@ -399,6 +399,35 @@ try:
         f"{dup.name},{idx.name}",
     )
 
+    # ---- H: alphabetical numbering is re-runnable, a side marker kept --------------------------
+    reset()
+    tiles = [empty("tile", x=float(i)) for i in range(4)]
+    Naming.append_location_based_suffix(tiles, alphabetical=True)
+    first = [o.name for o in tiles]
+    Naming.append_location_based_suffix(tiles, alphabetical=True)
+    check(
+        "alphabetical re-run is stable",
+        first == ["tile_A", "tile_B", "tile_C", "tile_D"] and [o.name for o in tiles] == first,
+        f"{first} -> {[o.name for o in tiles]}",
+    )
+    reset()
+    c1, c2 = empty("Container_GRP", x=0.0), empty("Container_GRP", x=10.0)
+    for alpha, want in ((False, ("Container_01_GRP", "Container_02_GRP")), (True, ("Container_A_GRP", "Container_B_GRP"))):
+        for _run in range(2):
+            Naming.append_location_based_suffix(
+                [c1, c2], independent_groups=True, strip_defined_suffixes=False,
+                alphabetical=alpha, valid_suffixes=["_GRP"],
+            )
+            check(
+                f"independent groups re-run is stable (alphabetical={alpha})",
+                (c1.name, c2.name) == want,
+                f"{c1.name},{c2.name}",
+            )
+    reset()
+    left, right = empty("arm_L", x=0.0), empty("arm_R", x=1.0)
+    Naming.append_location_based_suffix([left, right], alphabetical=True)
+    check("alphabetical keeps a side marker", (left.name, right.name) == ("arm_L_A", "arm_R_B"))
+
     # ---- K / L: every planned name is legalized ------------------------------------------------
     reset()
     o = empty("a1box")
@@ -428,6 +457,54 @@ try:
         "dry run predicts the live numbering",
         dry == live == ["box.001", "box.002", "box.003"] and not log.lines("instead of"),
         f"dry={dry} live={live} {log.texts}",
+    )
+
+    # ---- Suffix By Location's order ------------------------------------------------------------
+    def row():
+        reset()
+        spots = {
+            "east": (3, 0, 0), "west": (-3, 0, 0), "north": (0, -3, 0),
+            "up": (0, 0, 3), "center": (0, 0, 0), "far_west": (-6, 0, 0),
+            "near_east": (1, 0, 0),
+        }
+        objs = {}
+        for name, pos in spots.items():
+            objs[name] = empty(name)
+            objs[name].location = pos
+        return objs
+
+    objs = row()
+    Naming.append_location_based_suffix(list(objs.values()), order="x")
+    got = {k: o.name for k, o in objs.items()}
+    check(
+        "order x: signed position, ties by the other axes",
+        [got[k] for k in ("far_west", "west", "north", "center", "up", "near_east", "east")]
+        == ["far_west_01", "west_02", "north_03", "center_04", "up_05", "near_east_06", "east_07"],
+        got,
+    )
+    for pair in (("east", "west"), ("west", "east")):
+        objs = row()
+        Naming.append_location_based_suffix([objs[k] for k in pair])
+        check(
+            f"distance tie breaks by position ({pair[0]} first)",
+            (objs["west"].name, objs["east"].name) == ("west_01", "east_02"),
+            f"{objs['west'].name},{objs['east'].name}",
+        )
+    reset()
+    posts = [empty("post", x=float(x)) for x in (4, -2, 9, 0)]
+    for o, x in zip(posts, (4, -2, 9, 0)):
+        o.location.y = 0.001 * x
+    Naming.append_location_based_suffix(posts, order="auto")
+    check(
+        "order auto numbers along the row",
+        [o.name for o in posts] == ["post_03", "post_01", "post_04", "post_02"],
+        [o.name for o in posts],
+    )
+    Naming.append_location_based_suffix(posts, order="auto", reverse=True)
+    check(
+        "order auto reversed",
+        [o.name for o in posts] == ["post_02", "post_04", "post_01", "post_03"],
+        [o.name for o in posts],
     )
 
 except Exception:
