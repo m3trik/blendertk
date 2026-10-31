@@ -307,23 +307,18 @@ try:
         record is not None and record.payload.get("fps") == AudioUtils.get_fps(scene),
         str(record and record.payload),
     )
-    # Each played strip's file rides as the SHA-256 of its bytes under its
-    # event's name (ptk.AudioUtils.media_digests, mayatk's too): what Unity
-    # compares a same-named clip against before it reuses one -- two models
-    # embedding a different door.wav bound one clip. A muted strip plays
-    # nothing and is not digested. Added: 2026-10-31
-    import hashlib
-
-    def sha(path):
-        with open(path, "rb") as fh:
-            return hashlib.sha256(fh.read()).hexdigest()
-
+    # ``media`` -- each embedded clip's SHA-256, what Unity compares a
+    # same-named clip against before it reuses one -- is the FBX dependency
+    # pass's to write, from the bytes it embedded (ptk.FbxMedia
+    # .embed_dependencies; mayatk's producer too). Written here from the
+    # source files, it named audio a raw export never embedded, and Unity
+    # bound nothing where a library clip had bound. Added: 2026-10-31
     check(
-        "export_record: each played strip's file, by its name, as its bytes' SHA-256",
+        "export_record: the record leaves its digests to the dependency pass",
         record is not None
-        and record.payload.get("media") == {"steps": sha(wav_a), "punch": sha(wav_b)}
+        and "media" not in record.payload
         and not ptk.SceneRecords.problems(ptk.SceneRecords.AUDIO, record.payload),
-        str(record and record.payload.get("media")),
+        str(record and record.payload),
     )
     shots = ptk.SceneRecords.SHOTS.make(
         {
