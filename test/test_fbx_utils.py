@@ -2689,6 +2689,62 @@ try:
     EnvUtils.set_current_workspace(ru_pin)
     ru_store.cleanup()
 
+    # ---- a scoped context names every object the write ships, and a scoped
+    # hand-off ships the stored bake narrowed and keeps it whole (mirror of
+    # mayatk's; measured 2026-10-31: the bridges shipped every object's
+    # lightmaps and the other object's shadow plane). Added: 2026-10-31 -----
+    from blendertk.node_utils.data_nodes import DataNodes as _ScDataNodes
+
+    reset()
+    sc_grp = bpy.data.objects.new("KEEP_grp", None)
+    bpy.context.collection.objects.link(sc_grp)
+    bpy.ops.mesh.primitive_cube_add()
+    sc_keep = bpy.context.active_object
+    sc_keep.name = "KEEP_cube"
+    sc_keep.parent = sc_grp
+    bpy.ops.mesh.primitive_cube_add()
+    bpy.context.active_object.name = "DROP_cube"
+    sc_ctx = FbxUtils.export_context(scope=("KEEP_grp",))
+    check(
+        "a scoped context names each root and its descendants",
+        sc_ctx.nodes == frozenset({"KEEP_grp", "KEEP_cube"})
+        and not sc_ctx.ships("DROP_cube"),
+        sc_ctx.nodes,
+    )
+    check("no scope names none", FbxUtils.export_context().nodes is None)
+    ptk.SceneRecords.LIGHTMAPS.save(
+        _ScDataNodes,
+        {
+            "objects": [
+                {"name": "KEEP_cube", "map": "K.exr"},
+                {"name": "DROP_cube", "map": "D.exr"},
+            ]
+        },
+    )
+    ptk.SceneRecords.SHADOWS.save(
+        _ScDataNodes, {"unit_scale": 1.0, "planes": [{"name": "DROP_cube_shadow"}]}
+    )
+    with FbxUtils.export_prepared(
+        FbxUtils.export_context(mode=ptk.ExportContext.HANDOFF, scope=("KEEP_grp",))
+    ):
+        sc_shipped = ptk.SceneRecords.LIGHTMAPS.load(_ScDataNodes) or {}
+        sc_planes = ptk.SceneRecords.SHADOWS.load(_ScDataNodes)
+    check(
+        "a scoped hand-off ships the stored lightmaps of what it sends",
+        [o["name"] for o in sc_shipped.get("objects") or []] == ["KEEP_cube"]
+        and sc_planes is None,
+        (sc_shipped, sc_planes),
+    )
+    sc_after = ptk.SceneRecords.LIGHTMAPS.load(_ScDataNodes) or {}
+    check(
+        "...and the scene keeps its whole copy after the write",
+        len(sc_after.get("objects") or []) == 2
+        and (ptk.SceneRecords.SHADOWS.load(_ScDataNodes) or {}).get("planes"),
+        sc_after,
+    )
+    ptk.SceneRecords.LIGHTMAPS.clear(_ScDataNodes)
+    ptk.SceneRecords.SHADOWS.clear(_ScDataNodes)
+
     # ---- finish_deliverable: a scene that cannot say where its files are
     # still gets the split, the copies and the drop, which need none of them
     # (mirror of mayatk). Added: 2026-10-19 --------------------------------

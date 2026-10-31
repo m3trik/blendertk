@@ -1331,11 +1331,13 @@ class RenderEffects(ptk.LoggingMixin):
         and last frame the stack CARRIES), else the bake range as a seed.
 
         Parameters:
-            ctx: The export's decisions (``clip_span``) and the records
-                produced before this one -- the shot record's ``fps`` and its
-                clips' ranges (the takes); the stored records are read when
-                this assembly did not produce them (an authoring-time
-                republish).
+            ctx: The export's decisions (``clip_span``, ``nodes``) and the
+                records produced before this one -- the shot record's ``fps``
+                and its clips' ranges (the takes); the stored records are read
+                when this assembly did not produce them (an authoring-time
+                republish). A scoped write keeps the tracks of the objects it
+                ships, and its spans count their fcurves alone (mirror of
+                mayatk's; the record is ``export_scoped``).
 
         Returns:
             The record, or ``None`` when there is no keyed visibility (the
@@ -1346,7 +1348,7 @@ class RenderEffects(ptk.LoggingMixin):
 
         # Bail BEFORE the span walk: that reads every fcurve in the file, and a
         # scene with no keyed visibility has nothing to spend it on.
-        tracks = cls.visibility_tracks()
+        tracks = [track for track in cls.visibility_tracks() if ctx.ships(track["node"])]
         if not tracks:
             return None
 
@@ -1373,7 +1375,7 @@ class RenderEffects(ptk.LoggingMixin):
         # export's until the snapshot commits.
         stack_range = ctx.clip_span or FbxUtils.bake_range(takes)
         spans = ptk.MeshConvert.clip_spans(
-            cls._scene_key_frames(), (), stack_range=stack_range
+            cls._scene_key_frames(ctx), (), stack_range=stack_range
         )
         # Each take's span is its WINDOW: Blender's split bakes every frame of
         # it, so the converter opens the clip at the window's start, not at the
@@ -1425,8 +1427,9 @@ class RenderEffects(ptk.LoggingMixin):
         return float(render.fps) / float(render.fps_base or 1.0)
 
     @staticmethod
-    def _scene_key_frames() -> list:
-        """Every authored key time in the file, in frames.
+    def _scene_key_frames(ctx: Optional[ptk.ExportContext] = None) -> list:
+        """Every authored key time in the file, in frames -- of the objects a
+        scoped *ctx* ships alone (``ctx.ships``).
 
         The scene-reaching half of ``ptk.MeshConvert.clip_spans``, which owns
         the rest (mayatk answers the same through ``key_spans``, per window
@@ -1442,6 +1445,8 @@ class RenderEffects(ptk.LoggingMixin):
 
         return [
             float(k.co[0])
-            for fc in AnimUtils.get_fcurves(list(bpy.data.objects))
+            for fc in AnimUtils.get_fcurves(
+                [o for o in bpy.data.objects if ctx is None or ctx.ships(o.name)]
+            )
             for k in fc.keyframe_points
         ]

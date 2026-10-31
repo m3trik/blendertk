@@ -387,6 +387,37 @@ try:
         detail=repr(published.get("clip_span")),
     )
 
+    # A scoped write states the tracks and the keys of what it ships (mirror of
+    # mayatk's): another object's track warned "not in this GLB" and its keys
+    # sized the take. Added: 2026-10-31
+    sc_other = cube("Other")
+    sc_other.data.materials.append(mat("OtherM"))
+    RenderEffects.create([sc_other])
+    RenderEffects.key_fade([sc_other], start=3, end=40, direction="in")
+    sc_ctx = ptk.ExportContext(scope=(c.name,), nodes=frozenset({c.name}))
+    sc_record = RenderEffects.export_record(sc_ctx)
+    check(
+        "a scoped write's record names the tracks of what it ships",
+        sc_record is not None
+        and [t["node"] for t in sc_record.payload["tracks"]] == [c.name],
+        detail=repr(sc_record and sc_record.payload.get("tracks")),
+    )
+    sc_keys = sorted(set(RenderEffects._scene_key_frames(sc_ctx)))
+    check(
+        "...and counts those objects' keys alone",
+        sc_keys == [8.0, 23.0],
+        detail=repr(sc_keys),
+    )
+    sc_whole = RenderEffects.export_record(ptk.ExportContext())
+    check(
+        "an unscoped write names every keyed object",
+        sc_whole is not None
+        and sorted(t["node"] for t in sc_whole.payload["tracks"])
+        == sorted([c.name, sc_other.name]),
+    )
+    RenderEffects.remove([sc_other])
+    bpy.data.objects.remove(sc_other)
+
     # The exported stack carries the range the write BAKES, and the converter
     # rebases every stack onto its FIRST key -- so publishing the scene's
     # earliest key slides every clip cut from it (measured on the Maya side of

@@ -2171,7 +2171,12 @@ class FbxUtils(_FbxUtilsInternal):
         cls, mode: str = ptk.ExportContext.PIPELINE, **decisions
     ) -> ptk.ExportContext:
         """A context for this file: provenance filled in, *decisions*
-        (``clip_mode``, ``clip_span``, ``rendering``, ``scope``) as given."""
+        (``clip_mode``, ``clip_span``, ``rendering``, ``scope``) as given.
+
+        A *scope* names the objects the write ships as well (``nodes``: each
+        object it names and all its descendants, :meth:`_shipped_nodes`),
+        what the snapshot narrows each export-scoped record by (mirror of
+        mayatk's)."""
         try:
             import bpy
 
@@ -2182,7 +2187,25 @@ class FbxUtils(_FbxUtilsInternal):
             }
         except ImportError:
             source = {"application": "blender"}
+        if decisions.get("scope") is not None and "nodes" not in decisions:
+            decisions["nodes"] = cls._shipped_nodes(decisions["scope"])
         return ptk.ExportContext(mode=mode, source=source, **decisions)
+
+    @staticmethod
+    def _shipped_nodes(roots: Iterable[Any]) -> frozenset:
+        """The name of every object a write of *roots* (names or objects)
+        ships: each root and all its descendants -- the export set a scope
+        names (``LightmapRecords._marker_records``' reading)."""
+        import bpy
+
+        names = set()
+        for root in roots or ():
+            obj = bpy.data.objects.get(root) if isinstance(root, str) else root
+            if obj is None:
+                continue
+            names.add(obj.name)
+            names.update(child.name for child in obj.children_recursive)
+        return frozenset(names)
 
     @classmethod
     def publish(
