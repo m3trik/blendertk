@@ -29,7 +29,7 @@ Same subpackage names, main-module filenames, and namespace classes as mayatk â€
 | `anim_utils` | Shots suite (the Blender host of the shared pythontk shots engine, and the manifest and sequencer hosts tentacle's panels call), smart bake, blendshape animation, key scaling/staggering |
 | `audio_utils` | Sound-strip CRUD over the Video Sequence Editor (deliberately not a mirror of Maya's DG-node audio machinery) |
 | `cam_utils` | Camera utilities |
-| `core_utils` | `CoreUtils`, `AutoInstancer`, `Preview`, script-job manager over `bpy.app.handlers`, diagnostics |
+| `core_utils` | `CoreUtils`, `AutoInstancer`, `Preview` (uitk's `PreviewController` bound to a Blender session), script-job manager over `bpy.app.handlers`, diagnostics |
 | `display_utils` | Color ID, exploded view, Blender-only `OutlinerTint` |
 | `edit_utils` | `EditUtils`, mirror, cut-on-axis, duplicate (linear/radial/grid), bevel, bridge, snap, naming, curtain rig, target weld |
 | `env_utils` | `BlenderConnection`, workspaces (`workspace.mel` shared with Maya), reference manager, hierarchy sync, FBX/USD, scene exporter, Maya + Unity bridges, WebXR preview, docked script console |

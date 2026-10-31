@@ -128,7 +128,7 @@ through Blender's own routes:
   the portable records ride the sidecar's `shots` / `records` sections both
   ways.
 
-`DataNodes.OWNERS` names the Blender owners (`BlenderShotStore`, `KeyStash`,
+`DataNodes.OWNERS` names the Blender owners (`ShotStore`, `KeyStash`,
 `EmissiveGroups`); there is no bake-session owner -- a Blender bake parks
 nothing beside its record. An emissive group's membership rides the mesh data
 through a make-local (boolean face attributes), and the hand-off payload
