@@ -664,9 +664,9 @@ class BlenderExportMixin:
         with btk.FbxUtils.export_prepared(stagers=self._export_stagers()):
             usd_opts = self._usd_options(params, objects)
             frame_range = usd_opts.pop("frame_range", None)
-            # No USD row states Blender's unit yet (unmeasured): each record
-            # keeps the scene's.
-            carrier = self._data_export_carrier(objects, writer=None)
+            # Blender's USD writer ships one BU as one metre whatever the
+            # scene's scale_length (``ptk.ExportContext.WRITER_UNITS``).
+            carrier = self._data_export_carrier(objects, "usd", usd_opts)
             if carrier:
                 usd_opts["export_custom_properties"] = True
                 self.logger.warning(

@@ -105,14 +105,15 @@ try:
 
     # --- a glass says the record states no transmission: the model's note
     # (ptk.MaterialFamilies, mirror of mayatk's). Added: 2026-10-31 -----------
-    glass = fresh("Glass")
-    principled(glass).inputs["Transmission Weight"].default_value = 0.5
-    glass_notes = []
-    MaterialRecords.entries([worn(glass, "GlassCube")], notes=glass_notes)
+    lens = fresh("TransmissiveLens")
+    principled(lens).inputs["Transmission Weight"].default_value = 0.5
+    lens_notes = []
+    MaterialRecords.entries([worn(lens, "TransmissiveLensCube")], notes=lens_notes)
     check(
         "a transmission is said, in the model's words",
-        glass_notes == [f"Material Glass: {ptk.MaterialFamilies.TRANSMISSION_NOTE}"],
-        glass_notes,
+        lens_notes
+        == [f"Material TransmissiveLens: {ptk.MaterialFamilies.TRANSMISSION_NOTE}"],
+        lens_notes,
     )
 
     # --- a map stands in for its value, named by its file ---------------------

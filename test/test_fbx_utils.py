@@ -2712,6 +2712,20 @@ try:
         sc_ctx.nodes,
     )
     check("no scope names none", FbxUtils.export_context().nodes is None)
+    sc_arm = bpy.data.armatures.new("KEEP_rig_data")
+    sc_rig = bpy.data.objects.new("KEEP_rig", sc_arm)
+    bpy.context.collection.objects.link(sc_rig)
+    sc_rig.parent = sc_grp
+    bpy.context.view_layer.objects.active = sc_rig
+    bpy.ops.object.mode_set(mode="EDIT")
+    sc_bone = sc_arm.edit_bones.new("hinge_jnt")
+    sc_bone.tail = (0.0, 0.0, 1.0)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check(
+        "...and each shipped armature's bones, which the FBX writes as nodes",
+        "hinge_jnt" in FbxUtils.export_context(scope=("KEEP_grp",)).nodes,
+        FbxUtils.export_context(scope=("KEEP_grp",)).nodes,
+    )
     ptk.SceneRecords.LIGHTMAPS.save(
         _ScDataNodes,
         {
@@ -2762,6 +2776,7 @@ try:
                 writer_options={"apply_unit_scale": False}
             ).unit_scale,
             "gltf": FbxUtils.export_context(writer="gltf").unit_scale,
+            "usd": FbxUtils.export_context(writer="usd").unit_scale,
             "none": FbxUtils.export_context(writer=None).unit_scale,
         }
         check(
@@ -2769,7 +2784,8 @@ try:
             un_got["none"] is None
             and abs(un_got["fbx"] - 0.01) < 1e-9
             and un_got["fbx_off"] == 1.0
-            and un_got["gltf"] == 1.0,
+            and un_got["gltf"] == 1.0
+            and un_got["usd"] == 1.0,
             un_got,
         )
         with _un_mock.patch.object(

@@ -2220,9 +2220,11 @@ class FbxUtils(_FbxUtilsInternal):
 
     @staticmethod
     def _shipped_nodes(roots: Iterable[Any]) -> frozenset:
-        """The name of every object a write of *roots* (names or objects)
+        """The name of every node a write of *roots* (names or objects)
         ships: each root and all its descendants -- the export set a scope
-        names (``LightmapRecords._marker_records``' reading)."""
+        names (``LightmapRecords._marker_records``' reading) -- and each
+        shipped armature's bones, which the FBX writes as nodes of their own
+        (an articulated rig's joints)."""
         import bpy
 
         names = set()
@@ -2230,8 +2232,10 @@ class FbxUtils(_FbxUtilsInternal):
             obj = bpy.data.objects.get(root) if isinstance(root, str) else root
             if obj is None:
                 continue
-            names.add(obj.name)
-            names.update(child.name for child in obj.children_recursive)
+            for shipped in (obj, *obj.children_recursive):
+                names.add(shipped.name)
+                if shipped.type == "ARMATURE" and shipped.data is not None:
+                    names.update(bone.name for bone in shipped.data.bones)
         return frozenset(names)
 
     @classmethod
