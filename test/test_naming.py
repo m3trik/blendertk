@@ -328,6 +328,49 @@ try:
         and set(Naming.UNSUPPORTED_TYPES) <= {ck for _kw, ck, _tk in Naming.SUFFIX_BINDINGS},
     )
 
+    # ==== the Naming probe's findings (2026-10-31), mirrored from mayatk ======================
+    import logging
+    import tempfile
+
+    class Captured:
+        def __init__(self):
+            self.texts = []
+            self.handler = logging.Handler()
+            self.handler.emit = lambda record: self.texts.append(record.getMessage())
+
+        def __enter__(self):
+            Naming.logger.addHandler(self.handler)
+            return self
+
+        def __exit__(self, *_exc):
+            Naming.logger.removeHandler(self.handler)
+
+        def lines(self, word):
+            return [t for t in self.texts if word in t]
+
+    def linked_object(name):
+        """A library-linked object: Blender refuses to rename it (is_editable False)."""
+        reset()
+        src = empty(name)
+        lib = os.path.join(tempfile.mkdtemp(), "naming_lib.blend")
+        bpy.data.libraries.write(lib, {src}, fake_user=True)
+        reset()
+        with bpy.data.libraries.load(lib, link=True) as (_from, to):
+            to.objects = [name]
+        obj = to.objects[0]
+        bpy.context.collection.objects.link(obj)
+        return obj
+
+    # ---- G: a numbered duplicate is re-affixed, not decorated ----------------------------------
+    reset()
+    dup, idx = typed("crate_GEO.001", "MESH"), typed("wall_GEO_01", "MESH")
+    Naming.suffix_by_type([dup, idx])
+    check(
+        "suffix_by_type re-affixes a numbered duplicate",
+        (dup.name, idx.name) == ("crate_001_GEO", "wall_01_GEO"),
+        f"{dup.name},{idx.name}",
+    )
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

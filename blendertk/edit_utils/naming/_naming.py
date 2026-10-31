@@ -420,7 +420,10 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
             # applied is NOT excluded -- apply_affix is idempotent, and
             # excluding it defeated the flip (a legacy "body_GEO" under a now-
             # prefix convention came back "GEO_body_GEO"). Mirrors mayatk.
-            base = ptk.StrUtils.strip_any_affix(o.name, known)
+            # numbered: a duplicate's '.001' or an index after the affix (wall_GEO_01) is
+            # peeled first and kept on the base -- crate_001_GEO, wall_01_GEO, never a
+            # second affix. Mirrors mayatk.
+            base = ptk.StrUtils.strip_any_affix(o.name, known, numbered=True)
             if strip_trailing_ints:
                 base = ptk.format_suffix(
                     base,
