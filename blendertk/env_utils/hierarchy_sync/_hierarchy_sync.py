@@ -668,7 +668,7 @@ class HierarchySync(ptk.LoggingMixin):
                     if quarantine_obj is None:
                         quarantine_obj = bpy.data.objects.new(group, None)
                         bpy.context.scene.collection.objects.link(quarantine_obj)
-                NodeUtils.reparent([node], quarantine_obj, keep_transform=True)
+                NodeUtils.set_parent([node], quarantine_obj, keep_transform=True)
                 moved.append(node.name)
                 self.logger.debug(f"Quarantined: {HierarchySync.build_path(node)}")
             except Exception as e:
@@ -788,7 +788,7 @@ class HierarchySync(ptk.LoggingMixin):
             try:
                 old_parent = node.parent
                 target_parent = self._ensure_parent_chain(reference_path)
-                NodeUtils.reparent([node], target_parent, keep_transform=True)
+                NodeUtils.set_parent([node], target_parent, keep_transform=True)
                 fixed.append(node.name)
                 self.logger.debug(
                     f"Reparented: {node.name} -> {HierarchySync.build_path(node)}"
@@ -1161,7 +1161,7 @@ class ObjectSwapper(ptk.LoggingMixin):
 
         # Detach from the append-dragged ancestor (world preserved), then delete the dupes so
         # they don't collide with the rebuilt parent chain.
-        NodeUtils.reparent([pulled_root], None, keep_transform=True)
+        NodeUtils.set_parent([pulled_root], None, keep_transform=True)
         for extra in extras:
             try:
                 bpy.data.objects.remove(extra, do_unlink=True)
@@ -1171,7 +1171,7 @@ class ObjectSwapper(ptk.LoggingMixin):
         # Graft onto the reference hierarchy position, preserving the reference world transform.
         target_parent = HierarchySync._ensure_parent_chain(ref_path)
         pulled_root.matrix_world = captured_world
-        NodeUtils.reparent([pulled_root], target_parent, keep_transform=True)
+        NodeUtils.set_parent([pulled_root], target_parent, keep_transform=True)
 
         # Merge: take the exact clean name (append may have suffixed if a dupe lingered).
         if merge and pulled_root.name != clean_leaf:

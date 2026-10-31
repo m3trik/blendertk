@@ -4,7 +4,8 @@
 
 So far the normals operations a panel shared by both hosts calls (tentacle's
 ``slots/normals.py``), each with mayatk's name and signature, over the
-``EditUtils`` bmesh helpers. In ``edit_utils`` rather than mayatk's
+``EditUtils`` bmesh helpers, and the bake cage's measure
+(:meth:`Components.get_standoff_distances`). In ``edit_utils`` rather than mayatk's
 ``core_utils``: the kernel may not import the helpers it composes. ``objects``
 ``None`` takes the selection (``CoreUtils.selected``); in Edit Mode an
 operation acts on the selected components, as Maya's do.
@@ -665,6 +666,86 @@ class Components(_ComponentsInternal):
             p1, p2 = coords
         distance = ptk.distance_between_points(p1, p2)
         return distance * (1 + adjust / 100) if as_percentage else distance + adjust
+
+    #: Points sampled per mesh by :meth:`get_standoff_distances` — mirror of
+    #: ``mtk.Components.STANDOFF_SAMPLES``. That query wants a MAXIMUM over a
+    #: mesh's points, and the region standing furthest off the target is an
+    #: area of the mesh rather than one stray vertex, so a strided sample lands
+    #: in it; the cap keeps a production-density source from turning the query
+    #: into a minutes-long closest-point loop.
+    STANDOFF_SAMPLES = 300
+
+    @classmethod
+    def get_standoff_distances(cls, objects, target, sample_limit=None):
+        """Measure how far each mesh in *objects* stands off *target*'s surface —
+        mirror of ``mtk.Components.get_standoff_distances`` (uses
+        ``Object.closest_point_on_mesh`` in place of Maya's
+        ``MFnMesh.getClosestPoint``).
+
+        For every mesh in *objects*, returns the GREATEST world-space distance
+        from any of its sampled points to the closest point on the nearest
+        *target* mesh — "how far out would a surface have to travel from the
+        target to enclose this mesh". A bounding box cannot answer that: a mesh
+        standing off an INTERIOR surface (a light fixture under a ceiling, a
+        door inset in its opening) is wholly inside the target's box, so every
+        box-derived measure reads zero for it.
+
+        ``sample_limit`` points are taken per mesh, strided over its vertex
+        order (``None`` -> :attr:`STANDOFF_SAMPLES`; ``0`` -> every point).
+        Returns ``{object name: distance}``, empty when either side has no mesh.
+
+        Measured on the DEPSGRAPH-EVALUATED geometry, both sides. Modifiers are
+        the norm here and the FBX export bakes them, so measuring ``obj.data``
+        would size the cage for a mesh that is not the one being baked -- a
+        Subsurf or Solidify source would come out short.
+        """
+
+        import pythontk as ptk
+
+        depsgraph = CoreUtils._evaluated_depsgraph()  # the window layer's
+
+        def _evaluated(nodes):
+            return [
+                o.evaluated_get(depsgraph)
+                for o in ptk.make_iterable(nodes)
+                if getattr(o, "type", None) == "MESH"
+            ]
+
+        sources = _evaluated(objects)
+        # A target with no faces has no surface to be near; closest_point_on_mesh
+        # just answers False for one, but skipping it keeps the probe loop honest.
+        targets = [t for t in _evaluated(target) if len(t.data.polygons)]
+        if not (sources and targets):
+            return {}
+
+        limit = cls.STANDOFF_SAMPLES if sample_limit is None else int(sample_limit)
+        # Pre-resolve each target's world/inverse matrices: closest_point_on_mesh
+        # takes and returns LOCAL coordinates, so every query needs both.
+        probes = [(t, t.matrix_world, t.matrix_world.inverted()) for t in targets]
+
+        distances = {}
+        for src in sources:
+            smw = src.matrix_world
+            verts = src.data.vertices
+            count = len(verts)
+            if not count:
+                continue
+            step = 1 if limit <= 0 or count <= limit else -(-count // limit)
+            worst = 0.0
+            for i in range(0, count, step):
+                world = smw @ verts[i].co
+                nearest = None
+                for tgt, tmw, tinv in probes:
+                    ok, loc, _nrm, _idx = tgt.closest_point_on_mesh(tinv @ world)
+                    if not ok:
+                        continue
+                    dist = (world - (tmw @ loc)).length
+                    if nearest is None or dist < nearest:
+                        nearest = dist
+                if nearest is not None and nearest > worst:
+                    worst = nearest
+            distances[src.name] = worst
+        return distances
 
     #: The Transfer menu (:meth:`get_transfer_types` / :meth:`transfer`): label ->
     #: (the transfer, what it copies). Data Transfer copies one data layer at a time,

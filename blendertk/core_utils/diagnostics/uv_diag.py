@@ -6,7 +6,9 @@
 Holds :meth:`UvDiagnostics.is_bakeable_lightmap`, the mirror name of the
 reuse-or-regenerate test the lightmap UV stage asks; the check itself is
 ``UvUtils._is_bakeable_lightmap``, beside ``create_lightmap_uvs`` (uv_utils ranks below
-the diagnostics). mayatk answers it with Maya's own ``polyUVOverlap`` /
+the diagnostics). :meth:`UvDiagnostics.find_lightmap_uv_set` is mayatk's home for the
+lightmap-layer lookup; its body is ``UvUtils.find_lightmap_uv_set``, which the parts
+below the diagnostics (the lightmap baker, the UV stage) call. mayatk answers it with Maya's own ``polyUVOverlap`` /
 ``polyEvaluate``; Blender has no such query, so the overlap is measured by
 ``ptk.UvTransfer.layout_overlaps`` over the mesh's loop triangles.
 ``import bpy`` is never needed: everything is read off the mesh datablock.
@@ -39,6 +41,17 @@ class UvDiagnostics(object):
             uv_set: The UV layer's name.
         """
         return UvUtils._is_bakeable_lightmap(obj, uv_set, cls.OVERLAP_TOLERANCE)
+
+    @staticmethod
+    def find_lightmap_uv_set(obj):
+        """Name of *obj*'s existing lightmap UV layer, or ``None`` -- mirror of
+        mayatk's ``UvDiagnostics.find_lightmap_uv_set``. The lookup is
+        ``UvUtils.find_lightmap_uv_set`` (uv_utils ranks below the diagnostics).
+
+        Parameters:
+            obj: A mesh object.
+        """
+        return UvUtils.find_lightmap_uv_set(obj)
 
     @staticmethod
     @CoreUtils.undoable

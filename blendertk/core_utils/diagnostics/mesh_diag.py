@@ -349,6 +349,50 @@ class MeshDiagnostics(_MeshDiagnosticsInternal):
         counts["_mode"] = mode
         return counts
 
+    @staticmethod
+    @CoreUtils._object_mode
+    def clean_geometry(
+        objects,
+        *,
+        merge=True,
+        merge_distance=0.0001,
+        delete_loose=True,
+        degenerate=True,
+        recalculate=True,
+        fill_holes=False,
+    ):
+        """Clean mesh geometry — merge doubles, dissolve degenerate (zero-area) faces, remove loose
+        edges/verts, recalc normals, optionally fill holes. Mirror of mayatk's
+        ``MeshDiagnostics.clean_geometry`` (bmesh, headless; Maya's runs
+        ``polyCleanupArgList``). ``merge`` gates the doubles merge independently of
+        ``degenerate`` — ``merge_distance`` feeds both thresholds (floored for degenerate so exact-zero geometry
+        still dissolves when merging is off). Returns the meshes processed.
+        """
+        import bmesh
+
+        def _clean(bm):
+            if merge and merge_distance > 0:
+                bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=merge_distance)
+            if degenerate:
+                bmesh.ops.dissolve_degenerate(
+                    bm, dist=max(merge_distance, 1e-6), edges=bm.edges[:]
+                )
+            if delete_loose:
+                wire_edges = [e for e in bm.edges if not e.link_faces]
+                if wire_edges:
+                    bmesh.ops.delete(bm, geom=wire_edges, context="EDGES")
+                loose_verts = [v for v in bm.verts if not v.link_edges]
+                if loose_verts:
+                    bmesh.ops.delete(bm, geom=loose_verts, context="VERTS")
+            if fill_holes:
+                bmesh.ops.holes_fill(bm, edges=bm.edges[:])
+            if recalculate:
+                bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+
+        processed = EditUtils._meshes(objects)
+        EditUtils._bmesh_each(processed, _clean)
+        return processed
+
     @classmethod
     @CoreUtils.undoable
     def cleanup_meshes(
@@ -378,7 +422,7 @@ class MeshDiagnostics(_MeshDiagnosticsInternal):
 
         Blender's checks are :meth:`find_problem_geometry`'s, counted per check;
         Select shows the matches in Edit Mode. Its repair is
-        ``EditUtils.clean_geometry``'s passes: *merge_vertices* (within
+        :meth:`clean_geometry`'s passes: *merge_vertices* (within
         *merge_distance*), *delete_loose*, *dissolve_degenerate*,
         *recalculate_normals*, *fill_holes*. Maya's ``holed``, ``lamina`` and
         ``shared_uvs`` checks and *delete_history* are taken for the shared panel
@@ -427,7 +471,7 @@ class MeshDiagnostics(_MeshDiagnosticsInternal):
                 kept = {o: [p.index for p in o.data.polygons if p.select] for o in pool}
         if repair:
             before = cls._geo_counts(pool)
-            EditUtils.clean_geometry(
+            cls.clean_geometry(
                 pool,
                 merge=merge_vertices,
                 merge_distance=merge_distance,

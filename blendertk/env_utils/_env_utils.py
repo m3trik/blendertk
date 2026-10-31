@@ -834,6 +834,111 @@ class EnvUtils(_EnvUtilsInternal):
         return os.path.normpath(path) in EnvUtils.find_workspaces(path, recursive=False)
 
     @staticmethod
+    def get_env_info(key=None):
+        """Fetch information about the current Blender environment -- mirror of
+        ``mtk.EnvUtils.get_env_info`` by behavior: mayatk's key names (each one
+        Blender has an answer for), several keys joined by ``|``, and every key at
+        once with no key.
+
+        Parameters:
+            key (str, optional): The key to fetch, or several joined by '|'.
+                ``None`` returns every key as a dict.
+
+        Returns:
+            The value for *key*; a list of values for a '|'-joined key; or, with
+            no key, ``{key: value}`` for every key. In the dict form a key whose
+            probe raises or resolves to nothing is reported as ``None`` rather
+            than failing the sweep, as mayatk's is.
+
+        Raises:
+            KeyError: For a key this host does not answer.
+            ValueError: When the value for *key* could not be found.
+        """
+        if key is not None and "|" in key:
+            return [EnvUtils.get_env_info(k) for k in key.split("|")]
+
+        import socket
+
+        import bpy
+
+        def _scene():
+            return bpy.context.scene
+
+        def _workspace():
+            # Blender's analogue of Maya's project workspace -- the current-workspace
+            # resolver: session pin -> marked (workspace.mel) root -> the .blend's dir.
+            ws = EnvUtils.current_workspace()
+            return ws.root if ws else ""
+
+        def _scene_file():
+            return bpy.data.filepath or ""
+
+        def _playback():
+            settings = EnvUtils.scene_settings()
+            return (settings["frame_start"], settings["frame_end"])
+
+        available_keys = {
+            "install_path": lambda: os.path.dirname(bpy.app.binary_path) or None,
+            "presets_path": lambda: bpy.utils.user_resource("SCRIPTS", path="presets"),
+            "user_app_path": lambda: bpy.utils.resource_path("USER"),
+            "prefs_path": lambda: bpy.utils.user_resource("CONFIG"),
+            "version": lambda: bpy.app.version_string,
+            "renderer": lambda: _scene().render.engine,
+            "workspace": _workspace,
+            "workspace_dir": lambda: ptk.format_path(_workspace(), "dir"),
+            "workspace_path": lambda: ptk.format_path(_workspace(), "path"),
+            "sourceimages": lambda: EnvUtils.source_images_dir(),
+            "scene": _scene_file,
+            "scene_name": lambda: ptk.format_path(_scene_file(), "name"),
+            "scene_path": lambda: ptk.format_path(_scene_file(), "path"),
+            "scene_modified": lambda: bool(bpy.data.is_dirty),
+            "ui_language": lambda: bpy.context.preferences.view.language,
+            "linear_units": lambda: EnvUtils.get_linear_unit(),
+            # Maya's time-unit names ("film", "ntsc"), off the effective rate.
+            "time_units": lambda: ptk.VidUtils.get_frame_rate(
+                EnvUtils.scene_settings()["fps"]
+            ),
+            "loaded_plugins": lambda: sorted(
+                addon.module for addon in bpy.context.preferences.addons
+            ),
+            "host_name": lambda: socket.gethostname(),
+            "batch_mode": lambda: bool(bpy.app.background),
+            "application": lambda: "blender",
+            "current_frame": lambda: _scene().frame_current,
+            # Maya's playback range: Blender's preview range when it is on.
+            "frame_range": _playback,
+            "current_camera": lambda: _scene().camera.name if _scene().camera else None,
+            "available_cameras": lambda: [
+                o.name for o in bpy.data.objects if o.type == "CAMERA"
+            ],
+            "up_axis": lambda: "z",
+            "total_polys": lambda: EnvUtils.scene_triangle_count(),
+            "total_nodes": lambda: len(_scene().objects),
+        }
+
+        if key is None:
+            info = {}
+            for name, probe in available_keys.items():
+                try:
+                    info[name] = probe()
+                except Exception:  # noqa: BLE001 -- one bad key, not the sweep
+                    info[name] = None
+            return info
+
+        if key not in available_keys:
+            raise KeyError(
+                "Invalid key. Available keys are: {}".format(
+                    ", ".join(available_keys.keys())
+                )
+            )
+
+        value = available_keys[key]()
+        if value is None:
+            raise ValueError(f"The value for {key} could not be found.")
+
+        return value
+
+    @staticmethod
     def saved_scene_path():
         """The open .blend's path, or ``""`` when it has never been saved. Mirror of
         mayatk's ``EnvUtils.saved_scene_path``."""
@@ -1084,7 +1189,7 @@ class EnvUtils(_EnvUtilsInternal):
         return {
             "symmetry": symmetry,
             "xform_constraint": None,
-            "workspace": CoreUtils.get_env_info("workspace_dir") or None,
+            "workspace": EnvUtils.get_env_info("workspace_dir") or None,
             "units": (
                 f"{units.system.lower()} {units.length_unit.lower()}"
                 if units.system != "NONE"

@@ -27,7 +27,8 @@ from blendertk.node_utils._node_utils import NodeUtils  # keep-transform reparen
 # ---------------------------------------------------------------- cleanup
 
 
-# NOTE: ``find_problem_geometry`` (+ its ``_is_convex`` / ``_is_planar`` helpers) moved to
+# NOTE: ``find_problem_geometry`` (+ its ``_is_convex`` / ``_is_planar`` helpers) and
+# ``clean_geometry`` moved to
 # ``core_utils/diagnostics/mesh_diag.py`` (``MeshDiagnostics``) — mirror of mayatk, where mesh
 # problem-detection lives in ``Diagnostics`` not ``EditUtils``. Reached as
 # ``btk.Diagnostics.find_problem_geometry`` (class-only — diagnostics is a submodule, not a flat
@@ -1432,49 +1433,6 @@ class EditUtils(_EditUtilsInternal):
         _EditUtilsInternal._bmesh_each(objects, _f)
 
     @staticmethod
-    @CoreUtils._object_mode
-    def clean_geometry(
-        objects,
-        *,
-        merge=True,
-        merge_distance=0.0001,
-        delete_loose=True,
-        degenerate=True,
-        recalculate=True,
-        fill_holes=False,
-    ):
-        """Clean mesh geometry — merge doubles, dissolve degenerate (zero-area) faces, remove loose
-        edges/verts, recalc normals, optionally fill holes. Mirror of ``mtk`` clean-geometry (bmesh,
-        headless). ``merge`` gates the doubles merge independently of ``degenerate`` —
-        ``merge_distance`` feeds both thresholds (floored for degenerate so exact-zero geometry
-        still dissolves when merging is off). Returns the meshes processed.
-        """
-        import bmesh
-
-        def _clean(bm):
-            if merge and merge_distance > 0:
-                bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=merge_distance)
-            if degenerate:
-                bmesh.ops.dissolve_degenerate(
-                    bm, dist=max(merge_distance, 1e-6), edges=bm.edges[:]
-                )
-            if delete_loose:
-                wire_edges = [e for e in bm.edges if not e.link_faces]
-                if wire_edges:
-                    bmesh.ops.delete(bm, geom=wire_edges, context="EDGES")
-                loose_verts = [v for v in bm.verts if not v.link_edges]
-                if loose_verts:
-                    bmesh.ops.delete(bm, geom=loose_verts, context="VERTS")
-            if fill_holes:
-                bmesh.ops.holes_fill(bm, edges=bm.edges[:])
-            if recalculate:
-                bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
-
-        processed = _EditUtilsInternal._meshes(objects)
-        _EditUtilsInternal._bmesh_each(processed, _clean)
-        return processed
-
-    @staticmethod
     def crease_edges(objects, amount=10.0, angle=None):
         """Set Subdivision-Surface edge crease on the given mesh object(s) — mirror of Maya's
         ``crease_edges(amount, angle)``. ``amount`` is the Maya 0–10 scale, normalized to Blender's
@@ -2035,84 +1993,6 @@ class EditUtils(_EditUtilsInternal):
                 total += moved
         return total
 
-    #: Points sampled per mesh by :meth:`get_standoff_distances` — mirror of
-    #: ``mtk.Components.STANDOFF_SAMPLES``. That query wants a MAXIMUM over a
-    #: mesh's points, and the region standing furthest off the target is an
-    #: area of the mesh rather than one stray vertex, so a strided sample lands
-    #: in it; the cap keeps a production-density source from turning the query
-    #: into a minutes-long closest-point loop.
-    STANDOFF_SAMPLES = 300
-
-    @classmethod
-    def get_standoff_distances(cls, objects, target, sample_limit=None):
-        """Measure how far each mesh in *objects* stands off *target*'s surface —
-        mirror of ``mtk.Components.get_standoff_distances`` (uses
-        ``Object.closest_point_on_mesh`` in place of Maya's
-        ``MFnMesh.getClosestPoint``).
-
-        For every mesh in *objects*, returns the GREATEST world-space distance
-        from any of its sampled points to the closest point on the nearest
-        *target* mesh — "how far out would a surface have to travel from the
-        target to enclose this mesh". A bounding box cannot answer that: a mesh
-        standing off an INTERIOR surface (a light fixture under a ceiling, a
-        door inset in its opening) is wholly inside the target's box, so every
-        box-derived measure reads zero for it.
-
-        ``sample_limit`` points are taken per mesh, strided over its vertex
-        order (``None`` -> :attr:`STANDOFF_SAMPLES`; ``0`` -> every point).
-        Returns ``{object name: distance}``, empty when either side has no mesh.
-
-        Measured on the DEPSGRAPH-EVALUATED geometry, both sides. Modifiers are
-        the norm here and the FBX export bakes them, so measuring ``obj.data``
-        would size the cage for a mesh that is not the one being baked -- a
-        Subsurf or Solidify source would come out short.
-        """
-
-        depsgraph = CoreUtils._evaluated_depsgraph()  # the window layer's
-
-        def _evaluated(nodes):
-            return [
-                o.evaluated_get(depsgraph)
-                for o in ptk.make_iterable(nodes)
-                if getattr(o, "type", None) == "MESH"
-            ]
-
-        sources = _evaluated(objects)
-        # A target with no faces has no surface to be near; closest_point_on_mesh
-        # just answers False for one, but skipping it keeps the probe loop honest.
-        targets = [t for t in _evaluated(target) if len(t.data.polygons)]
-        if not (sources and targets):
-            return {}
-
-        limit = cls.STANDOFF_SAMPLES if sample_limit is None else int(sample_limit)
-        # Pre-resolve each target's world/inverse matrices: closest_point_on_mesh
-        # takes and returns LOCAL coordinates, so every query needs both.
-        probes = [(t, t.matrix_world, t.matrix_world.inverted()) for t in targets]
-
-        distances = {}
-        for src in sources:
-            smw = src.matrix_world
-            verts = src.data.vertices
-            count = len(verts)
-            if not count:
-                continue
-            step = 1 if limit <= 0 or count <= limit else -(-count // limit)
-            worst = 0.0
-            for i in range(0, count, step):
-                world = smw @ verts[i].co
-                nearest = None
-                for tgt, tmw, tinv in probes:
-                    ok, loc, _nrm, _idx = tgt.closest_point_on_mesh(tinv @ world)
-                    if not ok:
-                        continue
-                    dist = (world - (tmw @ loc)).length
-                    if nearest is None or dist < nearest:
-                        nearest = dist
-                if nearest is not None and nearest > worst:
-                    worst = nearest
-            distances[src.name] = worst
-        return distances
-
     @staticmethod
     def get_similar_mesh(
         objects=None,
@@ -2226,7 +2106,7 @@ class EditUtils(_EditUtilsInternal):
         freed = []
         for grp in groups:
             # A leaf under nested groups is handed up once per level, so dedupe.
-            for child in NodeUtils.reparent(list(grp.children), grp.parent):
+            for child in NodeUtils.set_parent(list(grp.children), grp.parent):
                 if child not in freed:
                     freed.append(child)
             bpy.data.objects.remove(grp, do_unlink=True)

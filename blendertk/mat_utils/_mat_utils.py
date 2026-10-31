@@ -1502,9 +1502,9 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
             shared panel reads it as it loads).
         """
         try:
-            from blendertk.core_utils._core_utils import CoreUtils
+            from blendertk.env_utils._env_utils import EnvUtils
 
-            return CoreUtils.get_env_info("workspace") or ""
+            return EnvUtils.get_env_info("workspace") or ""
         except ImportError:
             return ""
 
@@ -2247,29 +2247,25 @@ class MatUtils(_MatUtilsInternal):
         return mat.users - int(mat.use_fake_user) > 0
 
     @staticmethod
-    def get_mat_swatch_icon(mat, size=(20, 20), fallback_to_blank=True):
-        """A ``QIcon`` filled with ``mat``'s viewport display color — mirror of
-        ``mtk.MatUtils.get_mat_swatch_icon`` (Maya reads ``baseColor``/``color``; Blender uses
-        ``material.diffuse_color``, its viewport swatch). Qt-only (deferred import) → returns
-        ``None`` headless / when no Qt binding is present."""
-        try:
-            from qtpy.QtGui import QPixmap, QColor, QIcon
-        except Exception:
-            return None
-        if isinstance(mat, str):  # a name: None once it no longer resolves
+    def get_mat_swatch_color(mat):
+        """``mat``'s viewport display colour as ``(r, g, b)`` in 0..1 -- mirror of
+        ``mtk.MatUtils.get_mat_swatch_color`` (Maya reads ``baseColor``/``color``; Blender
+        uses ``material.diffuse_color``, its viewport swatch). A panel paints the icon.
+
+        Parameters:
+            mat: The material, or its name.
+
+        Returns:
+            tuple/None: The colour, or ``None`` for a name that no longer resolves.
+        """
+        if isinstance(mat, str):
             mat = _MatUtilsInternal._material_named(mat, required=False)
             if mat is None:
                 return None
         try:
-            r, g, b = (int(max(0.0, min(1.0, c)) * 255) for c in mat.diffuse_color[:3])
-            pixmap = QPixmap(size[0], size[1])
-            pixmap.fill(QColor.fromRgb(r, g, b))
-        except Exception:
-            if not fallback_to_blank:
-                raise
-            pixmap = QPixmap(size[0], size[1])
-            pixmap.fill(QColor(255, 255, 255, 0))
-        return QIcon(pixmap)
+            return tuple(max(0.0, min(1.0, float(c))) for c in mat.diffuse_color[:3])
+        except (AttributeError, TypeError):  # not a material
+            return None
 
     @staticmethod
     def get_texture_paths(objects=None, materials=None, absolute=True, exclude_bundled=False):

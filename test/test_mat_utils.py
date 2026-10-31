@@ -124,8 +124,13 @@ try:
               merged == 1 and "CrateB" not in bpy.data.materials
               and MatUtils.get_mat_names([geos["CrateB"]]) == ["CrateA"], merged)
 
-        check("get_mat_swatch_icon: a name gone gives None",
-              MatUtils.get_mat_swatch_icon("Nope") is None)
+        check("get_mat_swatch_color: a name gone gives None",
+              MatUtils.get_mat_swatch_color("Nope") is None)
+        bpy.data.materials["CrateA"].diffuse_color = (0.25, 0.5, 1.0, 1.0)
+        _rgb = MatUtils.get_mat_swatch_color("CrateA")
+        check("get_mat_swatch_color: the viewport colour as (r, g, b) in 0..1",
+              _rgb is not None and len(_rgb) == 3
+              and all(abs(a - b) < 1e-5 for a, b in zip(_rgb, (0.25, 0.5, 1.0))), _rgb)
 
         # ---- rename, delete, assign ------------------------------------------------------
         check("rename_mat: returns the name Blender gave (a clash suffixes)",

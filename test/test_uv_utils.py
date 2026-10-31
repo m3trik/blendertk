@@ -1023,6 +1023,11 @@ try:
     # set -- with a Smart UV Project one each time.
     from blendertk.core_utils.diagnostics.uv_diag import UvDiagnostics
 
+    check(
+        "lightmap: Diagnostics.find_lightmap_uv_set answers mayatk's call",
+        btk.Diagnostics.find_lightmap_uv_set(cube) == lm,
+        str(lm),
+    )
     layer = cube.data.uv_layers[lm]
     kept = [0.0] * (loops * 2)
     layer.data.foreach_get("uv", kept)

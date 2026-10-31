@@ -381,78 +381,6 @@ try:
         f"faces={len(ns)}",
     )
 
-    # clean_geometry: merge doubles + remove loose vert
-    reset()
-    bm = bmesh.new()
-    bmesh.ops.create_cube(bm, size=2.0)
-    bm.verts.ensure_lookup_table()
-    # add a duplicate (doubled) vertex at an existing corner + a loose vertex
-    corner = bm.verts[0].co.copy()
-    bm.verts.new(corner)  # exact double -> should merge
-    bm.verts.new((10.0, 10.0, 10.0))  # loose vertex -> should be deleted
-    me = bpy.data.meshes.new("M")
-    bm.to_mesh(me)
-    bm.free()
-    o = bpy.data.objects.new("Clean", me)
-    bpy.context.collection.objects.link(o)
-    v0 = len(o.data.vertices)
-    btk.clean_geometry(o, merge_distance=0.001)
-    v1 = len(o.data.vertices)
-    check("clean_geometry removes double + loose vert", v1 == v0 - 2, f"{v0}->{v1}")
-
-    # clean_geometry recalculate makes normals outward
-    reset()
-    bpy.ops.mesh.primitive_cube_add()
-    o = bpy.context.active_object
-    btk.flip_normals(o)  # make them inward first
-    btk.clean_geometry(o, merge=False, recalculate=True)
-    p = o.data.polygons[0]
-    check(
-        "clean_geometry recalc -> outward normals",
-        p.normal.dot(p.center) > 0,
-        f"dot={p.normal.dot(p.center):.2f}",
-    )
-
-    # clean_geometry: degenerate dissolve must work with merge OFF (regression — the degenerate
-    # threshold was coupled to the merge distance, so merge-off silently disabled it).
-    reset()
-    bm = bmesh.new()
-    bmesh.ops.create_cube(bm, size=2.0)
-    bm.verts.ensure_lookup_table()
-    v1 = bm.verts[0]
-    bm.edges.new((bm.verts.new(v1.co.copy()), v1))  # zero-length edge -> degenerate
-    me = bpy.data.meshes.new("Degen")
-    bm.to_mesh(me)
-    bm.free()
-    o = bpy.data.objects.new("Degen", me)
-    bpy.context.collection.objects.link(o)
-    e0 = len(o.data.edges)
-    btk.clean_geometry(o, merge=False, delete_loose=False, degenerate=True)
-    check(
-        "clean_geometry degenerate works with merge off",
-        len(o.data.edges) < e0,
-        f"{e0}->{len(o.data.edges)}",
-    )
-
-    # clean_geometry: merge=False leaves exact-double verts in place (merge really is off)
-    reset()
-    bm = bmesh.new()
-    bmesh.ops.create_cube(bm, size=2.0)
-    bm.verts.ensure_lookup_table()
-    bm.verts.new(bm.verts[0].co.copy())  # exact double (loose)
-    me = bpy.data.meshes.new("NoMerge")
-    bm.to_mesh(me)
-    bm.free()
-    o = bpy.data.objects.new("NoMerge", me)
-    bpy.context.collection.objects.link(o)
-    v0 = len(o.data.vertices)
-    btk.clean_geometry(o, merge=False, delete_loose=False, degenerate=False)
-    check(
-        "clean_geometry merge=False keeps doubles",
-        len(o.data.vertices) == v0,
-        f"{v0}->{len(o.data.vertices)}",
-    )
-
     # _object_mode guard restores the CALLER's active object + mode (regression — the helper
     # re-activates its target, and mode restore acts on the active object).
     reset()
@@ -493,8 +421,6 @@ try:
 
     # crease_edges EDIT mode: creases only SELECTED edges (amount 5 -> 0.5)
     reset()
-    import bmesh
-
     bpy.ops.mesh.primitive_cube_add()
     o = bpy.context.active_object
     o.select_set(True)
@@ -1741,75 +1667,6 @@ try:
               f"freed={[o.name for o in freed]}")
     except Exception as exc:
         check("ungroup: duplicate group in input is tolerated", False, repr(exc))
-
-    # get_standoff_distances: what sizes the Marmoset bake cage. The cage has
-    # to reach a source's FURTHEST point, and a source standing off an interior
-    # target surface is invisible to every bounding-box measure.
-    reset()
-    bpy.ops.mesh.primitive_plane_add(size=20)
-    plane = bpy.context.active_object
-    bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 6))  # spans z 5..7
-    slab = bpy.context.active_object
-    try:
-        d = btk.EditUtils.get_standoff_distances([slab], [plane], sample_limit=0)
-        got = next(iter(d.values()), None)
-        check(
-            "standoff: reports the furthest point, not the nearest",
-            got is not None and abs(got - 7.0) < 1e-4,
-            f"{d}",
-        )
-    except Exception as exc:
-        check("standoff: reports the furthest point, not the nearest", False, repr(exc))
-
-    # A fixture inside a room shell -- the ROOM_ENV case. Its bounding box is
-    # wholly inside the target's, so a bounds-derived estimate reads zero.
-    reset()
-    bpy.ops.mesh.primitive_cube_add(size=100, location=(0, 0, 0))
-    room = bpy.context.active_object
-    bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 39))  # z 38..40
-    fixture = bpy.context.active_object
-    try:
-        d = btk.EditUtils.get_standoff_distances([fixture], [room], sample_limit=0)
-        got = next(iter(d.values()), None)
-        # Ceiling at z=50; the fixture's underside at z=38 is 12 from the shell.
-        check(
-            "standoff: sees a source inside the target's box",
-            got is not None and abs(got - 12.0) < 1e-4,
-            f"{d}",
-        )
-    except Exception as exc:
-        check("standoff: sees a source inside the target's box", False, repr(exc))
-
-    try:
-        check(
-            "standoff: empty when either side has no mesh",
-            btk.EditUtils.get_standoff_distances([], [room]) == {}
-            and btk.EditUtils.get_standoff_distances([room], []) == {},
-        )
-    except Exception as exc:
-        check("standoff: empty when either side has no mesh", False, repr(exc))
-
-    # Modifiers are the norm here and the FBX export bakes them, so measuring
-    # obj.data would size the cage for a mesh that is not the one being baked.
-    reset()
-    bpy.ops.mesh.primitive_plane_add(size=20)
-    plane = bpy.context.active_object
-    bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 6))  # base spans z 5..7
-    slab = bpy.context.active_object
-    mod = slab.modifiers.new(name="lift", type="DISPLACE")
-    mod.direction = "Z"
-    mod.mid_level = 0.0
-    mod.strength = 10.0  # evaluated mesh now spans z 15..17
-    try:
-        d = btk.EditUtils.get_standoff_distances([slab], [plane], sample_limit=0)
-        got = next(iter(d.values()), None)
-        check(
-            "standoff: measures the evaluated mesh, not the base data",
-            got is not None and abs(got - 17.0) < 1e-3,
-            f"{d} (base-data answer would be 7.0)",
-        )
-    except Exception as exc:
-        check("standoff: measures the evaluated mesh, not the base data", False, repr(exc))
 
     # ---- detach_components separate_each: the explode must return exactly what the
     # pre-optimisation nested per-iteration diff returned. The loop now takes ONE

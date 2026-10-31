@@ -432,6 +432,47 @@ try:
     finally:
         shutil.rmtree(_export_dir, ignore_errors=True)
 
+    # ---- get_env_info: mayatk's call by behavior -- its key names, a KeyError for
+    # an unknown key, '|'-joined keys answered as a list. Added: 2026-10-29
+    _env = btk.EnvUtils
+    _info = _env.get_env_info()
+    _mayatk_names = {
+        "version", "renderer", "workspace", "workspace_dir", "workspace_path",
+        "sourceimages", "scene", "scene_name", "scene_path", "scene_modified",
+        "linear_units", "time_units", "batch_mode", "application",
+        "current_frame", "frame_range", "available_cameras", "up_axis",
+        "total_polys", "total_nodes",
+    }
+    check(
+        "get_env_info(): mayatk's key names, nothing else",
+        _mayatk_names <= set(_info)
+        and not any(any(c.isupper() for c in k) for k in _info),
+        sorted(_info),
+    )
+    check(
+        "get_env_info('version') / ('scene'): Blender's version, the .blend's path",
+        _env.get_env_info("version") == bpy.app.version_string
+        and _env.get_env_info("scene") == (bpy.data.filepath or ""),
+    )
+    _settings = _env.scene_settings()
+    check(
+        "get_env_info('current_frame|frame_range'): a '|'-joined key is a list",
+        _env.get_env_info("current_frame|frame_range")
+        == [bpy.context.scene.frame_current,
+            (_settings["frame_start"], _settings["frame_end"])],
+        _env.get_env_info("current_frame|frame_range"),
+    )
+    check(
+        "get_env_info('batch_mode') under --background; up_axis z",
+        _env.get_env_info("batch_mode") is True and _env.get_env_info("up_axis") == "z",
+    )
+    try:
+        _env.get_env_info("blenderVersion")
+        _raised = False
+    except KeyError:
+        _raised = True
+    check("get_env_info: an unknown key is a KeyError, as mayatk's", _raised)
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

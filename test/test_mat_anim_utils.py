@@ -3007,16 +3007,28 @@ try:
     orphan_me = bpy.data.meshes.new("OrphanMesh")  # 0 users -> purged
     keep_me = bpy.data.meshes.new("KeepMesh")
     keep_me.use_fake_user = True  # survives
-    removed = btk.cleanup_scene(quiet=True)
+    # Scene Cleanup runs Blender's own purge (the hand-rolled cleanup_scene retired).
+    removed = btk.CoreUtils.purge_unused_data()
     mesh_names = [m.name for m in bpy.data.meshes]
     check(
-        "cleanup_scene purges orphans, keeps fake-user + in-use",
+        "purge_unused_data purges orphans, keeps fake-user + in-use",
         "OrphanMesh" not in mesh_names
         and "KeepMesh" in mesh_names
         and big.data.name in mesh_names
-        and removed.get("meshes", 0) >= 1,
+        and removed >= 1,
         f"{removed}",
     )
+    try:
+        btk.CoreUtils.cleanup_scene
+        retired = False
+    except AttributeError:
+        retired = True
+    try:
+        btk.cleanup_scene
+        moved = False
+    except AttributeError as e:  # MovedNameError names the one purge
+        moved = "purge_unused_data" in str(e)
+    check("cleanup_scene is retired for purge_unused_data", retired and moved)
 
     # ---- fix_color_spaces ---------------------------------------------------
     def _mk_img(name, filepath, space):

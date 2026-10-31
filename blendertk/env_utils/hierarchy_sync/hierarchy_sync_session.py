@@ -654,7 +654,7 @@ class HierarchySyncSession(ptk.LoggingMixin):
                             f"'{obj.name}' has animation — its motion may change "
                             "under the new parent."
                         )
-                    NodeUtils.reparent([obj], parent, keep_transform=True)
+                    NodeUtils.set_parent([obj], parent, keep_transform=True)
                     if parent is None:
                         self.logger.info(f"Reparented '{obj.name}' to world")
                     else:
@@ -705,7 +705,9 @@ class HierarchySyncSession(ptk.LoggingMixin):
     def workspace() -> str:
         """The current project's root, or ``""``."""
         try:
-            return CoreUtils.get_env_info("workspace") or ""
+            from blendertk.env_utils._env_utils import EnvUtils
+
+            return EnvUtils.get_env_info("workspace") or ""
         except Exception:
             return ""
 

@@ -1,6 +1,7 @@
 """blendertk diagnostics feature test — Diagnostics aggregator + fix_non_orthogonal_axes
 (mirror of mayatk's ``core_utils.diagnostics``). find_problem_geometry detection is covered by
-``test_edit_utils.py``; this exercises the re-homed resolution + the transform (shear) diag.
+``test_edit_utils.py``; this exercises the re-homed resolution + the transform (shear) diag,
+and ``clean_geometry`` (re-homed from ``EditUtils``).
 
 Run: blender --background --factory-startup --python blendertk/test/test_diagnostics.py
 """
@@ -395,6 +396,87 @@ try:
         and (_report["changes"][0]["from"], _report["changes"][0]["to"])
         == ("sRGB", "Non-Color"),
         f"{_report}",
+    )
+
+    # ---- clean_geometry: mayatk's MeshDiagnostics name (re-homed from EditUtils)
+    import bmesh
+
+    check(
+        "btk.Diagnostics aggregates clean_geometry; EditUtils no longer carries it",
+        btk.Diagnostics.clean_geometry is MeshDiagnostics.clean_geometry
+        and not hasattr(btk.EditUtils, "clean_geometry"),
+    )
+
+    # clean_geometry: merge doubles + remove loose vert
+    reset()
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=2.0)
+    bm.verts.ensure_lookup_table()
+    # add a duplicate (doubled) vertex at an existing corner + a loose vertex
+    corner = bm.verts[0].co.copy()
+    bm.verts.new(corner)  # exact double -> should merge
+    bm.verts.new((10.0, 10.0, 10.0))  # loose vertex -> should be deleted
+    me = bpy.data.meshes.new("M")
+    bm.to_mesh(me)
+    bm.free()
+    o = bpy.data.objects.new("Clean", me)
+    bpy.context.collection.objects.link(o)
+    v0 = len(o.data.vertices)
+    btk.Diagnostics.clean_geometry(o, merge_distance=0.001)
+    v1 = len(o.data.vertices)
+    check("clean_geometry removes double + loose vert", v1 == v0 - 2, f"{v0}->{v1}")
+
+    # clean_geometry recalculate makes normals outward
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    o = bpy.context.active_object
+    btk.flip_normals(o)  # make them inward first
+    btk.Diagnostics.clean_geometry(o, merge=False, recalculate=True)
+    p = o.data.polygons[0]
+    check(
+        "clean_geometry recalc -> outward normals",
+        p.normal.dot(p.center) > 0,
+        f"dot={p.normal.dot(p.center):.2f}",
+    )
+
+    # clean_geometry: degenerate dissolve must work with merge OFF (regression — the degenerate
+    # threshold was coupled to the merge distance, so merge-off silently disabled it).
+    reset()
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=2.0)
+    bm.verts.ensure_lookup_table()
+    v1 = bm.verts[0]
+    bm.edges.new((bm.verts.new(v1.co.copy()), v1))  # zero-length edge -> degenerate
+    me = bpy.data.meshes.new("Degen")
+    bm.to_mesh(me)
+    bm.free()
+    o = bpy.data.objects.new("Degen", me)
+    bpy.context.collection.objects.link(o)
+    e0 = len(o.data.edges)
+    btk.Diagnostics.clean_geometry(o, merge=False, delete_loose=False, degenerate=True)
+    check(
+        "clean_geometry degenerate works with merge off",
+        len(o.data.edges) < e0,
+        f"{e0}->{len(o.data.edges)}",
+    )
+
+    # clean_geometry: merge=False leaves exact-double verts in place (merge really is off)
+    reset()
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=2.0)
+    bm.verts.ensure_lookup_table()
+    bm.verts.new(bm.verts[0].co.copy())  # exact double (loose)
+    me = bpy.data.meshes.new("NoMerge")
+    bm.to_mesh(me)
+    bm.free()
+    o = bpy.data.objects.new("NoMerge", me)
+    bpy.context.collection.objects.link(o)
+    v0 = len(o.data.vertices)
+    btk.Diagnostics.clean_geometry(o, merge=False, delete_loose=False, degenerate=False)
+    check(
+        "clean_geometry merge=False keeps doubles",
+        len(o.data.vertices) == v0,
+        f"{v0}->{len(o.data.vertices)}",
     )
 
 except Exception as e:

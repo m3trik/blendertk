@@ -3382,7 +3382,8 @@ class AnimUtils(_AnimUtilsInternal):
         quiet=False,
     ):
         """Detect and repair corrupted animation fcurves — mirror of
-        ``mtk.Diagnostics.repair_corrupted_curves``.
+        ``mtk.AnimUtils.repair_corrupted_curves`` (the call the shared Animation
+        panel makes; its body is mayatk's ``Diagnostics.repair_corrupted_curves``).
 
         Corruption shows up in Blender too (bad imports, broken drivers, math errors): a keyframe
         can hold a NaN/infinite value or an absurd frame/value beyond any sane range. Repair removes

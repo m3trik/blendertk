@@ -383,9 +383,7 @@ class _RigGraphBuilderInternal:
 
     @staticmethod
     def _split(plug: str) -> Tuple[str, str]:
-        from pythontk.core_utils.engines.rig_graph.rig_model import RigGraph
-
-        return RigGraph.split_plug(plug)
+        return ptk.RigGraph.split_plug(plug)
 
     # ------------------------------------------------------------ builders
     def _build_blend(self, record: Any, params: Dict[str, Any]) -> None:

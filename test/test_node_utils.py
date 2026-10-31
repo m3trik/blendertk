@@ -336,15 +336,15 @@ try:
         f"data.users={A.data.users}",
     )
 
-    # --- hierarchy helpers: get_parent / get_children / get_shape / reparent ---
+    # --- hierarchy helpers: get_parent / get_children / get_shape / set_parent ---
     reset()
     p = cube("Parent", (0, 0, 0))
     c1 = cube("Child1", (5, 0, 0))
     c2 = cube("Child2", (0, 5, 0))
     w1 = tuple(round(v, 3) for v in c1.matrix_world.translation)
-    out = btk.reparent([c1, c2], p)
+    out = btk.NodeUtils.set_parent([c1, c2], p)
     check(
-        "reparent sets parent + keeps world transform",
+        "set_parent sets parent + keeps world transform",
         out == [c1, c2]
         and c1.parent is p
         and tuple(round(v, 3) for v in c1.matrix_world.translation) == w1,
@@ -353,20 +353,28 @@ try:
     check("get_parent immediate", btk.get_parent(c1) is p)
     check("get_children", set(btk.get_children(p)) == {c1, c2})
     g = cube("Grand", (5, 5, 0))
-    btk.reparent(g, c1)
+    btk.NodeUtils.set_parent(g, c1)
     check(
         "get_children recursive",
         set(btk.get_children(p, recursive=True)) == {c1, c2, g},
     )
     check("get_parent all -> ancestor chain", btk.get_parent(g, all=True) == [c1, p])
     check("get_shape returns object data", btk.get_shape(c1) is c1.data)
-    btk.reparent(c1, None)  # unparent, keep transform
+    btk.NodeUtils.set_parent(c1, None)  # unparent, keep transform
     check(
-        "reparent to None unparents",
+        "set_parent to None unparents",
         c1.parent is None
         and tuple(round(v, 3) for v in c1.matrix_world.translation) == w1,
     )
-    check("reparent skips self-parent", btk.reparent([p], p) == [])
+    check("set_parent skips self-parent", btk.NodeUtils.set_parent([p], p) == [])
+    # Named set_parent so it no longer reads as mayatk's reparent (a decorator).
+    try:
+        btk.reparent
+        _moved = False
+    except AttributeError as _e:  # MovedNameError names the new home
+        _moved = "NodeUtils.set_parent" in str(_e)
+    check("btk.reparent is a moved name (NodeUtils.set_parent)",
+          _moved and not hasattr(btk.NodeUtils, "reparent"))
 
     # _transforms_driven read the flat ``action.fcurves``, which Blender 5.x
     # removed (slotted actions) -- so it raised AttributeError on any KEYED

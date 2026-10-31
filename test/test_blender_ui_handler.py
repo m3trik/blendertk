@@ -207,6 +207,7 @@ try:
                 _install_deprecation_sink=_inert,
                 _install_record_path_rebase=_inert,
                 _install_articulated_rig_solve=_inert,
+                _install_cancel_provider=_inert,
                 _register_native_menu_proxies=lambda self: None,
             ),
         ):
@@ -217,6 +218,71 @@ try:
             f"handlers={_built.get('handlers')!r}",
         )
     finally:
+        BlenderUiHandler._instances.clear()
+        BlenderUiHandler._instances.update(_saved_instances)
+
+    # 0d. Blender's cancel strategy is the handler's to install, as it is built
+    #     (mirror of MayaUiHandler), not the entry point's: in a Blender window
+    #     only, once; never under --background nor outside Blender. bpy is faked
+    #     here (this suite runs outside Blender). Added: 2026-10-29
+    import types
+
+    from uitk import CancelManager
+
+    from blendertk.ui_utils.cancel_provider import BlenderCancelProvider
+
+    def _fake_bpy(background):
+        return types.SimpleNamespace(app=types.SimpleNamespace(background=background))
+
+    _saved_provider = CancelManager._provider
+    _saved_instances = dict(BlenderUiHandler._instances)
+    try:
+        CancelManager.reset()
+        check(
+            "no cancel provider outside Blender",
+            BlenderUiHandler._install_cancel_provider() is False
+            and not isinstance(CancelManager.provider(), BlenderCancelProvider),
+        )
+        with mock.patch.dict(sys.modules, {"bpy": _fake_bpy(True)}):
+            check(
+                "no cancel provider under --background",
+                BlenderUiHandler._install_cancel_provider() is False
+                and not isinstance(CancelManager.provider(), BlenderCancelProvider),
+            )
+        with mock.patch.dict(sys.modules, {"bpy": _fake_bpy(False)}):
+            _first = BlenderUiHandler._install_cancel_provider()
+            _installed = CancelManager.provider()
+            _again = BlenderUiHandler._install_cancel_provider()
+        check(
+            "a Blender window gets BlenderCancelProvider, once",
+            _first is True
+            and isinstance(_installed, BlenderCancelProvider)
+            and _again is False
+            and CancelManager.provider() is _installed,
+        )
+        # ...and building the handler is what installs it.
+        CancelManager.reset()
+        BlenderUiHandler._instances.clear()
+        with (
+            mock.patch.dict(sys.modules, {"bpy": _fake_bpy(False)}),
+            mock.patch.object(uitk, "Switchboard", lambda **kw: mock.MagicMock()),
+            mock.patch.object(UiHandler, "__init__", _bare_init),
+            mock.patch.multiple(
+                BlenderUiHandler,
+                _install_deprecation_sink=_inert,
+                _install_record_path_rebase=_inert,
+                _install_articulated_rig_solve=_inert,
+                _register_native_menu_proxies=lambda self: None,
+            ),
+        ):
+            BlenderUiHandler()
+        check(
+            "constructing BlenderUiHandler installs BlenderCancelProvider",
+            isinstance(CancelManager.provider(), BlenderCancelProvider),
+            repr(CancelManager.provider()),
+        )
+    finally:
+        CancelManager._provider = _saved_provider
         BlenderUiHandler._instances.clear()
         BlenderUiHandler._instances.update(_saved_instances)
 

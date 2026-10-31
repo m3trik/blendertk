@@ -756,8 +756,10 @@ class NodeUtils(_NodeUtilsInternal):
         return getattr(obj, "data", None)
 
     @staticmethod
-    def reparent(objects, parent, keep_transform=True):
-        """Parent ``objects`` under ``parent`` (``None`` to unparent) — mirror of ``mtk.reparent``.
+    def set_parent(objects, parent, keep_transform=True):
+        """Parent ``objects`` under ``parent`` (``None`` to unparent). No mayatk twin (mayatk
+        parents with ``cmds.parent``); named apart from mayatk's ``CoreUtils.reparent``, an
+        unrelated decorator (a temporary reparent around an operation).
 
         ``keep_transform`` preserves each object's world position (Blender's "Keep Transform").
         Skips parenting an object to itself. Returns the reparented objects.

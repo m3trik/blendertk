@@ -45,7 +45,6 @@ from blendertk.mat_utils.marmoset_bridge._marmoset_engine import (  # noqa: F401
 from . import template_params
 
 from blendertk.core_utils._core_utils import CoreUtils
-from blendertk.edit_utils._edit_utils import EditUtils
 from blendertk.env_utils.fbx_utils import FbxUtils
 from blendertk.env_utils.handoff_export import BlenderExportMixin
 from blendertk.env_utils.usd import UsdUtils
@@ -701,8 +700,12 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
         """
         if not (sources and targets):
             return {}
+        # Through the root at call time: Components (edit_utils) ranks above
+        # mat_utils, so a module import here would reach up the layer order.
+        import blendertk as btk
+
         try:
-            distances = EditUtils.get_standoff_distances(sources, targets)
+            distances = btk.Components.get_standoff_distances(sources, targets)
             lo, hi = self._world_bounds(targets)
         except Exception as e:  # noqa: BLE001
             self.logger.warning(

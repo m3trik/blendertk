@@ -29,10 +29,13 @@ try:
     import blendertk as btk
     lines.append(f"OK   import blendertk: v{btk.__version__}")
 
-    # Public surface resolves (mirrors mtk.undoable / mtk.get_env_info / mtk.CoreUtils)
+    # Public surface resolves (mirrors mtk.undoable / mtk.EnvUtils.get_env_info / mtk.CoreUtils)
     check("btk.CoreUtils", lambda: btk.CoreUtils.__name__)
     check("btk.undoable resolves", lambda: callable(btk.undoable))
     check("btk.get_env_info resolves", lambda: callable(btk.get_env_info))
+    check("get_env_info is EnvUtils', as mayatk's is",
+          lambda: btk.get_env_info is btk.EnvUtils.get_env_info
+          and not hasattr(btk.CoreUtils, "get_env_info"))
     check("CoreUtils.undoable is btk.undoable",
           lambda: btk.CoreUtils.undoable is btk.undoable)
 
@@ -58,7 +61,7 @@ try:
 
     # bpy-backed behavior
     check("get_env_info() dict", lambda: sorted(btk.get_env_info().keys()))
-    check("get_env_info('blenderVersion')", lambda: btk.get_env_info("blenderVersion"))
+    check("get_env_info('version')", lambda: btk.get_env_info("version"))
 
     @btk.undoable
     def _touch(x):

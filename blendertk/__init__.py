@@ -884,6 +884,21 @@ MOVED_NAMES = {
     "loft": ("blendertk.NurbsUtils.loft", "0.23.0"),
     "get_recent_files": ("blendertk.EnvUtils.get_recent_files", "0.23.0"),
     "get_recent_autosave": ("blendertk.EnvUtils.get_recent_autosave", "0.23.0"),
+    # Re-homed onto mayatk's class names (mayatk is the reference).
+    "CoreUtils.get_env_info": ("blendertk.EnvUtils.get_env_info", "0.23.0"),
+    "clean_geometry": ("blendertk.Diagnostics.clean_geometry", "0.23.0"),
+    "get_standoff_distances": (
+        "blendertk.Components.get_standoff_distances",
+        "0.23.0",
+    ),
+    "EditUtils.STANDOFF_SAMPLES": ("blendertk.Components.STANDOFF_SAMPLES", "0.23.0"),
+    # Scene Cleanup's hand-rolled purge: Blender's own one (Optimize's) instead.
+    "cleanup_scene": ("blendertk.CoreUtils.purge_unused_data", "0.23.0"),
+    # The library answers the colour; the Materials panel paints the icon.
+    "get_mat_swatch_icon": ("blendertk.MatUtils.get_mat_swatch_color", "0.23.0"),
+    # Blender's parenting operation, named apart from mayatk's ``reparent``
+    # (``CoreUtils.reparent``, a decorator): one flat name, one behavior.
+    "reparent": ("blendertk.NodeUtils.set_parent", "0.23.0"),
     # The Blender store subclass became pythontk's one store plus the host
     # adapter it is injected with: the store is ``ShotStore``, its
     # Blender-only members are ``BlenderShotsHost``'s.

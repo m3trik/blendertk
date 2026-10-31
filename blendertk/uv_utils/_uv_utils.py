@@ -1332,8 +1332,9 @@ class UvUtils(_UvUtilsInternal):
 
     @staticmethod
     def find_lightmap_uv_set(obj):
-        """Name of *obj*'s existing lightmap UV layer, or ``None`` (mirror of
-        ``mtk.find_lightmap_uv_set``).
+        """Name of *obj*'s existing lightmap UV layer, or ``None``: the body of
+        ``UvDiagnostics.find_lightmap_uv_set`` (mayatk's home for it), kept here for
+        the parts below the diagnostics.
 
         Matches :data:`LIGHTMAP_UV_SET` and the conventional alternatives case-tolerantly (any
         layer whose name contains "lightmap", or one of the known aliases). Never the first

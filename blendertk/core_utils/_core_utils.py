@@ -1,9 +1,10 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Core blendertk utilities — DCC-environment info + cross-cutting decorators.
+"""Core blendertk utilities — the cross-cutting decorators and context helpers.
 
-Mirrors the mayatk ``CoreUtils`` public surface (``btk.undoable`` ↔ ``mtk.undoable``,
-``btk.get_env_info`` ↔ ``mtk.get_env_info``) so the shared tentacle slots stay branch-free.
+Mirrors the mayatk ``CoreUtils`` public surface (``btk.undoable`` ↔ ``mtk.undoable``) so the
+shared tentacle slots stay branch-free; the environment info is ``EnvUtils.get_env_info``, as
+mayatk's is.
 
 ``import bpy`` is deferred into the call bodies so importing this module (and resolving
 the package surface) never requires a running Blender — matching the ecosystem's
@@ -480,8 +481,8 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
     ``mayatk.CoreUtils(ptk.CoreUtils, ...)``), inheriting the shared helpers and adding the
     Blender-specific ones rather than duplicating logic (SSoT).
 
-    The Blender helpers are also exposed module-level (``btk.undoable`` / ``btk.get_env_info``)
-    so slots can call either form, matching mayatk.
+    The Blender helpers are also exposed module-level (``btk.undoable``) so slots can call
+    either form, matching mayatk.
     """
 
     @staticmethod
@@ -771,38 +772,6 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         return wrapper
 
     @staticmethod
-    def get_env_info(key=None):
-        """Return Blender scene / environment info (mirror of ``mtk.get_env_info``).
-
-        With ``key`` returns that single value, else the whole dict. camelCase keys to match
-        the ecosystem's cross-DCC info convention (also what the Unity bridge expects).
-        """
-        import bpy
-
-        from blendertk.env_utils._env_utils import EnvUtils
-
-        scene = bpy.context.scene
-        filepath = bpy.data.filepath
-        ws = (
-            EnvUtils.current_workspace()
-        )  # ambient: session pin → marked root → the .blend's dir
-        workspace = ws.root if ws else ""
-        info = {
-            "sceneName": filepath or "untitled",
-            "blenderVersion": bpy.app.version_string,
-            "fps": scene.render.fps,
-            "currentFrame": scene.frame_current,
-            "frameRange": (scene.frame_start, scene.frame_end),
-            "unitSystem": scene.unit_settings.system,
-            "selectionCount": len(CoreUtils.selected_objects()),
-            # Blender's analogue of Maya's project workspace — the current-workspace resolver:
-            # session pin → marked (workspace.mel) root containing the .blend → the .blend's dir.
-            "workspace": workspace,
-            "workspace_dir": os.path.basename(workspace) if workspace else "",
-        }
-        return info.get(key) if key is not None else info
-
-    @staticmethod
     def ensure_packages(packages, add_to_path=True):
         """Make arbitrary pip packages importable in Blender's Python.
 
@@ -975,63 +944,11 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         )
 
     @staticmethod
-    def cleanup_scene(quiet=False):
-        """Purge orphan datablocks (0 users, no fake user) across the main collections — the
-        headless-safe analogue of Blender's File ▸ Clean Up ▸ Purge and Maya's Cleanup. Repeats
-        until stable so cascaded orphans (a mesh's material, an image's node group …) are caught.
-
-        Returns ``{collection: count}`` of what was removed. Render-result / viewer images and the
-        scene/world datablocks are never touched.
-        """
-        import bpy
-
-        collections = (
-            "meshes",
-            "curves",
-            "metaballs",
-            "lattices",
-            "grease_pencils",
-            "armatures",
-            "materials",
-            "textures",
-            "images",
-            "node_groups",
-            "actions",
-            "lights",
-            "cameras",
-            "speakers",
-            "fonts",
-            "particles",
-            "volumes",
-        )
-        skip_image_types = {"RENDER_RESULT", "COMPOSITING"}
-        removed = {}
-        changed = True
-        while changed:
-            changed = False
-            for name in collections:
-                coll = getattr(bpy.data, name, None)
-                if coll is None:
-                    continue
-                for db in list(coll):
-                    if db.users:  # a fake user counts here, so use_fake_user is implicitly honoured
-                        continue
-                    if name == "images" and getattr(db, "type", "") in skip_image_types:
-                        continue
-                    coll.remove(db)
-                    removed[name] = removed.get(name, 0) + 1
-                    changed = True
-        if not quiet:
-            print(f"[blendertk] cleanup_scene removed: {removed or 'nothing'}")
-        return removed
-
-    @staticmethod
     def purge_unused_data(recursive=True, linked=True):
         """Purge the data-blocks nothing uses -- meshes, materials, images and the
         rest -- with Blender's own ``bpy.data.orphans_purge`` (File > Clean Up >
-        Purge Unused Data); local ones always. Unlike :meth:`cleanup_scene` (a fixed
-        set of collections), this is Blender's purge itself. No undo step: Blender's
-        undo does not hold purged data-blocks.
+        Purge Unused Data); local ones always: what Scene Cleanup and Optimize both
+        run. No undo step: Blender's undo does not hold purged data-blocks.
 
         Parameters:
             recursive (bool): Also purge what only the purged data-blocks used.
