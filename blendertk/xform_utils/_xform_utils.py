@@ -192,6 +192,72 @@ class _XformUtilsInternal(object):
             return value.matrix_world.translation.copy()
         return Vector(tuple(value))
 
+    @staticmethod
+    def _corner_keys(me):
+        """One key per corner of mesh *me*: its face and vertex, as one integer.
+
+        ``transform_apply`` reverses each face's corner order on a mirrored mesh,
+        so a corner index does not name the same corner before and after it.
+        """
+        import numpy as np
+
+        verts = np.empty(len(me.loops), dtype=np.int64)
+        me.loops.foreach_get("vertex_index", verts)
+        totals = np.empty(len(me.polygons), dtype=np.int64)
+        me.polygons.foreach_get("loop_total", totals)
+        # Blender stores a face's corners contiguously, in face order.
+        faces = np.repeat(np.arange(len(me.polygons), dtype=np.int64), totals)
+        return faces * len(me.vertices) + verts
+
+    @staticmethod
+    def _hold_custom_normals(objects):
+        """``{mesh object: (corner keys, world normals)}`` for every mesh among
+        *objects* with custom normals: what :meth:`_put_custom_normals` puts back.
+
+        ``transform_apply`` turns them (measured: a plain scaleX -1 turned 24 of
+        a cylinder's 80 corners up to 37 degrees; a non-uniform scale 40, up to
+        55), while auto normals follow the geometry by themselves.
+        """
+        import numpy as np
+
+        held = {}
+        for obj in objects:
+            me = obj.data if obj.type == "MESH" else None
+            if me is None or not me.has_custom_normals:
+                continue
+            local = np.empty(len(me.loops) * 3, dtype=np.float32)
+            me.corner_normals.foreach_get("vector", local)
+            # A normal goes to world space by the inverse transpose.
+            nm = np.array(obj.matrix_world.to_3x3().inverted_safe().transposed())
+            held[obj] = (
+                _XformUtilsInternal._corner_keys(me),
+                local.reshape(-1, 3).astype(np.float64) @ nm.T,
+            )
+        return held
+
+    @staticmethod
+    def _put_custom_normals(held):
+        """Re-set each held mesh's custom normals so every corner points the way
+        it did in world space (see :meth:`_hold_custom_normals`)."""
+        import bpy
+        import numpy as np
+
+        if not held:
+            return
+        bpy.context.view_layer.update()  # the applied objects' matrix_world
+        for obj, (keys, world) in held.items():
+            me = obj.data
+            corners = np.empty_like(world)
+            # The same (face, vertex) corner, wherever the apply moved it to.
+            corners[np.argsort(_XformUtilsInternal._corner_keys(me), kind="stable")] = (
+                world[np.argsort(keys, kind="stable")]
+            )
+            # Back to object space: the inverse of the normal matrix, M^T.
+            local = corners @ np.array(obj.matrix_world.to_3x3())
+            lengths = np.linalg.norm(local, axis=1, keepdims=True)
+            local /= np.where(lengths > 1e-12, lengths, 1.0)
+            me.normals_split_custom_set(local)
+
 
 class XformUtils(_XformUtilsInternal):
     """Namespace mirror of mayatk's ``XformUtils`` (helpers also exposed module-level)."""
@@ -368,6 +434,12 @@ class XformUtils(_XformUtilsInternal):
                 _XformUtilsInternal._store_bakes(o, location, rotation, scale)
             o.select_set(True)
         bpy.context.view_layer.objects.active = objects[0]
+        # A location-only apply leaves every normal alone.
+        held = (
+            _XformUtilsInternal._hold_custom_normals(objects)
+            if (rotation or scale)
+            else {}
+        )
         try:
             bpy.ops.object.transform_apply(
                 location=location, rotation=rotation, scale=scale
@@ -381,6 +453,7 @@ class XformUtils(_XformUtilsInternal):
                     else:
                         o[k] = prev
             raise
+        _XformUtilsInternal._put_custom_normals(held)
         return objects
 
     @staticmethod

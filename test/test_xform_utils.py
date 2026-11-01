@@ -190,6 +190,89 @@ try:
     except ValueError:
         check("freeze bogus instance_strategy raises", True)
 
+    # 4f. a freeze keeps a MIRRORED mesh's look (mirror of mayatk's
+    # TestMirroredFreezeKeepsTheLook): every corner normal points the same way in
+    # world space, the custom normals stay custom, the sharp edges are the same and
+    # every face fronts the way it did. transform_apply reverses the winding of a
+    # mirrored mesh itself, but its custom normals came out turned (24 of 80 corners,
+    # up to 37 degrees on a plain scaleX -1; 40 up to 55 with a non-uniform scale).
+    # Fixed: 2026-10-31. (Auto normals follow the geometry: a non-uniform scale bake
+    # re-weights them, mirrored or not, so the unlocked case stays uniform.)
+    import math as _math
+    from mathutils import Vector as _Vector
+
+    def mirrored_cylinder(variant, name, scale):
+        bpy.ops.mesh.primitive_cylinder_add(vertices=8, depth=2, end_fill_type="TRIFAN")
+        o = bpy.context.active_object; o.name = name
+        me = o.data
+        me.shade_smooth()
+        me.set_sharp_from_angle(angle=_math.radians(50))  # soft sides, sharp caps
+        if variant == "custom":
+            normals = [tuple(c.vector) for c in me.corner_normals]
+            custom = tuple(_Vector((0.3, 0.9, 0.1)).normalized())
+            for i, loop in enumerate(me.loops):
+                if loop.vertex_index < 4:
+                    normals[i] = custom
+            me.normals_split_custom_set(normals)
+        o.location = (3, 1, -2)
+        o.rotation_euler = tuple(_math.radians(a) for a in (30, 45, 10))
+        o.scale = scale
+        bpy.context.view_layer.update()
+        return o
+
+    def look(o):
+        me = o.data
+        nm = o.matrix_world.to_3x3().inverted().transposed()
+        corners = me.corner_normals
+        normals = {
+            (p.index, me.loops[li].vertex_index): (nm @ _Vector(corners[li].vector)).normalized()
+            for p in me.polygons for li in p.loop_indices
+        }
+        fronts = {p.index: (nm @ p.normal).normalized() for p in me.polygons}
+        sharp = me.attributes.get("sharp_edge")
+        sharp_edges = {
+            frozenset(e.vertices) for e in me.edges if sharp and sharp.data[e.index].value
+        }
+        return normals, fronts, sharp_edges, me.has_custom_normals
+
+    def same_look(before, after):
+        b_n, b_f, b_s, b_c = before
+        a_n, a_f, a_s, a_c = after
+        turned = [round(_math.degrees(b_n[k].angle(a_n[k], 0.0)), 2) for k in b_n]
+        turned = [t for t in turned if t > 0.01]
+        flipped = [f for f in b_f if b_f[f].dot(a_f[f]) < 0.999]
+        ok = not turned and not flipped and a_s == b_s and a_c == b_c
+        return ok, (f"{len(turned)} turned (max {max(turned, default=0)}), "
+                    f"{len(flipped)} fronts flipped, sharp same={a_s == b_s}, "
+                    f"custom {b_c}->{a_c}")
+
+    for variant, scale in (
+        ("unlocked", (-1, 1, 1)), ("custom", (-1, 1, 1)), ("custom", (-1, 2, 0.5))
+    ):
+        variant = f"{variant} {scale}"
+        reset()
+        o = mirrored_cylinder(variant.split()[0], f"mir_{variant}", scale)
+        before = look(o)
+        btk.freeze_transforms(o, location=True, rotation=True, scale=True, store=False)
+        bpy.context.view_layer.update()
+        ok, detail = same_look(before, look(o))
+        check(f"freeze keeps a mirrored {variant} mesh's look",
+              ok and all(approx(s, 1.0) for s in o.scale), detail)
+
+        reset()
+        o = mirrored_cylinder(variant.split()[0], f"mirp_{variant}", scale)
+        sib = o.copy(); bpy.context.collection.objects.link(sib)
+        sib.location.x += 8
+        bpy.context.view_layer.update()
+        before = {"master": look(o), "sibling": look(sib)}
+        btk.freeze_transforms(o, location=True, rotation=True, scale=True, store=False,
+                              instance_strategy="preserve")
+        bpy.context.view_layer.update()
+        for label, obj in (("master", o), ("sibling", sib)):
+            ok, detail = same_look(before[label], look(obj))
+            check(f"freeze preserve keeps a mirrored {variant} {label}'s look",
+                  ok and o.data is sib.data, detail)
+
     # 5. center_pivot: origin at (5,0,0), mesh shifted +3 -> object-mode origin -> bbox center x=8
     reset()
     bpy.ops.mesh.primitive_cube_add(location=(5, 0, 0)); c = bpy.context.active_object
