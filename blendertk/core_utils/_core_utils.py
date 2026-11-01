@@ -1,19 +1,22 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Core blendertk utilities — DCC-environment info + cross-cutting decorators.
+"""Core blendertk utilities — the cross-cutting decorators and context helpers.
 
-Mirrors the mayatk ``CoreUtils`` public surface (``btk.undoable`` ↔ ``mtk.undoable``,
-``btk.get_env_info`` ↔ ``mtk.get_env_info``) so the shared tentacle slots stay branch-free.
+Mirrors the mayatk ``CoreUtils`` public surface (``btk.undoable`` ↔ ``mtk.undoable``) so the
+shared tentacle slots stay branch-free; the environment info is ``EnvUtils.get_env_info``, as
+mayatk's is.
 
 ``import bpy`` is deferred into the call bodies so importing this module (and resolving
 the package surface) never requires a running Blender — matching the ecosystem's
 no-import-side-effects rule.
 """
 
+import inspect
 import os
 import re
 from contextlib import contextmanager
 from functools import wraps
+from typing import Any, Callable
 
 import pythontk as ptk
 
@@ -107,8 +110,8 @@ class _CoreUtilsInternal(object):
     def _blender_python_exe():
         """Blender's *bundled* Python interpreter (``sys.executable`` is the Blender binary, not a
         python — so it can't be driven with ``-m pip``). Looks in ``<sys.prefix>/bin`` for the
-        python launcher; falls back to ``sys.executable``. Mirrors ``tcl_blender._QtBootstrap.blender_python_exe``
-        but kept local so blendertk carries no back-dependency on tentacle."""
+        python launcher; falls back to ``sys.executable``. The one copy: the Qt bootstrap
+        (``QtBootstrap`` / ``QtRuntime``) and ``EnvUtils.python_executable`` call it."""
         import sys
 
         for name in ("python.exe", "python3.exe", "python", "python3"):
@@ -363,13 +366,27 @@ class _CoreUtilsInternal(object):
                     setattr(mod, name, obj)
 
     @staticmethod
+    def _layer_objects(vl) -> list:
+        """*vl*'s objects, resynced and free of ``None``.
+
+        Reading the active object resyncs the layer; iterating ``objects`` does not.
+        Measured: an object whose collection links changed (visible_override's temporary
+        master link) was missing from the iteration, and after ``bpy.data.objects.remove``
+        a stale entry read ``None``.
+        """
+        if vl is None:
+            return []
+        _ = vl.objects.active  # the resync
+        return [o for o in vl.objects if o is not None]
+
+    @staticmethod
     def _active_view_layer():
         """The active view layer, resolved **without** depending on a context *window*.
 
         ``bpy.context.selected_objects`` / ``active_object`` are *screen-context* members: they are
         populated only when ``bpy.context.window`` is non-``None``. tentacle drives the Blender slots
         from Qt events delivered inside a ``bpy.app.timers`` callback (see
-        ``tcl_blender._QtHost.start_pump``) — a context whose ``window`` is frequently ``None`` (proven:
+        ``QtRuntime.start_pump``) — a context whose ``window`` is frequently ``None`` (proven:
         with ``window=None`` those members return ``[]`` / ``None`` while a cube is selected). The view
         layer is window-independent, so reading selection through ``view_layer.objects`` is correct from
         that context. Falls back to the scene's first view layer if even ``context.view_layer`` is unset.
@@ -464,8 +481,8 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
     ``mayatk.CoreUtils(ptk.CoreUtils, ...)``), inheriting the shared helpers and adding the
     Blender-specific ones rather than duplicating logic (SSoT).
 
-    The Blender helpers are also exposed module-level (``btk.undoable`` / ``btk.get_env_info``)
-    so slots can call either form, matching mayatk.
+    The Blender helpers are also exposed module-level (``btk.undoable``) so slots can call
+    either form, matching mayatk.
     """
 
     @staticmethod
@@ -502,6 +519,15 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
                 and (library is None or getattr(db, "library", None) == library)
             )
         return found
+
+    @staticmethod
+    @contextmanager
+    def suspended_refresh():
+        """Hold the viewport still for a bulk operation (mirror of mayatk's
+        ``CoreUtils.suspended_refresh``). Blender never redraws mid-script -- a Python call
+        holds the UI until it returns -- so there is nothing to suspend: the block runs as it
+        is, and a caller shared with Maya wraps it unchanged."""
+        yield
 
     @staticmethod
     @contextmanager
@@ -746,38 +772,6 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         return wrapper
 
     @staticmethod
-    def get_env_info(key=None):
-        """Return Blender scene / environment info (mirror of ``mtk.get_env_info``).
-
-        With ``key`` returns that single value, else the whole dict. camelCase keys to match
-        the ecosystem's cross-DCC info convention (also what the Unity bridge expects).
-        """
-        import bpy
-
-        from blendertk.env_utils._env_utils import EnvUtils
-
-        scene = bpy.context.scene
-        filepath = bpy.data.filepath
-        ws = (
-            EnvUtils.current_workspace()
-        )  # ambient: session pin → marked root → the .blend's dir
-        workspace = ws.root if ws else ""
-        info = {
-            "sceneName": filepath or "untitled",
-            "blenderVersion": bpy.app.version_string,
-            "fps": scene.render.fps,
-            "currentFrame": scene.frame_current,
-            "frameRange": (scene.frame_start, scene.frame_end),
-            "unitSystem": scene.unit_settings.system,
-            "selectionCount": len(CoreUtils.selected_objects()),
-            # Blender's analogue of Maya's project workspace — the current-workspace resolver:
-            # session pin → marked (workspace.mel) root containing the .blend → the .blend's dir.
-            "workspace": workspace,
-            "workspace_dir": os.path.basename(workspace) if workspace else "",
-        }
-        return info.get(key) if key is not None else info
-
-    @staticmethod
     def ensure_packages(packages, add_to_path=True):
         """Make arbitrary pip packages importable in Blender's Python.
 
@@ -809,7 +803,7 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         tools (Material Updater, Map Converter/Packer, bridge map-staging). This pip-installs the
         missing wheels into Blender's per-version *user-modules* dir (already on ``sys.path``) via
         :class:`pythontk.PackageManager`, driven against Blender's **bundled** interpreter — the same
-        on-demand model tcl_blender uses for Qt, but owned here so the provisioning *policy* lives in
+        on-demand model ``QtBootstrap`` uses for Qt, owned here so the provisioning *policy* lives in
         the Blender library layer (blendertk), not the entry point.
 
         Args:
@@ -844,53 +838,6 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
             except Exception:
                 return None
         return os.path.join(base, filename) if base else None
-
-    @staticmethod
-    def get_recent_files(index=None):
-        """Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).
-
-        Reads Blender's own ``recent-files.txt`` (the source of File ▸ Open Recent). ``index``
-        may be an int or slice. Missing files are filtered out.
-        """
-        path = CoreUtils.user_config_path("recent-files.txt") or ""
-        files = []
-        if path and os.path.isfile(path):
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                files = [line.strip() for line in f if line.strip()]
-            files = [p for p in files if os.path.isfile(p)]
-        return files[index] if index is not None else files
-
-    @staticmethod
-    def get_recent_autosave(filter_time=24, timestamp_format="%H:%M:%S"):
-        """Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first
-        (mirror of ``mtk.get_recent_autosave``). ``filter_time`` is the max age in hours.
-
-        Blender autosaves land in the temporary directory (Preferences ▸ File Paths, falling
-        back to the OS temp dir) as ``.blend`` files.
-        """
-        import time
-        import glob
-        import tempfile
-        import bpy
-
-        temp_dir = (
-            bpy.context.preferences.filepaths.temporary_directory
-            or tempfile.gettempdir()
-        )
-        cutoff = time.time() - filter_time * 3600
-        results = []
-        for path in glob.glob(os.path.join(temp_dir, "*.blend")):
-            try:
-                mtime = os.path.getmtime(path)
-            except OSError:
-                continue
-            if mtime >= cutoff:
-                results.append((path, mtime))
-        results.sort(key=lambda x: x[1], reverse=True)
-        return [
-            (path, time.strftime(timestamp_format, time.localtime(mtime)))
-            for path, mtime in results
-        ]
 
     @staticmethod
     def get_scene_info(objects=None):
@@ -997,55 +944,81 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         )
 
     @staticmethod
-    def cleanup_scene(quiet=False):
-        """Purge orphan datablocks (0 users, no fake user) across the main collections — the
-        headless-safe analogue of Blender's File ▸ Clean Up ▸ Purge and Maya's Cleanup. Repeats
-        until stable so cascaded orphans (a mesh's material, an image's node group …) are caught.
+    def purge_unused_data(recursive=True, linked=True):
+        """Purge the data-blocks nothing uses -- meshes, materials, images and the
+        rest -- with Blender's own ``bpy.data.orphans_purge`` (File > Clean Up >
+        Purge Unused Data); local ones always: what Scene Cleanup and Optimize both
+        run. No undo step: Blender's undo does not hold purged data-blocks.
 
-        Returns ``{collection: count}`` of what was removed. Render-result / viewer images and the
-        scene/world datablocks are never touched.
+        Parameters:
+            recursive (bool): Also purge what only the purged data-blocks used.
+            linked (bool): Also purge unused data-blocks linked from libraries.
+
+        Returns:
+            int: How many data-blocks were removed.
         """
         import bpy
 
-        collections = (
-            "meshes",
-            "curves",
-            "metaballs",
-            "lattices",
-            "grease_pencils",
-            "armatures",
-            "materials",
-            "textures",
-            "images",
-            "node_groups",
-            "actions",
-            "lights",
-            "cameras",
-            "speakers",
-            "fonts",
-            "particles",
-            "volumes",
+        return bpy.data.orphans_purge(
+            do_local_ids=True, do_linked_ids=linked, do_recursive=recursive
         )
-        skip_image_types = {"RENDER_RESULT", "COMPOSITING"}
-        removed = {}
-        changed = True
-        while changed:
-            changed = False
-            for name in collections:
-                coll = getattr(bpy.data, name, None)
-                if coll is None:
-                    continue
-                for db in list(coll):
-                    if db.users:  # a fake user counts here, so use_fake_user is implicitly honoured
-                        continue
-                    if name == "images" and getattr(db, "type", "") in skip_image_types:
-                        continue
-                    coll.remove(db)
-                    removed[name] = removed.get(name, 0) + 1
-                    changed = True
-        if not quiet:
-            print(f"[blendertk] cleanup_scene removed: {removed or 'nothing'}")
-        return removed
+
+    @staticmethod
+    def selected(func: Callable) -> Callable:
+        """Pass the selection (:meth:`selected_objects`) to *func*'s target parameter
+        when it is ``None``; with nothing selected, return ``[]`` without calling it.
+
+        The target is the first *non-receiver* parameter: index 0 for static
+        methods, index 1 for instance / class methods. The receiver is detected by
+        introspecting the wrapped callable's signature (``functools.wraps`` exposes
+        ``__wrapped__``, so the real parameter names are visible even through an
+        inner wrapper) rather than guessing from the runtime type of the first
+        argument, which misidentifies a data-bearing first positional argument as
+        ``self``. A target given by keyword is found by name.
+        """
+        # Resolved once, at decoration: the wrapped callable's signature never changes.
+        try:
+            params = list(inspect.signature(func).parameters.values())
+            has_receiver = bool(params) and params[0].name in ("self", "cls")
+        except (TypeError, ValueError):
+            params, has_receiver = [], False
+        target = 1 if has_receiver else 0
+        name = params[target].name if len(params) > target else None
+
+        @wraps(func)
+        def wrapped(*args, **kwargs) -> Any:
+            if name in kwargs:
+                if kwargs[name] is None:
+                    selection = CoreUtils.selected_objects()
+                    if not selection:
+                        return []
+                    kwargs = {**kwargs, name: selection}
+            elif len(args) <= target or args[target] is None:
+                selection = CoreUtils.selected_objects()
+                if not selection:
+                    return []
+                args = args[:target] + (selection,) + args[target + 1 :]
+            return func(*args, **kwargs)
+
+        return wrapped
+
+    @staticmethod
+    def active_view_layer():
+        """The active view layer, resolved without depending on a context window
+        (``bpy.context.window`` is ``None`` where tentacle's Qt pump runs the
+        slots); ``None`` when there is none. Selection read and written through
+        it agrees with the operators run under :func:`window_context_override`.
+        """
+        return _CoreUtilsInternal._active_view_layer()
+
+    @staticmethod
+    def leaf_name(node) -> str:
+        """*node*'s name as shown (mirror of mayatk's ``CoreUtils.leaf_name``, a DAG path's
+        leaf there): Blender's names are flat, so an object, bone or datablock gives its
+        ``name`` and a string comes back as it is -- a Maya-style ``|`` path handed in is
+        cut to its leaf. A removed object raises ``ReferenceError``, as reading it does."""
+        name = node if isinstance(node, str) else getattr(node, "name", None)
+        return str(node if name is None else name).rsplit("|", 1)[-1]
 
     @staticmethod
     def selected_objects():
@@ -1057,14 +1030,54 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         timer runs the slots in, which surfaced as "many operations report *nothing selected* although an
         object is selected". See :func:`_active_view_layer`.
 
-        Shared by the co-located tool Slots (curtain / mirror / duplicate …) so they resolve the
-        selection without depending on tentacle's ``SlotsBlender`` base — keeping blendertk free of
-        any back-dependency on tentacle, exactly as mayatk's co-located slots stay tentacle-free.
+        What tentacle's shared tool Slots read through ``self.tk`` (curtain / mirror /
+        duplicate …), so blendertk answers the selection without any dependency on tentacle.
         """
         vl = _CoreUtilsInternal._active_view_layer()
         if vl is None:
             return []
         return [o for o in vl.objects.selected if o]
+
+    @staticmethod
+    def select(objects, mode: str = "replace") -> list:
+        """Set the object selection (Blender's counterpart of ``cmds.select``).
+
+        On the window's view layer (:func:`_active_view_layer`), whatever the context, by
+        ``Object.select_set`` -- which works in any mode, where ``object.select_all``
+        poll-fails outside Object Mode. Objects the layer can't select (another scene, an
+        excluded collection) are skipped, not raised on.
+
+        Parameters:
+            objects (iterable): The objects; ``None`` entries are skipped.
+            mode (str): ``"replace"`` (the default), ``"add"`` or ``"remove"``. Replace and add
+                make the first selected object active; replace with nothing selectable
+                clears the active object too.
+
+        Returns:
+            (list): The objects whose selection state was set (a hidden or
+                select-disabled object takes no select and is left out).
+        """
+        if mode not in ("replace", "add", "remove"):
+            raise ValueError(f"mode must be 'replace', 'add' or 'remove', not {mode!r}")
+        vl = _CoreUtilsInternal._active_view_layer()
+        if vl is None:
+            return []
+        objs = [o for o in objects if o is not None]
+        if mode == "replace":
+            for o in _CoreUtilsInternal._layer_objects(vl):
+                o.select_set(False, view_layer=vl)
+        done = []
+        for o in objs:
+            try:
+                o.select_set(mode != "remove", view_layer=vl)
+            except RuntimeError:  # not in this view layer
+                continue
+            # an unselectable object (hidden, select-disabled) takes no select
+            if o.select_get(view_layer=vl) == (mode != "remove"):
+                done.append(o)
+        if mode != "remove" and (done or mode == "replace"):
+            vl.objects.active = done[0] if done else None
+        return done
 
     @staticmethod
     def active_object():
@@ -1077,6 +1090,83 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         """
         vl = _CoreUtilsInternal._active_view_layer()
         return vl.objects.active if vl is not None else None
+
+    @staticmethod
+    def ensure_component_mode(object_type="mesh", component=None):
+        """Put an object of *object_type* into Edit Mode -- Maya's component mode --
+        optionally setting the mesh component mask. Mirror of mayatk's
+        ``CoreUtils.ensure_component_mode``: what a tool calls before it works on
+        components. The mode stays (:func:`edit_mode` is the bracket that restores).
+
+        The active object is preferred; else the first selected object of the type
+        becomes active, since Maya's component tools act on the *selection* (a curve
+        tool must work on a selected curve that is not the active one;
+        ``TargetWeld.activate`` falls back the same way). ``mode_set`` then enters
+        every selected object of that type, as Maya edits every hilited one. Runs
+        under :func:`window_context_override`: ``mode_set``'s poll reads the active
+        object from screen context, dead in the Qt-pump state, and windowless
+        ``context.view_layer`` is the scene's default layer, not the window's.
+
+        Parameters:
+            object_type (str): ``"mesh"`` or ``"curve"`` -- any ``Object.type``,
+                case-insensitive (``"MESH"``).
+            component (str, optional): ``"vertex"``, ``"edge"`` or ``"face"``
+                (Blender's ``"VERT"`` / ``"EDGE"`` / ``"FACE"`` too): the mesh
+                select mode to set.
+
+        Returns:
+            The object in Edit Mode, or None when no active or selected object is
+            of the type, or it cannot enter Edit Mode (hidden, linked). The message
+            is the caller's: the useful wording differs per tool.
+        """
+        import bpy
+
+        kind = object_type.upper()
+        obj = CoreUtils.active_object()
+        if obj is None or obj.type != kind:
+            # selected_objects reads the window's view layer, which is what makes the
+            # ``active`` assignment below safe (an object outside it raises).
+            candidates = [o for o in CoreUtils.selected_objects() if o.type == kind]
+            if not candidates:
+                return None
+            obj = candidates[0]
+        select_mode = None
+        if component:
+            select_mode = {"vertex": "VERT"}.get(component.lower(), component.upper())
+        with CoreUtils.window_context_override():
+            bpy.context.view_layer.objects.active = obj  # no-op when already active
+            if obj.mode != "EDIT":
+                try:
+                    bpy.ops.object.mode_set(mode="EDIT")
+                except RuntimeError:  # hidden / linked: not editable
+                    return None
+            if select_mode:
+                bpy.ops.mesh.select_mode(type=select_mode)
+        return obj
+
+    @staticmethod
+    def ensure_object_mode():
+        """Leave Edit (or any other) Mode for Object Mode -- Maya's object mode.
+        Mirror of mayatk's ``CoreUtils.ensure_object_mode``: what object-level work
+        calls first (data-block reassignment, ``transform_apply`` and ``origin_set``
+        reject or poll-fail on an object in Edit Mode, and a panel is reachable
+        mid-edit). Unlike ``_object_mode`` the prior mode is not restored; a no-op
+        in Object Mode. ``mode_set`` runs under :func:`window_context_override`
+        (its poll reads screen context, dead in the Qt-pump state).
+
+        Returns:
+            bool: ``True``, in Object Mode.
+
+        Raises:
+            RuntimeError: Blender refused to leave the mode (its report).
+        """
+        import bpy
+
+        active = CoreUtils.active_object()
+        if active is not None and active.mode != "OBJECT":
+            with CoreUtils.window_context_override():
+                bpy.ops.object.mode_set(mode="OBJECT")
+        return True
 
     @staticmethod
     @contextmanager
@@ -1103,15 +1193,7 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         """
         import logging
 
-        def layer_objects(vl):
-            # Reading the active object resyncs the layer; iterating ``objects`` does
-            # not. Measured: an object whose collection links changed (visible_override's
-            # temporary master link) was missing from the iteration, and a stale entry
-            # can read None.
-            if vl is None:
-                return []
-            _ = vl.objects.active  # the resync
-            return [o for o in vl.objects if o is not None]
+        layer_objects = _CoreUtilsInternal._layer_objects
 
         def alive(obj):
             try:
@@ -1363,25 +1445,22 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
             view_layer = bpy.context.view_layer
             prior_active = view_layer.objects.active
             prior_mode = getattr(prior_active, "mode", "OBJECT")
-            prior_selection = [o for o in view_layer.objects if o.select_get()]
+            prior_selection = [
+                o for o in _CoreUtilsInternal._layer_objects(view_layer) if o.select_get()
+            ]
             try:
                 if prior_mode != "OBJECT":
                     bpy.ops.object.mode_set(mode="OBJECT")
-                # select_set, not object.select_all: that op polls Object Mode
-                # and reads screen context; select_set is mode-independent.
-                for o in list(view_layer.objects):
-                    o.select_set(o in objects)
+                CoreUtils.select(objects)
                 if objects:
-                    view_layer.objects.active = objects[0]
                     bpy.ops.object.mode_set(mode="EDIT")
                 yield objects
             finally:
                 try:
                     if getattr(view_layer.objects.active, "mode", "OBJECT") != "OBJECT":
                         bpy.ops.object.mode_set(mode="OBJECT")
-                    alive = set(view_layer.objects)
-                    for o in list(view_layer.objects):
-                        o.select_set(o in prior_selection)
+                    alive = set(_CoreUtilsInternal._layer_objects(view_layer))
+                    CoreUtils.select(o for o in prior_selection if o in alive)
                     if prior_active is not None and prior_active in alive:
                         view_layer.objects.active = prior_active
                         if prior_mode != "OBJECT":

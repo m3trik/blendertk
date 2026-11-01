@@ -33,16 +33,11 @@ lighting flattened behind an Emission material) was removed: it is not lightmapp
 discards every other map, and it only ever added a mode to choose wrongly from. Quality
 tiers come from :meth:`from_preset` (pythontk ``PresetStore``). HDR EXR throughout.
 
-The engine surface is Qt-free and defers ``import bpy`` (headless-importable); only the
-panel (``lightmap_baker_slots.LightmapBakerSlots``) touches Qt, lazily.
-
-The ``.ui`` shares mayatk's objectNames control for control, except where Cycles has
-no counterpart (Arnold's GI Samples: one Cycles sample count covers every ray -- ledgered
-in ``tentacle/docs/parity_map.py``). Now that uitk host-namespaces the QSettings branch per
-DCC (``Switchboard.add_ui`` / ``MainWindow._relative_state`` via ``context_tags``),
-identical objectNames across the two copies of the same panel no longer collide in the
-shared "uitk"/"shared" registry root, so there is no need to renumber widgets to dodge it.
-Both ``cmb002`` packing modes are live: "Atlas by Material" (per-material consolidation via
+The engine surface is Qt-free and defers ``import bpy`` (headless-importable). Its panel
+is tentacle's Lightmap Baker (``slots/tools/lightmap_baker.py``): one Slots class over this
+engine and mayatk's, its GI Samples dial (Arnold's: one Cycles sample count covers every
+ray) hidden here, where :attr:`LightmapBaker.PRESET_INT_KEYS` has no ``gi_samples``.
+Both packing modes are live: "Atlas by Material" (per-material consolidation via
 :meth:`LightmapBaker.pack_atlas`, the Blender port of mayatk's atlas packer) and
 "Per-Object" (one full-resolution map each).
 """
@@ -201,33 +196,6 @@ class _InPlacePlan:
         """Every target written in place."""
         return [obj for objs in self.in_place.values() for obj in objs]
 
-
-@dataclass
-class _AtlasFiles:
-    """The atlases a file's objects read, each owned by an atlas group --
-    what :meth:`LightmapBaker._atlas_files` reads once for the in-place plan
-    and the split check. Mirror of mayatk's.
-
-    Attributes:
-        markers: ``{reader name: its marker record}``.
-        entries: ``{object: baseline entry}`` of every object still recorded.
-        by_file: ``{normcased path: [readers]}``, readers sorted.
-        spelled: ``{normcased path: the path as read}``.
-        lone: The one-reader maps an atlas bake wrote (a group of one), and
-            those no record speaks for beside an atlas their group owns.
-        group: ``{object name: atlas group}`` (:meth:`LightmapBaker._atlas_keys`)
-            for every reader and every object asked about.
-        owned: ``{atlas group: {normcased paths}}`` -- each atlas belongs to
-            the group most of its readers are in.
-    """
-
-    markers: Dict[str, Dict[str, Any]]
-    entries: Dict[str, Dict[str, Any]]
-    by_file: Dict[str, List[str]]
-    spelled: Dict[str, str]
-    lone: set
-    group: Dict[str, str]
-    owned: Dict[str, set]
 
 
 @dataclass
@@ -485,23 +453,14 @@ class LightmapBaker(ptk.LoggingMixin):
         "beside_textures",
         "reflection_probe",
     )
-    #: Retired built-in tier names -> the current one, warning until they go
-    #: (mirrors mayatk). ``"quest"`` (until 2026-09-23) named one headset for a
-    #: tier that serves every mobile / standalone-VR target; a script, an older
-    #: Maya bridge or the panel's preset pointer may still say it.
-    #: :meth:`from_preset` resolves only a name the store lacks, so a user preset
-    #: saved under a retired name still wins. Re-dated from 0.12.0 on
-    #: 2026-10-24: a saved preset pointer is saved data, which gets the longest
-    #: window (CODE_STANDARD section 0).
-    _resolve_retired_preset = staticmethod(
-        ptk.Deprecation.values(
-            {"quest": "mobile"},
-            what="LightmapBaker preset",
-            remove_in="0.23.0",
-            since="2026-09-23",
-            reason="The tier was renamed; its settings are unchanged.",
-        )
-    )
+    #: The Samples range a panel offers, in this renderer's units: Cycles
+    #: paths, which every tier counts in the hundreds or thousands (mayatk's
+    #: are Arnold AA samples, squared: up to 256).
+    SAMPLES_RANGE: Tuple[int, int] = (1, 4096)
+    #: The processors (:attr:`device` values) that sample adaptively: every
+    #: one -- Cycles adapts on the CPU and the GPU alike (mayatk's Arnold only
+    #: on the GPU).
+    ADAPTIVE_DEVICES: Tuple[str, ...] = ("AUTO", "GPU", "CPU")
 
     @staticmethod
     def preset_store() -> "ptk.PresetStore":
@@ -538,12 +497,11 @@ class LightmapBaker(ptk.LoggingMixin):
         production room was the scene (no white card then, :meth:`_white_card` now, and
         mis-crossed area lights), not the depth. The samples are Cycles paths, matched
         to the Arnold tier's shadow noise rather than copied from its AA count.
-        ``mobile`` is the default tier on both the panel and the Maya bridge. A retired
-        tier name (``quest``) still resolves, with a notice.
+        ``mobile`` is the default tier on both the panel and the Maya bridge. A name the
+        store lacks raises -- the retired ``quest`` (``mobile`` since 2026-09-23) too,
+        since 0.23.0 (mirror of mayatk).
         """
         store = cls.preset_store()
-        if not store.exists(name):
-            name = cls._resolve_retired_preset(name)
         if not store.exists(name):
             raise ValueError(
                 f"Unknown lightmap preset {name!r}. Available: {store.list()}"
@@ -2596,7 +2554,9 @@ class LightmapBaker(ptk.LoggingMixin):
                 plan.repack[os.path.basename(spelled[f])] = why
         return plan
 
-    def _atlas_files(self, objects: List[str] = ()) -> Optional[_AtlasFiles]:
+    def _atlas_files(
+        self, objects: List[str] = ()
+    ) -> Optional["ptk.BakeBaseline.AtlasFiles"]:
         """The atlases the file's objects read and the atlas group owning
         each, with *objects*' groups read beside theirs; ``None`` when every
         map is its object's own (nothing to write into, nothing split).
@@ -2611,51 +2571,9 @@ class LightmapBaker(ptk.LoggingMixin):
         """
         markers = {obj.name: info for obj, info in LightmapRecords._marker_records()}
         path_of = {name: p for name, _n, p in LightmapRecords._reads() if p}
-        by_file: Dict[str, List[str]] = {}
-        spelled: Dict[str, str] = {}
-        for reader in sorted(markers):
-            path = path_of.get(reader)
-            if path:
-                key = os.path.normcase(os.path.abspath(path))
-                by_file.setdefault(key, []).append(reader)
-                spelled.setdefault(key, path)
-        atlases = {f for f, readers in by_file.items() if len(readers) > 1}
-        record = LightmapRecords.bake_state()["objects"]
-        entries = {k: e for k, e in record.items() if e["removed_at"] is None}
-        # An atlas bake gives a group of one its own map. Alone it is no atlas
-        # to write into, but a group reading it beside another map is split
-        # all the same: a duplicate material.
-        lone = {
-            f
-            for f, readers in by_file.items()
-            if len(readers) == 1
-            and (entries.get(readers[0]) or {}).get("packing") == "atlas"
-        }
-        if not atlases and len(lone) < 2:
-            return None
-        # A one-reader map whose packing no record speaks for (baked before
-        # change tracking, then tracked as it stood) is a split-off only
-        # beside an atlas its group owns: a group that owns none was baked per
-        # object, and stays so.
-        unknown = {
-            f
-            for f, readers in by_file.items()
-            if len(readers) == 1 and not (entries.get(readers[0]) or {}).get("packing")
-        }
-        readers = [r for f in sorted(atlases | lone | unknown) for r in by_file[f]]
-        group = self._atlas_keys(list(dict.fromkeys(readers + list(objects))))
-        owned: Dict[str, set] = {}
-        for f in atlases:
-            votes: Dict[str, int] = {}
-            for reader in by_file[f]:
-                votes[group[reader]] = votes.get(group[reader], 0) + 1
-            owned.setdefault(min(votes, key=lambda g: (-votes[g], g)), set()).add(f)
-        for f in sorted(unknown):
-            if group[by_file[f][0]] in owned:
-                lone.add(f)
-        for f in lone:
-            owned.setdefault(group[by_file[f][0]], set()).add(f)
-        return _AtlasFiles(markers, entries, by_file, spelled, lone, group, owned)
+        return ptk.BakeBaseline.atlas_files(
+            markers, path_of, LightmapRecords.bake_state(), self._atlas_keys, objects
+        )
 
     def _splits(self) -> Dict[str, Tuple[List[str], List[str]]]:
         """``{atlas group: (map paths, objects)}`` -- each group that reads
@@ -2665,18 +2583,7 @@ class LightmapBaker(ptk.LoggingMixin):
         :meth:`combine` packs into one atlas, and what the Manage table names
         *split*. Read-only. Mirror of mayatk's."""
         found = self._atlas_files()
-        if found is None:
-            return {}
-        out: Dict[str, Tuple[List[str], List[str]]] = {}
-        for key, files in found.owned.items():
-            if len(files) < 2:
-                continue
-            files = sorted(files, key=lambda f: (-len(found.by_file[f]), f))
-            readers = sorted(
-                r for f in files for r in found.by_file[f] if found.group[r] == key
-            )
-            out[key] = ([found.spelled[f] for f in files], readers)
-        return out
+        return {} if found is None else found.splits()
 
     def _split_fields(self) -> Dict[str, Dict[str, Tuple[str, ...]]]:
         """``ptk.StaleReport``'s ``split`` and ``split_materials`` from
@@ -4880,6 +4787,89 @@ class LightmapBaker(ptk.LoggingMixin):
                 and self._power(bpy.data.objects[name]) > 0.0
             ]
         return plan
+
+    @staticmethod
+    def scope_meshes(scope: str = "selected") -> List[Any]:
+        """The mesh objects a Scope word names, before the Exclude set (mirror
+        of mayatk's): what the Lightmap Baker panel's Bake hands :meth:`bake`
+        (its lights ride beside them, :meth:`scope_lights`).
+
+        The words are :class:`pythontk.HandoffScope`'s -- ``selected``,
+        ``visible``, ``scene``; anything unknown reads the selection.
+        ``visible`` reads the window's view layer (windowless, a bare
+        ``visible_get`` reads the default one). Every word resolves through
+        :meth:`TextureBaker.resolve_meshes`, so a selected light never bakes,
+        and a hidden mesh in the Scene scope does (Cycles bakes it).
+        """
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        def scene_meshes():
+            return TextureBaker.resolve_meshes(list(bpy.context.scene.objects))
+
+        def visible_meshes():
+            # The window's layer, resolved once: each resolve enters a context
+            # override.
+            layer = CoreUtils._active_view_layer()
+            return [o for o in scene_meshes() if o.visible_get(view_layer=layer)]
+
+        return list(
+            ptk.HandoffScope.resolve(
+                scope,
+                selected=lambda: TextureBaker.resolve_meshes(
+                    CoreUtils.selected_objects(), descendants=True
+                ),
+                all=scene_meshes,
+                visible=visible_meshes,
+            )
+            or []
+        )
+
+    @classmethod
+    def scope_lights(cls, scope: str = "selected") -> List[Any]:
+        """The light objects a Scope word holds (mirror of mayatk's): what
+        lights a bake of :meth:`scope_meshes` with :attr:`include_scene_lights`
+        off -- the lights selected or under the selection
+        (:meth:`_scope_lights`), every visible one (the window's view layer),
+        or every one in the scene."""
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        def scene_lights():
+            return [o for o in bpy.context.scene.objects if o.type == "LIGHT"]
+
+        def visible_lights():
+            layer = CoreUtils._active_view_layer()
+            return [o for o in scene_lights() if o.visible_get(view_layer=layer)]
+
+        return list(
+            ptk.HandoffScope.resolve(
+                scope,
+                selected=lambda: cls._scope_lights(None),
+                all=scene_lights,
+                visible=visible_lights,
+            )
+            or []
+        )
+
+    @staticmethod
+    def select(objects) -> List[Any]:
+        """Make *objects* the selection -- names or objects -- or clear it when
+        none can be selected (mirror of mayatk's): what the Lightmap Baker
+        panel's set rows and map picks select with. On the window's view layer
+        (``CoreUtils.select``): an object outside it, hidden or gone takes no
+        select and is left out of the objects this returns."""
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        found = [
+            bpy.data.objects.get(obj) if isinstance(obj, str) else obj
+            for obj in objects or ()
+        ]
+        return CoreUtils.select(found, mode="replace")
 
     @staticmethod
     def _scope_lights(objects=None) -> List[Any]:

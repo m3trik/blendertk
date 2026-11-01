@@ -1,6 +1,7 @@
 """blendertk diagnostics feature test — Diagnostics aggregator + fix_non_orthogonal_axes
 (mirror of mayatk's ``core_utils.diagnostics``). find_problem_geometry detection is covered by
-``test_edit_utils.py``; this exercises the re-homed resolution + the transform (shear) diag.
+``test_edit_utils.py``; this exercises the re-homed resolution + the transform (shear) diag,
+and ``clean_geometry`` (re-homed from ``EditUtils``).
 
 Run: blender --background --factory-startup --python blendertk/test/test_diagnostics.py
 """
@@ -292,6 +293,190 @@ try:
         "breaking the connection actually REMOVES the curves",
         btk.AnimUtils.get_fcurves(keyed) == [],
         "a no-op removal leaves the bake inaccurate, which is what it was for",
+    )
+
+    # ---- cleanup_meshes: Mesh Cleanup's one call (the shared Edit panel words it)
+    for _o in list(bpy.data.objects):
+        bpy.data.objects.remove(_o, do_unlink=True)
+    bpy.ops.mesh.primitive_circle_add(vertices=6, fill_type="NGON")
+    _ngon = bpy.context.active_object
+    btk.CoreUtils.select([_ngon])
+    _rep = btk.Diagnostics.cleanup_meshes("selected", checks=["ngons", "lamina"])
+    check(
+        "cleanup_meshes select: runs Blender's checks, counts them, shows Edit Mode",
+        _rep["checks"] == ["ngons"] and _rep["problems"] == {"ngons": 1}
+        and _rep["selected"] == 1 and _ngon.mode == "EDIT",
+        f"{_rep['checks']} {_rep['problems']} mode={_ngon.mode}",
+    )
+    bpy.ops.object.mode_set(mode="OBJECT")
+    _rep = btk.Diagnostics.cleanup_meshes("selected", checks=["holed"])
+    check(
+        "cleanup_meshes select with no Blender check does nothing",
+        _rep["checks"] == [] and _ngon.mode == "OBJECT",
+        f"{_rep['checks']}",
+    )
+    btk.CoreUtils.select([])
+    check(
+        "cleanup_meshes: nothing in scope, no objects",
+        btk.Diagnostics.cleanup_meshes("selected", checks=["ngons"])["objects"] == [],
+    )
+    import bmesh as _bmesh
+
+    _bm = _bmesh.new()
+    _bmesh.ops.create_cube(_bm, size=2.0)
+    _bm.verts.ensure_lookup_table()
+    _bm.verts.new(_bm.verts[0].co.copy())  # a loose double
+    _me = bpy.data.meshes.new("CleanM")
+    _bm.to_mesh(_me)
+    _bm.free()
+    _clean = bpy.data.objects.new("Clean", _me)
+    bpy.context.collection.objects.link(_clean)
+    btk.CoreUtils.select([_clean])
+    _rep = btk.Diagnostics.cleanup_meshes(
+        "selected", True, merge_vertices=True, merge_distance=0.001, delete_loose=True
+    )
+    check(
+        "cleanup_meshes repair: merges the double and reports the passes",
+        _rep["vertices"] == (9, 8)
+        and _rep["repairs"] == ["merge vertices", "delete loose"],
+        f"{_rep['vertices']} {_rep['repairs']}",
+    )
+
+    # ---- the Scene panel's host half: transforms_in_scope, a quiet fix, Fix Color Spaces
+    import contextlib as _contextlib
+    import io as _io
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_cube_add()
+    _a = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    _b = bpy.context.active_object
+    btk.CoreUtils.select([_a])
+    check(
+        "transforms_in_scope: the selection, and the whole scene",
+        TransformDiagnostics.transforms_in_scope("selection") == [_a]
+        and set(TransformDiagnostics.transforms_in_scope("all")) == {_a, _b},
+    )
+    try:
+        TransformDiagnostics.transforms_in_scope("visible")
+        _raised = False
+    except ValueError:
+        _raised = True
+    check("transforms_in_scope: an unknown scope is a ValueError", _raised)
+
+    bpy.ops.object.empty_add()
+    _skew_parent = bpy.context.active_object
+    _skew_parent.scale = (1.0, 3.0, 1.0)
+    _b.parent = _skew_parent
+    _b.rotation_euler = (0.0, 0.0, 0.7)
+    bpy.context.view_layer.update()
+    _out = _io.StringIO()
+    with _contextlib.redirect_stdout(_out):
+        _would = TransformDiagnostics.fix_non_orthogonal_axes(
+            [_b], dry_run=True, quiet=True
+        )
+    check(
+        "fix_non_orthogonal_axes(quiet=True): mayatk's flag, nothing printed",
+        _would == [_b] and not _out.getvalue(),
+        _out.getvalue(),
+    )
+
+    _img = bpy.data.images.new("scene_rock_nrm", 4, 4)
+    _img.source = "FILE"
+    _img.filepath = "//tex/rock_Normal.png"
+    _img.colorspace_settings.name = "sRGB"
+    _report = btk.Diagnostics.fix_missing_color_spaces(
+        images=[_img], force_update=True, verbose=False
+    )
+    check(
+        "Diagnostics.fix_missing_color_spaces: mayatk's report of the real changes",
+        _img.colorspace_settings.name == "Non-Color"
+        and _report["fixed_count"] == len(_report["changes"]) == 1
+        and _report["changes"][0]["node"] == _img.name
+        and (_report["changes"][0]["from"], _report["changes"][0]["to"])
+        == ("sRGB", "Non-Color"),
+        f"{_report}",
+    )
+
+    # ---- clean_geometry: mayatk's MeshDiagnostics name (re-homed from EditUtils)
+    import bmesh
+
+    check(
+        "btk.Diagnostics aggregates clean_geometry; EditUtils no longer carries it",
+        btk.Diagnostics.clean_geometry is MeshDiagnostics.clean_geometry
+        and not hasattr(btk.EditUtils, "clean_geometry"),
+    )
+
+    # clean_geometry: merge doubles + remove loose vert
+    reset()
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=2.0)
+    bm.verts.ensure_lookup_table()
+    # add a duplicate (doubled) vertex at an existing corner + a loose vertex
+    corner = bm.verts[0].co.copy()
+    bm.verts.new(corner)  # exact double -> should merge
+    bm.verts.new((10.0, 10.0, 10.0))  # loose vertex -> should be deleted
+    me = bpy.data.meshes.new("M")
+    bm.to_mesh(me)
+    bm.free()
+    o = bpy.data.objects.new("Clean", me)
+    bpy.context.collection.objects.link(o)
+    v0 = len(o.data.vertices)
+    btk.Diagnostics.clean_geometry(o, merge_distance=0.001)
+    v1 = len(o.data.vertices)
+    check("clean_geometry removes double + loose vert", v1 == v0 - 2, f"{v0}->{v1}")
+
+    # clean_geometry recalculate makes normals outward
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    o = bpy.context.active_object
+    btk.flip_normals(o)  # make them inward first
+    btk.Diagnostics.clean_geometry(o, merge=False, recalculate=True)
+    p = o.data.polygons[0]
+    check(
+        "clean_geometry recalc -> outward normals",
+        p.normal.dot(p.center) > 0,
+        f"dot={p.normal.dot(p.center):.2f}",
+    )
+
+    # clean_geometry: degenerate dissolve must work with merge OFF (regression — the degenerate
+    # threshold was coupled to the merge distance, so merge-off silently disabled it).
+    reset()
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=2.0)
+    bm.verts.ensure_lookup_table()
+    v1 = bm.verts[0]
+    bm.edges.new((bm.verts.new(v1.co.copy()), v1))  # zero-length edge -> degenerate
+    me = bpy.data.meshes.new("Degen")
+    bm.to_mesh(me)
+    bm.free()
+    o = bpy.data.objects.new("Degen", me)
+    bpy.context.collection.objects.link(o)
+    e0 = len(o.data.edges)
+    btk.Diagnostics.clean_geometry(o, merge=False, delete_loose=False, degenerate=True)
+    check(
+        "clean_geometry degenerate works with merge off",
+        len(o.data.edges) < e0,
+        f"{e0}->{len(o.data.edges)}",
+    )
+
+    # clean_geometry: merge=False leaves exact-double verts in place (merge really is off)
+    reset()
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=2.0)
+    bm.verts.ensure_lookup_table()
+    bm.verts.new(bm.verts[0].co.copy())  # exact double (loose)
+    me = bpy.data.meshes.new("NoMerge")
+    bm.to_mesh(me)
+    bm.free()
+    o = bpy.data.objects.new("NoMerge", me)
+    bpy.context.collection.objects.link(o)
+    v0 = len(o.data.vertices)
+    btk.Diagnostics.clean_geometry(o, merge=False, delete_loose=False, degenerate=False)
+    check(
+        "clean_geometry merge=False keeps doubles",
+        len(o.data.vertices) == v0,
+        f"{v0}->{len(o.data.vertices)}",
     )
 
 except Exception as e:

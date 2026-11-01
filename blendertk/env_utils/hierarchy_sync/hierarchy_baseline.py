@@ -46,8 +46,9 @@ class HierarchyBaseline(ptk.HierarchyBaselineStore):
     The storage (``read`` / ``inherited_from`` / ``is_unreadable`` /
     ``compare`` / ``write`` / ``adopt_sidecar``) is
     :class:`pythontk.HierarchyBaselineStore`'s, shared with mayatk; this class
-    supplies Blender's scene store and sidecar.  A recorded set is read back
-    as-is (the base ``_close``): ``use_selection`` ships exactly the set.
+    is configuration: Blender's scene store and sidecar.  A recorded set is
+    read back as-is: ``use_selection`` ships exactly the set
+    (``BlenderSidecarHost.ships_parent_chain`` is false).
     """
 
     STORE = DataNodes

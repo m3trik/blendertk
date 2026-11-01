@@ -340,7 +340,9 @@ try:
     real_launch = ptk.AppLauncher.launch
     ptk.AppLauncher.launch = staticmethod(fake_launch)
     try:
-        script = RizomUVBridge(rizom_path="not-used.exe").send([grp], load_textures=False)
+        script = RizomUVBridge(rizom_path="not-used.exe").send_to_rizomuv(
+            [grp], params={"LOAD_TEXTURES": False}
+        )
     finally:
         ptk.AppLauncher.launch = staticmethod(real_launch)
     fbx = re.search(r'Path="([^"]+)"', open(script, encoding="utf-8").read()).group(1)

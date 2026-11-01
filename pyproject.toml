@@ -24,22 +24,14 @@ classifiers = [
 dependencies = [
     # 0.9.25 floor: the delta consumes pythontk APIs absent from 0.9.24, one of
     # them evaluated at import time (see mayatk's twin for the detail).
-    "pythontk>=0.18.2",
+    "pythontk>=0.19.0",
     # 1.3.85 floor: marmoset_bridge_slots calls require_output_dir(mode) and sets
     # TRANSIENT_OUTPUT_MODES, neither of which exists in 1.3.84.
-    "uitk>=1.8.2",
+    "uitk>=1.9.0",
 ]
 
-# unitytk is OPTIONAL: it only backs the Unity Bridge panel, for users who take
-# exports into Unity and want to extend what ships here. Nothing in blendertk
-# imports it at package-import time -- `env_utils/unity_bridge/` resolves
-# lazily, so `import blendertk` and every non-Unity feature work without it.
-# Install with the extra when you want the bridge:  pip install blendertk[unity]
-# unitytk 0.1.0: the templates moved into one folder per component; an
-# older deployer writes flat copies beside the moved ones (every class twice).
-[project.optional-dependencies]
-unity = ["unitytk>=0.1.0"]
-
+# No Unity extra: the Unity delivery is extapps' Unity Workflow app, which tentacle
+# opens with this package's UnityBridge (the scene's export) as its engine.
 [project.urls]
 Homepage = "https://github.com/m3trik/blendertk"
 Repository = "https://github.com/m3trik/blendertk"
@@ -84,6 +76,11 @@ ignore = ["E402"]  # house pattern: try-guarded DCC imports precede the other im
 # part or any part below it; "a | b" makes peers of one rank. Checked by
 # m3trik/scripts/check_layers.py against a frozen baseline of today's exceptions.
 order = [
+    # Hosting a uitk marking menu in Blender: the host adapter wires the keymap
+    # bridge, the Script Output console (env_utils) and the ordered-selection
+    # tracker (edit_utils) into a menu's launch -- above every domain it reads,
+    # imported by none.
+    "ui_utils/marking_menu_host",
     # Texture Combine composes TextureTransfer, the lightmap re-pack and the
     # UV diagnostics: a tool above every domain it reads, imported by none.
     "uv_utils/texture_combine",
@@ -93,11 +90,15 @@ order = [
     "env_utils",
     "display_utils",
     "light_utils",
+    # Selection's Select Similar reads UV islands (UvUtils): it ranks above
+    # uv_utils, as mayatk's edit_utils does.
+    "edit_utils/selection",
     "uv_utils",
     "edit_utils",
     "anim_utils",
     "audio_utils",
     "rig_utils",
+    "render_utils",
     "mat_utils",
     "node_utils",
     "xform_utils",

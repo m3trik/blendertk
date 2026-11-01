@@ -7,10 +7,8 @@ The cv2 contour-extraction is identical to mayatk's; only the curve/mesh constru
 (``cmds.curve`` / ``planarSrf`` / ``nurbsToPoly`` / ``projectCurve`` → :class:`~blendertk.
 nurbs_utils._nurbs_utils.NurbsUtils` curve build + 2D-fill bake + plane/duplicate primitives).
 
-The co-located ``.ui`` is a byte-identical mirror of mayatk's (same objectNames, same widget tree,
-same tooltips) per the mayatk↔blendertk tool-panel parity sweep — cross-host QSettings collisions
-between identical objectNames are host-namespaced upstream in uitk, so there is no longer a reason
-to diverge the two panels' object trees.
+The panel is tentacle's ``slots/tools/image_tracer.py``: one Slots class for both hosts, over this
+class as ``btk.ImageTracer``.
 
 Divergences (documented for parity — see ``tentacle/docs/PARITY_PORTING_PLAN.md``):
   * **One curve object, one cyclic POLY spline per contour** (Maya made one transform per contour).
@@ -27,10 +25,10 @@ Divergences (documented for parity — see ``tentacle/docs/PARITY_PORTING_PLAN.m
     canvas/backdrop or to flatten a curve supplied with Z variance.
   * **No ``BluePencilMixin`` / Blue Pencil tracing** — Maya's Blue Pencil is an annotation plugin
     with no Blender analogue; a Grease-Pencil-stroke → curve path would need real new architecture
-    (deferred — see the porting plan). The header's ``chk000`` (Use Blue Pencil) and
-    ``blue_pencil_button`` (Open Blue Pencil) are added for structural parity with mayatk's header
-    menu but disabled — see the ``# TODO(blender-parity)`` in ``header_init``.
-  * ``import bpy`` is deferred into the call bodies; the Qt-only ``uitk`` ``fmt`` into ``header_init``.
+    (deferred — see the porting plan). ``use_blue_pencil`` is accepted (mayatk's signature, which
+    the shared panel passes) and refused when True; with no ``open_blue_pencil`` here, the panel
+    shows its Use / Open Blue Pencil entries disabled.
+  * ``import bpy`` is deferred into the call bodies.
 """
 
 import os
@@ -51,7 +49,11 @@ except ImportError:  # Blender ships no cv2; the .venv does — see the dual-mod
 class ImageTracer(ptk.LoggingMixin):
     """Trace a raster image into curves / filled meshes — Blender mirror of mayatk's ``ImageTracer``."""
 
-    def __init__(self, image_path=None, scale=0.1, simplify=1.0):
+    def __init__(self, image_path=None, scale=0.1, simplify=1.0, use_blue_pencil=False):
+        if use_blue_pencil:  # mayatk's signature; Blender has no Blue Pencil to trace
+            raise NotImplementedError(
+                "Blue Pencil tracing is Maya's: Blender has no Blue Pencil. Trace an image instead."
+            )
         self.image_path = image_path
         self.scale = float(scale)
         self.simplify = simplify
@@ -189,185 +191,3 @@ class ImageTracer(ptk.LoggingMixin):
         projected = NurbsUtils.duplicate_curve(curve, name=name)
         projected.location.z -= 1.0
         return projected
-
-
-class ImageTracerSlots(ptk.LoggingMixin):
-    """Switchboard slot wiring for the co-located ``image_tracer.ui`` (structural mirror of
-    mayatk's ``ImageTracerSlots`` — same objectNames, same method names). Discovered + served by
-    ``BlenderUiHandler`` (``marking_menu.show("image_tracer")``).
-    """
-
-    IMAGE_FILTER = "Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff);;All Files (*.*)"
-
-    def __init__(self, switchboard, log_level="WARNING"):
-        self.sb = switchboard
-        self.ui = self.sb.loaded_ui.image_tracer
-        self.logger.setLevel(log_level)
-        self.logger.set_log_prefix("[image_tracer] ")
-        # Sync UI state after initialization/restore (mirrors mayatk: chk000's persisted checked
-        # state re-applies txt000's enabled state once QSettings has restored it).
-        try:
-            from qtpy import QtCore
-
-            QtCore.QTimer.singleShot(200, self._sync_ui)
-        except ImportError:
-            pass
-
-    def _sync_ui(self):
-        """Synchronize UI state."""
-        try:
-            from qtpy import QtCore
-
-            chk000 = self.ui.findChild(QtCore.QObject, "chk000")
-            if chk000:
-                self.chk000(chk000.isChecked())
-        except Exception:
-            pass
-
-    def header_init(self, widget):
-        """Initialize the header widget."""
-        # TODO(blender-parity): chk000 (Use Blue Pencil) / blue_pencil_button (Open Blue Pencil) —
-        # Maya's Blue Pencil is a grease-annotation plugin with no Blender analogue; tracing
-        # Grease Pencil strokes into curves would need real new architecture (deferred — see the
-        # porting plan). Both are added here (structural parity with mayatk's header menu) but
-        # disabled.
-        widget.menu.add(
-            "QCheckBox",
-            setText="Use Blue Pencil",
-            setObjectName="chk000",
-            setChecked=False,
-            setEnabled=False,
-            setToolTip="No Blender equivalent for Maya's Blue Pencil plugin.",
-        )
-        widget.menu.add(
-            "QPushButton",
-            setText="Open Blue Pencil",
-            setObjectName="blue_pencil_button",
-            setEnabled=False,
-            setToolTip="Blender has no Blue Pencil tool to open.",
-        )
-        widget.set_help_text(
-            self.sb.tooltip.fmt(
-                title="Image Tracer",
-                body="Trace contours from a raster image into editable curves, then optionally "
-                "fill them into a mesh. Nested contours become holes automatically (Blender's 2D "
-                "fill).",
-                steps=[
-                    "Browse (▸) to an image file.",
-                    "Adjust the tracing parameters (Scale, Simplify) for the desired level of "
-                    "detail.",
-                    "Press <b>Trace Curves</b> to generate curves, or <b>Create Mesh</b> / "
-                    "<b>Create Negative Space</b> to fill the contours directly.",
-                ],
-                notes=[
-                    "Curves are created flat on the ground (XY) plane and can be beveled, "
-                    "extruded, or used as construction drivers like any other curve.",
-                ],
-            )
-        )
-
-    def txt000_init(self, widget):
-        """Configure the path field's option box (▸) as an image file browser."""
-        widget.option_box.browse(
-            file_types=self.IMAGE_FILTER, title="Select Image", mode="file"
-        )
-
-    def browse_image(self):
-        """Kept for structural parity with mayatk (unused in practice — txt000's option-box
-        browse handles this, same as in mayatk)."""
-        file_path = self.sb.file_dialog(
-            title="Select Image",
-            file_types=["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff"],
-            filter_description="Images",
-            allow_multiple=False,
-        )
-        if file_path:
-            self.ui.txt000.setText(file_path)
-
-    def _get_tracer(self):
-        use_bp = (
-            self.ui.chk000.isChecked()
-        )  # always False — chk000 is disabled, see header_init
-        image_path = self.ui.txt000.text()
-
-        if use_bp:
-            self.sb.message_box("Blue Pencil tracing is not available in Blender.")
-            return None
-        if not image_path:
-            self.sb.message_box(
-                "Select an image first (browse via the ▸ on the path field)."
-            )
-            return None
-        if cv2 is None:
-            self.sb.message_box(
-                "OpenCV (cv2) is not installed in this Blender's Python."
-            )
-            return None
-
-        scale = self.ui.s000.value()
-        simplify_epsilon = self.ui.s001.value()
-        simplify = simplify_epsilon if simplify_epsilon > 0 else None
-
-        try:
-            return ImageTracer(image_path, scale=scale, simplify=simplify)
-        except Exception as e:
-            self.logger.error(f"Error initializing ImageTracer: {e}")
-            self.sb.message_box(f"Error initializing ImageTracer: {e}")
-            return None
-
-    def chk000(self, state):
-        """Use Blue Pencil (disabled — kept wired for structural parity, see header_init)."""
-        self.ui.txt000.setEnabled(not state)
-
-    def b002(self):
-        """Trace the source image into curves."""
-        tracer = self._get_tracer()
-        if not tracer:
-            return
-        curve = tracer.trace_curves()
-        self.sb.message_box(
-            f"<hl>Traced {len(curve.data.splines)} contour(s).</hl>"
-            if curve
-            else "No contours found (try a lower threshold image or different Simplify)."
-        )
-
-    def b003(self):
-        """Build a mesh from the traced curves."""
-        tracer = self._get_tracer()
-        if not tracer:
-            return
-        mesh = tracer.create_mesh()
-        self.sb.message_box(
-            "<hl>Created filled mesh.</hl>" if mesh else "No contours found."
-        )
-
-    def b004(self):
-        """Build a mesh from the traced negative space."""
-        tracer = self._get_tracer()
-        if not tracer:
-            return
-        mesh = tracer.create_negative_space_mesh()
-        self.sb.message_box(
-            "<hl>Created negative-space mesh.</hl>" if mesh else "No contours found."
-        )
-
-    def b005(self):
-        """Project the traced result onto a plane."""
-        tracer = self._get_tracer()
-        if not tracer:
-            return
-        projected = tracer.project_on_plane()
-        self.sb.message_box(
-            "<hl>Projected curves onto a construction plane.</hl>"
-            if projected
-            else "No contours found."
-        )
-
-
-# -----------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
-
-    ui = BlenderUiHandler.instance().get("image_tracer", reload=True)
-    ui.show(pos="screen", app_exec=True)

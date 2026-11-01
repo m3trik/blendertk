@@ -117,6 +117,160 @@ try:
     check("NodeIcons.icon_name_for_node missing -> None", NodeIcons.icon_name_for_node("nope") is None)
     check("btk.NodeIcons registered", getattr(btk, "NodeIcons", None) is NodeIcons)
 
+    # ---- get_operator / invoke_operator_dialog: registration proven, not assumed ----
+    import bpy
+
+    check("get_operator resolves a registered operator", callable(UiUtils.get_operator("object.select_all")))
+    check(
+        "get_operator: an unregistered id is None (bpy.ops resolves any name)",
+        UiUtils.get_operator("wm.not_a_real_operator") is None,
+    )
+    check("get_operator: an id without a group is None", UiUtils.get_operator("select_all") is None)
+    check(
+        "invoke_operator_dialog: an unregistered id is None",
+        UiUtils.invoke_operator_dialog("wm.not_a_real_operator") is None,
+    )
+    for o in list(bpy.data.objects):
+        bpy.data.objects.remove(o, do_unlink=True)
+    bpy.ops.mesh.primitive_cube_add()
+    tool_mesh = bpy.context.view_layer.objects.active
+    bpy.ops.curve.primitive_bezier_curve_add(location=(4, 0, 0))
+    tool_curve = bpy.context.view_layer.objects.active
+    btk.CoreUtils.select([tool_mesh, tool_curve])
+    with bpy.context.temp_override(window=None):
+        invoked = UiUtils.invoke_operator_dialog("object.select_all", action="DESELECT")
+    check(
+        "invoke_operator_dialog runs windowless (the Qt-pump state)",
+        invoked == {"FINISHED"} and not btk.CoreUtils.selected_objects(),
+        f"{invoked}",
+    )
+
+    # ---- viewport tools: get_tool_types / set_tool / current_tool (mayatk's names) -------
+    tools = UiUtils.get_tool_types()
+    check(
+        "get_tool_types: Multi-Cut is the knife, gated on mesh Edit Mode",
+        tools.get("Multi-Cut") == ("builtin.knife", "MESH"),
+    )
+    tools["Multi-Cut"] = None
+    check("get_tool_types returns a copy", UiUtils.get_tool_types()["Multi-Cut"] == ("builtin.knife", "MESH"))
+    btk.CoreUtils.select([tool_curve])
+    try:
+        UiUtils.set_tool("Multi-Cut")
+        check("set_tool: a mesh-only tool with no mesh raises ValueError", False)
+    except ValueError as error:
+        check("set_tool: a mesh-only tool with no mesh raises ValueError", "mesh" in str(error), str(error))
+    check("set_tool: the refusal leaves the mode alone", tool_curve.mode == "OBJECT", tool_curve.mode)
+    btk.CoreUtils.select([tool_mesh])
+    try:
+        UiUtils.set_tool("builtin.knife")  # a raw idname keeps the registry's mode gate
+    except RuntimeError:
+        pass  # --background: keymap-bearing tools fail their setup (viewport_tool_check.py)
+    check("set_tool: a mesh-only tool enters Edit Mode first", tool_mesh.mode == "EDIT", tool_mesh.mode)
+    btk.CoreUtils.ensure_object_mode()
+    try:
+        UiUtils.set_tool("Measure")
+        measured = True
+    except RuntimeError:
+        measured = bpy.app.background  # the same headless setup caveat
+    check("set_tool: a mode-agnostic tool forces no mode", measured and tool_mesh.mode == "OBJECT")
+    if not bpy.app.background:
+        check("current_tool names the tool just set", UiUtils.current_tool() == "Measure", UiUtils.current_tool())
+    current = UiUtils.current_tool()
+    check("current_tool: a name, an idname or None", current is None or isinstance(current, str), repr(current))
+
+    # ---- annotate / open_pencil: each host's own (mayatk's names; tentacle's utilities panel)
+    import bpy
+
+    for o in list(bpy.data.objects):
+        bpy.data.objects.remove(o, do_unlink=True)
+    try:
+        armed = UiUtils.annotate()
+        check("annotate arms the Annotate tool and names it", armed == "Annotation", repr(armed))
+        if not bpy.app.background:
+            check("annotate: the Annotate tool is current", UiUtils.current_tool() == "Annotation")
+    except RuntimeError as error:
+        # --background: keymap-bearing tools fail their setup (viewport_tool_check.py)
+        check("annotate refuses only headless", bpy.app.background, str(error))
+    names_before = {o.name for o in bpy.data.objects}
+    pencil = UiUtils.open_pencil()
+    added = {o.name for o in bpy.data.objects} - names_before
+    check(
+        "open_pencil adds one empty Grease Pencil object and returns it",
+        pencil is not None
+        and pencil.type in ("GREASEPENCIL", "GPENCIL")
+        and added == {pencil.name},
+        f"{getattr(pencil, 'type', pencil)} added={added}",
+    )
+
+    # ---- get_editor_categories + mayatk's editor names (the shared Editors panel's calls)
+    _cats = UiUtils.get_editor_categories()
+    _listed = [n for names in _cats.values() for n in names]
+    check(
+        "get_editor_categories: Blender's four groups",
+        list(_cats)
+        == ["General Editors", "Modeling Editors", "Animation Editors", "Rendering Editors"],
+        f"{list(_cats)}",
+    )
+    check(
+        "get_editor_categories: every listed editor is a registered type",
+        _listed and set(_listed) <= set(UiUtils.get_editor_types()),
+        f"{_listed}",
+    )
+    _aliases = {
+        "Attribute Editor": "PROPERTIES",
+        "Tool Settings": "PROPERTIES",
+        "Channel Box": "PROPERTIES",
+        "Layer Editor": "OUTLINER",
+        "Node Editor": "ShaderNodeTree",
+        "Hypershade": "ShaderNodeTree",
+        "Command Line": "CONSOLE",
+    }
+    check(
+        "get_editor_categories lists none of mayatk's alias names",
+        not set(_listed) & set(_aliases),
+        f"{set(_listed) & set(_aliases)}",
+    )
+    for _alias, _ui_type in _aliases.items():
+        check(
+            f"mayatk's {_alias!r} opens Blender's {_ui_type}",
+            UiUtils.get_editor_types().get(_alias) == _ui_type,
+        )
+
+    # ---- browse_directory: a modal dialog (GUI-only), so its presence is what is pinned here
+    check("UiUtils.browse_directory mirrors mtk (callable)", callable(getattr(UiUtils, "browse_directory", None)))
+
+    # ---- open_preferences: the tab is set before the editor opens (GUI-only, so
+    # headless the operator's refusal is what reaches the caller, as RuntimeError)
+    import bpy
+
+    try:
+        UiUtils.open_preferences("nowhere")
+        check("open_preferences: an unknown section raises ValueError", False)
+    except ValueError:
+        check("open_preferences: an unknown section raises ValueError", True)
+    _prior_section = bpy.context.preferences.active_section
+    try:
+        UiUtils.open_preferences("hotkeys")
+        _opened = True
+    except RuntimeError:
+        _opened = bpy.app.background  # no window to open in
+    check(
+        "open_preferences('hotkeys') shows the Keymap tab",
+        _opened and bpy.context.preferences.active_section == "KEYMAP",
+        bpy.context.preferences.active_section,
+    )
+    bpy.context.preferences.active_section = _prior_section
+
+    # mayatk's rendering editors open Properties tabs (the shared Rendering panel)
+    from blendertk.ui_utils._ui_utils import EDITOR_TYPES
+
+    check(
+        "mayatk's rendering editors open Properties tabs",
+        all(EDITOR_TYPES[name] == "PROPERTIES" for name in UiUtils._PROPERTIES_TABS)
+        and UiUtils._PROPERTIES_TABS
+        == {"Render Settings": "RENDER", "Render Setup": "VIEW_LAYER", "Rendering Flags": "OBJECT"},
+    )
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

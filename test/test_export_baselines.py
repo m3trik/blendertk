@@ -50,12 +50,12 @@ def check(name, cond, detail=""):
 
 try:
     import bpy
-    from blendertk.anim_utils.shots._shots import BlenderShotStore
+    from blendertk.anim_utils.shots._shots import ShotStore
     from blendertk.env_utils.scene_exporter._scene_exporter import SceneExporter
     from blendertk.mat_utils._mat_utils import MatUtils
 
     tmp = tempfile.mkdtemp(prefix="btk_export_baselines_")
-    BlenderShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_baselines_prefs_")
+    ShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_baselines_prefs_")
 
     def reset_scene():
         bpy.ops.object.select_all(action="DESELECT")
@@ -64,7 +64,7 @@ try:
         for collection in (bpy.data.actions, bpy.data.materials, bpy.data.armatures):
             for block in list(collection):
                 collection.remove(block)
-        BlenderShotStore.clear_active()
+        ShotStore.clear_active()
         scene = bpy.context.scene
         scene.frame_start, scene.frame_end = 1, 40
 
@@ -127,7 +127,7 @@ try:
     for frame, z in ((21, 0.0), (40, math.radians(90))):
         mover.rotation_euler.z = z
         mover.keyframe_insert("rotation_euler", index=2, frame=frame)
-    store = BlenderShotStore.active()
+    store = ShotStore.active()
     store.define_shot("ShotA", 1, 20, objects=["mover"])
     store.define_shot("ShotB", 21, 40, objects=["mover"])
     store.publish_export_view()
@@ -170,7 +170,7 @@ try:
     matches_baseline(export("skinned", [rig, limb]))
 
     shutil.rmtree(tmp, ignore_errors=True)
-    shutil.rmtree(BlenderShotStore._prefs_dir_override, ignore_errors=True)
+    shutil.rmtree(ShotStore._prefs_dir_override, ignore_errors=True)
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

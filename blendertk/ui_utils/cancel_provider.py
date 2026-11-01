@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from uitk.managers.cancel_manager import CancelProvider
+from uitk import CancelProvider
 
 # NOTE: ``bpy`` is imported inside call bodies, never at module scope — the
 # package surface must resolve without a running Blender (blendertk hard rule).

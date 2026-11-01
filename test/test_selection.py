@@ -787,6 +787,124 @@ try:
     btk.SelectionOrder.disable()
     check("disable clears tracking", not btk.SelectionOrder.is_enabled())
 
+    # ---- the selection panel's operations: mayatk's names (tentacle's selection panel)
+    S = btk.Selection
+    reset()
+    a = mesh_obj("ScopeA")
+    hidden = mesh_obj("ScopeHidden", (3, 0, 0))
+    hidden.hide_set(True)
+    btk.CoreUtils.select([a])
+    check("objects_in_scope('selected') is the selection", S.objects_in_scope("selected") == [a])
+    check(
+        "objects_in_scope('visible') leaves the hidden object out",
+        hidden not in S.objects_in_scope("visible") and a in S.objects_in_scope("visible"),
+    )
+    check("objects_in_scope('all') takes it", hidden in S.objects_in_scope("all"))
+    hidden.hide_set(False)
+
+    check("Blender lists 18 conversions (no vertex faces, no UV component)",
+          len(S.get_conversion_types()) == 18 and "uvs" not in S.get_conversion_types())
+    check("no selection constraint stays on in Blender", S.get_selection_constraints() is None)
+    check("Blender's rig picking reads normal", S.get_rig_selection_mode() == "normal")
+
+    import bmesh as _bm
+
+    reset()
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=4, y_subdivisions=4, size=2)
+    grid = bpy.context.active_object
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_mode(type="VERT")
+    bpy.ops.mesh.select_all(action="DESELECT")
+    bm = _bm.from_edit_mesh(grid.data)
+    bm.verts.ensure_lookup_table()
+    interior = next(v for v in bm.verts if len(v.link_faces) == 4)
+    interior.select = True
+    _bm.update_edit_mesh(grid.data)
+    S.convert_selection("faces")
+    bm = _bm.from_edit_mesh(grid.data)
+    check("convert_selection('faces') takes the 4 faces around a vertex",
+          sum(f.select for f in bm.faces) == 4)
+    S.set_selection_constraint("shell")
+    bm = _bm.from_edit_mesh(grid.data)
+    check("set_selection_constraint('shell') expands to the whole shell once",
+          all(f.select for f in bm.faces))
+
+    bpy.ops.mesh.select_mode(type="FACE")
+    bpy.ops.mesh.select_all(action="DESELECT")
+    bm = _bm.from_edit_mesh(grid.data)
+    bm.faces.ensure_lookup_table()
+    bm.faces[0].select = True
+    _bm.update_edit_mesh(grid.data)
+    S.select_island(None)
+    bm = _bm.from_edit_mesh(grid.data)
+    check("select_island grows over a flat grid", all(f.select for f in bm.faces))
+    try:
+        S.select_island(None, delimit={"COLOR"})
+        check("select_island rejects an unknown delimiter", False)
+    except ValueError:
+        check("select_island rejects an unknown delimiter", True)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    cube = bpy.context.active_object
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    S.select_island(None)
+    bm = _bm.from_edit_mesh(cube.data)
+    check("select_island keeps a cube's faces apart by normal",
+          sum(f.select for f in bm.faces) == 6)
+    bpy.ops.mesh.select_all(action="DESELECT")
+    bm = _bm.from_edit_mesh(cube.data)
+    bm.faces.ensure_lookup_table()
+    bm.faces[0].select = True
+    _bm.update_edit_mesh(cube.data)
+    S.select_island(None)
+    bm = _bm.from_edit_mesh(cube.data)
+    check("select_island stops at a 90-degree turn", sum(f.select for f in bm.faces) == 1)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    reset()
+    a = mesh_obj("SelA")
+    b = mesh_obj("SelB", (3, 0, 0))
+    btk.CoreUtils.select([a, b])
+    off = S.toggle_selectability(None)
+    check("toggle_selectability makes the selection unselectable",
+          off and off[0] is False and set(off[1]) == {a, b}
+          and a.hide_select and b.hide_select)
+    on = S.toggle_selectability(None)
+    check("toggle_selectability with nothing selected restores and selects",
+          on and on[0] is True and not a.hide_select
+          and set(btk.CoreUtils.selected_objects()) == {a, b})
+
+    areas = btk.CoreUtils.get_areas("VIEW_3D")
+    if areas:
+        S.set_ignore_backfacing(False)
+        check("ignore backfacing off is X-ray on", areas[0].spaces.active.shading.show_xray)
+        S.set_ignore_backfacing(True)
+        check("get_ignore_backfacing reads X-ray off", S.get_ignore_backfacing() is True)
+
+    reset()
+    b2 = mesh_obj("OrdB")
+    a2 = mesh_obj("OrdA", (3, 0, 0))
+    btk.CoreUtils.select([b2, a2])
+    got = S.reorder_selection(None, method="name")
+    check("reorder_selection records the order and makes the last active",
+          got == [a2, b2] and btk.CoreUtils.active_object() == b2
+          and [o.name for o in btk.SelectionOrder.get()] == ["OrdA", "OrdB"])
+    btk.SelectionOrder.disable()
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    cube = bpy.context.active_object
+    n = btk.EditUtils.select_edges_by_angle(None, low_angle=80, high_angle=100)
+    check("select_edges_by_angle(None) enters edge mode and takes the cube's 12 edges",
+          n == 12 and cube.mode == "EDIT", f"{n} {cube.mode}")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    btk.CoreUtils.select([])
+    check("select_edges_by_angle(None) with no mesh is []",
+          btk.EditUtils.select_edges_by_angle(None) == [])
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

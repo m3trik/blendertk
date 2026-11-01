@@ -134,9 +134,12 @@ try:
 
     named = ptk.FbxMedia.dependencies(fbx)
     embedded = {row["name"]: row["bytes"] for row in ptk.FbxMedia.embedded(fbx)}
+    # The materials record names the material's map too, so the dependency
+    # pass embeds it as it does the other records' files (pythontk, 2026-10-31).
+    recorded = sorted([*sources, os.path.basename(base_color)])
     check(
-        "the records name the lightmap, the silhouette and the horizon map",
-        sorted(named) == sorted(sources),
+        "the records name the lightmap, the silhouette, the horizon map and the material's map",
+        sorted(named) == recorded,
         f"named={named}",
     )
     for name, path in sources.items():
@@ -166,6 +169,23 @@ try:
         embedded.get(f"{track}.wav") == os.path.getsize(wav),
         f"embedded={sorted(embedded)}",
     )
+    # The record's digest of the track is the SHA-256 of the bytes inside --
+    # what Unity hashes an extracted or library clip to before it stands in
+    # for the track (ptk.AudioUtils.media_digests; mayatk's too). Added:
+    # 2026-10-31
+    import hashlib
+
+    inside = os.path.join(root, "inside")
+    os.makedirs(inside, exist_ok=True)
+    written = ptk.FbxMedia.extract(fbx, inside, names=[f"{track}.wav"])
+    with open(written.get(f"{track}.wav", wav), "rb") as fh:
+        inside_digest = hashlib.sha256(fh.read()).hexdigest()
+    check(
+        "the audio record's digest of the strip is the SHA-256 of the bytes inside",
+        f"{track}.wav" in written
+        and [m.get("media") for m in manifests] == [{track: inside_digest}],
+        f"{[m.get('media') for m in manifests]} vs {inside_digest}",
+    )
     beside = sorted(os.listdir(out))
     check("nothing ships beside the FBX", beside == ["embedded_deps.fbx"], f"{beside}")
     from blendertk.env_utils.hierarchy_sync.scene_data_sidecar import (
@@ -187,7 +207,7 @@ try:
         export_dir=preset_out,
         objects=[cube],
         output_name="with_preset",
-        preset_name="default",
+        preset_file="default",
         tasks={"export_data_node": False},
     )
     preset_fbx = os.path.join(preset_out, "with_preset.fbx")
@@ -234,7 +254,7 @@ try:
     again = ptk.FbxMedia.embed_dependencies(fbx, search_dirs=[images])
     check(
         "a second pass finds every file already inside",
-        again["embedded"] == [] and sorted(again["present"]) == sorted(sources),
+        again["embedded"] == [] and sorted(again["present"]) == recorded,
         f"{again}",
     )
 

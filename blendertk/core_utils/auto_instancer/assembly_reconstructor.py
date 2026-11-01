@@ -464,7 +464,7 @@ class AssemblyReconstructor(_AssemblyReconstructorInternal):
                 grp.rotation_euler = root.matrix_world.to_euler()
                 bpy.context.view_layer.update()
 
-                NodeUtils.reparent([root] + children, grp, keep_transform=True)
+                NodeUtils.set_parent([root] + children, grp, keep_transform=True)
                 used.add(root.session_uid)
                 used.update(c.session_uid for c in children)
                 result.append(grp)
@@ -575,7 +575,7 @@ class AssemblyReconstructor(_AssemblyReconstructorInternal):
                         core_mesh.name = f"{grp_name}_combined"
                         self.canonicalize_transform(core_mesh)
                         if core_mesh.parent is not None:
-                            NodeUtils.reparent([core_mesh], None, keep_transform=True)
+                            NodeUtils.set_parent([core_mesh], None, keep_transform=True)
                     except Exception:
                         pass
                     self._combined_assembly_uids.append(core_mesh.session_uid)

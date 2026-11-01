@@ -2,7 +2,7 @@
 # coding=utf-8
 """Blender shots adapter test — the DCC layer over pythontk's shots engine.
 
-bpy-only suite (no Qt): exercises ``BlenderShotStore`` + ``BlenderScenePersistence``
+bpy-only suite (no Qt): exercises ``ShotStore`` on ``BlenderShotsHost`` + ``BlenderScenePersistence``
 against a real headless Blender scene, proving the acquisition + persistence layer
 correctly feeds the shared pythontk detection/model core:
 
@@ -15,7 +15,7 @@ correctly feeds the shared pythontk detection/model core:
   slotted-action fcurve structure;
 - ``detect_regions`` selected-keys mode builds boundaries from selected keys;
 - ``BlenderScenePersistence`` round-trips the store through the private carrier (``scene["data_internal"]["shot_store"]``),
-  and ``BlenderShotStore.active()`` auto-installs the backend + reloads it;
+  and ``ShotStore.active()`` auto-installs the backend + reloads it;
 - ``assess`` flags a shot whose object is missing from the file;
 - the mayatk-parity lifecycle hooks: ``SceneBeforeSave`` (``save_pre``) flushes a
   dirty store before the ``.blend`` is written, ``_on_time_unit_changed`` records a
@@ -45,6 +45,9 @@ for p in (REPO, os.path.join(MONO, "pythontk")):
         sys.path.insert(0, p)
 
 import pythontk as ptk  # noqa: E402 -- after the sibling paths above
+from pythontk.core_utils.engines.shots.shot_conformance import (  # noqa: E402
+    ShotStoreConformance,
+)
 
 
 def _run_shots_adapter_checks():
@@ -60,7 +63,7 @@ def _run_shots_adapter_checks():
 
     import bpy
 
-    from blendertk import BlenderShotStore, BlenderScenePersistence
+    from blendertk import BlenderScenePersistence, BlenderShotsHost, ShotStore
     from blendertk.anim_utils._anim_utils import AnimUtils
 
     ATTR_NAME = BlenderScenePersistence.ATTR_NAME
@@ -74,8 +77,8 @@ def _run_shots_adapter_checks():
         DataNodes.write(ptk.Scope.PRIVATE, ATTR_NAME, None)
 
     # ---- isolate class state + user-prefs side effects -------------------
-    BlenderShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_shots_prefs_")
-    BlenderShotStore.clear_active()
+    ShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_shots_prefs_")
+    ShotStore.clear_active()
 
     scene = bpy.context.scene
     clear_stored()
@@ -86,7 +89,7 @@ def _run_shots_adapter_checks():
 
     # ---- has_animation: empty scene --------------------------------------
     check(
-        "has_animation False on empty scene", BlenderShotStore.has_animation() is False
+        "has_animation False on empty scene", ShotStore.has_animation() is False
     )
 
     def add_keyed_cube(name, frames, base_x, vary=True):
@@ -107,13 +110,13 @@ def _run_shots_adapter_checks():
     # ---- has_animation: keyed scene --------------------------------------
     check(
         "has_animation True with keyed transforms",
-        BlenderShotStore.has_animation() is True,
+        ShotStore.has_animation() is True,
     )
 
     # ---- _scene_fps hook -------------------------------------------------
     scene.render.fps = 30
     scene.render.fps_base = 1.0
-    fps_store = BlenderShotStore()
+    fps_store = ShotStore()
     check(
         "_scene_fps reads render.fps/fps_base",
         abs(fps_store._scene_fps() - 30.0) < 1e-6,
@@ -124,7 +127,7 @@ def _run_shots_adapter_checks():
     # ---- fcurve walk (5.1 slotted action) --------------------------------
     fcs_a = list(AnimUtils.get_fcurves(cube_a))
     check(
-        "iter_action_fcurves yields CubeA fcurves", len(fcs_a) >= 1, f"n={len(fcs_a)}"
+        "get_fcurves yields CubeA fcurves", len(fcs_a) >= 1, f"n={len(fcs_a)}"
     )
 
     # ---- fcurve walk (legacy pre-4.4 action: no ``layers``, flat fcurves) ----
@@ -142,13 +145,13 @@ def _run_shots_adapter_checks():
 
     legacy_fcs = list(AnimUtils.get_fcurves(_LegacyObj()))
     check(
-        "iter_action_fcurves falls back to flat fcurves on a layer-less action",
+        "get_fcurves falls back to flat fcurves on a layer-less action",
         legacy_fcs == ["fc_x", "fc_y"],
         f"got {legacy_fcs}",
     )
 
     # ---- collect_transform_segments (flat cube excluded) -----------------
-    segs = BlenderShotStore.collect_transform_segments(gap_threshold=5.0)
+    segs = BlenderShotsHost.collect_transform_segments(gap_threshold=5.0)
     seg_objs = sorted({s["obj"] for s in segs})
     check(
         "segments only from moving cubes",
@@ -163,7 +166,7 @@ def _run_shots_adapter_checks():
     )
 
     # ---- detect_regions auto mode ----------------------------------------
-    store = BlenderShotStore()
+    store = ShotStore()
     store.detection_mode = "auto"
     store.detection_threshold = 5.0
     regions = store.detect_regions()
@@ -191,12 +194,12 @@ def _run_shots_adapter_checks():
     for fc in AnimUtils.get_fcurves(cube_a):
         for kp in fc.keyframe_points:
             kp.select_control_point = True
-    entries = BlenderShotStore.collect_selected_key_entries()
+    entries = BlenderShotsHost.collect_selected_key_entries()
     ent_objs = sorted({e[2] for e in entries})
     check(
         "selected-key entries only from CubeA", ent_objs == ["CubeA"], f"got {ent_objs}"
     )
-    sk_store = BlenderShotStore()
+    sk_store = ShotStore()
     sk_store.detection_mode = "all"
     sk_store.detection_threshold = 5.0
     sk_regions = sk_store.detect_regions()
@@ -207,13 +210,13 @@ def _run_shots_adapter_checks():
     )
 
     # ---- persistence round-trip + active() auto-install ------------------
-    BlenderShotStore.clear_active()
+    ShotStore.clear_active()
     clear_stored()
-    active = BlenderShotStore.active()
-    check("active() returns a BlenderShotStore", isinstance(active, BlenderShotStore))
+    active = ShotStore.active()
+    check("active() returns a ShotStore", isinstance(active, ShotStore))
     check(
         "active() auto-installs BlenderScenePersistence",
-        isinstance(BlenderShotStore._persistence, BlenderScenePersistence),
+        isinstance(ShotStore._persistence, BlenderScenePersistence),
     )
     active.define_shot("Intro", 1, 20, objects=["CubeA"])
     check(
@@ -221,8 +224,8 @@ def _run_shots_adapter_checks():
         stored() is not None,
     )
 
-    BlenderShotStore.clear_active()
-    reloaded = BlenderShotStore.active()
+    ShotStore.clear_active()
+    reloaded = ShotStore.active()
     check(
         "reloaded exactly 1 shot", len(reloaded.shots) == 1, f"n={len(reloaded.shots)}"
     )
@@ -241,26 +244,26 @@ def _run_shots_adapter_checks():
     # REGRESSION (2026-09-18): an undecodable shot_store loaded as None -- an
     # EMPTY store -- whose next save overwrote the recoverable record. Raising
     # leaves no active store to save, so the text stays as the scene holds it.
-    BlenderShotStore.clear_active()
+    ShotStore.clear_active()
     DataNodes.write(ptk.Scope.PRIVATE, ATTR_NAME, '{"shots": [')
     refused = ""
     try:
-        BlenderShotStore.active()
+        ShotStore.active()
     except ValueError as e:
         refused = str(e)
     check(
         "a corrupt shot_store raises ValueError and is left untouched",
         ATTR_NAME in refused
-        and BlenderShotStore._active is None
+        and ShotStore._active is None
         and stored() == '{"shots": [',
         f"refused={refused!r} stored={stored()!r}",
     )
-    BlenderShotStore.clear_active()
+    ShotStore.clear_active()
     clear_stored()
 
     # ---- assess: missing object flagged ----------------------------------
-    BlenderShotStore.clear_active()
-    a_store = BlenderShotStore()
+    ShotStore.clear_active()
+    a_store = ShotStore()
     real = a_store.define_shot("Real", 1, 10, objects=["CubeA"])
     ghost = a_store.define_shot("Ghost", 20, 30, objects=["NoSuchObj"])
     verdict = a_store.assess()
@@ -289,7 +292,7 @@ def _run_shots_adapter_checks():
             DataNodes.get_export_node(create=False), do_unlink=True
         )
 
-    pub_store = BlenderShotStore()
+    pub_store = ShotStore()
     pub_store.define_shot("shotA", 1, 10, objects=["CubeA"])
     pub_store.define_shot("shotB", 20, 30, objects=["CubeA"])
     carrier_name = pub_store.publish_export_view()
@@ -370,7 +373,7 @@ def _run_shots_adapter_checks():
     # them out, and Remove Stale Shots drops their records -- nothing moves.
     gone = add_keyed_cube("StaleGone", [100, 120], 0.0)
     live = add_keyed_cube("StaleLive", [200, 220], 0.0)
-    stale_store = BlenderShotStore()
+    stale_store = ShotStore()
     stale_store.define_shot("GoneShot", 100, 120, objects=["StaleGone"])
     stale_store.define_shot("LiveShot", 200, 220, objects=["StaleLive"])
     bpy.data.objects.remove(gone, do_unlink=True)
@@ -430,7 +433,7 @@ def _run_shots_adapter_checks():
     for frame, energy in ((300, 10.0), (320, 50.0)):
         lamp.energy = energy
         lamp.keyframe_insert("energy", frame=frame)
-    lamp_store = BlenderShotStore()
+    lamp_store = ShotStore()
     lamp_store.define_shot("LampShot", 300, 320, objects=["GoneLampRig"])
     check(
         "a light's own keys keep a shot whose members are gone",
@@ -446,7 +449,7 @@ def _run_shots_adapter_checks():
     parked_obj = add_keyed_cube("StaleParked", [100, 120], 0.0)
     parked = parked_obj.animation_data.action
     parked.use_fake_user = True
-    parked_store = BlenderShotStore()
+    parked_store = ShotStore()
     parked_store.define_shot("ParkedShot", 100, 120, objects=["StaleParked"])
     bpy.data.objects.remove(parked_obj, do_unlink=True)
     check(
@@ -463,10 +466,10 @@ def _run_shots_adapter_checks():
     pin_fc = next(iter(AnimUtils.get_fcurves(pinned)))
     pin_fc.keyframe_points.insert(9410.0, pin_fc.evaluate(9410.0))
     pin_fc.update()
-    pin_key = BlenderShotStore.curve_key(
+    pin_key = BlenderShotsHost.curve_key(
         pinned.name, pin_fc.data_path, pin_fc.array_index
     )
-    pin_store = BlenderShotStore()
+    pin_store = ShotStore()
     pin_store.define_shot("PinnedShot", 9410, 9420, objects=[])
     pin_store.edit_ledger.record_key(pin_key, 9410.0)
     check(
@@ -493,11 +496,11 @@ def _run_shots_adapter_checks():
     # every one of these failed — verified by monkeypatching the wiring off.
     from blendertk.core_utils.script_job_manager import ScriptJobManager
 
-    BlenderShotStore.clear_active()
+    ShotStore.clear_active()
     clear_stored()
 
-    swap_store = BlenderShotStore.active()
-    backend = BlenderShotStore._persistence
+    swap_store = ShotStore.active()
+    backend = ShotStore._persistence
     check(
         "persistence backend installed its SceneOpened scene job",
         isinstance(backend, BlenderScenePersistence) and backend._scene_subs_installed,
@@ -515,7 +518,7 @@ def _run_shots_adapter_checks():
     def _record_invalidation(event):
         fired.append(event)
 
-    BlenderShotStore.add_invalidation_listener(_record_invalidation)
+    ShotStore.add_invalidation_listener(_record_invalidation)
     bpy.ops.wm.read_homefile(use_empty=True)  # File > New — fires load_post for real
     scene = bpy.context.scene  # the old scene datablock is gone
 
@@ -524,8 +527,8 @@ def _run_shots_adapter_checks():
         len(fired) == 1,
         f"n={len(fired)}",
     )
-    check("active store nulled on file load", BlenderShotStore._active is None)
-    fresh = BlenderShotStore.active()
+    check("active store nulled on file load", ShotStore._active is None)
+    fresh = ShotStore.active()
     check(
         "post-load active() yields the NEW file's (empty) store",
         len(fresh.shots) == 0,
@@ -538,11 +541,11 @@ def _run_shots_adapter_checks():
         "OldSceneShot" not in raw and "NewSceneShot" in raw,
         f"{raw[:120]}",
     )
-    BlenderShotStore.remove_invalidation_listener(_record_invalidation)
+    ShotStore.remove_invalidation_listener(_record_invalidation)
 
     # teardown path: clear_active() -> backend.remove_callbacks() drops the job
-    backend2 = BlenderShotStore._persistence
-    BlenderShotStore.clear_active()
+    backend2 = ShotStore._persistence
+    ShotStore.clear_active()
     subs_after = ScriptJobManager.instance().status()["subscriptions"]
     check(
         "clear_active tears down the backend's scene job",
@@ -554,10 +557,10 @@ def _run_shots_adapter_checks():
     # (a) SceneBeforeSave -> save_pre: a dirty store is flushed before the file
     #     is written (mirror of MayaScenePersistence._on_before_save).
 
-    BlenderShotStore.clear_active()
+    ShotStore.clear_active()
     clear_stored()
-    hook_store = BlenderShotStore.active()
-    hook_backend = BlenderShotStore._persistence
+    hook_store = ShotStore.active()
+    hook_backend = ShotStore._persistence
     status = ScriptJobManager.instance().status()
     check(
         "persistence backend subscribed SceneBeforeSave (save_pre master installed)",
@@ -623,7 +626,7 @@ def _run_shots_adapter_checks():
         "SceneOpened handler re-arms the msgbus fps watch",
         hook_backend._fps_sub_installed,
     )
-    BlenderShotStore.clear_active()
+    ShotStore.clear_active()
     check(
         "remove_callbacks clears the msgbus fps watch flag",
         not hook_backend._fps_sub_installed and not hook_backend._scene_subs_installed,
@@ -633,15 +636,15 @@ def _run_shots_adapter_checks():
     #     the timer loop never runs in --background.
     scene = bpy.context.scene
     clear_stored()
-    flush_store = BlenderShotStore.active()
+    flush_store = ShotStore.active()
     flush_store.define_shot("Immediate", 1, 5, objects=[])
     check(
         "_schedule_flush writes immediately in --background",
         bpy.app.background
         and not flush_store._dirty
-        and not flush_store._flush_pending
+        and not flush_store.host_state.flush_pending
         and "Immediate" in (stored() or ""),
-        f"dirty={flush_store._dirty} pending={flush_store._flush_pending}",
+        f"dirty={flush_store._dirty} pending={flush_store.host_state.flush_pending}",
     )
 
     # (e) scene_edit writes the record INSIDE its undo step (BTK-SHOTS-2).  A GUI
@@ -662,7 +665,7 @@ def _run_shots_adapter_checks():
     del flush_store._schedule_flush
     on_record = {
         s["name"]: (s["start"], s["end"])
-        for s in (BlenderShotStore._persistence.load() or {}).get("shots", [])
+        for s in (ShotStore._persistence.load() or {}).get("shots", [])
     }
     in_store = {s.name: (s.start, s.end) for s in flush_store.shots}
     check(
@@ -675,13 +678,13 @@ def _run_shots_adapter_checks():
 
     # (f) discard_carrier: another scene's dropped shot record reloads the active
     #     store (it may hold them); a drop that carried none leaves it alone.
-    BlenderShotStore.discard_carrier([], {}, None)
-    kept_active = BlenderShotStore._active is flush_store
-    BlenderShotStore.discard_carrier([], {ptk.SceneRecords.SHOT_STORE: None}, None)
+    ShotStore.discard_carrier([], {}, None)
+    kept_active = ShotStore._active is flush_store
+    ShotStore.discard_carrier([], {ptk.SceneRecords.SHOT_STORE: None}, None)
     check(
         "discard_carrier: reloads the active store only for a dropped shot record",
-        kept_active and BlenderShotStore._active is None,
-        f"kept={kept_active} active={BlenderShotStore._active!r}",
+        kept_active and ShotStore._active is None,
+        f"kept={kept_active} active={ShotStore._active!r}",
     )
 
     # (g) resolve_member: exact, else the one object whose namespace-free name
@@ -689,7 +692,7 @@ def _run_shots_adapter_checks():
     #     doc's "door_geo" (BTK-SHOTS-9; mirror of mayatk's).
     for ns_name in ("AC:door_geo", "AC:twin", "BC:twin"):
         add_keyed_cube(ns_name, [1, 2], 0.0)
-    ns_store = BlenderShotStore()
+    ns_store = ShotStore()
     check(
         "resolve_member: a namespaced object answers for its bare name",
         ns_store.resolve_member("door_geo") == ("AC:door_geo", "found")
@@ -715,18 +718,18 @@ def _run_shots_adapter_checks():
 
     # ---- hand-off transfer: export_transfer / apply_transfer ----------------
     #     (mirror of mayatk's; the codec is pythontk's ShotTransfer)
-    BlenderShotStore.clear_active()
+    ShotStore.clear_active()
     clear_stored()
     scene.render.fps = 24
-    xfer_store = BlenderShotStore.active()
+    xfer_store = ShotStore.active()
     add_keyed_cube("XferCube", [1, 10, 20], 0.0)
     add_keyed_cube("XferMate", [1, 20], 5.0)
     xfer_shot = xfer_store.define_shot("Xfer", 1, 20, objects=["XferCube", "XferMate"])
-    xfer_key = BlenderShotStore.curve_key("XferCube", "location", 0)
+    xfer_key = BlenderShotsHost.curve_key("XferCube", "location", 0)
     xfer_store.edit_ledger.record_key(xfer_key, 20.0, xfer_shot.shot_id, "end")
     xfer_store.edit_ledger.record_key(xfer_key, 15.0, xfer_shot.shot_id, "end")
     xfer_store.set_object_hidden("XferMate", True)
-    section = BlenderShotStore.export_transfer()
+    section = ShotStore.export_transfer()
     check(
         "export_transfer: the section carries the shot as Blender spells it",
         sorted(section["store"]["shots"][0]["objects"]) == ["XferCube", "XferMate"]
@@ -746,7 +749,7 @@ def _run_shots_adapter_checks():
         },
         str(section["ledger"]),
     )
-    scoped = BlenderShotStore.export_transfer(objects=["XferMate"])
+    scoped = ShotStore.export_transfer(objects=["XferMate"])
     check(
         "export_transfer: the objects scope keeps the shot, drops the rest",
         scoped["store"]["shots"][0]["objects"] == ["XferMate"]
@@ -755,28 +758,28 @@ def _run_shots_adapter_checks():
     )
     check(
         "_curve_ref: a ledger key becomes each owner + mayatk label",
-        BlenderShotStore._curve_ref(xfer_key) == [("XferCube", "translateX")]
-        and BlenderShotStore._curve_ref("X|rotation_euler|1") == [("X", "rotateY")],
-        str(BlenderShotStore._curve_ref(xfer_key)),
+        BlenderShotsHost.transfer().curve_ref(xfer_key) == [("XferCube", "translateX")]
+        and BlenderShotsHost.transfer().curve_ref("X|rotation_euler|1") == [("X", "rotateY")],
+        str(BlenderShotsHost.transfer().curve_ref(xfer_key)),
     )
     check(
         "_curve_ref: a scalar channel carries no axis, visibility is aliased",
-        BlenderShotStore._curve_ref("X|hide_render|0") == [("X", "visibility")]
-        and BlenderShotStore._curve_ref('X|["audio_trigger"]|0')
+        BlenderShotsHost.transfer().curve_ref("X|hide_render|0") == [("X", "visibility")]
+        and BlenderShotsHost.transfer().curve_ref('X|["audio_trigger"]|0')
         == [("X", "audio_trigger")],
-        str(BlenderShotStore._curve_ref("X|hide_render|0")),
+        str(BlenderShotsHost.transfer().curve_ref("X|hide_render|0")),
     )
     check(
         "_curve_key: object + label back to the fcurve's ledger key, exact only",
-        BlenderShotStore._curve_key("XferCube", "translateX") == xfer_key
-        and BlenderShotStore._curve_key("XferCube", "rotateY") is None
-        and BlenderShotStore._curve_key("Nobody", "translateX") is None,
-        str(BlenderShotStore._curve_key("XferCube", "translateX")),
+        BlenderShotsHost.transfer().curve_key("XferCube", "translateX") == xfer_key
+        and BlenderShotsHost.transfer().curve_key("XferCube", "rotateY") is None
+        and BlenderShotsHost.transfer().curve_key("Nobody", "translateX") is None,
+        str(BlenderShotsHost.transfer().curve_key("XferCube", "translateX")),
     )
     # Apply into a clean scene, as a Maya section would land after the import.
-    BlenderShotStore.clear_active()
+    ShotStore.clear_active()
     clear_stored()
-    landed = BlenderShotStore.apply_transfer(section)
+    landed = ShotStore.apply_transfer(section)
     check(
         "apply_transfer: the shot lands 1:1 on the live objects",
         [(s.name, s.start, s.end, sorted(s.objects)) for s in landed.shots]
@@ -793,7 +796,7 @@ def _run_shots_adapter_checks():
         "apply_transfer: the record persists on the scene",
         "Xfer" in (stored() or ""),
     )
-    shifted = BlenderShotStore.apply_transfer(section, frame_offset=1.0)
+    shifted = ShotStore.apply_transfer(section, frame_offset=1.0)
     check(
         "apply_transfer: a second apply merges after the existing shot, times shifted",
         [(s.shot_id, s.start, s.end) for s in shifted.sorted_shots()]
@@ -803,7 +806,7 @@ def _run_shots_adapter_checks():
         ],
         str([(s.shot_id, s.start, s.end) for s in shifted.sorted_shots()]),
     )
-    replaced = BlenderShotStore.apply_transfer(section, replace=True)
+    replaced = ShotStore.apply_transfer(section, replace=True)
     check(
         "apply_transfer: replace discards the scene's own shots",
         len(replaced.shots) == 1,
@@ -827,11 +830,11 @@ def _run_shots_adapter_checks():
             "keys": {"XferRoot": {"translateZ": [[20.0, 0, "end"]]}},
         },
     }
-    plain = BlenderShotStore.apply_transfer(swapped_section, replace=True)
-    swapped = BlenderShotStore.apply_transfer(
+    plain = ShotStore.apply_transfer(swapped_section, replace=True)
+    swapped = ShotStore.apply_transfer(
         swapped_section, replace=True, converted=lambda name: name == "XferRoot"
     )
-    root_key = BlenderShotStore.curve_key("XferRoot", "location", 1)
+    root_key = BlenderShotsHost.curve_key("XferRoot", "location", 1)
     check(
         "apply_transfer: a converted root's translateZ claim lands on location[1]",
         plain.edit_ledger.key_times(root_key) == []
@@ -845,13 +848,13 @@ def _run_shots_adapter_checks():
     # duplicates' merged onto the one curve they share (BACKLOG 2026-10-05),
     # one naming nothing kept as stored -- and the record stays as stored:
     # opening the file changes nothing in it.
-    BlenderShotStore.clear_active()
+    ShotStore.clear_active()
     clear_stored()
     v1_obj = add_keyed_cube("V1Cube", [1, 20], 0.0)
     v1_link = v1_obj.copy()  # Alt+D: its action shared
     v1_link.name = "V1Link"
     scene.collection.objects.link(v1_link)
-    v1_store = BlenderShotStore.active()
+    v1_store = ShotStore.active()
     v1_shot = v1_store.define_shot("V1", 1, 20, objects=["V1Cube", "V1Link"])
     v1_id = v1_shot.shot_id
     v1_data = v1_store.to_dict()
@@ -863,16 +866,16 @@ def _run_shots_adapter_checks():
         },
         "steps": {"V1Cube|location|1": [[20.0, "BEZIER", "BEZIER"]]},
     }
-    BlenderShotStore._persistence.save(v1_data)
+    ShotStore._persistence.save(v1_data)
     v1_raw = stored()
-    BlenderShotStore.invalidate()
-    v1_led = BlenderShotStore.active().edit_ledger
-    v1_key = BlenderShotStore.curve_key("V1Cube", "location", 0)
+    ShotStore.invalidate()
+    v1_led = ShotStore.active().edit_ledger
+    v1_key = BlenderShotsHost.curve_key("V1Cube", "location", 0)
     check(
         "format 1 load: claims land on their curve's identity, a linked pair's merged",
-        v1_key == BlenderShotStore.curve_key("V1Link", "location", 0)
+        v1_key == BlenderShotsHost.curve_key("V1Link", "location", 0)
         and v1_led.key_records(v1_key) == [(1.0, v1_id, "start"), (20.0, v1_id, "end")]
-        and v1_led.step_times(BlenderShotStore.curve_key("V1Cube", "location", 1))
+        and v1_led.step_times(BlenderShotsHost.curve_key("V1Cube", "location", 1))
         == [20.0]
         and v1_led.key_times("V1Gone|location|0") == [5.0],
         str(v1_led.to_dict()),
@@ -880,7 +883,7 @@ def _run_shots_adapter_checks():
     check("format 1 load: the record stays as stored", stored() == v1_raw)
     # A curve linked duplicates share crosses for EACH sharer -- the carrier
     # bakes one curve per object -- and lands once on a curve both share.
-    v1_section = BlenderShotStore.export_transfer()
+    v1_section = ShotStore.export_transfer()
     v1_keys = v1_section["ledger"]["keys"]
     v1_wanted = {"translateX": [[1.0, v1_id, "start"], [20.0, v1_id, "end"]]}
     check(
@@ -888,7 +891,7 @@ def _run_shots_adapter_checks():
         v1_keys.get("V1Cube") == v1_wanted and v1_keys.get("V1Link") == v1_wanted,
         str(v1_keys),
     )
-    v1_landed = BlenderShotStore.apply_transfer(v1_section, replace=True)
+    v1_landed = ShotStore.apply_transfer(v1_section, replace=True)
     check(
         "apply_transfer: a curve two arrivals share takes each claim once",
         [(t, e) for t, _o, e in v1_landed.edit_ledger.key_records(v1_key)]
@@ -911,20 +914,20 @@ def _run_shots_adapter_checks():
         fh.writeframes(b"\x00\x00" * 44100)
     fx = add_keyed_cube("FxCube", [1, 20], 0.0)
     RenderEffects.key_fade([fx], start=1, end=20, direction="in")
-    RenderEffects._ensure_highlight_props(fx, color=(1.0, 0.0, 0.0))
-    RenderEffects._set_key(fx, '["highlight"]', 1, 0.0, "CONSTANT")
-    RenderEffects._set_key(fx, '["highlight"]', 10, 1.0, "BEZIER")
+    RenderEffects.ensure_highlight_props(fx, color=(1.0, 0.0, 0.0))
+    RenderEffects.set_key(fx, '["highlight"]', 1, 0.0, "CONSTANT")
+    RenderEffects.set_key(fx, '["highlight"]', 10, 1.0, "BEZIER")
     fx["wobble"] = 0.0
-    RenderEffects._set_key(fx, '["wobble"]', 5, 2.0, "LINEAR")
+    RenderEffects.set_key(fx, '["wobble"]', 5, 2.0, "LINEAR")
     AudioUtils.remove_all_clips()
     AudioUtils.add_clip(xfer_wav, frame_start=10, name="footstep")
     AudioUtils.trim_clip("footstep", offset_end=4)
     clip_end = AudioUtils.get_clip("footstep")["frame_end"]
-    BlenderShotStore.clear_active()
+    ShotStore.clear_active()
     clear_stored()
-    fx_store = BlenderShotStore.active()
+    fx_store = ShotStore.active()
     fx_store.define_shot("Fx", 1, 20, objects=["FxCube"])
-    section = BlenderShotStore.export_transfer()
+    section = ShotStore.export_transfer()
     rec = section["channels"]["FxCube"]
     check(
         "channel_records: the fade, the pulse and its colour, the ad-hoc property",
@@ -954,7 +957,7 @@ def _run_shots_adapter_checks():
     AudioUtils.remove_all_clips()
     landed_fx = add_keyed_cube("FxCube", [1, 20], 0.0)
     for _ in range(2):
-        BlenderShotStore.apply_transfer(section, replace=True)
+        ShotStore.apply_transfer(section, replace=True)
     opacity_fc = RenderEffects._fcurve(landed_fx, '["opacity"]')
     highlight_fc = RenderEffects._fcurve(landed_fx, '["highlight"]')
     wobble_fc = RenderEffects._fcurve(landed_fx, '["wobble"]')
@@ -1000,11 +1003,11 @@ def _run_shots_adapter_checks():
             for k in fc.keyframe_points:
                 k.select_control_point = any(abs(k.co.x - f) < 1e-3 for f in frames)
 
-    BlenderShotStore.clear_active()  # no backend: the stores below write nowhere
-    rel_store = BlenderShotStore()
+    ShotStore.clear_active()  # no backend: the stores below write nowhere
+    rel_store = ShotStore()
     led = rel_store.edit_ledger
     align_obj = keyed_x("ClaimAlign", (10, 20, 30))
-    align_key = BlenderShotStore.curve_key(align_obj.name, "location", 0)
+    align_key = BlenderShotsHost.curve_key(align_obj.name, "location", 0)
     led.record_authored(align_key, 20.0, 0, "fade_in", align_obj.name)
     led.record_step(align_key, 20.0, "AUTO", "BEZIER")
     select_keys(align_obj, (10,))
@@ -1018,7 +1021,7 @@ def _run_shots_adapter_checks():
     )
 
     invert_obj = keyed_x("ClaimInvert", (10, 20, 30))
-    invert_key = BlenderShotStore.curve_key(invert_obj.name, "location", 0)
+    invert_key = BlenderShotsHost.curve_key(invert_obj.name, "location", 0)
     led.record_authored(invert_key, 20.0, 0, "fade_in", invert_obj.name)
     # The reversed copy at 0 (absolute): t' = 30 - t, so 10's copy lands on 20.
     btk.invert_keys(
@@ -1038,9 +1041,9 @@ def _run_shots_adapter_checks():
     # since then is followed before the claims are resolved, as every shot
     # edit does (``scene_edit``), or the release names a curve nobody claims.
     renamed = keyed_x("ClaimOldName", (10, 20, 30))
-    ren_store = BlenderShotStore()  # has seen the object under its old name
+    ren_store = ShotStore()  # has seen the object under its old name
     ren_store.edit_ledger.record_authored(
-        BlenderShotStore.curve_key("ClaimOldName", "location", 0),
+        BlenderShotsHost.curve_key("ClaimOldName", "location", 0),
         20.0,
         0,
         "fade_in",
@@ -1067,18 +1070,7 @@ def _run_shots_adapter_checks():
         return next(k.co.y for k in fc.keyframe_points if abs(k.co.x - frame) < 1e-3)
 
     moving = keyed_x("ClaimMoved", (10, 15, 25, 30))
-    import warnings as _warnings
-
-    with _warnings.catch_warnings(record=True) as _alias_warnings:
-        _warnings.simplefilter("always")
-        _via_alias = list(BlenderShotStore.iter_action_fcurves(moving))
-    check(
-        "the retired iter_action_fcurves still yields AnimUtils.get_fcurves' curves",
-        _via_alias == AnimUtils.get_fcurves(moving)
-        and any(issubclass(w.category, DeprecationWarning) for w in _alias_warnings),
-        f"{len(_via_alias)} curve(s), {[str(w.message) for w in _alias_warnings]}",
-    )
-    moving_key = BlenderShotStore.curve_key(moving.name, "location", 0)
+    moving_key = BlenderShotsHost.curve_key(moving.name, "location", 0)
     led.record_authored(moving_key, 15.0, 0, "fade_in", moving.name)
     btk.invert_keys(
         moving,
@@ -1093,7 +1085,7 @@ def _run_shots_adapter_checks():
         str(led.to_dict()),
     )
     aligned = keyed_x("ClaimAligned", (10, 30))
-    aligned_key = BlenderShotStore.curve_key(aligned.name, "location", 0)
+    aligned_key = BlenderShotsHost.curve_key(aligned.name, "location", 0)
     led.record_authored(aligned_key, 10.0, 0, "fade_in", aligned.name)
     select_keys(aligned, (10,))
     btk.align_selected_keyframes(
@@ -1112,8 +1104,8 @@ def _run_shots_adapter_checks():
     # the hooks scans nothing; the first curve resolved follows renames and
     # maps the owners for both hooks (claim_hooks shares one resolution).
     lazy = keyed_x("ClaimLazy", (10, 20))
-    lazy_key = BlenderShotStore.curve_key(lazy.name, "location", 0)
-    lazy_store = BlenderShotStore()
+    lazy_key = BlenderShotsHost.curve_key(lazy.name, "location", 0)
+    lazy_store = ShotStore()
     lazy_store.edit_ledger.record_authored(lazy_key, 10.0, 0, "fade_in", lazy.name)
     scans = []
     real_follow = lazy_store.follow_renames
@@ -1137,11 +1129,11 @@ def _run_shots_adapter_checks():
     # followed when the file was saved left its hold shot stale on reopen,
     # and the export dropped its take.  The store follows the session's
     # renames before it is written (``save_pre``).  Last: it loads a file.
-    BlenderShotStore.clear_active()
+    ShotStore.clear_active()
     clear_stored()
     hold_obj = bpy.data.objects.new("HoldProp", None)
     scene.collection.objects.link(hold_obj)
-    hold_store = BlenderShotStore.active()
+    hold_store = ShotStore.active()
     hold_store.define_shot("HoldShot", 500, 520, objects=["HoldProp"])
     hold_store.save()  # the record names HoldProp
     hold_obj.name = "HoldPropRenamed"
@@ -1149,7 +1141,7 @@ def _run_shots_adapter_checks():
         hold_blend = hold_tmp.path(extension=".blend")
         bpy.ops.wm.save_as_mainfile(filepath=hold_blend)
         bpy.ops.wm.open_mainfile(filepath=hold_blend)  # the next session
-        reopened = BlenderShotStore.active()
+        reopened = ShotStore.active()
         reopened.publish_export_view()
         hold_meta = DataNodes.read(ptk.Scope.DELIVERABLE, ptk.SceneRecords.SHOTS.key)
         hold_shots = json.loads(hold_meta)["shots"] if hold_meta else []
@@ -1165,9 +1157,56 @@ def _run_shots_adapter_checks():
         )
         bpy.ops.wm.read_factory_settings(use_empty=True)  # release the file
 
+    # ---- the one store on the Blender host ---------------------------------
+    import blendertk as btk
+    from blendertk.anim_utils.shots import _shots as _shots_module
+
+    check(
+        "btk.ShotStore is pythontk's one store, running on the Blender host",
+        btk.ShotStore is ptk.ShotStore
+        and isinstance(ShotStore.running_host(), BlenderShotsHost)
+        and isinstance(ShotStore().host, ptk.ShotsHost),
+        repr(ShotStore.running_host()),
+    )
+    try:
+        btk.BlenderShotStore
+        moved = False
+    except AttributeError as e:  # MovedNameError names the new home
+        moved = "blendertk.ShotStore" in str(e)
+    check(
+        "btk.BlenderShotStore is a moved name; the module keeps its binding",
+        moved and _shots_module.BlenderShotStore is ShotStore,
+    )
+
+    # ---- characterization pin: the saved record, byte for byte -----------
+    # Through the scene persistence, as a session saves it.
+    ShotStore.clear_active()
+    bpy.context.scene.render.fps = 24
+    bpy.context.scene.render.fps_base = 1.0
+    clear_stored()
+    ShotStore.set_persistence(BlenderScenePersistence())
+    pin_store = ShotStoreConformance.fill(ShotStore())
+    ShotStore.set_active(pin_store)
+    pin_store.mark_dirty()
+    ShotStore.flush_pending()
+    check(
+        "the saved shot record is pinned byte for byte",
+        stored() == ShotStoreConformance.payload(),
+        repr(stored()),
+    )
+    ShotStore.invalidate()  # the file-open path: reload from the record
+    pin_reloaded = ShotStore.active()
+    pin_again = ptk.SceneRecords.SHOT_STORE.encode(pin_reloaded.to_dict())
+    check(
+        "a reloaded store saves the same bytes",
+        pin_reloaded is not pin_store
+        and pin_again == ShotStoreConformance.payload(),
+        repr(pin_again),
+    )
+
     # cleanup class state so a later suite in the same process starts clean
-    BlenderShotStore.clear_active()
-    BlenderShotStore._prefs_dir_override = None
+    ShotStore.clear_active()
+    ShotStore._prefs_dir_override = None
     clear_stored()
 
     return lines

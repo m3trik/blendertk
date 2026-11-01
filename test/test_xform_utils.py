@@ -190,6 +190,89 @@ try:
     except ValueError:
         check("freeze bogus instance_strategy raises", True)
 
+    # 4f. a freeze keeps a MIRRORED mesh's look (mirror of mayatk's
+    # TestMirroredFreezeKeepsTheLook): every corner normal points the same way in
+    # world space, the custom normals stay custom, the sharp edges are the same and
+    # every face fronts the way it did. transform_apply reverses the winding of a
+    # mirrored mesh itself, but its custom normals came out turned (24 of 80 corners,
+    # up to 37 degrees on a plain scaleX -1; 40 up to 55 with a non-uniform scale).
+    # Fixed: 2026-10-31. (Auto normals follow the geometry: a non-uniform scale bake
+    # re-weights them, mirrored or not, so the unlocked case stays uniform.)
+    import math as _math
+    from mathutils import Vector as _Vector
+
+    def mirrored_cylinder(variant, name, scale):
+        bpy.ops.mesh.primitive_cylinder_add(vertices=8, depth=2, end_fill_type="TRIFAN")
+        o = bpy.context.active_object; o.name = name
+        me = o.data
+        me.shade_smooth()
+        me.set_sharp_from_angle(angle=_math.radians(50))  # soft sides, sharp caps
+        if variant == "custom":
+            normals = [tuple(c.vector) for c in me.corner_normals]
+            custom = tuple(_Vector((0.3, 0.9, 0.1)).normalized())
+            for i, loop in enumerate(me.loops):
+                if loop.vertex_index < 4:
+                    normals[i] = custom
+            me.normals_split_custom_set(normals)
+        o.location = (3, 1, -2)
+        o.rotation_euler = tuple(_math.radians(a) for a in (30, 45, 10))
+        o.scale = scale
+        bpy.context.view_layer.update()
+        return o
+
+    def look(o):
+        me = o.data
+        nm = o.matrix_world.to_3x3().inverted().transposed()
+        corners = me.corner_normals
+        normals = {
+            (p.index, me.loops[li].vertex_index): (nm @ _Vector(corners[li].vector)).normalized()
+            for p in me.polygons for li in p.loop_indices
+        }
+        fronts = {p.index: (nm @ p.normal).normalized() for p in me.polygons}
+        sharp = me.attributes.get("sharp_edge")
+        sharp_edges = {
+            frozenset(e.vertices) for e in me.edges if sharp and sharp.data[e.index].value
+        }
+        return normals, fronts, sharp_edges, me.has_custom_normals
+
+    def same_look(before, after):
+        b_n, b_f, b_s, b_c = before
+        a_n, a_f, a_s, a_c = after
+        turned = [round(_math.degrees(b_n[k].angle(a_n[k], 0.0)), 2) for k in b_n]
+        turned = [t for t in turned if t > 0.01]
+        flipped = [f for f in b_f if b_f[f].dot(a_f[f]) < 0.999]
+        ok = not turned and not flipped and a_s == b_s and a_c == b_c
+        return ok, (f"{len(turned)} turned (max {max(turned, default=0)}), "
+                    f"{len(flipped)} fronts flipped, sharp same={a_s == b_s}, "
+                    f"custom {b_c}->{a_c}")
+
+    for variant, scale in (
+        ("unlocked", (-1, 1, 1)), ("custom", (-1, 1, 1)), ("custom", (-1, 2, 0.5))
+    ):
+        variant = f"{variant} {scale}"
+        reset()
+        o = mirrored_cylinder(variant.split()[0], f"mir_{variant}", scale)
+        before = look(o)
+        btk.freeze_transforms(o, location=True, rotation=True, scale=True, store=False)
+        bpy.context.view_layer.update()
+        ok, detail = same_look(before, look(o))
+        check(f"freeze keeps a mirrored {variant} mesh's look",
+              ok and all(approx(s, 1.0) for s in o.scale), detail)
+
+        reset()
+        o = mirrored_cylinder(variant.split()[0], f"mirp_{variant}", scale)
+        sib = o.copy(); bpy.context.collection.objects.link(sib)
+        sib.location.x += 8
+        bpy.context.view_layer.update()
+        before = {"master": look(o), "sibling": look(sib)}
+        btk.freeze_transforms(o, location=True, rotation=True, scale=True, store=False,
+                              instance_strategy="preserve")
+        bpy.context.view_layer.update()
+        for label, obj in (("master", o), ("sibling", sib)):
+            ok, detail = same_look(before[label], look(obj))
+            check(f"freeze preserve keeps a mirrored {variant} {label}'s look",
+                  ok and o.data is sib.data, detail)
+
     # 5. center_pivot: origin at (5,0,0), mesh shifted +3 -> object-mode origin -> bbox center x=8
     reset()
     bpy.ops.mesh.primitive_cube_add(location=(5, 0, 0)); c = bpy.context.active_object
@@ -446,7 +529,6 @@ try:
     # 10. spatial queries: get_bounding_box / get_center_point / get_distance /
     #     order_by_distance / aim_object_at_point
     import math
-    from mathutils import Vector
 
     reset()
     bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 0)); c0 = bpy.context.active_object
@@ -605,6 +687,191 @@ try:
     bpy.context.view_layer.update()
     check("set_rotate_order: an unkeyed object keeps its pose in the new order",
           still.rotation_mode == "ZYX" and _max_diff(still.matrix_world, _m) < 1e-5)
+
+    # ---- the pivot menu's operations (mayatk's names): None is the selection,
+    # [] with nothing selected -- what tentacle's shared Pivot panel calls
+    reset()
+    check(
+        "pivot ops: nothing selected -> [] for each",
+        btk.XformUtils.center_pivot(None) == []
+        and btk.XformUtils.reset_pivot() == []
+        and btk.XformUtils.bake_pivot(None, position=True) == []
+        and btk.XformUtils.transfer_pivot(None) == [],
+    )
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0)); pv_src = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(4, 0, 0)); pv_tgt = bpy.context.active_object
+    for v in pv_tgt.data.vertices:
+        v.co.x += 2.0  # geometry center at world x=6, origin at 4
+    bpy.context.view_layer.update()
+    btk.CoreUtils.select([pv_tgt])
+    got = btk.XformUtils.reset_pivot()
+    check("reset_pivot: the origin returns to the bounding-box center",
+          got == [pv_tgt] and approx(pv_tgt.location.x, 6.0), f"x={pv_tgt.location.x:.3f}")
+    btk.CoreUtils.select([pv_tgt])
+    got = btk.XformUtils.center_pivot(None, mode="world")
+    check("center_pivot(None, 'world'): the selection's origin to 0",
+          got == [pv_tgt] and approx(pv_tgt.location.x, 0.0), f"x={pv_tgt.location.x:.3f}")
+    pv_src.location.x = 1.0
+    bpy.context.view_layer.update()
+    btk.CoreUtils.select([pv_src, pv_tgt])  # replace: the first one (pv_src) is active
+    got = btk.XformUtils.transfer_pivot(None, bake=False)
+    check("transfer_pivot(None): the active object is the source",
+          got == [pv_tgt] and approx(pv_tgt.location.x, 1.0), f"x={pv_tgt.location.x:.3f}")
+    btk.CoreUtils.select([pv_tgt])
+    bpy.context.view_layer.objects.active = pv_src  # active, NOT selected
+    try:
+        btk.XformUtils.transfer_pivot(None)
+        check("transfer_pivot(None): an unselected active object raises", False)
+    except ValueError as error:
+        check("transfer_pivot(None): an unselected active object raises",
+              "active" in str(error), str(error))
+    pv_src.rotation_euler = (0.0, 0.0, 0.5)
+    bpy.context.view_layer.update()
+    btk.CoreUtils.select([pv_src])
+    check(
+        "world_align_pivot(manip): Global orientation, True",
+        btk.XformUtils.world_align_pivot(None, pivot_type="manip") is True
+        and bpy.context.scene.transform_orientation_slots[0].type == "GLOBAL",
+    )
+    done = btk.XformUtils.world_align_pivot(None, pivot_type="object")
+    check(
+        "world_align_pivot(object): the rotation is baked, the selection kept",
+        done is True and abs(pv_src.rotation_euler.z) < 1e-6 and pv_src.select_get(),
+        f"done={done} rz={pv_src.rotation_euler.z:.3f}",
+    )
+    bpy.ops.object.empty_add(location=(0, 0, 3)); pv_empty = bpy.context.active_object
+    btk.CoreUtils.select([pv_empty])
+    check(
+        "world_align_pivot(object): no object with data -> False",
+        btk.XformUtils.world_align_pivot(None, pivot_type="object") is False,
+    )
+    bpy.context.scene.cursor.location = (2.0, 0.0, 0.0)
+    btk.CoreUtils.select([pv_tgt])
+    got = btk.XformUtils.bake_pivot(None, position=True, orientation=True)
+    bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
+    check("bake_pivot: the 3D cursor becomes the origin",
+          got == [pv_tgt] and approx(pv_tgt.location.x, 2.0), f"x={pv_tgt.location.x:.3f}")
+
+    # ---- transform panel ops (tentacle's composed TransformSlots) ----------------------
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+    tA = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(6, 0, 0))
+    tB = bpy.context.active_object
+    moved = btk.XformUtils.move_to_target([tA, tB], pivot="center")
+    bpy.context.view_layer.update()
+    check("move_to_target: all but the last move onto it",
+          moved == [tA] and approx(tA.location.x, 6.0), f"x={tA.location.x:.3f}")
+    tA.location.x = 0.0
+    bpy.context.view_layer.update()  # matrix_world (what move_to reads) follows location
+    btk.CoreUtils.select([tA, tB])
+    bpy.context.view_layer.objects.active = tB
+    btk.XformUtils.move_to_target(None, all_to_last=False)
+    bpy.context.view_layer.update()
+    check("move_to_target(None, all_to_last=False): the active moves to the others",
+          approx(tB.location.x, 0.0), f"x={tB.location.x:.3f}")
+    btk.CoreUtils.select([tA])
+    check("move_to_target with one object -> []", btk.XformUtils.move_to_target(None) == [])
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+    sA = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(5, 0, 0))
+    sB = bpy.context.active_object
+    sB.scale = (3, 3, 3)
+    bpy.context.view_layer.update()
+    btk.CoreUtils.select([sB, sA])  # sA active: the one rescaled
+    bpy.context.view_layer.objects.active = sA
+    check("match_scale(None, None): the active is rescaled to the others",
+          btk.XformUtils.match_scale(None, None) == [sA] and approx(sA.scale.x, 3.0),
+          f"scale={tuple(sA.scale)}")
+    btk.CoreUtils.select([sA])
+    check("match_scale(None, None) with one object -> []",
+          btk.XformUtils.match_scale(None, None) == [])
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 5))
+    dg = bpy.context.active_object
+    btk.CoreUtils.select([dg])
+    got = btk.XformUtils.drop_to_grid(None, align="Min", freeze_transforms=True)
+    bpy.context.view_layer.update()
+    mn, mx = btk.get_world_bbox(dg)
+    check("drop_to_grid(None): drops the selection, freezes its location, keeps it selected",
+          got == [dg] and approx(mn.z, 0.0) and approx(dg.location.z, 0.0)
+          and dg.select_get(), f"min.z={mn.z:.3f} loc.z={dg.location.z:.3f}")
+    btk.CoreUtils.select([])
+    check("drop_to_grid(None) with nothing selected -> []",
+          btk.XformUtils.drop_to_grid(None) == [])
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+    aA = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(4, 2, 1))
+    aB = bpy.context.active_object
+    aA.location = (-3, 5, 7)
+    bpy.context.view_layer.update()
+    btk.XformUtils.align_to("Align X to Active", [aA, aB])
+    bpy.context.view_layer.update()
+    check("align_to X: the center's X goes to the target's, Y kept",
+          approx(aA.location.x, 4.0) and approx(aA.location.y, 5.0),
+          f"loc={tuple(aA.location)}")
+    for bad, label in ((("Nowhere", [aA, aB]), "unknown mode"), (("Align X to Active", [aA]), "one object")):
+        try:
+            btk.XformUtils.align_to(*bad)
+            check(f"align_to refuses {label}", False)
+        except ValueError:
+            check(f"align_to refuses {label}", True)
+
+    ts = bpy.context.scene.tool_settings
+    ts.use_snap, ts.use_snap_translate, ts.use_snap_rotate, ts.use_snap_scale = False, True, False, False
+    state = btk.XformUtils.set_transform_snap("rotate", True, increment=15.0)
+    snap = btk.XformUtils.get_transform_snap()
+    check("set_transform_snap rotate: rotate on at 15 degrees, move stays off",
+          state["enabled"] and approx(state["increment"], 15.0)
+          and not snap["move"]["enabled"] and snap["move"]["increment"] is None, str(snap))
+    btk.XformUtils.set_transform_snap("rotate", False)
+    check("set_transform_snap off: snapping off with no kind left", not ts.use_snap)
+
+    check("set_transform_constraint edge",
+          btk.XformUtils.set_transform_constraint("edge", True)
+          == {"edge": True, "surface": False, "live": False})
+    check("set_transform_constraint live replaces edge",
+          btk.XformUtils.set_transform_constraint("live", True)
+          == {"edge": False, "surface": False, "live": True})
+    check("set_transform_constraint off turns snapping off",
+          btk.XformUtils.set_transform_constraint("live", False)
+          == {"edge": False, "surface": False, "live": False} and not ts.use_snap)
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(2, 0, 0))
+    parent = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(0, 3, 0))
+    child = bpy.context.active_object
+    child.parent = parent
+    bpy.context.view_layer.update()
+    baked = btk.RigUtils.freeze_and_reanchor(
+        [parent], reanchor=True, translate=True, rotate=False, scale=False,
+        freeze_children=True, center_pivot=1, force=False, delete_history=True,
+        connection_strategy="delete", from_channel_box=True,
+    )
+    check("freeze_and_reanchor: Maya's keywords taken, children frozen, pivot centered",
+          parent in baked and child in baked and approx(parent.location.x, 2.0),
+          f"baked={[o.name for o in baked]} x={parent.location.x:.3f}")
+    btk.CoreUtils.select([])
+    check("freeze_and_reanchor with nothing selected -> []",
+          btk.RigUtils.freeze_and_reanchor(None) == [])
+
+    # ---- get_rotate_order (mirror of mayatk's) ----
+    bpy.ops.mesh.primitive_cube_add(); ro_cube = bpy.context.active_object
+    ro_cube.rotation_mode = "ZYX"
+    check("get_rotate_order: Maya-spelled, by object",
+          btk.XformUtils.get_rotate_order([ro_cube]) == {ro_cube: "zyx"})
+    btk.CoreUtils.select([ro_cube])
+    check("get_rotate_order(None) is the selection",
+          btk.XformUtils.get_rotate_order() == {ro_cube: "zyx"})
+    btk.CoreUtils.select([])
+    check("get_rotate_order(None), nothing selected -> {}",
+          btk.XformUtils.get_rotate_order() == {})
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

@@ -4,7 +4,7 @@
 
 Blender ships no ``:/``-style Qt resource icons, so the Maya original's
 ``out_<nodeType>.png`` lookup becomes a small ``Object.type`` → uitk named-icon
-map rendered through :class:`uitk.managers.icon_manager.IconManager`.  Same
+map rendered through :class:`uitk.IconManager`.  Same
 public surface (``icon_name_for_type`` / ``icon_name_for_node`` / ``get_icon`` /
 ``get_pixmap``) so the shared panels (sequencer tracks, manifest table,
 hierarchy tree) resolve an icon through one call on either DCC.
@@ -94,12 +94,29 @@ class NodeIcons:
         name = NodeIcons.icon_name_for_node(obj_name)
         if name is None:
             return None
-        from uitk.managers.icon_manager import IconManager
+        from uitk import IconManager
 
         icon = IconManager.get(name, size=(size, size), color=ICON_COLOR)
         if icon is None or icon.isNull():
             return None
         return icon
+
+    @staticmethod
+    def audio_icon(size: int = 16):
+        """The ``QIcon`` of an audio item, or ``None``: Blender's speaker icon,
+        read from the type alone since a VSE sound strip is no
+        ``bpy.data.objects`` entry. Twin of mayatk's ``NodeIcons.audio_icon``.
+
+        Parameters:
+            size: Icon size in pixels (square).
+        """
+        name = NodeIcons.icon_name_for_type("SPEAKER")
+        if not name:
+            return None
+        from uitk import IconManager
+
+        icon = IconManager.get(name, size=(size, size), color=ICON_COLOR)
+        return icon if (icon is not None and not icon.isNull()) else None
 
     @staticmethod
     def get_pixmap(obj_name: str, size: int = 16):

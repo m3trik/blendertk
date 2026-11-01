@@ -54,7 +54,12 @@ try:
     )
 
     # guard: <2 objects -> no-op, returns []
-    check("replace_with_instances <2 -> []", btk.replace_with_instances([A]) == [])
+    try:
+        btk.replace_with_instances([A])
+        raised = False
+    except ValueError:
+        raised = True
+    check("replace_with_instances <2 -> ValueError (mayatk's twin)", raised)
 
     # get_instances(None): scene-wide shared datablocks (A,B,C all share -> all 3)
     inst = btk.get_instances(objects=None)
@@ -331,15 +336,15 @@ try:
         f"data.users={A.data.users}",
     )
 
-    # --- hierarchy helpers: get_parent / get_children / get_shape / reparent ---
+    # --- hierarchy helpers: get_parent / get_children / get_shape / set_parent ---
     reset()
     p = cube("Parent", (0, 0, 0))
     c1 = cube("Child1", (5, 0, 0))
     c2 = cube("Child2", (0, 5, 0))
     w1 = tuple(round(v, 3) for v in c1.matrix_world.translation)
-    out = btk.reparent([c1, c2], p)
+    out = btk.NodeUtils.set_parent([c1, c2], p)
     check(
-        "reparent sets parent + keeps world transform",
+        "set_parent sets parent + keeps world transform",
         out == [c1, c2]
         and c1.parent is p
         and tuple(round(v, 3) for v in c1.matrix_world.translation) == w1,
@@ -348,20 +353,28 @@ try:
     check("get_parent immediate", btk.get_parent(c1) is p)
     check("get_children", set(btk.get_children(p)) == {c1, c2})
     g = cube("Grand", (5, 5, 0))
-    btk.reparent(g, c1)
+    btk.NodeUtils.set_parent(g, c1)
     check(
         "get_children recursive",
         set(btk.get_children(p, recursive=True)) == {c1, c2, g},
     )
     check("get_parent all -> ancestor chain", btk.get_parent(g, all=True) == [c1, p])
     check("get_shape returns object data", btk.get_shape(c1) is c1.data)
-    btk.reparent(c1, None)  # unparent, keep transform
+    btk.NodeUtils.set_parent(c1, None)  # unparent, keep transform
     check(
-        "reparent to None unparents",
+        "set_parent to None unparents",
         c1.parent is None
         and tuple(round(v, 3) for v in c1.matrix_world.translation) == w1,
     )
-    check("reparent skips self-parent", btk.reparent([p], p) == [])
+    check("set_parent skips self-parent", btk.NodeUtils.set_parent([p], p) == [])
+    # Named set_parent so it no longer reads as mayatk's reparent (a decorator).
+    try:
+        btk.reparent
+        _moved = False
+    except AttributeError as _e:  # MovedNameError names the new home
+        _moved = "NodeUtils.set_parent" in str(_e)
+    check("btk.reparent is a moved name (NodeUtils.set_parent)",
+          _moved and not hasattr(btk.NodeUtils, "reparent"))
 
     # _transforms_driven read the flat ``action.fcurves``, which Blender 5.x
     # removed (slotted actions) -- so it raised AttributeError on any KEYED
@@ -442,6 +455,106 @@ try:
         and kept.empty_display_type == "ARROWS"
         and kept.empty_display_size == 1.0,
         f"{kept.empty_display_size}",
+    )
+
+    # --- the selection paths the Duplicate menu calls (tentacle, through self.tk) ---
+    reset()
+    S1, S2 = cube("S1", (0, 0, 0)), cube("S2", (3, 0, 0))
+    btk.CoreUtils.select([])
+    check("replace_with_instances(None), nothing selected -> []",
+          btk.NodeUtils.replace_with_instances() == [])
+    btk.CoreUtils.select([S2, S1])
+    bpy.context.view_layer.objects.active = S1  # the active object is the source
+    made = btk.NodeUtils.replace_with_instances()
+    check("replace_with_instances(None): the active object is the source",
+          made == [S2] and S2.data == S1.data, str(made))
+    S3 = cube("S3", (6, 0, 0))
+    btk.CoreUtils.select([S3])
+    check("select_instances: a lone object -> [], selection kept",
+          btk.NodeUtils.select_instances() == [] and S3.select_get())
+    btk.CoreUtils.select([S1])
+    picked = btk.NodeUtils.select_instances()
+    check("select_instances: the object and its instances",
+          set(picked) == {S1, S2} and S2.select_get(), str(picked))
+    btk.CoreUtils.select([S3])
+    picked = btk.NodeUtils.select_instances(whole_scene=True)
+    check("select_instances(whole_scene=True): every instanced object",
+          set(picked) == {S1, S2} and not S3.select_get(), str(picked))
+    btk.CoreUtils.select([])
+    check("uninstance(None), nothing selected -> []", btk.NodeUtils.uninstance() == [])
+    btk.CoreUtils.select([S2])
+    check("uninstance(None) takes the selection",
+          btk.NodeUtils.uninstance() == [S2] and S2.data != S1.data)
+
+    # --- selection_summary: what tentacle's HUD lists -----------------------------
+    reset()
+    H1, H2 = cube("H1", (0, 0, 0)), cube("H2", (3, 0, 0))
+    btk.CoreUtils.select([])
+    check("selection_summary: nothing selected -> None", btk.NodeUtils.selection_summary() is None)
+    btk.CoreUtils.select([H1])
+    summary = btk.NodeUtils.selection_summary()
+    check(
+        "selection_summary: a cube's counts",
+        summary["mode"] == "object" and summary["count"] == 1
+        and summary["objects"] == [("H1", "mesh")]
+        and (summary["faces"], summary["tris"], summary["uvs"]) == (6, 12, 24)
+        and summary["instances"] == 0,
+        str(summary),
+    )
+    H2.data = H1.data
+    check("selection_summary: instances share the data",
+          btk.NodeUtils.selection_summary()["instances"] == 2)
+    btk.CoreUtils.select([H1, H2])
+    check("selection_summary: past the limit, no names",
+          btk.NodeUtils.selection_summary(limit=1)["objects"] == [])
+    bpy.ops.object.empty_add()
+    btk.CoreUtils.select([bpy.context.view_layer.objects.active])
+    summary = btk.NodeUtils.selection_summary()
+    check("selection_summary: no mesh -> no counts",
+          summary["faces"] is None and summary["uvs"] is None, str(summary))
+    btk.CoreUtils.select([H1])
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_mode(type="VERT")
+    bpy.ops.mesh.select_all(action="DESELECT")
+    import bmesh
+
+    edit = bmesh.from_edit_mesh(H1.data)
+    edit.verts.ensure_lookup_table()
+    for i in range(3):
+        edit.verts[i].select = True
+    bmesh.update_edit_mesh(H1.data)
+    summary = btk.NodeUtils.selection_summary()
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check(
+        "selection_summary: Edit Mode counts the components",
+        (summary["mode"], summary["component"], summary["selected"], summary["total"])
+        == ("component", "Verts", 3, 8),
+        str(summary),
+    )
+
+    # ---- lock_nodes: the shared Edit panel's Lock / Unlock (hide_select)
+    for _o in list(bpy.data.objects):
+        bpy.data.objects.remove(_o, do_unlink=True)
+    bpy.ops.mesh.primitive_cube_add()
+    _a = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    _b = bpy.context.active_object
+    btk.CoreUtils.select([_a])
+    check(
+        "lock_nodes(None, lock=True): the selection, made unselectable",
+        btk.NodeUtils.lock_nodes(None, lock=True) == [_a]
+        and _a.hide_select and not _b.hide_select,
+    )
+    _b.hide_select = True
+    check(
+        "lock_nodes(None, lock=False): every object unlocked",
+        len(btk.NodeUtils.lock_nodes(None, lock=False)) == 2
+        and not (_a.hide_select or _b.hide_select),
+    )
+    btk.CoreUtils.select([])
+    check(
+        "lock_nodes(None) locking with nothing selected is []",
+        btk.NodeUtils.lock_nodes(None, lock=True) == [],
     )
 
 except Exception as e:

@@ -1,9 +1,9 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui``.
+"""Color ID engine: color-code scene objects across channels.
 
-Blender port of mayatk's Color ID: a swatch palette that color-codes scene objects across
-channels. Maya's four channels (material / outliner / wireframe / vertex) map onto Blender as:
+Blender port of mayatk's ``ColorId``. Maya's four channels (material / outliner / wireframe /
+vertex) map onto Blender as:
 
 - **Material** (``chk014``) — an ID material's base color.
 - **Outliner** (``chk013``) — the object's **outliner text color**, same as Maya's. Blender
@@ -21,21 +21,18 @@ an **objectSet** in Maya. It is a grouping aid, orthogonal to the four color cha
 composes with any of them (or none).
 
 Because Blender's Solid shading defaults to ``color_type='MATERIAL'``, writing a channel is only
-half the job — :meth:`ColorId.show_channels` points the viewports at the channel being applied,
-without which the tool writes correct data that renders nowhere. Apply to / select by / reset
-across any combination of the enabled channels; save/restore swatch palettes as presets.
+half the job — :meth:`ColorId.apply_color` ends by pointing the viewports at the channels it
+wrote (:meth:`ColorId.show_channels`), without which the tool writes correct data that renders
+nowhere. Apply to / select by / read / reset across any combination of the channels.
 
-The engine (``ColorId``) lives next to its panel + ``.ui`` (mirror of mayatk's
-``display_utils.color_id``); served by ``BlenderUiHandler`` (``marking_menu.show
-("color_id")``). Self-contained (``ptk.LoggingMixin`` only); the Qt-only ``uitk`` helpers are
-deferred into the methods that use them (headless Blender ships no Qt binding). ``import bpy``
-is deferred too.
+The panel is tentacle's ``slots/tools/color_id.py``: one Slots class for both hosts over this
+class as ``btk.ColorId`` (mirror of mayatk's ``display_utils.color_id``, keywords included:
+``apply_to_wireframe`` / ``check_wireframe_color`` / ``reset_wireframe``). ``import bpy`` is
+deferred into the call bodies.
 """
 
 import random
 from typing import List, Optional, Sequence, Tuple
-
-import pythontk as ptk
 
 from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.display_utils.outliner_tint import OutlinerTint
@@ -64,6 +61,10 @@ class ColorId:
         (180, 120, 150),
         (160, 160, 160),
     ]
+
+    #: The swatch palettes' preset store (uitk ``PresetManager.preset_dir``), which the
+    #: tentacle panel reads: each host keeps its own palettes (mayatk's: "mayatk/color_manager").
+    SWATCH_PRESET_DIR = "blendertk/color_id"
 
     # ── apply ──────────────────────────────────────────────────────────────
     @staticmethod
@@ -270,34 +271,52 @@ class ColorId:
         objects: Sequence,
         color: Optional[Color] = None,
         apply_to_material: bool = False,
-        apply_to_object: bool = False,
         apply_to_vertex: bool = False,
+        apply_to_wireframe: bool = False,
         apply_to_outliner: bool = False,
         set_per_color: bool = False,
+        apply_to_object: bool = False,
     ) -> None:
-        """Apply ``color`` (random when None) to each object across the enabled channels.
+        """Apply ``color`` (random when None) to each object across the enabled channels, as
+        ONE undo step (mayatk's keywords), then point the viewports at what was applied.
 
-        ``set_per_color`` additionally groups the batch into an ``ID_<HEX>`` collection — a
-        grouping aid orthogonal to the color channels (mirrors mayatk's objectSet twin)."""
+        ``apply_to_wireframe`` writes ``obj.color`` and draws it on the wires (Maya's wireframe
+        override); ``apply_to_object`` writes the same ``obj.color`` but shows it as the Solid
+        fill (an engine-only channel). ``set_per_color`` additionally groups the batch into an
+        ``ID_<HEX>`` collection — a grouping aid orthogonal to the color channels (mirrors
+        mayatk's objectSet twin). Writing a channel is only half the job here: Solid shading
+        defaults to the material color, so :meth:`show_channels` switches the viewports to the
+        applied channels' source, without which the color renders nowhere."""
+        objects = list(objects)  # walked once per channel below
         if color is None:
             color = (random.random(), random.random(), random.random())
-        for obj in objects:
-            if obj is None:
-                continue
-            if apply_to_object:
-                cls.set_object_color(obj, color)
-            if apply_to_vertex:
-                cls.set_vertex_color(obj, color)
-            if apply_to_material:
-                cls.assign_id_material(obj, color)
-        if apply_to_outliner:
-            # Batched: the stamp is per-object but enabling the overlay is not, so a
-            # per-object call would re-enter the handler check once per object.
-            cls.set_outliner_color(objects, color)
-        if set_per_color:
-            # One collection pass for the whole batch (per-object would churn the GC);
-            # the engine filters Nones and no-ops on an empty batch itself.
-            cls.add_to_color_set(objects, color)
+        with CoreUtils.undo_chunk("Color ID: Set Color"):
+            for obj in objects:
+                if obj is None:
+                    continue
+                if apply_to_object or apply_to_wireframe:
+                    cls.set_object_color(obj, color)
+                if apply_to_vertex:
+                    cls.set_vertex_color(obj, color)
+                if apply_to_material:
+                    cls.assign_id_material(obj, color)
+            if apply_to_outliner:
+                # Batched: the stamp is per-object but enabling the overlay is not, so a
+                # per-object call would re-enter the handler check once per object.
+                cls.set_outliner_color(objects, color)
+            if set_per_color:
+                # One collection pass for the whole batch (per-object would churn the GC);
+                # the engine filters Nones and no-ops on an empty batch itself.
+                cls.add_to_color_set(objects, color)
+        cls.show_channels(
+            {
+                "object": apply_to_object,
+                "wireframe": apply_to_wireframe,
+                "material": apply_to_material,
+                "vertex": apply_to_vertex,
+            }
+        )
+        CoreUtils.tag_redraw()  # all editors — the outliner repaints too
 
     # ── viewport display ───────────────────────────────────────────────────
     # Which Solid-shading color source shows each channel. Writing a channel is only half the
@@ -317,10 +336,10 @@ class ColorId:
         """Point every 3D viewport at the enabled channels' color source; returns viewports updated.
 
         ``channels`` maps channel keys to bools; recognized here: ``"object"`` / ``"material"`` /
-        ``"vertex"`` / ``"wireframe"``. Unknown keys are ignored — the panel's dict also carries
-        ``"outliner"``, which needs no viewport switch (collection tags always show there), and
-        omits ``"object"`` (that engine channel keeps no checkbox; pass it programmatically to
-        show ``obj.color`` as the Solid fill). The **wireframe** channel drives
+        ``"vertex"`` / ``"wireframe"``; unknown keys are ignored (the outliner needs no viewport
+        switch). :meth:`apply_color` calls it with the channels it wrote; ``"object"`` shows
+        ``obj.color`` as the Solid fill (an engine channel the panel keeps no checkbox for).
+        The **wireframe** channel drives
         ``wireframe_color_type`` (a separate knob that reads the same ``obj.color``), so it
         composes with — rather than competes for — the Solid color source.
 
@@ -431,13 +450,16 @@ class ColorId:
         cls,
         target_color: Color,
         threshold: float = 0.1,
-        check_material: bool = False,
-        check_object: bool = False,
-        check_vertex: bool = False,
-        check_outliner: bool = False,
+        check_material_color: bool = False,
+        check_vertex_color: bool = False,
+        check_wireframe_color: bool = False,
+        check_outliner_color: bool = False,
         check_set: bool = False,
     ) -> List:
         """View-layer mesh objects whose color (on any enabled channel) is within ``threshold``.
+
+        mayatk's keywords: ``check_wireframe_color`` reads ``obj.color`` (when assigned), the
+        datum both the wireframe and the object channel write.
 
         Iterates ``view_layer.objects`` (not ``scene.objects``) so every match is selectable —
         an object in a view-layer-excluded collection can't be selected, so the caller's
@@ -449,22 +471,22 @@ class ColorId:
             if obj.type != "MESH":
                 continue
             matched = False
-            if check_material and not matched:
+            if check_material_color and not matched:
                 c = cls.get_material_color(obj)
                 matched = (
                     c is not None and cls.color_difference(c, target_color) <= threshold
                 )
-            if check_object and not matched and cls.has_object_color(obj):
+            if check_wireframe_color and not matched and cls.has_object_color(obj):
                 c = cls.get_object_color(obj)
                 matched = (
                     c is not None and cls.color_difference(c, target_color) <= threshold
                 )
-            if check_vertex and not matched:
+            if check_vertex_color and not matched:
                 c = cls.get_average_vertex_color(obj)
                 matched = (
                     c is not None and cls.color_difference(c, target_color) <= threshold
                 )
-            if check_outliner and not matched:
+            if check_outliner_color and not matched:
                 c = cls.get_outliner_color(obj)
                 matched = (
                     c is not None and cls.color_difference(c, target_color) <= threshold
@@ -480,35 +502,98 @@ class ColorId:
                 out.append(obj)
         return out
 
+    @classmethod
+    def select_by_color(
+        cls, target_color: Color, threshold: float = 0.1, **checks
+    ) -> List:
+        """Select the objects :meth:`get_objects_by_color` finds, replacing the selection
+        (none found clears it), the first one active; returns them (mirror of mayatk's).
+        ``checks`` are its ``check_*`` channel flags.
+
+        In any mode, as Maya's selects (:func:`CoreUtils.select`)."""
+        found = cls.get_objects_by_color(target_color, threshold=threshold, **checks)
+        CoreUtils.select(found)
+        CoreUtils.tag_redraw()  # selection highlights in the outliner too
+        return found
+
+    @classmethod
+    def get_color(
+        cls,
+        obj,
+        check_material_color: bool = False,
+        check_vertex_color: bool = False,
+        check_wireframe_color: bool = False,
+        check_outliner_color: bool = False,
+        check_set: bool = False,
+    ) -> Optional[Color]:
+        """The first color ``obj`` carries on the enabled channels (0-1 RGB), or None.
+
+        The panel's Get Color (mirror of mayatk's). Read in the order Outliner, Set,
+        Wireframe, Material, Vertex: the exact stamps first, since they round-trip the
+        applied color. The wireframe channel answers only for an assigned ``obj.color``
+        (:meth:`has_object_color`): it always reads back, the default white included."""
+        readers = (
+            (check_outliner_color, cls.get_outliner_color),
+            (check_set, cls.get_color_set_color),
+            (
+                check_wireframe_color,
+                lambda o: cls.get_object_color(o) if cls.has_object_color(o) else None,
+            ),
+            (check_material_color, cls.get_material_color),
+            (check_vertex_color, cls.get_average_vertex_color),
+        )
+        for enabled, read in readers:
+            color = read(obj) if enabled else None
+            if color is not None:
+                return tuple(color[:3])
+        return None
+
+    @staticmethod
+    def lead_object():
+        """The object Get Color reads: the active object, or None (mirror of mayatk's,
+        where it is the last selected)."""
+        return CoreUtils.active_object()
+
+    @staticmethod
+    def scene_objects() -> List:
+        """Every object a scene-wide Color ID action covers (the panel's Ctrl+click
+        Reset): the scene's objects (mirror of mayatk's, its geometry transforms)."""
+        import bpy
+
+        return list(bpy.context.scene.objects)
+
     # ── reset ──────────────────────────────────────────────────────────────
     @classmethod
     def reset_colors(
         cls,
         objects: Sequence,
-        reset_material: bool = True,
-        reset_object: bool = True,
-        reset_vertex: bool = True,
         reset_outliner: bool = True,
+        reset_wireframe: bool = True,
+        reset_vertex: bool = True,
+        reset_material: bool = True,
         reset_sets: bool = True,
     ) -> None:
-        """Clear color assignments on ``objects`` for the chosen channels."""
-        for obj in objects:
-            if obj is None:
-                continue
-            if reset_object:
-                obj.color = (1.0, 1.0, 1.0, 1.0)
-            if reset_material and hasattr(obj.data, "materials"):
-                # Drop ID materials this tool assigned; leave any user materials in place.
-                for i in range(len(obj.data.materials) - 1, -1, -1):
-                    mat = obj.data.materials[i]
-                    if mat is not None and mat.name.startswith("ID_"):
-                        obj.data.materials.pop(index=i)
-            if reset_vertex:
-                cls.reset_vertex_colors(obj)
-        if reset_outliner:
-            cls.reset_outliner_colors(objects)
-        if reset_sets:
-            cls.remove_from_color_sets(objects)
+        """Clear color assignments on ``objects`` for the chosen channels, as ONE undo step
+        (mayatk's keywords; ``reset_wireframe`` restores ``obj.color``, the datum both the
+        wireframe and the object channel write)."""
+        objects = [o for o in objects if o is not None]
+        with CoreUtils.undo_chunk("Color ID: Reset"):
+            for obj in objects:
+                if reset_wireframe:
+                    obj.color = (1.0, 1.0, 1.0, 1.0)
+                if reset_material and hasattr(obj.data, "materials"):
+                    # Drop ID materials this tool assigned; leave any user materials in place.
+                    for i in range(len(obj.data.materials) - 1, -1, -1):
+                        mat = obj.data.materials[i]
+                        if mat is not None and mat.name.startswith("ID_"):
+                            obj.data.materials.pop(index=i)
+                if reset_vertex:
+                    cls.reset_vertex_colors(obj)
+            if reset_outliner:
+                cls.reset_outliner_colors(objects)
+            if reset_sets:
+                cls.remove_from_color_sets(objects)
+        CoreUtils.tag_redraw()  # all editors — the outliner repaints too
 
     @staticmethod
     def reset_vertex_colors(obj) -> None:
@@ -522,317 +607,3 @@ class ColorId:
             except (RuntimeError, ReferenceError):
                 pass
         mesh.update()
-
-
-# ----------------------------------------------------------------------------
-# UI slots
-# ----------------------------------------------------------------------------
-
-
-class ColorIdSlots(ptk.LoggingMixin):
-    """Switchboard slot wiring for the Color ID panel (swatch palette + channels + presets).
-
-    Channel checkboxes (same objectName → same channel as mayatk): ``chk012`` Wireframe ·
-    ``chk013`` Outliner · ``chk014`` Material · ``chk015`` Vertex (see :meth:`_channels`).
-    Self-contained (``ptk.LoggingMixin`` only)."""
-
-    # Storage key mirrors mayatk's own preset dir shape ("<pkg>/<tool>"); the swatch-preset
-    # mechanism (uitk's PresetManager) is DCC-agnostic — colors live in Qt widgets, not bpy.
-    _PRESET_DIR = "blendertk/color_id"
-    _DEFAULT_PRESET = "default"
-
-    def __init__(self, switchboard, log_level="WARNING"):
-        self.sb = switchboard
-        self.ui = self.sb.loaded_ui.color_id
-        self.logger.setLevel(log_level)
-        self.logger.set_log_prefix("[color_id] ")
-
-        self.button_grp = self.sb.create_button_groups(self.ui, "chk000-11")
-        # Note: mayatk's __init__ also migrates away from a legacy bug where colorSwatch
-        # loadColor fell back to "#ffffff" and auto-saved it over every swatch. Blender's
-        # swatches never had that bug, so there is nothing to migrate here.
-        for i, button in enumerate(self.button_grp.buttons()):
-            button._initialColor = self.sb.QtGui.QColor(
-                *ColorId.DEFAULT_SWATCH_COLORS[i % len(ColorId.DEFAULT_SWATCH_COLORS)]
-            )
-            button.keep_square = True  # square swatches that track column width
-            button.settings = self.ui.settings
-        self.ui.chk000.setChecked(True)
-
-    # ── Preset I/O ─────────────────────────────────────────────────────────
-
-    def _export_swatch_colors(self) -> dict:
-        """``PresetManager.metadata_provider`` — capture current swatch colors."""
-        return {"swatches": [btn.color.name() for btn in self.button_grp.buttons()]}
-
-    def _import_swatch_colors(self, meta: dict) -> None:
-        """``PresetManager.on_metadata_loaded`` — apply colors from a preset."""
-        colors = (meta or {}).get("swatches") or []
-        for btn, hex_color in zip(self.button_grp.buttons(), colors):
-            btn.color = self.sb.QtGui.QColor(hex_color)
-
-    @staticmethod
-    def _hex_from_rgb(rgb) -> str:
-        r, g, b = rgb
-        return f"#{int(r):02X}{int(g):02X}{int(b):02X}"
-
-    def _ensure_default_preset(self, presets) -> None:
-        """Write the factory-default preset on first use if it's missing."""
-        if presets.exists(self._DEFAULT_PRESET):
-            return
-        original = presets.metadata_provider
-        presets.metadata_provider = lambda: {
-            "swatches": [
-                self._hex_from_rgb(rgb) for rgb in ColorId.DEFAULT_SWATCH_COLORS
-            ]
-        }
-        try:
-            presets.save(self._DEFAULT_PRESET)
-        finally:
-            presets.metadata_provider = original
-
-    def header_init(self, widget):
-        """Configure header help text and preset combobox."""
-        # Gesture-scoped window: pin button + auto-hide on key_show release.
-        widget.config_buttons("menu", "collapse", "pin")
-        widget.set_help_text(
-            self.sb.tooltip.fmt(
-                title="Color ID",
-                body="Color-code scene objects across four channels: an ID "
-                "<b>Material</b>, an <b>Outliner</b> color-tag group, the "
-                "<b>Wireframe</b> tint, and <b>Vertex</b> colors.",
-                steps=[
-                    "Click a palette swatch to pick the active color (right-click a "
-                    "swatch to change its color).",
-                    "Enable the channels to act on via the <b>Outliner</b> / "
-                    "<b>Wireframe</b> / <b>Material</b> / <b>Vertex</b> checkboxes "
-                    "— they scope <i>every</i> action below.",
-                    "Select objects and press <b>Set Color</b>.",
-                    "Use <b>Select By Color</b> to find objects matching the active "
-                    "color across the enabled channels.",
-                ],
-                sections=[
-                    (
-                        "Notes",
-                        [
-                            f"<b>Reset</b> clears the <i>enabled</i> channels' assignments "
-                            f"on the selection (or every object with "
-                            f"{self.sb.tooltip.kbd('Ctrl')}-click) — unchecked channels are "
-                            f"left untouched.",
-                            "<b>Outliner</b> groups the objects under a color-tagged "
-                            "<i>ID collection</i> (their normal collections are kept). "
-                            "Blender colors collection rows, not object text — and shows "
-                            "the nearest of the 8 theme collection colors; Select By / "
-                            "Get Color still use the exact applied color.",
-                            "<b>Set Color</b> switches the viewport's Solid shading to the "
-                            "channel it applied (Solid display ▸ Color) — Blender defaults "
-                            "that to <i>Material</i>, where a wireframe or vertex color "
-                            "would not show at all.",
-                            "<b>Material</b> assigns a flat ID material (replaces the "
-                            "object's material slots).",
-                        ],
-                    ),
-                    (
-                        "Presets",
-                        [
-                            "The header menu's preset combo saves / restores swatch "
-                            "palettes. Use <b>Save</b> to capture the current colors; "
-                            "pick a preset to restore them.",
-                        ],
-                    ),
-                ],
-            )
-        )
-        # Preset combobox — swatches aren't standard widgets, so colors are carried in
-        # metadata rather than per-widget value reads.
-        widget.menu.add_presets = True
-        widget.menu.presets.preset_dir = self._PRESET_DIR
-        widget.menu.presets.metadata_provider = self._export_swatch_colors
-        widget.menu.presets.on_metadata_loaded = self._import_swatch_colors
-        self._ensure_default_preset(widget.menu.presets)
-
-    # ── helpers ──────────────────────────────────────────────────────────────
-    @property
-    def selected_objects(self) -> List:
-        """Return the currently selected objects, or an empty list if none are selected."""
-        objects = CoreUtils.selected_objects()
-        if not objects:
-            self.sb.message_box("No objects selected.")
-        return objects
-
-    @property
-    def selected_button(self):
-        """Return the currently checked swatch button in the palette group."""
-        for button in self.button_grp.buttons():
-            if button.isChecked():
-                return button
-        return None
-
-    @property
-    def target_color(self) -> Optional[Color]:
-        """Return the color of the selected swatch, or None if no swatch is selected."""
-        button = self.selected_button
-        if not button:
-            return None
-        color = button.color
-        if isinstance(color, self.sb.QtGui.QColor):
-            return (color.redF(), color.greenF(), color.blueF())
-        # already an (r, g, b) 0-1 tuple
-        return tuple(color[:3])
-
-    def _channels(self) -> dict:
-        # Same objectName → same channel as mayatk: chk012 Wireframe (obj.color drawn on the
-        # wires), chk013 Outliner (color-tagged ID collection), chk014 Material, chk015 Vertex.
-        # The engine's "object" channel (obj.color as the Solid fill) keeps no checkbox of its
-        # own — the Wireframe channel writes the same obj.color, and ColorId.set_object_color /
-        # show_channels({"object": True}) stay available programmatically.
-        return {
-            "wireframe": self.ui.chk012.isChecked(),
-            "outliner": self.ui.chk013.isChecked(),
-            "material": self.ui.chk014.isChecked(),
-            "vertex": self.ui.chk015.isChecked(),
-            "set": self.ui.chk016.isChecked(),
-        }
-
-    def _channels_or_warn(self) -> Optional[dict]:
-        """:meth:`_channels`, or None (with a prompt) when the user has enabled none.
-
-        Every action is channel-scoped, so with nothing checked there is nothing to do —
-        and Select By Color would answer "no matches" by clearing the selection."""
-        channels = self._channels()
-        if not any(channels.values()):
-            self.sb.message_box("No channels enabled.")
-            return None
-        return channels
-
-    # ── buttons ──────────────────────────────────────────────────────────────
-    def b000(self) -> None:
-        """Reset — clear the ENABLED channels (Ctrl+click resets every object in the scene).
-
-        Channel-scoped like Set Color / Select By Color: an unchecked channel is never
-        touched. (Reset used to wipe all five regardless, so clearing a wireframe tint also
-        stripped the object's ID material, vertex colors and ID collection.)"""
-        import bpy
-
-        ch = self._channels_or_warn()
-        if ch is None:
-            return
-        if self.sb.app.keyboardModifiers() == self.sb.QtCore.Qt.ControlModifier:
-            objects = list(bpy.context.scene.objects)
-        else:
-            objects = self.selected_objects
-        if not objects:
-            return
-        with CoreUtils.undo_chunk("Color ID: Reset"):
-            ColorId.reset_colors(
-                objects,
-                reset_object=ch[
-                    "wireframe"
-                ],  # the wireframe channel's datum is obj.color
-                reset_material=ch["material"],
-                reset_vertex=ch["vertex"],
-                reset_outliner=ch["outliner"],
-                reset_sets=ch["set"],
-            )
-        CoreUtils.tag_redraw()  # all editors — the outliner repaints too
-
-    def b001(self) -> None:
-        """Set Color — apply the active color to the selected objects on the enabled channels."""
-        ch = self._channels_or_warn()
-        if ch is None:
-            return
-        objects = self.selected_objects
-        color = self.target_color
-        if not objects or color is None:
-            return
-        with CoreUtils.undo_chunk("Color ID: Set Color"):
-            ColorId.apply_color(
-                objects,
-                color=color,
-                apply_to_object=ch[
-                    "wireframe"
-                ],  # the wireframe channel's datum is obj.color
-                apply_to_material=ch["material"],
-                apply_to_vertex=ch["vertex"],
-                apply_to_outliner=ch["outliner"],
-                set_per_color=ch["set"],
-            )
-        # Writing the channel is only half the job — point the viewports at that color source,
-        # or the applied color renders nowhere and the tool looks like it did nothing. (The
-        # outliner channel needs no switch: collection tags always show there.)
-        ColorId.show_channels(ch)
-        CoreUtils.tag_redraw()  # all editors — the outliner repaints too
-
-    def b002(self) -> None:
-        """Select By Color — select scene objects matching the active color (enabled channels)."""
-        import bpy
-
-        ch = self._channels_or_warn()
-        if ch is None:
-            return
-        color = self.target_color
-        if color is None:
-            return
-        found = ColorId.get_objects_by_color(
-            color,
-            check_object=ch["wireframe"],
-            check_material=ch["material"],
-            check_vertex=ch["vertex"],
-            check_outliner=ch["outliner"],
-            check_set=ch["set"],
-        )
-        # Direct select_set (not bpy.ops.object.select_all) so Select-By-Color works in any
-        # mode — the object operator poll-fails in edit mode (Maya's selects anywhere).
-        # the window's view layer (windowless, select_set addresses the scene default)
-        with CoreUtils.window_context_override():
-            for obj in list(bpy.context.view_layer.objects):
-                obj.select_set(obj in found)
-            bpy.context.view_layer.objects.active = found[0] if found else None
-        CoreUtils.tag_redraw()  # selection highlights in the outliner too
-
-    def b003(self) -> None:
-        """Get Color — read the active object's color into the selected swatch.
-
-        Reads whichever enabled channel has a color (Outliner → Wireframe → Material → Vertex —
-        the outliner stamp first since it round-trips the exact applied color).
-        (Mayatk's b003 is a fixed wireframe-color eyedropper; here every enabled channel can
-        answer, so they're read in order.)"""
-
-        ch = self._channels_or_warn()
-        if ch is None:
-            return
-        obj = CoreUtils.active_object()
-        button = self.selected_button
-        if obj is None or button is None:
-            self.sb.message_box("Select an object and a swatch first.")
-            return
-        color = None
-        if ch["outliner"]:
-            color = ColorId.get_outliner_color(obj)
-        if color is None and ch["set"]:
-            color = ColorId.get_color_set_color(obj)
-        # has_object_color, not a None check: obj.color always reads back (default white), so a
-        # bare get_object_color would swallow every fallback and hand back white forever.
-        if color is None and ch["wireframe"] and ColorId.has_object_color(obj):
-            color = ColorId.get_object_color(obj)
-        if color is None and ch["material"]:
-            color = ColorId.get_material_color(obj)
-        if color is None and ch["vertex"]:
-            color = ColorId.get_average_vertex_color(obj)
-        if color is None:
-            self.sb.message_box(
-                "No color found on the active object's enabled channels."
-            )
-            return
-        button.color = self.sb.QtGui.QColor(
-            int(color[0] * 255), int(color[1] * 255), int(color[2] * 255)
-        )
-
-
-# -----------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
-
-    ui = BlenderUiHandler.instance().get("color_id", reload=True)
-    ui.show(pos="screen", app_exec=True)

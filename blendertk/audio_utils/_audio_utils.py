@@ -559,8 +559,9 @@ class AudioUtils(ptk.LoggingMixin):
 
         Returns:
             The record (``{"version", "events": [...], "fps"}``: the frames
-            count at the scene's rate, which travels with them), or ``None``
-            when no strip plays.
+            count at the scene's rate, which travels with them; its ``media``
+            is the FBX dependency pass's, from the clips it embeds), or
+            ``None`` when no strip plays.
         """
         import bpy
 
@@ -602,6 +603,9 @@ class AudioUtils(ptk.LoggingMixin):
             )
         if not scoped:
             return None
+        # No ``media``: the FBX dependency pass digests the clips it embeds
+        # (``ptk.FbxMedia.embed_dependencies``), so a write without it -- a raw
+        # export -- never names audio it does not carry. mayatk's producer too.
         return ptk.SceneRecords.AUDIO.make(
             {"events": scoped, "fps": cls.get_fps(scene)}
         )

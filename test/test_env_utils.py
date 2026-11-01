@@ -198,6 +198,281 @@ try:
         btk.EnvUtils.set_current_workspace(_prev_pin)
         shutil.rmtree(_ws_dir, ignore_errors=True)
 
+    # ---- scene_status: the facts tentacle's HUD shows and warns on ----------------
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_cube_add()
+    st_cube = bpy.context.view_layer.objects.active
+    st_cube.data.use_mirror_x = True
+    status = btk.EnvUtils.scene_status()
+    check(
+        "scene_status: mayatk's keys",
+        set(status)
+        == {"symmetry", "xform_constraint", "workspace", "units", "fps",
+            "time_unit", "default_fps", "autosave", "autosave_scene", "saved"},
+        str(sorted(status)),
+    )
+    check("scene_status: the active mesh's mirror axis", status["symmetry"] == "X",
+          str(status["symmetry"]))
+    check(
+        "scene_status: an untitled scene is unsaved, not an autosave",
+        status["saved"] is False and status["autosave_scene"] is False,
+    )
+    bpy.context.scene.render.fps, bpy.context.scene.render.fps_base = 24, 1.0
+    check("scene_status: 24 fps is the default", btk.EnvUtils.scene_status()["default_fps"])
+    bpy.context.scene.render.fps_base = 1.001  # 23.98: not the default
+    check("scene_status: 23.98 fps is not", not btk.EnvUtils.scene_status()["default_fps"])
+    bpy.context.scene.render.fps_base = 1.0
+    check(
+        "scene_status: autosave mirrors the preference",
+        status["autosave"]
+        == bpy.context.preferences.filepaths.use_auto_save_temporary_files,
+    )
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+    # ---- is_workspace / saved_scene_path / get_recent_projects / find_workspace_using_path
+    # (mayatk's names: what tentacle's shared Workspace tab calls through ``self.tk``)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    check("saved_scene_path: an unsaved file is ''", btk.EnvUtils.saved_scene_path() == "")
+    _ws_root = tempfile.mkdtemp(prefix="btk_is_ws_")
+    try:
+        _plain = os.path.join(_ws_root, "plain")
+        _blends = os.path.join(_ws_root, "blends")
+        _marked = os.path.join(_ws_root, "marked")
+        for _d in (_plain, _blends, os.path.join(_marked, "scenes")):
+            os.makedirs(_d)
+        with open(os.path.join(_marked, "workspace.mel"), "w") as _f:
+            _f.write('//Maya Project Definition\n\nworkspace -fr "scene" "scenes";\n')
+        check("is_workspace: a plain folder is not one", not btk.EnvUtils.is_workspace(_plain))
+        check("is_workspace: '' is not one", not btk.EnvUtils.is_workspace(""))
+        check("is_workspace: a marked folder is one", btk.EnvUtils.is_workspace(_marked))
+        _shot = os.path.join(_blends, "shot.blend")
+        bpy.ops.wm.save_as_mainfile(filepath=_shot)
+        check("is_workspace: a folder of .blend files is one", btk.EnvUtils.is_workspace(_blends))
+        check(
+            "saved_scene_path: the saved file",
+            os.path.normcase(btk.EnvUtils.saved_scene_path()) == os.path.normcase(_shot),
+            btk.EnvUtils.saved_scene_path(),
+        )
+        check(
+            "find_workspace_using_path: the open file's folder of .blend files",
+            os.path.normcase(btk.EnvUtils.find_workspace_using_path() or "")
+            == os.path.normcase(_blends),
+            f"{btk.EnvUtils.find_workspace_using_path()}",
+        )
+        _inner = os.path.join(_marked, "scenes", "shot.blend")
+        check(
+            "find_workspace_using_path: a path in a marked project is that project",
+            os.path.normcase(btk.EnvUtils.find_workspace_using_path(_inner) or "")
+            == os.path.normcase(_marked),
+            f"{btk.EnvUtils.find_workspace_using_path(_inner)}",
+        )
+        check(
+            "find_workspace_using_path: a relative path is None",
+            btk.EnvUtils.find_workspace_using_path("shot.blend") is None,
+        )
+        _Env = btk.EnvUtils
+        _prior_recent = _Env.__dict__["get_recent_files"]  # the staticmethod itself
+        _Env.get_recent_files = staticmethod(
+            lambda index=None: [_shot, os.path.join(_plain, "x.blend"), _shot]
+        )
+        try:
+            _recent = btk.EnvUtils.get_recent_projects()
+            _first = btk.EnvUtils.get_recent_projects(0)
+        finally:
+            _Env.get_recent_files = _prior_recent
+        check(
+            "get_recent_projects: workspace folders of the recent files, once each",
+            [os.path.normcase(p) for p in _recent] == [os.path.normcase(_blends)],
+            f"{_recent}",
+        )
+        check(
+            "get_recent_projects(0): the most recent one",
+            os.path.normcase(_first) == os.path.normcase(_blends),
+            f"{_first}",
+        )
+    finally:
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        shutil.rmtree(_ws_root, ignore_errors=True)
+
+    # ---- working units + autosave by mayatk's names (the shared Preferences panel's calls)
+    check("APP_NAME names Blender", btk.EnvUtils.APP_NAME == "Blender")
+    _units = bpy.context.scene.unit_settings
+    _prior_units = (_units.system, _units.length_unit)
+    try:
+        check(
+            "set_linear_unit('Centimeter') -> metric centimeters",
+            btk.EnvUtils.set_linear_unit("Centimeter") == "centimeter"
+            and (_units.system, _units.length_unit) == ("METRIC", "CENTIMETERS"),
+        )
+        check("get_linear_unit reads it back", btk.EnvUtils.get_linear_unit() == "centimeter")
+        btk.EnvUtils.set_linear_unit("foot")
+        check(
+            "set_linear_unit('foot') -> imperial feet",
+            (_units.system, _units.length_unit) == ("IMPERIAL", "FEET")
+            and btk.EnvUtils.get_linear_unit() == "foot",
+        )
+        try:
+            btk.EnvUtils.set_linear_unit("yard")
+            check("set_linear_unit('yard') raises (no Blender unit)", False)
+        except ValueError:
+            check("set_linear_unit('yard') raises (no Blender unit)", True)
+        _units.system, _units.length_unit = "METRIC", "ADAPTIVE"
+        check("get_linear_unit: Adaptive is None", btk.EnvUtils.get_linear_unit() is None)
+        check(
+            "SCENE_UNIT_VALUES are the units set_linear_unit takes",
+            set(btk.EnvUtils.SCENE_UNIT_VALUES) == set(btk.EnvUtils._LENGTH_UNITS),
+        )
+    finally:
+        _units.system, _units.length_unit = _prior_units
+    _rates = btk.EnvUtils.frame_rates()
+    check(
+        "frame_rates: the video rates by mayatk's names, no audio units",
+        _rates.get("film") == 24.0 and "44100fps" not in _rates and "48000fps" not in _rates,
+        f"{_rates}",
+    )
+    _paths = bpy.context.preferences.filepaths
+    _prior_save = (_paths.save_version, _paths.use_auto_save_temporary_files, _paths.auto_save_time)
+    try:
+        btk.EnvUtils.set_autosave_settings(max_backups=3, interval=0)
+        check(
+            "set_autosave_settings: versions kept, interval 0 turns Auto Save off",
+            _paths.save_version == 3
+            and not _paths.use_auto_save_temporary_files
+            and btk.EnvUtils.autosave_settings() == {"max_backups": 3, "interval": 0},
+        )
+        btk.EnvUtils.set_autosave_settings(interval=4)
+        check(
+            "set_autosave_settings: an interval turns Auto Save on",
+            _paths.use_auto_save_temporary_files
+            and btk.EnvUtils.autosave_settings()["interval"] == 4,
+        )
+    finally:
+        _paths.save_version, _paths.use_auto_save_temporary_files, _paths.auto_save_time = _prior_save
+
+    # ---- python_executable: the interpreter the shared updater drives pip with
+    _py = btk.EnvUtils.python_executable()
+    check("python_executable is an existing interpreter", bool(_py) and os.path.isfile(_py), f"{_py}")
+
+    # ---- the Scene panel's host half: recent files, the foreign scene, file commands,
+    # the dense-export count and Export Scene's writer
+    check(
+        "get_recent_files / get_recent_autosave live on EnvUtils (mayatk's home)",
+        isinstance(btk.EnvUtils.get_recent_files(), list)
+        and isinstance(btk.EnvUtils.get_recent_autosave(filter_time=24), list)
+        and not hasattr(btk.CoreUtils, "get_recent_files")
+        and not hasattr(btk.CoreUtils, "get_recent_autosave"),
+    )
+    from blendertk.env_utils.maya_bridge._maya_bridge import MayaBridge
+    from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
+
+    check(
+        "foreign_scene_bridge / foreign_scene_import: the Maya bridge and its pull engine",
+        btk.EnvUtils.foreign_scene_bridge() is MayaBridge
+        and MayaBridge.spec.app.name == "Maya"
+        and btk.EnvUtils.foreign_scene_import() is MayaSceneImport
+        and MayaSceneImport.SCENE_EXTENSIONS == (".ma", ".mb"),
+    )
+    _imports = btk.EnvUtils.get_file_commands("import")
+    _exports = btk.EnvUtils.get_file_commands("export")
+    check(
+        "get_file_commands: Blender's registered import / export operators, by name",
+        {"Import OBJ", "Append from .blend", "Link from .blend"} <= set(_imports)
+        and {"Export Selection", "Export FBX", "Export OBJ", "Export glTF"}
+        <= set(_exports),
+        f"{_imports} | {_exports}",
+    )
+    try:
+        btk.EnvUtils.run_file_command("Import Nothing")
+        _unknown = False
+    except ValueError:
+        _unknown = True
+    check("run_file_command: an unknown name is a ValueError", _unknown)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    try:
+        btk.EnvUtils.run_file_command("Export Selection")
+        _refused = ""
+    except ValueError as _error:
+        _refused = str(_error)
+    check(
+        "run_file_command: Export Selection with nothing selected says so",
+        "requires a selection" in _refused,
+        _refused,
+    )
+
+    bpy.ops.mesh.primitive_cube_add()
+    _tri_cube = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    btk.CoreUtils.select([_tri_cube])
+    _all_tris = btk.EnvUtils.scene_triangle_count()
+    _sel_tris = btk.EnvUtils.scene_triangle_count(selection_only=True)
+    check(
+        "scene_triangle_count: the scene, and the selection",
+        (_all_tris, _sel_tris) == (24, 12),
+        f"{_all_tris} / {_sel_tris}",
+    )
+    _export_dir = tempfile.mkdtemp(prefix="btk_export_scene_")
+    try:
+        _written = {
+            fmt: btk.EnvUtils.export_scene(
+                os.path.join(_export_dir, f"scene.{fmt}"), fmt, embed_textures=False
+            )
+            for fmt in ("fbx", "obj")
+        }
+        check(
+            "export_scene writes FBX and OBJ through the host's writers",
+            all(os.path.isfile(path) for path in _written.values()),
+            f"{_written}",
+        )
+        try:
+            btk.EnvUtils.export_scene(os.path.join(_export_dir, "x.abc"), "abc")
+            _bad = False
+        except ValueError:
+            _bad = True
+        check("export_scene: an unknown format is a ValueError", _bad)
+    finally:
+        shutil.rmtree(_export_dir, ignore_errors=True)
+
+    # ---- get_env_info: mayatk's call by behavior -- its key names, a KeyError for
+    # an unknown key, '|'-joined keys answered as a list. Added: 2026-10-29
+    _env = btk.EnvUtils
+    _info = _env.get_env_info()
+    _mayatk_names = {
+        "version", "renderer", "workspace", "workspace_dir", "workspace_path",
+        "sourceimages", "scene", "scene_name", "scene_path", "scene_modified",
+        "linear_units", "time_units", "batch_mode", "application",
+        "current_frame", "frame_range", "available_cameras", "up_axis",
+        "total_polys", "total_nodes",
+    }
+    check(
+        "get_env_info(): mayatk's key names, nothing else",
+        _mayatk_names <= set(_info)
+        and not any(any(c.isupper() for c in k) for k in _info),
+        sorted(_info),
+    )
+    check(
+        "get_env_info('version') / ('scene'): Blender's version, the .blend's path",
+        _env.get_env_info("version") == bpy.app.version_string
+        and _env.get_env_info("scene") == (bpy.data.filepath or ""),
+    )
+    _settings = _env.scene_settings()
+    check(
+        "get_env_info('current_frame|frame_range'): a '|'-joined key is a list",
+        _env.get_env_info("current_frame|frame_range")
+        == [bpy.context.scene.frame_current,
+            (_settings["frame_start"], _settings["frame_end"])],
+        _env.get_env_info("current_frame|frame_range"),
+    )
+    check(
+        "get_env_info('batch_mode') under --background; up_axis z",
+        _env.get_env_info("batch_mode") is True and _env.get_env_info("up_axis") == "z",
+    )
+    try:
+        _env.get_env_info("blenderVersion")
+        _raised = False
+    except KeyError:
+        _raised = True
+    check("get_env_info: an unknown key is a KeyError, as mayatk's", _raised)
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

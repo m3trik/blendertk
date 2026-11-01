@@ -17,13 +17,12 @@ import traceback
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)  # blendertk/
 MONO = os.path.dirname(REPO)  # _scripts/
-# Full ecosystem on path so blendertk's uitk-backed Slots classes can resolve
-# (those needing Qt are skipped gracefully under --background, which has none).
+# blendertk and the packages it imports on path, so its uitk-backed modules can
+# resolve (those needing Qt are skipped gracefully under --background, which has none).
 for _p in (
     REPO,
     os.path.join(MONO, "pythontk"),
     os.path.join(MONO, "uitk"),
-    os.path.join(MONO, "tentacle"),
     os.path.join(MONO, "unitytk"),
     os.path.join(MONO, "m3trik", "scripts"),
 ):

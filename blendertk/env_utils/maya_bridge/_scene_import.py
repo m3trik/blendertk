@@ -265,6 +265,10 @@ class MayaSceneImport(ptk.LoggingMixin):
     Scriptable and synchronous; async affordances belong to the calling UI layer.
     """
 
+    #: The scene files this engine converts (Maya's own): what an Import Maya Scene
+    #: browser offers. Twin of mayatk's ``BlenderSceneImport.SCENE_EXTENSIONS``.
+    SCENE_EXTENSIONS = SUPPORTED_EXTENSIONS
+
     #: The largest deviation an ``"extremes"`` key reduction may leave on any curve, in
     #: the curve's own units (metres, radians, scale factor). Absolute, not the level's
     #: default of 1% of each curve's amplitude: measured on a production conversion
@@ -2017,24 +2021,23 @@ class MayaSceneImport(ptk.LoggingMixin):
                 )
             objs = [by_path[p] for p in group]
             master, rest = objs[0], objs[1:]
-            # Snapshot each follower's materials BEFORE its data is swapped --
-            # material_slots is derived from the mesh, so the swap rewrites it.
-            per_object = [[s.material for s in o.material_slots] for o in rest]
-            master_mats = [s.material for s in master.material_slots]
-            for obj, mats in zip(rest, per_object):
+            # Snapshot every member's material PER FACE before its data is swapped:
+            # the face -> slot map lives on the MESH, so the swap hands a follower
+            # the master's map. Comparing slot lists instead left a whole-Red
+            # follower beside a Wood + Metal master half Red, half Metal, and one
+            # with the two materials swapped took the master's split (measured).
+            per_face = [self._face_materials(o) for o in objs]
+            changed = False
+            for obj in rest:
                 if obj.data is master.data:
                     continue
                 previous = obj.data
                 obj.data = master.data
                 orphaned.append(previous)
                 relinked += 1
-                if mats == master_mats:
-                    continue  # agreed with the master -- DATA linkage is right
-                for slot, mat in zip(obj.material_slots, mats):
-                    if mat is None:
-                        continue
-                    slot.link = "OBJECT"  # per-instance shader, Blender's way
-                    slot.material = mat
+                changed = True
+            if changed:
+                self._share_face_materials(objs, per_face)
         # Drop the meshes the re-link displaced. Blender would not save a
         # 0-user datablock anyway, but leaving them costs the running session
         # the very memory the sharing exists to reclaim -- and the memory
@@ -2057,6 +2060,71 @@ class MayaSceneImport(ptk.LoggingMixin):
                 f"{len(groups)} Maya instance set(s); {purged} displaced mesh(es) freed."
             )
         return relinked
+
+    @staticmethod
+    def _face_materials(obj: Any) -> List[Any]:
+        """*obj*'s material per face as it renders (an OBJECT-linked slot included)."""
+        slots = [s.material for s in obj.material_slots]
+        if not slots:
+            return [None] * len(obj.data.polygons)
+        last = len(slots) - 1
+        return [slots[min(p.material_index, last)] for p in obj.data.polygons]
+
+    @staticmethod
+    def _share_face_materials(objs: List[Any], per_face: List[List[Any]]) -> None:
+        """Dress linked duplicates so each renders its own *per_face* materials.
+
+        *objs* share ``objs[0].data``; *per_face* is each one's
+        :meth:`_face_materials` from before the share. Blender keeps the face ->
+        slot map on the MESH and lets an object override only a slot's material
+        (``link = "OBJECT"``, Blender's per-instance shader), so every slot has to
+        cover faces each member shades alike. When one does not -- a member split
+        differently from the master -- the shared mesh's slots are refined to the
+        members' common partition first. The master renders as it did, a member
+        that agrees keeps DATA linkage, and a face a member left without a
+        material keeps the master's (topology that does not match keeps all of
+        the master's).
+        """
+        mesh = objs[0].data
+        base = per_face[0]
+        count = len(mesh.polygons)
+        rows = [base] + [
+            [m if m is not None else b for m, b in zip(row, base)]
+            if len(row) == count
+            else base
+            for row in per_face[1:]
+        ]
+        keys = list(zip(*rows))  # per face: every member's material
+        if not any(m is not None for key in keys for m in key):
+            return  # nothing anyone shades
+        last = max(len(mesh.materials) - 1, 0)
+        covers: Dict[int, set] = {}
+        for poly, key in zip(mesh.polygons, keys):
+            covers.setdefault(min(poly.material_index, last), set()).add(key)
+        if not mesh.materials or any(len(k) > 1 for k in covers.values()):
+            layout = list(dict.fromkeys(keys))
+            mesh.materials.clear()
+            for key in layout:
+                mesh.materials.append(key[0])
+            slot_of = {key: i for i, key in enumerate(layout)}
+            for poly, key in zip(mesh.polygons, keys):
+                poly.material_index = slot_of[key]
+            slot_keys = layout
+        else:
+            slot_keys = [
+                next(iter(covers[i])) if i in covers else None
+                for i in range(len(mesh.materials))
+            ]
+        for j, obj in enumerate(objs):
+            for i, (slot, key) in enumerate(zip(obj.material_slots, slot_keys)):
+                if key is None:
+                    continue  # a slot no face uses
+                if key[j] == mesh.materials[i]:
+                    if slot.link != "DATA":
+                        slot.link = "DATA"
+                    continue
+                slot.link = "OBJECT"
+                slot.material = key[j]
 
     def _rollback_import(self, imported: List[Any]) -> None:
         """Remove *imported* objects and the mesh data only they used.

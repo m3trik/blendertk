@@ -1,8 +1,8 @@
-"""Headless suite for blendertk.mat_utils.emissive_groups.EmissiveGroups.
-
-Mirror-contract checks: same registry schema, slot stability, manifest wire
-format, and bake behaviors as mayatk's EmissiveGroups (test_emissive_groups.py
-on the Maya side covers the same surface).
+"""Headless suite for blendertk's Emissive Groups (``mat_utils/emissive_groups.py``):
+pythontk's model over the Blender half -- the same registry schema, slot
+stability, manifest wire format and bake behaviors as mayatk's
+(``test_emissive_groups.py`` there, in a fresh Maya), plus Blender's own
+curve-proxy transport and its FBX round trip.
 
 Run: blender --background --factory-startup --python blendertk/test/test_emissive_groups.py
 """
@@ -14,8 +14,8 @@ import tempfile
 import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(HERE)
-MONO = os.path.dirname(REPO)
+REPO = os.path.dirname(HERE)  # blendertk/
+MONO = os.path.dirname(REPO)  # _scripts/
 for p in (REPO, os.path.join(MONO, "pythontk")):
     if p not in sys.path:
         sys.path.insert(0, p)
@@ -33,8 +33,13 @@ try:
     import bpy
 
     import pythontk as ptk
-    from blendertk.mat_utils.emissive_groups import EmissiveGroups
-    from blendertk.node_utils.data_nodes import DataNodes
+    import blendertk as btk
+    from blendertk.mat_utils.emissive_groups import (
+        BlenderEmissiveGroups,
+        EmissiveGroups,
+    )
+
+    DataNodes = btk.DataNodes
 
     # Fresh scene with one cube (factory startup ships one; make it explicit).
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -121,14 +126,14 @@ try:
             if c.startswith(screen_ctx)
         }
     )
-    check("no screen-context reads in the engine", not offenders, offenders)
+    check("no screen-context reads in the Blender half", not offenders, offenders)
 
     for obj in bpy.data.objects:
         obj.select_set(obj.name == "eg_cube")
     check(
         "selection resolves via the view layer",
-        list(EmissiveGroups._faces_from()) == ["eg_cube"],
-        list(EmissiveGroups._faces_from()),
+        list(EmissiveGroups.HOST.faces()) == ["eg_cube"],
+        list(EmissiveGroups.HOST.faces()),
     )
 
     # --- scene hygiene: authoring must not create the export carrier -------
@@ -167,7 +172,7 @@ try:
 
     EmissiveGroups.key_weight("top", value=1.0, frame=1)
     EmissiveGroups.key_weight("top", value=0.0, frame=10)
-    fc = EmissiveGroups._weight_fcurve("top")
+    fc = BlenderEmissiveGroups._weight_fcurve("emissiveGroup_top")
     check("keyed 2 frames", fc is not None and len(fc.keyframe_points) == 2)
     check(
         "key values",
@@ -190,7 +195,7 @@ try:
     )
     EmissiveGroups.set_default("top", 0.5)  # keyed: animation owns the value
     check(
-        "keyed prop keeps its fcurve", EmissiveGroups._weight_fcurve("top") is not None
+        "keyed prop keeps its fcurve", BlenderEmissiveGroups._weight_fcurve("emissiveGroup_top") is not None
     )
 
     removed = EmissiveGroups.remove_keyable_weights()
@@ -283,7 +288,7 @@ try:
 
     # No path: the file's project texture folder (mayatk's folder for a scene
     # in that project), never temp -- an unsaved file uses the workspace set.
-    from blendertk.env_utils._env_utils import EnvUtils
+    EnvUtils = btk.EnvUtils
 
     _prev_pin = EnvUtils.workspace_root() or None
     ws = tempfile.mkdtemp()
@@ -321,8 +326,8 @@ try:
     # --- keyed-weight curve transport (export proxies) ---------------------
     # Fresh scene: the FBX round-trip below imports objects, which must not
     # bleed into the sections above.
-    from blendertk.anim_utils._anim_utils import AnimUtils
-    from blendertk.env_utils.fbx_utils import FbxUtils
+    AnimUtils = btk.AnimUtils
+    FbxUtils = btk.FbxUtils
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.mesh.primitive_cube_add()
@@ -435,6 +440,47 @@ try:
         any("Leftover export curve proxy" in w for w in EmissiveGroups.validate()),
     )
     EmissiveGroups.remove_export_curve_proxies()
+
+    # --- the stager reads the registry alone; the engine's meanings kept ----
+    check(
+        "weight_attrs names the keyable groups from the registry",
+        all(a.startswith("emissiveGroup_") for a in EmissiveGroups.weight_attrs().values())
+        and set(EmissiveGroups.weight_attrs()) <= set(EmissiveGroups.list_groups()),
+        EmissiveGroups.weight_attrs(),
+    )
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_cube_add()
+    gone = bpy.context.active_object
+    gone.name = "eg_gone"
+    EmissiveGroups.add_group("cleared", {"eg_gone": [2]})
+    attr = gone.data.attributes["emissiveGroup_cleared"]
+    for item in attr.data:
+        item.value = False  # every member face deleted from the group
+    check(
+        "a group with no member face reads missing",
+        EmissiveGroups.list_groups()["cleared"]["missing"] is True,
+        EmissiveGroups.list_groups()["cleared"],
+    )
+    for obj in bpy.data.objects:
+        obj.select_set(obj.name == "eg_gone")
+    # An EMPTY face map is no faces, as in Maya -- never the selection: it
+    # raised there and authored a group from whatever was selected here.
+    refused = ""
+    try:
+        EmissiveGroups.add_group("unpicked", {})
+    except ValueError as exc:
+        refused = str(exc)
+    check(
+        "an empty face map is no faces, not the selection (as in Maya)",
+        "No faces" in refused and "unpicked" not in EmissiveGroups.list_groups(),
+        refused or EmissiveGroups.list_groups().get("unpicked"),
+    )
+    EmissiveGroups.add_group("picked")
+    check(
+        "no face map takes the selection",
+        EmissiveGroups.list_groups()["picked"]["faces"] == 6,
+        EmissiveGroups.list_groups()["picked"],
+    )
 
 except Exception:
     traceback.print_exc()

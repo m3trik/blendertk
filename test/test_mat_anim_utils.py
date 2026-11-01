@@ -839,6 +839,90 @@ try:
         all(n.image is None for n in nob.node_tree.nodes if n.type == "TEX_IMAGE"),
     )
 
+    # ---- ShaderTemplates: mayatk's template API (tentacle's Shader Templates panel) ----
+    import logging as _logging
+
+    st_records = []
+
+    class _StCapture(_logging.Handler):
+        def emit(self, record):
+            st_records.append(record.getMessage())
+
+    st_log = _logging.getLogger("btk_shader_templates_check")
+    st_log.setLevel(_logging.INFO)
+    st_log.propagate = False
+    st_log.addHandler(_StCapture())
+
+    bpy.ops.mesh.primitive_cube_add()
+    st_carrier = bpy.context.active_object
+    btk.assign_mat([st_carrier], src_mat)
+    check(
+        "ShaderTemplates.suggested_name offers the captured material's name",
+        btk.ShaderTemplates.suggested_name([st_carrier]) == "STSource"
+        and btk.ShaderTemplates.suggested_name([]) == "",
+    )
+    st_path = os.path.join(st_tmp, "user", "Brick Template.json")
+    btk.ShaderTemplates.save_template(
+        [st_carrier],
+        st_path,
+        exclude_types=list(btk.ShaderTemplates.EXCLUDE_TYPES),
+        logger=st_log,
+    )
+    with open(st_path, encoding="utf-8") as fh:
+        st_saved = _json.load(fh)
+    check(
+        "save_template writes the carried material's graph",
+        len(st_saved.get("nodes") or []) == len(snap["nodes"]),
+        f"{len(st_saved.get('nodes') or [])} vs {len(snap['nodes'])}",
+    )
+    check(
+        "save_template announces the save",
+        any("saved to" in m for m in st_records),
+        f"{st_records}",
+    )
+    st_empty = os.path.join(st_tmp, "user", "Nothing.json")
+    btk.ShaderTemplates.save_template([], st_empty, logger=st_log)
+    check("save_template without a material writes nothing", not os.path.exists(st_empty))
+
+    bpy.ops.mesh.primitive_cube_add()
+    st_target = bpy.context.active_object
+    btk.CoreUtils.select([st_target])
+    st_records.clear()
+    st_built = btk.ShaderTemplates.restore_template(
+        st_path, texture_paths=fresh, logger=st_log
+    )
+    st_mat = next(iter(st_built.values()), None)
+    check(
+        "restore_template rebuilds the template as a material named for it",
+        st_mat is not None
+        and st_mat.name.startswith("Brick Template")
+        and len(st_mat.node_tree.links) >= 3,
+        f"{st_built}",
+    )
+    check(
+        "restore_template assigns the material to the selected meshes",
+        st_mat is not None and st_target.active_material == st_mat,
+    )
+    check(
+        "restore_template announces what it built",
+        any(m.startswith("Network created") for m in st_records),
+        f"{st_records}",
+    )
+    check(
+        "restore_template of an unreadable file builds nothing",
+        btk.ShaderTemplates.restore_template(
+            os.path.join(st_tmp, "missing.json"), logger=st_log
+        )
+        == {},
+    )
+    st_store = btk.ShaderTemplates.store()
+    check(
+        "ShaderTemplates.store() is blendertk's user tier",
+        (st_store.package, st_store.name) == ("blendertk", "shader_templates"),
+    )
+    for st_obj in (st_carrier, st_target):
+        bpy.data.objects.remove(st_obj, do_unlink=True)
+
     shutil.rmtree(st_tmp, ignore_errors=True)
 
     # ---- material updater (MatUpdater engine) -------------------------------
@@ -886,6 +970,48 @@ try:
         "materials_for_textures: unreferenced path -> []",
         btk.materials_for_textures([os.path.join(mu_tmp, "ghost_tex.png")]) == []
         and btk.materials_for_textures([]) == [],
+    )
+
+    # MatUpdater's scope + choices: what the shared tentacle panel calls (mayatk's names).
+    from blendertk.mat_utils._mat_utils import MatUpdater as _MU
+
+    hit = _MU.materials_using_textures([os.path.join(mu_tmp, "MUBrowse_Diffuse.png")])
+    check(
+        "MatUpdater.materials_using_textures: the panel's Browse scope",
+        [m.name for m in hit] == ["MU_Browse"],
+        f"{[m.name for m in hit]}",
+    )
+    mu_obj = bpy.data.objects.new("MU_SelObj", bpy.data.meshes.new("MU_SelMesh"))
+    bpy.context.scene.collection.objects.link(mu_obj)
+    mu_obj.data.materials.append(mat_b)
+    bpy.ops.object.select_all(action="DESELECT")
+    check("MatUpdater.selected_materials: nothing selected -> []", _MU.selected_materials() == [])
+    mu_obj.select_set(True)
+    picked = _MU.selected_materials(shader_type=None)
+    check(
+        "MatUpdater.selected_materials: the selected object's materials",
+        picked == [mat_b],
+        f"{[m.name for m in picked]}",
+    )
+    bpy.ops.object.select_all(action="DESELECT")
+    check(
+        "MatUpdater: nothing to retype to, no source-file transfer",
+        _MU.shader_type_choices() == [] and _MU.TRANSFER_MODES == (),
+    )
+    check(
+        "MatUpdater.texture_root is the workspace",
+        _MU.texture_root() == (btk.get_env_info("workspace") or ""),
+        _MU.texture_root(),
+    )
+    refused = ""
+    try:
+        _MU.update_materials(materials=[bare], shader_type="stingray")
+    except ValueError as exc:
+        refused = str(exc)
+    check("update_materials refuses a shader_type", "Principled" in refused, refused)
+    check(
+        "update_materials(shader_type=None) runs (mayatk's signature)",
+        _MU.update_materials(materials=[bare], shader_type=None) == {},
     )
 
     # Dry run reports a plan and does NOT touch the image path (no PIL / no install needed).
@@ -1946,7 +2072,7 @@ try:
     dst, _dst_fc = _fresh((0, 5))
     log, hooks = _hooks()
     err = _try(
-        btk.paste_keys, [dst], btk.copy_keys(src), on_replace=hooks["on_replace"]
+        btk.paste_keys, [dst], btk.copy_keys(src, mode="action"), on_replace=hooks["on_replace"]
     )
     check(
         "paste_keys(action): the target's keys the new action does not hold are replaced",
@@ -2257,7 +2383,7 @@ try:
         f"curves={[fc.data_path for fc in vis_curves]}",
     )
 
-    action = btk.copy_keys(a)
+    action = btk.copy_keys(a, mode="action")
     btk.paste_keys(b, action)
     check(
         "copy/paste keys independent copy",
@@ -2881,16 +3007,28 @@ try:
     orphan_me = bpy.data.meshes.new("OrphanMesh")  # 0 users -> purged
     keep_me = bpy.data.meshes.new("KeepMesh")
     keep_me.use_fake_user = True  # survives
-    removed = btk.cleanup_scene(quiet=True)
+    # Scene Cleanup runs Blender's own purge (the hand-rolled cleanup_scene retired).
+    removed = btk.CoreUtils.purge_unused_data()
     mesh_names = [m.name for m in bpy.data.meshes]
     check(
-        "cleanup_scene purges orphans, keeps fake-user + in-use",
+        "purge_unused_data purges orphans, keeps fake-user + in-use",
         "OrphanMesh" not in mesh_names
         and "KeepMesh" in mesh_names
         and big.data.name in mesh_names
-        and removed.get("meshes", 0) >= 1,
+        and removed >= 1,
         f"{removed}",
     )
+    try:
+        btk.CoreUtils.cleanup_scene
+        retired = False
+    except AttributeError:
+        retired = True
+    try:
+        btk.cleanup_scene
+        moved = False
+    except AttributeError as e:  # MovedNameError names the one purge
+        moved = "purge_unused_data" in str(e)
+    check("cleanup_scene is retired for purge_unused_data", retired and moved)
 
     # ---- fix_color_spaces ---------------------------------------------------
     def _mk_img(name, filepath, space):

@@ -6,12 +6,16 @@
 Holds :meth:`UvDiagnostics.is_bakeable_lightmap`, the mirror name of the
 reuse-or-regenerate test the lightmap UV stage asks; the check itself is
 ``UvUtils._is_bakeable_lightmap``, beside ``create_lightmap_uvs`` (uv_utils ranks below
-the diagnostics). mayatk answers it with Maya's own ``polyUVOverlap`` /
+the diagnostics). :meth:`UvDiagnostics.find_lightmap_uv_set` is mayatk's home for the
+lightmap-layer lookup; its body is ``UvUtils.find_lightmap_uv_set``, which the parts
+below the diagnostics (the lightmap baker, the UV stage) call. mayatk answers it with Maya's own ``polyUVOverlap`` /
 ``polyEvaluate``; Blender has no such query, so the overlap is measured by
 ``ptk.UvTransfer.layout_overlaps`` over the mesh's loop triangles.
 ``import bpy`` is never needed: everything is read off the mesh datablock.
 """
 
+# Eager: ``CoreUtils.undoable`` decorates ``cleanup_uv_sets`` while the class body runs.
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.uv_utils._uv_utils import LIGHTMAP_OVERLAP_TOLERANCE, UvUtils
 
 
@@ -37,3 +41,41 @@ class UvDiagnostics(object):
             uv_set: The UV layer's name.
         """
         return UvUtils._is_bakeable_lightmap(obj, uv_set, cls.OVERLAP_TOLERANCE)
+
+    @staticmethod
+    def find_lightmap_uv_set(obj):
+        """Name of *obj*'s existing lightmap UV layer, or ``None`` -- mirror of
+        mayatk's ``UvDiagnostics.find_lightmap_uv_set``. The lookup is
+        ``UvUtils.find_lightmap_uv_set`` (uv_utils ranks below the diagnostics).
+
+        Parameters:
+            obj: A mesh object.
+        """
+        return UvUtils.find_lightmap_uv_set(obj)
+
+    @staticmethod
+    @CoreUtils.undoable
+    def cleanup_uv_sets(
+        objects,
+        remove_empty=True,
+        keep_only_primary=True,
+        rename_to_map1=True,
+        force_rename=False,
+        prefer_largest_area=False,
+        dry_run=False,
+    ):
+        """Clean up the meshes' UV maps -- mirror of mayatk's
+        ``Diagnostics.cleanup_uv_sets`` (its defaults): the check is
+        ``UvUtils.cleanup_uv_sets``, uv_utils ranking below the diagnostics. One
+        undo step. Each result row reads mayatk's field names too (``shape``,
+        ``sets_to_delete``).
+        """
+        return UvUtils.cleanup_uv_sets(
+            objects,
+            remove_empty=remove_empty,
+            keep_only_primary=keep_only_primary,
+            rename_to_map1=rename_to_map1,
+            force_rename=force_rename,
+            prefer_largest_area=prefer_largest_area,
+            dry_run=dry_run,
+        )

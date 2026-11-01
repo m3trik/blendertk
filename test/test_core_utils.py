@@ -44,8 +44,21 @@ try:
     # 1. normal reads (window present)
     check("selected_objects() -> [cube]", btk.selected_objects() == [cube])
     check("active_object() -> cube", btk.active_object() is cube)
+    check(
+        "CoreUtils.active_view_layer() is the context's layer",
+        btk.CoreUtils.active_view_layer() == bpy.context.view_layer,
+    )
     check("selected_objects() matches view_layer.objects.selected",
           btk.selected_objects() == [o for o in bpy.context.view_layer.objects.selected])
+
+    # leaf_name: a node's name as shown (mayatk's); suspended_refresh: a no-op hold
+    check("CoreUtils.leaf_name: an object's name, a string as it is, a path's leaf",
+          (btk.CoreUtils.leaf_name(cube), btk.CoreUtils.leaf_name("Lamp"),
+           btk.CoreUtils.leaf_name("|grp|Lamp")) == (cube.name, "Lamp", "Lamp"))
+    held = False
+    with btk.CoreUtils.suspended_refresh():
+        held = True
+    check("CoreUtils.suspended_refresh runs its block as it is", held)
 
     # 2. THE REGRESSION: from a window-less context (the Qt event-pump timer condition), the
     #    screen-context members go empty while the view-layer readers stay correct.
@@ -252,16 +265,15 @@ try:
 
     # The five call sites agree with the primitive.
     from blendertk.edit_utils._edit_utils import _EditUtilsInternal
-    from blendertk.core_utils.auto_instancer.instancing_strategy import (
-        InstancingStrategy, StrategyConfig,
-    )
+    from blendertk.core_utils.auto_instancer._auto_instancer import AutoInstancer
 
     expected_tris = old_idiom(grid.data)[0]
     check("EditUtils._mesh_metrics 'triangle' matches the primitive",
           _EditUtilsInternal._mesh_metrics(grid, ["triangle"]) == [expected_tris],
           str(_EditUtilsInternal._mesh_metrics(grid, ["triangle"])))
     check("InstancingStrategy._get_triangle_count matches the primitive",
-          InstancingStrategy(StrategyConfig())._get_triangle_count(grid) == expected_tris)
+          AutoInstancer(verbose=False).strategy_analyzer._get_triangle_count(grid)
+          == expected_tris)
     info = btk.get_scene_info(objects=[grid])
     check("get_scene_info triangles/ngons match the primitive",
           (info["triangles"], info["ngons"]) == _CoreUtilsInternal._mesh_face_counts(grid.data),
@@ -504,6 +516,46 @@ try:
             _raised and _sel_state() == (None, []),
         )
 
+    # --- select: Blender's cmds.select (replace / add / remove, the first one active) -------
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    sa = bpy.context.view_layer.objects.active
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    sb_ = bpy.context.view_layer.objects.active
+    bpy.ops.mesh.primitive_cube_add(location=(6, 0, 0))
+    sc = bpy.context.view_layer.objects.active
+    _vl = bpy.context.view_layer
+    done = btk.CoreUtils.select([sb_, None, sa])
+    check(
+        "select: replaces the selection, skips None, makes the first active",
+        done == [sb_, sa] and _sel_state() == (sb_, sorted([sa.name, sb_.name])),
+        f"{done} {_sel_state()}",
+    )
+    btk.CoreUtils.select([sc], mode="add")
+    check("select: add keeps the rest", len(_sel_state()[1]) == 3 and _vl.objects.active == sc)
+    btk.CoreUtils.select([sa, sc], mode="remove")
+    check("select: remove deselects only those", _sel_state()[1] == [sb_.name], f"{_sel_state()}")
+    btk.CoreUtils.select([])
+    check("select: replace with nothing clears the active too", _sel_state() == (None, []))
+    sc.hide_set(True)
+    check("select: a hidden object takes no select and is left out",
+          btk.CoreUtils.select([sa, sc]) == [sa], f"{_sel_state()}")
+    sc.hide_set(False)
+    # measured: removing objects, then linking a new one, left the layer's iteration
+    # reading a stale ``None`` until the active object was read (the resync)
+    for o in list(bpy.data.objects):
+        bpy.data.objects.remove(o, do_unlink=True)
+    fresh = bpy.data.objects.new("fresh", bpy.data.meshes.new("fresh"))
+    bpy.context.scene.collection.objects.link(fresh)  # data API: no operator resync
+    check("select: right after removals (a stale layer entry) still selects",
+          btk.CoreUtils.select([fresh]) == [fresh] and _vl.objects.active == fresh)
+    try:
+        btk.CoreUtils.select([fresh], mode="toggle")
+    except ValueError:
+        check("select: an unknown mode raises ValueError", True)
+    else:
+        check("select: an unknown mode raises ValueError", False)
+
     # --- edit_mode: the Edit-Mode bracket (scope alone, then prior state back) --------------
     reset()
     bpy.ops.mesh.primitive_cube_add()
@@ -668,15 +720,9 @@ try:
                 with btk.CoreUtils.visible_override([m2]):
                     return m2.visible_get(view_layer=win_vl)
 
-            # The lightmap panel's reads: a light in a collection EXCLUDED from the
-            # window's layer only (the bake renders the window's layer), and a panel
-            # over stub widgets for the Scope / Exclude reads.
-            from types import SimpleNamespace as _NS
-
-            from blendertk.light_utils.lightmap_baker import (
-                lightmap_baker_slots as _lm_slots,
-            )
-
+            # The Lightmap Baker's reads: a light in a collection EXCLUDED from the
+            # window's layer only (the bake renders the window's layer), and the
+            # Scope / selection API its shared panel calls.
             def window_light():
                 coll = bpy.data.collections.get("PumpLights")
                 if coll is None:
@@ -687,28 +733,6 @@ try:
                     )
                     coll.objects.link(lamp)
                 win_vl.layer_collection.children[coll.name].exclude = True
-
-            def lm_panel(scope="Visible"):
-                panel = _lm_slots.LightmapBakerSlots.__new__(_lm_slots.LightmapBakerSlots)
-                texts = []
-                panel.ui = _NS(
-                    cmb_scope=_NS(currentText=lambda: scope),
-                    footer=_NS(setText=texts.append, text=lambda: texts[-1]),
-                )
-                panel._refresh_set_row = lambda _row: None
-                return panel
-
-            def select_exclusions():
-                panel = lm_panel()
-                rows = _lm_slots.LightmapBakerSlots._SET_ROWS
-                # The row's set, on this panel alone (the class table stays).
-                panel._SET_ROWS = {
-                    **rows,
-                    "set_exclusions": dict(
-                        rows["set_exclusions"], scene_set=_NS(members=lambda: [m2])
-                    ),
-                }
-                panel.select_exclusions()
 
             def lamp_row():
                 rows = btk.LightmapBaker._light_rows(bpy.context.scene)
@@ -823,16 +847,16 @@ try:
                     lambda r: "viewport_visible=False" in r,
                 ),
                 (
-                    "the lightmap panel's Visible scope reads the window layer",
+                    "LightmapBaker.scope_meshes('visible') reads the window layer",
                     hide_m2_in_window,
-                    lambda: lm_panel("Visible")._scope_objects(),
+                    lambda: btk.LightmapBaker.scope_meshes("visible"),
                     lambda r: m1 in r and m2 not in r,
                 ),
                 (
-                    "the lightmap panel's Select Exclusions selects in the window layer",
+                    "LightmapBaker.select selects in the window layer",
                     None,
-                    select_exclusions,
-                    lambda r: win_state() == (m2, [m2]),
+                    lambda: btk.LightmapBaker.select([m2]),
+                    lambda r: r == [m2] and win_state() == (m2, [m2]),
                 ),
             ]
             try:
@@ -976,10 +1000,24 @@ try:
     def undoable_edit(o):
         o["edit"] = 2
 
+    @CoreUtils.undoable
+    def nested_undoable(o):
+        o["inner"] = 1
+
+    def nested_edit(o):
+        # Maya's chunks nest, and a Blender chunk does too: global undo is off inside
+        # the outer one, so a nested undoable's or chunk's push records nothing and the
+        # outer push is the one step (the Wheel Rig's build nests freeze_transforms).
+        with CoreUtils.undo_chunk("Outer edit"):
+            nested_undoable(o)
+            with CoreUtils.undo_chunk("Inner edit"):
+                o["edit"] = 2
+
     for name, edit in (
         ("undo_chunk", chunk_edit),
         ("undo_push", push_edit),
         ("undoable", undoable_edit),
+        ("nested undo_chunk / undoable", nested_edit),
     ):
         try:
             got = undo_round(edit)
@@ -1111,6 +1149,10 @@ try:
     _LAYER_CALLS = ("select_set", "select_get", "hide_set", "hide_get", "visible_get")
     _SCREEN = ("selected_objects", "active_object", "object", "selected_editable_objects")
     _ALLOW = {
+        ("edit_utils/selection.py", "select_island"): "BMFace.select_set on an edit "
+        "bmesh, not an Object's view-layer state",
+        ("core_utils/diagnostics/mesh_diag.py", "_reselect_faces"): "BMFace.select_set "
+        "on an edit bmesh, not an Object's view-layer state",
         ("core_utils/_core_utils.py", "visible_override"): "reveals on the context's "
         "AND the window's layer on purpose",
         ("core_utils/diagnostics/scene_audit.py", "_visible"): "explicit view_layer "
@@ -1127,8 +1169,6 @@ try:
         ("edit_utils/selection.py", "_hide_get_safe"): "context-relative helper "
         "(select_by_type)",
         ("edit_utils/selection.py", "_select_uv_overlap"): "context-relative helper "
-        "(select_by_type)",
-        ("edit_utils/selection.py", "_apply_selection_mode"): "context-relative helper "
         "(select_by_type)",
         ("edit_utils/_edit_utils.py", "_apply_modifier"): "only called from "
         "@_object_mode functions",
@@ -1287,6 +1327,112 @@ try:
         "static: no select_set / hide_set inside a live view_layer.objects loop",
         not live,
         "; ".join(live),
+    )
+
+    # Replacing the selection is ``CoreUtils.select``: a hand-written loop over the
+    # layer's objects calling ``select_set`` misses the resync (a stale entry reads None).
+    loops = []
+    for dirpath, dirnames, filenames in os.walk(pkg_root):
+        dirnames[:] = [d for d in dirnames if d not in ("__pycache__", "templates")]
+        for fname in filenames:
+            if not fname.endswith(".py"):
+                continue
+            path = os.path.join(dirpath, fname)
+            with open(path, encoding="utf-8") as fh:
+                tree = ast.parse(fh.read())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.For):
+                    continue
+                it = node.iter
+                if isinstance(it, ast.Call) and _dotted(it.func) == "list" and it.args:
+                    it = it.args[0]
+                if not (
+                    isinstance(it, ast.Attribute)
+                    and it.attr == "objects"
+                    and ("view_layer" in _dotted(it.value) or _dotted(it.value) == "vl")
+                ):
+                    continue
+                if any(
+                    isinstance(n, ast.Call)
+                    and isinstance(n.func, ast.Attribute)
+                    and n.func.attr == "select_set"
+                    for stmt in node.body
+                    for n in ast.walk(stmt)
+                ):
+                    rel = os.path.relpath(path, pkg_root).replace(os.sep, "/")
+                    loops.append(f"{rel}:{node.lineno}")
+    check(
+        "static: selection is set through CoreUtils.select, not a layer loop",
+        not loops,
+        "; ".join(loops),
+    )
+
+    # --- ensure_component_mode / ensure_object_mode: Maya's component / object mode ----------
+    # (mayatk's names: what a Slots class shared by both hosts calls through ``self.tk``)
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    cm_mesh = bpy.context.view_layer.objects.active
+    bpy.ops.curve.primitive_bezier_curve_add(location=(4, 0, 0))
+    cm_curve = bpy.context.view_layer.objects.active
+    cm_vl = bpy.context.view_layer
+    cm_modes = bpy.context.scene.tool_settings
+    btk.CoreUtils.select([cm_mesh, cm_curve])
+    cm_vl.objects.active = cm_curve  # the active object is not of the type asked for
+    got = btk.CoreUtils.ensure_component_mode("mesh", "edge")
+    check(
+        "ensure_component_mode: a selected mesh that is not active is made active, edited",
+        got is cm_mesh
+        and cm_mesh.mode == "EDIT"
+        and cm_vl.objects.active is cm_mesh
+        and cm_curve.mode == "OBJECT",
+        f"got={getattr(got, 'name', got)} modes={cm_mesh.mode}/{cm_curve.mode}",
+    )
+    check(
+        "ensure_component_mode: the component mask is set",
+        tuple(cm_modes.mesh_select_mode) == (False, True, False),
+        f"{tuple(cm_modes.mesh_select_mode)}",
+    )
+    got = btk.CoreUtils.ensure_component_mode("MESH", "VERT")
+    check(
+        "ensure_component_mode: already editing -> the same object, Blender's names too",
+        got is cm_mesh
+        and cm_mesh.mode == "EDIT"
+        and tuple(cm_modes.mesh_select_mode) == (True, False, False),
+    )
+    check(
+        "ensure_object_mode: Edit Mode is left, True returned",
+        btk.CoreUtils.ensure_object_mode() is True and cm_mesh.mode == "OBJECT",
+    )
+    check("ensure_object_mode: a no-op in Object Mode", btk.CoreUtils.ensure_object_mode() is True)
+    btk.CoreUtils.select([cm_curve])
+    check(
+        "ensure_component_mode: no object of the type -> None, nothing entered",
+        btk.CoreUtils.ensure_component_mode("mesh") is None and cm_curve.mode == "OBJECT",
+    )
+    check(
+        "ensure_component_mode: a curve enters Edit Mode for the curve type",
+        btk.CoreUtils.ensure_component_mode("curve") is cm_curve and cm_curve.mode == "EDIT",
+    )
+    btk.CoreUtils.ensure_object_mode()
+    # the Qt-pump state (no context window): both still act on the window's layer
+    btk.CoreUtils.select([cm_mesh])
+    with bpy.context.temp_override(window=None):
+        got = btk.CoreUtils.ensure_component_mode("mesh")
+        pump_mode = cm_mesh.mode
+        left = btk.CoreUtils.ensure_object_mode()
+    check(
+        "ensure_component_mode / ensure_object_mode work windowless (the Qt-pump state)",
+        got is cm_mesh and pump_mode == "EDIT" and left is True and cm_mesh.mode == "OBJECT",
+        f"got={getattr(got, 'name', got)} inside={pump_mode} after={cm_mesh.mode}",
+    )
+
+    # ---- purge_unused_data: the shared Edit panel's Optimize (Blender)
+    _orphan = bpy.data.meshes.new("PurgeMe")
+    _removed = btk.CoreUtils.purge_unused_data()
+    check(
+        "purge_unused_data removes an unused mesh and counts it",
+        _removed >= 1 and "PurgeMe" not in bpy.data.meshes,
+        _removed,
     )
 
 except Exception as e:

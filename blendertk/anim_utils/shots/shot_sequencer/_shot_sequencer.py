@@ -32,16 +32,17 @@ DCC swaps versus the Maya original (by design, not gaps):
       flat and unique, so there is no path to re-resolve -- but a rename
       leaves the store naming an object that is gone (members; ledger claims
       name the action), which :meth:`reconcile_all_shots` follows through
-      ``BlenderShotStore.follow_renames``.
+      ``ShotStore.follow_renames``.
     * **Undo pairing by serial, not by name.** mayatk tags each boundary
       restore point with the undo chunk its edit landed under and checks that
       name before an undo consumes the point.  Blender's undo exposes no step
-      names, so ``BlenderShotStore.scene_edit`` stamps a scene serial inside
-      the step and tags the point with it; memfile undo winds the serial with
-      the steps, which is how the undo/redo handlers tell our step from any
-      other (``BlenderShotStore._native_step_crossed``).  A no-op edit
-      cancels its step (``scene_edit``'s handle), the twin of Maya discarding
-      an empty chunk.
+      names, so ``ShotStore.scene_edit``'s host step
+      (``BlenderShotsHost.undo_step``) stamps a scene serial inside the step
+      and tags the point with it; memfile undo winds the serial with the
+      steps, which is how the undo/redo handlers tell our step from any other
+      (``BlenderShotsHost.step_crossed``, asked by
+      ``ShotStore._native_step_crossed``).  A no-op edit cancels its step
+      (``scene_edit``'s handle), the twin of Maya discarding an empty chunk.
 """
 
 import logging
@@ -52,7 +53,7 @@ from pythontk import ShotSequencer as _ShotSequencerCore
 from pythontk.core_utils.engines.shots.shot_apply import ShotApply
 
 from blendertk.anim_utils._anim_utils import AnimUtils
-from blendertk.anim_utils.shots._shots import BlenderShotStore
+from blendertk.anim_utils.shots._shots import BlenderShotsHost
 
 _log = logging.getLogger(__name__)
 
@@ -123,7 +124,7 @@ class _ShotSequencerInternal(object):
         return [
             fc
             for fc in AnimUtils.get_fcurves(obj)
-            if BlenderShotStore._is_transform_path(fc.data_path)
+            if BlenderShotsHost.is_transform_path(fc.data_path)
         ]
 
     @staticmethod
@@ -162,19 +163,17 @@ class _ShotSequencerInternal(object):
         Maya claims are keyed by animCurve NODE name; a Blender fcurve is not
         a node and has no name, so its identity stands in: the action and
         slot animating the object, plus the channel
-        (``BlenderShotStore.curve_key``) -- one key per curve, however many
+        (``BlenderShotsHost.curve_key``) -- one key per curve, however many
         linked duplicates play it.  A rename of the action (or of a bone,
         which rewrites the path) is followed by re-keying the claims
-        (``BlenderShotStore.follow_renames``).
+        (``ShotStore.follow_renames``).
         """
-        from blendertk.anim_utils.shots._shots import BlenderShotStore
-
-        return BlenderShotStore.curve_key(obj_name, fc.data_path, fc.array_index)
+        return BlenderShotsHost.curve_key(obj_name, fc.data_path, fc.array_index)
 
     @staticmethod
     def _fcurve_for_key(key: str):
         """Resolve a :meth:`_fc_key` back to a live fcurve, or ``None``."""
-        return BlenderShotStore._fcurve_for_key(key)
+        return BlenderShotsHost.fcurve_for_key(key)
 
     @staticmethod
     def _key_index_at(fc, t: float, eps: float = _SLOP):
@@ -245,9 +244,9 @@ class _ShotSequencerInternal(object):
 
 
 # The helper base goes FIRST: listed after pythontk's class, anything it defines
-# under a hook name is shadowed by the no-op default (test_shots_slots.py).
+# under a hook name is shadowed by the no-op default (test_shot_sequencer_hooks.py).
 class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
-    """Manages a :class:`BlenderShotStore` and provides ripple editing and
+    """Manages a :class:`ShotStore` and provides ripple editing and
     keyframe manipulation on top of it.
 
     The timeline operations themselves are the DCC-free
@@ -261,7 +260,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
     """
 
     #: The Blender store: scene persistence plus the Blender acquisition hooks.
-    STORE_CLASS = BlenderShotStore
+    STORE_CLASS = ShotStore
 
     def __init__(self, shots=None, store=None):
         if store is None and isinstance(shots, ShotStore):
@@ -387,7 +386,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
     ) -> List[str]:
         """Names of transforms that MOVE in ``[start, end]``.
 
-        Only content channels count (``_is_transform_path``: the transform
+        Only content channels count (``is_transform_path``: the transform
         channels and the render-effect properties) — any other custom
         property is ignored so marker objects don't register as scene content.
 
@@ -439,7 +438,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         to re-resolve, but a RENAME leaves the store naming an object that is
         no longer there -- members, the hidden / pinned / locked sets and the
         edit claims (``<object>|<path>|<index>``) alike.  The store follows it
-        (``BlenderShotStore.follow_renames``: by ``session_uid``, and across
+        (``ShotStore.follow_renames``: by ``session_uid``, and across
         sessions through the action slot); a name that resolves to nothing is
         kept as stored (``assess`` surfaces deletions).
 
@@ -448,10 +447,9 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         return self._follow_store_renames()
 
     def _follow_store_renames(self) -> bool:
-        """``store.follow_renames()``, for a store that has one (a bare
-        ``pythontk.ShotStore`` names nothing in a scene)."""
-        follow = getattr(self.store, "follow_renames", None)
-        return bool(follow()) if follow is not None else False
+        """``store.follow_renames()``: the store's host follows what it can (a
+        store on the pure host follows nothing)."""
+        return bool(self.store.follow_renames())
 
     def _follow_unresolved_claims(self, keys) -> bool:
         """Follow renames when a claim among *keys* names what a rename left.
@@ -460,7 +458,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         (:meth:`_release_gap_holds`, :meth:`_reconcile_boundary_keys`) call
         this first, so a renamed action's (or bone's) claims -- and a
         format-1 claim still naming its object -- are re-keyed instead of
-        lost.  Only a name test per key (``BlenderShotStore._key_stale``), so
+        lost.  Only a name test per key (``BlenderShotsHost._key_stale``), so
         a pass with nothing renamed pays nothing more.  Returns ``True`` if
         anything was re-pointed.
         """
@@ -469,9 +467,9 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         except ImportError:
             return False
         keys = list(keys)
-        owners = BlenderShotStore._slot_owners() if keys else None
+        owners = BlenderShotsHost._slot_owners() if keys else None
         for key in keys:
-            if BlenderShotStore._key_stale(key, owners):
+            if BlenderShotsHost._key_stale(key, owners):
                 return self._follow_store_renames()
         return False
 
@@ -918,7 +916,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
     def _keyed_transform_times() -> dict:
         """Map every object's name to the key times on its transform channels.
 
-        Content channels only (``_is_transform_path``: transform channels
+        Content channels only (``is_transform_path``: transform channels
         and the render-effect properties), so a marker's custom property
         never makes it look like scene content.
         """
@@ -2258,7 +2256,7 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         """Shift the keys of fcurve *crv* at *times* by *delta* (handles travel too).
 
         Public for the same two consumers as mayatk's (shot moves and the
-        clip-motion drag handler).  *plug* is accepted for signature parity
+        Shot Sequencer panel's key drags, ``SequencerHost.commit_curve_moves``).  *plug* is accepted for signature parity
         (Maya needs the driven plug when ``cutKey`` deletes the curve node;
         a Blender fcurve survives with zero points).
 
@@ -2409,11 +2407,11 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         if o is None:
             return []
         if attr:
-            from blendertk.anim_utils.shots.shot_sequencer.clip_motion import (
-                ClipMotionMixin,
+            from blendertk.anim_utils.shots.shot_sequencer.sequencer_host import (
+                SequencerHost,
             )
 
-            return list(ClipMotionMixin.curves_for_attr(obj, attr))
+            return list(SequencerHost.curves_for_attr(obj, attr))
         return list(AnimUtils.get_fcurves(o))
 
     def _animator_key_times(self, obj_name: str, fc, window=None) -> List[float]:
@@ -2603,11 +2601,11 @@ class ShotSequencer(_ShotSequencerInternal, _ShotSequencerCore):
         if o is None:
             return []
         if attr_name:
-            from blendertk.anim_utils.shots.shot_sequencer.clip_motion import (
-                ClipMotionMixin,
+            from blendertk.anim_utils.shots.shot_sequencer.sequencer_host import (
+                SequencerHost,
             )
 
-            return list(ClipMotionMixin.curves_for_attr(obj, attr_name))
+            return list(SequencerHost.curves_for_attr(obj, attr_name))
         out = []
         for fc in _ShotSequencerInternal._transform_fcurves(o):
             if shot is None:

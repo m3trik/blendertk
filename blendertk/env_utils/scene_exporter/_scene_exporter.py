@@ -38,12 +38,16 @@ Two designs were weighed for storing that dict:
 :meth:`SceneExporter.load_fbx_export_preset` resolves a preset *name* (not a file path, unlike
 mayatk) via :meth:`SceneExporter._preset_store`; :meth:`SceneExporter.verify_fbx_preset` returns
 the resulting kwargs dict that ``perform_export`` forwards to ``export_selection_fbx``.
-``scene_exporter_slots.py`` wires the Add / Delete / Open Directory / Edit buttons around this
-engine API -- see that module's docstring.
+The shared panel (tentacle's ``slots/tools/scene_exporter.py``) reads :attr:`SceneExporter.presets`
+(name -> name) and calls :meth:`~SceneExporter.fbx_preset_dir`,
+:meth:`~SceneExporter.edit_fbx_preset` and the embedding pair
+:meth:`~SceneExporter.fbx_preset_metadata` / :meth:`~SceneExporter.restore_fbx_preset` --
+mayatk's names, over this store.
 
 ``import bpy`` is deferred into call bodies (no import side effects).
 """
 
+import base64
 import contextlib
 import os
 import json
@@ -55,6 +59,7 @@ from typing import List, Dict, Optional, Callable, Union, Any
 import pythontk as ptk
 
 from blendertk.env_utils.scene_exporter.task_manager import TaskManager
+from blendertk.node_utils.data_nodes import DataNodes
 from blendertk.env_utils.usd import UsdUtils
 
 # The engine's game-asset baseline (also shipped as the "game_asset" built-in preset -- see
@@ -115,9 +120,13 @@ _DEFAULT_FBX_OPTIONS: Dict[str, Any] = {
 class SceneExporter(ptk.SceneExporterBase):
     """Blender's Scene Exporter: the export write, its scope and its FBX
     presets over ``ptk.SceneExporterBase`` (progress, consent, run config
-    and the log file, shared with mayatk)."""
+    and the log file, shared with mayatk). It configures the shell and adds
+    to it; it overrides none of it."""
 
     TASK_MANAGER_CLASS = TaskManager
+    #: The scene store the shell reads the saved .blend's path from
+    #: (``DataNodes.scene_path``: ``bpy.data.filepath``).
+    STORE = DataNodes
 
     # PresetStore identity for FBX export-option presets (see module docstring).
     # NOT "scene_exporter": that name is taken by the panel's uitk window-template
@@ -128,15 +137,19 @@ class SceneExporter(ptk.SceneExporterBase):
     PRESET_NAME = "fbx_presets"
     PRESET_PACKAGE = "blendertk"
 
+    #: Where the panel keeps its export presets (its whole configuration under
+    #: a name; uitk ``PresetManager.preset_dir``) -- the window-template store the
+    #: note above keeps apart from the FBX presets. Mirror of mayatk's.
+    EXPORT_PRESET_DIR = "blendertk/scene_exporter"
+    #: Whether Exclude HDR can act under the Visible scope: it can here -- the
+    #: exclusion also strips a visible mesh dome (a sphere whose materials sample
+    #: an Environment Texture), which that scope holds -- so the panel keeps the
+    #: row; mayatk's is False (Maya's visible geometry never holds its skydome).
+    EXCLUDE_HDR_IN_VISIBLE_SCOPE = True
+
     #: One-shot guard for :meth:`_migrate_legacy_preset_dir` (the legacy scan is
     #: pure filesystem work; once per process is enough).
     _legacy_fbx_presets_migrated = False
-
-    def _saved_scene_path(self) -> str:
-        """The saved .blend's path (``bpy.data.filepath``)."""
-        import bpy
-
-        return bpy.data.filepath or ""
 
     def _initialize_objects(self, objects: Optional[Union[List, Callable]]) -> List:
         """Initialize objects for the scene."""
@@ -174,7 +187,7 @@ class SceneExporter(ptk.SceneExporterBase):
         self,
         export_dir: str,
         objects: Optional[Union[List, Callable]] = None,
-        preset_name: Optional[str] = None,
+        preset_file: Optional[str] = None,
         output_name: Optional[str] = None,
         export_visible: bool = True,
         create_log_file: bool = False,
@@ -203,13 +216,13 @@ class SceneExporter(ptk.SceneExporterBase):
 
         *tasks* is EXACT (mirror of mayatk): only the entries it names run, and
         an absent task or check is off -- there are no implicit defaults. The
-        panel sends every row (``ptk.ExportProfile.read_values``), so a headless
+        panel sends every row (tentacle's ``SceneExporterSlots`` reads them), so a headless
         caller that wants the panel's behaviour passes every row it wants on.
 
-        ``tasks["version"]`` is the retired Version input (warns; removed in
-        pythontk 0.19.0). It folds into *output_name* once, here
-        (``ptk.ExportProfile.fold_legacy_naming``), and the log names the
-        pattern that says the same thing (mirror of mayatk).
+        ``tasks["version"]``, the retired Version input, was removed in
+        pythontk 0.19.0: a run that still sends it is refused before anything
+        is touched, and the log names the Output Filename counter that
+        replaces it (``*_v{n:03d}``; mirror of mayatk).
 
         *create_log_file* appends the run to the .blend's log -- one file per
         scene in the per-user cache, its runs trimmed to the newest
@@ -218,6 +231,10 @@ class SceneExporter(ptk.SceneExporterBase):
         panel always sets it.
         *hide_log_file* is retired
         (warns; removed in 0.21.0): nothing lands in the export folder to hide.
+
+        *preset_file* is the FBX preset the write loads -- a value of
+        :attr:`presets`, so a preset NAME here (mayatk's keyword, where it is a
+        file path); ``None`` writes with the built-in defaults.
         """
         # First, so a caller's level/handler sees every message of this run,
         # the early aborts below included.
@@ -226,7 +243,7 @@ class SceneExporter(ptk.SceneExporterBase):
         self.logger.info("Starting export process ...")
 
         # Default to the saved .blend's directory when none is given.
-        self.export_dir = self._resolve_export_dir(export_dir)
+        self.export_dir = self.resolve_export_dir(export_dir)
         if not self.export_dir:
             self.logger.error(
                 "Export directory not set and the file is unsaved — save "
@@ -243,7 +260,7 @@ class SceneExporter(ptk.SceneExporterBase):
             self.logger.error(f"Export directory does not exist: {self.export_dir}")
             return False
 
-        self.preset_name = preset_name
+        self.preset_file = preset_file
         self.output_name = output_name
         self.create_log_file = create_log_file
 
@@ -260,18 +277,9 @@ class SceneExporter(ptk.SceneExporterBase):
         for level, message in notes:
             getattr(self.logger, level)(message)
         if any(level == "error" for level, _ in notes):
-            return False  # a config error (an unknown texture file type)
-        # The retired Version input folds into the name ONCE, here; everything
-        # past this point -- the path, the sidecar, the log -- reads the pattern.
-        self.output_name = ptk.ExportProfile.fold_legacy_naming(
-            output_name, run.version_format
-        )
-        if self.output_name != output_name:
-            self.logger.warning(
-                "The Version input is retired: write it into the Output "
-                "Filename instead -- this export resolves as "
-                f"{self.output_name!r}."
-            )
+            # A config error: an unknown texture file type, or the removed
+            # tasks["version"] (the note names the counter replacing it).
+            return False
         # "usd": the deliverable is a USD layer (mirror of mayatk). Same pipeline
         # up to the write; the FBX-only knobs (preset, takes, GLB) are reported
         # inert rather than silently ignored.
@@ -283,10 +291,10 @@ class SceneExporter(ptk.SceneExporterBase):
                         f"Task '{key}' shapes the FBX take/animation range only; "
                         "a USD export samples the frames that carry motion instead."
                     )
-            if self.preset_name:
+            if self.preset_file:
                 self.logger.warning(
                     "The FBX export preset does not apply to a USD export "
-                    f"(ignored: {self.preset_name})."
+                    f"(ignored: {self.preset_file})."
                 )
         if run.texture_file_type == "ktx2":
             # Encoder presence is ENVIRONMENT state, so this gate is
@@ -362,7 +370,7 @@ class SceneExporter(ptk.SceneExporterBase):
             # the deliverable carries its media (``_SELF_CONTAINED_FBX_OPTIONS``),
             # so the texture passes stage in scratch for every FBX
             # (``_texture_staging_dir``).
-            self.load_fbx_export_preset(self.preset_name)
+            self.load_fbx_export_preset(self.preset_file)
             preset = getattr(self, "_fbx_preset_options", None) or {}
             overridden = [
                 key
@@ -463,7 +471,7 @@ class SceneExporter(ptk.SceneExporterBase):
         exportable, dropped = [], []
         for o in objects:
             try:
-                ok = getattr(o, "name", None) == DataNodes.EXPORT or (
+                ok = DataNodes.is_carrier(getattr(o, "name", None)) or (
                     (not getattr(o, "hide_select", False))
                     and o.visible_get(view_layer=vl)
                 )
@@ -723,7 +731,9 @@ class SceneExporter(ptk.SceneExporterBase):
                 f"USD: {len(linked)} shared mesh(es) are written flat; every linked "
                 "duplicate ships as its own mesh."
             )
-        if any(getattr(o, "name", "") == "data_export" for o in export_objects):
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        if any(DataNodes.is_carrier(getattr(o, "name", "")) for o in export_objects):
             options["export_custom_properties"] = True
             self.logger.info(
                 "USD: the data_export carrier ships as a prim with userProperties; "
@@ -980,6 +990,128 @@ class SceneExporter(ptk.SceneExporterBase):
         """Delete the *user* FBX export-option preset *name* (built-ins are read-only).
         Returns whether a file was actually removed."""
         return cls._preset_store().delete(name)
+
+    @property
+    def presets(self) -> Dict[str, Optional[str]]:
+        """The FBX presets the panel's FBX Preset combo lists, keyed by name --
+        mirror of mayatk's ``presets``, whose values are file paths; here each
+        value is the preset's name, which :meth:`perform_export`'s *preset_file*
+        takes. ``"None"`` maps to ``None``: no preset, the export writes with the
+        built-in defaults (``_DEFAULT_FBX_OPTIONS``)."""
+        return {"None": None, **{name: name for name in self.list_fbx_presets()}}
+
+    def refresh_fbx_presets(self) -> Dict[str, Optional[str]]:
+        """Re-scan the FBX presets (the panel's refresh button) and return
+        :attr:`presets` -- mirror of mayatk's, which drops its scan cache first;
+        ``PresetStore.list()`` globs both tiers on every call, so here the read
+        is the whole refresh."""
+        return self.presets
+
+    def fbx_preset_metadata(self, preset: Optional[str]) -> Dict[str, str]:
+        """*preset* -- a value of :attr:`presets`, its name -- as metadata an export
+        preset embeds, so a preset shared to another machine brings its FBX preset
+        along (:meth:`restore_fbx_preset`; mirror of mayatk's).
+
+        Returns:
+            ``{"fbx_preset_name", "fbx_preset_data"}`` (its JSON file, base64);
+            ``{}`` for no preset or one that does not exist.
+        """
+        path = self.fbx_preset_path(preset) if preset else None
+        if not path or not os.path.isfile(path):
+            return {}
+        with open(path, "rb") as f:
+            encoded = base64.b64encode(f.read()).decode("ascii")
+        return {"fbx_preset_name": preset, "fbx_preset_data": encoded}
+
+    def restore_fbx_preset(self, metadata: Optional[Dict[str, str]]) -> Optional[str]:
+        """Save the FBX preset an export preset embedded (:meth:`fbx_preset_metadata`)
+        as a user preset, when no preset of its name exists here (built-in or user:
+        the local one is authoritative). Mirror of mayatk's.
+
+        Parameters:
+            metadata: ``{"fbx_preset_name", "fbx_preset_data"}``.
+
+        Returns:
+            The path written; ``None`` when nothing was restored (incomplete or
+            unreadable metadata, a local preset of that name).
+        """
+        name = (metadata or {}).get("fbx_preset_name")
+        data = (metadata or {}).get("fbx_preset_data")
+        if not name or not data or name in self.list_fbx_presets():
+            return None
+        try:
+            options = json.loads(base64.b64decode(data).decode("utf-8"))
+        except (ValueError, TypeError) as e:  # binascii.Error is a ValueError
+            self.logger.warning(f"Embedded FBX preset {name!r} is not readable: {e}")
+            return None
+        if not isinstance(options, dict):
+            self.logger.warning(f"Embedded FBX preset {name!r} is not a preset.")
+            return None
+        path = self.save_fbx_preset(name, options)
+        self.logger.info(f"Restored embedded FBX preset: {path}")
+        return path
+
+    def edit_fbx_preset(self, preset: Optional[str] = None) -> None:
+        """Open *preset* (a value of :attr:`presets`) for editing: its JSON in the
+        OS's default editor -- Blender has no per-field editor for an arbitrary
+        ``export_scene.fbx`` kwargs dict the way Maya's FBX exporter dialog has
+        (mirror of mayatk's, which opens that dialog). The panel's Edit FBX Preset.
+
+        A built-in preset is copied to the user tier first ("duplicate to edit",
+        the pattern ``PresetStore`` documents and :meth:`delete_fbx_preset`
+        enforces), so editing never touches the shipped, read-only file in place
+        (which may not even be writable on a non-editable install, and would
+        otherwise change a tracked default for every user). Nothing selected is
+        said in the log.
+        """
+        if not preset:
+            self.logger.error("No preset selected to edit.")
+            return
+        store = self._preset_store()
+        if store.source(preset) == "builtin":
+            try:
+                options = store.load(preset)
+            except (KeyError, ValueError, OSError) as e:
+                self.logger.error(
+                    f"Failed to read built-in preset {preset!r} to shadow for editing: {e}"
+                )
+                return
+            store.save(preset, options)
+            self.logger.info(
+                f"Copied built-in preset {preset!r} to the user tier for editing."
+            )
+        path = self.fbx_preset_path(preset)
+        if not path or not os.path.isfile(path):
+            self.logger.error(f"Preset file does not exist: {preset}")
+            return
+        ptk.FileUtils.open_explorer(path, logger=self.logger)
+
+    @staticmethod
+    def objects_to_export(export_mode: str = "visible") -> List:
+        """The objects an export scope names -- what the panel's Scope row hands
+        :meth:`perform_export` (as a callable, so the run resolves it); mirror of
+        mayatk's.
+
+        Parameters:
+            export_mode: ``"selected"`` the selection, minus the ``data_internal``
+                carrier a file saved before 2026-09-18 may still keep as an Empty
+                (a selection must not ship it); ``"all"`` every mesh in the scene;
+                ``"visible"`` (the default, and any unknown mode) the visible
+                geometry.
+        """
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+        from blendertk.display_utils._display_utils import DisplayUtils
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        if export_mode == "selected":
+            return [
+                o for o in CoreUtils.selected_objects() if o.name != DataNodes.INTERNAL
+            ]
+        if export_mode == "all":
+            return [o for o in bpy.context.scene.objects if o.type == "MESH"]
+        return DisplayUtils.get_visible_geometry()
 
     def load_fbx_export_preset(
         self, name: Optional[str] = None, verify: bool = False

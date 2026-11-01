@@ -8,6 +8,10 @@ the request's carrier, FBX (including the strip-materials path) or USD -- so the
 bridge, the Unity bridge, and any future Blender->X bridge don't each re-implement
 them. Mirror of mayatk's :class:`mayatk.env_utils.handoff_export.MayaExportMixin`.
 
+:class:`BridgeHost` is the host half of tentacle's shared bridge panels
+(``btk.BridgeHost``; mirror of mayatk's): a Scope's objects, what a send of them
+ships, and where an optional package installs.
+
 ``import bpy`` is deferred into the strip path so the engine surface resolves under
 headless ``blender --background`` and outside Blender entirely; ``blendertk`` itself
 imports Qt-free.
@@ -58,7 +62,7 @@ class BlenderExportMixin:
     #: consumer for a ``<node>__opacity`` child and would ship it as a stray
     #: Empty.  Which RECORDS a hand-off refreshes is
     #: not a bridge decision: the write runs with a HANDOFF context, which
-    #: refreshes exactly the ``ptk.Kind.DERIVED`` records (the visibility tracks
+    #: refreshes exactly the ``ptk.SceneRecords.Kind.DERIVED`` records (the visibility tracks
     #: read the curves themselves, which an artist edits between one push and
     #: the next) and leaves the authored ones alone -- a producer with nothing
     #: to publish clears its record, and a bridge that merely ships the carrier
@@ -148,7 +152,9 @@ class BlenderExportMixin:
     #: never hands geometry back. Mirror of mayatk's flag of the same name.
     usd_flattens_instances: bool = False
 
-    def _data_export_carrier(self, objects=None) -> List[Any]:
+    def _data_export_carrier(
+        self, objects=None, writer: Optional[str] = "fbx", writer_options=None
+    ) -> List[Any]:
         """``[data_export]`` when this bridge ships it and the scene has one, else ``[]``.
 
         Never *creates* the carrier: absent means the scene has no in-band metadata to
@@ -177,7 +183,12 @@ class BlenderExportMixin:
         )
         try:
             FbxUtils.publish(
-                FbxUtils.export_context(mode=ptk.ExportContext.HANDOFF, scope=scope)
+                FbxUtils.export_context(
+                    mode=ptk.ExportContext.HANDOFF,
+                    writer=writer,
+                    writer_options=writer_options,
+                    scope=scope,
+                )
             )
         except Exception:  # noqa: BLE001
             self.logger.debug("data_export refresh skipped.", exc_info=True)
@@ -259,7 +270,7 @@ class BlenderExportMixin:
         The one rule every Blender bridge exports by -- this mixin's own
         :meth:`_produce`, the texture bridges' produce steps (Marmoset and
         Substance are not export-mixin bridges) and the panels' scope
-        resolution (``BlenderBridgeSlotsBase.scoped_objects``) alike. A scoped
+        resolution (``BridgeHost.scope_closure``) alike. A scoped
         group ships the subtree it names, as Maya's export-selection does,
         except under Visible Only, which must not re-add a hidden child (see
         :meth:`_hierarchy_closure`).
@@ -299,7 +310,7 @@ class BlenderExportMixin:
         :meth:`_scene_objects`: the two widening scopes
         ``uitk.bridge.Parameters.scope_spec`` declares. Static because it
         consults only the scene, which lets
-        ``BlenderBridgeSlotsBase.resolve_scope_objects`` call it for panels
+        ``BridgeHost.resolve_scope`` call it for panels
         whose bridge has no export mixin -- one implementation of "visible".
 
         Unfiltered by type, exactly as ``_scene_objects`` is: a visible group
@@ -415,7 +426,9 @@ class BlenderExportMixin:
         btk.FbxUtils.begin_export(stagers=self._export_stagers())
         try:
             fbx_opts = self._fbx_options(params)
-            carrier = self._data_export_carrier(objects)
+            # The records labelled with the unit this write gives the file
+            # (``apply_unit_scale`` off ships one BU as one metre).
+            carrier = self._data_export_carrier(objects, "fbx", fbx_opts)
             # Forced HERE rather than declared in _fbx_options, which subclasses
             # override wholesale: the exporter drops custom properties by default and
             # excluded object types outright, so either omission ships an Empty named
@@ -651,7 +664,9 @@ class BlenderExportMixin:
         with btk.FbxUtils.export_prepared(stagers=self._export_stagers()):
             usd_opts = self._usd_options(params, objects)
             frame_range = usd_opts.pop("frame_range", None)
-            carrier = self._data_export_carrier(objects)
+            # Blender's USD writer ships one BU as one metre whatever the
+            # scene's scale_length (``ptk.ExportContext.WRITER_UNITS``).
+            carrier = self._data_export_carrier(objects, "usd", usd_opts)
             if carrier:
                 usd_opts["export_custom_properties"] = True
                 self.logger.warning(
@@ -691,3 +706,92 @@ class BlenderExportMixin:
                 continue
             users.setdefault(data.name, []).append(obj.name)
         return {mesh: names for mesh, names in users.items() if len(names) > 1}
+
+
+class BridgeHost:
+    """What a bridge panel asks of Blender: a Scope's objects, what a send of them
+    ships, and where an optional package installs.
+
+    The host half of tentacle's shared bridge panels (``slots/tools/_bridge``),
+    reached as ``btk.BridgeHost``. Mirror of mayatk's ``BridgeHost`` by name and
+    signature. Stateless: each call reads the file it is made in.
+    """
+
+    @staticmethod
+    def resolve_scope(scope: str, bridge=None) -> List[Any]:
+        """The objects a ``SCOPE`` word names (``uitk.bridge.Parameters.scope_spec``).
+
+        ``"selected"`` is the default AND the fallback for an unknown word: an
+        unrecognised scope must never silently widen a send to the whole scene.
+        The precedence is :class:`pythontk.HandoffScope`'s; this supplies
+        Blender's scene reads.
+
+        Parameters:
+            scope: ``"selected"``, ``"all"`` or ``"visible"``.
+            bridge: The panel's engine, or ``None``. Entire Scene asks its
+                whole-scene hook first (``BlenderExportMixin._scene_objects``: the
+                CURRENT scene's objects, unfiltered by type, so empties and
+                armatures reach the exporter and the hierarchy does not flatten on
+                the far side). With no engine, or one whose hook does not answer
+                (an RPC baker's), Entire Scene is the scene's meshes.
+
+        Returns:
+            The objects in scope.
+        """
+
+        def scene_hook():
+            hook = getattr(bridge, "_scene_objects", None)
+            return hook() if hook is not None else None
+
+        def scene_meshes():
+            import bpy
+
+            return [o for o in bpy.context.scene.objects if o.type == "MESH"]
+
+        return ptk.HandoffScope.resolve(
+            scope,
+            selected=lambda: btk.selected_objects(),
+            all=(scene_hook, scene_meshes),
+            # The export mixin's static read, with or without an engine: one
+            # implementation of "visible".
+            visible=lambda: BlenderExportMixin._visible_objects(),
+        )
+
+    @staticmethod
+    def scope_closure(objects, params: Optional[Dict[str, Any]] = None) -> List[Any]:
+        """What a send of the scoped *objects* ships: their hierarchy closure.
+
+        Blender's FBX writes exactly the objects it is handed, never their
+        children, while Maya's export-selection writes the subtree: a scoped group
+        Empty used to ship alone (measured on the RizomUV send). The rule is
+        :meth:`BlenderExportMixin.scope_closure`'s, Visible Only included, and it
+        is idempotent: a bridge that closes again in its own produce step loses
+        nothing.
+
+        Parameters:
+            objects: What :meth:`resolve_scope` returned.
+            params: The send's parameters; only ``SCOPE`` is read.
+
+        Returns:
+            The closed object list (*objects* unchanged outside Blender).
+        """
+        return BlenderExportMixin.scope_closure(objects, params)
+
+    @staticmethod
+    def install_package(spec: str) -> None:
+        """Install the pip requirement *spec* where Blender imports it from.
+
+        Blender's bundled interpreter keeps the user site off ``sys.path``, so a
+        ``pip install --user`` would succeed and stay unimportable. This installs
+        into Blender's per-version user modules (on ``sys.path``) through the
+        bundled interpreter (:meth:`CoreUtils.ensure_packages`). Keyed by the whole
+        requirement: a floor (``unitytk>=0.1.0``) never imports under that key, so
+        pip runs for it and an older release is upgraded (the floor check itself is
+        the caller's).
+
+        Parameters:
+            spec: A requirement, e.g. ``unitytk>=0.1.0``.
+        """
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        CoreUtils.ensure_packages({spec: spec.replace("-", "_")})

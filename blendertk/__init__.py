@@ -4,15 +4,16 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.22.0"
+__version__ = "0.23.0"
 
-"""blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
-for the Maya slots.
+"""blendertk — the Blender host library: each tool's API half (its operations and record
+rows), as mayatk is Maya's. tentacle holds the panels and their Slots, shared by both
+hosts, and reaches this package as ``self.tk``.
 
 The public surface **mirrors mayatk's names** (``btk.X`` ↔ ``mtk.X``) so the shared
-tentacle slots stay branch-free. Lazy attribute resolution via pythontk's
-``bootstrap_package`` keeps this module lean; helpers are implemented lazily as the
-Blender slots demand them (do not pre-create empty ``*_utils`` groups — YAGNI).
+tentacle Slots stay branch-free. Lazy attribute resolution via pythontk's
+``bootstrap_package`` keeps this module lean; helpers are implemented as the shared
+Slots demand them (do not pre-create empty ``*_utils`` groups — YAGNI).
 
 Mirror at the *name + behavior* level, not signatures (mayatk speaks string-node idioms,
 bpy speaks object refs). Where a domain's data model diverges (rigging, NURBS, shader
@@ -26,8 +27,6 @@ graphs) the name mirror is relaxed in favor of Blender-idiomatic names. Prefer a
 # module-level helpers flat, so a symbol resolves as both ``btk.<method>`` and
 # ``btk.<Namespace>.<method>`` with no per-name upkeep. Hide internals with a leading
 # underscore — the default predicate ignores ``_``-prefixed names — never by omission.
-# Tool modules that co-locate a public ``<Tool>Slots`` panel (name-discovered by
-# BlenderUiHandler) stay explicit class-only, so "*" never leaks the Slots onto the surface.
 DEFAULT_INCLUDE = {
     "core_utils._core_utils": "*",
     "core_utils.preview": ["Preview"],
@@ -48,6 +47,7 @@ DEFAULT_INCLUDE = {
     # ``.fix_non_orthogonal_axes`` (or via ``btk.MeshDiagnostics`` / ``btk.TransformDiagnostics``).
     "core_utils.diagnostics->Diagnostics": "*",
     "core_utils.diagnostics.mesh_diag": "MeshDiagnostics",
+    "core_utils.diagnostics.scene_diag": "SceneDiagnostics",
     "core_utils.diagnostics.transform_diag": "TransformDiagnostics",
     # Get Scene Info's engine + its section vocabulary (mirror of mtk.SceneAnalyzer /
     # mtk.SceneInfoSection; mayatk keeps the latter in ``audit_records``).
@@ -63,6 +63,8 @@ DEFAULT_INCLUDE = {
         "Matrices",
     ],
     "node_utils._node_utils": "*",
+    # The Channels table's API (its panel is tentacle's shared Channels tool).
+    "node_utils.attributes.channels._channels": ["Channels"],
     # DataNodes lives in its own module (mirror of mayatk's ``node_utils.data_nodes``).
     "node_utils.data_nodes": "*",
     "cam_utils._cam_utils": "*",
@@ -74,23 +76,26 @@ DEFAULT_INCLUDE = {
     "uv_utils._uv_utils": "*",
     # UV-to-UV texture transfer adapter -- mirror of mayatk.uv_utils.texture_transfer
     "uv_utils.texture_transfer": ["TextureTransfer"],
-    # Texture Combine engine -- mirror of mayatk's; its co-located
-    # ``TextureCombineSlots`` panel is discovered by ``BlenderUiHandler``.
+    # Texture Combine engine -- mirror of mayatk's (its panel is tentacle's shared tool).
     "uv_utils.texture_combine.texture_combine": ["TextureCombine", "CombineInputs"],
     # RizomUV bridge engine — mirror of mayatk's ``uv_utils.rizom_bridge._rizom_bridge.RizomUVBridge``
-    # (the ``RizomBridgeSlots`` panel class is discovered by the handler, not registered).
+    # (its panel is tentacle's shared RizomUV Bridge tool).
     "uv_utils.rizom_bridge._rizom_bridge": [
         "RizomUVBridge",
     ],
     "display_utils._display_utils": "*",
-    # Color ID tool — engine + co-located panel (ColorIdSlots discovered by the handler).
+    # Color ID — mirror of mayatk's ``display_utils.color_id.ColorId`` (its panel is tentacle's).
     "display_utils.color_id": [
         "ColorId",
     ],
-    # Exploded View tool — co-located ``ExplodedViewSlots`` panel (discovered by the handler, not
-    # registered); the explode/unexplode engine lives module-level in ``_display_utils`` above
-    # (``explode_view`` / ``unexplode_view`` / ``unexplode_all`` / ``is_exploded``).
+    # Exploded View -- mirror of mayatk's ``ExplodedView`` (``btk.ExplodedView``), over the
+    # explode/unexplode engine module-level in ``_display_utils`` above.
+    "display_utils.exploded_view": ["ExplodedView"],
     "env_utils._env_utils": "*",
+    # Reference Manager's engine over linked libraries (its panel is tentacle's shared tool).
+    "env_utils.reference_manager": ["ReferenceManager"],
+    # The workspaces under a root as a tree (the Workspaces tool's map) — mirror of mayatk's.
+    "env_utils.workspace_map": "WorkspaceMap",
     # FBX import/export — mirror of mayatk's ``env_utils.fbx_utils.FbxUtils`` (``btk.FbxUtils`` ↔
     # ``mtk.FbxUtils``). Scope-limited to the class on purpose: ``FbxUtils.export`` is a generic name
     # that would collide flat with ``UsdUtils.export`` under "*" — the source-side fix for the
@@ -115,8 +120,8 @@ DEFAULT_INCLUDE = {
     "env_utils.script_output": [
         "ScriptConsole",
     ],
-    # Maya bridge engine — one-way send of the selection to a fresh Maya (the ``MayaBridgeSlots``
-    # panel class is discovered by BlenderUiHandler, not registered). Counterpart of mayatk's
+    # Maya bridge engine — one-way send of the selection to a fresh Maya (its panel is
+    # tentacle's DCC Bridge, the Maya Bridge in Blender). Counterpart of mayatk's
     # ``BlenderBridge``.
     "env_utils.maya_bridge._maya_bridge": [
         "MayaBridge",
@@ -130,19 +135,16 @@ DEFAULT_INCLUDE = {
     "env_utils.webxr_preview": [
         "WebXrPreview",
     ],
-    # Retired 2026-10-20 (removed in 0.21.0): the sections of live-scene state
-    # a GLB took beside its FBX -- the materials record states every material.
-    "env_utils.scene_state": [
-        "SceneState",
-    ],
-    # Unity Bridge — mirror of mayatk's ``env_utils.unity_bridge._unity_bridge`` (the
-    # ``UnityBridgeSlots`` panel is discovered by BlenderUiHandler, not registered here).
+    # The Unity hand-off's Blender half — mirror of mayatk's
+    # ``env_utils.unity_bridge._unity_bridge`` (its panel is extapps' Unity Workflow
+    # app, opened by tentacle with this engine injected).
     "env_utils.unity_bridge._unity_bridge": [
         "UnityBridge",
     ],
+    # What every bridge panel asks of the host: scope, closure, package install.
+    "env_utils.handoff_export": ["BridgeHost"],
     # Scene Exporter — batch FBX/GLB export task pipeline, mirror of mayatk's
-    # ``env_utils.scene_exporter`` (the ``SceneExporterSlots`` panel class is discovered by
-    # BlenderUiHandler, not registered).
+    # ``env_utils.scene_exporter`` (its panel is tentacle's shared Scene Exporter tool).
     "env_utils.scene_exporter._scene_exporter": [
         "SceneExporter",
     ],
@@ -150,19 +152,21 @@ DEFAULT_INCLUDE = {
         "TaskManager",
     ],
     # Hierarchy Sync — diff/repair a scene hierarchy against a reference .blend linked as a
-    # library (mirror of mayatk's ``env_utils.hierarchy_sync._hierarchy_sync``; the
-    # ``HierarchySyncSlots`` panel is discovered by BlenderUiHandler, not registered).
+    # library (mirror of mayatk's ``env_utils.hierarchy_sync._hierarchy_sync``; its panel is
+    # tentacle's shared tool, over ``HierarchySyncSession``).
     "env_utils.hierarchy_sync._hierarchy_sync": [
         "HierarchySync",
-        # Pull IS ported: hierarchy_sync_slots imports and drives this class, and the
-        # mayatk twin registers ``mtk.ObjectSwapper`` — leaving it out broke the
-        # name-level mirror the tentacle slots rely on.
+        # Pull: ``HierarchySyncSession.pull`` drives this class; the mayatk twin
+        # registers ``mtk.ObjectSwapper`` too (the name-level mirror).
         "ObjectSwapper",
     ],
+    "env_utils.hierarchy_sync.hierarchy_sync_session": ["HierarchySyncSession"],
     "env_utils.hierarchy_sync.scene_data_sidecar": "SceneDataSidecar",
     "light_utils._light_utils": "*",
-    # Lightmap Baker — engine + co-located panel. The ``LightmapBakerSlots`` class is
-    # discovered by ``BlenderUiHandler`` (not registered here), matching the other tool Slots.
+    "render_utils._render_utils": "RenderUtils",
+    # Lightmap Baker — the engine (its panel is tentacle's shared Lightmap Baker tool) and
+    # the bake's Exclude / Isolate sets the panel's rows read.
+    "mat_utils.bake_sets": ["BakeSourceSet", "LightmapExcludeSet", "LightmapIsolateSet"],
     "light_utils.lightmap_baker.lightmap_baker": [
         "LightmapBaker",
     ],
@@ -186,6 +190,8 @@ DEFAULT_INCLUDE = {
     "ui_utils.blender_ui_handler": [
         "BlenderUiHandler",
     ],
+    # The Calculator's host half (scene FPS, current frame) -- mirror of mayatk's.
+    "ui_utils.calculator": ["CalculatorController"],
     # Host cancellation strategy for uitk's slot dispatcher — parity twin of
     # ``mtk.MayaCancelProvider``. Qt-side (imports uitk), so it resolves lazily
     # and stays out of the headless engine surface.
@@ -202,6 +208,23 @@ DEFAULT_INCLUDE = {
     "ui_utils.blender_window": [
         "BlenderWindow",
     ],
+    # Qt inside Blender (moved from tentacle's tcl_blender): provision a binding before the
+    # first qtpy import, stand up the QApplication + hidden parent widget, pump Qt's posted
+    # events from bpy.app.timers. Qt-free at import; the methods import qtpy / bpy.
+    "ui_utils.qt_runtime": [
+        "HostedApp",
+        "QtBootstrap",
+        "QtRuntime",
+        "QtPlatformUnavailable",
+    ],
+    # Hosting a uitk marking menu in Blender: the uitk.MarkingMenuHost adapter tentacle's
+    # launcher builds its menu with (mirror of mtk.MayaMarkingMenuHost), the activation
+    # keymap bridge (GHOST eats the viewport keystrokes a Qt shortcut would need) and its
+    # live-state report.
+    "ui_utils.marking_menu_host._marking_menu_host": ["BlenderMarkingMenuHost"],
+    "ui_utils.marking_menu_host.keymap_bridge": ["KeymapBridge", "ActivationDiagnostics"],
+    # Opt-in mouse/slot tracer for "buttons need several clicks" support captures.
+    "ui_utils.marking_menu_host.click_debugger": ["ClickDebugger"],
     # The native dock container: hosts ANY Qt widget as the body of a true docked Blender
     # area (a WS_CHILD of the GHOST window glued to the area's content region — no overlay,
     # no polling). Backs ``env_utils.script_output``; reusable for any docked Qt panel.
@@ -223,6 +246,8 @@ DEFAULT_INCLUDE = {
         "StyleSetter",
     ],
     "mat_utils._mat_utils": "*",
+    # Texture Path Editor's engine (its panel is tentacle's shared tool).
+    "mat_utils.texture_path_editor": ["TexturePathEditor"],
     # Structural mirror of ``mtk.ArnoldBridge`` — a documented no-op on Blender, kept
     # registered (not just importable) so duck-typed code across the twins needs no branch.
     "mat_utils.arnold_bridge": "ArnoldBridge",
@@ -231,14 +256,12 @@ DEFAULT_INCLUDE = {
     "mat_utils.texture_baker": [
         "TextureBaker",
     ],
-    # Image-to-Plane tool — engine + co-located panel (``ImageToPlaneSlots`` discovered by the
-    # handler, not registered). Mirror of mayatk's ``mat_utils.image_to_plane`` subpackage.
+    # Image-to-Plane — mirror of mayatk's ``mat_utils.image_to_plane`` (its panel is tentacle's).
     "mat_utils.image_to_plane._image_to_plane": [
         "ImageToPlane",
     ],
-    # Per-object render effects — engine + co-located panel (``RenderEffectsSlots``
-    # discovered by the handler, not registered). Mirror of mayatk's
-    # ``mat_utils.render_opacity`` subpackage.
+    # Per-object render effects (its panel is tentacle's shared Render Effects tool).
+    # Mirror of mayatk's ``mat_utils.render_opacity`` subpackage.
     "mat_utils.render_opacity.render_effects": ["RenderEffects"],
     # Material manifest (baked-map metadata carrier) — mirror of mayatk's
     # ``mat_utils.mat_manifest``; shared by the Marmoset/Substance bridges.
@@ -248,39 +271,45 @@ DEFAULT_INCLUDE = {
     # The ``materials`` record's producer (``FbxUtils.PRODUCERS``): every
     # exported material stated as glTF states it. Mirror of mayatk's.
     "env_utils.material_records": ["MaterialRecords"],
-    # Emissive Groups — engine + co-located panel (``EmissiveGroupsSlots`` is
-    # discovered by BlenderUiHandler, not registered). Mirror of mayatk's
-    # ``mat_utils.emissive_groups``.
-    "mat_utils.emissive_groups": ["EmissiveGroups"],
+    # Emissive Groups: the API, pythontk's model over the Blender half (its panel
+    # is tentacle's). Mirror of mayatk's ``mat_utils.emissive_groups``.
+    "mat_utils.emissive_groups": ["EmissiveGroups", "BlenderEmissiveGroups"],
     # Game Shader — the workflow-profile / map-pipeline / reporting layer around
-    # ``MatUtils.create_pbr_material`` (``GameShaderSlots`` panel discovered by the handler, not
-    # registered). Mirror of mayatk's ``mat_utils.game_shader`` (``btk.GameShader`` ↔
+    # ``MatUtils.create_pbr_material`` (its panel is tentacle's shared Game Shader tool).
+    # Mirror of mayatk's ``mat_utils.game_shader`` (``btk.GameShader`` ↔
     # ``mtk.GameShader``, both exposing ``create_network``).
     "mat_utils.game_shader": ["GameShader"],
+    # HDR Manager and Shader Templates -- mirrors of mayatk's engines (their panels are
+    # tentacle's shared tools).
+    "light_utils.hdr_manager": ["HdrManager"],
+    "mat_utils.shader_templates": ["ShaderTemplates"],
     # Marmoset Bridge — mirror of mayatk's ``mat_utils.marmoset_bridge._marmoset_bridge``
-    # (``MarmosetBridgeSlots`` panel discovered by the handler, not registered).
+    # (its panel is tentacle's shared tool).
     "mat_utils.marmoset_bridge._marmoset_bridge": [
         "MarmosetBridge",
     ],
     # Substance Bridge — mirror of mayatk's ``mat_utils.substance_bridge._substance_bridge``
-    # (``SubstanceBridgeSlots`` panel discovered by the handler, not registered).
+    # (its panel is tentacle's shared tool).
     "mat_utils.substance_bridge._substance_bridge": [
         "SubstanceBridge",
     ],
     "anim_utils._anim_utils": "*",
+    "anim_utils.playblast_exporter": ["PlayblastExporter"],
     # Per-concern key-timing modules — mirror of mayatk's ``anim_utils.scale_keys`` /
     # ``stagger_keys`` (engine class + module-level fn). The fns also stay on ``AnimUtils``
     # via a cycle-safe re-import in ``_anim_utils``.
     "anim_utils.scale_keys": "*",
     "anim_utils.stagger_keys": "*",
-    # Shots — Blender acquisition + persistence adapter over pythontk's shots
-    # engine (``core_utils.engines.shots``).  The shot model / planner / detection
-    # math is shared upstream; only ``BlenderShotStore`` (scene hooks) and
-    # ``BlenderScenePersistence`` (scene-property JSON) live here.  The co-located
-    # Shots panel is discovered by ``BlenderUiHandler``, not registered here.
+    # Shots — Blender acquisition + persistence under pythontk's shots engine
+    # (``core_utils.engines.shots``).  The one store (``ptk.ShotStore``,
+    # re-exported), its model / planner / detection math and hand-off transfer
+    # are shared upstream; only ``BlenderShotsHost`` (the store's host adapter)
+    # and ``BlenderScenePersistence`` (scene-property JSON) live here.  The
+    # Shots panel is tentacle's shared tool.
     "anim_utils.shots._shots": [
-        "BlenderShotStore",
+        "BlenderShotsHost",
         "BlenderScenePersistence",
+        "ShotStore",
     ],
     # Shot detection — ``Detection`` (mirror of mayatk's ``anim_utils.shots._detection``):
     # auto / selected-key shot-region discovery over the scene's fcurves.
@@ -290,68 +319,69 @@ DEFAULT_INCLUDE = {
     "anim_utils.segment_keys": "SegmentKeys",
     # Shot sequencer engine — full mayatk ``ShotSequencer`` surface (define /
     # detect / sequences / fit / key motion / ripple / reorder / respace) over
-    # the shared planner; the Sequencer panel is co-located and discovered.
+    # the shared planner, plus ``SequencerHost``, every scene call tentacle's
+    # shared Shot Sequencer panel makes.
     "anim_utils.shots.shot_sequencer._shot_sequencer": ["ShotSequencer"],
+    "anim_utils.shots.shot_sequencer.sequencer_host": ["SequencerHost"],
     # Shot Manifest adapter — Blender scene hooks over the shared manifest engine
-    # (CSV → shots + fade/audio behaviors).  Co-located panel discovered by
-    # BlenderUiHandler, not registered here.
+    # (CSV → shots + fade/audio behaviors); its panel is tentacle's shared tool.
     "anim_utils.shots.shot_manifest._shot_manifest": ["BlenderShotManifest"],
+    "anim_utils.shots.shot_manifest.manifest_host": ["ManifestHost"],
     # Key stash — key clips parked out of the working animation (Blender adapter
-    # over ``ptk.KeyStash``; same name as mayatk's so the tentacle slots stay
-    # branch-free). Co-located ``KeyStashSlots`` panel discovered by
-    # ``BlenderUiHandler``, not registered here.
+    # over ``ptk.KeyStash``; same name as mayatk's so tentacle's shared Key Stash
+    # tool stays branch-free).
     "anim_utils.key_stash._key_stash": "KeyStash",
     # Smart Bake — engine + session/restore store, mirror of mayatk's
-    # ``anim_utils.smart_bake`` (the ``SmartBakeSlots`` panel is discovered by
-    # ``BlenderUiHandler``, not registered here).
+    # ``anim_utils.smart_bake`` (its panel is tentacle's shared Smart Bake tool).
     "anim_utils.smart_bake._smart_bake": "SmartBake",
     "anim_utils.smart_bake.bake_session": "RestoreResult",
     # Blendshape Animator — morph-authoring engine (base+target mesh -> keyed shape key, with
     # driver-driven corrective "tween" shapes for a custom curve), mirror of mayatk's
-    # ``anim_utils.blendshape_animator.BlendshapeAnimator``. The co-located
-    # ``BlendshapeAnimatorSlots`` panel is discovered by ``BlenderUiHandler`` (not registered
-    # here), matching the other tool Slots.
+    # ``anim_utils.blendshape_animator.BlendshapeAnimator`` (its panel is tentacle's shared
+    # Blendshape Animator tool).
     "anim_utils.blendshape_animator._blendshape_animator": [
         "BlendshapeAnimator",
     ],
     # Audio Clips — scene-wide sound-strip CRUD over the Video Sequence Editor, mirror of
-    # mayatk's ``audio_utils`` (the ``AudioClipsSlots`` panel is discovered by
-    # ``BlenderUiHandler``, not registered here).
+    # mayatk's ``audio_utils`` (``AudioClips`` is the API tentacle's shared Audio Clips
+    # tool calls).
     "audio_utils._audio_utils": [
         "AudioUtils",
     ],
+    "audio_utils.audio_clips": ["AudioClips"],
     # Audio-segment snapshots over VSE sound strips (mirror of mayatk's
     # ``audio_utils.segments.AudioSegment``) — the sequencer's audio tracks.
     "audio_utils.segments": ["AudioSegment"],
     "edit_utils._edit_utils": "*",
+    "edit_utils.primitives": "Primitives",
+    # Component-level mesh operations - mirror of mayatk's ``core_utils.components.Components``
+    # (the normals operations tentacle's shared ``slots/normals.py`` calls).
+    "edit_utils.components": "Components",
     # Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``
     # (``btk.Selection`` <-> ``mtk.Selection``), backing the shared ``list000`` "Select by Type"
-    # list in ``tentacle/slots/*/selection.py``.
+    # list in ``tentacle/slots/selection.py``.
     # SelectionOrder: rolled ordered-object-selection tracker (Blender records no object
     # click order natively) — backs Reorder Selection + any order-consuming tool.
     "edit_utils.selection": [
         "Selection",
         "SelectionOrder",
     ],
-    # Array-duplication tools — one self-contained module per pattern (engine + co-located
-    # panel Slots), mirroring mayatk's duplicate_linear / _radial / _grid split. Class-only
-    # (matching mayatk): the engine method is reached as ``btk.DuplicateLinear.duplicate_linear``
-    # etc.; the shared object-array primitives live flat in ``_edit_utils``; the ``<Tool>Slots``
-    # classes are discovered by ``BlenderUiHandler`` (not registered here).
+    # Array-duplication tools — one module per pattern, mirroring mayatk's duplicate_linear /
+    # _radial / _grid split (their panels are tentacle's). Class-only (matching mayatk): the
+    # engine method is reached as ``btk.DuplicateLinear.duplicate_linear`` etc.; the shared
+    # object-array primitives live flat in ``_edit_utils``.
     "edit_utils.duplicate_linear": "DuplicateLinear",
     "edit_utils.duplicate_radial": "DuplicateRadial",
     "edit_utils.duplicate_grid": "DuplicateGrid",
-    # The curtain's rig (``mtk.CurtainRig`` twin). The drape engine is ``Rail`` +
-    # ``CurtainMesh`` in ``edit_utils.curtain``, unregistered as in mayatk.
-    "edit_utils.curtain._curtain": "CurtainRig",
+    # Curtain: the tool's API and its rig (``mtk.Curtain`` / ``mtk.CurtainRig``
+    # twins). The drape engine is ``Rail`` + ``CurtainMesh`` in
+    # ``edit_utils.curtain``, unregistered as in mayatk.
+    "edit_utils.curtain._curtain": ["Curtain", "CurtainRig"],
     # Bevel engine — mirror of mayatk's ``edit_utils.bevel.Bevel`` (``btk.Bevel`` ↔ ``mtk.Bevel``).
-    # The co-located ``BevelSlots`` panel is discovered by ``BlenderUiHandler`` (not registered
-    # here), matching how mayatk's tool Slots stay out of its DEFAULT_INCLUDE.
     "edit_utils.bevel": [
         "Bevel",
     ],
     # Bridge engine — mirror of mayatk's ``edit_utils.bridge.Bridge`` (``btk.Bridge`` ↔ ``mtk.Bridge``).
-    # The co-located ``BridgeSlots`` panel is discovered by ``BlenderUiHandler`` (not registered here).
     "edit_utils.bridge": [
         "Bridge",
     ],
@@ -363,17 +393,17 @@ DEFAULT_INCLUDE = {
     # functions — the modal-operator body + numpy pick helpers, unit-tested by direct module import —
     # with ``TargetWeld`` the thin public facade over them; none leak onto the flat ``btk.*`` surface.)
     "edit_utils.target_weld": "TargetWeld",
-    # Snap tool — co-located ``SnapSlots`` panel (discovered by the handler, not registered); the
-    # snap engine (``snap_closest_verts`` / ``snap_to_grid`` / ``snap_to_surface``) lives in
-    # ``_edit_utils`` above (mirror of mayatk's ``edit_utils.snap.Snap``).
-    # Dynamic Pipe tool — engine + co-located ``DynamicPipeSlots`` panel (discovered by the handler,
-    # not registered). Mirror of mayatk's ``edit_utils.dynamic_pipe`` (Hook-driven beveled curve in
+    # Cut On Axis -- mirror of mayatk's ``edit_utils.cut_on_axis.CutOnAxis``.
+    "edit_utils.cut_on_axis": ["CutOnAxis"],
+    # Snap -- mirror of mayatk's ``edit_utils.snap.Snap``, over the ``_edit_utils`` math above.
+    "edit_utils.snap": ["Snap"],
+    # Dynamic Pipe — mirror of mayatk's ``edit_utils.dynamic_pipe`` (Hook-driven beveled curve in
     # place of Maya's NURBS-circle loft — no native loft in Blender).
     "edit_utils.dynamic_pipe": [
         "DynamicPipe",
     ],
-    # Naming tool — engine + co-located ``NamingSlots`` panel (discovered by the handler, not
-    # registered). Mirror of mayatk's ``edit_utils.naming`` subpackage.
+    # Naming tool engine (its panel is tentacle's shared Naming tool). Mirror of mayatk's
+    # ``edit_utils.naming`` subpackage.
     "edit_utils.naming._naming": [
         "Naming",
     ],
@@ -382,10 +412,9 @@ DEFAULT_INCLUDE = {
     "edit_utils.macros._macros": [
         "Macros",
     ],
-    # Procedural rigs — mirror of mayatk's ``rig_utils`` (one self-contained module per rig: engine
-    # + co-located ``<rig>.ui`` + ``<Rig>Slots``). ``RigUtils`` is the shared constraint/driver/handle
-    # base (mirror of mayatk's ``rig_utils.RigUtils``); each rig engine is exposed too, while the
-    # ``<Rig>Slots`` panels are discovered by ``BlenderUiHandler`` (not registered), as mayatk's are.
+    # Procedural rigs — mirror of mayatk's ``rig_utils`` (one module or subpackage per rig engine;
+    # each rig's panel is tentacle's). ``RigUtils`` is the shared constraint/driver/handle base
+    # (mirror of mayatk's ``rig_utils.RigUtils``); each rig engine is exposed too.
     "rig_utils._rig_utils": "*",
     "rig_utils.rig_graph_build": "RigGraphBuilder",
     "rig_utils.rig_graph_extract": "RigGraphExtractor",
@@ -412,13 +441,14 @@ DEFAULT_INCLUDE = {
     "rig_utils.shadow_rig._shadow_rig": [
         "ShadowRig",
     ],
+    "rig_utils.shadow_rig.shadow_preview": ["ShadowPreview"],
     "rig_utils.articulated_rig._articulated_rig": [
         "ArticulatedRig",
     ],
+    "rig_utils.articulated_rig.grab_tool": ["ArticulatedRigGrab"],
     # Curve / NURBS-adjacent tools — mirror of mayatk's ``nurbs_utils``. ``NurbsUtils`` is the shared
     # curve-build / curve→mesh-bake base (Blender's bevel + 2D-fill replace Maya's loft/planarSrf/
-    # nurbsToPoly layer); each curve tool engine is exposed too, while the ``<Tool>Slots`` panels are
-    # discovered by ``BlenderUiHandler`` (not registered), as mayatk's are.
+    # nurbsToPoly layer); each curve tool engine is exposed too (their panels are tentacle's).
     "nurbs_utils._nurbs_utils": "*",
     "nurbs_utils.image_tracer": [
         "ImageTracer",
@@ -431,7 +461,527 @@ DEFAULT_INCLUDE = {
 #: Public names that left this package (CODE_STANDARD section 5): no alias, so a
 #: read raises MovedNameError naming the new home. ``{name: (new home, version)}``;
 #: a move adds its names here in the same change set.
-MOVED_NAMES = {}
+MOVED_NAMES = {
+    # The lightmap tier alias and the Get Scene Info section key, their
+    # deprecation windows closed (2026-11-01): a tier name is looked up as
+    # given, and the removed key's table is the Materials section (mirror of mayatk).
+    "LightmapBaker.preset_name": ("blendertk.LightmapBaker.from_preset", "0.23.0"),
+    "SceneInfoSection.CATEGORIES": ("blendertk.SceneInfoSection.MATERIALS", "0.23.0"),
+    # The sections of live-scene state a GLB took beside its FBX: the FBX's
+    # materials record states every material (removed 2026-10-31).
+    "SceneState": ("blendertk.MaterialRecords", "0.23.0"),
+    # The host seam's one convention: a model's host adapter is its HOST (2026-11-01).
+    "EmissiveGroups.adapter": ("blendertk.EmissiveGroups.HOST", "0.23.0"),
+    # The curtain drape, written once for both hosts (CurtainMesh subclasses it).
+    "CurtainDrape": ("pythontk.CurtainDrape", "0.23.0"),
+    "DuplicateRadialSlots": (
+        "tentacle.slots.tools.duplicate_radial.DuplicateRadialSlots",
+        "0.23.0",
+    ),
+    "EmissiveGroupsSlots": (
+        "tentacle.slots.tools.emissive_groups.EmissiveGroupsSlots",
+        "0.23.0",
+    ),
+    # The Shot Manifest panel: tentacle's slots/tools/shot_manifest.py and its
+    # private _shot_manifest/ package (the .ui in ui/tools/).
+    "ShotManifestSlots": (
+        "tentacle.slots.tools.shot_manifest.ShotManifestSlots",
+        "0.23.0",
+    ),
+    "ShotManifestController": (
+        "tentacle.slots.tools._shot_manifest.controller.ShotManifestController",
+        "0.23.0",
+    ),
+    "ExportPreviewMixin": (
+        "tentacle.slots.tools._shot_manifest.export_preview.ExportPreviewMixin",
+        "0.23.0",
+    ),
+    "HeaderMenuMixin": (
+        "tentacle.slots.tools._shot_manifest.header_menu.HeaderMenuMixin",
+        "0.23.0",
+    ),
+    "ManifestEditor": (
+        "tentacle.slots.tools._shot_manifest.manifest_editor.ManifestEditor",
+        "0.23.0",
+    ),
+    "ManifestSourceMixin": (
+        "tentacle.slots.tools._shot_manifest.manifest_source.ManifestSourceMixin",
+        "0.23.0",
+    ),
+    "MappingPickerMixin": (
+        "tentacle.slots.tools._shot_manifest.mapping_picker.MappingPickerMixin",
+        "0.23.0",
+    ),
+    "RangeColumnMixin": (
+        "tentacle.slots.tools._shot_manifest.range_column.RangeColumnMixin",
+        "0.23.0",
+    ),
+    "RowMenusMixin": (
+        "tentacle.slots.tools._shot_manifest.row_menus.RowMenusMixin",
+        "0.23.0",
+    ),
+    "StoreFollowMixin": (
+        "tentacle.slots.tools._shot_manifest.store_follow.StoreFollowMixin",
+        "0.23.0",
+    ),
+    "ManifestTableMixin": (
+        "tentacle.slots.tools._shot_manifest.table_presenter.ManifestTableMixin",
+        "0.23.0",
+    ),
+    "ViewCombosMixin": (
+        "tentacle.slots.tools._shot_manifest.view_combos.ViewCombosMixin",
+        "0.23.0",
+    ),
+    "ManifestData": (
+        "tentacle.slots.tools._shot_manifest.manifest_data.ManifestData",
+        "0.23.0",
+    ),
+    "SETTINGS_NS": (
+        "tentacle.slots.tools._shot_manifest.manifest_data.SETTINGS_NS",
+        "0.23.0",
+    ),
+    "HEADERS": (
+        "tentacle.slots.tools._shot_manifest.manifest_data.HEADERS",
+        "0.23.0",
+    ),
+    "COL_STEP": (
+        "tentacle.slots.tools._shot_manifest.manifest_data.COL_STEP",
+        "0.23.0",
+    ),
+    "COL_SECTION": (
+        "tentacle.slots.tools._shot_manifest.manifest_data.COL_SECTION",
+        "0.23.0",
+    ),
+    "COL_DESC": (
+        "tentacle.slots.tools._shot_manifest.manifest_data.COL_DESC",
+        "0.23.0",
+    ),
+    "COL_BEHAVIORS": (
+        "tentacle.slots.tools._shot_manifest.manifest_data.COL_BEHAVIORS",
+        "0.23.0",
+    ),
+    "COL_START": (
+        "tentacle.slots.tools._shot_manifest.manifest_data.COL_START",
+        "0.23.0",
+    ),
+    "COL_END": (
+        "tentacle.slots.tools._shot_manifest.manifest_data.COL_END",
+        "0.23.0",
+    ),
+    "STEP_ICON_COLOR": (
+        "tentacle.slots.tools._shot_manifest.manifest_data.STEP_ICON_COLOR",
+        "0.23.0",
+    ),
+    "PASTEL_STATUS": (
+        "tentacle.slots.tools._shot_manifest.manifest_data.PASTEL_STATUS",
+        "0.23.0",
+    ),
+    "ERROR_COLOR": (
+        "tentacle.slots.tools._shot_manifest.manifest_data.ERROR_COLOR",
+        "0.23.0",
+    ),
+    # Small shared tools (tentacle's slots/tools/<tool>.py, the .ui in ui/tools/).
+    "BevelSlots": (
+        "tentacle.slots.tools.bevel.BevelSlots",
+        "0.23.0",
+    ),
+    "DuplicateLinearSlots": (
+        "tentacle.slots.tools.duplicate_linear.DuplicateLinearSlots",
+        "0.23.0",
+    ),
+    "DuplicateGridSlots": (
+        "tentacle.slots.tools.duplicate_grid.DuplicateGridSlots",
+        "0.23.0",
+    ),
+    "ExplodedViewSlots": (
+        "tentacle.slots.tools.exploded_view.ExplodedViewSlots",
+        "0.23.0",
+    ),
+    "DynamicPipeSlots": (
+        "tentacle.slots.tools.dynamic_pipe.DynamicPipeSlots",
+        "0.23.0",
+    ),
+    "CalculatorSlots": (
+        "tentacle.slots.tools.calculator.CalculatorSlots",
+        "0.23.0",
+    ),
+    "SnapSlots": (
+        "tentacle.slots.tools.snap.SnapSlots",
+        "0.23.0",
+    ),
+    "CutOnAxisSlots": (
+        "tentacle.slots.tools.cut_on_axis.CutOnAxisSlots",
+        "0.23.0",
+    ),
+    "MirrorSlots": (
+        "tentacle.slots.tools.mirror.MirrorSlots",
+        "0.23.0",
+    ),
+    "ImageTracerSlots": (
+        "tentacle.slots.tools.image_tracer.ImageTracerSlots",
+        "0.23.0",
+    ),
+    "CurveToTubeSlots": (
+        "tentacle.slots.tools.curve_to_tube.CurveToTubeSlots",
+        "0.23.0",
+    ),
+    "TelescopeRigSlots": (
+        "tentacle.slots.tools.telescope_rig.TelescopeRigSlots",
+        "0.23.0",
+    ),
+    "WheelRigSlots": (
+        "tentacle.slots.tools.wheel_rig.WheelRigSlots",
+        "0.23.0",
+    ),
+    "BridgeSlots": (
+        "tentacle.slots.tools.bridge.BridgeSlots",
+        "0.23.0",
+    ),
+    "ShellXformSlots": (
+        "tentacle.slots.tools.shell_xform.ShellXformSlots",
+        "0.23.0",
+    ),
+    "ColorIdSlots": (
+        "tentacle.slots.tools.color_id.ColorIdSlots",
+        "0.23.0",
+    ),
+    "ImageToPlaneSlots": (
+        "tentacle.slots.tools.image_to_plane.ImageToPlaneSlots",
+        "0.23.0",
+    ),
+    "KeyStashSlots": (
+        "tentacle.slots.tools.key_stash.KeyStashSlots",
+        "0.23.0",
+    ),
+    "SmartBakeSlots": (
+        "tentacle.slots.tools.smart_bake.SmartBakeSlots",
+        "0.23.0",
+    ),
+    "GameShaderSlots": (
+        "tentacle.slots.tools.game_shader.GameShaderSlots",
+        "0.23.0",
+    ),
+    "MatUpdaterSlots": (
+        "tentacle.slots.tools.mat_updater.MatUpdaterSlots",
+        "0.23.0",
+    ),
+    "HdrManagerSlots": (
+        "tentacle.slots.tools.hdr_manager.HdrManagerSlots",
+        "0.23.0",
+    ),
+    "ShaderTemplatesSlots": (
+        "tentacle.slots.tools.shader_templates.ShaderTemplatesSlots",
+        "0.23.0",
+    ),
+    "ArticulatedRigSlots": (
+        "tentacle.slots.tools.articulated_rig.ArticulatedRigSlots",
+        "0.23.0",
+    ),
+    "ShadowRigSlots": (
+        "tentacle.slots.tools.shadow_rig.ShadowRigSlots",
+        "0.23.0",
+    ),
+    "CurtainSlots": (
+        "tentacle.slots.tools.curtain.CurtainSlots",
+        "0.23.0",
+    ),
+    "NamingSlots": (
+        "tentacle.slots.tools.naming.NamingSlots",
+        "0.23.0",
+    ),
+    "TubeRigSlots": (
+        "tentacle.slots.tools.tube_rig.TubeRigSlots",
+        "0.23.0",
+    ),
+    "BlendshapeAnimatorSlots": (
+        "tentacle.slots.tools.blendshape_animator.BlendshapeAnimatorSlots",
+        "0.23.0",
+    ),
+    "COL_FRAME": (
+        "tentacle.slots.tools.blendshape_animator.COL_FRAME",
+        "0.23.0",
+    ),
+    "COL_NAME": (
+        "tentacle.slots.tools.blendshape_animator.COL_NAME",
+        "0.23.0",
+    ),
+    "COL_STATUS": (
+        "tentacle.slots.tools.blendshape_animator.COL_STATUS",
+        "0.23.0",
+    ),
+    "COL_TOPOLOGY": (
+        "tentacle.slots.tools.blendshape_animator.COL_TOPOLOGY",
+        "0.23.0",
+    ),
+    "COL_WEIGHT": (
+        "tentacle.slots.tools.blendshape_animator.COL_WEIGHT",
+        "0.23.0",
+    ),
+    "MODE_FRAME": (
+        "tentacle.slots.tools.blendshape_animator.MODE_FRAME",
+        "0.23.0",
+    ),
+    "MODE_WEIGHT": (
+        "tentacle.slots.tools.blendshape_animator.MODE_WEIGHT",
+        "0.23.0",
+    ),
+    "LightmapBakerSlots": (
+        "tentacle.slots.tools.lightmap_baker.LightmapBakerSlots",
+        "0.23.0",
+    ),
+    "RenderEffectsSlots": (
+        "tentacle.slots.tools.render_effects.RenderEffectsSlots",
+        "0.23.0",
+    ),
+    "AudioClipsSlots": (
+        "tentacle.slots.tools.audio_clips.AudioClipsSlots",
+        "0.23.0",
+    ),
+    "SceneExporterSlots": (
+        "tentacle.slots.tools.scene_exporter.SceneExporterSlots",
+        "0.23.0",
+    ),
+    "TextureCombineSlots": (
+        "tentacle.slots.tools.texture_combine.TextureCombineSlots",
+        "0.23.0",
+    ),
+    "ChannelsSlots": (
+        "tentacle.slots.tools.channels.ChannelsSlots",
+        "0.23.0",
+    ),
+    # Channels' copy / paste took mayatk's names (no alias: the panel was their one caller).
+    "copy_values": ("blendertk.Channels.copy_attr_values", "0.23.0"),
+    "paste_values": ("blendertk.Channels.paste_attr_values", "0.23.0"),
+    "HierarchySyncSlots": (
+        "tentacle.slots.tools.hierarchy_sync.HierarchySyncSlots",
+        "0.23.0",
+    ),
+    # Hierarchy Sync's panel helpers: tentacle's private _hierarchy_sync package.
+    "HierarchySyncController": (
+        "tentacle.slots.tools._hierarchy_sync.controller.HierarchySyncController",
+        "0.23.0",
+    ),
+    "HierarchyTreeRenderer": (
+        "tentacle.slots.tools._hierarchy_sync.tree_renderer.HierarchyTreeRenderer",
+        "0.23.0",
+    ),
+    "TreePathMatcher": (
+        "tentacle.slots.tools._hierarchy_sync.tree_matcher.TreePathMatcher",
+        "0.23.0",
+    ),
+    # The Unity panel: tentacle's for a while, now the one Unity app, extapps' Unity
+    # Workflow, which tentacle opens with ``UnityBridge`` as its engine.
+    "UnityBridgeSlots": ("extapps.UnityWorkflowSlots", "0.23.0"),
+    "UnityPanelMixin": ("extapps.UnityWorkflowSlots", "0.23.0"),
+    # The delivery is the app's, over unitytk's file bridge and its modes.
+    "UnityBridge.list_template_modes": (
+        "unitytk.FileToUnityBridge.list_template_modes",
+        "0.23.0",
+    ),
+    "UnityBridge.list_delivery_modes": (
+        "unitytk.CopyToAssetsDeliverer.DELIVERY_MODES",
+        "0.23.0",
+    ),
+    "ShotsSlots": (
+        "tentacle.slots.tools.shots.ShotsSlots",
+        "0.23.0",
+    ),
+    "ShotsController": (
+        "tentacle.slots.tools._shots.controller.ShotsController",
+        "0.23.0",
+    ),
+    "ReferenceManagerSlots": (
+        "tentacle.slots.tools.reference_manager.ReferenceManagerSlots",
+        "0.23.0",
+    ),
+    "TexturePathEditorSlots": (
+        "tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots",
+        "0.23.0",
+    ),
+    "ArnoldBridgeSlots": (
+        "tentacle.slots.tools.arnold_bridge.ArnoldBridgeSlots",
+        "0.23.0",
+    ),
+    "WorkspaceEditorSlots": (
+        "tentacle.slots.tools.workspaces.WorkspacesSlots",
+        "0.23.0",
+    ),
+    "MarmosetBridgeSlots": (
+        "tentacle.slots.tools.marmoset_bridge.MarmosetBridgeSlots",
+        "0.23.0",
+    ),
+    "SubstanceBridgeSlots": (
+        "tentacle.slots.tools.substance_bridge.SubstanceBridgeSlots",
+        "0.23.0",
+    ),
+    # The bridge panels' Bake Source row actions: tentacle's HostBridge, once.
+    "set_bake_source_from_selection": (
+        "tentacle.slots.tools._app_bridge.host_bridge.HostBridge.set_bake_source_from_selection",
+        "0.23.0",
+    ),
+    "select_bake_source": (
+        "tentacle.slots.tools._app_bridge.host_bridge.HostBridge.select_bake_source",
+        "0.23.0",
+    ),
+    "clear_bake_source": (
+        "tentacle.slots.tools._app_bridge.host_bridge.HostBridge.clear_bake_source",
+        "0.23.0",
+    ),
+    "RizomBridgeSlots": (
+        "tentacle.slots.tools.rizom_bridge.RizomBridgeSlots",
+        "0.23.0",
+    ),
+    "MayaBridgeSlots": (
+        "tentacle.slots.tools.dcc_bridge.DccBridgeSlots",
+        "0.23.0",
+    ),
+    # RizomUVBridge.send took mayatk's name (no alias: the panel was its one caller).
+    "send": ("blendertk.RizomUVBridge.send_to_rizomuv", "0.23.0"),
+    "ShotSequencerSlots": (
+        "tentacle.slots.tools.shot_sequencer.ShotSequencerSlots",
+        "0.23.0",
+    ),
+    "ShotEditDialog": (
+        "tentacle.slots.tools._shot_sequencer.shot_edit_dialog.ShotEditDialog",
+        "0.23.0",
+    ),
+    "ShotSequencerController": (
+        "tentacle.slots.tools._shot_sequencer.controller.ShotSequencerController",
+        "0.23.0",
+    ),
+    "ClipMenuMixin": (
+        "tentacle.slots.tools._shot_sequencer.clip_menu.ClipMenuMixin",
+        "0.23.0",
+    ),
+    "ClipMotionMixin": (
+        "tentacle.slots.tools._shot_sequencer.clip_motion.ClipMotionMixin",
+        "0.23.0",
+    ),
+    "GapManagerMixin": (
+        "tentacle.slots.tools._shot_sequencer.gap_manager.GapManagerMixin",
+        "0.23.0",
+    ),
+    "KeyMenuMixin": (
+        "tentacle.slots.tools._shot_sequencer.key_menu.KeyMenuMixin",
+        "0.23.0",
+    ),
+    "MarkerManagerMixin": (
+        "tentacle.slots.tools._shot_sequencer.marker_manager.MarkerManagerMixin",
+        "0.23.0",
+    ),
+    "SceneCallbacksMixin": (
+        "tentacle.slots.tools._shot_sequencer.scene_callbacks.SceneCallbacksMixin",
+        "0.23.0",
+    ),
+    "SceneSelectionMixin": (
+        "tentacle.slots.tools._shot_sequencer.scene_selection.SceneSelectionMixin",
+        "0.23.0",
+    ),
+    "ShotLaneMixin": (
+        "tentacle.slots.tools._shot_sequencer.shot_lane.ShotLaneMixin",
+        "0.23.0",
+    ),
+    "ShotNavMixin": (
+        "tentacle.slots.tools._shot_sequencer.shot_nav.ShotNavMixin",
+        "0.23.0",
+    ),
+    "TransportMixin": (
+        "tentacle.slots.tools._shot_sequencer.transport.TransportMixin",
+        "0.23.0",
+    ),
+    "UndoLedgerMixin": (
+        "tentacle.slots.tools._shot_sequencer.undo_ledger.UndoLedgerMixin",
+        "0.23.0",
+    ),
+    "WidgetSyncMixin": (
+        "tentacle.slots.tools._shot_sequencer.widget_sync.WidgetSyncMixin",
+        "0.23.0",
+    ),
+    "FLOAT_ZERO_EPS": (
+        "tentacle.slots.tools._shot_sequencer.clip_motion.FLOAT_ZERO_EPS",
+        "0.23.0",
+    ),
+    "TIME_SNAP_EPS": (
+        "tentacle.slots.tools._shot_sequencer.gap_manager.TIME_SNAP_EPS",
+        "0.23.0",
+    ),
+    "BlenderBridgeSlotsBase": (
+        "tentacle.slots.tools._app_bridge.host_bridge.HostBridge",
+        "0.23.0",
+    ),
+    "EditUtils.loft": ("blendertk.NurbsUtils.loft", "0.23.0"),
+    "CoreUtils.get_recent_files": ("blendertk.EnvUtils.get_recent_files", "0.23.0"),
+    "CoreUtils.get_recent_autosave": (
+        "blendertk.EnvUtils.get_recent_autosave",
+        "0.23.0",
+    ),
+    # Re-homed onto mayatk's class names (mayatk is the reference).
+    "CoreUtils.get_env_info": ("blendertk.EnvUtils.get_env_info", "0.23.0"),
+    "clean_geometry": ("blendertk.Diagnostics.clean_geometry", "0.23.0"),
+    "get_standoff_distances": (
+        "blendertk.Components.get_standoff_distances",
+        "0.23.0",
+    ),
+    "EditUtils.STANDOFF_SAMPLES": ("blendertk.Components.STANDOFF_SAMPLES", "0.23.0"),
+    # Scene Cleanup's hand-rolled purge: Blender's own one (Optimize's) instead.
+    "cleanup_scene": ("blendertk.CoreUtils.purge_unused_data", "0.23.0"),
+    # The library answers the colour; the Materials panel paints the icon.
+    "get_mat_swatch_icon": ("blendertk.MatUtils.get_mat_swatch_color", "0.23.0"),
+    # Blender's parenting operation, named apart from mayatk's ``reparent``
+    # (``CoreUtils.reparent``, a decorator): one flat name, one behavior.
+    "reparent": ("blendertk.NodeUtils.set_parent", "0.23.0"),
+    # The Blender store subclass became pythontk's one store plus the host
+    # adapter it is injected with: the store is ``ShotStore``, its
+    # Blender-only members are ``BlenderShotsHost``'s.
+    "BlenderShotStore": ("blendertk.ShotStore", "0.23.0"),
+    "BlenderShotStore.is_transform_path": (
+        "blendertk.BlenderShotsHost.is_transform_path",
+        "0.23.0",
+    ),
+    "BlenderShotStore.fcurve_for_key": (
+        "blendertk.BlenderShotsHost.fcurve_for_key",
+        "0.23.0",
+    ),
+    "BlenderShotStore.curve_key": ("blendertk.BlenderShotsHost.curve_key", "0.23.0"),
+    "BlenderShotStore.edit_serial": (
+        "blendertk.BlenderShotsHost.edit_serial",
+        "0.23.0",
+    ),
+    "BlenderShotStore.iter_action_fcurves": (
+        "blendertk.AnimUtils.get_fcurves",
+        "0.23.0",
+    ),
+    "BlenderShotStore.collect_transform_segments": (
+        "blendertk.BlenderShotsHost.collect_transform_segments",
+        "0.23.0",
+    ),
+    "BlenderShotStore.collect_selected_key_entries": (
+        "blendertk.BlenderShotsHost.collect_selected_key_entries",
+        "0.23.0",
+    ),
+    # Preview is uitk's PreviewController bound to BlenderPreviewSession, the
+    # one controller mayatk's binds too: the commit is mayatk's name.
+    "Preview.commit": ("blendertk.Preview.finalize_changes", "0.23.0"),
+    # Find & Copy keyed its files by NAME (two same-named textures shared one
+    # copy); it is the Texture Path Editor's Resolve-then-Collect now, keyed by
+    # image, mayatk's shape (ptk.FileCollect).
+    "plan_find_and_copy_textures": (
+        "blendertk.TexturePathEditor.plan_find_and_copy",
+        "0.23.0",
+    ),
+    "find_and_copy_textures": (
+        "blendertk.TexturePathEditor.find_and_copy_textures",
+        "0.23.0",
+    ),
+    "MatUtils.plan_find_and_copy_textures": (
+        "blendertk.TexturePathEditor.plan_find_and_copy",
+        "0.23.0",
+    ),
+    "MatUtils.find_and_copy_textures": (
+        "blendertk.TexturePathEditor.find_and_copy_textures",
+        "0.23.0",
+    ),
+}
 
 bootstrap_package(
     globals(),

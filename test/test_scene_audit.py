@@ -205,10 +205,11 @@ try:
         check("budget constants mirror mtk.AuditProfile", not drift, f"{drift}")
         mtk_sections = records.SceneInfoSection
         check(
-            "section keys, labels and retired key are mtk.SceneInfoSection's",
+            "section keys and labels are mtk.SceneInfoSection's, the removed key gone",
             dict(mtk_sections.LABELS) == SceneInfoSection.LABELS
             and tuple(mtk_sections.ALL) == SceneInfoSection.ALL
-            and mtk_sections.CATEGORIES == SceneInfoSection.CATEGORIES,
+            and not hasattr(mtk_sections, "CATEGORIES")
+            and not hasattr(SceneInfoSection, "CATEGORIES"),
         )
         # Pareto needs no material walk here: its slot counts come with the meshes.
         check(
@@ -742,13 +743,17 @@ try:
     )
 
     # ---- sections ----------------------------------------------------------------
+    # The removed 'categories' key (resolved to 'materials' with a notice until
+    # 0.23.0) is unknown now, and normalize drops unknown keys: the header alone,
+    # no Materials section standing in for it (mirror of mayatk).
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         rep = SceneAnalyzer.format_audit_html(scope="all", sections=["categories"])
     check(
-        "retired 'categories' resolves to 'materials', warning",
-        list(rep) == ["_header", "materials"]
-        and any(issubclass(w.category, DeprecationWarning) for w in caught),
+        "removed 'categories' is dropped like any unknown key, with no notice",
+        list(rep) == ["_header"]
+        and SceneInfoSection.normalize(["categories", "materials"]) == ["materials"]
+        and not any(issubclass(w.category, DeprecationWarning) for w in caught),
         f"{list(rep)}",
     )
     check(

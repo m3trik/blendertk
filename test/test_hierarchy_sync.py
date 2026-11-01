@@ -4,7 +4,9 @@ Covers the bpy-backed engine: path building, the pure diff-detection passes, stu
 quarantine (with the animation-ancestor / -descendant / -own skip guards), reparent repair (with
 the keyed-transform shift guard + constraint-safe move + empty-parent reference-preservation), and
 the full Pull feature (``ObjectSwapper`` — Add to Scene / Merge Hierarchies / Pull Children / dry
-run). The Qt-only tree_utils extraction is covered by ``test_hierarchy_tree_utils.py`` (.venv).
+run), and ``HierarchySyncSession`` -- the shared panel's host half: the reference linked as a
+library, the analysis, and the trees' scene edits. The panel's own side (its trees, ignored
+paths, dialogs) is tentacle's ``test/test_hierarchy_sync_panel.py``.
 
 Run: blender --background --factory-startup --python blendertk/test/test_hierarchy_sync.py
 """
@@ -728,6 +730,113 @@ try:
         "delete_objects dedups an overlapping selection",
         sorted(deleted) == ["DelKid2", "DelRoot2"],
         detail=str(sorted(deleted)),
+    )
+
+    # ------------------------------------------------------------------ HierarchySyncSession
+    # The shared Hierarchy Sync panel's host half (tentacle slots/tools/hierarchy_sync.py).
+    from blendertk.env_utils.hierarchy_sync.hierarchy_sync_session import (
+        HierarchySyncSession,
+    )
+
+    reset()
+    s_root = empty("SRoot")
+    empty("SKid", parent=s_root)
+    empty("SOnlyRef", parent=s_root)
+    s_ref = os.path.join(tmp, "session_ref.blend")
+    bpy.ops.wm.save_as_mainfile(filepath=s_ref, copy=True)
+    bpy.data.objects.remove(bpy.data.objects["SOnlyRef"], do_unlink=True)
+    s_extra = empty("SExtra")
+
+    session = HierarchySyncSession()
+    check("session: nothing held at first", not session.is_loaded(s_ref))
+    ref_objects = session.load_reference(s_ref)
+    check(
+        "session: load_reference links the reference's objects",
+        bool(ref_objects) and all(o.library is not None for o in ref_objects),
+        detail=str([o.name for o in ref_objects or []]),
+    )
+    check("session: the reference is held", session.is_loaded(s_ref))
+    again = session.load_reference(s_ref)
+    check(
+        "session: a second load reuses the held link",
+        len(bpy.data.libraries) == 1 and len(again or []) == len(ref_objects),
+    )
+    local_names = {o.name for o in session.current_scene_nodes()}
+    check(
+        "session: current_scene_nodes leaves the linked reference out",
+        all(o.library is None for o in session.current_scene_nodes())
+        and {"SRoot", "SKid", "SExtra"} <= local_names,
+        detail=str(sorted(local_names)),
+    )
+    ok = session.analyze(s_ref, fuzzy_matching=False, dry_run=True)
+    diff = session.diff_result or {}
+    check(
+        "session: analyze diffs the scene against the held reference",
+        ok and "SRoot|SOnlyRef" in diff.get("missing", []) and "SExtra" in diff.get("extra", []),
+        detail=str(diff),
+    )
+    session.clear_analysis()
+    check(
+        "session: clear_analysis drops the diff and releases the library",
+        session.diff_result is None
+        and not bpy.data.libraries
+        and bpy.data.collections.get(HierarchySyncSession.REFERENCE_SANDBOX_COLLECTION) is None
+        and not session.is_loaded(s_ref),
+    )
+
+    s_kid = bpy.data.objects["SKid"]
+    items, roots = HierarchySyncSession.hierarchy_structure([s_root, s_kid])
+    check(
+        "session: hierarchy_structure keys by path, parent by key",
+        roots == ["SRoot"]
+        and items["SRoot|SKid"]["parent"] == "SRoot"
+        and items["SRoot|SKid"]["display_name"] == "SKid"
+        and items["SRoot|SKid"]["node_name"] == "SKid"
+        and items["SRoot|SKid"]["object"] == s_kid,
+        detail=str(sorted(items)),
+    )
+    check(
+        "session: node_path / node_name / node_alive over an object",
+        HierarchySyncSession.node_path(s_kid) == "SRoot|SKid"
+        and HierarchySyncSession.node_name(s_kid) == "SKid"
+        and HierarchySyncSession.node_alive(s_kid)
+        and not HierarchySyncSession.node_alive("open_scene_placeholder")
+        and HierarchySyncSession.node_path("SRoot") == "",
+    )
+    check(
+        "session: Blender paths are compared as they are",
+        HierarchySyncSession.clean_path("Armature|mixamorig:Hips") == "Armature|mixamorig:Hips",
+    )
+
+    renamed = session.rename_nodes([(s_kid, "SKid2"), (s_extra, "SExtra"), (None, "X")])
+    check(
+        "session: rename_nodes renames, skipping an unchanged name or no object",
+        renamed[0] == s_kid and s_kid.name == "SKid2" and renamed[1:] == [None, None],
+        detail=str(renamed),
+    )
+    moved = session.reparent_nodes([(s_kid, None), (s_extra, s_root)])
+    check(
+        "session: reparent_nodes moves to the world and under an object",
+        moved == 2 and s_kid.parent is None and s_extra.parent == s_root,
+    )
+    check(
+        "session: a move already in place is skipped",
+        session.reparent_nodes([(s_extra, s_root)]) == 0,
+    )
+    check(
+        "session: select_nodes selects the objects",
+        session.select_nodes([s_root, "SRoot"]) == 1 and s_root.select_get(),
+    )
+    deleted = session.delete_nodes([s_root, "placeholder"])
+    check(
+        "session: delete_nodes deletes the subtree",
+        set(deleted) == {"SRoot", "SExtra"} and bpy.data.objects.get("SRoot") is None,
+        detail=str(sorted(deleted)),
+    )
+    check(
+        "session: the file types",
+        {".blend", ".fbx"} <= set(HierarchySyncSession.reference_formats())
+        and HierarchySyncSession.SCENE_FILE_TYPES == ("*.blend",),
     )
 
 except Exception as e:

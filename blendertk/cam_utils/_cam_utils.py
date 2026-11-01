@@ -15,6 +15,8 @@ orbits — so those need a 3D viewport (present, though not interactive, in ``--
 
 import pythontk as ptk
 
+from blendertk.core_utils._core_utils import CoreUtils
+
 # Blender camera clip defaults.
 _NEAR_DEFAULT = 0.1
 _FAR_DEFAULT = 1000.0
@@ -536,3 +538,149 @@ class CamUtils(_CamUtilsInternal):
 
         bpy.app.timers.register(_run, first_interval=0.01)
         return True
+
+    #: mayatk's view names -> ``view3d.view_axis`` types (``"side"`` is Maya's
+    #: right view); :meth:`switch_viewport_camera` handles ``"persp"`` itself.
+    _VIEW_AXES = {
+        "top": "TOP",
+        "bottom": "BOTTOM",
+        "front": "FRONT",
+        "back": "BACK",
+        "side": "RIGHT",
+        "right": "RIGHT",
+        "left": "LEFT",
+    }
+
+    @staticmethod
+    def get_cameras():
+        """The names of the scene's camera objects: what a camera picker lists.
+        Mirror of mayatk's ``CamUtils.get_cameras`` (which leaves out Maya's
+        startup cameras; Blender has none)."""
+        import bpy
+
+        with CoreUtils.window_context_override():
+            scene = bpy.context.scene
+        return [o.name for o in scene.objects if o.type == "CAMERA"]
+
+    @staticmethod
+    @CoreUtils.undoable
+    def create_camera(focal_length=35.0):
+        """Add a camera at the 3D cursor with *focal_length* (mm), selected and
+        active: Blender's Add > Camera. Mirror of mayatk's
+        ``CamUtils.create_camera``. Object Mode first (the Add menu offers a
+        camera only there). One undo step.
+
+        Returns:
+            The new camera object.
+
+        Raises:
+            RuntimeError: Blender refused to add it.
+        """
+        import bpy
+
+        CoreUtils.ensure_object_mode()
+        with CoreUtils.window_context_override():
+            bpy.ops.object.camera_add()
+        camera = CoreUtils.active_object()
+        if camera is None or camera.type != "CAMERA":
+            raise RuntimeError("Camera creation failed: the new object is not a camera.")
+        camera.data.lens = float(focal_length)
+        return camera
+
+    @staticmethod
+    @CoreUtils.undoable
+    def look_through(camera, select=False):
+        """Look through *camera*: make it the scene camera and put the 3D viewport
+        in camera view, selecting it (and making it active) first when *select*.
+        Mirror of mayatk's ``CamUtils.look_through`` (``lookThru``).
+
+        Parameters:
+            camera: A camera object, or its name.
+            select (bool): Select it, replacing the selection, first.
+
+        Returns:
+            The camera object.
+
+        Raises:
+            ValueError: No such camera.
+        """
+        import bpy
+
+        obj = bpy.data.objects.get(camera) if isinstance(camera, str) else camera
+        if obj is None or getattr(obj, "type", None) != "CAMERA":
+            raise ValueError(f"No camera named {getattr(camera, 'name', camera)!r}.")
+        if select:
+            CoreUtils.select([obj])
+        with CoreUtils.window_context_override():
+            bpy.context.scene.camera = obj
+        ctx = CoreUtils.get_view3d_context()
+        rv3d = getattr(ctx.get("region"), "data", None) if ctx else None
+        if rv3d is not None:
+            rv3d.view_perspective = "CAMERA"
+            CoreUtils.tag_redraw("VIEW_3D")  # a write from the Qt pump repaints nothing
+        return obj
+
+    @staticmethod
+    def switch_viewport_camera(camera_name):
+        """Switch the 3D viewport to a standard view, by mayatk's names:
+        ``"top"``, ``"bottom"``, ``"front"``, ``"back"``, ``"side"`` (Maya's right
+        view; ``"right"`` too) and ``"left"`` align it (``view3d.view_axis``);
+        ``"persp"`` leaves camera view, or orthographic, for perspective. Mirror
+        of mayatk's ``CamUtils.switch_viewport_camera`` (Maya looks through a
+        camera per view). Run under a VIEW_3D override: from the Qt pump the
+        active area is not the viewport.
+
+        Returns:
+            str: *camera_name*, once switched.
+
+        Raises:
+            ValueError: An unknown view name.
+            RuntimeError: No 3D viewport, or Blender refused the view.
+        """
+        import bpy
+
+        axis = CamUtils._VIEW_AXES.get(camera_name)
+        if axis is None and camera_name != "persp":
+            raise ValueError(
+                f"Unknown view {camera_name!r}: persp, "
+                f"{', '.join(CamUtils._VIEW_AXES)}."
+            )
+        ctx = CoreUtils.get_view3d_context()
+        if not ctx or not ctx.get("region"):
+            raise RuntimeError("No 3D viewport available for view switching.")
+        rv3d = ctx["region"].data
+        with bpy.context.temp_override(**ctx):
+            if axis is not None:
+                bpy.ops.view3d.view_axis(type=axis)
+            elif rv3d is not None and rv3d.view_perspective == "CAMERA":
+                # Leave camera view: view_persportho only toggles PERSP <-> ORTHO.
+                rv3d.view_perspective = "PERSP"
+            elif rv3d is not None and rv3d.view_perspective == "ORTHO":
+                bpy.ops.view3d.view_persportho()
+        return camera_name
+
+    @staticmethod
+    def align_view_to_selection():
+        """Look along the active element's normal (a face in Edit Mode) and frame
+        the selection: Blender's Align View to Active, then View Selected. Mirror
+        of mayatk's ``CamUtils.align_view_to_selection`` (``AlignCameraToPolygon``
+        through an orthographic ``alignToPoly`` camera there).
+
+        Returns:
+            list: The selection it aligned to; ``[]`` with nothing selected.
+
+        Raises:
+            RuntimeError: No 3D viewport, or Blender refused the view.
+        """
+        import bpy
+
+        selection = CoreUtils.selected_objects()
+        if not selection:
+            return []
+        ctx = CoreUtils.get_view3d_context()
+        if not ctx or not ctx.get("region"):
+            raise RuntimeError("No 3D viewport available to align the view.")
+        with bpy.context.temp_override(**ctx):
+            bpy.ops.view3d.view_axis(type="TOP", align_active=True)
+            bpy.ops.view3d.view_selected()
+        return selection

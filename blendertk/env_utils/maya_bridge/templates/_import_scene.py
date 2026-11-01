@@ -74,6 +74,23 @@ _CONSTRAINT_TYPES = (
 
 # Modern surface shaders whose textures FBX cannot carry (classic model only).
 MODERN_SHADER_TYPES = ("standardSurface", "aiStandardSurface", "openPBRSurface")
+# Each modern surface's emission weight, ``{node type: (attribute, mode)}``:
+# a ``multiply`` weight scales the colour as it is (above 1 a strength), a
+# ``gate`` switches it on or off -- openPBR's emissionLuminance is in nits, so
+# read as a multiplier it blew the colour out. mayatk's ShaderAttributeMap
+# table (EMISSION_WEIGHT_ATTRS, the SSoT), spelled out: this template is
+# dependency-free by contract. Its rows for the modern surfaces only:
+# StingrayPBS's weight (emissive_intensity) is read in _translate_stingray,
+# where an unreadable one lets the map ride. Both tables are held to the SSoT
+# by m3trik/test/test_check_dcc_twins.py (MayaBridgeTemplateTablesTest).
+EMISSION_WEIGHT_ATTRS = {
+    "aiStandardSurface": ("emission", "multiply"),
+    "standardSurface": ("emission", "multiply"),
+    "openPBRSurface": ("emissionLuminance", "gate"),
+}
+# Each modern surface's opacity: a colour, except openPBR's geometryOpacity, a
+# scalar (mayatk's ShaderAttributeMap ``opacity`` slot).
+OPACITY_ATTRS = {"openPBRSurface": "geometryOpacity"}
 # ShaderFX game shaders: FBX writes them as a "Maya|TEX_*" custom-property set
 # that Blender's importer ignores outright ("material link ... ignored").
 STINGRAY_SHADER_TYPES = ("StingrayPBS", "ShaderfxShader")
@@ -135,6 +152,34 @@ def _get_first(cmds, node, names, default):
     return default
 
 
+def _emission_weight(cmds, mat):
+    """*mat*'s emission weight as the shader applies it (EMISSION_WEIGHT_ATTRS):
+    a multiply weight as it is, a gate 1 or 0; 0 when the weight is unreadable
+    (standardSurface's DEFAULTS to 0, so a stray emissionColor map that emits
+    nothing in Maya must not glow in Blender)."""
+    try:
+        attr, mode = EMISSION_WEIGHT_ATTRS.get(cmds.nodeType(mat), ("emission", "multiply"))
+    except Exception:
+        attr, mode = "emission", "multiply"
+    weight = _get_first(cmds, mat, (attr,), 0.0)
+    if mode == "gate":
+        return 1.0 if weight > 0.0 else 0.0
+    return max(0.0, weight)
+
+
+def _opacity(cmds, mat):
+    """*mat*'s opacity as an RGB triple: openPBR's scalar geometryOpacity on
+    every channel, else the opacity colour (OPACITY_ATTRS)."""
+    try:
+        attr = OPACITY_ATTRS.get(cmds.nodeType(mat))
+    except Exception:
+        attr = None
+    if attr:
+        g = _get_first(cmds, mat, (attr,), 1.0)
+        return (g, g, g)
+    return _get_first(cmds, mat, ("opacity",), (1.0, 1.0, 1.0))
+
+
 def _roughness_to_cosine_power(rough):
     return max(2.0, min(100.0, 2.0 / max(rough * rough, 1e-4) - 2.0))
 
@@ -150,14 +195,8 @@ def _translate_surface(cmds, mat, phong):
         w = _get_first(cmds, mat, ("base", "baseWeight"), 1.0)
         cmds.setAttr(f"{phong}.color", c[0] * w, c[1] * w, c[2] * w, type="double3")
 
-    # emission -> incandescence (+map). Gated on the weight: standardSurface's
-    # emission weight DEFAULTS to 0, so a stray emissionColor map that emits
-    # nothing in Maya must not glow in Blender. Weight clamped to 1 --
-    # openPBR's emissionLuminance is in nits and would blow out the color.
-    emit_w = min(
-        _get_first(cmds, mat, ("emission", "emissionWeight", "emissionLuminance"), 0.0),
-        1.0,
-    )
+    # emission -> incandescence (+map), weighted as the shader weights it.
+    emit_w = _emission_weight(cmds, mat)
     if emit_w > 0.0:
         emit_src = _plug_source(cmds, f"{mat}.emissionColor")
         if emit_src:
@@ -187,7 +226,7 @@ def _translate_surface(cmds, mat, phong):
     cmds.setAttr(f"{phong}.cosinePower", _roughness_to_cosine_power(rough))
 
     # opacity -> transparency (inverse)
-    o = _get_first(cmds, mat, ("opacity",), (1.0, 1.0, 1.0))
+    o = _opacity(cmds, mat)
     if min(o) < 1.0:
         cmds.setAttr(
             f"{phong}.transparency", 1.0 - o[0], 1.0 - o[1], 1.0 - o[2], type="double3"

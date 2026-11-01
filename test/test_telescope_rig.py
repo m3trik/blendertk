@@ -291,30 +291,7 @@ try:
     except ValueError:
         check("rejects duplicate segments", True)
 
-    # ---- Slots.build_rig / remove_rig via lightweight stubs ----
-    from blendertk.rig_utils.telescope_rig import TelescopeRigSlots
-
-    class _Sig:
-        def connect(self, *a, **k):
-            pass
-
-    class _UI:
-        def __init__(self, collapsed=0.0, axis=1):
-            self.btn_build = type("B", (), {"clicked": _Sig()})()
-            self.btn_remove = type("B", (), {"clicked": _Sig()})()
-            self.spin_collapsed = type("S", (), {"value": staticmethod(lambda: collapsed)})()
-            self.cmb_axis = type("C", (), {"currentIndex": staticmethod(lambda: axis)})()
-            self.txt003 = type("T", (), {"append": staticmethod(lambda *a, **k: None)})()
-
-    class _SB:
-        def __init__(self, ui):
-            self.loaded_ui = type("L", (), {"telescope_rig": ui})()
-            self.registered_widgets = type("R", (), {})()   # no TextEditLogHandler -> guarded skip
-            self.messages = []
-
-        def message_box(self, msg, *a, **k):
-            self.messages.append(msg)
-
+    # ---- partition_selection: the roles tentacle's Telescope Rig panel builds from ----
     # Empties are handles, everything else is a segment; segments order by distance from active.
     reset()
     handles = [empty("base", (0, 0, 0)), empty("end", (0, 10, 0))]
@@ -322,67 +299,51 @@ try:
     for o in handles + tubes:
         o.select_set(True)
     bpy.context.view_layer.objects.active = handles[0]
-    sb = _SB(_UI())
-    slot = TelescopeRigSlots(sb)
-    slot.build_rig()
-    check("build_rig: no error message_box", not sb.messages, f"msgs={sb.messages}")
-    check("build_rig: handles taken from the Empties, not created",
-          slot.bundle is not None and slot.bundle.created_locators == [],
-          f"{slot.bundle and slot.bundle.created_locators}")
-    check("build_rig: base/end assigned from the Empties",
-          slot.bundle and {slot.bundle.base_locator, slot.bundle.end_locator} == {"base", "end"},
-          f"{slot.bundle and (slot.bundle.base_locator, slot.bundle.end_locator)}")
-    check("build_rig: 3 segments rigged", slot.bundle and len(slot.bundle.segments) == 3)
+    base_name, segment_names, end_name = TelescopeRig.partition_selection()
+    check("partition: base/end taken from the Empties", (base_name, end_name) == ("base", "end"),
+          f"{(base_name, end_name)}")
+    check("partition: segments ordered from the active (base) end",
+          segment_names == ["t0", "t1", "t2"], f"{segment_names}")
+    bundle = TelescopeRig().setup_telescope_rig(base_name, end_name, segment_names)
+    check("partition: its names build the rig on the Empties, none created",
+          bundle.created_locators == [] and len(bundle.segments) == 3, f"{bundle.created_locators}")
 
-    # remove_rig from a selected segment tears the rig down
-    bpy.ops.object.select_all(action="DESELECT")
-    tubes[1].select_set(True)
-    slot.remove_rig()
-    check("remove_rig: no error message_box", not sb.messages, f"msgs={sb.messages}")
-    check("remove_rig: constraints gone", not any(o.constraints for o in handles + tubes))
-    check("remove_rig: user handles kept", all(o.name in bpy.data.objects for o in handles))
+    # the rig is found from any member and torn down from that record
+    found = TelescopeRig.find_bundles([tubes[1]])
+    check("find_bundles: the rig found from a segment", len(found) == 1, f"n={len(found)}")
+    check("teardown: a list of records tears the rig down", TelescopeRig().teardown(found))
+    check("teardown: constraints gone", not any(o.constraints for o in handles + tubes))
+    check("teardown: user handles kept", all(o.name in bpy.data.objects for o in handles))
 
-    # geometry only (2 tubes) -> both handles auto-created
+    # geometry only (2 tubes) -> two segments, both handles left to the build
     reset()
     tubes = [cube(f"s{i}", (0, 2 + i * 3, 0), 4.0) for i in range(2)]
     for o in tubes:
         o.select_set(True)
     bpy.context.view_layer.objects.active = tubes[0]
-    sb2 = _SB(_UI())
-    slot2 = TelescopeRigSlots(sb2)
-    slot2.build_rig()
-    check("build_rig: 2 tubes alone build a strut", not sb2.messages, f"msgs={sb2.messages}")
-    check("build_rig: both handles auto-created",
-          slot2.bundle is not None and len(slot2.bundle.created_locators) == 2,
-          f"{slot2.bundle and slot2.bundle.created_locators}")
+    roles = TelescopeRig.partition_selection()
+    check("partition: 2 tubes alone are a strut with no handles",
+          roles == (None, ["s0", "s1"], None), f"{roles}")
 
-    # remove_rig with nothing selected falls back to this session's last build
-    bpy.ops.object.select_all(action="DESELECT")
-    slot2.remove_rig()
-    check("remove_rig: falls back to the last build", not sb2.messages and slot2.bundle is None,
-          f"msgs={sb2.messages}")
-
-    # build_rig rejects an under-sized selection
+    # two rigs torn down by ONE teardown call (a Remove over a selection spanning both)
     reset()
-    sb3 = _SB(_UI())
-    TelescopeRigSlots(sb3).build_rig()   # nothing selected
-    check("build_rig: guards empty selection", len(sb3.messages) == 1, f"msgs={sb3.messages}")
+    pair = []
+    for k in range(2):
+        segs = [cube(f"r{k}_{i}", (k * 10, 2 + i * 3, 0), 4.0) for i in range(2)]
+        pair.append(TelescopeRig().setup_telescope_rig(segments=segs, name=f"rig{k}"))
+    check("teardown: two rigs in one call",
+          TelescopeRig().teardown(pair) and TelescopeRig.scene_bundles() == [],
+          f"left={[b.name for b in TelescopeRig.scene_bundles()]}")
+    check("teardown: an empty list is nothing to do", TelescopeRig().teardown([]) is False)
 
+    # under-sized selections: nothing, or a single segment
     reset()
+    check("partition: nothing selected", TelescopeRig.partition_selection() == (None, [], None))
     lone = cube("lone", (0, 0, 0), 4.0)
     lone.select_set(True)
     bpy.context.view_layer.objects.active = lone
-    sb4 = _SB(_UI())
-    TelescopeRigSlots(sb4).build_rig()
-    check("build_rig: guards a single segment", len(sb4.messages) == 1, f"msgs={sb4.messages}")
-
-    # remove_rig with a selection that carries no rig warns
-    reset()
-    stray = cube("stray", (0, 0, 0), 4.0)
-    stray.select_set(True)
-    sb5 = _SB(_UI())
-    TelescopeRigSlots(sb5).remove_rig()
-    check("remove_rig: guards a rig-less selection", len(sb5.messages) == 1, f"msgs={sb5.messages}")
+    check("partition: a single segment",
+          TelescopeRig.partition_selection() == (None, ["lone"], None))
 
     # ---- Verbose (INFO) report path ----
     # Every other build here runs at the default WARNING level, where the run

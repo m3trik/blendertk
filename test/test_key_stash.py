@@ -39,7 +39,7 @@ try:
     from blendertk.anim_utils.key_stash._key_stash import KeyStash
     from blendertk.anim_utils.shots._shots import (
         BlenderScenePersistence,
-        BlenderShotStore,
+        ShotStore,
     )
     from blendertk.anim_utils._anim_utils import AnimUtils
 
@@ -208,7 +208,7 @@ try:
         "channel is isolated from the shot store",
         DataNodes.read(ptk.Scope.PRIVATE, "key_stash") is not None
         and DataNodes.read(ptk.Scope.PRIVATE, "shot_store") is None
-        and BlenderScenePersistence().store_cls is BlenderShotStore,
+        and BlenderScenePersistence().store_cls is ShotStore,
     )
     path = os.path.join(TEMP, "key_stash_roundtrip.blend")
     bpy.ops.wm.save_as_mainfile(filepath=path)
@@ -328,11 +328,98 @@ try:
     )
 
     # ---- frame-rate change leaves Blender frames alone ----
-    reopened.rescale_to_fps(reopened.scene_fps * 2)
+    rescale_events = []
+    reopened.add_listener(rescale_events.append)
+    fps = reopened.scene_fps
+    reopened.rescale_to_fps(fps * 2)
     check(
         "rescale_to_fps records the rate but does not move Blender keys",
-        reopened.clips[0].times == [10.0, 20.0, 30.0],
-        f"{reopened.clips[0].times}",
+        reopened.clips[0].times == [10.0, 20.0, 30.0]
+        and reopened.scene_fps == fps * 2
+        and rescale_events == [],
+        f"{reopened.clips[0].times} fps={reopened.scene_fps} events={rescale_events}",
+    )
+
+    # ---- ... and live: the backend's frame-rate hook (msgbus in a session;
+    #      a Python-side write never notifies msgbus, so it is run as msgbus would) ----
+    scene = bpy.context.scene
+    scene.render.fps, scene.render.fps_base = 50, 1.0
+    KeyStash._persistence._on_time_unit_changed()
+    rec = reopened.clips[0].curves[0]
+    _, parked_fc = KeyStash._stash_fcurve(bpy.data.actions.get(rec["action"]), rec)
+    parked = [k.co.x for k in parked_fc.keyframe_points] if parked_fc else None
+    check(
+        "a live frame-rate change records the rate; record and parked action keep their frames",
+        KeyStash.active() is reopened
+        and reopened.scene_fps == 50.0
+        and reopened.clips[0].times == [10.0, 20.0, 30.0]
+        and parked == [10.0, 20.0, 30.0],
+        f"fps={reopened.scene_fps} times={reopened.clips[0].times} parked={parked}",
+    )
+    reset_store()
+
+    # ---- the deferred write: the shot store's coalescer, one flag per store ----
+    import types
+    from unittest import mock
+    from blendertk.anim_utils.shots._shots import BlenderShotsHost
+
+    first, second = KeyStash(), KeyStash()
+    with mock.patch.object(BlenderShotsHost, "schedule_flush") as shared:
+        KeyStash.HOST.schedule_flush(first)
+    check(
+        "the key stash's deferred write is the shot store's coalescer (written once)",
+        [c.args for c in shared.call_args_list] == [(first,)],
+        f"{shared.call_args_list}",
+    )
+    queued, writes = [], []
+    first._flush_dirty = lambda: writes.append("first")
+    second._flush_dirty = lambda: writes.append("second")
+    session = types.SimpleNamespace(  # a GUI session's timers, recorded
+        app=types.SimpleNamespace(
+            background=False,
+            timers=types.SimpleNamespace(
+                register=lambda fn, first_interval=0.0: queued.append(fn)
+            ),
+        )
+    )
+    with mock.patch.dict(sys.modules, {"bpy": session}):
+        for store in (first, first, second):
+            KeyStash.HOST.schedule_flush(store)
+        burst = len(queued)
+        queued[0]()  # the first store's timer runs
+        KeyStash.HOST.schedule_flush(first)
+    state = getattr(first, "host_state", None)
+    check(
+        "a burst queues one write per store, its flag on that store's host_state",
+        burst == 2
+        and writes == ["first"]
+        and len(queued) == 3
+        and state is not None
+        and state.flush_pending is True
+        and getattr(second, "host_state", None) is not state,
+        f"burst={burst} writes={writes} queued={len(queued)} state={state}",
+    )
+
+    # ---- the saved record: the golden case every host's store is held to ----
+    from pythontk.core_utils.engines.key_stash.key_stash_model import (
+        KeyStashConformance,
+    )
+
+    reset()
+    backend = BlenderScenePersistence(attr_name=KeyStash.ATTR_NAME, store_cls=KeyStash)
+    KeyStash.set_persistence(backend)
+    KeyStashConformance.fill(KeyStash()).save()
+    raw = DataNodes.read(ptk.Scope.PRIVATE, KeyStash.ATTR_NAME)
+    check(
+        "the saved key stash record is pinned byte for byte",
+        raw == KeyStashConformance.payload(),
+        repr(raw),
+    )
+    again = ptk.SceneRecords.KEY_STASH.encode(KeyStash.from_dict(backend.load()).to_dict())
+    check(
+        "a reloaded key stash saves the same bytes",
+        again == KeyStashConformance.payload(),
+        repr(again),
     )
     reset_store()
 
@@ -450,6 +537,141 @@ try:
         f"{stash_state()}",
     )
     reset_store()
+
+    # ---- the Key Stash panel's API (mirror of mayatk's): stash_from, select_clip_objects,
+    #      watch_undo, AnimUtils.get_current_frame ----
+    from blendertk.core_utils.script_job_manager import ScriptJobManager
+
+    def select_only(*objs):
+        for o in bpy.data.objects:
+            o.select_set(o in objs)
+
+    reset()
+    cube = keyed_cube()
+    select_only(cube)
+    scene = bpy.context.scene
+    scene.frame_start, scene.frame_end = 10, 30
+    clip = KeyStash.active().stash_from("playback_range")
+    check(
+        "stash_from playback_range takes the selected objects' keys in the scene frame range",
+        clip is not None and clip.key_count == 3 and frames(fc_x(cube)) == [1, 40],
+        f"{clip} {frames(fc_x(cube))}",
+    )
+
+    reset()
+    cube = keyed_cube()
+    select_only(cube)
+    bpy.context.scene.use_preview_range = False
+    refused = ""
+    try:
+        KeyStash.active().stash_from("timeline_selection")
+    except ValueError as exc:
+        refused = str(exc)
+    check("stash_from timeline_selection needs a preview range", "preview range" in refused,
+          refused)
+    scene = bpy.context.scene
+    scene.use_preview_range = True
+    scene.frame_preview_start, scene.frame_preview_end = 10, 20
+    clip = KeyStash.active().stash_from("timeline_selection")
+    check(
+        "stash_from timeline_selection reads the preview range",
+        clip is not None and clip.key_count == 2 and frames(fc_x(cube)) == [1, 30, 40],
+        f"{clip} {frames(fc_x(cube))}",
+    )
+    scene.use_preview_range = False
+
+    reset()
+    cube = keyed_cube()
+    for k in fc_x(cube).keyframe_points:
+        k.select_control_point = k.co.x in (10.0, 20.0)
+    clip = KeyStash.active().stash_from("selected_keys")
+    check(
+        "stash_from selected_keys takes the selected keys",
+        clip is not None and clip.key_count == 2 and frames(fc_x(cube)) == [1, 30, 40],
+        f"{clip} {frames(fc_x(cube))}",
+    )
+
+    reset()
+    cube = keyed_cube()
+    select_only()
+    refusals = []
+    for source in ("playback_range", "everything"):
+        try:
+            KeyStash.active().stash_from(source)
+        except ValueError as exc:
+            refusals.append(str(exc))
+    check(
+        "stash_from refuses no selection and an unknown source, storing nothing",
+        len(refusals) == 2
+        and "Select the object" in refusals[0]
+        and "source must be one of" in refusals[1]
+        and KeyStash.active().is_empty(),
+        f"{refusals}",
+    )
+
+    reset()
+    cube = keyed_cube()
+    clip = KeyStash.active().stash(objects=[cube], time_range=(10, 30))
+    select_only()
+    names = KeyStash.active().select_clip_objects(clip.clip_id)
+    check(
+        "select_clip_objects selects the clip's objects, the first active",
+        names == ["Cube"]
+        and cube.select_get()
+        and bpy.context.view_layer.objects.active == cube,
+        f"{names}",
+    )
+    bpy.data.objects.remove(cube, do_unlink=True)
+    check(
+        "select_clip_objects returns nothing once the objects are gone",
+        KeyStash.active().select_clip_objects(clip.clip_id) == [],
+    )
+    unknown = False
+    try:
+        KeyStash.active().select_clip_objects(999)
+    except KeyError:
+        unknown = True
+    check("select_clip_objects refuses an unknown clip", unknown)
+
+    class _MovedRecord:
+        """A backend whose record an undo moved, until it is read again."""
+
+        def __init__(self, data):
+            self.data, self.moved = data, False
+
+        def save(self, data):
+            self.data = data
+
+        def load(self):
+            self.moved = False
+            return self.data
+
+        def record_changed(self):
+            return self.moved
+
+    reset_store()
+    owner = type("Owner", (), {})()
+    backend = _MovedRecord(KeyStash().to_dict())
+    KeyStash.set_persistence(backend)
+    store = KeyStash.active()
+    events = []
+    store.add_listener(events.append)
+    tokens = KeyStash.watch_undo(owner=owner)
+    seed = KeyStash()
+    seed.add_clip(["Cube"], [{"times": [10.0, 20.0]}])
+    backend.data, backend.moved = seed.to_dict(), True
+    ScriptJobManager.instance()._dispatch("Undo")
+    check(
+        "watch_undo: an undo re-reads a record it moved into the loaded store",
+        len(tokens) == 2 and len(KeyStash.active().clips) == 1 and bool(events),
+        f"tokens={tokens} clips={KeyStash.active().clips} events={events}",
+    )
+    ScriptJobManager.instance().unsubscribe_all(owner)
+    reset_store()
+
+    bpy.context.scene.frame_set(12)
+    check("AnimUtils.get_current_frame reads the scene's frame",
+          AnimUtils.get_current_frame() == 12.0, f"{AnimUtils.get_current_frame()}")
 
 except Exception:
     traceback.print_exc()

@@ -1,32 +1,33 @@
 # !/usr/bin/python
 # coding=utf-8
 """Procedural draped-cloth (curtain) generator for Blender -- mirror of mayatk's
-``edit_utils.curtain``: same classes, same parameters, same drape math (the
-vendored ``_curtain_drape``, code-identical with mayatk's copy); only the
-selection readers, the mesh build and the rig differ.
+``edit_utils.curtain``: same classes, same parameters, same drape math (one
+``ptk.CurtainDrape`` both build from); only the selection readers, the mesh
+build and the rig differ.
 
 - :class:`Rail` -- *rail geometry*: the pure parts (``make`` / ``length`` /
   ``resample`` / ``frames``) from :class:`ptk.Polyline`, plus the Blender
   resolvers (edit-mode mesh edges / a curve object / 2+ object positions).
-- :class:`CurtainMesh` -- *deformation*: the :class:`CurtainDrape` engine plus
+- :class:`CurtainMesh` -- *deformation*: the :class:`ptk.CurtainDrape` engine plus
   the Blender mesh build (a bmesh grid with grid UVs) and post-ops
   (``thickness`` -> applied Solidify, ``reduce`` -> :func:`blendertk.decimate`,
   ``invert`` -> reversed faces, ``soften`` -> smooth shading).
 - :class:`CurtainRig` -- *rig*: control handles drive a finished curtain.
 
-:class:`CurtainSlots` (``curtain_slots.py``) is the panel over this engine.
+:class:`Curtain` is the tool's API over the three, in object names: what
+tentacle's Curtain panel calls (mirror of mayatk's ``Curtain``).
 
 ``import bpy`` / ``bmesh`` are deferred into the call bodies so importing this
 module to resolve the engine surface never needs a running Blender.
 """
 
+from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
 import pythontk as ptk
 
 from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.edit_utils._edit_utils import EditUtils
-from blendertk.edit_utils.curtain._curtain_drape import CurtainDrape
 
 Vec = Tuple[float, float, float]
 
@@ -107,16 +108,15 @@ class Rail(ptk.Polyline):
 
 
 # ----------------------------------------------------------------------------
-# Curtain generator -- the vendored CurtainDrape engine + the Blender mesh build
+# Curtain generator -- the ptk.CurtainDrape engine + the Blender mesh build
 # ----------------------------------------------------------------------------
 
 
-class CurtainMesh(CurtainDrape):
+class CurtainMesh(ptk.CurtainDrape):
     """Generate a pleated, gravity-draped curtain mesh from a rail polyline.
 
-    The drape math and its parameters are :class:`CurtainDrape`'s (the
-    vendored twin of mayatk's -- see it, or mayatk's ``CurtainMesh``, for the
-    parameter reference); this subclass adds the Blender mesh build. It
+    The drape math and its parameters are :class:`ptk.CurtainDrape`'s (see it
+    for the parameter reference); this subclass adds the Blender mesh build. It
     consumes plain rail points (see :class:`Rail`) and emits a mesh object.
     """
 
@@ -331,3 +331,95 @@ class CurtainRig:
         """Parent *child* under *parent* preserving its world transform (parent-inverse bind)."""
         child.parent = parent
         child.matrix_parent_inverse = parent.matrix_world.inverted()
+
+
+# ----------------------------------------------------------------------------
+# Tool API -- what the Curtain panel (tentacle) calls; mirror of mayatk's Curtain
+# ----------------------------------------------------------------------------
+
+
+class Curtain:
+    """The Curtain tool's API -- mirror of mayatk's ``Curtain``: drape a curtain
+    from a rail, and keep the auto-rail curve a panel shows while nothing usable
+    is selected.
+
+    The tool's one entry point over :class:`Rail`, :class:`CurtainMesh` and
+    :class:`CurtainRig`. Every result is an object NAME, which a panel can hold
+    across preview refreshes: Blender's Preview recreates the objects it
+    restores, so an object reference would go stale.
+    """
+
+    #: The user tier of the tool's presets (a ``PresetManager`` ``preset_dir``).
+    PRESET_DIR = "blendertk/curtain"
+    #: The shipped presets: snapshots of the panel's fields, identical in both
+    #: hosts (one vendored drape engine, so a preset drapes the same).
+    BUILTIN_PRESET_DIR = str(Path(__file__).resolve().parent / "presets")
+    #: The name a new rail curve takes.
+    RAIL_CURVE_NAME = "curtain_rail"
+
+    @staticmethod
+    def rail_from_selection(objects) -> Optional[Tuple[List[Vec], bool]]:
+        """The rail ``(points, closed)`` *objects* describe, or None: mesh edges
+        selected in Edit Mode, a curve object, or two or more objects'
+        positions (:meth:`Rail.from_selection`)."""
+        return Rail.from_selection(objects)
+
+    @staticmethod
+    def create(rail: Sequence[Vec], **opts) -> str:
+        """Drape a curtain from the *rail* points (:class:`CurtainMesh`'s
+        keywords); returns the curtain object's name."""
+        return CurtainMesh(rail, **opts).build().name
+
+    @staticmethod
+    def rail_curve(points, closed=False, curve=None, select=False) -> str:
+        """A poly curve through *points*: a visible stand-in for a rail.
+
+        *curve* is reshaped in place when it exists (its splines rebuilt on its
+        current data), so a preview's refreshes keep one object; otherwise a new
+        curve object named :attr:`RAIL_CURVE_NAME` is linked into the active
+        collection. *select* makes it the selection (what a Preview reads), and
+        active. Returns the curve object's name.
+        """
+        import bpy
+
+        obj = bpy.data.objects.get(curve) if curve else None
+        if obj is None or obj.type != "CURVE":
+            data = bpy.data.curves.new(Curtain.RAIL_CURVE_NAME, type="CURVE")
+            data.dimensions = "3D"
+            obj = bpy.data.objects.new(Curtain.RAIL_CURVE_NAME, data)
+            bpy.context.collection.objects.link(obj)
+        splines = obj.data.splines
+        splines.clear()
+        spline = splines.new("POLY")
+        spline.points.add(len(points) - 1)
+        for point, co in zip(spline.points, points):
+            point.co = (*co, 1.0)
+        spline.use_cyclic_u = bool(closed)
+        if select:
+            CoreUtils.select([obj], mode="replace")
+        return obj.name
+
+    @staticmethod
+    def delete_rail_curve(curve) -> None:
+        """Delete a :meth:`rail_curve` object and its curve data; a no-op when it
+        is gone."""
+        import bpy
+
+        obj = bpy.data.objects.get(curve) if curve else None
+        if obj is None:
+            return
+        data = obj.data
+        bpy.data.objects.remove(obj, do_unlink=True)
+        if data is not None and data.users == 0:
+            bpy.data.curves.remove(data)
+
+    @staticmethod
+    def triangle_count(curtain) -> Optional[int]:
+        """The *curtain* mesh's triangle count, or None when it is gone."""
+        import bpy
+
+        obj = bpy.data.objects.get(curtain) if curtain else None
+        if obj is None or obj.type != "MESH":
+            return None
+        obj.data.calc_loop_triangles()
+        return len(obj.data.loop_triangles)

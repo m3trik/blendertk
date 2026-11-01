@@ -217,7 +217,7 @@ class _BehaviorsInternal(object):
         """
         from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
 
-        RenderEffects._ensure_opacity_prop(obj)
+        RenderEffects.ensure_opacity_prop(obj)
 
     @staticmethod
     def _behavior_paths(obj, behavior_name: str) -> List[str]:
@@ -263,7 +263,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
         """Apply a named behavior template to an object over a time range.
 
         Returns ``(curve_key, time)`` for every key it set, the curve named
-        by :meth:`BlenderShotStore.curve_key` -- what the manifest records as
+        by :meth:`BlenderShotsHost.curve_key` -- what the manifest records as
         its own (``ShotEditLedger``), so a re-apply can replace exactly those.
         An audio clip returns ``[]`` (its strip belongs to the audio track).
 
@@ -316,7 +316,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
             return []
 
         from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
-        from blendertk.anim_utils.shots._shots import BlenderShotStore
+        from blendertk.anim_utils.shots._shots import BlenderShotsHost
 
         effect = Behaviors.effect_of(template)
         if effect is not None:
@@ -329,6 +329,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
                 fps=fps,
                 place=Behaviors.place_of(template),
                 anchor=anchor_override,
+                curve_key=BlenderShotsHost.curve_key,
             )
 
         written: List[Tuple[str, float]] = []
@@ -344,7 +345,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
         if "visibility" in template_attrs or "opacity" in template_attrs:
             _BehaviorsInternal._ensure_opacity(node)
         if RenderEffects.HIGHLIGHT_ATTR in template_attrs:
-            RenderEffects._ensure_highlight_props(node)
+            RenderEffects.ensure_highlight_props(node)
 
         for attr_name, attr_def in template_attrs.items():
             if attrs and attr_name not in attrs:
@@ -362,16 +363,16 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
 
                 for k in Behaviors.resolve_keys(block, start, end):
                     interp = _INTERP.get(str(k["tangent"]).lower(), "BEZIER")
-                    RenderEffects._set_key(
+                    RenderEffects.set_key(
                         node, target_path, k["time"], k["value"], interp
                     )
                     written.append(
-                        (BlenderShotStore.curve_key(node.name, target_path), k["time"])
+                        (BlenderShotsHost.curve_key(node.name, target_path), k["time"])
                     )
                     # Mirror: stepped render-visibility key so exports carry a
                     # real visibility curve (hide_render is the inverse).
                     if mirror_to_vis:
-                        RenderEffects._set_key(
+                        RenderEffects.set_key(
                             node,
                             RenderEffects.VIS_PATH,
                             k["time"],
@@ -380,7 +381,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
                         )
                         written.append(
                             (
-                                BlenderShotStore.curve_key(
+                                BlenderShotsHost.curve_key(
                                     node.name, RenderEffects.VIS_PATH
                                 ),
                                 k["time"],

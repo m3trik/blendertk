@@ -5,7 +5,8 @@
 Maya *file references* map onto Blender **linked libraries** (``bpy.data.libraries`` — File ▸ Link).
 This module is the Qt-free, bpy-only engine (unit-testable headless): discover ``.blend`` files under
 a folder, list the libraries already linked, link a ``.blend``'s collections (or append a copy), and
-reload / remove a library. The Switchboard slot (``reference_manager.py``) is the thin Qt driver.
+reload / remove a library. ``ReferenceManager`` (``reference_manager.py``) composes these for a
+browser; its panel is tentacle's shared Reference Manager.
 
 ``import bpy`` is deferred into the call bodies (importing the package surface must not need a
 running Blender — the no-import-side-effects rule).
@@ -73,12 +74,6 @@ class _EnvUtilsInternal(object):
         return patterns or [filter_text]
 
     @staticmethod
-    def _workspace_template_store():
-        """The shared ``ptk.WorkspaceTemplates`` preset store — what the Workspace Editor's
-        template combo is wired to (mayatk reads the same one)."""
-        return ptk.WorkspaceTemplates.store()
-
-    @staticmethod
     def _is_unsaved_work(is_dirty, is_saved, has_content):
         """Decide whether replacing the open file would lose work, from the three facts
         :meth:`EnvUtils.scene_has_unsaved_changes` gathers (kept pure so it is testable headless,
@@ -133,9 +128,125 @@ class _EnvUtilsInternal(object):
                 objs.append(o)
         return objs
 
+    @staticmethod
+    def _write_scene_fbx(file_path, options, progress):
+        """Export Scene's FBX: ``FbxUtils.export``, the toggles mapped to its
+        ``object_types`` / ``use_tspace`` / ``path_mode``."""
+        from blendertk.env_utils.fbx_utils import FbxUtils
+
+        object_types = {"MESH", "EMPTY", "OTHER"}
+        if options["include_cameras"]:
+            object_types.add("CAMERA")
+        if options["include_lights"]:
+            object_types.add("LIGHT")
+        if options["include_skins"]:
+            object_types.add("ARMATURE")
+        FbxUtils.export(
+            filepath=file_path,
+            selection_only=options["selection_only"],
+            object_types=object_types,
+            use_tspace=options["include_tangents"],
+            path_mode="COPY" if options["embed_textures"] else "AUTO",
+            embed_textures=options["embed_textures"],
+        )
+
+    @staticmethod
+    def _write_scene_obj(file_path, options, progress):
+        """Export Scene's OBJ: ``export_scene_as_obj``, its ``.mtl`` with the maps."""
+        EnvUtils.export_scene_as_obj(
+            file_path=file_path,
+            selection_only=options["selection_only"],
+            materials=options["embed_textures"],
+        )
+
+    @staticmethod
+    def _write_scene_usd(file_path, options, progress):
+        """Export Scene's USD: the interchange set of the Scene Exporter's USD format,
+        the toggles mapped to the exporter's own switches."""
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+        from blendertk.env_utils.scene_exporter._scene_exporter import SceneExporter
+        from blendertk.env_utils.usd import UsdUtils
+
+        usd_options = dict(SceneExporter.USD_EXPORT_OPTIONS)
+        usd_options.update(
+            export_cameras=options["include_cameras"],
+            export_lights=options["include_lights"],
+            export_armatures=options["include_skins"],
+        )
+        objects = (
+            list(CoreUtils.selected_objects())  # the view layer's: windowless-safe
+            if options["selection_only"]
+            else list(bpy.context.scene.objects)
+        )
+        frame_range = UsdUtils.sampling_frame_range(objects)
+        if frame_range:
+            usd_options["export_animation"] = True
+        UsdUtils.export(
+            filepath=file_path,
+            selection_only=options["selection_only"],
+            frame_range=frame_range,
+            **usd_options,
+        )
+
+    @staticmethod
+    def _write_scene_glb(file_path, options, progress):
+        """Export Scene's GLB: Blender's own glTF exporter, no FBX hop.
+
+        The scene's COMMITTED lightmaps ride the GLB (``LightmapWebExport.
+        wired_for_export``: wired for the export's lifetime, restored after, a no-op
+        on an unbaked scene), and the written file is finished as mayatk's FBX2glTF
+        route's is. Under ``window_context_override``: the bundled exporter calls
+        ``context.window.cursor_set``, an AttributeError windowless.
+        """
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+        from blendertk.light_utils.lightmap_baker.web_export import LightmapWebExport
+
+        with LightmapWebExport().wired_for_export(glb_path=file_path):
+            with CoreUtils.window_context_override():
+                bpy.ops.export_scene.gltf(
+                    filepath=file_path,
+                    export_format="GLB",
+                    use_selection=options["selection_only"],
+                    export_cameras=options["include_cameras"],
+                    export_lights=options["include_lights"],
+                    export_extras=True,  # carries the lightmaps block
+                )
+
 
 class EnvUtils(_EnvUtilsInternal):
     """Namespace mirror of mayatk's ``EnvUtils`` (helpers also exposed module-level)."""
+
+    #: The host application's display name, for UI text naming the app a panel
+    #: drives ("Blender Preferences"). Mirror of mayatk's ``EnvUtils.APP_NAME``.
+    APP_NAME = "Blender"
+
+    #: Linear unit (mayatk's full name, the reference) -> its short name, for the
+    #: units a Blender scene works in: its metric and imperial length units
+    #: (Maya's yard has none). Mirror of mayatk's ``EnvUtils.SCENE_UNIT_VALUES``.
+    SCENE_UNIT_VALUES = {
+        "millimeter": "mm",
+        "centimeter": "cm",
+        "meter": "m",
+        "kilometer": "km",
+        "inch": "in",
+        "foot": "ft",
+        "mile": "mi",
+    }
+
+    #: Linear unit -> Blender's ``(unit system, length unit)``.
+    _LENGTH_UNITS = {
+        "millimeter": ("METRIC", "MILLIMETERS"),
+        "centimeter": ("METRIC", "CENTIMETERS"),
+        "meter": ("METRIC", "METERS"),
+        "kilometer": ("METRIC", "KILOMETERS"),
+        "inch": ("IMPERIAL", "INCHES"),
+        "foot": ("IMPERIAL", "FEET"),
+        "mile": ("IMPERIAL", "MILES"),
+    }
 
     @staticmethod
     def find_blend_files(root_dir, recursive=True, filter_text=""):
@@ -341,7 +452,9 @@ class EnvUtils(_EnvUtilsInternal):
                 f"Invalid scene_data {scene_data!r}; expected one of "
                 f"{EnvUtils.SCENE_DATA_MODES} or a callable"
             )
-        source = os.path.basename(lib.filepath)  # the library goes with the move
+        # the library goes with the move; bpy.path: a '//'-relative path is a UNC
+        # share to os.path on Windows, whose basename is empty
+        source = bpy.path.basename(lib.filepath)
         # Its path records are spelled from ITS project, read before it goes.
         source_project = DataNodes.project_root_of(bpy.path.abspath(lib.filepath))
         carriers = DataNodes.carriers_in(lib)
@@ -711,6 +824,241 @@ class EnvUtils(_EnvUtilsInternal):
         ]
 
     @staticmethod
+    def is_workspace(path):
+        """True if *path* is a workspace root this session opens as it is: marked by
+        a ``workspace.mel`` (a shared Maya/Blender project) or directly holding
+        .blend files (:func:`find_workspaces`). Mirror of mayatk's
+        ``EnvUtils.is_workspace`` (a marked folder only there)."""
+        if not path or not os.path.isdir(path):
+            return False
+        return os.path.normpath(path) in EnvUtils.find_workspaces(path, recursive=False)
+
+    @staticmethod
+    def get_env_info(key=None):
+        """Fetch information about the current Blender environment -- mirror of
+        ``mtk.EnvUtils.get_env_info`` by behavior: mayatk's key names (each one
+        Blender has an answer for), several keys joined by ``|``, and every key at
+        once with no key.
+
+        Parameters:
+            key (str, optional): The key to fetch, or several joined by '|'.
+                ``None`` returns every key as a dict.
+
+        Returns:
+            The value for *key*; a list of values for a '|'-joined key; or, with
+            no key, ``{key: value}`` for every key. In the dict form a key whose
+            probe raises or resolves to nothing is reported as ``None`` rather
+            than failing the sweep, as mayatk's is.
+
+        Raises:
+            KeyError: For a key this host does not answer.
+            ValueError: When the value for *key* could not be found.
+        """
+        if key is not None and "|" in key:
+            return [EnvUtils.get_env_info(k) for k in key.split("|")]
+
+        import socket
+
+        import bpy
+
+        def _scene():
+            return bpy.context.scene
+
+        def _workspace():
+            # Blender's analogue of Maya's project workspace -- the current-workspace
+            # resolver: session pin -> marked (workspace.mel) root -> the .blend's dir.
+            ws = EnvUtils.current_workspace()
+            return ws.root if ws else ""
+
+        def _scene_file():
+            return bpy.data.filepath or ""
+
+        def _playback():
+            settings = EnvUtils.scene_settings()
+            return (settings["frame_start"], settings["frame_end"])
+
+        available_keys = {
+            "install_path": lambda: os.path.dirname(bpy.app.binary_path) or None,
+            "presets_path": lambda: bpy.utils.user_resource("SCRIPTS", path="presets"),
+            "user_app_path": lambda: bpy.utils.resource_path("USER"),
+            "prefs_path": lambda: bpy.utils.user_resource("CONFIG"),
+            "version": lambda: bpy.app.version_string,
+            "renderer": lambda: _scene().render.engine,
+            "workspace": _workspace,
+            "workspace_dir": lambda: ptk.format_path(_workspace(), "dir"),
+            "workspace_path": lambda: ptk.format_path(_workspace(), "path"),
+            "sourceimages": lambda: EnvUtils.source_images_dir(),
+            "scene": _scene_file,
+            "scene_name": lambda: ptk.format_path(_scene_file(), "name"),
+            "scene_path": lambda: ptk.format_path(_scene_file(), "path"),
+            "scene_modified": lambda: bool(bpy.data.is_dirty),
+            "ui_language": lambda: bpy.context.preferences.view.language,
+            "linear_units": lambda: EnvUtils.get_linear_unit(),
+            # Maya's time-unit names ("film", "ntsc"), off the effective rate.
+            "time_units": lambda: ptk.VidUtils.get_frame_rate(
+                EnvUtils.scene_settings()["fps"]
+            ),
+            "loaded_plugins": lambda: sorted(
+                addon.module for addon in bpy.context.preferences.addons
+            ),
+            "host_name": lambda: socket.gethostname(),
+            "batch_mode": lambda: bool(bpy.app.background),
+            "application": lambda: "blender",
+            "current_frame": lambda: _scene().frame_current,
+            # Maya's playback range: Blender's preview range when it is on.
+            "frame_range": _playback,
+            "current_camera": lambda: _scene().camera.name if _scene().camera else None,
+            "available_cameras": lambda: [
+                o.name for o in bpy.data.objects if o.type == "CAMERA"
+            ],
+            "up_axis": lambda: "z",
+            "total_polys": lambda: EnvUtils.scene_triangle_count(),
+            "total_nodes": lambda: len(_scene().objects),
+        }
+
+        if key is None:
+            info = {}
+            for name, probe in available_keys.items():
+                try:
+                    info[name] = probe()
+                except Exception:  # noqa: BLE001 -- one bad key, not the sweep
+                    info[name] = None
+            return info
+
+        if key not in available_keys:
+            raise KeyError(
+                "Invalid key. Available keys are: {}".format(
+                    ", ".join(available_keys.keys())
+                )
+            )
+
+        value = available_keys[key]()
+        if value is None:
+            raise ValueError(f"The value for {key} could not be found.")
+
+        return value
+
+    @staticmethod
+    def saved_scene_path():
+        """The open .blend's path, or ``""`` when it has never been saved. Mirror of
+        mayatk's ``EnvUtils.saved_scene_path``."""
+        import bpy
+
+        return bpy.data.filepath or ""
+
+    @staticmethod
+    def get_recent_files(index=None):
+        """Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).
+
+        Reads Blender's own ``recent-files.txt`` (the source of File ▸ Open Recent). ``index``
+        may be an int or slice. Missing files are filtered out.
+        """
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        path = CoreUtils.user_config_path("recent-files.txt") or ""
+        files = []
+        if path and os.path.isfile(path):
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                files = [line.strip() for line in f if line.strip()]
+            files = [p for p in files if os.path.isfile(p)]
+        return files[index] if index is not None else files
+
+    @staticmethod
+    def get_recent_autosave(filter_time=24, timestamp_format="%H:%M:%S"):
+        """Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first
+        (mirror of ``mtk.get_recent_autosave``). ``filter_time`` is the max age in hours.
+
+        Blender autosaves land in the temporary directory (Preferences ▸ File Paths, falling
+        back to the OS temp dir) as ``.blend`` files.
+        """
+        import time
+        import glob
+        import tempfile
+        import bpy
+
+        temp_dir = (
+            bpy.context.preferences.filepaths.temporary_directory
+            or tempfile.gettempdir()
+        )
+        cutoff = time.time() - filter_time * 3600
+        results = []
+        for path in glob.glob(os.path.join(temp_dir, "*.blend")):
+            try:
+                mtime = os.path.getmtime(path)
+            except OSError:
+                continue
+            if mtime >= cutoff:
+                results.append((path, mtime))
+        results.sort(key=lambda x: x[1], reverse=True)
+        return [
+            (path, time.strftime(timestamp_format, time.localtime(mtime)))
+            for path, mtime in results
+        ]
+
+    @staticmethod
+    def get_recent_projects(index=None, format="standard"):
+        """Recently used workspaces, most recent first: the folders of Blender's
+        recent files (File > Open Recent) that are workspaces (:func:`is_workspace`),
+        since Blender keeps no project history of its own. Mirror of mayatk's
+        ``EnvUtils.get_recent_projects`` (Maya's recent-projects list there).
+
+        Parameters:
+            index (int/slice): Return the entry, or the entries, at it.
+            format (str): ``"standard"`` (paths), ``"timestamp"``, or the
+                ``"standard|timestamp"`` / ``"timestamp|standard"`` dicts, as mayatk's.
+        """
+        result = []
+        for recent in EnvUtils.get_recent_files():
+            folder = os.path.normpath(os.path.dirname(recent))
+            if folder not in result and EnvUtils.is_workspace(folder):
+                result.append(folder)
+        if index is not None:
+            try:
+                result = result[index]
+            except (IndexError, TypeError):
+                return []
+        scalar = isinstance(index, int)
+        items = [result] if scalar else result
+        keys = format.split("|")
+        if len(keys) == 2 and set(keys) == {"standard", "timestamp"}:
+            stamped = {path: ptk.time_stamp(path) for path in items}
+            if keys[0] == "timestamp":
+                return {stamp: path for path, stamp in stamped.items()}
+            return stamped
+        if "timestamp" in keys:
+            stamps = [ptk.time_stamp(path) for path in items]
+            return stamps[0] if scalar else stamps
+        return result
+
+    @staticmethod
+    def find_workspace_using_path(scene_path=None):
+        """The workspace that holds *scene_path* (default: the open .blend): the
+        nearest marked (``workspace.mel``) root above it, else its own folder when
+        that is a workspace; for an unsaved file, the session pin. None when nothing
+        qualifies. Mirror of mayatk's ``EnvUtils.find_workspace_using_path`` (the
+        marked walk-up alone there)."""
+        if scene_path is None:
+            from blendertk.node_utils.data_nodes import DataNodes
+
+            ws = DataNodes.scene_workspace()
+        elif scene_path and os.path.isabs(scene_path):
+            ws = ptk.Workspace.for_path(scene_path)
+        else:
+            ws = None
+        if ws is None or not (ws.is_marked or EnvUtils.is_workspace(ws.root)):
+            return None
+        return ws.root
+
+    @staticmethod
+    def python_executable():
+        """Blender's bundled interpreter (``<python>/bin/python``; ``sys.executable``
+        when none is found): the one pip must drive to install into Blender's
+        environment. Mirror of mayatk's ``EnvUtils.python_executable`` (mayapy)."""
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        return CoreUtils._blender_python_exe()
+
+    @staticmethod
     def open_scene(path):
         """Open a .blend file (replaces the current file — Maya's ``file -open``). True on success."""
         import bpy
@@ -797,6 +1145,65 @@ class EnvUtils(_EnvUtilsInternal):
         "frame_current",
     )
 
+    #: The frame rate a new Blender scene gets (factory startup).
+    DEFAULT_FPS = 24
+
+    @staticmethod
+    def scene_status(scene=None):
+        """The scene's modelling and session state as plain values: what a
+        status readout (tentacle's HUD) shows and warns on. Twin of mayatk's
+        ``EnvUtils.scene_status``; a fact Blender has no answer for is ``None``
+        (``xform_constraint``, ``time_unit``).
+
+        Returns:
+            dict: ``symmetry`` (the active mesh's mirror axes, upper case, or
+            None), ``xform_constraint`` (None), ``workspace`` (the current
+            workspace's folder name, or None), ``units`` (the unit system and
+            length unit), ``fps`` (effective: fps / fps_base), ``time_unit``
+            (None), ``default_fps`` (the rate is :attr:`DEFAULT_FPS`),
+            ``autosave`` (auto-save is on), ``autosave_scene`` (the open
+            .blend is in the temporary / autosave folder), ``saved`` (the
+            .blend is a file on disk).
+        """
+        import tempfile
+
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        scene = scene or bpy.context.scene
+        active = CoreUtils.active_object()
+        symmetry = None
+        if active is not None and active.type == "MESH":
+            axes = "".join(
+                axis.upper()
+                for axis in "xyz"
+                if getattr(active.data, f"use_mirror_{axis}", False)
+            )
+            symmetry = axes or None
+        units = scene.unit_settings
+        fps = EnvUtils.scene_settings(scene)["fps"]
+        prefs = bpy.context.preferences.filepaths
+        path = bpy.data.filepath
+        temp = prefs.temporary_directory or tempfile.gettempdir()
+        return {
+            "symmetry": symmetry,
+            "xform_constraint": None,
+            "workspace": EnvUtils.get_env_info("workspace_dir") or None,
+            "units": (
+                f"{units.system.lower()} {units.length_unit.lower()}"
+                if units.system != "NONE"
+                else "none"
+            ),
+            "fps": fps,
+            "time_unit": None,
+            # Effective: a 23.98 scene (fps 24, base 1.001) is not the default.
+            "default_fps": fps == EnvUtils.DEFAULT_FPS,
+            "autosave": bool(prefs.use_auto_save_temporary_files),
+            "autosave_scene": bool(path) and ptk.FileUtils.is_under(path, temp),
+            "saved": bool(path) and os.path.isfile(path),
+        }
+
     @staticmethod
     def scene_settings(scene=None):
         """The live scene's time setup as the bridges' ``scene`` record (see
@@ -868,6 +1275,87 @@ class EnvUtils(_EnvUtilsInternal):
             scene.frame_current = int(round(float(current)))
             applied.append("frame_current")
         return applied
+
+    @staticmethod
+    def get_linear_unit():
+        """The scene's linear unit by mayatk's name (``"centimeter"``), a key of
+        :attr:`SCENE_UNIT_VALUES`; None for a unit outside it (Adaptive, None,
+        micrometers, thou). Mirror of mayatk's ``EnvUtils.get_linear_unit``."""
+        import bpy
+
+        units = bpy.context.scene.unit_settings
+        current = (units.system, units.length_unit)
+        return next(
+            (name for name, pair in EnvUtils._LENGTH_UNITS.items() if pair == current),
+            None,
+        )
+
+    @staticmethod
+    def set_linear_unit(unit):
+        """Set the scene's unit system and length unit from mayatk's unit name, in
+        any case; the unit scale stays as it is. Mirror of mayatk's
+        ``EnvUtils.set_linear_unit``.
+
+        Returns:
+            str: The unit set.
+
+        Raises:
+            ValueError: A unit Blender has none for (yard), or an unknown one.
+        """
+        import bpy
+
+        unit = str(unit).lower()
+        pair = EnvUtils._LENGTH_UNITS.get(unit)
+        if pair is None:
+            raise ValueError(
+                f"No Blender length unit for {unit!r}; use one of "
+                f"{list(EnvUtils._LENGTH_UNITS)}."
+            )
+        units = bpy.context.scene.unit_settings
+        units.system, units.length_unit = pair  # the system first: it scopes the unit
+        return unit
+
+    @staticmethod
+    def frame_rates():
+        """``{rate name: fps}`` for the frame rates a Blender scene takes: the video
+        rates of pythontk's table (mayatk's time-unit names; Maya's 44100 / 48000 fps
+        audio units have no Blender counterpart), each set by
+        :func:`apply_scene_settings` (a fractional rate through ``fps_base``).
+        Mirror of mayatk's ``EnvUtils.frame_rates``."""
+        return {
+            name: fps for name, fps in ptk.VidUtils.FRAME_RATES.items() if fps < 1000
+        }
+
+    @staticmethod
+    def autosave_settings():
+        """Blender's autosave as mayatk's ``{"max_backups", "interval"}``: the
+        backup versions kept on save (Save Versions: ``.blend1`` ...) and the Auto
+        Save timer in minutes, 0 while Auto Save is off. Mirror of mayatk's
+        ``EnvUtils.autosave_settings``."""
+        import bpy
+
+        paths = bpy.context.preferences.filepaths
+        return {
+            "max_backups": paths.save_version,
+            "interval": (
+                paths.auto_save_time if paths.use_auto_save_temporary_files else 0
+            ),
+        }
+
+    @staticmethod
+    def set_autosave_settings(max_backups=None, interval=None):
+        """Set Blender's backup versions (*max_backups*) and Auto Save timer
+        (*interval*, minutes; 0 turns Auto Save off); ``None`` leaves a setting as
+        it is. Mirror of mayatk's ``EnvUtils.set_autosave_settings``."""
+        import bpy
+
+        paths = bpy.context.preferences.filepaths
+        if max_backups is not None:
+            paths.save_version = int(max_backups)
+        if interval is not None:
+            paths.use_auto_save_temporary_files = interval > 0
+            if interval > 0:
+                paths.auto_save_time = int(interval)
 
     @staticmethod
     def format_scene_name(name, case=None, suffix=""):
@@ -1016,6 +1504,192 @@ class EnvUtils(_EnvUtilsInternal):
                 export_object_groups=groups,
                 export_uv=True,
             )
+        return file_path
+
+    @staticmethod
+    def foreign_scene_bridge():
+        """The hand-off bridge CLASS that writes the other DCC's native scene:
+        ``MayaBridge`` here. Mirror of mayatk's (its ``BlenderBridge``).
+
+        A class, not an instance: its ``spec.app.name`` ("Maya") and
+        ``save_extensions`` name the target without resolving its executable;
+        build one to ``save_as``.
+        """
+        from blendertk.env_utils.maya_bridge._maya_bridge import MayaBridge
+
+        return MayaBridge
+
+    @staticmethod
+    def foreign_scene_import():
+        """The engine CLASS that pulls a file into this scene through the other DCC:
+        ``MayaSceneImport`` here. Mirror of mayatk's (its ``BlenderSceneImport``).
+
+        Its ``import_scene(src, via=...)`` converts a .ma / .mb in a fresh headless
+        mayapy, imports a USD natively and a glTF natively (KTX2 decoded first);
+        ``SCENE_EXTENSIONS`` are the scene files it converts.
+        """
+        from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
+
+        return MayaSceneImport
+
+    #: Blender's own import / export commands by the name a panel lists them under:
+    #: ``(operator id, the properties it is invoked with)``, each opening the
+    #: operator's file browser. Mirror of mayatk's ``EnvUtils.FILE_COMMANDS`` (MEL
+    #: there). A command whose operator this Blender does not register is not offered
+    #: (Collada left in 5.0).
+    FILE_COMMANDS = {
+        "import": {
+            "Import OBJ": ("wm.obj_import", {}),
+            "Import Collada": ("wm.collada_import", {}),
+            "Append from .blend": ("wm.append", {}),
+            "Link from .blend": ("wm.link", {}),
+        },
+        "export": {
+            "Export Selection": ("export_scene.fbx", {"use_selection": True}),
+            "Export FBX": ("export_scene.fbx", {}),
+            "Export OBJ": ("wm.obj_export", {}),
+            "Export glTF": ("export_scene.gltf", {}),
+            "Export Collada": ("wm.collada_export", {}),
+        },
+    }
+
+    @classmethod
+    def get_file_commands(cls, direction="import"):
+        """The names of Blender's own import (*direction* ``"import"``) or export
+        (``"export"``) commands this session registers, in menu order: what
+        :meth:`run_file_command` takes. Mirror of mayatk's.
+
+        Raises:
+            ValueError: *direction* is neither.
+        """
+        from blendertk.ui_utils._ui_utils import UiUtils
+
+        commands = cls.FILE_COMMANDS.get(direction)
+        if commands is None:
+            raise ValueError(
+                f"Unknown direction {direction!r}: expected 'import' or 'export'."
+            )
+        return [
+            name
+            for name, (idname, _props) in commands.items()
+            if UiUtils.get_operator(idname) is not None
+        ]
+
+    @classmethod
+    def run_file_command(cls, name):
+        """Run Blender's own import / export command *name*
+        (:meth:`get_file_commands`): its operator is invoked as a menu click does, its
+        file browser opening. Mirror of mayatk's.
+
+        Raises:
+            ValueError: No command of that name; Export Selection with nothing
+                selected.
+            RuntimeError: Its operator is not registered in this Blender, or refused
+                the context.
+        """
+        from blendertk.core_utils._core_utils import CoreUtils
+        from blendertk.ui_utils._ui_utils import UiUtils
+
+        command = next(
+            (group[name] for group in cls.FILE_COMMANDS.values() if name in group),
+            None,
+        )
+        if command is None:
+            raise ValueError(f"No file command named {name!r}.")
+        idname, props = command
+        if props.get("use_selection") and not CoreUtils.selected_objects():
+            raise ValueError(f"{name} requires a selection.")
+        if UiUtils.invoke_operator_dialog(idname, **props) is None:
+            raise RuntimeError(
+                f"{name} is not available in this Blender ({idname} is not registered)."
+            )
+
+    @staticmethod
+    def scene_triangle_count(selection_only=False):
+        """Triangles in the scene's meshes -- or, *selection_only*, in the selected
+        ones -- counted off the base meshes (per mesh: loops - 2 x polygons, exact for
+        the pre-modifier data, O(1) per mesh): the cost a dense-export warning weighs.
+        Mirror of mayatk's."""
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        if selection_only:
+            pool = CoreUtils.selected_objects()
+        else:
+            with CoreUtils.window_context_override():  # the window's layer
+                pool = list(bpy.context.view_layer.objects)
+        return sum(
+            len(o.data.loops) - 2 * len(o.data.polygons)
+            for o in pool
+            if o.type == "MESH"
+        )
+
+    #: Export Scene's writers: format -> the method writing the scene (or the
+    #: selection) in it (:meth:`export_scene`). Mirror of mayatk's.
+    SCENE_WRITERS = {
+        "fbx": "_write_scene_fbx",
+        "obj": "_write_scene_obj",
+        "glb": "_write_scene_glb",
+        "usd": "_write_scene_usd",
+    }
+
+    @classmethod
+    def export_scene(
+        cls,
+        file_path,
+        file_format="fbx",
+        *,
+        selection_only=False,
+        include_cameras=False,
+        include_lights=False,
+        include_skins=False,
+        include_tangents=True,
+        embed_textures=True,
+        progress=None,
+    ):
+        """Write the scene, or the selection, to *file_path* in *file_format*: the
+        writer behind the Scene panel's Export Scene and its Export-list one-shots.
+        Mirror of mayatk's ``EnvUtils.export_scene`` (the same options, each host's
+        route): Blender writes GLB natively (no FBX hop) and USD through the
+        interchange export.
+
+        Parameters:
+            file_path (str): The file to write.
+            file_format (str): ``"fbx"``, ``"obj"``, ``"glb"`` or ``"usd"``
+                (:attr:`SCENE_WRITERS`).
+            selection_only (bool): Write the selection, not the whole scene.
+            include_cameras (bool): Cameras ride the FBX / GLB / USD.
+            include_lights (bool): Lights ride the FBX / GLB / USD.
+            include_skins (bool): Armatures ride the FBX / USD.
+            include_tangents (bool): Per-vertex tangent space (FBX).
+            embed_textures (bool): Pack the maps into an FBX; an OBJ writes its
+                ``.mtl``.
+            progress (callable): ``progress(text=...)`` for a slow leg (none here).
+
+        Returns:
+            str: *file_path*.
+
+        Raises:
+            ValueError: An unknown *file_format*; the writer's own errors otherwise.
+        """
+        writer = cls.SCENE_WRITERS.get(file_format)
+        if writer is None:
+            raise ValueError(
+                f"Unknown export format {file_format!r}: expected one of "
+                f"{sorted(cls.SCENE_WRITERS)}."
+            )
+        options = {
+            "selection_only": selection_only,
+            "include_cameras": include_cameras,
+            "include_lights": include_lights,
+            "include_skins": include_skins,
+            "include_tangents": include_tangents,
+            "embed_textures": embed_textures,
+        }
+        getattr(cls, writer)(
+            file_path, options, progress or (lambda *args, **kwargs: None)
+        )
         return file_path
 
     @staticmethod

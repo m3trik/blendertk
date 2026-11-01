@@ -11,7 +11,8 @@ import sys, os, traceback
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 MONO = os.path.dirname(REPO)
-for p in (REPO, os.path.join(MONO, "pythontk")):
+# uitk: the Preview is its PreviewController bound to blendertk's session (Qt-free).
+for p in (REPO, os.path.join(MONO, "pythontk"), os.path.join(MONO, "uitk")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
@@ -58,7 +59,6 @@ class _Button:
 try:
     import bpy
     import bmesh
-    import blendertk as btk
     from blendertk.edit_utils.bevel import Bevel
     from blendertk.core_utils.preview import Preview
 

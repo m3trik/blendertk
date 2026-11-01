@@ -38,15 +38,15 @@ def _run_manifest_checks():
 
     import bpy
 
-    from blendertk import BlenderShotStore
+    from blendertk import ShotStore
     from blendertk.anim_utils._anim_utils import AnimUtils
     from blendertk.anim_utils.shots.shot_manifest._shot_manifest import (
         BlenderShotManifest,
     )
     from pythontk.core_utils.engines.shots.manifest.manifest_model import ManifestModel
 
-    BlenderShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_mani_")
-    BlenderShotStore.clear_active()
+    ShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_mani_")
+    ShotStore.clear_active()
 
     # clean scene + create the assets the CSV references (empties are fine)
     bpy.ops.object.select_all(action="SELECT")
@@ -67,7 +67,7 @@ A03.),Fuselage fades out,fuselage_geo,
     steps = ManifestModel.parse_csv(path)
     os.remove(path)
 
-    store = BlenderShotStore()
+    store = ShotStore()
     mani = BlenderShotManifest(store)
     actions, beh_result, assessment = mani.sync(steps, initial_shot_length=100)
 
@@ -191,7 +191,7 @@ A03.),Fuselage fades out,fuselage_geo,
         BuilderObject as _BO,
     )
 
-    store2 = BlenderShotStore()
+    store2 = ShotStore()
     mani2 = BlenderShotManifest(store2)
     audio_step = [
         _BS(
@@ -320,14 +320,10 @@ A03.),Fuselage fades out,fuselage_geo,
         f"{zero_result}",
     )
 
-    # ---- _show_in_outliner guards objects outside the active view layer ----
+    # ---- Show in Outliner: ManifestHost.find_nodes / reveal (the panel's host calls) ----
     # (pre-fix: select_set raised RuntimeError on an object in an excluded
     # collection, killing the context-menu reveal action)
-    from types import SimpleNamespace
-
-    from blendertk.anim_utils.shots.shot_manifest.shot_manifest_slots import (
-        ShotManifestController,
-    )
+    from blendertk import ShotStore, ManifestHost
 
     vlg_col = bpy.data.collections.new("VlgExcluded")
     bpy.context.scene.collection.children.link(vlg_col)
@@ -336,54 +332,45 @@ A03.),Fuselage fades out,fuselage_geo,
     bpy.context.view_layer.layer_collection.children["VlgExcluded"].exclude = True
     bpy.context.view_layer.update()
 
-    from blendertk import BlenderShotStore
-    from blendertk.anim_utils._anim_utils import AnimUtils
-
-    footer_msgs = []
-    stub = SimpleNamespace(
-        _active_store=BlenderShotStore,
-        _set_footer=lambda text, **kw: footer_msgs.append(text),
-    )
-    stub._reveal_targets = ShotManifestController._reveal_targets
-    reveal_err = ""
+    store = ShotStore.active()
+    reveal_err, notes = "", []
     try:
-        ShotManifestController._show_in_outliner(stub, ["VlgOutside"])
+        notes = ManifestHost.reveal(ManifestHost.find_nodes("VlgOutside", store))
         reveal_ok = True
     except RuntimeError as e:
         reveal_ok, reveal_err = False, repr(e)
     check(
-        "_show_in_outliner: outside-view-layer object doesn't raise",
+        "reveal: outside-view-layer object doesn't raise",
         reveal_ok,
         reveal_err,
     )
     check(
-        "_show_in_outliner: outside-view-layer object reported via footer",
-        any("view layer" in m for m in footer_msgs),
-        f"{footer_msgs}",
+        "reveal: outside-view-layer object reported in its notes",
+        any("view layer" in m for m in notes),
+        f"{notes}",
     )
-    ShotManifestController._show_in_outliner(stub, ["aileron_geo"])
+    ManifestHost.reveal(ManifestHost.find_nodes("aileron_geo", store))
     check(
-        "_show_in_outliner: in-layer object selected + active",
+        "reveal: in-layer object selected + active",
         bpy.data.objects["aileron_geo"].select_get()
         and bpy.context.view_layer.objects.active is bpy.data.objects["aileron_geo"],
     )
-    # A name two objects answer to selects both (the duplicates to fix),
-    # with the other names, and says so.
+    # A name two objects answer to finds both (the duplicates to fix).
     for dup in ("AC:twin_geo", "BC:twin_geo"):
         bpy.context.scene.collection.objects.link(bpy.data.objects.new(dup, None))
     bpy.context.view_layer.update()  # a new link joins the layer's objects here
-    footer_msgs.clear()
-    ShotManifestController._show_in_outliner(stub, ["twin_geo", "wing_geo"])
+    twins = ManifestHost.find_nodes("twin_geo", store)
     check(
-        "_show_in_outliner: a shared name selects every object it answers to",
+        "find_nodes: a shared name answers with every object it names",
+        sorted(twins) == ["AC:twin_geo", "BC:twin_geo"],
+        f"{twins}",
+    )
+    ManifestHost.reveal(twins + ManifestHost.find_nodes("wing_geo", store))
+    check(
+        "reveal: every found object selected",
         sorted(o.name for o in bpy.data.objects if o.select_get())
         == ["AC:twin_geo", "BC:twin_geo", "wing_geo"],
         f"{[o.name for o in bpy.data.objects if o.select_get()]}",
-    )
-    check(
-        "_show_in_outliner: a shared name is reported",
-        any("'twin_geo' (2)" in m for m in footer_msgs),
-        f"{footer_msgs}",
     )
     for dup in ("AC:twin_geo", "BC:twin_geo"):
         bpy.data.objects.remove(bpy.data.objects[dup], do_unlink=True)
@@ -409,7 +396,7 @@ A03.),Fuselage fades out,fuselage_geo,
     custom["marker"] = 1.0
     custom.keyframe_insert(data_path='["marker"]', frame=1010)
 
-    walk = BlenderShotManifest(BlenderShotStore())
+    walk = BlenderShotManifest(ShotStore())
     found = walk._discover_scene_objects(1000, 1010, set())
     check(
         "discover: moving object found; flat + custom-prop-only excluded",
@@ -460,7 +447,7 @@ A03.),Fuselage fades out,fuselage_geo,
     _key(shared_b, 1000, (2, 2, 2))
     _key(shared_b, 1010, (2, 2, 2))
 
-    shared_walk = BlenderShotManifest(BlenderShotStore())
+    shared_walk = BlenderShotManifest(ShotStore())
     shared_filt = shared_walk._filter_to_animated(
         ["slot_moving", "slot_flat"], 1000, 1010
     )
@@ -478,7 +465,7 @@ A03.),Fuselage fades out,fuselage_geo,
     # ---- fps cache + source-path audio measurement --------------------
     bpy.context.scene.render.fps = 30
     bpy.context.scene.render.fps_base = 1.0
-    fresh = BlenderShotManifest(BlenderShotStore())
+    fresh = BlenderShotManifest(ShotStore())
     fps1 = fresh._resolve_fps()
     bpy.context.scene.render.fps = 60
     check(
@@ -495,7 +482,7 @@ A03.),Fuselage fades out,fuselage_geo,
         w.setsampwidth(2)
         w.setframerate(48000)
         w.writeframes(b"".join(struct.pack("<h", 0) for _ in range(96000)))  # 2 s
-    probe = BlenderShotManifest(BlenderShotStore())
+    probe = BlenderShotManifest(ShotStore())
     meas_src = probe._measure_audio(
         _BO("unplaced", kind="audio", source_path=wav2_path)
     )
@@ -568,7 +555,7 @@ A03.),Fuselage fades out,fuselage_geo,
     bpy.ops.mesh.primitive_cube_add()
     bpy.context.active_object.name = "door_geo"
     door = bpy.data.objects["door_geo"]
-    rt_store = BlenderShotStore()
+    rt_store = ShotStore()
     rt = BlenderShotManifest(rt_store)
     rt_range = {"D01": (1000.0, 1240.0)}
     hl_path = '["highlight"]'
@@ -636,8 +623,8 @@ A03.),Fuselage fades out,fuselage_geo,
 
     _insert_in_sheet_order_checks(check, _BS, _BO)
 
-    BlenderShotStore.clear_active()
-    BlenderShotStore._prefs_dir_override = None
+    ShotStore.clear_active()
+    ShotStore._prefs_dir_override = None
     return lines
 
 
@@ -653,7 +640,7 @@ def _insert_in_sheet_order_checks(check, _BS, _BO):
     import bpy
 
     import pythontk as ptk
-    from blendertk import BlenderShotStore
+    from blendertk import ShotStore
     from blendertk.anim_utils._anim_utils import AnimUtils
     from blendertk.anim_utils.shots.shot_manifest._shot_manifest import (
         BlenderShotManifest,
@@ -694,9 +681,9 @@ def _insert_in_sheet_order_checks(check, _BS, _BO):
         keyed_cube("ins_a", [10, 40])
         keyed_cube("ins_b", [70, 100])
 
-        BlenderShotStore.clear_active()
-        store = BlenderShotStore()
-        BlenderShotStore.set_active(store)
+        ShotStore.clear_active()
+        store = ShotStore()
+        ShotStore.set_active(store)
         store.gap = 10.0
         mani = BlenderShotManifest(store)
         step_a = _BS("A", "A", "t", "", [_BO("ins_a")])

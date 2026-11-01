@@ -391,7 +391,7 @@ try:
     bpy.ops.mesh.primitive_cube_add()
     takes_mesh = bpy.context.active_object
     takes_mesh.name = "TakesMesh"
-    from blendertk.anim_utils.shots._shots import BlenderShotStore as _TakesStore
+    from blendertk.anim_utils.shots._shots import ShotStore as _TakesStore
 
     _TakesStore.clear_active()
     _takes_store = _TakesStore.active()
@@ -966,6 +966,27 @@ try:
     _hold = bpy.data.collections.get("CarrierHold")
     if _hold is not None:
         bpy.data.collections.remove(_hold)
+
+    # The carrier test is the record contract's (``DataNodes.is_carrier``: a
+    # module's carrier, a copy an import numbered), never a name spelled here.
+    reset()
+    bpy.ops.object.empty_add()
+    carrier_copy = bpy.context.active_object
+    carrier_copy.name = "CarrierCopy"
+    carrier_copy.hide_select = True
+    with mock.patch.object(
+        DataNodes,
+        "is_carrier",
+        side_effect=lambda n, *a, **k: str(n) in (DataNodes.EXPORT, "CarrierCopy"),
+    ):
+        named_transport = FbxUtils._is_transport_node(carrier_copy)
+        with FbxUtils._carriers_shippable([carrier_copy]):
+            shown_for_write = not carrier_copy.hide_select
+    check(
+        "a carrier the record contract names is a transport node, shown for the write",
+        named_transport and shown_for_write and carrier_copy.hide_select,
+        f"transport={named_transport} shown={shown_for_write}",
+    )
 
     # ---- staged transport nodes ride beside the object they hang under -------
     # Blender writes only selected objects, so a curve proxy a stager made
@@ -2594,7 +2615,7 @@ try:
     # mayatk's. Added: 2026-10-20
     import wave as _ev_wave
 
-    from blendertk.anim_utils.shots._shots import BlenderShotStore
+    from blendertk.anim_utils.shots._shots import ShotStore
     from blendertk.audio_utils._audio_utils import AudioUtils as _EvAudio
     from blendertk.mat_utils._mat_utils import MatUtils as _EvMatUtils
     from blendertk.mat_utils.emissive_groups import EmissiveGroups
@@ -2609,8 +2630,8 @@ try:
     ev_mat = bpy.data.materials.new("EvMat")
     _EvMatUtils.get_node_tree(ev_mat, create=True)
     ev_cube.data.materials.append(ev_mat)
-    BlenderShotStore.clear_active()
-    BlenderShotStore.active().define_shot("Intro", 1, 20, objects=[ev_cube.name])
+    ShotStore.clear_active()
+    ShotStore.active().define_shot("Intro", 1, 20, objects=[ev_cube.name])
     RenderEffects.create([ev_cube])
     RenderEffects.key_fade([ev_cube], start=1, end=11, direction="out")
     EmissiveGroups.add_group("glow", {ev_cube.name: [0]})
@@ -2684,10 +2705,149 @@ try:
     finally:
         ev_log.removeHandler(ev_pruned)
         _EvAudio.remove_all_clips()
-        BlenderShotStore.clear_active()
+        ShotStore.clear_active()
 
     EnvUtils.set_current_workspace(ru_pin)
     ru_store.cleanup()
+
+    # ---- a scoped context names every object the write ships, and a scoped
+    # hand-off ships the stored bake narrowed and keeps it whole (mirror of
+    # mayatk's; measured 2026-10-31: the bridges shipped every object's
+    # lightmaps and the other object's shadow plane). Added: 2026-10-31 -----
+    from blendertk.node_utils.data_nodes import DataNodes as _ScDataNodes
+
+    reset()
+    sc_grp = bpy.data.objects.new("KEEP_grp", None)
+    bpy.context.collection.objects.link(sc_grp)
+    bpy.ops.mesh.primitive_cube_add()
+    sc_keep = bpy.context.active_object
+    sc_keep.name = "KEEP_cube"
+    sc_keep.parent = sc_grp
+    bpy.ops.mesh.primitive_cube_add()
+    bpy.context.active_object.name = "DROP_cube"
+    sc_ctx = FbxUtils.export_context(scope=("KEEP_grp",))
+    check(
+        "a scoped context names each root and its descendants",
+        sc_ctx.nodes == frozenset({"KEEP_grp", "KEEP_cube"})
+        and not sc_ctx.ships("DROP_cube"),
+        sc_ctx.nodes,
+    )
+    check("no scope names none", FbxUtils.export_context().nodes is None)
+    sc_arm = bpy.data.armatures.new("KEEP_rig_data")
+    sc_rig = bpy.data.objects.new("KEEP_rig", sc_arm)
+    bpy.context.collection.objects.link(sc_rig)
+    sc_rig.parent = sc_grp
+    bpy.context.view_layer.objects.active = sc_rig
+    bpy.ops.object.mode_set(mode="EDIT")
+    sc_bone = sc_arm.edit_bones.new("hinge_jnt")
+    sc_bone.tail = (0.0, 0.0, 1.0)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check(
+        "...and each shipped armature's bones, which the FBX writes as nodes",
+        "hinge_jnt" in FbxUtils.export_context(scope=("KEEP_grp",)).nodes,
+        FbxUtils.export_context(scope=("KEEP_grp",)).nodes,
+    )
+    ptk.SceneRecords.LIGHTMAPS.save(
+        _ScDataNodes,
+        {
+            "objects": [
+                {"name": "KEEP_cube", "map": "K.exr"},
+                {"name": "DROP_cube", "map": "D.exr"},
+            ]
+        },
+    )
+    ptk.SceneRecords.SHADOWS.save(
+        _ScDataNodes, {"unit_scale": 1.0, "planes": [{"name": "DROP_cube_shadow"}]}
+    )
+    with FbxUtils.export_prepared(
+        FbxUtils.export_context(mode=ptk.ExportContext.HANDOFF, scope=("KEEP_grp",))
+    ):
+        sc_shipped = ptk.SceneRecords.LIGHTMAPS.load(_ScDataNodes) or {}
+        sc_planes = ptk.SceneRecords.SHADOWS.load(_ScDataNodes)
+    check(
+        "a scoped hand-off ships the stored lightmaps of what it sends",
+        [o["name"] for o in sc_shipped.get("objects") or []] == ["KEEP_cube"]
+        and sc_planes is None,
+        (sc_shipped, sc_planes),
+    )
+    sc_after = ptk.SceneRecords.LIGHTMAPS.load(_ScDataNodes) or {}
+    check(
+        "...and the scene keeps its whole copy after the write",
+        len(sc_after.get("objects") or []) == 2
+        and (ptk.SceneRecords.SHADOWS.load(_ScDataNodes) or {}).get("planes"),
+        sc_after,
+    )
+    # A raw selected write (no bracket: Blender has no before-export event)
+    # ships them narrowed too (mirror of mayatk's raw Export Selection;
+    # measured 2026-10-31, ``_scope_probe.py`` path D). Added: 2026-10-31
+    sc_keys = [ptk.SceneRecords.LIGHTMAPS.key, ptk.SceneRecords.SHADOWS.key]
+    sc_raw = os.path.join(tmp, "raw_selection.fbx")
+    FbxUtils.export(
+        filepath=sc_raw, objects=[sc_grp, _ScDataNodes.EXPORT], selection_only=True
+    )
+    sc_raw_records = ptk.FbxMedia.records(sc_raw, sc_keys)
+    check(
+        "a raw selected write ships the stored records of what it writes",
+        [o["name"] for o in (sc_raw_records.get(sc_keys[0]) or {}).get("objects") or []]
+        == ["KEEP_cube"]
+        and sc_keys[1] not in sc_raw_records,
+        sc_raw_records,
+    )
+    check(
+        "...and the scene keeps its whole copy",
+        len((ptk.SceneRecords.LIGHTMAPS.load(_ScDataNodes) or {}).get("objects") or [])
+        == 2,
+        ptk.SceneRecords.LIGHTMAPS.load(_ScDataNodes),
+    )
+    ptk.SceneRecords.LIGHTMAPS.clear(_ScDataNodes)
+    ptk.SceneRecords.SHADOWS.clear(_ScDataNodes)
+
+    # ---- the writer states the records' unit (mirror of mayatk's): the FBX
+    # writer's scale_length with apply_unit_scale on, one BU a metre with it
+    # off or through the native glTF writer; a producer labels its record with
+    # it and converts nothing. Measured 2026-10-17. Added: 2026-10-31 --------
+    from unittest import mock as _un_mock
+    from blendertk.rig_utils.shadow_rig._shadow_rig import ShadowRig as _UnRig
+
+    un_units = bpy.context.scene.unit_settings
+    un_was = (un_units.system, un_units.scale_length)
+    un_units.system, un_units.scale_length = "METRIC", 0.01
+    try:
+        un_got = {
+            "fbx": FbxUtils.export_context().unit_scale,
+            "fbx_off": FbxUtils.export_context(
+                writer_options={"apply_unit_scale": False}
+            ).unit_scale,
+            "gltf": FbxUtils.export_context(writer="gltf").unit_scale,
+            "usd": FbxUtils.export_context(writer="usd").unit_scale,
+            "none": FbxUtils.export_context(writer=None).unit_scale,
+        }
+        check(
+            "each writer states the metres one BU is in its file",
+            un_got["none"] is None
+            and abs(un_got["fbx"] - 0.01) < 1e-9
+            and un_got["fbx_off"] == 1.0
+            and un_got["gltf"] == 1.0
+            and un_got["usd"] == 1.0,
+            un_got,
+        )
+        with _un_mock.patch.object(
+            _UnRig, "find_shadow_planes", return_value=["plane"]
+        ), _un_mock.patch.object(
+            _UnRig, "plane_record", return_value={"name": "plane"}
+        ), _un_mock.patch.object(_UnRig, "silhouette_is_stale", return_value=False):
+            un_stated = _UnRig.export_record(
+                FbxUtils.export_context(writer_options={"apply_unit_scale": False})
+            )
+            un_bare = _UnRig.export_record(ptk.ExportContext())
+        check(
+            "a producer labels its record with the writer's unit, else the scene's",
+            un_stated.payload["unit_scale"] == 1.0
+            and abs(un_bare.payload["unit_scale"] - 0.01) < 1e-9,
+            (un_stated.payload, un_bare.payload),
+        )
+    finally:
+        un_units.system, un_units.scale_length = un_was
 
     # ---- finish_deliverable: a scene that cannot say where its files are
     # still gets the split, the copies and the drop, which need none of them

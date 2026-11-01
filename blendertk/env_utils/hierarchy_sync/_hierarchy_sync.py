@@ -6,12 +6,11 @@ Diffs the current scene's object hierarchy against a reference object set (in pr
 ``.blend`` linked in as a library — Blender's closest analogue of Maya's namespace-sandboxed
 reference import; an ``.fbx`` reference is first converted to a throwaway ``.blend`` by
 :func:`stage_reference_blend` so the pipeline stays format-agnostic; see
-``hierarchy_sync_slots.HierarchySyncController`` for how the library is staged/torn down),
+``hierarchy_sync_session.HierarchySyncSession`` for how the library is staged/torn down),
 then repairs drift: create stub Empties for missing nodes, quarantine extras, fix reparented /
 fuzzy-renamed nodes.
 
-Divergence from mayatk (by design, not a gap to fill in later — see the port's scoping notes in
-``hierarchy_sync_slots.py``):
+Divergence from mayatk (by design, not a gap to fill in later):
     * No namespace stripping. Blender has no namespaces; a linked library's objects keep their
       source-file names untouched (that IS the "clean" name), so paths need no cleaning pass —
       unlike Maya's DAG, where two same-named nodes under different parents are common and only
@@ -669,7 +668,7 @@ class HierarchySync(ptk.LoggingMixin):
                     if quarantine_obj is None:
                         quarantine_obj = bpy.data.objects.new(group, None)
                         bpy.context.scene.collection.objects.link(quarantine_obj)
-                NodeUtils.reparent([node], quarantine_obj, keep_transform=True)
+                NodeUtils.set_parent([node], quarantine_obj, keep_transform=True)
                 moved.append(node.name)
                 self.logger.debug(f"Quarantined: {HierarchySync.build_path(node)}")
             except Exception as e:
@@ -789,7 +788,7 @@ class HierarchySync(ptk.LoggingMixin):
             try:
                 old_parent = node.parent
                 target_parent = self._ensure_parent_chain(reference_path)
-                NodeUtils.reparent([node], target_parent, keep_transform=True)
+                NodeUtils.set_parent([node], target_parent, keep_transform=True)
                 fixed.append(node.name)
                 self.logger.debug(
                     f"Reparented: {node.name} -> {HierarchySync.build_path(node)}"
@@ -1162,7 +1161,7 @@ class ObjectSwapper(ptk.LoggingMixin):
 
         # Detach from the append-dragged ancestor (world preserved), then delete the dupes so
         # they don't collide with the rebuilt parent chain.
-        NodeUtils.reparent([pulled_root], None, keep_transform=True)
+        NodeUtils.set_parent([pulled_root], None, keep_transform=True)
         for extra in extras:
             try:
                 bpy.data.objects.remove(extra, do_unlink=True)
@@ -1172,7 +1171,7 @@ class ObjectSwapper(ptk.LoggingMixin):
         # Graft onto the reference hierarchy position, preserving the reference world transform.
         target_parent = HierarchySync._ensure_parent_chain(ref_path)
         pulled_root.matrix_world = captured_world
-        NodeUtils.reparent([pulled_root], target_parent, keep_transform=True)
+        NodeUtils.set_parent([pulled_root], target_parent, keep_transform=True)
 
         # Merge: take the exact clean name (append may have suffixed if a dupe lingered).
         if merge and pulled_root.name != clean_leaf:

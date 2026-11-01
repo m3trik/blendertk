@@ -298,6 +298,51 @@ try:
     check("no-save error drops the impossible traceback advice",
           "enable debug logging" not in intact)
 
+    # ---- the panel's surface (tentacle's RizomUV Bridge reads these) ---------------
+    check(
+        "SCRIPT_DIR is the bundled preset folder",
+        RizomUVBridge.SCRIPT_DIR == _SCRIPT_DIR,
+    )
+    check(
+        "params_registry is the parameters registry",
+        RizomUVBridge.params_registry() is P.Parameters,
+    )
+    listed20 = dict(b20.list_template_modes())
+    listed22 = dict(b.list_template_modes())
+    check(
+        "list_template_modes: unwrap_hybrid only above its 2022 gate, one '' mode each",
+        "unwrap_hybrid" not in listed20
+        and "unwrap_hybrid" in listed22
+        and set(listed22) == {p.stem for p in _SCRIPT_DIR.glob("*.lua")}
+        and not any(listed22.values()),
+        f"{sorted(listed20)} / {sorted(listed22)}",
+    )
+    check(
+        "referenced_keys: the rows the installed version keeps (2020.1 hides Mix Scale)",
+        b20.referenced_keys(pack) == shown20,
+        f"{sorted(b20.referenced_keys(pack) ^ shown20)}",
+    )
+    from unittest import mock as _mock
+
+    _ran = []
+
+    def _recorder(name):
+        return _mock.MagicMock(side_effect=lambda *a, **k: _ran.append((name, a, k)))
+
+    _rb = RizomUVBridge(rizom_path="not-used.exe")
+    _rb.process_with_rizomuv = _recorder("round_trip")
+    _rb.send_to_rizomuv = _recorder("send")
+    _rb.pack_into_existing = _recorder("into")
+    for _preset in ("pack", "send", "pack_into_existing"):
+        _rb.run_preset(["obj"], _preset, params={"K": 1})
+    check(
+        "run_preset: send opens one way, pack_into_existing packs in, the rest round-trip",
+        [r[0] for r in _ran] == ["round_trip", "send", "into"]
+        and _ran[0][2] == {"preset": "pack", "params": {"K": 1}}
+        and _ran[1][2] == {"params": {"K": 1}},
+        str(_ran),
+    )
+
     # ---- a reused bridge re-allocates, or run 2's payloads leak untracked ---------
     first_lua = one.script_path
     one._release_temp_payloads()

@@ -1,18 +1,17 @@
 # !/usr/bin/python
 # coding=utf-8
-"""What the Shot Manifest panel needs from Blender: its store, engine and
-detection classes, the playhead, the Outliner, object names and icons.
+"""What the Shot Manifest panel needs from Blender: its store, engine, detection,
+behaviors and range classes, the playhead, the Outliner, object names and icons.
 
-The panel's other modules are one text in mayatk and blendertk
-(``m3trik/scripts/check_dcc_twins.py`` holds them identical); every call that
-names the host is answered here, as mayatk's ``manifest_host.py`` answers them
-for Maya.  ``bpy`` is imported in the calls that need it (headless
+The panel is tentacle's, one class for both hosts; every call it makes that
+names the host is answered here (``btk.ManifestHost``), as mayatk's
+``ManifestHost`` answers them for Maya.  ``bpy`` is imported in the calls that need it (headless
 ``blender --background`` and the docs tooling import this module without it).
 """
 
 from typing import List, Optional
 
-from blendertk.anim_utils.shots._shots import BlenderShotStore
+from blendertk.anim_utils.shots._shots import ShotStore
 from blendertk.anim_utils.shots.shot_manifest._shot_manifest import (
     BlenderShotManifest,
 )
@@ -28,8 +27,8 @@ class ManifestHost:
 
     @staticmethod
     def store_cls():
-        """The host's store class (``BlenderShotStore``)."""
-        return BlenderShotStore
+        """The host's store class (``ShotStore``: pythontk's, on the Blender host)."""
+        return ShotStore
 
     @staticmethod
     def manifest_cls():
@@ -42,6 +41,20 @@ class ManifestHost:
         from blendertk.anim_utils.shots._detection import Detection
 
         return Detection
+
+    @staticmethod
+    def behaviors_cls():
+        """The host's ``Behaviors`` (the recipes a manifest object's behaviors key)."""
+        from blendertk.anim_utils.shots.shot_manifest.behaviors import Behaviors
+
+        return Behaviors
+
+    @staticmethod
+    def range_resolver_cls():
+        """The host's ``RangeResolver``: pythontk's, sizing audio steps to their clips."""
+        from blendertk.anim_utils.shots.shot_manifest.range_resolver import RangeResolver
+
+        return RangeResolver
 
     @staticmethod
     def available() -> bool:
@@ -82,7 +95,7 @@ class ManifestHost:
         from blendertk.core_utils._core_utils import CoreUtils
         from blendertk.ui_utils._ui_utils import UiUtils
 
-        layer = CoreUtils._active_view_layer()
+        layer = CoreUtils.active_view_layer()
         shown = [n for n in nodes if layer is not None and n in layer.objects]
         outside = [f"'{n}'" for n in nodes if n not in shown]
         if shown:
@@ -110,14 +123,5 @@ class ManifestHost:
         except ImportError:
             return None
         if getattr(obj, "kind", None) == "audio":
-            from uitk.managers.icon_manager import IconManager
-            from blendertk.ui_utils.node_icons import ICON_COLOR
-
-            icon_name = NodeIcons.icon_name_for_type("SPEAKER")
-            icon = (
-                IconManager.get(icon_name, size=(16, 16), color=ICON_COLOR)
-                if icon_name
-                else None
-            )
-            return icon if (icon is not None and not icon.isNull()) else None
+            return NodeIcons.audio_icon()
         return NodeIcons.get_icon(name)

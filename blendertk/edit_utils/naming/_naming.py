@@ -19,7 +19,6 @@ deferred into the call bodies.
 """
 
 import re
-import string
 from typing import List, Tuple
 
 import pythontk as ptk
@@ -56,6 +55,30 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
         ("set_suffix", "objectSet", "objectSet"),
     )
 
+    #: The convention entries this host has no type for, ``{convention key:
+    #: why}`` -- mirror of mayatk's (empty there): :meth:`suffix_by_type` never
+    #: applies them, and the Naming panel greys their rows (still editable: the
+    #: convention is shared). Materials and images are real targets here
+    #: (:meth:`type_key`), but never part of a selection scope.
+    UNSUPPORTED_TYPES = {
+        "ikHandle": "No Blender equivalent: IK handles are bone constraints, not objects.",
+        "constraint": "No Blender equivalent: Constraints live on objects, they are not objects.",
+        "cluster": "No Blender equivalent: A cluster is a Hook modifier, not an object.",
+        "skinCluster": "No Blender equivalent: Skinning is an Armature modifier, not an object.",
+        "blendShape": "No Blender equivalent: Blend shapes are shape keys, not objects.",
+        "material": "No Blender equivalent: Materials are datablocks, never in a selection scope.",
+        "shadingEngine": "No Blender equivalent: Blender has no shading group node.",
+        "texture": "No Blender equivalent: Images are datablocks, never in a selection scope.",
+        "displayLayer": "No Blender equivalent: Display layers are Maya-only (a collection is a membership group, not an object type).",
+        "objectSet": "No Blender equivalent: Sets are Maya-only (a collection is a membership group, not an object type).",
+    }
+
+    #: What a rename pattern holding ``#`` is told -- mirror of mayatk's.
+    HASH_NOTE = (
+        "'#' is not a counter here: it is replaced by '_'. A name already taken "
+        "is numbered the way Blender numbers it (box, box.001, box.002)."
+    )
+
     @ptk.ClassProperty
     def SUFFIX_TYPES(cls) -> Tuple[Tuple[str, str, str, str], ...]:
         """``(keyword, affix, label, type key)`` -- the live convention, joined
@@ -78,6 +101,47 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
         import bpy
 
         return list(bpy.context.scene.objects)
+
+    @classmethod
+    def scope_objects(cls, scene=False) -> List:
+        """What a naming operation acts on in a scene scope: every object in the
+        scene (*scene*, :meth:`scene_objects`), else the selected objects --
+        mirror of mayatk's."""
+        if scene:
+            return cls.scene_objects()
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        return CoreUtils.selected_objects()
+
+    @classmethod
+    def select_by_name(
+        cls, pattern, regex=False, ignore_case=False, locators_only=False
+    ) -> Tuple[List, int]:
+        """Select the scene's objects whose name matches *pattern* (Find) --
+        mirror of mayatk's.
+
+        *pattern* takes ``*`` / ``|`` wildcards, or a regular expression with
+        *regex* (:func:`pythontk.find_str`). *locators_only* searches Empties,
+        Blender's locator. The matches replace the selection (the first one
+        active); none found clears it. Returns ``(matches, searched)``: the
+        matched objects and how many objects were searched.
+        """
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        objects = [
+            o for o in cls.scene_objects() if not locators_only or o.type == "EMPTY"
+        ]
+        names = [o.name for o in objects]
+        hits = set(ptk.find_str(pattern, names, regex=regex, ignore_case=ignore_case))
+        found = [o for o, name in zip(objects, names) if name in hits]
+        CoreUtils.select(found, mode="replace")
+        return found, len(objects)
+
+    @classmethod
+    def select_link(cls, obj) -> str:
+        """A report link labeled with *obj*'s name that selects it -- mirror of
+        mayatk's."""
+        return cls.log_link(obj.name, "select", node=obj.name)
 
     @classmethod
     def rename(
@@ -111,6 +175,8 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
         renaming. Returns the new names parallel to ``objects`` (the planned names on a dry run).
         """
         objects = [o for o in ptk.make_iterable(objects) if o]
+        if "#" in to:
+            cls.logger.warning(cls.HASH_NOTE)
         name_to_obj = {
             o.name: o for o in objects
         }  # Blender object names are globally unique
@@ -194,7 +260,8 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
     @classmethod
     def strip_chars(cls, objects, num_chars=1, trailing=False, dry_run=False):
         """Delete ``num_chars`` leading (or ``trailing``) characters from each object's name —
-        mirror of mayatk's ``strip_chars``. Returns the new names (one per object renamed)."""
+        mirror of mayatk's ``strip_chars``. A digit left in front is kept, legalized
+        (``a1box`` minus ``a`` -> ``_1box``). Returns the new names (one per object renamed)."""
         plan = []
         for o in (o for o in ptk.make_iterable(objects) if o):
             s = o.name
@@ -210,8 +277,10 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
 
     @classmethod
     def set_case(cls, objects, case="capitalize", dry_run=False):
-        """Rename objects by Python string case op — ``upper`` / ``lower`` / ``capitalize`` /
-        ``swapcase`` / ``title``. Mirror of mayatk's ``set_case``. Returns the new names."""
+        """Rename objects by a :meth:`pythontk.StrUtils.set_case` case — ``upper`` / ``lower`` /
+        ``capitalize`` / ``swapcase`` / ``title`` (Python's, which lower every other letter) or
+        ``upper_first`` / ``upper_initials`` (first letters raised, the rest kept). Mirror of
+        mayatk's ``set_case``. Returns the new names."""
         plan = [
             (o, o.name, ptk.set_case(o.name, case))
             for o in ptk.make_iterable(objects)
@@ -361,7 +430,10 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
             # applied is NOT excluded -- apply_affix is idempotent, and
             # excluding it defeated the flip (a legacy "body_GEO" under a now-
             # prefix convention came back "GEO_body_GEO"). Mirrors mayatk.
-            base = ptk.StrUtils.strip_any_affix(o.name, known)
+            # numbered: a duplicate's '.001' or an index after the affix (wall_GEO_01) is
+            # peeled first and kept on the base -- crate_001_GEO, wall_01_GEO, never a
+            # second affix. Mirrors mayatk.
+            base = ptk.StrUtils.strip_any_affix(o.name, known, numbered=True)
             if strip_trailing_ints:
                 base = ptk.format_suffix(
                     base,
@@ -394,93 +466,96 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
         valid_suffixes=None,
         reverse=False,
         independent_groups=False,
+        order="distance",
         dry_run=False,
     ):
-        """Suffix objects by their distance from a reference point (origin, or the first object's
-        bbox center when ``first_obj_as_ref``) — ``_A``/``_B`` (``alphabetical``, ≤26) or ``_01``/
-        ``_02``. Mirror of mayatk's ``append_location_based_suffix`` (uses ``order_by_distance``).
-        ``dry_run`` plans and reports only. Returns the final names in distance order."""
+        """Suffix objects by location — ``_A``/``_B`` (``alphabetical``, ≤26) or ``_01``/``_02``.
+        Mirror of mayatk's ``append_location_based_suffix``, same signature and default.
+
+        An object's location is its pivot (``matrix_world.translation``), as mayatk reads the
+        world rotate pivot, and the order is :meth:`pythontk.PointCloud.order_points`'s, so both
+        hosts number one layout the same way. ``order``: ``"distance"`` (default; from the world
+        origin, or the first object's pivot when ``first_obj_as_ref``), ``"x"`` / ``"y"`` /
+        ``"z"`` (signed position along that world axis; ties go to the other axes, then the
+        name), or ``"auto"`` (the axis the objects are most spread along). ``reverse`` numbers
+        from the far end. A letter this tool wrote (the batch's letters run ``A, B, C, ...``) is
+        stripped first, so an alphabetical re-run is stable; a side marker (``_L``) is content.
+        Only objects have a location: anything else is skipped. ``dry_run`` plans and reports
+        only. Returns the final names in order."""
         import bpy
 
-        from blendertk.xform_utils._xform_utils import XformUtils
-
-        objects = [o for o in ptk.make_iterable(objects) if o]
+        objects = [
+            o for o in ptk.make_iterable(objects) if o and hasattr(o, "matrix_world")
+        ]
         if not objects:
+            cls.logger.warning("No objects to suffix by location.")
             return []
 
-        # order_by_distance / get_world_bbox read matrix_world — settle the depsgraph first so a
-        # just-moved (or just-created) object's world position is current, not stale at the origin.
+        # matrix_world must be current -- settle the depsgraph first so a just-moved (or
+        # just-created) object's world position is not stale at the origin.
         bpy.context.view_layer.update()
+        positions = {o.name: tuple(o.matrix_world.translation) for o in objects}
+        by_name = {o.name: o for o in objects}
+        order = (order or "distance").lower()
+        if order == "auto":  # one axis for the whole batch, groups included
+            order = ptk.PointCloud.spread_axis(list(positions.values()))
+        reference = positions[objects[0].name] if first_obj_as_ref else (0.0, 0.0, 0.0)
 
-        reference_point = (0.0, 0.0, 0.0)
-        if first_obj_as_ref:
-            mn, mx = XformUtils.get_world_bbox(objects[0])
-            reference_point = tuple((mn[i] + mx[i]) / 2.0 for i in range(3))
-
-        strip_for_grouping = strip_defined_suffixes and not independent_groups
-        sorted_suffixes = sorted(valid_suffixes or [], key=len, reverse=True)
-
-        def base_of(name):
-            while True:
-                before = name
-                if strip_trailing_ints and name and name[-1].isdigit():
-                    m = re.search(r"(_\d+|\d+)$", name)
-                    if m:
-                        name = name[: m.start()]
-                if strip_for_grouping and sorted_suffixes:
-                    for s in sorted_suffixes:
-                        if name.endswith(s):
-                            name = name[: -len(s)]
-                            break
-                if name == before:
-                    return name
-
-        def suffixes_for(n):
-            if alphabetical and n <= 26:
-                return list(string.ascii_uppercase)[:n]
-            pad = max(2, len(str(n)))
-            return [str(i + 1).zfill(pad) for i in range(n)]
-
-        new_names = {}
-        if independent_groups:
-            groups = {}
-            for o in objects:
-                groups.setdefault(base_of(o.name), []).append(o)
-            for base, members in groups.items():
-                ordered = XformUtils.order_by_distance(
-                    members, reference_point=reference_point, reverse=reverse
-                )
-                root, type_suffix = base, ""
-                for s in sorted_suffixes:
-                    if base.endswith(s):
-                        root, type_suffix = base[: -len(s)], s
-                        break
-                if strip_defined_suffixes:
-                    type_suffix = ""
-                for i, (o, sfx) in enumerate(zip(ordered, suffixes_for(len(ordered)))):
-                    new_names[o] = f"{root}_{sfx}{type_suffix}"
-        else:
-            ordered = XformUtils.order_by_distance(
-                objects, reference_point=reference_point, reverse=reverse
+        def ordered(names):
+            return ptk.PointCloud.order_points(
+                [(n, positions[n]) for n in names],
+                order_by=order,
+                reference=reference,
+                reverse=reverse,
             )
-            for o, sfx in zip(ordered, suffixes_for(len(ordered))):
-                new_names[o] = f"{base_of(o.name)}_{sfx}"
+
+        # The host-free plan (strip what a previous run left, group, number) is pythontk's,
+        # written once for both hosts. '.001' too: Blender's own duplicate numbering
+        # ('tile.001' left 'tile.' -> 'tile__B').
+        new_names = ptk.StrUtils.sequence_names(
+            {o.name: o.name for o in objects},
+            order=ordered,
+            alphabetical=alphabetical,
+            strip_trailing_ints=strip_trailing_ints,
+            strip_defined_suffixes=strip_defined_suffixes,
+            valid_suffixes=valid_suffixes,
+            independent_groups=independent_groups,
+            number_separators="._",
+        )
 
         plan = [
-            (o, o.name, cls.strip_illegal_chars(name)) for o, name in new_names.items()
+            (by_name[name], name, cls.strip_illegal_chars(new))
+            for name, new in new_names.items()
         ]
-        if not dry_run:
-            # Two-pass (placeholder then final) so a target name freed by a later rename doesn't
-            # collide into a ``.001`` artifact. Unchanged entries are never renamed back by the
-            # plan, so they must keep their name here.
-            for o, old, new in plan:
-                if new != old:
-                    o.name = f"__naming_tmp_{id(o)}"
-        return cls._apply_plan(plan, "Suffix By Location", dry_run)
+        title = "Suffix By Location"
+        if order in ("x", "y", "z"):
+            title += f" (along {order.upper()})"
+        # Two phases (no target collides with a name the batch still holds) are the shared
+        # plan step's, after its skip filter. Mirrors mayatk.
+        return cls._apply_plan(plan, title, dry_run)
 
     # ------------------------------------------------------------------
     # Plan execution — shared by every operation
     # ------------------------------------------------------------------
+
+    #: Where each datablock type's names live (a name is unique per type): the pools
+    #: :meth:`_predict` checks a new name against, by ``ID.id_type``.
+    _NAME_POOLS = {
+        "OBJECT": "objects",
+        "MATERIAL": "materials",
+        "IMAGE": "images",
+        "TEXTURE": "textures",
+    }
+
+    @staticmethod
+    def legalize(name: str) -> str:
+        """*name* as an engine-safe name, or ``""`` when it holds no name at all -- mirror of
+        mayatk's. Every planned name passes through here (the shared plan step): each character
+        outside letters, digits and ``_`` becomes ``_`` and a leading digit gets a ``_`` in
+        front, so a name survives the trip to Maya or an engine; a name of underscores alone
+        (``---``) or nothing is skipped, with a warning."""
+        legal = ptk.StrUtils.to_identifier(name)
+        return legal if legal.strip("_") else ""
 
     @staticmethod
     def _rename_object(obj, new_name: str) -> str:
@@ -489,24 +564,108 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
         return obj.name  # Blender may append .001 on collision
 
     @classmethod
+    def _park(cls, obj, index: int) -> None:
+        """The two-phase run's placeholder (:meth:`pythontk.RenamePlan.apply`'s ``park``)."""
+        obj.name = f"__naming_park_{index}"
+
+    @classmethod
     def _object_link(cls, obj, name: str) -> str:
         """Render a report item as a link that selects the object in the viewport."""
         return cls.log_link(name, "select", node=obj.name)
 
+    @staticmethod
+    def _uniquify(name: str, taken) -> str:
+        """Blender's rule for a taken *name*, measured in Blender 5.1: the lowest free
+        ``.NNN`` (from ``.001``) on the name less any ``.NNN`` it carries -- past ``box`` and
+        ``box.002`` comes ``box.001``; ``box1`` gives ``box1.001``."""
+        base = re.sub(r"\.\d{3,}$", "", name)
+        n = 1
+        while f"{base}.{n:03d}" in taken:
+            n += 1
+        return f"{base}.{n:03d}"
+
+    @classmethod
+    def _predict(cls, plan) -> List[str]:
+        """The names Blender gives *plan*'s entries on collision, in order
+        (:meth:`pythontk.RenamePlan.predict`), so a dry run previews the live run -- mirror of
+        mayatk's. A name is unique among the local datablocks of its type."""
+        import bpy
+
+        def pool_of(item):
+            return getattr(item, "id_type", None) or type(item).__name__
+
+        def scopes(item):
+            pool = (pool_of(item),)
+            return pool, pool
+
+        def names(pool):
+            attr = cls._NAME_POOLS.get(pool)
+            blocks = getattr(bpy.data, attr, None) if attr else None
+            return [b.name for b in blocks or () if getattr(b, "library", None) is None]
+
+        return ptk.RenamePlan.predict(plan, scopes, names, cls._uniquify)
+
+    @staticmethod
+    def _listed(items, limit: int = 10) -> str:
+        """``a, b, …`` -- a tally line's names, the first *limit* of them."""
+        shown = ", ".join(items[:limit])
+        return f"{shown}, …" if len(items) > limit else shown
+
     @classmethod
     def _apply_plan(cls, plan, title: str, dry_run: bool) -> List[str]:
-        """Apply ``(obj, old, new)`` entries and report; returns the resulting names."""
-        results = ptk.RenamePlan.apply(
-            plan,
+        """Apply ``(obj, old, new)`` entries and report; returns the resulting names, parallel
+        to *plan* -- mirror of mayatk's plan step (Blender has no shapes to follow): each new
+        name legalized (:meth:`legalize`, one with no name left skipped in one warning); what
+        Blender will not rename (a library-linked datablock) skipped in one line; the names
+        Blender numbers on a collision predicted (:meth:`_predict`) and reported in one line;
+        then a two-phase run (``park``), so no rename meets a name the batch still holds and
+        nothing is left on a placeholder. A dry run returns the predicted names."""
+        plan = list(plan)
+        staged, nameless = [], []
+        for obj, old, new in plan:
+            if new != old:
+                legal = cls.legalize(new)
+                if not legal:
+                    nameless.append(f"{old} → '{new}'")
+                    continue
+                new = legal
+            staged.append((obj, old, new))
+        if nameless:
+            cls.logger.warning(
+                f"Skipped {len(nameless)} name(s) with no letters or digits left: "
+                f"{cls._listed(nameless)}"
+            )
+        locked = [old for obj, old, _new in staged if not getattr(obj, "is_editable", True)]
+        if locked:
+            cls.logger.info(
+                f"Skipped {len(locked)} object(s) Blender will not rename (linked from a "
+                f"library): {cls._listed(locked)}"
+            )
+        live = [e for e in staged if getattr(e[0], "is_editable", True)]
+        predicted = cls._predict(live)
+        numbered = [
+            f"{old} → {got}" for (_o, old, new), got in zip(live, predicted) if got != new
+        ]
+        if numbered:
+            cls.logger.warning(
+                f"{len(numbered)} name(s) already taken, numbered as Blender numbers them: "
+                f"{cls._listed(numbered)}"
+            )
+        live = [(obj, old, got) for (obj, old, _new), got in zip(live, predicted)]
+        ptk.RenamePlan.apply(
+            live,
             cls._rename_object,
             title=title,
             dry_run=dry_run,
             logger=cls.logger,
             link=cls._object_link,
             unit="object",
+            park=cls._park,
         )
-        return [new for _old, new in results]
-
+        if dry_run:
+            planned = {id(obj): new for obj, _old, new in live}
+            return [planned.get(id(obj), old) for obj, old, _new in plan]
+        return [obj.name for obj, _old, _new in plan]
 
 # -----------------------------------------------------------------------------
 

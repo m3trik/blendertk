@@ -1,13 +1,13 @@
 # blendertk
 
-**Role**: Blender 4.x+ utils (dev/test on **5.1 / Python 3.13**). Does for the tentacle
-Blender slots what mayatk does for the Maya slots; built to mirror mayatk's public API and
-released in the cascade beside it.
+**Role**: Blender 4.x+ utils (dev/test on **5.1 / Python 3.13**): the Blender host library and
+each tool's Blender API half, as mayatk is Maya's; tentacle's shared panels call it through
+`self.tk`. Built to mirror mayatk's public API and released in the cascade beside it.
 
-**Nav**: [← root](../CLAUDE.md) · [docs](docs/README.md) · **Deps**: [pythontk](../pythontk/CLAUDE.md) · [uitk](../uitk/CLAUDE.md) · **Mirrors**: [mayatk](../mayatk/CLAUDE.md) · **Used by**: [tentacle](../tentacle/CLAUDE.md) (`slots/blender`)
+**Nav**: [← root](../CLAUDE.md) · [docs](docs/README.md) · **Deps**: [pythontk](../pythontk/CLAUDE.md) · [uitk](../uitk/CLAUDE.md) · **Mirrors**: [mayatk](../mayatk/CLAUDE.md) · **Used by**: [tentacle](../tentacle/CLAUDE.md) (`self.tk` in Blender)
 **Parity**: [tentacle/docs/PARITY_AUDIT.md](../tentacle/docs/PARITY_AUDIT.md) (measured gap, auto-gen) · [tentacle/docs/PARITY_PORTING_PLAN.md](../tentacle/docs/PARITY_PORTING_PLAN.md) (port-this-next recipes) — read these before adding scope.
 
-> **1:1 check — do NOT eyeball.** The per-element parity matrix is [tentacle/docs/PARITY_SURFACE.md](../tentacle/docs/PARITY_SURFACE.md) (regenerate: `python m3trik/scripts/compare_panel_surface.py --all --write`; one pair: `--panel <name>`). It unrolls loop-built controls, resolves menu aliases + f-string objectNames, skips `__main__` demo blocks, diffs twin `.ui` XML (widgets + defaults + `<customwidgets>` lint), combo item lists, and control defaults. Every delta is classified through the triage ledger [tentacle/docs/parity_map.py](../tentacle/docs/parity_map.py) — **fix it or ledger it with a reason; UNTRIAGED rows fail the sweep (exit 1)**. Manual reads repeatedly missed flat-out-missing controls; the sweep does not.
+> **Parity gate — do NOT eyeball.** tentacle's shared Slots classes call this library through `self.tk`, so every chain they call must resolve here as it does in mayatk (same name, a signature that takes the call), or be hidden (`requires`, `slots.tools.HOSTS`) or guarded (`hasattr` / `getattr`) where it does not. [tentacle/docs/PARITY_SURFACE.md](../tentacle/docs/PARITY_SURFACE.md) lists every gap and every one-host operation (regenerate: `python m3trik/scripts/compare_panel_surface.py --all --write`; one slots module: `--panel <name>`); **a gap fails the gate (exit 1)**. A rename or a signature change here is checked against every caller the same way.
 
 ## API surface
 
@@ -25,45 +25,46 @@ process every time). No exceptions for speed.
 > correspondence with mayatk + which subpackages are intentionally absent. Consult it (and update
 > it) whenever you add/move/rename, so a change in one package mirrors mechanically to the other.
 
-- **Mirror mayatk's public names** (`btk.X` ↔ `mtk.X`) at the *name + behavior* level, NOT
-  signatures (mayatk = string-node idioms, bpy = object refs). This keeps the shared tentacle
-  slots branch-free.
+- **Mirror mayatk's public names** (`btk.X` ↔ `mtk.X`) at the *name + behavior* level, and the
+  signature too where a shared tentacle panel calls the operation (otherwise mayatk = string-node
+  idioms, bpy = object refs). This keeps the shared tentacle slots branch-free.
 - **Relax the mirror where concepts diverge** (rigging → Armature + vertex groups, NURBS,
   shader graphs) — use Blender-idiomatic names there, don't cargo-cult a Maya concept.
 - **Prefer a native `bpy.ops` / `bmesh.ops` / object property over reimplementing a mayatk
   algorithm.** Many mayatk helpers exist only because Maya's `cmds` API is low-level; Blender
-  often ships the same capability as one operator. See the plan's §5 capability map.
+  often ships the same capability as one operator.
 - **Before reimplementing a helper, check if it's DCC-agnostic and belongs in `pythontk`**
   (HTML formatters, file/recent-files logic, key-timing math) — extract there, don't duplicate.
 - Don't pre-create empty `*_utils` groups — implement lazily as slots demand (YAGNI).
 
-## Tool panels — moving to tentacle
+## Tool panels — tentacle's
 
-As in mayatk ([mayatk/CLAUDE.md](../mayatk/CLAUDE.md) owns the rule): every panel moves to tentacle
-with its tool, and blendertk keeps the host operations, no UI. Until a panel moves, it keeps mayatk's
-contract: `<tool>.ui` + `<Tool>Slots`
-next to the engine, in the module dir of the domain they act on (curtain / mirror / cut_on_axis /
-duplicate_* → `edit_utils/`; hdr_manager → `light_utils/`; reference_manager → `env_utils/`);
-`<Tool>Slots` is tentacle-independent (base `ptk.LoggingMixin`, `__init__(self, switchboard,
-log_level="WARNING")` sets `self.sb`, selection via `btk.selected_objects`, engine called directly);
-only the **navigation** menus (`blender#startmenu.ui`) and their slots live in tentacle, exposing a
-panel with a button calling `marking_menu.show("<tool>")`. Blender specifics:
+As in mayatk ([mayatk/CLAUDE.md](../mayatk/CLAUDE.md) owns the rule): every tool's panel is tentacle's,
+and blendertk holds the host operations, no UI. Blender specifics:
 
-- The `.ui` is the tracked SSoT; `*_ui.py` is generated by the loader and **gitignored**.
-- **Defer the Qt-only `uitk` imports** (`fmt`) into the method that uses them — headless Blender
+- **Defer the Qt-only `uitk` imports** into the method that uses them — headless Blender
   (`--background`) ships no Qt binding, so the engine surface must import Qt-free (the same reason
-  `import bpy` is deferred). Engines stay Qt-free; only the Slots touch Qt, lazily.
-- Discovery: `BlenderUiHandler` (`ui_utils/blender_ui_handler.py`, mirror of `MayaUiHandler`) scans
-  the package recursively (`discover_slots`); wired into `tcl_blender` via `handlers={"ui":
-  BlenderUiHandler}`. Verify with `test/test_blender_ui_handler.py` (needs Qt, not bpy → runs under
+  `import bpy` is deferred).
+- `BlenderUiHandler` (`ui_utils/blender_ui_handler.py`, mirror of `MayaUiHandler`) registers no UI
+  source of its own; it wraps Blender's native menus, and `BlenderMarkingMenuHost.ui_handler` names
+  it to the marking menu. Verify with `test/test_blender_ui_handler.py` (needs Qt, not bpy → runs under
   the workspace `.venv`; skips→PASS under the Blender harness).
+
+- **Hosting a marking menu**: `BlenderMarkingMenuHost` (`ui_utils/marking_menu_host/`, a
+  `uitk.MarkingMenuHost` and `uitk.MarkingMenuLaunchHost`) over `QtBootstrap`/`QtRuntime`
+  (`ui_utils/qt_runtime.py`: Qt provisioned, a QApplication pumped from `bpy.app.timers`),
+  `KeymapBridge` (the 3D View keymap carries the activation key and drives the menu through its
+  public `activate`/`release`/`armed`; its operator's `tentacle.show_marking_menu` idname is a
+  saved name) and `BlenderWindow`. Name no product: the hosted application names itself
+  (`HostedApp`, its env vars, folder and messages). Verify the bridge by calling its operator and
+  poller in a fresh `blender --background`, never with synthesized keystrokes.
 
 ## Imports
 
 - **Defer `import bpy` into call bodies** (not module top) so importing a module / resolving
   the package surface never needs a running Blender — matches the no-import-side-effects rule.
 - Public surface is registered via root `DEFAULT_INCLUDE` + `bootstrap_package` (mirror mayatk);
-  subpackage `__init__.py` = docstring only.
+  subpackage `__init__.py` = docstring, plus one `lazy_exports` call when it publishes names.
 
 ## Test
 

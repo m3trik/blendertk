@@ -79,7 +79,7 @@ class RenderEffects(ptk.LoggingMixin):
         return out
 
     @classmethod
-    def _ensure_opacity_prop(cls, obj, value=1.0):
+    def ensure_opacity_prop(cls, obj, value=1.0):
         """Seed the keyable ``opacity`` custom property (0-1) with UI limits if absent."""
         if cls.ATTR_NAME not in obj:
             obj[cls.ATTR_NAME] = float(value)
@@ -278,10 +278,10 @@ class RenderEffects(ptk.LoggingMixin):
     def _land_keys(cls, obj, prop: str, index: int, keys: list) -> None:
         """Key ``(frame, value, interpolation)`` *keys* on *obj*'s custom
         property *prop* (component *index*, ``-1`` for a scalar) as
-        :meth:`_set_key` per key would, in one bulk write
+        :meth:`set_key` per key would, in one bulk write
         (``AnimUtils._insert_keys``): a key on a keyed frame replaces it, and
         the property ends at the last key's value. Each interpolation lands on
-        its own point only (``_set_key`` also restyles a subframe key's
+        its own point only (``set_key`` also restyles a subframe key's
         whole-frame neighbour), and an artist's FREE / ALIGNED handles are not
         cut by the insert's subdivision.
 
@@ -300,7 +300,7 @@ class RenderEffects(ptk.LoggingMixin):
             fc = cls._fcurve(obj, data_path, index)
         if fc is None:  # keyed where no slot shows it: key one by one, as ever
             for frame, value, interp in keys:
-                cls._set_key(obj, data_path, frame, value, interp, index=index)
+                cls.set_key(obj, data_path, frame, value, interp, index=index)
             return
         AnimUtils._insert_keys(fc, keys)
         cls._set_prop(obj, prop, index, keys[-1][1])
@@ -373,14 +373,14 @@ class RenderEffects(ptk.LoggingMixin):
         results = {}
         for obj in objects:
             if channel == cls.HIGHLIGHT_ATTR:
-                cls._ensure_highlight_props(obj)
+                cls.ensure_highlight_props(obj)
             else:
-                cls._ensure_opacity_prop(obj, 1.0)
+                cls.ensure_opacity_prop(obj, 1.0)
             results[obj.name] = {channel: True}
         return results
 
     @classmethod
-    def _ensure_highlight_props(cls, obj, color=None, dim_color=None):
+    def ensure_highlight_props(cls, obj, color=None, dim_color=None):
         """Seed ``highlight`` (0-1, keyable) and both ends of its colour ramp.
 
         An end the object already carries is kept: colours are written only
@@ -584,6 +584,64 @@ class RenderEffects(ptk.LoggingMixin):
             colors=colors,
             fps=fps or cls._scene_fps() or 30.0,
         )
+
+    # ------------------------------------------------------------------ selection
+
+    @classmethod
+    def selected_objects(cls, last_only: bool = False) -> list:
+        """The objects the Render Effects actions act on, by name -- mirror of
+        mayatk's, whose nodes are names. With *last_only*, the selection's
+        lead alone: the active object, Blender keeping no selection order (an
+        active object outside the selection leaves one of the selected).
+
+        Returns:
+            Object names; ``[]`` when nothing is selected, or without Blender
+            (a panel builds before any scene is there to read).
+        """
+        try:
+            import bpy  # noqa: F401
+        except ImportError:
+            return []
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        objects = list(CoreUtils.selected_objects())
+        if last_only and objects:
+            active = CoreUtils.active_object()
+            objects = [active] if active in objects else objects[-1:]
+        return [o.name for o in objects]
+
+    @classmethod
+    def has_channel(cls, obj, channel="opacity") -> bool:
+        """Whether *obj* (an object or its name) carries *channel*'s property
+        -- mirror of mayatk's.
+
+        Raises:
+            KeyError: An unknown channel.
+        """
+        if channel not in cls.CHANNELS:
+            raise KeyError(
+                f"Unknown render-effect channel {channel!r}. "
+                f"Known: {', '.join(cls.CHANNELS)}."
+            )
+        found = cls._resolve([obj])
+        return bool(found) and channel in found[0]
+
+    @classmethod
+    def select_objects(cls, objects) -> list:
+        """Make *objects* (objects or names) the selection, the first one
+        active, and return their names, the missing ones dropped -- mirror of
+        mayatk's. A view of them, not an edit: ``CoreUtils.select`` pushes no
+        undo step. With none resolved the selection is left as it was.
+        """
+        objects = list(objects or ())
+        if not objects:
+            return []
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        resolved = cls._resolve(objects)
+        if resolved:
+            CoreUtils.select(resolved)
+        return [o.name for o in resolved]
 
     # ------------------------------------------------------------------ colour
 
@@ -886,7 +944,7 @@ class RenderEffects(ptk.LoggingMixin):
     WHOLE_FRAME_GAP_MIN = ptk.RampKeys.WHOLE_FRAME_GAP_MIN
 
     @staticmethod
-    def _set_key(obj, data_path, frame, value, interp, index=-1):
+    def set_key(obj, data_path, frame, value, interp, index=-1):
         """Set *value* then insert a keyframe at *frame* with the given interpolation."""
         if data_path.startswith("["):  # custom prop, or one component of a vector one
             RenderEffects._set_prop(obj, data_path[2:-2], index, value)
@@ -934,9 +992,9 @@ class RenderEffects(ptk.LoggingMixin):
                     cls._remove_fc(o, cls._fcurve(o, cls.VIS_PATH))
                     o.hide_render = False
                 if channel == cls.HIGHLIGHT_ATTR:
-                    cls._ensure_highlight_props(o, *(colors or (None, None)))
+                    cls.ensure_highlight_props(o, *(colors or (None, None)))
                 else:
-                    cls._ensure_opacity_prop(o)
+                    cls.ensure_opacity_prop(o)
 
     @classmethod
     def key_fade(
@@ -988,7 +1046,9 @@ class RenderEffects(ptk.LoggingMixin):
         return keyed
 
     @classmethod
-    def write_keys(cls, obj, keys, channel="opacity", interp="LINEAR", mirror=None):
+    def write_keys(
+        cls, obj, keys, channel="opacity", interp="LINEAR", mirror=None, curve_key=None
+    ):
         """Key a planned ``[(frame, value), ...]`` on *obj*'s channel prop -- the
         one writer every render effect keys through (mirror of mayatk's
         ``OpacityAttributeMode.write_keys``).
@@ -997,25 +1057,31 @@ class RenderEffects(ptk.LoggingMixin):
         *mirror* keys the stepped ``hide_render`` mirror too (hidden when the
         value is ``<= 0``); by default when *channel* is the presence channel.
 
+        Parameters:
+            curve_key: ``curve_key(object name, data path) -> ledger key``:
+                the shot ledger's curve spelling (``BlenderShotsHost.curve_key``),
+                which sits above this layer, so the caller that records the
+                keys passes it.  ``None``: nothing is recorded.
+
         Returns:
             ``(ledger curve key, frame)`` for every key set, the mirror's
-            included -- what the manifest records as its own.
+            included -- what the manifest records as its own; ``[]`` without
+            *curve_key*.
         """
-        # The ledger's curve spelling is the shot store's, reached through
-        # the record owners (it sits above this layer).
-        store = cls.scene_store()
         if mirror is None:
             mirror = channel == cls.ATTR_NAME
         path = f'["{channel}"]'
         written = []
         for frame, value in keys:
-            cls._set_key(obj, path, frame, value, interp)
-            written.append((store.curve_key(obj.name, path), float(frame)))
+            cls.set_key(obj, path, frame, value, interp)
+            if curve_key is not None:
+                written.append((curve_key(obj.name, path), float(frame)))
             if mirror:
-                cls._set_key(
+                cls.set_key(
                     obj, cls.VIS_PATH, frame, 0.0 if value > 0 else 1.0, "CONSTANT"
                 )
-                written.append((store.curve_key(obj.name, cls.VIS_PATH), float(frame)))
+                if curve_key is not None:
+                    written.append((curve_key(obj.name, cls.VIS_PATH), float(frame)))
         return written
 
     @staticmethod
@@ -1055,6 +1121,7 @@ class RenderEffects(ptk.LoggingMixin):
         fps=None,
         place=None,
         anchor=None,
+        curve_key=None,
     ):
         """Key one recipe effect on *obj*, placed in the range ``start..end``.
 
@@ -1063,9 +1130,12 @@ class RenderEffects(ptk.LoggingMixin):
         (``ptk.EffectRecipe.plan``), placed where a behavior template puts it
         (``EffectRecipe.window``), written by :meth:`write_keys`. It deletes
         nothing, and writes the recipe's colours only on a channel it creates.
+        *curve_key* spells the returned keys' curves (:meth:`write_keys`; the
+        manifest passes ``BlenderShotsHost.curve_key``).
 
         Returns:
-            ``(ledger curve key, frame)`` for every key written.
+            ``(ledger curve key, frame)`` for every key written; ``[]`` without
+            *curve_key*.
 
         Raises:
             ValueError: An effect with no channel (``"clip"`` places audio).
@@ -1087,10 +1157,10 @@ class RenderEffects(ptk.LoggingMixin):
             effect, *recipe.window(effect, start, end, place, anchor), fps
         )
         if channel == cls.HIGHLIGHT_ATTR:
-            cls._ensure_highlight_props(node, *recipe.colors)
+            cls.ensure_highlight_props(node, *recipe.colors)
         else:
-            cls._ensure_opacity_prop(node)
-        return cls.write_keys(node, plan, channel)
+            cls.ensure_opacity_prop(node)
+        return cls.write_keys(node, plan, channel, curve_key=curve_key)
 
     @classmethod
     def sync_visibility_from_opacity(cls, objects=None) -> None:
@@ -1104,7 +1174,7 @@ class RenderEffects(ptk.LoggingMixin):
                 continue
             cls._remove_fc(obj, cls._fcurve(obj, cls.VIS_PATH))
             for kp in fc.keyframe_points:
-                cls._set_key(
+                cls.set_key(
                     obj,
                     cls.VIS_PATH,
                     kp.co[0],
@@ -1261,11 +1331,13 @@ class RenderEffects(ptk.LoggingMixin):
         and last frame the stack CARRIES), else the bake range as a seed.
 
         Parameters:
-            ctx: The export's decisions (``clip_span``) and the records
-                produced before this one -- the shot record's ``fps`` and its
-                clips' ranges (the takes); the stored records are read when
-                this assembly did not produce them (an authoring-time
-                republish).
+            ctx: The export's decisions (``clip_span``, ``nodes``) and the
+                records produced before this one -- the shot record's ``fps``
+                and its clips' ranges (the takes); the stored records are read
+                when this assembly did not produce them (an authoring-time
+                republish). A scoped write keeps the tracks of the objects it
+                ships, and its spans count their fcurves alone (mirror of
+                mayatk's; the record is ``export_scoped``).
 
         Returns:
             The record, or ``None`` when there is no keyed visibility (the
@@ -1276,7 +1348,7 @@ class RenderEffects(ptk.LoggingMixin):
 
         # Bail BEFORE the span walk: that reads every fcurve in the file, and a
         # scene with no keyed visibility has nothing to spend it on.
-        tracks = cls.visibility_tracks()
+        tracks = [track for track in cls.visibility_tracks() if ctx.ships(track["node"])]
         if not tracks:
             return None
 
@@ -1303,7 +1375,7 @@ class RenderEffects(ptk.LoggingMixin):
         # export's until the snapshot commits.
         stack_range = ctx.clip_span or FbxUtils.bake_range(takes)
         spans = ptk.MeshConvert.clip_spans(
-            cls._scene_key_frames(), (), stack_range=stack_range
+            cls._scene_key_frames(ctx), (), stack_range=stack_range
         )
         # Each take's span is its WINDOW: Blender's split bakes every frame of
         # it, so the converter opens the clip at the window's start, not at the
@@ -1355,8 +1427,9 @@ class RenderEffects(ptk.LoggingMixin):
         return float(render.fps) / float(render.fps_base or 1.0)
 
     @staticmethod
-    def _scene_key_frames() -> list:
-        """Every authored key time in the file, in frames.
+    def _scene_key_frames(ctx: Optional[ptk.ExportContext] = None) -> list:
+        """Every authored key time in the file, in frames -- of the objects a
+        scoped *ctx* ships alone (``ctx.ships``).
 
         The scene-reaching half of ``ptk.MeshConvert.clip_spans``, which owns
         the rest (mayatk answers the same through ``key_spans``, per window
@@ -1372,6 +1445,8 @@ class RenderEffects(ptk.LoggingMixin):
 
         return [
             float(k.co[0])
-            for fc in AnimUtils.get_fcurves(list(bpy.data.objects))
+            for fc in AnimUtils.get_fcurves(
+                [o for o in bpy.data.objects if ctx is None or ctx.ships(o.name)]
+            )
             for k in fc.keyframe_points
         ]

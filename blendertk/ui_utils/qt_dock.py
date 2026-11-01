@@ -29,7 +29,7 @@ parenting) glued to a docked area's content region:
   "blank console" whenever a freeze or a probe flicker skipped its resume. The window
   drag/snap FREEZES that motivated it were the host pump's ``processEvents``
   dispatching Blender's own native messages from nested contexts — fixed for real in
-  ``tcl_blender._QtHost.start_pump`` (posted-events-only pumping); the guard's
+  ``QtRuntime.start_pump`` (posted-events-only pumping); the guard's
   protective rationale (keeping the child's DPI traffic out of the storm) was
   disproven — the freeze needs no embedded child at all.
 

@@ -11,7 +11,9 @@ produce. Also covers diagnostics (topology mismatch detect + cleanup), export fi
 (hide/delete + keyframes survive), from_existing (rebind after finalize, incl. the
 custom-property-based target tracking), and cross-session isolation (two independent
 BlendshapeAnimator sessions authoring different shape keys on the SAME base mesh must never
-see/apply/delete each other's tween meshes).
+see/apply/delete each other's tween meshes), and the panel API tentacle's shared panel reads
+(mayatk's names: has_setup, selected_base, tween_topology, apply_tweens, delete_tweens,
+select_tweens, base_mesh / target_mesh / blendshape, the group / prefix keywords).
 """
 import sys, os, traceback
 
@@ -760,6 +762,89 @@ try:
         and len(frame_tweens_mod[0].obj.data.vertices) == base_vert_count,
         f"n={len(frame_tweens_mod)} verts="
         f"{len(frame_tweens_mod[0].obj.data.vertices) if frame_tweens_mod else None}",
+    )
+
+    # ============================ PANEL API (tentacle's shared panel) ============================
+    # What tentacle's one Blendshape Animator Slots class reads through btk, as through mtk.
+    reset()
+    base = make_cube("PBase")
+    target = make_cube("PTarget", z_offset=4.0)
+    panel_anim = BlendshapeAnimator()
+    check("panel api: has_setup is False unbound", panel_anim.has_setup() is False)
+    check(
+        "panel api: the names are None unbound",
+        (panel_anim.base_mesh, panel_anim.target_mesh, panel_anim.blendshape) == (None, None, None),
+    )
+    check("panel api: tween_topology is empty unbound", panel_anim.tween_topology() == (None, []))
+    ok = panel_anim.create(
+        base_obj=base, target_obj=target, start_frame=1, end_frame=40, name="pmorph",
+        test_setup=False,
+    )
+    check("panel api: has_setup once created", ok and panel_anim.has_setup())
+    check(
+        "panel api: base_mesh / target_mesh / blendshape read as mayatk's names",
+        (panel_anim.base_mesh, panel_anim.target_mesh, panel_anim.blendshape)
+        == ("PBase", "PTarget", "pmorph"),
+        f"{panel_anim.base_mesh} {panel_anim.target_mesh} {panel_anim.blendshape}",
+    )
+    check("panel api: TWEEN_GROUP is the default tween group",
+          BlendshapeAnimator.TWEEN_GROUP == Targets.GROUP_NAME)
+
+    w_tweens = panel_anim.edit_weight_based(weights=[0.5], group_name="pGroup", name_prefix="pib")
+    check(
+        "panel api: edit_weight_based takes mayatk's group / prefix",
+        len(w_tweens) == 1
+        and w_tweens[0].mesh.startswith("pib_")
+        and w_tweens[0].obj.parent is not None
+        and w_tweens[0].obj.parent.name == "pGroup",
+        str([t.mesh for t in w_tweens]),
+    )
+    f_tweens = panel_anim.edit_frame_based(target_frame=10, group_name="pGroup", name_prefix="pft")
+    check(
+        "panel api: edit_frame_based takes mayatk's group / prefix",
+        len(f_tweens) == 1
+        and f_tweens[0].mesh.startswith("pft_f10")
+        and f_tweens[0].obj.parent.name == "pGroup",
+        str([t.mesh for t in f_tweens]),
+    )
+    base_count, rows = panel_anim.tween_topology()
+    check(
+        "panel api: tween_topology lists the setup's tweens with their vertex counts",
+        base_count == len(base.data.vertices)
+        and len(rows) == 2
+        and all(count == base_count for _, count in rows),
+        f"{base_count} {[(t.mesh, c) for t, c in rows]}",
+    )
+    results = panel_anim.apply_tweens([w_tweens[0]])
+    check(
+        "panel api: apply_tweens reports each tween's status",
+        len(results) == 1 and results[0][1] is ApplyStatus.APPLIED,
+        str(results),
+    )
+    selected = BlendshapeAnimator.select_tweens(w_tweens)
+    check(
+        "panel api: select_tweens selects the tween meshes",
+        [o.name for o in selected] == [w_tweens[0].mesh] and w_tweens[0].obj.select_get(),
+        str(selected),
+    )
+
+    bpy.ops.object.select_all(action="DESELECT")
+    w_tweens[0].obj.select_set(True)
+    check("panel api: selected_base skips a tween mesh", BlendshapeAnimator.selected_base() is None)
+    base.select_set(True)
+    check("panel api: selected_base names the base mesh",
+          BlendshapeAnimator.selected_base() == "PBase")
+    reloaded = BlendshapeAnimator.from_existing("PBase")
+    check(
+        "panel api: from_existing takes the base mesh's name (mayatk's)",
+        reloaded is not None and reloaded.has_setup() and reloaded.blendshape == "pmorph",
+    )
+    tween_names = sorted(t.mesh for t in w_tweens + f_tweens)
+    deleted = panel_anim.delete_tweens(w_tweens + f_tweens)
+    check(
+        "panel api: delete_tweens removes the tween meshes",
+        sorted(deleted) == tween_names and not any(n in bpy.data.objects for n in tween_names),
+        str(deleted),
     )
 
 

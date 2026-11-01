@@ -158,20 +158,19 @@ class BlenderTestRunner:
         self.sandbox_settings = True
 
     def discover(self, patterns: Optional[List[str]] = None) -> List[Path]:
-        """Suites are ``test_*.py`` + the smoke test + the ``*_slot_check.py``
-        slot-wiring harnesses (they emit the same sentinel). Utility scripts in
-        this dir (e.g. dump_runtime_surface.py) don't emit one and stay excluded.
+        """Suites are ``test_*.py`` + the smoke test (it emits the same
+        sentinel). Utility scripts in this dir (e.g. dump_runtime_surface.py)
+        don't emit one and stay excluded.
         """
         suites = sorted(
             f
             for f in self.test_dir.glob("*.py")
             if f.name.startswith("test_")
-            or f.name.endswith("_slot_check.py")
             or f.name == "blender_smoke_test.py"
         )
         if patterns:
             # A bare stem matches too, so `--list` output runs as printed
-            # (`tube_rig_slot_check`, `blender_smoke_test` carry no `test_`).
+            # (`blender_smoke_test` carries no `test_`).
             wanted = set(patterns) | {f"test_{p}" for p in patterns}
             suites = [s for s in suites if s.stem in wanted or s.name in patterns]
         return suites

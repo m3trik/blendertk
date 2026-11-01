@@ -13,20 +13,12 @@ Divergences (documented for parity — see ``tentacle/docs/PARITY_PORTING_PLAN.m
     cross-section (folding in Maya's per-locator ``circle``); ``bevel_resolution`` = profile
     smoothness. Maya's two-phase build (``__init__`` then ``create_pipe_geometry`` to loft segments)
     collapses to one step — the curve built in ``__init__`` *is* the whole pipe.
-  * Blender has **no ordered selection** (Maya's ``ls(orderedSelection=True)``); the Slots order the
-    selected handles by name so the chain is user-controllable (``handle_01``, ``handle_02``, …).
+  * Blender has **no ordered selection** (Maya's ``ls(orderedSelection=True)``);
+    :meth:`DynamicPipe.from_selection` orders the selected handles by name so the chain is
+    user-controllable (``handle_01``, ``handle_02``, ...).
   * ``import bpy`` is deferred into the call bodies.
 
-The co-located ``DynamicPipeSlots`` panel is discovered by ``BlenderUiHandler``
-(``marking_menu.show("dynamic_pipe")``); like mayatk's, it is shelf/handler-launched and is **not**
-wired to a tentacle nav button — Maya does not expose ``dynamic_pipe`` through tentacle either
-(see ``tentacle/docs/archive/BLENDER_FEATURE_GAPS.md``), so adding one would be a divergence, not parity.
-
-The ``.ui`` is now byte-for-byte mayatk's (see the mayatk/blendertk parity sweep); mayatk's copy
-carries a stale ``windowTitle``/header ("Create Shader Network" / "CREATE STINGRAY SHADER" — a
-leftover from ``mat_utils/game_shader.ui``, not a `dynamic_pipe`-authored string). That looks like an
-upstream mayatk bug rather than an intentional label; ported verbatim per the parity mandate since
-mayatk is read-only source of truth for this pass — flag for a mayatk-side fix in a follow-up.
+The panel is tentacle's shared Dynamic Pipe tool (``slots/tools/dynamic_pipe.py``).
 """
 
 import pythontk as ptk
@@ -63,6 +55,33 @@ class DynamicPipe(ptk.LoggingMixin):
         bpy.context.view_layer.update()  # settle the hooked control points
 
     # ------------------------------------------------------------------ build
+
+    @classmethod
+    def from_selection(cls, **kwargs) -> "DynamicPipe":
+        """A pipe through the selected handle objects (Empties), chained in
+        name order -- Blender keeps no selection order -- built as one undo
+        step (mirror of mayatk's ``from_selection``).
+
+        Parameters:
+            **kwargs: The constructor's options (``num_inbetween``, ``radius``,
+                ``resolution``).
+
+        Raises:
+            ValueError: Fewer than two objects are selected (checked before
+                the undo step opens, so a refused click leaves none).
+        """
+        handles = sorted(CoreUtils.selected_objects(), key=lambda o: o.name)
+        if len(handles) < 2:
+            raise ValueError(
+                "Select at least two handle objects (Empties), named in path order."
+            )
+        return cls._build_undoable(handles, **kwargs)
+
+    @classmethod
+    @CoreUtils.undoable
+    def _build_undoable(cls, handles, **kwargs) -> "DynamicPipe":
+        """The pipe through *handles*, one undo step (:meth:`from_selection`)."""
+        return cls(handles, **kwargs)
 
     @staticmethod
     def _world_pos(obj):
@@ -138,74 +157,5 @@ class DynamicPipe(ptk.LoggingMixin):
             EditUtils.hook_curve_point(curve, i, handle, name=f"Hook_{handle.name}")
 
 
-class DynamicPipeSlots(ptk.LoggingMixin):
-    """Switchboard slot wiring for the co-located ``dynamic_pipe.ui`` (mirror of mayatk's
-    ``DynamicPipeSlots``). Self-contained (``ptk.LoggingMixin`` only); calls the engine directly.
-    Discovered + served by ``BlenderUiHandler`` (``marking_menu.show("dynamic_pipe")``).
-    """
-
-    def __init__(self, switchboard, log_level="WARNING"):
-        self.sb = switchboard
-        self.ui = self.sb.loaded_ui.dynamic_pipe
-        self.pipe = None
-        self.logger.setLevel(log_level)
-        self.logger.set_log_prefix("[dynamic_pipe] ")
-
-    def header_init(self, widget):
-        """Configure header help text."""
-        widget.set_help_text(
-            self.sb.tooltip.fmt(
-                title="Dynamic Pipe",
-                body="Build a pipe-style mesh driven by a chain of handle objects (Empties). Each "
-                "handle hooks one control point of a beveled curve; moving a handle in the "
-                "viewport updates its point and the pipe re-sweeps live — the Blender analogue "
-                "of Maya's locator-driven NURBS loft (Blender has no native loft).",
-                steps=[
-                    "Place handle objects (Empties) in the scene along the desired path.",
-                    "Name them in path order (<b>handle_01</b>, <b>handle_02</b>, …) — Blender "
-                    "has no ordered selection, so the chain follows <b>name order</b>.",
-                    "Select the handles, then press <b>Initialize Pipe</b>.",
-                ],
-                notes=[
-                    "Requires at least two handles. Moving a handle updates its hooked curve "
-                    "point and the whole pipe; adjust the curve's <b>Bevel</b> for thickness.",
-                ],
-            )
-        )
-
-    def b000(self):
-        """Initialize Pipe — build pipe from the current selection (name-ordered).
-
-        Mirror of mayatk's ``b000``: validates the selection *outside* the undo-atomic build
-        (mayatk only opens its ``undoInfo`` chunk once ``locators`` has ≥2 entries) so a doomed
-        click doesn't leave a stray undo step.
-        """
-        import blendertk as btk
-
-        handles = sorted(btk.selected_objects(), key=lambda o: o.name)
-        if len(handles) < 2:
-            self.sb.message_box(
-                "Select at least two objects (handles/Empties), then press Initialize Pipe."
-            )
-            return
-        self._build(handles)
-
-    @CoreUtils.undoable
-    def _build(self, handles):
-        """Build the pipe and report the result — the productive half of :meth:`b000`, decorated
-        so the whole build collapses into one undo step (mirror of mayatk's
-        ``cmds.undoInfo(openChunk=True)`` / ``closeChunk`` wrap around ``DynamicPipe`` +
-        ``create_pipe_geometry``, which likewise excludes the pre-flight selection-count check)."""
-        self.pipe = DynamicPipe(handles)
-        self.sb.message_box(
-            f"<hl>Built dynamic pipe through {len(self.pipe.handles)} handles.</hl>"
-        )
-
-
 # -----------------------------------------------------------------------------
 
-if __name__ == "__main__":
-    from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
-
-    ui = BlenderUiHandler.instance().get("dynamic_pipe", reload=True)
-    ui.show(pos="screen", app_exec=True)

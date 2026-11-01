@@ -1,16 +1,16 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 [![PyPI](https://img.shields.io/pypi/v/blendertk.svg)](https://pypi.org/project/blendertk/)
 [![Blender](https://img.shields.io/badge/Blender-4.x+-orange.svg)](https://www.blender.org/)
-[![Tests](https://img.shields.io/badge/Tests-7878%20passed-brightgreen.svg)](../test/)
+[![Tests](https://img.shields.io/badge/Tests-7838%20passed-brightgreen.svg)](../test/)
 ![Platform](https://img.shields.io/badge/Platform-Windows%2C%20Linux-lightgrey.svg)
 
 # blendertk
 
 <!-- short_description_start -->
-*Blender 4.x+ tech-art toolkit mirroring [mayatk](https://github.com/m3trik/mayatk)'s public API (`btk.X` ↔ `mtk.X`) — modeling, animation, materials, rigging, and scene-pipeline automation over native `bpy`/`bmesh`, plus tool panels and one-click bridges into Marmoset, Substance Painter, RizomUV, Maya, Unity, and the browser.*
+*Blender 4.x+ tech-art toolkit mirroring [mayatk](https://github.com/m3trik/mayatk)'s public API (`btk.X` ↔ `mtk.X`) — modeling, animation, materials, rigging, and scene-pipeline automation over native `bpy`/`bmesh`, plus one-click bridges into Marmoset, Substance Painter, RizomUV, Maya, Unity, and the browser. The tool panels over it are [tentacle](https://github.com/m3trik/tentacle)'s.*
 <!-- short_description_end -->
 
-blendertk is the Blender layer of the `pythontk → uitk → {mayatk, blendertk} → tentacle` ecosystem. It mirrors mayatk at the **name + behavior** level — not signatures, not line counts — so the shared [tentacle](https://github.com/m3trik/tentacle) slot/UI layer stays branch-free across DCCs. Where Blender ships the capability natively, blendertk stays a thin adapter over `bpy`/`bmesh` operators; where it doesn't, the DCC-agnostic core lives upstream in [pythontk](https://github.com/m3trik/pythontk) and both DCC layers adapt it.
+blendertk is the Blender layer of the `pythontk → uitk → {mayatk, blendertk} → tentacle` ecosystem. It mirrors mayatk at the **name + behavior** level — and by signature where a shared panel calls the operation, never by line count — so the shared [tentacle](https://github.com/m3trik/tentacle) panels stay branch-free across DCCs. Where Blender ships the capability natively, blendertk stays a thin adapter over `bpy`/`bmesh` operators; where it doesn't, the DCC-agnostic core lives upstream in [pythontk](https://github.com/m3trik/pythontk) and both DCC layers adapt it.
 
 ## Installation
 
@@ -26,20 +26,21 @@ Same subpackage names, main-module filenames, and namespace classes as mayatk �
 
 | Package | What it covers |
 |---|---|
-| `anim_utils` | Shots suite (store, manifest, sequencer panels over the shared pythontk shots engine), smart bake, blendshape animation, key scaling/staggering |
+| `anim_utils` | Shots suite (the Blender host of the shared pythontk shots engine, and the manifest and sequencer hosts tentacle's panels call), smart bake, blendshape animation, playblast, key scaling/staggering |
 | `audio_utils` | Sound-strip CRUD over the Video Sequence Editor (deliberately not a mirror of Maya's DG-node audio machinery) |
 | `cam_utils` | Camera utilities |
-| `core_utils` | `CoreUtils`, `AutoInstancer`, `Preview`, script-job manager over `bpy.app.handlers`, diagnostics |
+| `core_utils` | `CoreUtils`, `AutoInstancer`, `Preview` (uitk's `PreviewController` bound to a Blender session), script-job manager over `bpy.app.handlers`, diagnostics |
 | `display_utils` | Color ID, exploded view, Blender-only `OutlinerTint` |
 | `edit_utils` | `EditUtils`, mirror, cut-on-axis, duplicate (linear/radial/grid), bevel, bridge, snap, naming, curtain rig, target weld |
 | `env_utils` | `BlenderConnection`, workspaces (`workspace.mel` shared with Maya), reference manager, hierarchy sync, FBX/USD, scene exporter, Maya + Unity bridges, WebXR preview, docked script console |
 | `light_utils` | Lightmap baker + web export, HDR manager, lights-from-geometry |
 | `mat_utils` | Game shader, material updater, texture path editor, shader templates, render opacity, image-to-plane, emissive groups, Marmoset + Substance live-RPC bridges |
-| `node_utils` | `NodeUtils`, `DataNodes` ([shared scene data carriers](data_nodes.md)), Channels tool |
+| `node_utils` | `NodeUtils`, `DataNodes` ([shared scene data carriers](data_nodes.md)), the Channels engine |
 | `nurbs_utils` | Curve helpers (relaxed mirror), `ImageTracer`, curve-to-tube |
-| `rig_utils` | Constraints/drivers/armature primitives; tube / wheel / telescope / shadow rigs |
-| `ui_utils` | `BlenderUiHandler`, native-menu wrapper, Qt dock container, calculator, style setter |
-| `uv_utils` | UV utilities, Rizom bridge |
+| `render_utils` | Render engines, render settings + presets, render cameras, a rendered frame (mayatk's names; no IPR) |
+| `rig_utils` | Constraints/drivers/armature primitives; tube / wheel / telescope / shadow / [articulated](https://github.com/m3trik/mayatk/blob/main/docs/articulated_rig.md) rigs |
+| `ui_utils` | `BlenderUiHandler`, `BlenderMarkingMenuHost` (the `uitk.MarkingMenuHost` adapter, over `QtRuntime` and the 3D View `KeymapBridge`), native-menu wrapper, Qt dock container, calculator, style setter |
+| `uv_utils` | UV utilities, [Texture Combine](https://github.com/m3trik/mayatk/blob/main/docs/texture_combine.md) (material atlas combine + UV / texture transfer), Rizom bridge |
 | `xform_utils` | Transforms and matrix IO |
 
 Classes — and, for the wildcard-scanned `*_utils` roots, their public methods — are exposed at the package root via the lazy-loading resolver:
@@ -60,12 +61,12 @@ Full public surface (auto-generated): [`API_REGISTRY.md`](../API_REGISTRY.md); c
 - **Lightmap pipeline** — `LightmapBaker` commits bake state (markers + manifest) that every exporter reads on its own: Unity via the FBX carrier, GLB via pythontk's lightmap applier, and `LightmapWebExport` wraps Blender's own glTF exporter for the [live WebXR preview](https://github.com/m3trik/pythontk/blob/main/docs/webxr_preview.md) — a clean no-op on unbaked scenes. mayatk's Blender bridge drives this baker headlessly for the Maya round trip.
 - **Drive Blender from outside** — `BlenderConnection` mirrors mayatk's `MayaConnection`: fresh `--background` instances only, the backbone of the test suite. An artist's open session is never touched.
 - **Hierarchy sync** — diff a scene against a reference `.blend` (or `.fbx`, staged to a temp `.blend`) linked as a library, then repair drift: stub missing objects, quarantine extras, fix fuzzy renames and reparents; `ObjectSwapper` pulls matched reference objects in fresh.
-- **Shared workspaces** — one project folder serves Maya natively and Blender via blendertk: the `workspace.mel` codec and template store live in pythontk, and the co-located Workspace Editor panel mirrors Maya's Project Window.
-- **Tool panels** — every engine that warrants one ships a co-located uitk panel (`<tool>.py` + `<tool>.ui`), discovered by `BlenderUiHandler` — the same split mayatk uses, so tentacle's navigation stays a thin layer.
+- **Shared workspaces** — one project folder serves Maya natively and Blender via blendertk: the `workspace.mel` codec and template store live in pythontk, and the editor part of tentacle's Workspaces panel mirrors Maya's Project Window.
+- **Tool panels** — blendertk holds no UI: each tool's panel is one [tentacle](https://github.com/m3trik/tentacle) panel shared with Maya, calling this package's API, so a script gets everything the panel does.
 
 ## Parity — how the mirror stays honest
 
-Parity is measured, not eyeballed: `compare_panel_surface.py` regenerates a per-element matrix ([tentacle/docs/PARITY_SURFACE.md](https://github.com/m3trik/tentacle/blob/main/docs/PARITY_SURFACE.md)), every conscious divergence is ledgered with a reason in tentacle's `parity_map.py`, and untriaged deltas fail the sweep. The coarse gap and port-this-next recipes live in [PARITY_AUDIT.md](https://github.com/m3trik/tentacle/blob/main/docs/PARITY_AUDIT.md) and [PARITY_PORTING_PLAN.md](https://github.com/m3trik/tentacle/blob/main/docs/PARITY_PORTING_PLAN.md).
+Parity is measured, not eyeballed: `compare_panel_surface.py` resolves every call tentacle's shared panels make through `self.tk` on both mayatk and blendertk ([tentacle/docs/PARITY_SURFACE.md](https://github.com/m3trik/tentacle/blob/main/docs/PARITY_SURFACE.md)); a call one host lacks must be hidden (`requires`) or guarded there, else it fails the gate. The coarse gap and port-this-next recipes live in [PARITY_AUDIT.md](https://github.com/m3trik/tentacle/blob/main/docs/PARITY_AUDIT.md) and [PARITY_PORTING_PLAN.md](https://github.com/m3trik/tentacle/blob/main/docs/PARITY_PORTING_PLAN.md).
 
 ## Session safety
 

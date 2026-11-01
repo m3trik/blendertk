@@ -178,7 +178,7 @@ try:
     reset()
     vis = cube("Vis")
     vis.data.materials.append(mat("Vm"))
-    RenderEffects._set_key(
+    RenderEffects.set_key(
         vis, "hide_render", 1, 0.0, "CONSTANT"
     )  # manual vis key, no opacity
     try:
@@ -197,8 +197,8 @@ try:
     # Hand-key ONLY opacity (no visibility). Presence is derived from the ramp
     # downstream (ptk.MeshConvert._presence_keys), so the export writes no
     # mirror -- mirror of mayatk (2026-09-14).
-    RenderEffects._set_key(c, '["opacity"]', 1, 1.0, "LINEAR")
-    RenderEffects._set_key(c, '["opacity"]', 10, 0.0, "LINEAR")
+    RenderEffects.set_key(c, '["opacity"]', 1, 1.0, "LINEAR")
+    RenderEffects.set_key(c, '["opacity"]', 10, 0.0, "LINEAR")
     check(
         "no visibility keys after hand-keying opacity", fcurve(c, "hide_render") is None
     )
@@ -215,9 +215,9 @@ try:
     c.data.materials.append(mat("Sm"))
     RenderEffects.create([c])
     for frame, value in ((1, 1.0), (5, 0.5), (10, 0.0), (15, 0.0)):
-        RenderEffects._set_key(c, '["opacity"]', frame, value, "LINEAR")
-    RenderEffects._set_key(c, "hide_render", 1, 0.0, "CONSTANT")
-    RenderEffects._set_key(c, "hide_render", 10, 1.0, "CONSTANT")
+        RenderEffects.set_key(c, '["opacity"]', frame, value, "LINEAR")
+    RenderEffects.set_key(c, "hide_render", 1, 0.0, "CONSTANT")
+    RenderEffects.set_key(c, "hide_render", 10, 1.0, "CONSTANT")
     authored = [tuple(kp.co) for kp in fcurve(c, "hide_render").keyframe_points]
     synced = RenderEffects.prepare_for_export()
     kept = [tuple(kp.co) for kp in fcurve(c, "hide_render").keyframe_points]
@@ -231,7 +231,7 @@ try:
     reset()
     c = cube("Guard")
     c.data.materials.append(mat("Gm"))
-    RenderEffects._set_key(c, "hide_render", 1, 0.0, "CONSTANT")  # pre-existing vis key
+    RenderEffects.set_key(c, "hide_render", 1, 0.0, "CONSTANT")  # pre-existing vis key
     raised = False
     try:
         RenderEffects.create([c], delete_visibility_keys=False)
@@ -286,7 +286,7 @@ try:
     # un-hid it from render and dropped its own visibility keys (mayatk's remove
     # touches only objects that have the channel). Added: 2026-10-10
     plain = cube("RemPlain")
-    RenderEffects._set_key(plain, "hide_render", 1, 1.0, "CONSTANT")  # its own key
+    RenderEffects.set_key(plain, "hide_render", 1, 1.0, "CONSTANT")  # its own key
     plain.hide_render = True
     RenderEffects.remove([plain])
     check(
@@ -386,6 +386,37 @@ try:
         published.get("clip_span", {}).get("Shot_1") == [7.0, 100.0],
         detail=repr(published.get("clip_span")),
     )
+
+    # A scoped write states the tracks and the keys of what it ships (mirror of
+    # mayatk's): another object's track warned "not in this GLB" and its keys
+    # sized the take. Added: 2026-10-31
+    sc_other = cube("Other")
+    sc_other.data.materials.append(mat("OtherM"))
+    RenderEffects.create([sc_other])
+    RenderEffects.key_fade([sc_other], start=3, end=40, direction="in")
+    sc_ctx = ptk.ExportContext(scope=(c.name,), nodes=frozenset({c.name}))
+    sc_record = RenderEffects.export_record(sc_ctx)
+    check(
+        "a scoped write's record names the tracks of what it ships",
+        sc_record is not None
+        and [t["node"] for t in sc_record.payload["tracks"]] == [c.name],
+        detail=repr(sc_record and sc_record.payload.get("tracks")),
+    )
+    sc_keys = sorted(set(RenderEffects._scene_key_frames(sc_ctx)))
+    check(
+        "...and counts those objects' keys alone",
+        sc_keys == [8.0, 23.0],
+        detail=repr(sc_keys),
+    )
+    sc_whole = RenderEffects.export_record(ptk.ExportContext())
+    check(
+        "an unscoped write names every keyed object",
+        sc_whole is not None
+        and sorted(t["node"] for t in sc_whole.payload["tracks"])
+        == sorted([c.name, sc_other.name]),
+    )
+    RenderEffects.remove([sc_other])
+    bpy.data.objects.remove(sc_other)
 
     # The exported stack carries the range the write BAKES, and the converter
     # rebases every stack onto its FIRST key -- so publishing the scene's
@@ -538,14 +569,14 @@ try:
     # STORED shot record, and an assembly commits only after every producer
     # has run, so the takes the shots producer had just built were invisible
     # to the visibility producer that runs after it.
-    from blendertk import BlenderShotStore
+    from blendertk import ShotStore
 
     ptk.SceneRecords.SHOTS.clear(DataNodes)
-    BlenderShotStore._prefs_dir_override = ptk.TempArtifacts(
+    ShotStore._prefs_dir_override = ptk.TempArtifacts(
         "btk_render_opacity_prefs"
     ).dir_path()
-    BlenderShotStore.clear_active()
-    BlenderShotStore.active().define_shot("Late", 90, 140, objects=[c.name])
+    ShotStore.clear_active()
+    ShotStore.active().define_shot("Late", 90, 140, objects=[c.name])
     _fresh = _Fbx.publish(
         _Fbx.export_context(),
         only=[ptk.SceneRecords.SHOTS, ptk.SceneRecords.VISIBILITY],
@@ -555,8 +586,8 @@ try:
         (_fresh.get("clip_span") or {}).get("*") == [0.0, 140.0],
         detail=repr(_fresh.get("clip_span")),
     )
-    BlenderShotStore.clear_active()
-    BlenderShotStore._prefs_dir_override = None
+    ShotStore.clear_active()
+    ShotStore._prefs_dir_override = None
     for _spec in (
         ptk.SceneRecords.SHOTS,
         ptk.SceneRecords.SHOT_STORE,
@@ -914,42 +945,24 @@ try:
         "create(highlight) seeds BOTH ends of the colour ramp",
         "highlightColor" in box and "highlightColorDim" in box,
     )
-    # Two files state this colour: what create() authors, and the panel's own
-    # seed. Drift between them shows one colour in the row and writes another.
-    from blendertk.mat_utils.render_opacity import render_effects_slots as _cres
-
+    # Two files state this colour: what create() authors, and the effect
+    # recipe's defaults -- what the Render Effects panel's row shows before
+    # anything is picked (tentacle's panel test pins its seeds to the recipe,
+    # and their 8-bit round trip). Drift shows one colour and writes another.
     import pythontk as _cptk
 
-    # The editor is 8-bit sRGB and the prop is linear light, so a seed the
-    # picker cannot represent comes BACK changed -- Revise would then rewrite
-    # an authored colour nobody touched. Each seed is the linear value of its
-    # own 8-bit display colour.
-    round_trips = []
-    for seed in (
-        _cres.RenderEffectsSlots.DEFAULT_BRIGHT,
-        _cres.RenderEffectsSlots.DEFAULT_DIM,
-    ):
-        shown = tuple(
-            round(c * 255) / 255 for c in _cptk.Color.srgb_from_linear(seed)[:3]
-        )
-        back = [round(c, 6) for c in _cptk.Color.linear_from_srgb(shown)]
-        round_trips.append((back, [round(float(c), 6) for c in seed]))
+    _seed = _cptk.EffectRecipe()
     check(
-        "the seed colours survive the colour editor's own 8-bit round trip",
-        all(back == seed for back, seed in round_trips),
-        detail=f"{round_trips}",
-    )
-    check(
-        "the panel seeds the colour create actually writes",
+        "create writes the recipe's default colours (the panel's seeds)",
         all(
             approx(g, e, tol=1e-6)
             for prop, seed in (
-                ("highlightColor", _cres.RenderEffectsSlots.DEFAULT_BRIGHT),
-                ("highlightColorDim", _cres.RenderEffectsSlots.DEFAULT_DIM),
+                ("highlightColor", _seed.pulse_bright),
+                ("highlightColorDim", _seed.pulse_dim),
             )
             for g, e in zip(list(box[prop])[:3], seed)
         ),
-        detail=f"{list(box['highlightColor'])[:3]} vs {_cres.RenderEffectsSlots.DEFAULT_BRIGHT}",
+        detail=f"{list(box['highlightColor'])[:3]} vs {_seed.pulse_bright}",
     )
     check(
         "the dim end seeds black, so the ramp collapses to the legacy shape",
@@ -1042,229 +1055,38 @@ try:
         detail=f"{RenderEffects.PROP_PATHS}",
     )
 
-    # ---- WebXR preview: the effect as the box is set, nothing written --------
-    import contextlib
-    from unittest.mock import MagicMock, patch
-
+    # ---- WebXR preview overlay: the effect as planned, nothing written --------
+    # What the Render Effects panel's WebXR action pushes (the panel is
+    # tentacle's; its own tests moved with it): the page's plan on the
+    # selection, by name, the object's own keys left out and nothing written.
     import pythontk as _ptk
-    from blendertk.mat_utils.render_opacity import render_effects_slots as _pres
 
     reset()
     p = cube("PreviewPulsed")
     RenderEffects.key_pulse([p], start=0, end=100, period=50)
     pulse_keys = len(RenderEffects._fcurve(p, '["highlight"]').keyframe_points)
-    pslot = _pres.RenderEffectsSlots.__new__(_pres.RenderEffectsSlots)
-    pslot.sb, pslot.ui = MagicMock(), MagicMock()
-    pslot._get_selected = lambda: [p]
-    pslot._suppressed = contextlib.nullcontext
-    # The page's own direction field; the length is the scene's recipe (15).
-    from types import SimpleNamespace as _NS
-
-    _direction = MagicMock()
-    _direction.currentData.return_value = "in"
-    pslot._pages = {"opacity": _NS(cmb_direction=_direction)}
-    with patch(
-        "blendertk.env_utils.webxr_preview.WebXrPreview.push",
-        return_value={
-            "version": 1,
-            "url": "http://127.0.0.1:0/",
-            "data_export": [_ptk.SceneRecords.VISIBILITY.key],
-        },
-    ) as push:
-        pslot._preview_webxr("opacity")
-    overlay = push.call_args.kwargs.get("data_export") if push.called else {}
-    tracks = (overlay.get(_ptk.SceneRecords.VISIBILITY.key) or {}).get(
-        "tracks"
-    ) or [{}]
-    expected = _ptk.RampKeys.fade_loop(
-        15, hold=pslot.PREVIEW_HOLD_SECONDS * RenderEffects._scene_fps()
+    _fps = RenderEffects._scene_fps()
+    expected = _ptk.RampKeys.fade_loop(15, hold=0.6 * _fps)
+    overlay = RenderEffects.preview_channels(
+        ["PreviewPulsed"], channel="opacity", keys=expected, fps=_fps
     )
+    tracks = (overlay.get(_ptk.SceneRecords.VISIBILITY.key) or {}).get("tracks") or [{}]
     # At the channel's published precision: build_visibility_tracks rounds every
     # float (0.6 s * 24 fps is 14.399999999999999 raw and ships as 14.4).
     _digits = _ptk.MeshConvert.VISIBILITY_TRACK_DIGITS
     check(
-        "the WebXR preview pushes the selection with the fade as set",
-        not pslot.sb.message_box.called
-        and push.call_args.kwargs.get("objects") == [p]
-        and tracks[0].get("node") == "PreviewPulsed"
+        "preview_channels overlays the planned fade on the named object",
+        tracks[0].get("node") == "PreviewPulsed"
         and tracks[0].get("opacity")
         == [[round(f, _digits), round(v, _digits)] for f, v in expected],
-        detail=f"{pslot.sb.message_box.call_args} {tracks}",
+        detail=f"{tracks}",
     )
     check(
-        "the preview writes nothing and leaves the object's own pulse out",
+        "the overlay writes nothing and leaves the object's own pulse out",
         RenderEffects.ATTR_NAME not in p
         and len(RenderEffects._fcurve(p, '["highlight"]').keyframe_points) == pulse_keys
         and "highlight" not in tracks[0],
         detail=f"{list(p.keys())} {tracks[0]}",
-    )
-    # A bridge that predates the overlay knob publishes the scene as it stands
-    # with no error anywhere; the slot reads the result and says so.
-    pslot.sb.reset_mock()
-    with patch(
-        "blendertk.env_utils.webxr_preview.WebXrPreview.push",
-        return_value={"version": 2, "url": "http://127.0.0.1:0/", "data_export": []},
-    ):
-        pslot._preview_webxr("opacity")
-    check(
-        "a push that dropped the overlay is reported, not claimed as a preview",
-        pslot.sb.message_box.called
-        and "without the opacity overlay" in str(pslot.sb.message_box.call_args),
-        detail=f"{pslot.sb.message_box.call_args}",
-    )
-
-    # ---- slot-level seeding (mirror of mayatk's _authored_stops) ------------
-    from blendertk.mat_utils.render_opacity import render_effects_slots as _res
-
-    slot = _res.RenderEffectsSlots.__new__(_res.RenderEffectsSlots)
-
-    reset()
-    a = cube("SeedA")
-    RenderEffects.create([a], channel="highlight")
-    RenderEffects.set_channel_color([a], color=(0.02, 0.17, 0.43))
-    RenderEffects.set_channel_color([a], color=(0.5, 0.0, 0.0), stop="lo")
-    (bright, dim), mixed = slot._authored_stops([a])
-    check(
-        "the editor seeds from the AUTHORED colours, not from the last pick",
-        all(approx(g, e) for g, e in zip(bright, (0.02, 0.17, 0.43)))
-        and all(approx(g, e) for g, e in zip(dim, (0.5, 0.0, 0.0)))
-        and mixed == (False, False),
-        detail=f"{bright} / {dim} {mixed}",
-    )
-
-    b = cube("SeedB")
-    RenderEffects.create([b], channel="highlight")
-    RenderEffects.set_channel_color([b], color=(0.0, 1.0, 0.0))
-    # Matching dim ends on purpose: the pair is what makes the check mean
-    # something. Both ends disagreeing would pass a mixed[0] assertion for the
-    # wrong reason, and could not show that the two ends are judged apart.
-    RenderEffects.set_channel_color([b], color=(0.5, 0.0, 0.0), stop="lo")
-    _seeds, mixed = slot._authored_stops([a, b])
-    check(
-        "ends are judged apart: bright disagrees and says so, dim agrees",
-        mixed[0] is True and mixed[1] is False,
-        detail=f"{mixed}",
-    )
-
-    # The colour row stages a value; only the tool button writes. An editor
-    # that wrote as it was dragged made setting a look and changing one feel
-    # like two different acts, and it wrote to whatever happened to be selected
-    # while the artist was only picking a colour for the NEXT pulse.
-    reset()
-    c = cube("ReviseOne")
-    RenderEffects.create([c], channel="highlight")
-    RenderEffects.set_channel_color([c], color=(0.9, 0.1, 0.1), stop="lo")
-
-    class _Ramp:
-        """Stands in for the option box's ColorRampEditor."""
-
-        def __init__(self, decided):
-            self._decided = decided
-            self.seeded = None
-            self.reference = "unset"
-            self.mixed = {}
-
-        def decided(self):
-            return self._decided
-
-        def set_colors(self, colors):
-            self.seeded = colors
-
-        def set_mixed(self, index, is_mixed):
-            self.mixed[index] = is_mixed
-
-        def set_reference(self, stops):
-            self.reference = stops
-
-        def blockSignals(self, _block):
-            return False
-
-    slot.ui = type(
-        "_Ui", (), {"footer": type("_F", (), {"setText": lambda s, t: None})()}
-    )()
-    slot.sb = type("_Sb", (), {"message_box": lambda s, *a, **k: None})()
-    slot._mode_combos = {}
-    slot._mode_fields = {}
-    slot._mode_hooks = {}
-    slot._pages = {}
-    slot._focus = None
-    slot._get_selected = lambda: [c]
-    slot._mode = lambda channel: _res.REVISE
-    slot._pulse_ramp = _Ramp(((0.0, 0.0, 1.0), None))
-
-    slot._revise_highlight([c])
-    check(
-        "Revise writes the decided end and leaves the other authored",
-        list(c["highlightColor"])[:3] == [0.0, 0.0, 1.0]
-        and all(
-            approx(g, e)
-            for g, e in zip(list(c["highlightColorDim"])[:3], (0.9, 0.1, 0.1))
-        ),
-        detail=f"{list(c['highlightColor'])[:3]} / {list(c['highlightColorDim'])[:3]}",
-    )
-
-    # Nothing decided means the targets disagree on both ends; writing would
-    # flatten that into whichever value the row happened to be showing.
-    reset()
-    d = cube("ReviseNone")
-    RenderEffects.create([d], channel="highlight")
-    RenderEffects.set_channel_color([d], color=(1.0, 0.0, 0.0))
-    slot._get_selected = lambda: [d]
-    slot._pulse_ramp = _Ramp((None, None))
-    slot._revise_highlight([d])
-    check(
-        "an undecided revision writes nothing",
-        all(
-            approx(g, e) for g, e in zip(list(d["highlightColor"])[:3], (1.0, 0.0, 0.0))
-        ),
-        detail=f"{list(d['highlightColor'])[:3]}",
-    )
-
-    # Revise seeds the row from what is authored, and holds the look being
-    # replaced up beside it -- but only when the targets agree on one.
-    slot._pulse_ramp = _Ramp((None, None))
-    slot._sync_highlight_mode()
-    check(
-        "Revise seeds the colour row from the authored value",
-        slot._pulse_ramp.seeded is not None
-        and all(
-            approx(g, e) for g, e in zip(slot._pulse_ramp.seeded[0], (1.0, 0.0, 0.0))
-        ),
-        detail=f"{slot._pulse_ramp.seeded}",
-    )
-    check(
-        "one agreed look is a look to hold up as the 'before'",
-        slot._pulse_ramp.reference is not None,
-        detail=f"{slot._pulse_ramp.reference}",
-    )
-
-    e = cube("ReviseDisagree")
-    RenderEffects.create([e], channel="highlight")
-    RenderEffects.set_channel_color([e], color=(0.0, 1.0, 0.0))
-    slot._get_selected = lambda: [d, e]
-    slot._pulse_ramp = _Ramp((None, None))
-    slot._sync_highlight_mode()
-    check(
-        "a disagreement shows no 'before': picking one would be a lie",
-        slot._pulse_ramp.reference is None and slot._pulse_ramp.mixed.get(0) is True,
-        detail=f"{slot._pulse_ramp.reference} {slot._pulse_ramp.mixed}",
-    )
-
-    # Revise reaches only objects that already carry the channel: change this,
-    # do not spread it.
-    plain = cube("NoChannel")
-    slot._get_selected = lambda: [d, plain]
-    check(
-        "Revise narrows Apply to objects that already carry the channel",
-        slot._targets("highlight") == [d],
-        detail=f"{slot._targets('highlight')}",
-    )
-    slot._mode = lambda channel: _res.CREATE
-    check(
-        "Create reaches the whole selection",
-        sorted(o.name for o in slot._targets("highlight"))
-        == sorted([d.name, plain.name]),
-        detail=f"{[o.name for o in slot._targets('highlight')]}",
     )
 
     # The fade's preview runs the EXPORTER's own function, so it cannot drift
@@ -1277,121 +1099,47 @@ try:
         detail=f"{_faded}",
     )
 
-    # Switching INTO Revise with nothing selected reads the scene once. The
-    # hole it closes: the row showed colours nobody had read off these objects,
-    # and Apply -- whose scope here is every highlighted object -- would have
-    # written them over all of them.
-    slot._mode = lambda channel: _res.REVISE
-    slot._get_selected = lambda: []
-    slot._pulse_ramp = _Ramp((None, None))
-    slot._sync_highlight_mode(deep=True)
+    # ---- the Render Effects panel's reads (mirror of mayatk's) ---------------
+    # The selection its actions act on, which objects carry a channel, and the
+    # selection a Shot Manifest focus makes.
+    reset()
+    lit, plain = cube("Lit"), cube("Plain")
+    RenderEffects.create([lit], channel="highlight")
     check(
-        "a mode switch with no selection seeds from the scene",
-        slot._pulse_ramp.seeded is not None,
-        detail=f"{slot._pulse_ramp.seeded}",
+        "has_channel: by object or name, per channel",
+        RenderEffects.has_channel(lit, "highlight")
+        and RenderEffects.has_channel("Lit", "highlight")
+        and not RenderEffects.has_channel(plain, "highlight")
+        and not RenderEffects.has_channel(lit, "opacity")
+        and not RenderEffects.has_channel("Gone", "highlight"),
     )
-    slot._pulse_ramp = _Ramp((None, None))
-    slot._sync_highlight_mode()  # shallow: what the selection signal does
+    _unknown = ""
+    try:
+        RenderEffects.has_channel(lit, "glow")
+    except KeyError as exc:
+        _unknown = str(exc)
+    check("has_channel refuses an unknown channel", "glow" in _unknown, _unknown)
+    _names = RenderEffects.select_objects(["Plain", "Lit", "Gone"])
     check(
-        "the selection path never scans the scene",
-        slot._pulse_ramp.seeded is None,
-        detail=f"{slot._pulse_ramp.seeded}",
+        "select_objects selects what resolves, the first active, by name",
+        _names == ["Plain", "Lit"]
+        and plain.select_get()
+        and lit.select_get()
+        and bpy.context.view_layer.objects.active == plain,
+        detail=f"{_names}",
     )
-
-    # Create keys with the scene's recipe, so the row shows ITS colours --
-    # not the clicked object's.
-    slot._mode = lambda channel: _res.CREATE
-    slot._pulse_ramp = _Ramp((None, None))
-    slot._pulse_ramp.editors = ()
-    slot._sync_highlight_mode()
     check(
-        "Create shows the scene recipe's colours",
-        slot._pulse_ramp.seeded == RenderEffects.scene_recipe().colors
-        and slot._pulse_ramp.reference is None,
-        detail=f"{slot._pulse_ramp.seeded} {slot._pulse_ramp.reference}",
+        "selected_objects: the selection by name; last_only, the active object",
+        sorted(RenderEffects.selected_objects()) == ["Lit", "Plain"]
+        and RenderEffects.selected_objects(last_only=True) == ["Plain"],
+        detail=f"{RenderEffects.selected_objects()} "
+        f"{RenderEffects.selected_objects(last_only=True)}",
     )
-
-    # The readout that makes a truncated train visible.
-    class _Spin:
-        def __init__(self, v):
-            self._v = v
-
-        def value(self):
-            return self._v
-
-    class _Menu:
-        pass
-
-    class _Label:
-        text = ""
-
-        def setText(self, t):
-            self.text = t
-
-    # The length is the page's own; the cadence is the scene's recipe.
-    _store = RenderEffects.scene_store().active()
-    _recipe_before = _store.effect_recipe
-    slot._cycle_readout = _Label()
-    slot._pages = {"highlight": _Menu()}
-    slot._pages["highlight"].s001 = _Spin(4.0)
-    _store.update_effect_recipe(pulse_period=2.0, pulse_lead_in=0.0, pulse_lead_out=0.0)
-    slot._update_cycle_readout()
-    whole = slot._cycle_readout.text
-    slot._pages["highlight"].s001 = _Spin(5.0)
-    slot._update_cycle_readout()
-    partial = slot._cycle_readout.text
     check(
-        "the cycle readout names a tail the period does not divide",
-        "cut" not in whole and "cut" in partial,
-        detail=f"{whole!r} / {partial!r}",
-    )
-    # The leads come out of the length: 5 s less two 0.5 s leads is a train of
-    # exactly two 2 s cycles.
-    _store.update_effect_recipe(pulse_lead_in=0.5, pulse_lead_out=0.5)
-    slot._update_cycle_readout()
-    check(
-        "the cycle readout counts the train between the leads",
-        "cut" not in slot._cycle_readout.text,
-        detail=repr(slot._cycle_readout.text),
-    )
-    _store.effect_recipe = _recipe_before
-
-    # ---- the action row while focused (mirror of mayatk's panel tests) ------
-    # Key's text is the manifest's only while Key runs the manifest's re-key: a
-    # focused highlight's Revise re-colours, yet it kept "Apply to ..." -- a
-    # mode switch never re-labelled it.
-    kslot = _res.RenderEffectsSlots.__new__(_res.RenderEffectsSlots)
-    kslot.sb, kslot.ui = MagicMock(), MagicMock()
-    kslot.ui.stk_effects.currentIndex.return_value = 1  # the Highlight page
-    _key_texts = []
-    kslot.ui.b000.setText.side_effect = _key_texts.append
-    kslot._focus = {
-        "channel": "highlight",
-        "objects": [],
-        "apply": lambda: "",
-        "apply_text": "Apply to 'Lid' in S01",
-        "title": "Lid · S01",
-    }
-    kslot._selection_snapshot = lambda: ([], {})
-    kslot._clear_report = lambda: None
-    kslot._sync_mode = lambda channel, deep=False, snapshot=None: None
-    _modes = {"highlight": _res.CREATE}
-    kslot._mode = lambda channel: _modes[channel]
-    kslot._on_mode_changed("highlight")
-    _modes["highlight"] = _res.REVISE
-    kslot._on_mode_changed("highlight")
-    check(
-        "a focused highlight's Key says what each mode does",
-        _key_texts == ["Apply to 'Lid' in S01", "Key Highlight Pulse"],
-        detail=f"{_key_texts}",
-    )
-    # A whole-number box truncated a float: a 0.57 duty is 56.99... percent.
-    check(
-        "a whole-number box takes the nearest whole number; a decimal one, as is",
-        kslot._spin_value(_Spin(59), 0.57 * 100) == 57
-        and kslot._spin_value(_Spin(15), 12.6) == 13
-        and kslot._spin_value(_Spin(2.86), 2.5) == 2.5,
-        detail=f"{kslot._spin_value(_Spin(59), 0.57 * 100)}",
+        "select_objects of nothing that resolves leaves the selection alone",
+        RenderEffects.select_objects([]) == []
+        and RenderEffects.select_objects(["Gone"]) == []
+        and sorted(RenderEffects.selected_objects()) == ["Lit", "Plain"],
     )
 
     # ---- apply_effect: the Shot Manifest's writer (mirror of mayatk's) -------
@@ -1413,7 +1161,11 @@ try:
         return [round(c, 6) for c in list(obj[prop])[:3]]
 
     _fade = _ptk.EffectRecipe(fade_frames=12)
-    written = RenderEffects.apply_effect(fx, "fade_in", 10, 100, _fade, fps=24)
+    from blendertk.anim_utils.shots._shots import BlenderShotsHost
+
+    written = RenderEffects.apply_effect(
+        fx, "fade_in", 10, 100, _fade, fps=24, curve_key=BlenderShotsHost.curve_key
+    )
     RenderEffects.apply_effect(fx, "fade_out", 10, 100, _fade, fps=24)
     check(
         "apply_effect: a fade is the recipe's length where it is placed",
@@ -1479,7 +1231,7 @@ try:
     # ============================ CHANNEL RECORDS LAND IN BULK ============================
     # ``apply_channel_records`` (an imported FBX's user-property curves, the
     # Maya bridge's shot-section replay) writes each label's keys in one bulk
-    # pass, leaving exactly what ``_set_key`` per key leaves -- every point
+    # pass, leaving exactly what ``set_key`` per key leaves -- every point
     # property, replaced keys included -- without scanning the curves per key
     # (2026-10-19: 20 curves x 2000 keys took 59 s).
     import math
@@ -1546,8 +1298,8 @@ try:
     _landed_interps = {}
 
     def _land_per_key(o, records):
-        """The oracle: Blender's own insert, ``_set_key`` per key, each key's
-        interpolation then on ITS point (``_set_key`` restyles every point on
+        """The oracle: Blender's own insert, ``set_key`` per key, each key's
+        interpolation then on ITS point (``set_key`` restyles every point on
         the same rounded frame -- a subframe key's whole-frame neighbour too)."""
         for label, rec in records.items():
             prop, index = RenderEffects._channel_slot(o, label)
@@ -1568,7 +1320,7 @@ try:
             if rec.get("value") is not None:
                 RenderEffects._set_prop(o, prop, index, float(rec["value"]))
             for f, v, interp in rec["keys"]:
-                RenderEffects._set_key(
+                RenderEffects.set_key(
                     o,
                     f'["{prop}"]',
                     f,
@@ -1635,7 +1387,7 @@ try:
             _land_per_key(_ref, _batch)
         _a, _b = _key_print(_bulk), _key_print(_ref)
         check(
-            f"apply_channel_records lands as _set_key per key: {_label}",
+            f"apply_channel_records lands as set_key per key: {_label}",
             _a == _b,
             _first_diff(_a, _b),
         )
@@ -1668,7 +1420,7 @@ try:
     )
 
     # Two deliberate departures from a per-key insert: each key's interpolation
-    # lands on its own point only (``_set_key`` restyled every point on the same
+    # lands on its own point only (``set_key`` restyled every point on the same
     # rounded frame), and an artist's FREE handles keep their authored shape
     # (an insert between two keys subdivides the segment, cutting them).
     _sub = bpy.data.objects.new("Subframe", None)
@@ -1713,7 +1465,7 @@ try:
 
     # The complexity guard: one curve lookup per label (two when it makes the
     # curve), never a per-key insert with its curve scan.
-    _calls = {"_fcurve": 0, "_set_key": 0}
+    _calls = {"_fcurve": 0, "set_key": 0}
     _orig = {name: RenderEffects.__dict__[name] for name in _calls}
 
     def _counting(name):
@@ -1737,7 +1489,7 @@ try:
             setattr(RenderEffects, _name, _fn)
     check(
         "apply_channel_records: no per-key insert, a curve lookup or two per label",
-        _calls["_set_key"] == 0 and _calls["_fcurve"] <= 2 * len(_recs),
+        _calls["set_key"] == 0 and _calls["_fcurve"] <= 2 * len(_recs),
         _calls,
     )
 

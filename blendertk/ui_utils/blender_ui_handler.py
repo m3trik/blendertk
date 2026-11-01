@@ -1,24 +1,19 @@
 # !/usr/bin/python
 # coding=utf-8
 import sys
-import os
-from uitk import Switchboard
-from uitk.handlers.ui_handler import UiHandler
+from uitk import Switchboard, UiHandler
 from blendertk.ui_utils.blender_native_menus import BlenderNativeMenus
 
 
 class BlenderUiHandler(UiHandler):
     """UI Handler for Blender applications.
 
-    The Blender analogue of :class:`mayatk.ui_utils.maya_ui_handler.MayaUiHandler`:
-    it scans the **blendertk package** recursively so a tool that ships its own
-    Switchboard ``.ui`` + ``<Tool>Slots`` co-located with its logic (e.g.
-    ``edit_utils/curtain/curtain.ui`` + ``CurtainSlots``) is auto-discovered and served by
-    ``marking_menu.show("<tool>")`` — exactly the way mayatk tools are. This keeps the
-    Blender tool panels in blendertk (next to the code that drives them), not in
-    tentacle, mirroring the mayatk/tentacle split.
+    The Blender analogue of :class:`mayatk.ui_utils.maya_ui_handler.MayaUiHandler`.
+    blendertk ships no panels (every tool's UI is tentacle's), so it registers no
+    UI source of its own; tentacle's launcher registers its tools on the same
+    switchboard.
 
-    Like ``MayaUiHandler``, it also **wraps the DCC's own native menus** for the both-button
+    Like ``MayaUiHandler``, it **wraps the DCC's own native menus** for the both-button
     chord menu (``ui/blender_menus`` — the mirror of ``ui/maya_menus``). Maya lifts the live
     ``QAction`` rows off its menu bar; Blender draws its menus in OpenGL, so
     :class:`BlenderNativeMenus` *harvests* the menu's Python ``draw`` into an equivalent
@@ -27,8 +22,7 @@ class BlenderUiHandler(UiHandler):
     :meth:`can_resolve`, and :meth:`show` presents the wrapped menu in a Switchboard
     ``MainWindow`` — pin header, hides on ``key_show`` release, exactly like the other
     marking-menu windows. See :meth:`_register_native_menu_proxies` for how the resolution is
-    wired through the shared switchboard's ``get_ui`` (which resolves names via ``loaded_ui``,
-    never the handler directly).
+    wired through the shared switchboard's ``get_ui`` (which resolves names via ``loaded_ui``).
     """
 
     def __init__(
@@ -41,11 +35,9 @@ class BlenderUiHandler(UiHandler):
 
         ``switchboard`` is optional. When omitted a fresh ``Switchboard`` is
         constructed so the handler can be stood up by a startup script without any
-        prior setup. Production callers (tentacle's ``tcl_blender``) pass an explicit
+        prior setup. Production callers (tentacle's launcher) pass an explicit
         instance to share state with the rest of the application.
         """
-        self.root_dir = os.path.dirname(sys.modules["blendertk"].__file__)
-
         if switchboard is None:
             from uitk import Switchboard as _Switchboard
 
@@ -55,14 +47,13 @@ class BlenderUiHandler(UiHandler):
 
         super().__init__(
             switchboard=switchboard,
-            ui_root=self.root_dir,
-            slot_root=self.root_dir,
-            discover_slots=True,
-            recursive=True,
             log_level=log_level,
-            source_tags={"blendertk"},
             **kwargs,
         )
+        # The switchboard's ``tk``: the host a Slots class written for either host
+        # calls (mirror of MayaUiHandler).
+        if getattr(self.sb, "tk", None) is None:
+            self.sb.tk = sys.modules["blendertk"]
 
         # uitk names no host: the Preset Editor learns this package's app label
         # from the host (mirror of MayaUiHandler).
@@ -75,10 +66,10 @@ class BlenderUiHandler(UiHandler):
         # Before this, uitk hard-imported mayatk, so Blender-session node links
         # were dead despite blendertk shipping its own dispatch_log_link.
         try:
-            from uitk.bridge.slots import BridgeSlotsBase
+            from uitk import ParamPanelSlots
             from blendertk.ui_utils._ui_utils import UiUtils
 
-            BridgeSlotsBase.register_log_link_handler(UiUtils.dispatch_log_link)
+            ParamPanelSlots.register_log_link_handler(UiUtils.dispatch_log_link)
         except Exception:  # never let a wiring hiccup block UI-handler startup
             pass
 
@@ -91,6 +82,8 @@ class BlenderUiHandler(UiHandler):
         # Blender only: an articulated rig's end control is solved by blendertk's
         # handlers (Maya's by an expression node the scene carries).
         self._install_articulated_rig_solve()
+        # And teach uitk how to cancel in this host (mirror of MayaUiHandler).
+        self._install_cancel_provider()
 
         # Wrap Blender's native menus for the both-button chord menu (mirror of the way
         # MayaUiHandler wraps Maya's). Register a lightweight proxy per symbolic node name so a
@@ -107,6 +100,31 @@ class BlenderUiHandler(UiHandler):
             from blendertk.node_utils.data_nodes import DataNodes
 
             return DataNodes.install_path_rebase()
+        except Exception:  # never let a wiring hiccup block UI-handler startup
+            return False
+
+    @staticmethod
+    def _install_cancel_provider() -> bool:
+        """``BlenderCancelProvider`` as uitk's cancel strategy, once per session
+        (mirror of :meth:`MayaUiHandler._install_cancel_provider`): the Esc-hold
+        source and the progress mirror, no rollback. Installed where every panel
+        in Blender passes, not by an entry point. Not under ``--background`` (no
+        window to take Esc) nor outside Blender. Never blocks UI-handler startup.
+
+        Returns:
+            bool: True when this call installed it.
+        """
+        try:
+            import bpy
+            from uitk import CancelManager
+
+            from blendertk.ui_utils.cancel_provider import BlenderCancelProvider
+
+            if bpy.app.background:
+                return False
+            if isinstance(CancelManager.provider(), BlenderCancelProvider):
+                return False
+            return BlenderCancelProvider.install() is not None
         except Exception:  # never let a wiring hiccup block UI-handler startup
             return False
 
@@ -156,12 +174,12 @@ class BlenderUiHandler(UiHandler):
         """Return the BlenderUiHandler singleton, bootstrapping if needed.
 
         Mirrors :meth:`MayaUiHandler.instance`: a no-argument call returns an existing
-        handler (e.g. the one tentacle's ``tcl_blender`` built with the app switchboard)
+        handler (e.g. the one tentacle's launcher built with the app switchboard)
         rather than keying a fresh, broken handler off ``id(None)``. This makes the
         shelf/console one-liner reliable::
 
             from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
-            BlenderUiHandler.instance().get("curtain").show(pos="screen")
+            BlenderUiHandler.instance().get("lightmap_baker").show(pos="screen")
         """
         if switchboard is None:
             # SingletonMixin._instances is shared across subclasses; filter to ours.
@@ -190,10 +208,11 @@ class BlenderUiHandler(UiHandler):
     def _register_native_menu_proxies(self) -> None:
         """Pre-register one proxy UI per native-menu node name in ``loaded_ui``.
 
-        The switchboard resolves ``get_ui(name)`` via ``loaded_ui`` (file stem / slot class),
-        never by calling ``handler.get`` — so unlike Maya's lazily-built wrappers, the proxy has
-        to already exist in ``loaded_ui`` for the release path (``_resolve_button_menu`` ->
-        ``_cached_ui`` -> ``sb.get_ui``) to return it. Each proxy is an empty, never-shown
+        The switchboard resolves ``get_ui(name)`` via ``loaded_ui`` (file stem / slot class) and
+        builds a name only this handler claims through ``handler.get``; this handler's ``get``
+        is the base lookup (it builds nothing, unlike Maya's lazily-built wrappers), so the
+        proxy has to already exist in ``loaded_ui`` for the release path
+        (``_resolve_button_menu`` -> ``_cached_ui`` -> ``sb.get_ui``) to return it. Each proxy is an empty, never-shown
         ``MainWindow`` tagged ``{"blender", "menu"}`` (so the marking menu treats it as a
         standalone target, not a stacked submenu) carrying the symbolic name on
         :attr:`_NATIVE_MENU_ATTR`; :meth:`show` reads that and presents the wrapped, harvested
@@ -313,18 +332,3 @@ class BlenderUiHandler(UiHandler):
 
         widget.fit_to_window()
         return window
-
-    def default_persistence(self, ui) -> str:
-        """blendertk-sourced tool panels stay open by default (hide, not pin).
-
-        Mirrors MayaUiHandler: a panel popped from a marking-menu button is
-        doing work the user came for, so it shouldn't vanish when they leave
-        the menu. A *default* only — the UI Browser's global setting and its
-        per-window overrides both outrank it.
-        """
-        try:
-            if ui.has_tags(["blendertk"]):
-                return self.PERSISTENCE_STICKY
-        except AttributeError:
-            pass
-        return super().default_persistence(ui)

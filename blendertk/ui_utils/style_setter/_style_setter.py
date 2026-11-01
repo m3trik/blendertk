@@ -190,7 +190,7 @@ class StyleSetter(_StyleSetterInternal):
         return copied
 
     @staticmethod
-    def list_templates():
+    def list_templates(install_presets=True):
         """Ordered ``{display_name: filepath}`` of every native ``interface_theme`` preset the Themes
         dropdown sees — Blender's built-ins, the user's own, and our injected ``Maya``.
         ``display_name`` is Blender's own (``bpy.path.display_name``: underscores → spaces,
@@ -198,6 +198,10 @@ class StyleSetter(_StyleSetterInternal):
         is the token to hand back to :func:`apply_template`."""
         import bpy
 
+        if install_presets:
+            # Ours in the list, as in Blender's own dropdown (idempotent): a selector
+            # calls this alone, as it calls mayatk's ``list_templates``.
+            StyleSetter.install()
         out = {}
         for d in bpy.utils.preset_paths("interface_theme"):
             if not os.path.isdir(d):

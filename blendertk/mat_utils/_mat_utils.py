@@ -11,7 +11,6 @@ Blender image datablock directly (Blender's bundled Python ships no PIL).
 """
 
 import contextlib
-import fnmatch
 import hashlib
 import logging
 import os
@@ -21,10 +20,98 @@ from typing import Any, Dict, Optional, Tuple
 
 import pythontk as ptk
 
+# Eager: ``CoreUtils.undoable`` decorates MatUtils' one-step operations while the
+# class body runs (core_utils imports nothing from mat_utils).
+from blendertk.core_utils._core_utils import CoreUtils
+
 
 class _MatUtilsInternal:
     """DCC-agnostic private helpers for MatUpdater + MatUtils (mirror of mayatk's
     ``_MatUtilsInternal``). Staticmethods; call as ``_MatUtilsInternal._x(...)``."""
+
+    @staticmethod
+    def _material_named(material, required=True):
+        """*material* as a datablock: a Material passes through, a name resolves
+        against ``bpy.data.materials`` (the panels keep names: a stored datablock
+        goes stale on undo). A name that resolves to nothing raises ``ValueError``
+        when *required*, else gives None."""
+        if not isinstance(material, str):
+            return material
+        import bpy
+
+        mat = bpy.data.materials.get(material)
+        if mat is None and required:
+            raise ValueError(f"No material named '{material}'.")
+        return mat
+
+    @staticmethod
+    def _image_file_missing(image):
+        """An image read from a file that is not there (packed, generated and
+        UDIM-tiled images never count)."""
+        if image.source not in ("FILE", "SEQUENCE") or image.packed_file:
+            return False
+        return bool(image.filepath) and not os.path.exists(
+            _MatUtilsInternal._abspath(image)
+        )
+
+    @staticmethod
+    def _is_bundled_path(path):
+        """Whether *path* lies in Blender's own installation: images Blender
+        ships, read-only, never a project's (mirror of mayatk's
+        ``MatUtils.is_bundled_texture``)."""
+        import bpy
+
+        root = os.path.dirname(bpy.app.binary_path or "")
+        if not (root and path):
+            return False
+        root = os.path.normcase(os.path.abspath(root))
+        try:
+            return (
+                os.path.commonpath([os.path.normcase(os.path.abspath(path)), root])
+                == root
+            )
+        except ValueError:  # another drive
+            return False
+
+    @staticmethod
+    def _select_users(users, add, what):
+        """Select *users* in Object Mode (added or replacing): the ones the
+        active view layer holds. Raises ``RuntimeError`` when there are users
+        but the layer holds none of them (another scene, an excluded
+        collection); ``[]`` for no users."""
+        if not users:
+            return []
+        layer = CoreUtils.active_view_layer()
+        in_layer = [o for o in users if layer is not None and o.name in layer.objects]
+        if not in_layer:
+            raise RuntimeError(
+                f"All {len(users)} object(s) {what} are outside the active view "
+                "layer: nothing selectable."
+            )
+        CoreUtils.ensure_object_mode()
+        return CoreUtils.select(in_layer, mode="add" if add else "replace")
+
+    @staticmethod
+    def _select_material_faces(objects, mat):
+        """Enter Edit Mode and select the faces assigned to *mat* across *objects*."""
+        import bpy
+
+        for obj in objects:
+            for i, slot in enumerate(obj.material_slots):
+                if slot.material == mat:
+                    obj.active_material_index = i
+                    break
+        # mode_set / select_all / material_slot_select poll on the active / edit
+        # object from screen context: dead in the Qt-pump state without a window.
+        with CoreUtils.window_context_override():
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.select_all(action="DESELECT")
+            try:
+                bpy.ops.object.material_slot_select()
+            except RuntimeError as error:
+                raise RuntimeError(
+                    f"Couldn't select the faces using {mat.name}: {error}"
+                ) from error
 
     @staticmethod
     def _is_gp_material(mat):
@@ -407,8 +494,13 @@ class _MatUtilsInternal:
         else every scene material. An explicit empty iterable means 'no scope' → []."""
         import bpy
 
-        if materials is not None:
-            return [m for m in ptk.make_iterable(materials) if m]
+        if materials is not None:  # names resolve; a name gone is left out
+            resolved = (
+                _MatUtilsInternal._material_named(m, required=False)
+                for m in ptk.make_iterable(materials)
+                if m
+            )
+            return [m for m in resolved if m is not None]
         if objects is not None:
             return MatUtils.get_mats(objects)
         return [
@@ -481,16 +573,17 @@ class _MatUtilsInternal:
         target_stem = target_orig_stem.lower()
 
         def hit(paths, tier):
-            """``(path, ambiguous)`` for one tier: the single path behind the key, else a warning."""
-            if not paths:
-                return None, False
-            if len(paths) > 1:
+            """``(path, ambiguous)`` for one tier, by the one rule a lookup by name
+            follows (``ptk.FileDependencies.choose``: identical copies are one file,
+            several different ones are never settled by walk order)."""
+            found, several = ptk.FileDependencies.choose(paths or [])
+            if several:
                 logging.getLogger(__name__).warning(
-                    f"'{base}': {tier} match resolves to {len(paths)} files "
-                    f"({', '.join(sorted(paths)[:3])}); skipped to avoid a wrong-file rebind."
+                    f"'{base}': {tier} match resolves to {len(several)} different files "
+                    f"({', '.join(several[:3])}); skipped to avoid a wrong-file rebind."
                 )
                 return None, True
-            return paths[0], False
+            return found, False
 
         found, ambiguous = hit(index.get(base.lower()), "exact")
         if not found and not ambiguous and use_stem:
@@ -535,20 +628,19 @@ class _MatUtilsInternal:
         return out
 
     @staticmethod
-    def _safe_relocate(src, dst, mode):
-        """Relocate ``src`` → ``dst`` (``mode`` ``"copy"``/``"move"``) with a same-name collision guard
-        — mirror of the Maya Texture Path Editor's policy (DRY'd here across the three relocate ops).
+    def _safe_copy(src, dst):
+        """Copy ``src`` → ``dst`` with a same-name collision guard — mirror of the Maya Texture
+        Path Editor's policy. Never moves: a move's take-away is ``ptk.FileCollect``'s (``apply``,
+        ``finish_move``), once every reader is repointed and nothing still reads the original.
 
         Returns:
             ``"relocated"`` — the file was written to ``dst``.
-            ``"rebind"``    — ``dst`` already holds a file of identical CONTENT (reuse it
-                              without overwriting; for ``"move"`` the redundant ``src`` is
-                              removed), or ``src`` already IS ``dst`` however either is
-                              spelled (a junction, a mapped drive) -- which is never removed.
+            ``"rebind"``    — ``dst`` already holds a file of identical CONTENT (reused, never
+                              rewritten), or ``src`` already IS ``dst`` however either is spelled
+                              (a junction, a mapped drive).
             ``"skip"``      — ``dst`` holds a DIFFERENT file: refuse to overwrite, so we never
                               rebind to the wrong texture (and never destroy the external).
-                              Size is not the test: two bakes of one map are the same size,
-                              and a move that trusted it deleted the new one.
+                              Size is not the test: two bakes of one map are the same size.
             ``"error"``     — the disk op failed.
         """
         import shutil
@@ -565,38 +657,49 @@ class _MatUtilsInternal:
                         f"different content; skipping to avoid a wrong-file rebind: {dst}"
                     )
                     return "skip"  # different file, same name — don't clobber / wrong-rebind
-                if mode == "move":
-                    try:
-                        os.remove(
-                            src
-                        )  # dst is equivalent; the source copy is redundant
-                    except OSError:
-                        pass
                 return "rebind"
             os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
-            shutil.move(src, dst) if mode == "move" else shutil.copy2(src, dst)
+            shutil.copy2(src, dst)
             return "relocated"
         except (OSError, shutil.Error):
             return "error"
 
     @staticmethod
-    def _relocate(path, dest_dir, mode):
-        """Relocate the file *path* names into *dest_dir* -- one file, or EVERY tile
-        of a tile set (``rock.<UDIM>.png``) -- under :meth:`_safe_relocate`'s policy.
+    def _copy_files(sources, dest_dir, mode="copy", progress=None):
+        """``[(src, dst)]`` for each of *sources* now in *dest_dir* -- copied under
+        :meth:`_safe_copy`'s policy: identical bytes already there are reused, a
+        different file is never replaced. The copier a Collect
+        (``ptk.FileCollect.apply``) hands its files to: it asks for copies
+        (*mode* is always ``"copy"``) and takes a moved source away itself, once
+        it landed. *progress* ``(done, total)`` ticks per file; a False back stops."""
+        landed = []
+        sources = list(sources)
+        for done, src in enumerate(sources, 1):
+            if progress is not None and done > 1 and progress(done - 1, len(sources)) is False:
+                break
+            dst = ptk.FileUtils.format_path(
+                os.path.join(dest_dir, os.path.basename(src))
+            )
+            if _MatUtilsInternal._safe_copy(src, dst) in ("relocated", "rebind"):
+                landed.append((src, dst))
+        return landed
+
+    @staticmethod
+    def _copy_whole(path, dest_dir):
+        """Copy the file *path* names into *dest_dir* -- one file, or EVERY tile of
+        a tile set (``rock.<UDIM>.png``) -- under :meth:`_safe_copy`'s policy.
 
         A set lands whole or not at all. A first pass writes nothing: a tile whose
         destination holds ANOTHER file refuses the set before one tile is copied --
         copied one by one, the tiles before it stayed in *dest_dir*, foreign to the
         same-named set already there (review, 2026-10-05). A copy failing later
-        takes back the tiles this call wrote. A move removes the sources only once
-        every tile is at *dest_dir*, so a set is never split between two folders.
-        Returns ``_safe_relocate``'s verdict for the whole: ``"skip"`` / ``"error"``
-        when any file was refused (sources untouched, nothing left behind),
-        ``"relocated"`` when one was written, else ``"rebind"``.
+        takes back the tiles this call wrote. Returns :meth:`_safe_copy`'s verdict
+        for the whole: ``"skip"`` / ``"error"`` when any file was refused (nothing
+        left behind), ``"relocated"`` when one was written, else ``"rebind"``.
         """
         if not ptk.TiledPath.has_token(path):
             dst = os.path.join(dest_dir, os.path.basename(path))
-            return _MatUtilsInternal._safe_relocate(path, dst, mode)
+            return _MatUtilsInternal._safe_copy(path, dst)
         pairs = [
             (src, os.path.join(dest_dir, os.path.basename(src)))
             for src in ptk.TiledPath.tiles(path)
@@ -617,7 +720,7 @@ class _MatUtilsInternal:
                 return "skip"
         landed = []
         for src, dst in pairs:
-            outcome = _MatUtilsInternal._safe_relocate(src, dst, "copy")
+            outcome = _MatUtilsInternal._safe_copy(src, dst)
             if outcome in ("skip", "error"):
                 for _src, written, how in landed:
                     if how == "relocated":  # this call's copy, not a file it found
@@ -627,15 +730,27 @@ class _MatUtilsInternal:
                             pass
                 return outcome
             landed.append((src, dst, outcome))
-        if mode == "move":
-            for src, dst, _outcome in landed:
-                if not ptk.FileUtils.is_same_file(src, dst):
-                    try:
-                        os.remove(src)
-                    except OSError:
-                        pass
         relocated = any(outcome == "relocated" for _s, _d, outcome in landed)
         return "relocated" if relocated else "rebind"
+
+    @staticmethod
+    def _paths_read_by_images(exclude=()):
+        """The files the .blend's images read, absolute and library-aware (a linked
+        image's ``//`` path against its library) -- every image with a path but
+        *exclude* (datablocks or names). What a move keeps: the Texture Path
+        Editor's ``read_elsewhere`` (the images outside a Collect) and Normalize
+        Paths' move (every image once repointed)."""
+        import bpy
+
+        held = {
+            img.as_pointer()
+            for img in _MatUtilsInternal._resolve_images(list(exclude))
+        } if exclude else set()
+        return [
+            _MatUtilsInternal._abspath(img)
+            for img in bpy.data.images
+            if img.filepath and img.as_pointer() not in held
+        ]
 
     @staticmethod
     def _html_escape(s):
@@ -1239,9 +1354,9 @@ class _FileRenameUndo:
 
 
 # ---------------------------------------------------------------------------------------------
-# Texture path management (backs the Texture Path Editor panel) — mirror of mayatk's
-# texture_path_editor. Blender image datablocks carry the path (``img.filepath``), so this is the
-# datablock analogue of Maya's file-node re-pathing; all headless-testable (no bpy.ops).
+# Texture path management (behind ``TexturePathEditor``, the Texture Path Editor's engine) —
+# mirror of the file-node re-pathing mayatk's engine does. Blender image datablocks carry the path
+# (``img.filepath``), so this is the datablock analogue; all headless-testable (no bpy.ops).
 # ---------------------------------------------------------------------------------------------
 
 
@@ -1384,9 +1499,73 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
     land on disk (via the Output Folder) for downstream game-engine export.
     """
 
+    #: The source-file transfers a run applies once an Output Folder is set: none. The shared
+    #: factory writes processed maps straight to the Output Folder and the materials are
+    #: repathed to them, so there is no copy / move of the sources to choose (mayatk's
+    #: ``("copy", "move")``; the shared panel disables its Transfer Mode here).
+    TRANSFER_MODES = ()
+
+    @staticmethod
+    def shader_type_choices():
+        """No retype targets: Blender has one surface shader (Principled BSDF), so there is
+        nothing to retype a material to and :meth:`update_materials` refuses a
+        ``shader_type``. Mirror of mayatk's (its converter's targets)."""
+        return []
+
+    @staticmethod
+    def texture_root():
+        """Where a run resolves a relative Output Folder and discovers sibling maps
+        (``discover_sourceimages``): the current workspace (session pin -> the marked root
+        holding the .blend -> the .blend's own folder), Blender's nearest analogue of Maya's
+        project sourceimages. Mirror of mayatk's.
+
+        Returns:
+            str: the folder; '' when there is none, or no bpy (a headless import: the
+            shared panel reads it as it loads).
+        """
+        try:
+            from blendertk.env_utils._env_utils import EnvUtils
+
+            return EnvUtils.get_env_info("workspace") or ""
+        except ImportError:
+            return ""
+
+    @classmethod
+    def selected_materials(cls, shader_type=None):
+        """The materials a run over the selection acts on: those on the selected objects
+        (the Material Updater panel's *Selected Objects* scope). Mirror of mayatk's;
+        ``shader_type`` is its signature and filters nothing here (every material is one the
+        run can repath).
+
+        Returns:
+            list: the materials, or ``[]`` with a warning naming the fix.
+        """
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        selection = CoreUtils.selected_objects()
+        if not selection:
+            cls.logger.warning("Nothing selected.")
+            return []
+        materials = MatUtils.get_mats(selection)
+        if not materials:
+            cls.logger.warning("No materials found on the selected objects.")
+        return materials
+
+    @staticmethod
+    def materials_using_textures(paths, shader_type=None):
+        """The scene materials whose shader graph reads an image at one of *paths* (the
+        Material Updater panel's *Browse...* scope): :meth:`MatUtils.materials_for_textures`.
+        Mirror of mayatk's; ``shader_type`` is its signature and filters nothing here."""
+        return MatUtils.materials_for_textures(paths)
+
     @classmethod
     def update_materials(
-        cls, materials=None, config=None, verbose=False, progress_callback=None
+        cls,
+        materials=None,
+        config=None,
+        verbose=False,
+        progress_callback=None,
+        shader_type=None,
     ):
         """Reprocess the textures of ``materials`` and repath their image nodes to the results.
 
@@ -1399,10 +1578,17 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
                 explicit ``discover_dir`` is already given.
             verbose: INFO-level logging (else WARNING).
             progress_callback: ``cb(current, total, message)`` invoked per material in the loop.
+            shader_type: mayatk's retype target, taken for its signature (the shared panel
+                passes it) and refused when set: Blender has one surface shader.
 
         Returns:
             dict: ``{material_name: {"updated": int, "skipped": int, "files": [str, ...]}}``.
         """
+        if shader_type:
+            raise ValueError(
+                f"shader_type={shader_type!r}: Blender has one surface shader (Principled "
+                "BSDF), so there is nothing to retype a material to."
+            )
         import bpy
 
         from blendertk.core_utils._core_utils import CoreUtils
@@ -1425,7 +1611,7 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
         # absent, not become the workspace itself.
         if move_to:
             resolved = ptk.FileUtils.resolve_output_dir(
-                move_to, CoreUtils.get_env_info("workspace")
+                move_to, cls.texture_root()
             )
             if resolved:
                 move_to = resolved
@@ -1436,7 +1622,7 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
         # ``sourceimages`` project-folder convention, so the nearest analogue is the .blend's own
         # directory (the same "workspace" concept already used above for move_to_folder).
         if cfg.pop("discover_sourceimages", False) and not cfg.get("discover_dir"):
-            workspace = CoreUtils.get_env_info("workspace")
+            workspace = cls.texture_root()
             if workspace:
                 cfg["discover_dir"] = workspace
             else:
@@ -1689,6 +1875,66 @@ class MatUtils(_MatUtilsInternal):
         return seen
 
     @staticmethod
+    def get_mat_names(objects=None):
+        """The names of the materials on *objects* (None: the selection), in slot
+        order -- mirror of ``mtk.MatUtils.get_mat_names``: what a list shared by
+        both hosts reads (a stored datablock goes stale on undo; a name does not).
+        ``[]`` when nothing is selected."""
+        targets = CoreUtils.selected_objects() if objects is None else objects
+        return [m.name for m in MatUtils.get_mats(targets)]
+
+    @staticmethod
+    def get_scene_mat_names(exclude_defaults=False, exc_renderer=None):
+        """The names of the file's materials, sorted (grease-pencil ones left out)
+        -- mirror of ``mtk.MatUtils.get_scene_mat_names``. ``exclude_defaults`` and
+        ``exc_renderer`` are accepted for that signature: Blender has no built-in
+        default materials, and one material serves every render engine."""
+        return [m.name for m in MatUtils.get_scene_mats(sort=True)]
+
+    @staticmethod
+    def get_mat_facts(materials):
+        """What a material list shows per material, and what needs attention --
+        mirror of ``mtk.MatUtils.get_mat_facts``: ``{name: {"type", "users",
+        "textures", "missing", "duplicate_of", "unused"}}``.
+
+        ``type`` is the surface shader's label; ``users`` the objects whose slots
+        carry it (what selecting it selects); ``textures`` its image nodes;
+        ``missing`` the file names of the images not on disk (packed, generated
+        and UDIM-tiled images never count); ``duplicate_of`` the material it is a
+        verified duplicate of among *materials*, or None; ``unused`` whether
+        nothing uses it (:meth:`is_mat_assigned`: the datablock's own count -- a
+        Geometry Nodes Set Material is a use -- and a fake-user material is kept
+        on purpose, so never unused). *materials* are names or datablocks; a name
+        gone is left out."""
+        import bpy
+
+        users = {}
+        for obj in bpy.data.objects:
+            for slot in getattr(obj, "material_slots", ()):
+                if slot.material is not None:
+                    users.setdefault(slot.material.name, set()).add(obj.name)
+        mats = _MatUtilsInternal._resolve_materials(materials=materials or [])
+        duplicate_of = (
+            MatUtils.find_duplicate_materials(mats) if len(mats) > 1 else {}
+        )
+        facts = {}
+        for mat in mats:
+            images = [img for _node, img in _MatUtilsInternal._material_image_nodes(mat)]
+            facts[mat.name] = {
+                "type": _MatUtilsInternal._mat_surface_type(mat),
+                "users": len(users.get(mat.name, ())),
+                "textures": len(images),
+                "missing": [
+                    os.path.basename(img.filepath) or img.name
+                    for img in images
+                    if _MatUtilsInternal._image_file_missing(img)
+                ],
+                "duplicate_of": duplicate_of.get(mat.name),
+                "unused": not mat.use_fake_user and not MatUtils.is_mat_assigned(mat),
+            }
+        return facts
+
+    @staticmethod
     def create_mat(mat_type="standard", name=""):
         """Create a new material (mirror of ``mtk.MatUtils.create_mat``).
 
@@ -1711,12 +1957,22 @@ class MatUtils(_MatUtilsInternal):
         return mat
 
     @staticmethod
-    def assign_mat(objects, material):
+    def assign_mat(objects, material, create=True):
         """Assign ``material`` to the given object(s) — whole-object assignment (all slots).
 
         Mirrors Maya's object-level assign; per-face assignment is an edit-mode workflow and is
-        intentionally out of scope here.
+        intentionally out of scope here. ``material`` is a Material or a name; a name with no
+        material makes a standard one of that name (``create``, mayatk's behavior) or raises
+        ``ValueError``. A raw ``bpy.data`` edit, so it pushes no undo step: a caller acting for
+        the user wraps it (``CoreUtils.undo_chunk``) -- bulk callers stay cheap.
         """
+        if isinstance(material, str):
+            name = material
+            material = _MatUtilsInternal._material_named(name, required=False)
+            if material is None:
+                if not create:
+                    raise ValueError(f"No material named '{name}'.")
+                material = MatUtils.create_mat("standard", name=name)
         for o in ptk.make_iterable(objects):
             data = getattr(o, "data", None)
             if data is None or not hasattr(data, "materials"):
@@ -1764,6 +2020,180 @@ class MatUtils(_MatUtilsInternal):
         ]
 
     @staticmethod
+    @CoreUtils.undoable
+    def select_by_mat(material, objects=None, shell=False, add=False):
+        """Select what uses *material* (:meth:`find_by_mat_id`), one undo step --
+        mirror of ``mtk.MatUtils.select_by_mat``. Whole objects with ``shell``;
+        otherwise the objects enter Edit Mode with the material's faces selected.
+
+        Parameters:
+            material: A Material or its name.
+            objects: Search only these; None or empty: the whole file.
+            shell (bool): Whole objects instead of the material's faces.
+            add (bool): Add to the selection instead of replacing it.
+
+        Returns:
+            list: The objects selected; ``[]`` when nothing uses it. Users outside
+            the active view layer are left unselected.
+
+        Raises:
+            ValueError: No material of that name.
+            RuntimeError: Every user is outside the active view layer, or the face
+                selection failed.
+        """
+        mat = _MatUtilsInternal._material_named(material)
+        pool = [o for o in ptk.make_iterable(objects) if o] if objects else None
+        selected = _MatUtilsInternal._select_users(
+            MatUtils.find_by_mat_id(mat, objects=pool or None), add, f"using {mat.name}"
+        )
+        if selected and not shell:
+            _MatUtilsInternal._select_material_faces(selected, mat)
+        return selected
+
+    @staticmethod
+    @CoreUtils.undoable
+    def select_unassigned(objects=None, add=False):
+        """Select the objects carrying no material (:meth:`find_unassigned`), one
+        undo step -- mirror of ``mtk.MatUtils.select_unassigned``.
+
+        Returns:
+            list: The objects selected; ``[]`` when every object has one.
+
+        Raises:
+            RuntimeError: Every one is outside the active view layer.
+        """
+        pool = [o for o in ptk.make_iterable(objects) if o] if objects else None
+        return _MatUtilsInternal._select_users(
+            MatUtils.find_unassigned(objects=pool or None), add, "with no material"
+        )
+
+    @staticmethod
+    @CoreUtils.undoable
+    def show_mat_attributes(material):
+        """Show *material*'s settings: select the objects using it, the first one
+        active on the material's slot, so the Properties editor's Material tab
+        shows it -- the Blender counterpart of mayatk's ``show_mat_attributes``
+        (its node in the Attribute Editor).
+
+        Returns:
+            list: The objects selected; ``[]`` when nothing uses it.
+
+        Raises:
+            ValueError: No material of that name.
+            RuntimeError: Every user is outside the active view layer.
+        """
+        mat = _MatUtilsInternal._material_named(material)
+        selected = _MatUtilsInternal._select_users(
+            MatUtils.find_by_mat_id(mat), False, f"using {mat.name}"
+        )
+        if selected:
+            active = CoreUtils.active_object() or selected[0]
+            for i, slot in enumerate(active.material_slots):
+                if slot.material == mat:
+                    active.active_material_index = i
+                    break
+        return selected
+
+    @staticmethod
+    @CoreUtils.undoable
+    def assign_random_mat(objects=None, previous=None):
+        """Assign a new random-colored material to *objects* (None: the selection),
+        one undo step -- mirror of ``mtk.MatUtils.assign_random_mat``. A re-roll
+        replaces: *previous* (what an earlier call made, a name) is deleted when
+        nothing uses it any more and no fake user keeps it.
+
+        Returns:
+            str: The new material's name.
+
+        Raises:
+            ValueError: Nothing to assign it to.
+        """
+        import bpy
+
+        targets = (
+            CoreUtils.selected_objects()
+            if objects is None
+            else [o for o in ptk.make_iterable(objects) if o]
+        )
+        if not targets:
+            raise ValueError("Nothing selected: select what the new material goes on.")
+        new = MatUtils.create_mat("random")
+        MatUtils.assign_mat(targets, new)
+        old = (
+            _MatUtilsInternal._material_named(previous, required=False)
+            if previous
+            else None
+        )
+        if (
+            old is not None
+            and old.name != new.name
+            and not old.use_fake_user
+            and not MatUtils.is_mat_assigned(old)
+        ):
+            bpy.data.materials.remove(old)
+        return new.name
+
+    @staticmethod
+    @CoreUtils.undoable
+    def assign_new_mat(objects=None):
+        """Assign a new material Blender's way (the material slot's New: a
+        Principled ``Material``) to *objects* (None: the selection), one undo
+        step -- mirror of ``mtk.MatUtils.assign_new_mat`` (Maya opens its Assign
+        New Material window and returns None).
+
+        Returns:
+            str: The new material's name.
+
+        Raises:
+            ValueError: No selected object can hold a material.
+        """
+        targets = (
+            CoreUtils.selected_objects()
+            if objects is None
+            else [o for o in ptk.make_iterable(objects) if o]
+        )
+        holders = [o for o in targets if hasattr(getattr(o, "data", None), "materials")]
+        if not holders:
+            raise ValueError("No object that can hold a material is selected.")
+        mat = MatUtils.create_mat("standard", name="Material")
+        MatUtils.assign_mat(holders, mat)
+        return mat.name
+
+    @staticmethod
+    @CoreUtils.undoable
+    def rename_mat(material, name):
+        """Rename *material* (a Material or its name) to *name*, one undo step --
+        mirror of ``mtk.MatUtils.rename_mat``.
+
+        Returns:
+            str: The name Blender gave it (``.001`` on a clash).
+
+        Raises:
+            ValueError: No material of that name.
+        """
+        mat = _MatUtilsInternal._material_named(material)
+        mat.name = name
+        return mat.name
+
+    @staticmethod
+    @CoreUtils.undoable
+    def delete_mats(materials):
+        """Delete the materials (names or datablocks), one undo step; a name that
+        no longer resolves is skipped -- mirror of ``mtk.MatUtils.delete_mats``.
+
+        Returns:
+            list[str]: The names of the materials deleted.
+        """
+        import bpy
+
+        unique = {}  # a name given twice is removed once
+        for mat in _MatUtilsInternal._resolve_materials(materials=materials or []):
+            unique.setdefault(mat.name, mat)
+        for mat in unique.values():
+            bpy.data.materials.remove(mat)
+        return list(unique)
+
+    @staticmethod
     def select_by_material(material, add=False):
         """Select every scene object using ``material`` (optionally adding to the selection).
 
@@ -1774,23 +2204,16 @@ class MatUtils(_MatUtilsInternal):
         """
         from blendertk.core_utils._core_utils import CoreUtils
 
-        # the window's layer: windowless, ``context.view_layer`` is the scene's default
-        view_layer = CoreUtils._active_view_layer()
-        if not add:
-            for o in list(view_layer.objects):
-                o.select_set(False, view_layer=view_layer)
         users = MatUtils.find_by_mat_id(material)
-        selectable = [o for o in users if o.name in view_layer.objects]
-        for o in selectable:
-            o.select_set(True, view_layer=view_layer)
-        if selectable:
-            view_layer.objects.active = selectable[0]
+        CoreUtils.select(users, mode="add" if add else "replace")
         return users
 
     @staticmethod
-    def reload_textures():
+    def reload_textures(reset_viewport=False):
         """Reload every file image -- a TILED set too -- from disk (mirror of
-        ``mtk.MatUtils.reload_textures``)."""
+        ``mtk.MatUtils.reload_textures``). ``reset_viewport`` then redraws the 3D
+        views on them (Maya restarts Viewport 2.0 there; a reload here already
+        re-uploads each image)."""
         import bpy
 
         for img in bpy.data.images:
@@ -1799,6 +2222,11 @@ class MatUtils(_MatUtilsInternal):
                     img.reload()
                 except RuntimeError:
                     pass
+        if reset_viewport:
+            for window in bpy.context.window_manager.windows:
+                for area in window.screen.areas:
+                    if area.type == "VIEW_3D":
+                        area.tag_redraw()
 
     @staticmethod
     def get_scene_mats(
@@ -1841,33 +2269,34 @@ class MatUtils(_MatUtilsInternal):
         return mat.users - int(mat.use_fake_user) > 0
 
     @staticmethod
-    def get_mat_swatch_icon(mat, size=(20, 20), fallback_to_blank=True):
-        """A ``QIcon`` filled with ``mat``'s viewport display color — mirror of
-        ``mtk.MatUtils.get_mat_swatch_icon`` (Maya reads ``baseColor``/``color``; Blender uses
-        ``material.diffuse_color``, its viewport swatch). Qt-only (deferred import) → returns
-        ``None`` headless / when no Qt binding is present."""
+    def get_mat_swatch_color(mat):
+        """``mat``'s viewport display colour as ``(r, g, b)`` in 0..1 -- mirror of
+        ``mtk.MatUtils.get_mat_swatch_color`` (Maya reads ``baseColor``/``color``; Blender
+        uses ``material.diffuse_color``, its viewport swatch). A panel paints the icon.
+
+        Parameters:
+            mat: The material, or its name.
+
+        Returns:
+            tuple/None: The colour, or ``None`` for a name that no longer resolves.
+        """
+        if isinstance(mat, str):
+            mat = _MatUtilsInternal._material_named(mat, required=False)
+            if mat is None:
+                return None
         try:
-            from qtpy.QtGui import QPixmap, QColor, QIcon
-        except Exception:
+            return tuple(max(0.0, min(1.0, float(c))) for c in mat.diffuse_color[:3])
+        except (AttributeError, TypeError):  # not a material
             return None
-        try:
-            r, g, b = (int(max(0.0, min(1.0, c)) * 255) for c in mat.diffuse_color[:3])
-            pixmap = QPixmap(size[0], size[1])
-            pixmap.fill(QColor.fromRgb(r, g, b))
-        except Exception:
-            if not fallback_to_blank:
-                raise
-            pixmap = QPixmap(size[0], size[1])
-            pixmap.fill(QColor(255, 255, 255, 0))
-        return QIcon(pixmap)
 
     @staticmethod
-    def get_texture_paths(objects=None, materials=None, absolute=True):
+    def get_texture_paths(objects=None, materials=None, absolute=True, exclude_bundled=False):
         """Unique texture file paths in scope — mirror of ``mtk.MatUtils.get_texture_paths``.
 
         Scope resolves to materials (from ``objects`` if given, else ``materials``, else the whole
         scene); reads the ``filepath`` of each material's image-texture nodes. ``absolute`` resolves
-        against the .blend (Blender ``//`` relative paths)."""
+        against the .blend (Blender ``//`` relative paths). ``exclude_bundled`` drops images inside
+        Blender's own installation (read-only: a tool that writes can only fail on them)."""
         mats = _MatUtilsInternal._resolve_materials(objects, materials)
         paths = []
         for mat in mats:
@@ -1877,16 +2306,39 @@ class MatUtils(_MatUtilsInternal):
                     if absolute
                     else (getattr(img, "filepath", "") or "")
                 )
-                if p:
+                if p and not (
+                    exclude_bundled and _MatUtilsInternal._is_bundled_path(p)
+                ):
                     paths.append(p)
         return list(dict.fromkeys(paths))
 
     @staticmethod
-    def get_texture_info(objects=None, materials=None):
+    def get_texture_scopes():
+        """``{label: () -> [path]}``: the selections a texture-file tool (Map Converter)
+        can read its files from -- mirror of ``mtk.MatUtils.get_texture_scopes``. Blender's
+        one: the selected objects' materials. Each provider reads the CURRENT selection when
+        called and leaves Blender's bundled images out (those tools write)."""
+
+        def _objects():
+            selection = CoreUtils.selected_objects()
+            if not selection:
+                return []
+            return MatUtils.get_texture_paths(objects=selection, exclude_bundled=True)
+
+        return {"Selected Objects": _objects}
+
+    @staticmethod
+    def get_texture_info(
+        objects=None, materials=None, exclude_defaults=False, exclude_unassigned=False
+    ):
         """Image metadata for the textures in scope — mirror of ``mtk.MatUtils.get_texture_info``.
-        Built from the Blender image datablocks (native size/format; no PIL)."""
+        Built from the Blender image datablocks (native size/format; no PIL). With no scope,
+        ``exclude_unassigned`` reads only the textures of the materials something uses;
+        ``exclude_defaults`` is accepted for parity (Blender has no built-in default materials)."""
         import bpy
 
+        if objects is None and materials is None and exclude_unassigned:
+            materials = [m for m in MatUtils.get_scene_mats() if MatUtils.is_mat_assigned(m)]
         if (
             objects is None and materials is None
         ):  # whole scene → every loaded file image
@@ -1923,6 +2375,8 @@ class MatUtils(_MatUtilsInternal):
         ``optimize_check`` runs ``ptk.MapOptimizer.assess`` per texture (best-effort — degrades to an
         ``optimization`` error entry when the image stack is unavailable in Blender's Python)."""
         mats = _MatUtilsInternal._resolve_materials(objects, materials)
+        if optimize_check:  # the analysis reads images with Pillow: provision it
+            CoreUtils.ensure_image_deps()
         if exclude_unassigned and mats:
             mats = [m for m in mats if MatUtils.is_mat_assigned(m)]
 
@@ -2092,9 +2546,52 @@ class MatUtils(_MatUtilsInternal):
         return reassigned
 
     @staticmethod
+    def find_duplicate_materials(materials=None):
+        """``{duplicate: original}`` names: each verified duplicate among *materials*
+        (names or datablocks; None: every material) and the material it duplicates
+        -- mirror of ``mtk.MatUtils.find_duplicate_materials``
+        (:meth:`find_materials_with_duplicate_textures`, flattened)."""
+        mats = (
+            None
+            if materials is None
+            else _MatUtilsInternal._resolve_materials(materials=materials)
+        )
+        if mats is not None and not mats:
+            return {}
+        groups = MatUtils.find_materials_with_duplicate_textures(mats)
+        return {dup.name: group[0].name for group in groups for dup in group[1:]}
+
+    @staticmethod
+    @CoreUtils.undoable
+    def merge_duplicate_materials(pairs):
+        """Merge each ``{duplicate: original}`` pair (names) into its original
+        (:meth:`reassign_duplicate_materials`, re-verified), one undo step --
+        mirror of ``mtk.MatUtils.merge_duplicate_materials``. A pair whose
+        original is gone is skipped, never merged into another duplicate.
+
+        Returns:
+            int: How many duplicates went, counted after: the re-verification
+            can refuse a pair.
+        """
+        import bpy
+
+        materials = bpy.data.materials
+        present = [dup for dup in (pairs or {}) if dup in materials]
+        groups = {}
+        for dup in sorted(present):
+            groups.setdefault(pairs[dup], []).append(materials[dup])
+        merges = [
+            [materials[kept], *dups] for kept, dups in groups.items() if kept in materials
+        ]
+        if merges:
+            MatUtils.reassign_duplicate_materials(merges, delete=True)
+        return sum(1 for dup in present if dup not in materials)
+
+    @staticmethod
+    @CoreUtils.undoable
     def delete_unused_materials():
-        """Delete the materials nothing uses (:meth:`is_mat_assigned`) — mirror of Maya's
-        *Delete Unused Materials*. Respects Blender's fake-user convention (a material the user
+        """Delete the materials nothing uses (:meth:`is_mat_assigned`), one undo step — mirror of
+        Maya's *Delete Unused Materials*. Respects Blender's fake-user convention (a material the user
         explicitly marked to keep is left alone) and skips grease-pencil materials. Returns the
         removed material names."""
         import bpy
@@ -2353,7 +2850,7 @@ class MatUtils(_MatUtilsInternal):
         The Blender analogue of mayatk's Texture Path Editor ``_project_relative_converter`` (which
         rewrites a path relative to *sourceimages* when it lands inside that folder). Shared by every
         workflow that (re)points an image at a resolved file — :func:`set_texture_directory`,
-        :func:`find_and_copy_textures`, :func:`resolve_missing_textures`, and the ``"relative"`` mode
+        the Texture Path Editor's Find & Copy, :func:`resolve_missing_textures`, and the ``"relative"`` mode
         of :func:`normalize_texture_paths` — so a repathed image always ends up relative when possible,
         the same way every one of mayatk's equivalent commands does.
 
@@ -2489,7 +2986,9 @@ class MatUtils(_MatUtilsInternal):
           * ``"copy"`` / ``"move"`` — bring *external* textures (outside ``project_dir``, default
             the workspace's texture folder — its ``sourceImages`` rule when marked, else
             ``<blenddir>/textures``) into that folder and repath to them. A TILED set travels
-            whole, every tile (:meth:`_relocate`).
+            whole, every tile (:meth:`_copy_whole`). A move then takes each original away
+            through ``ptk.FileCollect.finish_move``: once its copy holds the whole bytes, never
+            while any image still reads it (one outside *images*, a linked one).
 
         ``images=None`` targets every FILE image and TILED set in the .blend (the default); pass an
         explicit list to restrict the scope (the Texture Path Editor's selection-aware scope —
@@ -2511,43 +3010,43 @@ class MatUtils(_MatUtilsInternal):
                 if not project_dir:
                     return 0
             os.makedirs(project_dir, exist_ok=True)
-            # Source path -> repathed form, MOVE mode. Blender dedupes a shared
-            # file into ONE datablock, but duplicated datablocks (`.001` twins)
-            # pointing at the same file are routine — after the first twin's
-            # move the source is gone, and re-checking the disk would misread
-            # "shared" as "missing" and strand the second twin absolute on a
-            # deleted file (mirror of mayatk's moved_this_run rule).
-            moved_this_run = {}
+            # ``(external, staged)``, MOVE mode: the originals go only after every
+            # image is repointed (``ptk.FileCollect.finish_move``), so a `.001`
+            # twin storing the same file still finds it, and an image outside the
+            # batch -- or a linked one -- keeps it (mirror of mayatk's).
+            staged = []
             for img in images:
                 ap = _MatUtilsInternal._abspath(img)
                 if not (ap and ptk.TiledPath.tiles(ap)):  # a set: any tile on disk
-                    moved_rel = moved_this_run.get(os.path.normcase(ap)) if ap else None
-                    if moved_rel is not None:
-                        img.filepath = moved_rel
-                        try:
-                            img.reload()
-                        except RuntimeError:
-                            pass
-                        changed += 1
                     continue
                 if _MatUtilsInternal._is_within(ap, project_dir):
                     continue
                 dst = os.path.join(project_dir, os.path.basename(ap))
-                if _MatUtilsInternal._relocate(ap, project_dir, mode) in (
-                    "skip",
-                    "error",
-                ):
-                    continue  # different-size collision — don't clobber / wrong-rebind
+                if _MatUtilsInternal._copy_whole(ap, project_dir) in ("skip", "error"):
+                    continue  # a different file of the name -- don't clobber / wrong-rebind
                 img.filepath = MatUtils.to_project_relative(dst, blenddir)
                 if mode == "move":
-                    moved_this_run[os.path.normcase(ap)] = img.filepath
-                # The file moved out from under the datablock; re-read it so the buffer matches the
-                # new path (the other three relocate ops already do this).
+                    staged.append((ap, dst))
+                # Re-read it so the buffer matches the new path (the other relocate ops
+                # do this too).
                 try:
                     img.reload()
                 except RuntimeError:
                     pass
                 changed += 1
+            if staged:
+                # A move takes an original away only once its staged copy holds its
+                # whole bytes, never when the copy IS it however spelled, and never
+                # while an image still reads it -- one outside the batch, a linked one.
+                _taken, kept = ptk.FileCollect.finish_move(
+                    staged, keep=_MatUtilsInternal._paths_read_by_images()
+                )
+                if kept:
+                    logging.getLogger(__name__).warning(
+                        f"Normalize Paths (move): {len(kept)} original(s) left in place -- "
+                        f"other images still read them: {', '.join(kept[:5])}"
+                        f"{', ...' if len(kept) > 5 else ''}"
+                    )
             return changed
 
         for img in images:  # relative / absolute
@@ -2661,13 +3160,14 @@ class MatUtils(_MatUtilsInternal):
         mode: str = "rewrite",
         allow_missing: bool = False,
     ) -> int:
-        """Repath each image so its file lives directly under ``target_dir`` — mirror of the Texture
-        Path Editor's *Set Directory*.
+        """Repath each image so its file lives directly under ``target_dir`` — the Texture Path
+        Editor's *Set Directory*, which this runs (``TexturePathEditor.set_texture_directory``).
 
-        ``mode``: ``"rewrite"`` (path only), ``"copy"`` / ``"move"`` (relocate the file on disk first,
-        then repath; a TILED set travels whole, every tile -- :meth:`_relocate`). ``images=None``
-        targets every FILE image and TILED set. A copy/move whose destination already holds a
-        different file is skipped (no overwrite, no wrong-file rebind).
+        ``mode``: ``"rewrite"`` (path only), or ``"copy"`` / ``"move"``: a flat ``ptk.FileCollect``
+        into ``target_dir`` (a TILED set travels whole; a move keeps a file another image reads, and
+        takes a source away only once its copy compares whole). ``images=None`` targets every FILE
+        image and TILED set. A name a different file holds at the destination leaves the image on its
+        path (no overwrite, no wrong-file rebind), and so does a linked image (its library's path).
 
         An image is repathed only when its file is ACTUALLY at the target afterwards, tiles
         resolved (``ptk.TiledPath.tiles``): the path pass used to rewrite every image whatever the
@@ -2686,186 +3186,15 @@ class MatUtils(_MatUtilsInternal):
         """
         if not target_dir:
             return 0
-        count, absent = 0, []
-        for img in _MatUtilsInternal._resolve_images(images):
-            ap = _MatUtilsInternal._abspath(img)
-            old = getattr(img, "filepath", "") or ""
-            if not old:
-                continue
-            dst = os.path.join(target_dir, os.path.basename(ap or old))
-            new = MatUtils.to_project_relative(dst)
-            if new == old:
-                continue  # already there — nothing to relocate or rewrite (mirrors mayatk)
-            if mode in ("copy", "move") and ap and ptk.TiledPath.tiles(ap):
-                if _MatUtilsInternal._relocate(ap, target_dir, mode) in (
-                    "skip",
-                    "error",
-                ):
-                    continue  # leave the image on its current (valid) path
-            # The target is what the image will READ: it has to hold the file (a texture
-            # already sitting there needs no copy and is still rebound).
-            if not (allow_missing or ptk.TiledPath.tiles(dst)):
-                absent.append(img.name)
-                continue
-            img.filepath = new
-            try:
-                img.reload()
-            except RuntimeError:
-                pass
-            count += 1
-        if absent:
-            logging.getLogger(__name__).warning(
-                f"Set Directory: {len(absent)} image(s) left on their current path -- "
-                f"{target_dir} holds no texture of that name ({', '.join(absent[:5])}"
-                f"{', ...' if len(absent) > 5 else ''}). Copy / move brings the files along; "
-                "allow_missing points them there anyway."
-            )
-        return count
+        # Deferred: the editor is this module's caller (its CollectHost reads images).
+        from blendertk.mat_utils.texture_path_editor import TexturePathEditor
 
-    @staticmethod
-    def plan_find_and_copy_textures(
-        images=None, search_dir=None, dest_dir=None, use_valid_paths=True
-    ):
-        """What :func:`find_and_copy_textures` WOULD relocate and repath — nothing written.
-
-        The live call's own first half, so the two cannot disagree about which
-        file a texture would come from or where it would land: a preview that
-        can promise a different answer than the commit is worse than no preview.
-        Reads the disk (a walk is the only way to know what would be found) but
-        creates no folder, relocates no file and touches no datablock.
-
-        With ``use_valid_paths`` (default) an image whose filepath already resolves on disk is
-        its own source: a walk could only rediscover the same bytes, so ``search_dir`` is walked
-        only for what does not resolve, and may be omitted entirely when nothing does. A
-        resolving path outranks a walk hit of the same basename — it is the file the scene is
-        rendering with.
-
-        A TILED set (its path a ``<UDIM>`` pattern) resolves when its tiles are on disk, and the
-        walk finds a missing one by the tiles its pattern spells, taken whole from ONE folder --
-        the one holding its newest tile -- so two copies' tiles are never mixed. Its record's
-        ``source`` / ``destination`` are patterns; the commit relocates every tile.
-
-        Returns:
-            list[dict]: one record per texture that would be relocated —
-            ``source``, ``destination``, ``in_place`` (the source is already at
-            the destination, so only the stored path would change) and
-            ``images`` (the datablocks that would repath onto it)."""
-        import bpy
-
-        if not dest_dir:
-            return []
-        wanted = {}  # basename -> [image datablocks]
-        for img in _MatUtilsInternal._resolve_images(images):
-            # ``bpy.path.basename`` strips Blender's ``//`` relative prefix, which
-            # ``os.path`` (ntpath) misreads as a UNC root — yielding an empty tail.
-            base = bpy.path.basename(getattr(img, "filepath", "") or "").lower()
-            if base:
-                wanted.setdefault(base, []).append(img)
-        if not wanted:
-            return []
-
-        sources = {}  # basename -> source path
-        unresolved = dict(wanted)
-        if use_valid_paths:
-            unresolved = {}
-            for base, imgs in wanted.items():
-                hit = ""
-                for img in imgs:
-                    path = _MatUtilsInternal._abspath(img)
-                    if path and ptk.TiledPath.tiles(path):  # a set: its tiles
-                        hit = path
-                        break
-                if hit:
-                    sources[base] = hit
-                else:
-                    unresolved[base] = imgs
-
-        if unresolved and search_dir and os.path.isdir(search_dir):
-
-            def mtime_of(path):
-                try:
-                    return os.path.getmtime(path)
-                except OSError:
-                    return 0.0
-
-            # basename -> (mtime, source path). NEWEST wins, matching mayatk's dedup: a recursive
-            # walk routinely turns up versioned / archived / cloud-conflict copies of the same
-            # filename, and taking whichever the walk reached first binds to an arbitrary stale one.
-            found = {}
-            # A set's pattern -> the tiles it spells (each token's own glob), and per set
-            # {folder: its newest tile there}: the set is taken whole from one folder.
-            patterns = {
-                key: ptk.TiledPath.wildcard(key, None)
-                for key in unresolved
-                if ptk.TiledPath.has_token(key)
-            }
-            sets = {}
-            for root, _dirs, files in ptk.FileDependencies.walk(search_dir):
-                for f in files:
-                    key = f.lower()
-                    path = os.path.join(root, f)
-                    if key in unresolved:
-                        mtime = mtime_of(path)
-                        current = found.get(key)
-                        if current is None or mtime > current[0]:
-                            found[key] = (mtime, path)
-                        continue
-                    for set_key, pattern in patterns.items():
-                        if fnmatch.fnmatchcase(key, pattern):
-                            folders = sets.setdefault(set_key, {})
-                            folders[root] = max(folders.get(root, 0.0), mtime_of(path))
-            for key, (_mtime, path) in found.items():
-                sources[key] = path
-            for key, folders in sets.items():
-                folder = max(sorted(folders), key=folders.get)
-                spelled = bpy.path.basename(unresolved[key][0].filepath)
-                sources[key] = os.path.join(folder, spelled)
-
-        dest_key = os.path.normcase(os.path.abspath(dest_dir))
-        return [
-            {
-                "source": src_path,
-                "destination": os.path.join(dest_dir, os.path.basename(src_path)),
-                "in_place": os.path.normcase(os.path.dirname(os.path.abspath(src_path)))
-                == dest_key,
-                "images": wanted[key],
-            }
-            for key, src_path in sources.items()
-        ]
-
-    @staticmethod
-    def find_and_copy_textures(
-        images=None, search_dir=None, dest_dir=None, mode="copy", use_valid_paths=True
-    ):
-        """Gather the textures used by ``images`` and relocate them into ``dest_dir`` (``mode``
-        copy/move), then repath — mirror of the Texture Path Editor's *Find & Copy Textures*.
-
-        Which file comes from where is decided by :func:`plan_find_and_copy_textures`; this
-        commits that plan, a TILED set's every tile (:meth:`_relocate`). A match whose
-        destination already holds a different file is skipped (no overwrite, no wrong-file
-        rebind). Returns the number of images repathed."""
-        plan = MatUtils.plan_find_and_copy_textures(
-            images, search_dir, dest_dir, use_valid_paths
+        return TexturePathEditor().set_texture_directory(
+            _MatUtilsInternal._resolve_images(images),
+            target_dir,
+            relocate_mode=mode,
+            allow_missing=allow_missing,
         )
-        if not plan:
-            return 0
-        os.makedirs(dest_dir, exist_ok=True)
-        count = 0
-        for record in plan:
-            dst = record["destination"]
-            if _MatUtilsInternal._relocate(record["source"], dest_dir, mode) in (
-                "skip",
-                "error",
-            ):
-                continue  # different-size collision — don't clobber / wrong-rebind
-            for img in record["images"]:
-                img.filepath = MatUtils.to_project_relative(dst)
-                try:
-                    img.reload()
-                except RuntimeError:
-                    pass
-                count += 1
-        return count
 
     @classmethod
     def rename_texture_file(

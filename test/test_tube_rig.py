@@ -4,7 +4,8 @@ Run: blender --background --factory-startup --python blendertk/test/test_tube_ri
 Each strategy builds a valid rig on a cylinder and DEFORMS the mesh when its control moves (the
 real invariant): Spline IK (hook a curve control → bones refit → mesh follows), Anchor (move an
 anchor → the bone stretches), FK (rotate a bone → descendants + mesh follow). Plus the registry +
-per-strategy option declarations (the HYBRID source of both defaults and the panel widgets).
+per-strategy option declarations (the build defaults), and the selection API tentacle's shared Tube
+Rig panel drives: the mode table, Steps 1/2/3 and the end anchors read from the selection.
 """
 
 import sys
@@ -37,7 +38,6 @@ try:
         TubeStrategy,
         TUBE_STRATEGIES,
         SplineIKStrategy,
-        TubeRigSlots,
     )
 
     # ---- surface: classes exposed, register is a classmethod (no flat register_strategy)
@@ -317,7 +317,7 @@ try:
     check("twist: roll-control bone added", twist_bone is not None, f"{twist_bone}")
     # the isolated twist bone is a 2nd parentless root — _ordered_chain must still return the DEFORM
     # chain (11 bones), not mistake the single-bone control for the chain (b004 relies on this too).
-    ordered = TubeRigSlots._ordered_chain(b.armature)
+    ordered = TubeRig._ordered_chain(b.armature)
     check(
         "twist: _ordered_chain returns the deform chain, not the isolated control bone",
         len(ordered) == 11 and twist_bone not in ordered,
@@ -683,6 +683,212 @@ try:
         f"max bbox shift={delta:.2f}",
     )
 
+    # ============================ SIZES (mayatk's) ============================
+    # radius is the bone display radius (Auto = half the tube radius); controls follow the measured
+    # tube radius -- what the shared panel's Joint Size (-1 = Auto) means on both hosts.
+    reset()
+    t = tube("Sized", radius=0.5, depth=8.0)
+    rig = TubeRig(t, rig_name="sized")
+    joint_r, tube_r = rig.resolve_sizes(rig.resolve_centerline(8))
+    check(
+        "resolve_sizes: the control size is the measured tube radius, Auto joints half of it",
+        abs(tube_r - 0.5) < 0.08 and abs(joint_r - tube_r * 0.5) < 1e-6,
+        f"tube {tube_r:.3f} joint {joint_r:.3f}",
+    )
+    check("resolve_sizes: a typed joint size is kept", rig.resolve_sizes(None, 0.3)[0] == 0.3)
+
+    # ============================ SELECTION API (tentacle's Tube Rig panel) ============================
+    # The panel's one Slots class drives these exactly as it drives mayatk's (formerly the
+    # tube_rig_slot_check harness, which drove Blender's own panel).
+    def select_only(objs, active=None):
+        bpy.ops.object.select_all(action="DESELECT")
+        for o in objs:
+            o.select_set(True)
+        bpy.context.view_layer.objects.active = active or (objs[0] if objs else None)
+
+    def an_armature():
+        return next((o for o in bpy.data.objects if o.type == "ARMATURE"), None)
+
+    def mk_empty(name, loc):
+        e = bpy.data.objects.new(name, None)
+        e.location = loc
+        bpy.context.collection.objects.link(e)
+        return e
+
+    check(
+        "MODES: the panel's modes name registered strategies, in combo order",
+        [m.strategy for m in TubeRig.MODES] == ["spline", "anchor", "fk"]
+        and all(m.strategy in TUBE_STRATEGIES for m in TubeRig.MODES),
+    )
+    check(
+        "MODES: FK has no control count to edit (every bone is a control)",
+        not TubeRig.MODES[2].num_controls_editable,
+    )
+
+    reset()
+    a, b2 = tube("BatchA", depth=6.0), tube("BatchB", depth=6.0)
+    select_only([a, b2])
+    check(
+        "selected_tubes: every selected mesh is a build target",
+        sorted(o.name for o in TubeRig.selected_tubes()) == ["BatchA", "BatchB"],
+    )
+    check("selected_edges: none outside Edit Mode", TubeRig.selected_edges() is None)
+    first = TubeRig.for_build(a)
+    first.create_joints("spline", num_joints=6)
+    second = TubeRig.for_build(a)
+    check(
+        "for_build: an unnamed rig takes an unused <mesh>_RIG name",
+        first.rig_name == "BatchA_RIG" and second.rig_name == "BatchA_RIG_01",
+        f"{first.rig_name} / {second.rig_name}",
+    )
+    select_only([])
+    check("selected_tubes: nothing selected, nothing to build", TubeRig.selected_tubes() == [])
+
+    # ---- Step 1 -> 2 -> 3 on one hose, each read from the selection as the buttons do
+    reset()
+    t = tube("StepHose", depth=8.0)
+    step_bones = TubeRig.for_build(t, rig_name="step").create_joints("spline", num_joints=12)
+    arm = an_armature()
+    check(
+        "create_joints: a bone chain on the centerline (Step 1)",
+        arm is not None and len(arm.data.bones) == 11 and len(step_bones) == 11,
+        f"bones={len(step_bones)}",
+    )
+    check(
+        "create_joints: the mesh stays UNBOUND",
+        not any(m.type == "ARMATURE" for m in t.modifiers),
+    )
+    select_only([arm], active=arm)
+    kind, chain, controls = TubeRig.create_controls_from_selection(
+        "spline", num_controls=3, enable_twist=False, enable_auto_bend=False
+    )
+    tip = arm.pose.bones[TubeRig._ordered_chain(arm)[-1]]
+    check(
+        "create_controls_from_selection: Spline IK + 3 hooked controls (Step 2)",
+        kind == "Spline IK"
+        and len(controls) == 3
+        and any(c.type == "SPLINE_IK" for c in tip.constraints),
+        f"{kind} {controls}",
+    )
+    select_only([arm], active=arm)
+    try:
+        TubeRig.create_controls_from_selection("spline", num_controls=3)
+        refused = False
+    except ValueError as e:
+        refused = "already exist" in str(e)
+    check("create_controls_from_selection: a chain that has controls is refused", refused)
+    select_only([t, arm], active=arm)
+    mesh_name, count, modifier = TubeRig.bind_from_selection()
+    check(
+        "bind_from_selection: the mesh binds to the chain (Step 3)",
+        mesh_name == "StepHose"
+        and count == 11
+        and any(m.type == "ARMATURE" and m.object == arm for m in t.modifiers),
+        f"{mesh_name} {count} {modifier}",
+    )
+    x0 = eval_bounds(t)[1].x
+    mid = bpy.data.objects[controls[len(controls) // 2]]
+    mid.location.x += 4.0
+    bpy.context.view_layer.update()
+    x1 = eval_bounds(t)[1].x
+    check(
+        "the step-built rig DEFORMS (a control move bends the mesh)",
+        x1 > x0 + 1.0,
+        f"max-x {x0:.2f} -> {x1:.2f}",
+    )
+
+    # ---- end anchors on the step-built rig: two at one end refused, one per end constrained
+    bpy.context.view_layer.update()
+    mw, db = arm.matrix_world, arm.data.bones
+    ch = TubeRig._ordered_chain(arm)
+    a_lo = mk_empty("Anchor_lo", mw @ db[ch[0]].head_local)
+    a_lo2 = mk_empty("Anchor_lo2", (mw @ db[ch[0]].head_local) + Vector((0.2, 0.0, 0.0)))
+    a_hi = mk_empty("Anchor_hi", mw @ db[ch[-1]].tail_local)
+    bpy.context.view_layer.update()
+    select_only([t, arm, a_lo, a_lo2], active=arm)
+    try:
+        TubeRig.constrain_ends_from_selection()
+        refused = False
+    except ValueError as e:
+        refused = "Both anchors" in str(e)
+    check("constrain_ends_from_selection: two anchors at one end are refused", refused)
+    select_only([t, arm, a_lo, a_hi], active=arm)  # the mesh too: never taken for an anchor
+    ends = TubeRig.constrain_ends_from_selection()
+    check(
+        "constrain_ends_from_selection: one anchor bone per end",
+        sorted(e for e, _, _ in ends) == ["end", "start"]
+        and len([bn for bn in arm.data.bones if "_anchor_" in bn.name]) == 2,
+        f"{ends}",
+    )
+    xb0 = eval_bounds(t)[1].x
+    a_hi.location.x += 6.0
+    bpy.context.view_layer.update()
+    xb1 = eval_bounds(t)[1].x
+    check(
+        "constrain_ends_from_selection: an anchor drives its end of the mesh",
+        xb1 > xb0 + 1.0,
+        f"max-x {xb0:.2f} -> {xb1:.2f}",
+    )
+
+    # ---- Reverse Direction flips Step 1's chain start
+    heads = []
+    for rev in (False, True):
+        reset()
+        rt = tube("RevStep", depth=8.0)
+        TubeRig.for_build(rt, rig_name="revstep").create_joints(
+            "spline", num_joints=12, reverse=rev
+        )
+        heads.append(an_armature().data.bones[0].head_local.z)
+    check(
+        "create_joints: Reverse Direction flips the chain's start",
+        abs(heads[0] - heads[1]) > 1.0,
+        f"{heads}",
+    )
+
+    # ---- Anchor and FK Step 2
+    reset()
+    t = tube("StepPiston", depth=6.0)
+    TubeRig.for_build(t, rig_name="steppiston").create_joints("anchor")
+    arm = an_armature()
+    select_only([arm], active=arm)
+    kind, chain, controls = TubeRig.create_controls_from_selection("anchor")
+    check(
+        "anchor Step 2: one bone, two end controls, a stretch to the end",
+        kind == "Anchor"
+        and len(chain) == 1
+        and len(controls) == 2
+        and any(c.type == "STRETCH_TO" for c in arm.pose.bones[chain[0]].constraints),
+        f"{kind} {chain} {controls}",
+    )
+    reset()
+    t = tube("StepTail", depth=8.0)
+    TubeRig.for_build(t, rig_name="steptail").create_joints("fk", num_joints=6)
+    arm = an_armature()
+    select_only([arm], active=arm)
+    kind, chain, controls = TubeRig.create_controls_from_selection("fk")
+    check(
+        "fk Step 2: every bone becomes a control (a custom shape each)",
+        kind == "FK"
+        and controls == chain
+        and all(arm.pose.bones[bn].custom_shape is not None for bn in chain),
+        f"{kind} {len(chain)}",
+    )
+
+    # ---- guards: Step 2 / Step 3 without an armature are refused with the fix
+    reset()
+    t = tube("Only", depth=6.0)
+    select_only([t])
+    for label, call in (
+        ("create_controls_from_selection", lambda: TubeRig.create_controls_from_selection()),
+        ("bind_from_selection", lambda: TubeRig.bind_from_selection()),
+    ):
+        try:
+            call()
+            guarded = False
+        except ValueError:
+            guarded = True
+        check(f"{label}: no armature selected is refused", guarded)
+
     # ============================ dispatch guard + extensibility ============================
     reset()
     t = tube("G")
@@ -813,15 +1019,34 @@ try:
     )
 
     check(
-        "undo: b000 is NOT decorated (build is one step; an outer push re-stales drivers)",
-        not hasattr(TubeRigSlots.b000, "__wrapped__"),
-    )
-    check(
-        "undo: the granular step slots ARE decorated",
+        "undo: each step of the panel's step workflow is one step",
         all(
-            hasattr(getattr(TubeRigSlots, n), "__wrapped__")
-            for n in ("b001", "b002", "b003", "b004")
+            hasattr(getattr(TubeRig, n), "__wrapped__")
+            for n in (
+                "create_joints",
+                "create_controls_from_selection",
+                "bind_from_selection",
+                "constrain_ends_from_selection",
+            )
         ),
+    )
+
+    # A batch (the panel's One-Click over several tubes) is ONE step too, and its drivers
+    # still evaluate after the step's push (undo_step recompiles them, as undo_checkpoint).
+    reset()
+    bpy.ops.ed.undo_push(message="baseline batch")
+    with TubeRig.undo_step("Tube Rig: Test Batch"):
+        for k in range(2):
+            TubeRig(tube(f"UndoBatch{k}", depth=6.0), rig_name=f"undobatch{k}").build(
+                "fk", num_joints=4
+            )
+    batch = [o.name for o in bpy.data.objects if o.name.startswith("undobatch")]
+    bpy.ops.ed.undo()
+    left = [o.name for o in bpy.data.objects if o.name.startswith("undobatch")]
+    check(
+        "undo_step: one press removes every rig the batch built",
+        batch and not left,
+        f"built {len(batch)}, left {left[:4]}",
     )
 
     check(

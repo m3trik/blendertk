@@ -36,6 +36,19 @@ EDITOR_TYPES = {
     "Asset Browser": "ASSETS",
     "Spreadsheet": "SPREADSHEET",
     "Preferences": "PREFERENCES",
+    # mayatk's names (the reference) for the editors Blender serves with its own,
+    # so a panel shared by both hosts opens either by one name.
+    "Attribute Editor": "PROPERTIES",
+    "Tool Settings": "PROPERTIES",
+    "Channel Box": "PROPERTIES",
+    "Layer Editor": "OUTLINER",
+    "Node Editor": "ShaderNodeTree",
+    "Hypershade": "ShaderNodeTree",
+    "Command Line": "CONSOLE",
+    # mayatk's rendering editors: Properties tabs (UiUtils._PROPERTIES_TABS).
+    "Render Settings": "PROPERTIES",
+    "Render Setup": "PROPERTIES",
+    "Rendering Flags": "PROPERTIES",
 }
 
 
@@ -145,6 +158,46 @@ class _UiUtilsInternal(object):
         ):
             return bpy.ops.screen.screen_full_area(use_hide_panels=hide_panels)
 
+    @staticmethod
+    def _raise_native_window(title_fragment):
+        """Best-effort: lift this process's visible GHOST window whose title holds
+        *title_fragment* to the top, and to the foreground where Windows allows it
+        (always same-process; denied cross-process, where the lift still applies).
+        An operator can open a window invisibly while another process holds the
+        foreground (the user came from Maya straight to a Qt panel). Windows-only and
+        English-UI titles; a no-op elsewhere or with no match."""
+        import sys
+
+        if sys.platform != "win32":
+            return
+        import ctypes
+        import os
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        pid = os.getpid()
+        found = []
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def _enum(hwnd, _lparam):
+            owner = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+            if owner.value == pid and user32.IsWindowVisible(hwnd):
+                class_name = ctypes.create_unicode_buffer(64)
+                user32.GetClassNameW(hwnd, class_name, 64)
+                if class_name.value == "GHOST_WindowClass":
+                    title = ctypes.create_unicode_buffer(128)
+                    user32.GetWindowTextW(hwnd, title, 128)
+                    if title_fragment in title.value:
+                        found.append(hwnd)
+            return True
+
+        user32.EnumWindows(_enum, 0)
+        if found:
+            hwnd_top, swp_nomove, swp_nosize = 0, 0x2, 0x1
+            user32.SetWindowPos(found[0], hwnd_top, 0, 0, 0, 0, swp_nomove | swp_nosize)
+            user32.SetForegroundWindow(found[0])
+
 
 class UiUtils(_UiUtilsInternal):
     """Namespace mirror (helpers also exposed module-level)."""
@@ -153,6 +206,58 @@ class UiUtils(_UiUtilsInternal):
     def get_editor_types():
         """The friendly-name → ``Area.ui_type`` map understood by :func:`open_editor`."""
         return dict(EDITOR_TYPES)
+
+    #: Category -> the editors a browsing UI lists under it: Blender's own editor
+    #: set, never mayatk's alias names. Every name is a key of
+    #: :data:`EDITOR_TYPES`. Mirror of mayatk's ``UiUtils._EDITOR_CATEGORIES``.
+    _EDITOR_CATEGORIES = {
+        "General Editors": (
+            "Outliner",
+            "Properties",
+            "Preferences",
+            "Spreadsheet",
+            "Text Editor",
+            "Python Console",
+            "Info Log",
+            "File Browser",
+            "Asset Browser",
+            "3D Viewport",
+        ),
+        "Modeling Editors": ("UV Editor", "Image Editor"),
+        "Animation Editors": (
+            "Timeline",
+            "Dope Sheet",
+            "Graph Editor",
+            "Drivers",
+            "NLA Editor",
+        ),
+        "Rendering Editors": (
+            "Shader Editor",
+            "Compositor",
+            "Geometry Nodes",
+            "Video Sequencer",
+            "Movie Clip Editor",
+        ),
+    }
+
+    @classmethod
+    def get_editor_categories(cls):
+        """``{category: [editor name, ...]}``: the editors a browsing UI lists, each
+        opening with :func:`open_editor`. Mirror of mayatk's
+        ``UiUtils.get_editor_categories``. A copy: editing it changes nothing."""
+        return {
+            category: [name for name in names if name in EDITOR_TYPES]
+            for category, names in cls._EDITOR_CATEGORIES.items()
+        }
+
+    #: mayatk's editor name -> the Properties tab that serves it: the render
+    #: settings, Render Setup's render layers (View Layers) and the per-object
+    #: Rendering Flags (the Object tab's ray Visibility).
+    _PROPERTIES_TABS = {
+        "Render Settings": "RENDER",
+        "Render Setup": "VIEW_LAYER",
+        "Rendering Flags": "OBJECT",
+    }
 
     @staticmethod
     def open_editor(editor, properties_context=None):
@@ -177,6 +282,7 @@ class UiUtils(_UiUtilsInternal):
         import bpy
 
         ui_type = EDITOR_TYPES.get(editor, editor)
+        properties_context = properties_context or UiUtils._PROPERTIES_TABS.get(editor)
         if ui_type == "PREFERENCES":
             try:
                 with CoreUtils.window_context_override():
@@ -224,6 +330,53 @@ class UiUtils(_UiUtilsInternal):
                 pass  # tab not available in this Blender version
         return window
 
+    #: Preferences section (mayatk's names) -> the Preferences editor tab it shows.
+    #: Mirror of mayatk's ``UiUtils._PREFERENCE_SECTIONS`` (Maya's own windows).
+    _PREFERENCE_SECTIONS = {
+        "general": "INTERFACE",
+        "colors": "THEMES",
+        "hotkeys": "KEYMAP",
+        "plugins": "ADDONS",
+    }
+
+    @classmethod
+    def open_preferences(cls, section=None):
+        """Open Blender's Preferences editor on *section*'s tab: ``"general"`` (the
+        default) Interface, ``"colors"`` Themes, ``"hotkeys"`` Keymap, ``"plugins"``
+        Add-ons. Mirror of mayatk's ``UiUtils.open_preferences`` (Maya's own windows).
+
+        ``screen.userpref_show`` runs under :func:`window_context_override` (its poll
+        reads ``context.window``, None from tentacle's Qt event pump), and the window
+        is lifted afterwards (:func:`_raise_native_window`): with another process
+        holding the foreground it can open fully obscured.
+
+        Returns:
+            str: The tab shown.
+
+        Raises:
+            ValueError: An unknown *section*.
+            RuntimeError: Blender refused to open it (its words).
+        """
+        import bpy
+
+        tab = cls._PREFERENCE_SECTIONS.get(section or "general")
+        if tab is None:
+            raise ValueError(
+                f"Unknown preferences section {section!r}; use one of "
+                f"{sorted(cls._PREFERENCE_SECTIONS)}."
+            )
+        try:
+            bpy.context.preferences.active_section = tab
+        except (TypeError, AttributeError):
+            pass  # a tab this Blender lacks: the editor opens on its last one
+        try:
+            with CoreUtils.window_context_override():
+                bpy.ops.screen.userpref_show()
+        except Exception as error:  # noqa: BLE001 - a poll refusal or no window
+            raise RuntimeError(str(error)) from error
+        _UiUtilsInternal._raise_native_window("Preferences")
+        return tab
+
     @staticmethod
     def reveal_in_outliner(objects):
         """Select *objects* (names or Objects) and scroll the Outliner to the active one.
@@ -270,6 +423,16 @@ class UiUtils(_UiUtilsInternal):
 
         wins = bpy.context.window_manager.windows
         return wins[0] if wins else None
+
+    @staticmethod
+    def browse_directory(start="", caption="Select Folder", ok_caption="Select"):
+        """Pick a directory in the platform's folder dialog (Qt); ``""`` when
+        dismissed. Mirror of mayatk's ``UiUtils.browse_directory`` (Maya's own
+        ``fileDialog2`` there). *ok_caption* is taken for that signature; the
+        platform dialog keeps its own button label. GUI-only (modal)."""
+        from qtpy import QtWidgets
+
+        return QtWidgets.QFileDialog.getExistingDirectory(None, caption, start or "") or ""
 
     @staticmethod
     def find_editor(editor, window=None):
@@ -554,6 +717,152 @@ class UiUtils(_UiUtilsInternal):
         return hasattr(bpy.types, menu_idname)
 
     @staticmethod
+    def get_operator(idname):
+        """The ``bpy.ops`` callable for a dotted operator id (``"wm.link"``), or None
+        when no such operator is registered in this Blender (an add-on's that is off,
+        one a newer Blender removed: Collada left in 5.0). The operator analogue of
+        :func:`menu_exists`.
+
+        ``bpy.ops.<group>.<name>`` resolves for ANY name -- the callable fails only
+        when called -- so registration is proven by the operator's RNA type, which
+        an unregistered one lacks.
+        """
+        import bpy
+
+        group, _, name = idname.partition(".")
+        if not (group and name):
+            return None
+        try:
+            op = getattr(getattr(bpy.ops, group), name)
+            op.get_rna_type()  # raises for an unregistered operator
+        except Exception:  # noqa: BLE001 - KeyError / RuntimeError / AttributeError by version
+            return None
+        return op
+
+    @classmethod
+    def invoke_operator_dialog(cls, idname, **props):
+        """Invoke an operator by dotted id as a menu click does (``INVOKE_DEFAULT``):
+        its file browser or properties popup opens, an operator without one runs.
+
+        Runs under :func:`window_context_override`: an invoked dialog attaches to
+        ``context.window`` and the operator reads its targets from screen context,
+        both dead in the Qt-pump state, where a bare invoke raised or opened nothing.
+        Unlike ``MenuHarvest.invoke_operator`` it runs now, not on the next timer
+        tick, and raises rather than popping the error.
+
+        Returns:
+            The operator's result set (``{"RUNNING_MODAL"}``, ``{"FINISHED"}`` ...),
+            or None when it is not registered (:meth:`get_operator`) -- the caller
+            words that message.
+
+        Raises:
+            RuntimeError: The operator refused the context (its poll) or failed.
+        """
+        op = cls.get_operator(idname)
+        if op is None:
+            return None
+        with CoreUtils.window_context_override():
+            return op("INVOKE_DEFAULT", **props)
+
+    #: Friendly tool name -> ``(workspace tool idname, the Object.type whose Edit
+    #: Mode it needs, or None)``: the registry behind :meth:`get_tool_types` /
+    #: :meth:`set_tool`, named as the shared ``.ui`` names the tools. Mirror of
+    #: mayatk's ``UiUtils._TOOLS`` (MEL there). Per-mode availability verified on
+    #: Blender 5.1: knife / loop_cut / poly_build exist only in mesh Edit Mode, pen /
+    #: draw only in curve Edit Mode; measure / annotate / select_* in every mode.
+    _TOOLS = {
+        "Multi-Cut": ("builtin.knife", "MESH"),
+        "Insert Edgeloop": ("builtin.loop_cut", "MESH"),
+        "Quad Draw": ("builtin.poly_build", "MESH"),
+        "Edit Curve Tool": ("builtin.pen", "CURVE"),
+        "Add Points Tool": ("builtin.draw", "CURVE"),
+        "Measure": ("builtin.measure", None),
+        "Annotation": ("builtin.annotate", None),
+        "Marquee Select": ("builtin.select_box", None),
+        "Lasso Select": ("builtin.select_lasso", None),
+        "Paint Select": ("builtin.select_circle", None),
+    }
+
+    @classmethod
+    def get_tool_types(cls):
+        """The friendly-name -> ``(tool idname, object type)`` map understood by
+        :meth:`set_tool` (mirror of mayatk's ``UiUtils.get_tool_types``, MEL there).
+        A copy: editing it changes nothing."""
+        return dict(cls._TOOLS)
+
+    @classmethod
+    def set_tool(cls, tool):
+        """Activate a viewport tool: a friendly name from :meth:`get_tool_types`, or a
+        workspace tool idname (``"builtin.knife"``). Mirror of mayatk's
+        ``UiUtils.set_tool``, the call a panel shared by both hosts makes.
+
+        A tool that exists only in an object type's Edit Mode (registered with that
+        type; a raw idname of a registered tool keeps it) enters the mode first
+        (:func:`ensure_component_mode`), the way Maya's tools enter component mode on
+        their own: Blender resolves a tool by (space, *mode*), and from Object Mode it
+        only logs "Tool ... not found" -- a warning, not an error -- while nothing
+        changes. The tool is set under a VIEW_3D override (bare, ``wm.tool_set_by_id``
+        targets the active space, which is not the viewport when a Qt panel calls it,
+        and reports success having changed nothing), and the viewports are tagged for
+        redraw, since a scripted change does not refresh the toolbar.
+
+        Returns:
+            str: The tool idname that was set.
+
+        Raises:
+            RuntimeError: No 3D viewport is open, or Blender refused the tool.
+            ValueError: The tool needs Edit Mode on an object type none of the
+                active or selected objects is.
+        """
+        import bpy
+
+        idname, object_type = cls._TOOLS.get(tool, (tool, None))
+        if object_type is None:
+            object_type = next(
+                (kind for known, kind in cls._TOOLS.values() if known == idname), None
+            )
+        ctx = CoreUtils.get_view3d_context()
+        if not ctx:
+            raise RuntimeError(
+                "No 3D viewport available \u2014 open a 3D view to use this tool."
+            )
+        if object_type and not CoreUtils.ensure_component_mode(object_type):
+            raise ValueError(
+                f"{tool} needs an active or selected {object_type.lower()} object."
+            )
+        # ``get_view3d_context`` may give ``region=None``; setting a tool needs none.
+        ctx = {k: v for k, v in ctx.items() if v is not None}
+        try:
+            with bpy.context.temp_override(**ctx):
+                bpy.ops.wm.tool_set_by_id(name=idname)
+        except Exception as error:  # noqa: BLE001 - a poll failure or bad context
+            raise RuntimeError(str(error)) from error
+        CoreUtils.tag_redraw("VIEW_3D")
+        return idname
+
+    @classmethod
+    def current_tool(cls):
+        """The 3D viewport's active tool: its friendly name from :meth:`get_tool_types`,
+        else its idname; None without a workspace. Mirror of mayatk's
+        ``UiUtils.current_tool``. Blender keeps one active tool per workspace and
+        mode, so the answer follows the mode the active object is in. Read under
+        :func:`window_context_override` (``context.workspace`` is the window's).
+        """
+        import bpy
+
+        with CoreUtils.window_context_override():
+            workspace = getattr(bpy.context, "workspace", None)
+            if workspace is None:
+                return None
+            tool = workspace.tools.from_space_view3d_mode(bpy.context.mode, create=False)
+        idname = getattr(tool, "idname", None)
+        if not idname:
+            return None
+        return next(
+            (name for name, (known, _) in cls._TOOLS.items() if known == idname), idname
+        )
+
+    @staticmethod
     def dispatch_log_link(url, logger=None) -> bool:
         """Handle ``action://`` links emitted by ``logger.log_link()`` in a QTextBrowser.
 
@@ -565,7 +874,9 @@ class UiUtils(_UiUtilsInternal):
                          Accepts ``?path=`` (canonical) or ``?filepath=`` (legacy).
             ``preview`` — show the ``.glb`` at *path* in the WebXR preview
                          (``WebXrPreview.preview_file``: the panel's own server and tab).
-            ``select`` — select *node* (an object name) in the viewport, making it active.
+            ``select`` — select *node* (an object name, or a hierarchy path such as
+                         ``Grp|Child`` -- mayatk's DAG-path form -- whose leaf is one) in
+                         the viewport, making it active.
             ``reveal`` — select *node* and frame it in the 3D viewport (Blender has no scripted
                          Outliner "reveal" like Maya's ``showSelected``; framing the viewport is the
                          closest visible feedback).
@@ -645,6 +956,10 @@ class UiUtils(_UiUtilsInternal):
                 None,
             ) or bpy.data.objects.get(name)
 
+        # A node named by its hierarchy path (``Grp|Child``: the DAG-path form mayatk's
+        # links carry, which the shared Hierarchy Sync panel's diff log emits for both
+        # hosts) is the object its leaf names.
+        named = [n.rsplit("|", 1)[-1] for n in named]
         objs = [o for o in map(local, named) if o is not None]
         if len(objs) != len(named) and logger:
             found = {o.name for o in objs}
@@ -732,3 +1047,47 @@ class UiUtils(_UiUtilsInternal):
         # Headless, or no window to pop into — degrade to the console.
         print(f"{title}: {text}")
         return None
+
+    @classmethod
+    def annotate(cls):
+        """Activate Blender's Annotate tool (freehand notes over the viewport).
+        Mirror of mayatk's ``UiUtils.annotate`` (Maya's Create > Annotation there:
+        a text label on the selected object).
+
+        Returns:
+            str: ``"Annotation"``, the tool now active (:meth:`set_tool`'s name).
+
+        Raises:
+            RuntimeError: No 3D viewport is open, or Blender refused the tool.
+        """
+        cls.set_tool("Annotation")
+        return "Annotation"
+
+    @staticmethod
+    @CoreUtils.undoable
+    def open_pencil():
+        """Add an empty Grease Pencil object to draw into: Blender's pencil is an
+        object. Mirror of mayatk's ``UiUtils.open_pencil`` (Blue Pencil there, 2D
+        strokes over the viewport). Object Mode first, where Blender's own Add
+        menu offers it; runs under :func:`window_context_override` (the operator
+        reads screen context, dead in the Qt-pump state). One undo step.
+
+        Returns:
+            The new object.
+
+        Raises:
+            RuntimeError: This Blender has no Grease Pencil operator, or refused it.
+        """
+        # Blender 4.3 renamed the operator; the older name stays for 4.2.
+        op = UiUtils.get_operator("object.grease_pencil_add") or UiUtils.get_operator(
+            "object.gpencil_add"
+        )
+        if op is None:
+            raise RuntimeError("Grease Pencil is not available in this Blender version.")
+        CoreUtils.ensure_object_mode()
+        with CoreUtils.window_context_override():
+            try:
+                op(type="EMPTY")
+            except (RuntimeError, TypeError) as error:
+                raise RuntimeError(str(error)) from error
+        return CoreUtils.active_object()

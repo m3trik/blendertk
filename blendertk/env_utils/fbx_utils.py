@@ -160,13 +160,14 @@ class _FbxUtilsInternal(object):
 
     @staticmethod
     def _is_transport_node(obj) -> bool:
-        """Is *obj* a node whose payload is its CUSTOM PROPERTIES -- the
-        ``data_export`` carrier, or a staged curve proxy
+        """Is *obj* a node whose payload is its CUSTOM PROPERTIES -- a
+        ``data_export`` carrier (``DataNodes.is_carrier``, the record
+        contract's test), or a staged curve proxy
         (``ptk.MeshConvert.CURVE_PROXY_MARKER``)?"""
         from blendertk.node_utils.data_nodes import DataNodes
 
         try:
-            return obj.name == DataNodes.EXPORT or bool(
+            return DataNodes.is_carrier(obj.name) or bool(
                 obj.get(ptk.MeshConvert.CURVE_PROXY_MARKER)
             )
         except (AttributeError, ReferenceError):
@@ -277,10 +278,10 @@ class _FbxUtilsInternal(object):
         try:
             for obj in _FbxUtilsInternal._resolved_objects(objects):
                 parent = obj.parent
-                is_carrier = obj.name == DataNodes.EXPORT
+                is_carrier = DataNodes.is_carrier(obj.name)
                 rides_carrier = (
                     parent is not None
-                    and parent.name == DataNodes.EXPORT
+                    and DataNodes.is_carrier(parent.name)
                     and bool(obj.get(ptk.MeshConvert.CURVE_PROXY_MARKER))
                 )
                 # A linked carrier is not this file's to edit.
@@ -2034,7 +2035,7 @@ class FbxUtils(_FbxUtilsInternal):
     PRODUCERS: Dict[Any, Tuple[str, str, str]] = {
         ptk.SceneRecords.SHOTS: (
             "blendertk.anim_utils.shots._shots",
-            "BlenderShotStore",
+            "ShotStore",
             "produce_export_records",
         ),
         # The sound strips (mayatk's row is its AudioClips; Blender's engine
@@ -2151,54 +2152,40 @@ class FbxUtils(_FbxUtilsInternal):
         class does not have resolves to ``None`` with a WARNING: that is a
         misspelt row, and skipping it quietly would stop a record shipping (or
         a stager finishing) with no sign of why.  A column the row leaves
-        ``None`` resolves to ``None`` quietly: a declared one-way stage.
+        ``None`` resolves to ``None`` quietly: a declared one-way stage. The
+        rule is ``ptk.SceneRecords.resolve_row``, logged here.
         """
-        import importlib
-
-        try:
-            owner = getattr(importlib.import_module(module_path), cls_name)
-        except Exception:  # an uninstalled subsystem is fine
-            logger.debug("%s unavailable; skipped.", label, exc_info=True)
-            return None
-        resolved = []
-        for method in methods:
-            if not method:  # a column the row leaves empty: a one-way stage
-                resolved.append(None)
-                continue
-            fn = getattr(owner, method, None)
-            if fn is None:
-                logger.warning(
-                    "%s names %s.%s.%s, which does not exist; skipped.",
-                    label,
-                    module_path,
-                    cls_name,
-                    method,
-                )
-            resolved.append(fn)
-        return tuple(resolved)
+        return ptk.SceneRecords.resolve_row(
+            label, module_path, cls_name, *methods, log=logger
+        )
 
     @classmethod
     def producers(cls, only: Optional[Iterable[Any]] = None) -> Dict[Any, Callable]:
         """:attr:`PRODUCERS` resolved to callables, unimportable ones skipped;
         *only* (specs or keys) narrows the table."""
-        wanted = (
-            None if only is None else {ptk.SceneRecords.resolve(k).key for k in only}
+        return ptk.SceneRecords.resolved_producers(
+            cls.PRODUCERS, cls.HOST, only, log=logger
         )
-        table: Dict[Any, Callable] = {}
-        for spec, row in ptk.SceneRecords.producer_rows(cls.PRODUCERS, cls.HOST).items():
-            if wanted is not None and spec.key not in wanted:
-                continue
-            resolved = cls._resolve_row(f"Producer for {spec.key!r}", *row)
-            if resolved and resolved[0] is not None:
-                table[spec] = resolved[0]
-        return table
 
     @classmethod
     def export_context(
-        cls, mode: str = ptk.ExportContext.PIPELINE, **decisions
+        cls,
+        mode: str = ptk.ExportContext.PIPELINE,
+        writer: str = "fbx",
+        writer_options: Optional[Dict[str, Any]] = None,
+        **decisions,
     ) -> ptk.ExportContext:
         """A context for this file: provenance filled in, *decisions*
-        (``clip_mode``, ``clip_span``, ``rendering``, ``scope``) as given."""
+        (``clip_mode``, ``clip_span``, ``rendering``, ``scope``) as given.
+
+        A *scope* names the objects the write ships as well (``nodes``: each
+        object it names and all its descendants, :meth:`_shipped_nodes`),
+        what the snapshot narrows each export-scoped record by (mirror of
+        mayatk's). The *writer* (``"fbx"``, ``"gltf"``) and its
+        *writer_options* (the exporter's keyword arguments:
+        ``apply_unit_scale``, ``global_scale``) state the unit every record
+        is labelled with (``unit_scale``: ``ptk.ExportContext.WRITER_UNITS``);
+        ``writer=None`` states none, and each record keeps the scene's."""
         try:
             import bpy
 
@@ -2209,7 +2196,48 @@ class FbxUtils(_FbxUtilsInternal):
             }
         except ImportError:
             source = {"application": "blender"}
+        if decisions.get("scope") is not None and "nodes" not in decisions:
+            decisions["nodes"] = cls._shipped_nodes(decisions["scope"])
+        if "unit_scale" not in decisions:
+            decisions["unit_scale"] = cls._writer_unit(writer, writer_options)
         return ptk.ExportContext(mode=mode, source=source, **decisions)
+
+    @classmethod
+    def _writer_unit(
+        cls, writer: Optional[str], options: Optional[Dict[str, Any]] = None
+    ) -> Optional[float]:
+        """The metres one Blender unit is in the file Blender's *writer*
+        writes with *options* (``ptk.ExportContext.writer_unit``); ``None``
+        for no writer, or outside Blender."""
+        if writer is None:
+            return None
+        try:
+            from blendertk.core_utils.units import Units
+
+            scene = Units.metres_per("internal")
+        except Exception:  # noqa: BLE001 - no scene: no unit to state
+            return None
+        return ptk.ExportContext.writer_unit(cls.HOST, writer, scene, options)
+
+    @staticmethod
+    def _shipped_nodes(roots: Iterable[Any]) -> frozenset:
+        """The name of every node a write of *roots* (names or objects)
+        ships: each root and all its descendants -- the export set a scope
+        names (``LightmapRecords._marker_records``' reading) -- and each
+        shipped armature's bones, which the FBX writes as nodes of their own
+        (an articulated rig's joints)."""
+        import bpy
+
+        names = set()
+        for root in roots or ():
+            obj = bpy.data.objects.get(root) if isinstance(root, str) else root
+            if obj is None:
+                continue
+            for shipped in (obj, *obj.children_recursive):
+                names.add(shipped.name)
+                if shipped.type == "ARMATURE" and shipped.data is not None:
+                    names.update(bone.name for bone in shipped.data.bones)
+        return frozenset(names)
 
     @classmethod
     def publish(
@@ -2275,13 +2303,7 @@ class FbxUtils(_FbxUtilsInternal):
         """The stager table for a bracket: the known stagers (*names* narrows
         them; ``None`` = all) resolved to callables, then every session
         stager -- those always run."""
-        table: Dict[str, Tuple[Optional[Callable], Optional[Callable]]] = {}
-        for name, row in ptk.SceneRecords.stager_rows(cls.STAGERS, cls.HOST).items():
-            if names is not None and name not in names:
-                continue
-            resolved = cls._resolve_row(f"Stager {name!r}", *row)
-            if resolved is not None:
-                table[name] = resolved
+        table = ptk.SceneRecords.resolved_stagers(cls.STAGERS, cls.HOST, names, log=logger)
         table.update(cls._session_stagers)
         return table
 
@@ -2438,6 +2460,35 @@ class FbxUtils(_FbxUtilsInternal):
             yield
         finally:
             cls._export_depth = max(cls._export_depth - 1, 0)
+
+    @classmethod
+    @contextlib.contextmanager
+    def _raw_write_scoped(cls, shipped):
+        """Ship the carrier's records narrowed to *shipped* for the block --
+        a selected write outside any bracket -- and put the scene's whole
+        copy back after it.
+
+        mayatk's session hook scopes a raw Export Selection the same way
+        (``FbxUtils._raw_export_scope``); Blender has no before-export event,
+        so the write does it. Only the narrowing: no producer or stager
+        runs, as none does on a raw Blender write. A write inside a bracket,
+        or one that ships no carrier, is left alone (measured 2026-10-31:
+        both cubes' lightmaps and the other cube's shadow plane shipped)."""
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        names = tuple(obj.name for obj in shipped)
+        if cls._export_depth or DataNodes.EXPORT not in names:
+            yield
+            return
+        snapshot = ptk.ExportSnapshot.assemble({}, cls.export_context(scope=names))
+        snapshot.commit(DataNodes)
+        try:
+            yield
+        finally:
+            try:
+                snapshot.restore_scene_wide(DataNodes)
+            except Exception:  # noqa: BLE001 - never costs the export
+                logger.warning("Scene records not restored after the write.", exc_info=True)
 
     # -- opt-ins (parity with mayatk's session hook) ---------------------------
 
@@ -2946,6 +2997,8 @@ class FbxUtils(_FbxUtilsInternal):
                 with _FbxUtilsInternal._range_covering(
                     scene,
                     (FbxUtils._pending_takes or ()) if opts.get("bake_anim") else (),
+                ), FbxUtils._raw_write_scoped(
+                    CoreUtils.selected_objects() if selection_only else ()
                 ):
                     bpy.ops.export_scene.fbx(filepath=filepath, **opts)
                     # One rewrite of the file for what the exporter cannot
@@ -3228,9 +3281,10 @@ class FbxUtils(_FbxUtilsInternal):
 
         The records name their files by file name -- ``lightmaps`` its
         maps and reflection probe, ``shadows`` its silhouette, atlas
-        and horizon maps -- and a lighting-only bake binds its maps to no
-        material, so the FBX carried none of them and every consumer had them
-        copied in beside it. ``ptk.FbxMedia.embed_dependencies`` puts each
+        and horizon maps, ``materials`` each material's maps -- and a
+        lighting-only bake binds its maps to no material (nor can an
+        openPBRSurface's slots carry its own), so the FBX carried none of
+        them and every consumer had them copied in beside it. ``ptk.FbxMedia.embed_dependencies`` puts each
         inside the file under its name, the form Unity's importer extracts,
         resolved where this scene keeps it: *search_dirs*, else
         :meth:`LightmapRecords.search_dirs` -- the folders the GLB build joins

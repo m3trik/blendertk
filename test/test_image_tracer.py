@@ -4,7 +4,8 @@ Two independent dependency seams, so the file degrades gracefully in either envi
 
   * **bpy** present (Blender harness) → tests ``NurbsUtils.create_curve`` / ``add_spline`` /
     ``curve_to_mesh`` and ``ImageTracer.create_mesh`` / ``create_negative_space_mesh`` (2D-fill +
-    holes) + ``ImageTracerSlots`` routing. Blender ships no cv2, so the contour checks self-skip.
+    holes). Blender ships no cv2, so the contour checks self-skip.
+  * Either mode → the ``use_blue_pencil`` refusal (mayatk's signature; Blender has no Blue Pencil).
   * **cv2** present (workspace ``.venv``) → tests the pure ``ImageTracer._contours_from_image``
     contour extraction on a synthetic image. The .venv has no bpy, so the curve/mesh checks skip.
 
@@ -37,7 +38,19 @@ def check(name, cond, detail=""):
 
 try:
     from blendertk.nurbs_utils._nurbs_utils import NurbsUtils
-    from blendertk.nurbs_utils.image_tracer import ImageTracer, ImageTracerSlots
+    from blendertk.nurbs_utils.image_tracer import ImageTracer
+
+    # ---- use_blue_pencil: mayatk's signature (the shared panel passes it), refused when True ----
+    refused = ""
+    try:
+        ImageTracer(image_path=None, use_blue_pencil=True)
+    except NotImplementedError as exc:
+        refused = str(exc)
+    check("use_blue_pencil=True is refused (no Blue Pencil in Blender)", "Blue Pencil" in refused,
+          refused)
+    check("use_blue_pencil=False constructs", ImageTracer(None, use_blue_pencil=False) is not None)
+    check("no open_blue_pencil: the shared panel disables its Blue Pencil entries",
+          not hasattr(ImageTracer, "open_blue_pencil"))
 
     # ============================ cv2 path (.venv) ===========================================
     if cv2 is not None:
@@ -189,42 +202,8 @@ try:
             raised = True
         check("create_mesh with nothing to trace raises (Slots guards it upstream)", raised)
 
-        # ---- ImageTracerSlots routing (stub ui/sb; no cv2 in Blender -> graceful message) ----
-        class _Field:
-            def __init__(self, v):
-                self.v = v
-            def value(self):
-                return self.v
-            def text(self):
-                return self.v
-            def isChecked(self):
-                return bool(self.v)
-
-        class _SB:
-            def __init__(self, ui):
-                self.loaded_ui = type("L", (), {"image_tracer": ui})()
-                self.messages = []
-            def message_box(self, msg):
-                self.messages.append(msg)
-
-        ui = type("U", (), {})()
-        ui.txt000 = _Field("")  # empty path
-        ui.s000 = _Field(0.1)
-        ui.s001 = _Field(1.0)
-        ui.chk000 = _Field(False)  # Use Blue Pencil — always disabled/unchecked, see header_init
-        sb = _SB(ui)
-        slots = ImageTracerSlots(sb)
-        slots.b002()
-        check("slot b002 with empty path warns",
-              any("Select an image" in m for m in sb.messages), str(sb.messages))
-
-        ui.txt000 = _Field("C:/fake/x.png")  # path set, but Blender has no cv2
-        sb.messages.clear()
-        slots.b003()
-        check("slot b003 without cv2 reports the missing dependency",
-              any("cv2" in m for m in sb.messages), str(sb.messages))
     else:
-        check("bpy curve/mesh/slot path (skipped — no bpy in this interpreter)", True)
+        check("bpy curve/mesh path (skipped — no bpy in this interpreter)", True)
 
 except Exception:
     traceback.print_exc()

@@ -9,12 +9,11 @@ docstring for why this design was picked over Blender's native operator-preset s
 then proves a saved preset's kwargs actually reach — and are accepted by — a real
 ``bpy.ops.export_scene.fbx`` call through :meth:`SceneExporter.perform_export`.
 
-The Slots-layer button handlers (``b007``/``b008`` in ``scene_exporter_slots.py``) are thin
-Qt/OS glue over this same engine API (``fbx_preset_dir``/``fbx_preset_path``, each
-opening a real file-manager window through ``ptk.FileUtils.open_explorer``) — exercising the engine calls they delegate to is
-the meaningful, headlessly-testable surface; spinning up real widgets just to click a button
-that calls the same method adds no coverage, and driving the file manager in an automated suite
-would pop OS windows.
+The shared panel (tentacle's ``slots/tools/scene_exporter.py``, tested there) calls this same
+engine API for its FBX Preset row (``presets``, ``fbx_preset_dir``, ``edit_fbx_preset``,
+``fbx_preset_metadata`` / ``restore_fbx_preset``) and its Scope row (``objects_to_export``) --
+exercising those calls is the meaningful, headlessly-testable surface here; the file-manager
+window ``edit_fbx_preset`` opens is patched out, so an automated suite pops no OS windows.
 
 ``save_fbx_preset`` / ``delete_fbx_preset`` are covered below as the *programmatic* preset
 surface: the panel's Add/Delete buttons were dropped (2026-08-06) in favour of managing the
@@ -37,7 +36,7 @@ MONO = os.path.dirname(REPO)
 # / ``check_definitions`` build their tooltips with ``TooltipFormat`` (lazily
 # imported, Qt-free by design), and the block at "task/check definitions" below
 # renders every one of them. Same convention as the other uitk-touching suites
-# (test_smart_bake, test_hierarchy_sync, test_shots_slots, ...).
+# (test_smart_bake, test_hierarchy_sync, ...).
 for p in (REPO, os.path.join(MONO, "pythontk"), os.path.join(MONO, "uitk")):
     if p not in sys.path:
         sys.path.insert(0, p)
@@ -129,7 +128,7 @@ try:
             _exp.perform_export(
                 export_dir=_abort_dir,
                 objects=[_cube],
-                preset_name="bad",
+                preset_file="bad",
                 create_log_file=True,
             )
         except RuntimeError:
@@ -452,6 +451,122 @@ try:
         f"{preset_dir}",
     )
 
+    # ---- the shared panel's engine API (mirror of mayatk's) ---------------------------------
+    # The FBX Preset combo's presets and refresh, the preset an export preset embeds, the
+    # edit surface, the Scope row's object sets, the panel-facing constants, and mayatk's
+    # preset_file= keyword.
+    import base64 as _api_b64
+    from unittest import mock as _api_mock
+
+    _api = SceneExporter()
+    _api_presets = _api.presets
+    check(
+        "presets: 'None' first, then every preset keyed and valued by its name",
+        list(_api_presets)[0] == "None"
+        and _api_presets["None"] is None
+        and all(_api_presets[n] == n for n in SceneExporter.list_fbx_presets())
+        and "my_default_copy" in _api_presets,
+        f"{_api_presets}",
+    )
+    check(
+        "refresh_fbx_presets returns the fresh presets",
+        _api.refresh_fbx_presets() == _api_presets,
+    )
+    _api_meta = _api.fbx_preset_metadata("my_default_copy")
+    with open(SceneExporter.fbx_preset_path("my_default_copy"), "rb") as _api_fh:
+        _api_bytes = _api_fh.read()
+    check(
+        "fbx_preset_metadata embeds the preset's JSON file under its name",
+        _api_meta.get("fbx_preset_name") == "my_default_copy"
+        and _api_b64.b64decode(_api_meta["fbx_preset_data"]) == _api_bytes,
+        f"{_api_meta}",
+    )
+    check(
+        "fbx_preset_metadata of no preset / an unknown one is empty",
+        _api.fbx_preset_metadata(None) == {}
+        and _api.fbx_preset_metadata("no_such_preset_xyz") == {},
+    )
+    check(
+        "restore_fbx_preset leaves a preset that exists here alone",
+        _api.restore_fbx_preset(_api_meta) is None,
+    )
+    _api_restored = _api.restore_fbx_preset(
+        dict(_api_meta, fbx_preset_name="restored_copy")
+    )
+    check(
+        "restore_fbx_preset saves a missing one as a user preset",
+        bool(_api_restored)
+        and os.path.isfile(_api_restored)
+        and SceneExporter._preset_store().source("restored_copy") == "user"
+        and "restored_copy" in _api.refresh_fbx_presets(),
+        f"{_api_restored}",
+    )
+    SceneExporter.delete_fbx_preset("restored_copy")
+    check(
+        "restore_fbx_preset ignores an incomplete or unreadable embedding",
+        _api.restore_fbx_preset(None) is None
+        and _api.restore_fbx_preset({"fbx_preset_name": "x_only"}) is None
+        and _api.restore_fbx_preset(
+            {"fbx_preset_name": "x_bad", "fbx_preset_data": "bm90IGpzb24="}
+        )
+        is None
+        and "x_bad" not in SceneExporter.list_fbx_presets(),
+    )
+    with _api_mock.patch.object(
+        ptk.FileUtils, "open_explorer", return_value=True
+    ) as _api_opened:
+        _api.edit_fbx_preset("game_asset")
+    check(
+        "edit_fbx_preset shadows a built-in into the user tier, then opens its JSON",
+        SceneExporter._preset_store().source("game_asset") == "user"
+        and _api_opened.call_args is not None
+        and _api_opened.call_args.args[0]
+        == SceneExporter.fbx_preset_path("game_asset"),
+        f"{_api_opened.call_args}",
+    )
+    SceneExporter.delete_fbx_preset("game_asset")
+    with _api_mock.patch.object(ptk.FileUtils, "open_explorer") as _api_opened:
+        _api.edit_fbx_preset(None)
+    check("edit_fbx_preset with nothing selected opens nothing", not _api_opened.called)
+    check(
+        "the panel-facing constants: blendertk's export presets, and Exclude "
+        "HDR kept under the Visible scope",
+        SceneExporter.EXPORT_PRESET_DIR == "blendertk/scene_exporter"
+        and SceneExporter.EXCLUDE_HDR_IN_VISIBLE_SCOPE is True,
+    )
+    _api_dep = SceneExporter()
+    with _api_mock.patch.object(_api_dep, "_initialize_objects", return_value=[]):
+        _api_dep.perform_export(export_dir=tmp, objects=[], preset_file="my_default_copy")
+    check(
+        "perform_export takes mayatk's preset_file= (a preset name here)",
+        _api_dep.preset_file == "my_default_copy",
+    )
+    from blendertk.core_utils._core_utils import CoreUtils as _ScopeCore
+    from blendertk.node_utils.data_nodes import DataNodes as _ScopeDN
+
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    _scope_cube = bpy.context.active_object
+    _scope_empty = bpy.data.objects.new("ScopeEmpty", None)
+    _scope_internal = bpy.data.objects.new(_ScopeDN.INTERNAL, None)
+    for _scope_obj in (_scope_empty, _scope_internal):
+        bpy.context.scene.collection.objects.link(_scope_obj)
+    # A fresh link reads stale in view_layer.objects until the layer updates,
+    # and the Visible scope walks exactly that collection.
+    bpy.context.view_layer.update()
+    _ScopeCore.select([_scope_empty, _scope_internal])
+    _scope_visible = SceneExporter.objects_to_export("visible")
+    check(
+        "objects_to_export: Selected minus data_internal, All every mesh, "
+        "Visible the visible geometry",
+        SceneExporter.objects_to_export("selected") == [_scope_empty]
+        and SceneExporter.objects_to_export("all") == [_scope_cube]
+        and _scope_cube in _scope_visible
+        and _scope_empty not in _scope_visible
+        and SceneExporter.objects_to_export("bogus") == _scope_visible,
+        f"selected={SceneExporter.objects_to_export('selected')} visible={_scope_visible}",
+    )
+
     # ---- end-to-end: perform_export threads a saved preset's kwargs into a REAL
     # bpy.ops.export_scene.fbx call (the literal parity requirement: presets aren't just
     # stored, they're actually consumed on export). ------------------------------------------
@@ -471,13 +586,13 @@ try:
     result = exp2.perform_export(
         export_dir=out_dir,
         objects=[cube],
-        preset_name="half_scale",
+        preset_file="half_scale",
         output_name="preset_test",
         export_visible=True,
     )
     out_file = os.path.join(out_dir, "preset_test.fbx")
     check(
-        "perform_export(preset_name=...) writes the file using the preset's resolved kwargs",
+        "perform_export(preset_file=...) writes the file using the preset's resolved kwargs",
         result is True and os.path.isfile(out_file) and os.path.getsize(out_file) > 0,
         f"result={result} exists={os.path.isfile(out_file)}",
     )
@@ -525,7 +640,7 @@ try:
         exp3.perform_export(
             export_dir=out_dir,
             objects=[cube],
-            preset_name="bogus",
+            preset_file="bogus",
             output_name="bogus_test",
             export_visible=True,
         )
@@ -2098,7 +2213,7 @@ try:
             objects=[ucube],
             output_name="usd_anim",
             export_visible=True,
-            preset_name="game_asset",
+            preset_file="game_asset",
             tasks={"output_format": "usd", "set_bake_animation_range": True},
         )
     finally:
@@ -2109,6 +2224,33 @@ try:
         tuple(captured_usd.get("frame_range") or ()) == (5, 12)
         and captured_usd["opts"].get("export_animation") is True
         and captured_usd["opts"].get("generate_preview_surface") is True,
+        str(captured_usd),
+    )
+
+    # A carrier ships its custom properties whichever name the record contract
+    # gives it (``DataNodes.is_carrier``), never a name spelled in the writer.
+    from blendertk.node_utils.data_nodes import DataNodes as _UsdDataNodes
+
+    bpy.ops.object.empty_add()
+    usd_carrier_copy = bpy.context.active_object
+    usd_carrier_copy.name = "UsdCarrierCopy"
+    captured_usd.clear()
+    UsdUtils.export = staticmethod(_fake_usd_export)
+    try:
+        with _patch.object(
+            _UsdDataNodes,
+            "is_carrier",
+            side_effect=lambda n, *a, **k: str(n) == "UsdCarrierCopy",
+        ):
+            SceneExporter()._write_usd(
+                os.path.join(usd_dir, "usd_carrier_copy.usd"), [usd_carrier_copy]
+            )
+    finally:
+        UsdUtils.export = orig_usd
+        bpy.data.objects.remove(usd_carrier_copy, do_unlink=True)
+    check(
+        "usd output format ships a carrier's properties by the record contract's test",
+        (captured_usd.get("opts") or {}).get("export_custom_properties") is True,
         str(captured_usd),
     )
 
@@ -2684,33 +2826,13 @@ try:
     # the exporter converted to GLB and stopped, shipping authored 4096-square PNGs while
     # the pass that closes the gap was already wired into the WebXR preview.
     from unittest import mock
-    from blendertk.env_utils.scene_exporter.scene_exporter_slots import (
-        SceneExporterSlots as _Slots,
-    )
 
     # A stale-shot note links the Shots window, whose All Shots group deletes
-    # them, and the panel's link handler opens it (mirror of mayatk's).
-    import types as _types
-
+    # them; the panel's link handler opens it (tentacle's test_scene_exporter_panel).
     check(
         "a shots note links the Shots window",
         "action://show?ui=shots"
         in SceneExporter().task_manager._note_link(ptk.SceneRecords.SHOTS.key),
-    )
-    _shown = []
-    _link_slots = _Slots.__new__(_Slots)
-    _link_slots.sb = _types.SimpleNamespace(
-        handlers=_types.SimpleNamespace(
-            marking_menu=_types.SimpleNamespace(show=_shown.append)
-        )
-    )
-    _link_slots._on_log_link_clicked(
-        _types.SimpleNamespace(
-            scheme=lambda: "action", host=lambda: "show", query=lambda: "ui=shots"
-        )
-    )
-    check(
-        "a note's show link opens the panel it names", _shown == ["shots"], f"{_shown}"
     )
     import logging as _plain_logging
     from blendertk.env_utils.scene_exporter.task_manager import (
@@ -2730,7 +2852,7 @@ try:
     # name the stale shots as well -- the stale-shot note and its Open Shots
     # link reached the log only through the carrier task (mirror of mayatk's).
     import logging as _note_logging
-    from blendertk.anim_utils.shots._shots import BlenderShotStore as _NoteStore
+    from blendertk.anim_utils.shots._shots import ShotStore as _NoteStore
 
     class _NoteLog(_note_logging.Handler):
         def __init__(self):
@@ -2879,10 +3001,9 @@ try:
         f"{_tf_defs.get('convert_textures', {}).get('object_name')}",
     )
     check(
-        "the Settings combo has no Textures section (the whole texture block "
-        "lives in the Tasks combo, gate row first)",
-        "Textures" not in dict(_Slots._SETTINGS_LAYOUT)
-        and [k for k in _tf_defs if _tf_defs[k].get("group") == "Textures"]
+        "the whole texture block lives in the Tasks combo's Textures group, gate "
+        "row first (the panel's Settings combo has none: tentacle's test)",
+        [k for k in _tf_defs if _tf_defs[k].get("group") == "Textures"]
         == [
             "texture_write_back",
             "convert_textures",
@@ -2891,7 +3012,7 @@ try:
             "secondary_max_size",
             "uastc_rdo",
         ],
-        f"{list(dict(_Slots._SETTINGS_LAYOUT))}",
+        f"{[k for k in _tf_defs if _tf_defs[k].get('group') == 'Textures']}",
     )
     # The GLB key tolerance is the GLB half of Optimize Keys: directly under
     # it, defaulting to the measured 1e-4 (2026-09-14). Mirrors mayatk.
@@ -2902,130 +3023,6 @@ try:
         and _tf_defs["glb_key_tolerance"].get("setCurrentIndex") == 2
         and list(_tf_defs["glb_key_tolerance"]["add"].values())[2] == 1e-4,
         f"{_anim}",
-    )
-    # The dependency rules hide (show_when), and gate the GLB-only, KTX2-only
-    # and FBX-only rows. Mirrors mayatk's
-    # test_wire_dependencies_hides_irrelevant_settings.
-    _calls = []
-
-    class _RuleSB:
-        def show_when(self, ui, targets, trigger, condition=True, **kw):
-            _calls.append((targets, trigger, condition))
-
-        def enable_when(self, *args, **kw):
-            raise AssertionError("greyed out where it should be hidden")
-
-    _rs = _Slots.__new__(_Slots)
-    _rs.sb = _RuleSB()
-    _rs.ui = object()
-    _rs._wire_dependencies()
-    _by = {t: (trig, cond) for t, trig, cond in _calls}
-    _rdo = _by.get("uastc_rdo", (None, lambda *a: None))[1]
-    _keys = _by.get("glb_key_tolerance", (None, lambda *a: None))[1]
-    _usd = _by.get(
-        "cmb000,animation_clips,bake_range,drop_rig_apparatus",
-        (None, lambda *a: None),
-    )[1]
-    check(
-        "the dependency rules are show_when and gate the GLB/KTX2/FBX-only rows",
-        _by.get("texture_write_back", (None,))[0] == ["texture_optimize", "cmb005"]
-        and _by.get("secondary_max_size") == ("cmb004", {"glb", "fbx_glb"})
-        and _by.get("uastc_rdo", (None,))[0] == ["cmb004", "texture_file_type"]
-        and (_rdo("glb", "ktx2"), _rdo("fbx", "ktx2"), _rdo("glb", "png"))
-        == (True, False, False)
-        and _by.get("glb_key_tolerance", (None,))[0] == ["cmb004", "optimize_level"]
-        and (_keys("glb", "extremes"), _keys("glb", None), _keys("fbx", "extremes"))
-        == (True, False, False)
-        and (_usd("fbx"), _usd("usd")) == (True, False),
-        f"{sorted(_by)}",
-    )
-    # A deliberate divergence from mayatk's rule, pinned so a re-mirror cannot
-    # restore it: Blender's exclusion also strips a visible mesh dome, which the
-    # Visible scope holds (the exclude_hdr checks above), and a hidden row still
-    # applies its value.
-    check(
-        "Exclude HDR has no show_when rule: the Visible scope can hold a dome it strips",
-        "exclude_hdr" not in _by,
-        f"{_by.get('exclude_hdr')}",
-    )
-
-    # The manager's class-shared logger never reaches the panel's txt003 sink
-    # (setup_logging_redirect wires the SLOTS logger only), so cmb007_init
-    # hands it the slots logger BEFORE wire_combo -- whose active-preset
-    # restore is exactly the load that emits the schema-drift "preset doesn't
-    # cover N new panel settings" warning. Mirror of mayatk's
-    # test_preset_manager_adopts_the_panel_logger.
-    _events = []
-
-    class _PresetMgrStub:
-        def use_logger(self, logger):
-            _events.append(("use_logger", logger))
-
-        def setup(self, **kw):
-            _events.append(("setup", None))
-
-        def exclude(self, *names):
-            _events.append(("exclude", names))
-
-        def wire_combo(self, widget, placeholder=None):
-            _events.append(("wire_combo", widget))
-
-        def read(self, name):
-            # The released default for the pair retired 2026-10-19: the check
-            # row on, its fix off.
-            return {"snap_keys_to_frame": False, "check_floating_point_keys": True}
-
-    class _UIStub:
-        presets = _PresetMgrStub()
-
-    class _PresetComboStub:
-        """cmb007: ``cmb007_init`` wires ``activated``; emit is a user's pick."""
-
-        def __init__(self):
-            self.picked = []
-
-        @property
-        def activated(self):
-            return _NS(connect=self.picked.append)
-
-        def itemText(self, index):
-            return "Released"
-
-    _sl = _Slots.__new__(_Slots)
-    _sl.ui = _UIStub()
-    _sl.task_manager = SceneExporter().task_manager
-    _combo = _PresetComboStub()
-    _sl.cmb007_init(_combo)
-    _kinds = [k for k, _ in _events]
-    check(
-        "cmb007_init adopts the panel logger on the preset manager before wire_combo",
-        "use_logger" in _kinds
-        and _kinds.index("use_logger") < _kinds.index("wire_combo")
-        and _events[_kinds.index("use_logger")][1] is _Slots.logger,
-        f"{_kinds}",
-    )
-    # A preset picked that asks for a check row retired 2026-10-19 says so
-    # (mirror of mayatk's test_a_preset_asking_for_a_retired_naming_row_says_so).
-    _said = []
-
-    class _SaidLog(_std_logging.Handler):
-        def emit(self, record):
-            _said.append(record.getMessage())
-
-    _said_handler = _SaidLog(level=_std_logging.WARNING)
-    _sl.logger.addHandler(_said_handler)
-    try:
-        for _slot in _combo.picked:
-            _slot(0)
-    finally:
-        _sl.logger.removeHandler(_said_handler)
-    check(
-        "a picked preset asking for a retired check row names the fix to turn on",
-        any(
-            "'Released'" in m and "Floating Point Keys" in m and "Snap Keys" in m
-            for m in _said
-        ),
-        f"{_said}",
     )
 
     # The panel's own saved state outlives the rows retired 2026-10-19 too: a
@@ -3083,9 +3080,9 @@ try:
         _ps_exp.logger.setLevel(_std_logging.INFO)
         _ps_exp.logger.addHandler(_ps_handler)
         try:
-            _ps_exp._note_retired_panel_state(_ps_store)
+            _ps_exp.note_retired_panel_state(_ps_store)
             _ps_first = list(_ps_said)
-            _ps_exp._note_retired_panel_state(_ps_store)
+            _ps_exp.note_retired_panel_state(_ps_store)
             _ps_second = _ps_said[len(_ps_first) :]
         finally:
             _ps_exp.logger.removeHandler(_ps_handler)
@@ -3100,179 +3097,6 @@ try:
         and _ps_second == []
         and _ps_keys == ["cmb004/currentIndexChanged", "snap_keys_to_frame/toggled"],
         f"{_ps_kind}: {_ps_first} then {_ps_second}; kept {_ps_keys}",
-    )
-    # Wired in __init__, with the window's own settings store.
-    from unittest import mock as _ps_mock
-
-    _ps_sb = _ps_mock.MagicMock()
-    _ps_logger = _Slots.logger
-    _ps_logger_level = _ps_logger.level
-    try:
-        with _ps_mock.patch.object(
-            _Slots, "_note_retired_panel_state", autospec=True
-        ) as _ps_note, _ps_mock.patch.object(
-            _ps_logger, "set_text_handler"
-        ), _ps_mock.patch.object(
-            _ps_logger, "setup_logging_redirect"
-        ), _ps_mock.patch.object(
-            _ps_logger, "hide_logger_name"
-        ):
-            _ps_slots = _Slots(_ps_sb, log_level=_ps_logger_level or "WARNING")
-        _ps_calls = _ps_note.call_args_list
-    finally:
-        _ps_logger.setLevel(_ps_logger_level)
-    check(
-        "the panel says its retired saved state when it opens",
-        _ps_calls
-        == [_ps_mock.call(_ps_slots, _ps_sb.loaded_ui.scene_exporter.settings)],
-        f"{_ps_calls}",
-    )
-    # A saved RegEx field (retired) folds into the Output Filename's SAVED
-    # pattern when the panel opens, through the window's state manager -- so
-    # the restore that follows shows it. REGRESSION 2026-10-19: it was read as
-    # settings.value("txt002"), but the switchboard saves txt002/textChanged,
-    # and a fold set on the widget was overwritten by that restore anyway
-    # (mirror of mayatk's TestRetiredPanelState).
-    _rx_sb = _ps_mock.MagicMock()
-    _rx_ui = _rx_sb.loaded_ui.scene_exporter
-    _rx_ui.settings = _DictStore()
-    _rx_ui.settings.setValue("txt001/textChanged", "WIP_*")
-    _rx_ui.settings.setValue("txt002/textChanged", "test_|prod_")
-    _rx_ui.txt001.objectName.return_value = "txt001"
-    _rx_ui.state.save.side_effect = lambda _w, value: _rx_ui.settings.setValue(
-        "txt001/textChanged", value
-    )
-    try:
-        with _ps_mock.patch.object(_ps_logger, "set_text_handler"), _ps_mock.patch.object(
-            _ps_logger, "setup_logging_redirect"
-        ), _ps_mock.patch.object(_ps_logger, "hide_logger_name"):
-            _Slots(_rx_sb, log_level=_ps_logger_level or "WARNING")
-    finally:
-        _ps_logger.setLevel(_ps_logger_level)
-    _rx_saves = _rx_ui.state.save.call_args_list
-    check(
-        "a saved RegEx field folds into the Output Filename's saved pattern on open",
-        _rx_saves == [_ps_mock.call(_rx_ui.txt001, "WIP_{scene:test_->prod_}")]
-        and _rx_ui.settings.data == {"txt001/textChanged": "WIP_{scene:test_->prod_}"},
-        f"{_rx_saves}; kept {_rx_ui.settings.data}",
-    )
-
-    # ---- "Override Checks" (b009) is a per-run escape hatch, not a sticky mode ----------
-    # Nothing else resets it (__init__ clears it once, at panel build), so an export forced
-    # past a failing check used to leave every later export in the session unvalidated too,
-    # silently. b000 disarms it once the deliverable actually shipped; a failed export
-    # leaves it armed so a retry does not have to re-arm it by hand. Mirror of mayatk's
-    # TestOverrideChecksDisarm. Qt-free: the slot only calls isChecked/setChecked.
-    from types import SimpleNamespace
-
-    class _StubWidget:
-        def __init__(self):
-            self._checked = False
-
-        def text(self):
-            return ""
-
-        def currentData(self):
-            return None
-
-        def isChecked(self):
-            return self._checked
-
-        def setChecked(self, state):
-            self._checked = bool(state)
-
-        def clear(self):
-            pass
-
-    def _override_slots(export_result, calls, armed=True):
-        import contextlib
-
-        _s = _Slots.__new__(_Slots)
-        _s.task_manager = SimpleNamespace(task_definitions={}, check_definitions={})
-        _s.sb = SimpleNamespace(
-            convert_to_legal_name=lambda n: n,
-            # The real Switchboard's footer-progress seam is a no-op on a UI
-            # without a footer (this one has none); the stub mirrors it.
-            progress=lambda **kw: contextlib.nullcontext(lambda *a: True),
-            progress_adapter=lambda update: update,
-        )
-        _s.ui = SimpleNamespace(
-            **{
-                n: _StubWidget()
-                for n in (
-                    "txt000",
-                    "txt001",
-                    "txt003",
-                    "b009",
-                    "cmb000",
-                    "cmb004",
-                )
-            }
-        )
-        _s.ui.b009.setChecked(armed)
-        _s.perform_export = lambda **kw: calls.append(kw) or export_result
-        _s.save_output_dir = lambda *a: None
-        _s.save_output_name = lambda *a: None
-        return _s
-
-    _ok_calls = []
-    _ok = _override_slots(True, _ok_calls)
-    _ok.b000()
-    check(
-        "a successful export disarms Override Checks",
-        len(_ok_calls) == 1 and not _ok.ui.b009.isChecked(),
-        f"calls={len(_ok_calls)} checked={_ok.ui.b009.isChecked()}",
-    )
-
-    _fail_calls = []
-    _fail = _override_slots(False, _fail_calls)
-    _fail.b000()
-    check(
-        "a failed export leaves Override Checks armed for the retry",
-        len(_fail_calls) == 1 and _fail.ui.b009.isChecked(),
-        f"calls={len(_fail_calls)}",
-    )
-
-    # No log options (2026-10-14, mirror of mayatk): every export keeps the
-    # .blend's run log and sets no level -- the log records DEBUG by itself.
-    _log_calls = []
-    _override_slots(True, _log_calls).b000()
-    check(
-        "every export keeps the run log and sets no level",
-        _log_calls
-        and _log_calls[0].get("create_log_file") is True
-        and "log_level" not in _log_calls[0],
-        _log_calls and sorted(_log_calls[0]),
-    )
-
-    # Disarming happens AFTER the run -- the run itself still overrides. The
-    # disarmed control is what makes the armed assertion mean anything: without
-    # it, a payload missing the check proves only that the stub never
-    # collected one.
-    def _run_with_one_check(armed):
-        calls = []
-        _s = _override_slots(True, calls, armed=armed)
-        _s.task_manager.check_definitions = {
-            "check_framerate": {"object_name": "check_framerate"}
-        }
-        _s.ui.check_framerate = _StubWidget()
-        _s.ui.check_framerate.setChecked(True)
-        _s.b000()
-        return _s, calls
-
-    _ctl, _ctl_calls = _run_with_one_check(armed=False)
-    check(
-        "unarmed, the enabled check rides the payload",
-        "check_framerate" in _ctl_calls[0]["tasks"],
-        f"{sorted(_ctl_calls[0]['tasks'])}",
-    )
-
-    _skip, _skip_calls = _run_with_one_check(armed=True)
-    check(
-        "the armed override still skips the checks on the run that disarms it",
-        "check_framerate" not in _skip_calls[0]["tasks"]
-        and not _skip.ui.b009.isChecked(),
-        f"{sorted(_skip_calls[0]['tasks'])}",
     )
 
     # -- the GLB half: the rows resolve through ExportRun.glb_texture_params ----------
@@ -3795,98 +3619,6 @@ try:
         == [("check_path_length", ["check_zz_after"]), ("check_zz_after", [])]
         and _exp_more._overridden_checks == ["check_path_length", "check_zz_after"],
         f"result={_more_result}, made={_made}, asked={_asked}",
-    )
-
-    # sb.message_box hands its string to Qt's rich-text engine, which collapses a newline
-    # to a space -- so the seam's plain text (documented as "newlines allowed") arrived as
-    # one run-on paragraph, the KTX2 install prompt included. The panel's confirm
-    # translates instead of making every caller author HTML.
-    _seen = {}
-
-    class _MsgSB:
-        def message_box(self, string, *buttons):
-            _seen["string"] = string
-            _seen["buttons"] = buttons
-            return "Yes"
-
-    _msg_slots = _Slots.__new__(_Slots)
-    _msg_slots.sb = _MsgSB()
-    _confirmed = _msg_slots.confirm("line one\n\nline two & <three>")
-    check(
-        "the panel's confirm survives the rich-text engine (newlines kept, HTML escaped)",
-        _confirmed is True
-        and "<br><br>" in _seen["string"]
-        and "\n" not in _seen["string"]
-        and "&amp;" in _seen["string"]
-        and "<three>" not in _seen["string"]
-        and _seen["buttons"] == ("Yes", "No"),
-        f"string={_seen.get('string')!r}",
-    )
-
-    # The check-failure dialog: Override All / Override / Cancel mapped back to the
-    # runner's answers, Enter on Cancel, never timing out; anything unexpected stops.
-    # Mirror of mayatk's test_the_panel_asks_with_three_named_buttons_and_cancel_on_enter.
-    _ask = {}
-
-    class _AskSB:
-        def message_box(self, string, *buttons, **kwargs):
-            _ask.update(string=string, buttons=buttons, **kwargs)
-            return _ask.get("reply")
-
-    _ask_slots = _Slots.__new__(_Slots)
-    _ask_slots.sb = _AskSB()
-    _ask_slots._overridden_checks = []
-    _ask_slots._definition_tables_cache = ({}, {})
-    _answers = []
-    for _reply in ("Override All", "Override", "Cancel", None):
-        _ask["reply"] = _reply
-        _answers.append(
-            _ask_slots.decide_check_failure(
-                "check_path_length", ["too long"], ["check_valid_paths"]
-            )
-        )
-    check(
-        "the panel asks with three named buttons, Cancel on Enter",
-        _answers
-        == [
-            ptk.TaskFactory.CHECK_OVERRIDE_ALL,
-            ptk.TaskFactory.CHECK_OVERRIDE,
-            ptk.TaskFactory.CHECK_ABORT,
-            ptk.TaskFactory.CHECK_ABORT,
-        ]
-        and _ask["buttons"] == ("Override All", "Override", "Cancel")
-        and _ask["default"] == "Cancel"
-        and _ask["timeout"] is None
-        and "Valid Paths" in _ask["string"],
-        f"answers={_answers}, kwargs={ {k: _ask.get(k) for k in ('default', 'timeout')} }",
-    )
-
-    # Override Checks must not ride QSettings into the next session: a registered widget
-    # persists by default and its restore runs AFTER the slots __init__, which used to
-    # re-arm the toggle right over its setChecked(False) -- silently disabling every
-    # validation check on the next launch.
-    class _OverrideButton:
-        def __init__(self):
-            self.restore_state = True
-            self.checked = True
-            self.enabled = False
-            self.style = ""
-
-        def setEnabled(self, value):
-            self.enabled = value
-
-        def setChecked(self, value):
-            self.checked = value
-
-        def setStyleSheet(self, value):
-            self.style = value
-
-    _btn = _OverrideButton()
-    _Slots._init_override_button(_btn)
-    check(
-        "the Override Checks toggle never restores its armed state across sessions",
-        _btn.restore_state is False and _btn.checked is False and _btn.enabled is True,
-        f"restore_state={_btn.restore_state}, checked={_btn.checked}",
     )
 
     # ---- convert_to_relative_paths: scoped to the project; externals untouched ----------
@@ -4513,13 +4245,13 @@ try:
     # task refreshes, folds the carrier in, arms FbxUtils, and the write ships
     # one AnimStack per shot with the metadata as user properties — with every staged
     # mutation (armed takes, widened frame range) undone after the write.
-    from blendertk.anim_utils.shots._shots import BlenderShotStore
+    from blendertk.anim_utils.shots._shots import ShotStore
 
     reset_scene()
     for a in list(bpy.data.actions):
         bpy.data.actions.remove(a)
-    BlenderShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_takes_prefs_")
-    BlenderShotStore.clear_active()
+    ShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_takes_prefs_")
+    ShotStore.clear_active()
     scene = bpy.context.scene
     scene.frame_start, scene.frame_end = 1, 25  # takes will widen to 30
 
@@ -4530,7 +4262,7 @@ try:
         shot_cube.location.x = x
         shot_cube.keyframe_insert("location", frame=frame)
 
-    takes_store = BlenderShotStore.active()
+    takes_store = ShotStore.active()
     takes_store.define_shot("open", 1, 10, objects=["ShotCube"])
     takes_store.define_shot("close", 20, 30, objects=["ShotCube"])
     # Saving publishes at authoring time; the export refreshes again through
@@ -4654,8 +4386,8 @@ try:
         and FbxUtils._pending_takes is None,
         f"result={result}",
     )
-    BlenderShotStore.clear_active()
-    BlenderShotStore._prefs_dir_override = None
+    ShotStore.clear_active()
+    ShotStore._prefs_dir_override = None
 
     # ---- ignore_groups match mode: the Ignore row's option-box "Aa" toggle -----------
     # Insensitive is the default and the behavior the task shipped with, so the
@@ -4832,11 +4564,11 @@ try:
     # shots meant arming a split you might not want, and which won was decided by
     # TASK_ORDER rather than by anything visible in the panel.  Mirrors mayatk's
     # TestBakeRangeModes.
-    from blendertk.anim_utils.shots._shots import BlenderShotStore
+    from blendertk.anim_utils.shots._shots import ShotStore
 
     def _br_manager():
         reset_scene()
-        BlenderShotStore.clear_active()
+        ShotStore.clear_active()
         obj = bpy.data.objects.new("br_probe", None)
         bpy.context.collection.objects.link(obj)
         obj.location.x = 0.0
@@ -4850,8 +4582,8 @@ try:
         return tm, scene
 
     def _br_shots(*spans):
-        store = BlenderShotStore()
-        BlenderShotStore.set_active(store)
+        store = ShotStore()
+        ShotStore.set_active(store)
         for i, (start, end) in enumerate(spans):
             store.define_shot(f"Shot_{i}", start, end)
         return store
@@ -5071,7 +4803,7 @@ try:
 
     # Static Curves Only must keep every flat key of a curve that carries motion.
     reset_scene()
-    BlenderShotStore.clear_active()
+    ShotStore.clear_active()
     _ok_obj = bpy.data.objects.new("ok_probe", None)
     bpy.context.collection.objects.link(_ok_obj)
     for _f, _v in ((1, 0.0), (10, 5.0), (20, 5.0), (30, 5.0), (40, 9.0)):
@@ -5110,7 +4842,7 @@ try:
         f"{_ok_counts()}",
     )
     reset_scene()
-    BlenderShotStore.clear_active()
+    ShotStore.clear_active()
 
     # ---- progress stream (mirror of mayatk, 2026-09-04): ONE (current, total, message)
     # feed drives the panel footer's bar; a False from it cancels before the write and is
@@ -5224,13 +4956,6 @@ try:
     os.makedirs(_ndir, exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_ndir, "test_scene.blend"))
 
-    import warnings as _naming_warnings
-
-    def _retired_warned(caught, *names):
-        """Whether *caught* holds a DeprecationWarning naming each of *names*."""
-        said = [str(w.message) for w in caught if w.category is DeprecationWarning]
-        return all(any(name in m for m in said) for name in names)
-
     def _stem_for(output_name):
         """The stem the panel would write for *output_name*."""
         _e = SceneExporter()
@@ -5310,25 +5035,41 @@ try:
         == ["test_scene_v007.fbx", "test_scene_v007.glb"],
         f"glb={_glb['paths']} pair={_pair['paths']}",
     )
-    # perform_export folds a caller's retired tasks["version"] ONCE, at its
-    # entry point (resolved before the empty-objects abort): it warns, and
-    # output_name -- what everything after reads -- states the whole rule.
+    # perform_export refuses a caller's removed tasks["version"] (it folded into
+    # the name with a notice until pythontk 0.19.0): the run stops before a path
+    # resolves, and the log names the key and the counter replacing it -- never
+    # an unversioned write under a name the caller did not ask for (mirror of
+    # mayatk).
+    import logging as _version_logging
+
+    class _VersionLog(_version_logging.Handler):
+        def __init__(self):
+            super().__init__(level=_version_logging.ERROR)
+            self.messages = []
+
+        def emit(self, record):
+            self.messages.append(record.getMessage())
+
     _e = SceneExporter()
-    with _naming_warnings.catch_warnings(record=True) as _caught:
-        _naming_warnings.simplefilter("always")
-        _e.perform_export(
+    _vlog = _VersionLog()
+    _e.logger.addHandler(_vlog)
+    try:
+        _refused = _e.perform_export(
             export_dir=_ndir,
             objects=[],
             output_name="WIP_*",
             tasks={"version": "{stem}_v{n:03d}"},
         )
-    _got = os.path.splitext(os.path.basename(_e.export_path or ""))[0]
+    finally:
+        _e.logger.removeHandler(_vlog)
     check(
-        "perform_export's retired tasks['version'] warns and folds into the name once",
-        _retired_warned(_caught, "tasks['version']")
-        and _got == "WIP_test_scene_v001"
-        and "*" not in (_e.output_name or ""),
-        f"got={_got!r} output_name={_e.output_name!r}",
+        "perform_export refuses the removed tasks['version'] by name, before a path",
+        _refused is False
+        and not getattr(_e, "export_path", None)
+        and any(
+            "tasks['version']" in m and "*_v{n:03d}" in m for m in _vlog.messages
+        ),
+        f"result={_refused!r} messages={_vlog.messages}",
     )
     check(
         "the naming state perform_export used to stamp is gone",
@@ -5337,9 +5078,6 @@ try:
     )
     import logging as _layout_logging
 
-    from blendertk.env_utils.scene_exporter.scene_exporter_slots import (
-        SceneExporterSlots as _LayoutSlots,
-    )
     from blendertk.env_utils.scene_exporter.task_manager import (
         TaskManager as _LayoutTasks,
     )
@@ -5348,8 +5086,6 @@ try:
         "the Version row and the Timestamp checkbox are folded into the filename",
         "version"
         not in _LayoutTasks(_layout_logging.getLogger("layout")).task_definitions
-        and "version"
-        not in [n for _, names in _LayoutSlots._SETTINGS_LAYOUT for n in names]
         and "n" in SceneExporter.NAME_TOKENS,
     )
     for _stale in ("test_scene_v003.fbx", "test_scene_v006.glb"):
@@ -5360,94 +5096,6 @@ try:
         _got == "test_scene_ab",
         f"got={_got!r}",
     )
-    # The field's hover resolves through the same call as the write, so the two
-    # cannot drift — and it resolves QUIETLY, since it renders the diagnostics
-    # itself and a hover must not file a warning per mouse-over.
-    import logging as _logging
-    from types import SimpleNamespace as _NS
-
-    from pythontk import TooltipFormat as _Tip
-    from blendertk.env_utils.scene_exporter.scene_exporter_slots import (
-        SceneExporterSlots as _Slots,
-    )
-
-    _slots = _Slots.__new__(_Slots)
-    _slots.sb = _NS(tooltip=_Tip)
-    _slots.ui = _NS(
-        txt000=_NS(text=lambda: _ndir),
-        txt001=_NS(text=lambda: "WIP_*_{nope}"),
-        cmb004=_NS(currentData=lambda: "fbx"),
-    )
-
-    class _Counter(_logging.Handler):
-        count = 0
-
-        def emit(self, record):
-            _Counter.count += 1
-
-    _handler = _Counter(level=_logging.WARNING)
-    _slots.logger.addHandler(_handler)
-    _html = _slots.output_name_preview()
-    _slots.logger.removeHandler(_handler)
-
-    check(
-        "hovering the field logs nothing — the tooltip shows the diagnostics itself",
-        _Counter.count == 0,
-        f"records={_Counter.count}",
-    )
-    check(
-        "the tooltip teaches every token, with the wildcard first",
-        ">*</td>" in _html and all("{" + t + "}" in _html for t in _slots.NAME_TOKENS),
-    )
-    check(
-        "an unsupported token is flagged, not silently kept",
-        "unknown" in _html,
-    )
-    check(
-        "the tooltip previews the path the export would write",
-        os.path.join(_ndir, "WIP_test_scene_{nope}.fbx") in _html,
-        _html[-200:],
-    )
-
-    # --- Export Scene Data Node's viewer action (mirror of mayatk's) ---------------
-    import json as _json
-
-    from blendertk.node_utils.data_nodes import DataNodes as _DN
-
-    _actions = []
-    _row = _NS(
-        is_initialized=False,
-        option_box=_NS(add_action=lambda **kw: _actions.append(kw)),
-    )
-    _slots.export_data_node_init(_row)
-    _row.is_initialized = True
-    _slots.export_data_node_init(_row)
-    check(
-        "export_data_node row gets exactly one viewer action",
-        len(_actions) == 1 and _actions[0]["callback"] == _slots._show_data_node,
-        str(_actions),
-    )
-    _shown = []
-    _slots.sb = _NS(data_view_dialog=lambda data, **kw: _shown.append((data, kw)))
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-    reset_scene()
-    _slots._show_data_node()
-    check(
-        "an absent carrier hands the viewer nothing and creates nothing",
-        _shown[-1][0] == {} and bpy.data.objects.get(_DN.EXPORT) is None,
-        str(_shown[-1]),
-    )
-    _DN.write(ptk.Scope.DELIVERABLE, "probe_channel", _json.dumps({"a": [1, 2]}))
-    _DN.write(ptk.Scope.PRIVATE, "private_probe", "internal-only")
-    _slots._show_data_node()
-    _data, _kw = _shown[-1]
-    check(
-        "the shared viewer gets data_export's channels, decoded, without data_internal's",
-        _data == {_DN.EXPORT: {"probe_channel": {"a": [1, 2]}}}
-        and _kw["save_path"].endswith("_data_export.json"),
-        str(_shown[-1])[:300],
-    )
-
     bpy.ops.wm.read_factory_settings(use_empty=True)
     reset_scene()
 
@@ -5559,7 +5207,7 @@ try:
     # conversion measures each take's span from the FBX it reads.
     bpy.ops.wm.read_factory_settings(use_empty=True)
     reset_scene()
-    from blendertk import BlenderShotStore
+    from blendertk import ShotStore
     from blendertk.mat_utils.render_opacity.render_effects import (
         RenderEffects as _GateRE,
     )
@@ -5581,9 +5229,9 @@ try:
     for _kp in _GateRE._fcurve(_g_blink, _GateRE.VIS_PATH).keyframe_points:
         _kp.interpolation = "CONSTANT"
     _g_blink.hide_render = False
-    BlenderShotStore._prefs_dir_override = os.path.join(tmp, "gate_prefs")
-    BlenderShotStore.clear_active()
-    _g_store = BlenderShotStore.active()
+    ShotStore._prefs_dir_override = os.path.join(tmp, "gate_prefs")
+    ShotStore.clear_active()
+    _g_store = ShotStore.active()
     for _name, _start, _end in (("ShotA", 1, 20), ("ShotB", 21, 40)):
         _g_store.define_shot(_name, _start, _end, objects=["gate_mover", "gate_blink"])
     _g_store.publish_export_view()
@@ -5694,8 +5342,8 @@ try:
         [row.status for row in _g_origin.rows] == ["PASS"],
         _g_origin.summary(),
     )
-    BlenderShotStore.clear_active()
-    BlenderShotStore._prefs_dir_override = None
+    ShotStore.clear_active()
+    ShotStore._prefs_dir_override = None
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     reset_scene()

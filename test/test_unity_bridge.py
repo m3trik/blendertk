@@ -2,19 +2,21 @@
 
 Run: blender --background --factory-startup --python blendertk/test/test_unity_bridge.py
 
-Mirror of mayatk's ``test_unity_bridge.py``. Covers the Qt-free engine surface (delivery
-modes, preflight project-dir validation) and a real end-to-end hand-off: export the
-Blender selection to FBX and copy it into a temp Unity project's ``Assets/``. No real
-Unity install is needed -- the project is just a folder with an ``Assets/`` dir.
+Mirror of mayatk's ``test_unity_bridge.py``. ``UnityBridge`` is the Blender half of the
+Unity Workflow app (extapps' ``unity_workflow``, opened by tentacle with this class as its
+engine): it resolves the app's Scope, exports the FBX with the scene records and hands the
+payload to the delivery the app attaches (``deliverer=``, unitytk's
+``CopyToAssetsDeliverer``). Covered here: the host half names no unitytk, its delivery is
+the caller's, the Scope it resolves for the app, what it hands back, and a real end-to-end
+hand-off through the real deliverer into a temp Unity project's ``Assets/`` (a folder, no
+Unity install).
 
 Two things stay module-level-Qt-bound and are therefore covered elsewhere, matching how
 the Maya/Rizom bridge slots split their coverage:
 
-* ``unity_bridge_slots.py`` imports ``uitk`` at module level (like ``maya_bridge_slots.py``)
-  -- never imported here. The scope-resolution *primitives* it delegates to
-  (``btk.selected_objects`` / ``btk.get_visible_geometry`` / a scene-mesh scan) are
-  exercised directly below; the Slots' ``_resolve_scope_objects`` wiring itself is covered
-  under the workspace ``.venv`` by ``test_blender_ui_handler.py``.
+* The panel is extapps' Unity Workflow app, which imports ``uitk`` -- never imported here.
+  What it asks of blendertk is Qt-free and exercised directly below: the engine's
+  ``scope_objects`` (and ``btk.BridgeHost``'s reads beneath it) and the hand-off.
 * ``UnityBridge.params_defaults()`` (and therefore the public ``send()``, which calls it via
   ``merge_params``) imports ``parameters.py`` -> ``uitk.bridge.AttributeSpec`` -- also Qt-bound
   (see ``mayatk.env_utils.blender_bridge`` and every other hand-off bridge for the same
@@ -22,7 +24,7 @@ the Maya/Rizom bridge slots split their coverage:
   end-to-end hand-off below drives the engine's own ``_preflight`` / ``_produce`` /
   ``_deliver`` steps directly with an explicit params dict -- the exact pipeline ``send()``
   runs, minus the Qt-only default-merging step -- so real bpy geometry still exercises the
-  real FBX export + real ``unitytk.CopyToAssetsDeliverer`` copy-into-Assets/ logic.
+  real FBX export + the app's real copy-into-Assets/ delivery.
 """
 
 import sys
@@ -59,34 +61,75 @@ try:
         for o in list(bpy.data.objects):
             bpy.data.objects.remove(o, do_unlink=True)
 
+    import ast
+
+    import pythontk as ptk
+
     def copy_req():
         return HandoffRequest(template="copy_to_assets", mode="send_to")
 
-    # ---- pure (no Blender geometry) -- composition + delivery modes ----------
-    check(
-        "delivery modes: [(copy_to_assets, '')]",
-        UnityBridge.list_delivery_modes() == [("copy_to_assets", "")],
-        f"{UnityBridge.list_delivery_modes()}",
-    )
+    class HandBack(ptk.Deliverer):
+        """What the app receives from the host half: the payload, as produced."""
 
-    check(
-        "preflight fails with no project set",
-        not UnityBridge().deliverer.preflight(UnityBridge(), copy_req()),
-    )
+        def __init__(self, ok=True):
+            self.ok, self.payloads = ok, []
 
-    tmp_no_assets = tempfile.mkdtemp(prefix="unity_bridge_noassets_")
+        def preflight(self, bridge, request):
+            return self.ok
+
+        def deliver(self, bridge, payload, request):
+            self.payloads.append(payload)
+            return {"fbx": payload.primary, "project": bridge.project_path}
+
+    # ---- pure (no Blender geometry) -- composition, and what is the app's ----
+    def imported_roots(path):
+        roots = []
+        for node in ast.walk(ast.parse(Path(path).read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                roots += [alias.name.split(".")[0] for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+                roots.append(node.module.split(".")[0])
+        return roots
+
+    half = Path(REPO) / "blendertk" / "env_utils" / "unity_bridge"
+    naming = sorted(p.name for p in half.glob("*.py") if "unitytk" in imported_roots(p))
+    check("no module of the host half imports unitytk", not naming, f"{naming}")
+    pyproject = (Path(REPO) / "pyproject.toml").read_text(encoding="utf-8")
+    check("blendertk declares no unity extra", "unitytk" not in pyproject)
+    check("the delivery is the caller's: none by default", UnityBridge().deliverer is None)
+    attached = HandBack()
+    check(
+        "an attached delivery is the one it sends through",
+        UnityBridge(project_path="C:/proj", deliverer=attached).deliverer is attached,
+    )
+    gone = [
+        name
+        for name in ("list_delivery_modes", "list_template_modes", "_deliverer_cls")
+        if hasattr(UnityBridge, name)
+    ]
+    check("the delivery modes are the app's, not the engine's", not gone, f"{gone}")
+    check(
+        "a send with no delivery refuses before its export",
+        not UnityBridge()._preflight(["x"], copy_req()),
+    )
+    from blendertk.env_utils.handoff_export import BridgeHost
+
+    installed = []
+    real_install = BridgeHost.install_package
+    BridgeHost.install_package = staticmethod(installed.append)
     try:
-        br_bad = UnityBridge(project_path=tmp_no_assets)
-        check(
-            "preflight rejects a folder without Assets/",
-            not br_bad.deliverer.preflight(br_bad, copy_req()),
-        )
+        UnityBridge.install_package("unitytk>=0.1.0")
     finally:
-        shutil.rmtree(tmp_no_assets, ignore_errors=True)
+        BridgeHost.install_package = real_install
+    check(
+        "the app installs an optional package where Blender imports it",
+        installed == ["unitytk>=0.1.0"],
+        f"{installed}",
+    )
 
-    # ---- scope-resolution primitives (what the Qt-bound Slots delegates to) --
-    # Mirrors UnityBridgeSlots._resolve_scope_objects: "all" -> scene mesh objects,
-    # "visible" -> btk.get_visible_geometry(), "selected"/default -> btk.selected_objects().
+    # ---- scope resolution: BridgeHost and the primitives it reads ------------
+    # "all" -> the engine's whole-scene hook, else the scene's mesh objects;
+    # "visible" -> the export mixin's visible read; "selected"/default -> btk.selected_objects().
     reset()
     bpy.ops.mesh.primitive_cube_add()
     visible_cube = bpy.context.active_object
@@ -125,10 +168,8 @@ try:
     # scene, unfiltered by type so a visible group Empty travels). Two
     # different functions, and only one of them is on the export path.
     #
-    # The mixin, not `BlenderBridgeSlotsBase.resolve_scope_objects` that
-    # delegates to it: that module imports `uitk.bridge`, and headless Blender
-    # ships no Qt binding -- which is why this suite reached for a stand-in in
-    # the first place. The mixin is Qt-free, so the real function is reachable.
+    # The mixin itself, the read `BridgeHost.resolve_scope("visible")` makes:
+    # Qt-free, so headless Blender (no Qt binding) reaches the real function.
     from blendertk.env_utils.handoff_export import BlenderExportMixin
 
     resolved = {o.name for o in BlenderExportMixin._visible_objects()}
@@ -136,6 +177,45 @@ try:
         "the export mixin's visible read excludes hidden objects",
         "VisibleCube" in resolved and "HiddenCube" not in resolved,
         f"{sorted(resolved)}",
+    )
+
+    # The API the shared panel calls (btk.BridgeHost), against the same scene.
+    from blendertk.env_utils.handoff_export import BridgeHost
+
+    by_scope = {
+        scope: {o.name for o in BridgeHost.resolve_scope(scope)}
+        for scope in ("selected", "visible", "bogus")
+    }
+    check(
+        "BridgeHost.resolve_scope: the selection, the visible, and no widening",
+        by_scope["selected"] == {"VisibleCube"}
+        and "VisibleCube" in by_scope["visible"]
+        and "HiddenCube" not in by_scope["visible"]
+        and by_scope["bogus"] == {"VisibleCube"},
+        f"{by_scope}",
+    )
+    # What the app asks its engine for the Current Scene source.
+    engine_scope = {
+        scope: {o.name for o in UnityBridge().scope_objects(scope)}
+        for scope in ("selected", "visible", "bogus", "all")
+    }
+    check(
+        "UnityBridge.scope_objects: the selection, the visible, all, no widening",
+        engine_scope["selected"] == {"VisibleCube"}
+        and engine_scope["bogus"] == {"VisibleCube"}
+        and "HiddenCube" not in engine_scope["visible"]
+        and {"VisibleCube", "HiddenCube"} <= engine_scope["all"],
+        f"{engine_scope}",
+    )
+    bpy.ops.object.empty_add()
+    group = bpy.context.active_object
+    group.name = "UnityGroup"
+    visible_cube.parent = group
+    closed = {o.name for o in BridgeHost.scope_closure([group], {"SCOPE": "selected"})}
+    check(
+        "BridgeHost.scope_closure ships a scoped group's children",
+        closed == {"UnityGroup", "VisibleCube"},
+        f"{sorted(closed)}",
     )
 
     # ---- end-to-end: real FBX export -> copy into a temp Unity project -------
@@ -160,7 +240,6 @@ try:
     try:
         project = tmp / "UnityProj"
         (project / "Assets").mkdir(parents=True)
-        bridge = UnityBridge(project_path=str(project))
 
         reset()
         bpy.ops.mesh.primitive_cube_add()
@@ -168,6 +247,34 @@ try:
         hero.name = "UnityHero"
         bpy.ops.object.select_all(action="DESELECT")
         hero.select_set(True)
+
+        # The host half's contract with the app, no unitytk: the FBX and its
+        # asset name reach the delivery the app attached, checked first.
+        back = HandBack()
+        handed = run_handoff(
+            UnityBridge(project_path=str(tmp), deliverer=back), [hero], {}
+        )
+        check(
+            "the app receives the FBX and the asset name",
+            handed is not None
+            and len(back.payloads) == 1
+            and ptk.FbxFile.is_fbx(back.payloads[0].primary)
+            and back.payloads[0].extras.get("default_asset_name") == "UnityHero",
+            f"{handed} {[p.extras for p in back.payloads]}",
+        )
+        refused = HandBack(ok=False)
+        check(
+            "a refused delivery exports nothing",
+            run_handoff(UnityBridge(deliverer=refused), [hero], {}) is None
+            and not refused.payloads,
+        )
+
+        # The app's delivery: unitytk's copy into Assets/ (on the monorepo path).
+        from unitytk import CopyToAssetsDeliverer
+
+        bridge = UnityBridge(
+            project_path=str(project), deliverer=CopyToAssetsDeliverer()
+        )
 
         result = run_handoff(
             bridge, [hero], {"ASSETS_SUBDIR": "Models", "ASSET_NAME": ""}

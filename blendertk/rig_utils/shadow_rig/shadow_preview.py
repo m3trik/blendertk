@@ -45,7 +45,7 @@ the only place the shader is proven.
 from __future__ import annotations
 
 import math
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import pythontk as ptk
 
@@ -188,6 +188,17 @@ class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin):
                 "backend in a background (headless) Blender."
             )
         return ""
+
+    @classmethod
+    def language(cls) -> Tuple[Optional[str], str]:
+        """``(language, refusal)`` -- mirror of mayatk's: the shader language the overlay
+        draws with (the GPU module's GLSL), or None with the message that says why not (a
+        background Blender has no GPU backend; no Blender, nothing to draw in)."""
+        try:
+            refusal = cls.refusal()
+        except ImportError:  # no Blender (a plain-Python panel load)
+            return None, "The horizon preview needs a Blender session to draw in."
+        return (None if refusal else "GLSL"), refusal
 
     @classmethod
     def is_enabled(cls) -> bool:

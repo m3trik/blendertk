@@ -3,14 +3,17 @@
 """UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
 names where they apply). Operate on the mesh UV layer via bmesh / ``mesh.uv_layers`` → headless.
 
-The unwrap / pack / project / seam operators are ``bpy.ops.uv.*`` and live in the slot (they run
-in edit mode); this module holds the data-level UV helpers that need no UV editor.
+The unwrap / pack / project / seam operations drive ``bpy.ops.uv.*`` inside
+``CoreUtils.edit_mode`` (they poll in Edit Mode), beside the data-level UV helpers (bmesh),
+which need no UV editor.
 
 ``import bpy`` / ``bmesh`` are deferred into the call bodies (no import side effects). Shares the
 mesh primitives with ``edit_utils`` (the canonical home for mesh-bmesh infra).
 """
 
 from collections import namedtuple
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple
 
 import pythontk as ptk
 
@@ -28,9 +31,67 @@ DEFAULT_UV_SET = "map1"
 #   primary_set  the kept set's ORIGINAL name
 #   deleted      names of the removed sets
 #   final_name   the kept set's name after any rename
-UvSetCleanupResult = namedtuple(
-    "UvSetCleanupResult", "object error initial_sets primary_set deleted final_name"
-)
+class UvSetCleanupResult(
+    namedtuple(
+        "UvSetCleanupResult", "object error initial_sets primary_set deleted final_name"
+    )
+):
+    """One processed mesh of :meth:`UvUtils.cleanup_uv_sets`. ``shape`` and
+    ``sets_to_delete`` read mayatk's field names, so a panel shared by both
+    hosts reads either result."""
+
+    __slots__ = ()
+
+    @property
+    def shape(self):
+        return self.object
+
+    @property
+    def sets_to_delete(self):
+        return self.deleted
+
+
+@dataclass
+class PackUvsResult:
+    """Per-object outcome of a :meth:`UvUtils.pack_uvs` run (mirror of mayatk's)."""
+
+    engine: str
+    succeeded: List[str] = field(default_factory=list)
+    failed: List[Tuple[str, str]] = field(default_factory=list)
+    atlas_width: int = 0
+    atlas_height: int = 0
+    # The meshes packed (objects), to measure the resulting texel density over.
+    targets: List = field(default_factory=list)
+    # The UDIM tile grid packed into: Blender's packer has no grid.
+    tiles: Tuple[int, int] = (1, 1)
+
+    def __bool__(self) -> bool:
+        return bool(self.succeeded)
+
+    @property
+    def objects(self) -> List[str]:
+        """The objects that packed, once each."""
+        return list(dict.fromkeys(self.succeeded))
+
+
+@dataclass
+class UnfoldResult:
+    """What a :meth:`UvUtils.unfold_uvs` run did.
+
+    ``unfolded`` holds the meshes unfolded; ``repaired`` the ``{"total",
+    "fixed", "remaining"}`` counts of a non-manifold repair that ran first;
+    ``blocked`` what stopped the unfold -- ``"geometry"`` or ``"uvs"`` -- with
+    ``components`` the problem components, left selected. Truthy when a mesh
+    unfolded.
+    """
+
+    unfolded: List = field(default_factory=list)
+    repaired: Optional[dict] = None
+    blocked: Optional[str] = None
+    components: List = field(default_factory=list)
+
+    def __bool__(self) -> bool:
+        return bool(self.unfolded)
 
 
 # ---------------------------------------------------------------- lightmap UVs
@@ -210,6 +271,70 @@ class _UvUtilsInternal(object):
             for loop in f.loops:
                 loop[uv_layer].uv.x += du
                 loop[uv_layer].uv.y += dv
+
+    @staticmethod
+    def _distribute_in_a_row(objects, axis, spacing):
+        """Lay the targeted islands of *objects* out in a row along *axis*, *spacing*
+        apart — Maya's ``texDistributeShells`` (see :func:`distribute_uv_shells`).
+        Returns the number of islands moved."""
+        comp = 0 if str(axis).lower() == "u" else 1
+        meshes = EditUtils._meshes(objects)
+        # Pass 1: every targeted island's box, keyed by (mesh index, island index). Island
+        # references must not escape the read (an object-mode bmesh is freed when its callback
+        # returns), and the island walk is deterministic, so pass 2 re-finds each by index.
+        boxes = []
+        for m, o in enumerate(meshes):
+
+            def _read(bm, obj=o, m=m):
+                uvl = bm.loops.layers.uv.active
+                if uvl is None:
+                    return
+                islands = _UvUtilsInternal._target_islands(obj, bm, uvl)
+                for i, island in enumerate(islands):
+                    boxes.append(((m, i), _UvUtilsInternal._island_bounds(island, uvl)))
+
+            _UvUtilsInternal._uv_read(o, _read)
+        if len(boxes) < 2:
+            return 0
+
+        # Maya's order: largest extent along the axis first (its texSortShellsByBounds);
+        # the first island moves to the center of the islands' combined box, and each next
+        # one sits `spacing` past the last (rightward along U, downward along V), centered
+        # on the first's cross-axis center.
+        boxes.sort(key=lambda kb: kb[1][comp + 2] - kb[1][comp], reverse=True)
+        center_u = (min(b[0] for _, b in boxes) + max(b[2] for _, b in boxes)) / 2.0
+        center_v = (min(b[1] for _, b in boxes) + max(b[3] for _, b in boxes)) / 2.0
+        first_key, (u0, v0, u1, v1) = boxes[0]
+        du, dv = center_u - (u0 + u1) / 2.0, center_v - (v0 + v1) / 2.0
+        deltas = {first_key: (du, dv)}
+        anchor = u1 + du if comp == 0 else v0 + dv
+        for key, (u0, v0, u1, v1) in boxes[1:]:
+            if comp == 0:
+                du, dv = anchor + spacing - u0, center_v - (v0 + v1) / 2.0
+                anchor = u1 + du
+            else:
+                du, dv = center_u - (u0 + u1) / 2.0, anchor - spacing - v1
+                anchor = v0 + dv
+            deltas[key] = (du, dv)
+
+        # Pass 2: move each island by its delta.
+        moved = 0
+        for m, o in enumerate(meshes):
+
+            def _apply(bm, obj=o, m=m):
+                nonlocal moved
+                uvl = bm.loops.layers.uv.active
+                if uvl is None:
+                    return
+                islands = _UvUtilsInternal._target_islands(obj, bm, uvl)
+                for i, island in enumerate(islands):
+                    du, dv = deltas.get((m, i), (0.0, 0.0))
+                    if abs(du) > 1e-9 or abs(dv) > 1e-9:
+                        _UvUtilsInternal._move_island(island, uvl, du, dv)
+                        moved += 1
+
+            _UvUtilsInternal._uv_edit(o, _apply)
+        return moved
 
     @staticmethod
     def _target_islands(obj, bm, uv_layer):
@@ -420,6 +545,12 @@ class _UvUtilsInternal(object):
 class UvUtils(_UvUtilsInternal):
     """Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level)."""
 
+    #: The :meth:`pack_uvs` options each packer honors beyond the shared ones
+    #: (``map_size``, ``udim``, ``coverage``, ``preserve_3d``): a panel offers,
+    #: and sends, an option only while the chosen packer takes it. Blender has
+    #: one, ``uv.pack_islands``. Mirror of mayatk's.
+    PACK_ENGINES = {"standard": ("rotate", "margin")}
+
     @staticmethod
     def calculate_uv_padding(map_size: int, normalize: bool = False, factor: int = 256):
         """The texture gutter for a given map size — Blender-side name for the ecosystem rule.
@@ -458,6 +589,26 @@ class UvUtils(_UvUtilsInternal):
 
         for o in EditUtils._meshes(objects):
             _UvUtilsInternal._uv_edit(o, _shift)
+
+    @staticmethod
+    @CoreUtils.undoable
+    def move_to_uv_space(objects, u, v, relative=True):
+        """Move the UVs of *objects* by ``(u, v)`` — or, with ``relative=False``, onto that
+        point — mirror of mayatk's ``UvUtils.move_to_uv_space`` (what tentacle's Shell Xform
+        move pad calls). Like :func:`move_uvs`, each mesh's whole UV map moves (Maya moves the
+        UVs of the given components)."""
+        if relative:
+            UvUtils.move_uvs(objects, du=u, dv=v)
+            return
+
+        def _place(bm):
+            uvl = bm.loops.layers.uv.verify()
+            for face in bm.faces:
+                for loop in face.loops:
+                    loop[uvl].uv = (u, v)
+
+        for o in EditUtils._meshes(objects):
+            _UvUtilsInternal._uv_edit(o, _place)
 
     @staticmethod
     def get_uv_bounds(objects):
@@ -694,14 +845,7 @@ class UvUtils(_UvUtilsInternal):
 
         if targets:
             with CoreUtils.preserved_selection():
-                # Mode-/window-independent deselect: ``object.select_all`` poll-fails from
-                # the Qt-pump context (same convention as the slots' view-layer loops).
-                for o in list(bpy.context.view_layer.objects):
-                    o.select_set(False)
-                src.select_set(True)
-                for t in targets:
-                    t.select_set(True)
-                bpy.context.view_layer.objects.active = src
+                CoreUtils.select([src, *targets])  # src active
                 bpy.ops.object.data_transfer(
                     data_type="UV",
                     loop_mapping="TOPOLOGY",
@@ -785,6 +929,51 @@ class UvUtils(_UvUtilsInternal):
             _UvUtilsInternal._uv_edit(o, _apply)
 
     @staticmethod
+    @CoreUtils.undoable
+    def rotate_uvs(objects, angle):
+        """Rotate the UVs of *objects* by *angle* degrees, counter-clockwise, about their shared
+        centroid — mirror of mayatk's ``UvUtils.rotate_uvs``: the mean of the distinct UV
+        points (one per UV vertex, as Maya counts UVs) across every object. Like :func:`move_uvs`,
+        each mesh's whole UV map turns. Returns the number of UV points rotated (0: none)."""
+        import math
+
+        meshes = EditUtils._meshes(objects)
+        points = {}  # (mesh index, vert index, rounded u, rounded v) -> (u, v)
+        for m, o in enumerate(meshes):
+
+            def _read(bm, m=m):
+                uvl = bm.loops.layers.uv.active
+                if uvl is None:
+                    return
+                for face in bm.faces:
+                    for loop in face.loops:
+                        uv = loop[uvl].uv
+                        key = (m, loop.vert.index, round(uv.x, 6), round(uv.y, 6))
+                        points[key] = (uv.x, uv.y)
+
+            _UvUtilsInternal._uv_read(o, _read)
+        if not points:
+            return 0
+        pu = sum(p[0] for p in points.values()) / len(points)
+        pv = sum(p[1] for p in points.values()) / len(points)
+        cos_a, sin_a = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+
+        def _turn(bm):
+            uvl = bm.loops.layers.uv.active
+            if uvl is None:
+                return
+            for face in bm.faces:
+                for loop in face.loops:
+                    uv = loop[uvl].uv
+                    du, dv = uv.x - pu, uv.y - pv
+                    uv.x, uv.y = pu + du * cos_a - dv * sin_a, pv + du * sin_a + dv * cos_a
+
+        for o in meshes:
+            _UvUtilsInternal._uv_edit(o, _turn)
+        return len(points)
+
+    @staticmethod
+    @CoreUtils.undoable
     def mirror_uvs(objects, axis="u", per_shell=True, preserve_position=True):
         """Mirror UVs across U or V — mirror of ``mtk.UvUtils.mirror_uvs``.
 
@@ -896,7 +1085,25 @@ class UvUtils(_UvUtilsInternal):
             _UvUtilsInternal._uv_edit(o, _write)
 
     @staticmethod
-    def pin_uvs(objects, pin=True, selected_only=True, whole_shells=False):
+    @CoreUtils.undoable
+    @CoreUtils.selected
+    def pin_uvs(objects=None, pin=True, selected_only=None, whole_shells=False):
+        """Pin / unpin the meshes' UVs -- one undo step; mirror of mayatk's
+        ``UvUtils.pin_uvs``. *objects* None is the selection; *selected_only*
+        None takes the mode's scope: in Edit Mode the selected vertices' UVs, in
+        Object Mode the whole map (:meth:`_pin_uv_loops` has the rest).
+
+        Returns:
+            list: The meshes; ``[]`` for none.
+        """
+        meshes = list(EditUtils._meshes(objects))
+        if selected_only is None:
+            selected_only = any(o.mode == "EDIT" for o in meshes)
+        UvUtils._pin_uv_loops(meshes, pin, selected_only, whole_shells)
+        return meshes
+
+    @staticmethod
+    def _pin_uv_loops(objects, pin=True, selected_only=True, whole_shells=False):
         """Pin/unpin UVs (bmesh ``pin_uv``). ``selected_only`` restricts to the UVs of selected
         verts (the 3D-edit-mode workflow — no UV editor needed); object mode pins all.
         ``whole_shells`` widens ``selected_only`` to every UV of the islands the selection
@@ -945,6 +1152,7 @@ class UvUtils(_UvUtilsInternal):
         return sqrt(uv_sum / world_sum) * map_size
 
     @staticmethod
+    @CoreUtils.undoable
     def set_texel_density(objects, density=1.0, map_size=4096):
         """Scale each object's UVs (about its own UV bbox center) to the target texel density —
         mirror of ``mtk.set_texel_density``. Per-OBJECT, not per-UV-shell (documented divergence:
@@ -1124,8 +1332,9 @@ class UvUtils(_UvUtilsInternal):
 
     @staticmethod
     def find_lightmap_uv_set(obj):
-        """Name of *obj*'s existing lightmap UV layer, or ``None`` (mirror of
-        ``mtk.find_lightmap_uv_set``).
+        """Name of *obj*'s existing lightmap UV layer, or ``None``: the body of
+        ``UvDiagnostics.find_lightmap_uv_set`` (mayatk's home for it), kept here for
+        the parts below the diagnostics.
 
         Matches :data:`LIGHTMAP_UV_SET` and the conventional alternatives case-tolerantly (any
         layer whose name contains "lightmap", or one of the known aliases). Never the first
@@ -1442,11 +1651,8 @@ class UvUtils(_UvUtilsInternal):
         import bpy
 
         margin = cls.calculate_uv_padding(map_size, normalize=True)
+        CoreUtils.select([obj])
         with CoreUtils.window_context_override():
-            for other in list(bpy.context.view_layer.objects):
-                other.select_set(False)
-            obj.select_set(True)
-            bpy.context.view_layer.objects.active = obj
             bpy.ops.object.mode_set(mode="EDIT")
             try:
                 bpy.ops.mesh.select_all(action="SELECT")
@@ -1506,6 +1712,12 @@ class UvUtils(_UvUtilsInternal):
             match_by_similarity (bool): When True (default), treat the inputs as
                 unordered groups and pair them by geometric similarity. Set
                 False when the caller already supplies ordered pairs.
+
+        Returns:
+            list: ``(source name, target name, how)`` per pair transferred --
+                mayatk's shape: *how* is ``"topology"`` for the exact copy and
+                ``"nearest"`` for the spatial ``data_transfer`` (a source with
+                no UV layer transfers nothing and is left out).
         """
         from blendertk.edit_utils._edit_utils import EditUtils
 
@@ -1531,17 +1743,22 @@ class UvUtils(_UvUtilsInternal):
                 )
             pairs = zip(sources, targets)
 
+        results = []
         for src, dst in pairs:
-            cls._transfer_uv_pair(src, dst)
+            how = cls._transfer_uv_pair(src, dst)
+            if how is not None:
+                results.append((src.name, dst.name, how))
+        return results
 
     @staticmethod
     def _transfer_uv_pair(src, dst):
-        """Copy one mesh's active UV layer onto another's."""
+        """Copy one mesh's active UV layer onto another's; how (``"topology"``,
+        ``"nearest"``), or ``None`` when *src* has no UV layer."""
         import bpy
 
         src_uv = src.data.uv_layers.active
         if src_uv is None:
-            return
+            return None
         dst_uv = dst.data.uv_layers.active or dst.data.uv_layers.new(name=src_uv.name)
 
         src_data, dst_data = src_uv.data, dst_uv.data
@@ -1554,7 +1771,7 @@ class UvUtils(_UvUtilsInternal):
             src_data.foreach_get("uv", buf)
             dst_data.foreach_set("uv", buf)
             dst.data.update()
-            return
+            return "topology"
 
         with CoreUtils.window_context_override():
             try:
@@ -1574,6 +1791,7 @@ class UvUtils(_UvUtilsInternal):
                 layers_select_src="ACTIVE",
                 layers_select_dst="ACTIVE",
             )
+        return "nearest"
 
     @staticmethod
     def get_uv_shell_sets(objects=None, whole_shells=False):
@@ -1645,6 +1863,7 @@ class UvUtils(_UvUtilsInternal):
         return snapshot
 
     @staticmethod
+    @CoreUtils.undoable
     def set_uv_coords(objects, snapshot):
         """Restore a :func:`get_uv_coords` snapshot (objects whose topology changed since the
         capture restore as far as the loop counts still line up). Entries captured with
@@ -1734,7 +1953,31 @@ class UvUtils(_UvUtilsInternal):
         return found
 
     @staticmethod
-    def stack_uv_shells(objects, tolerance=None):
+    @CoreUtils.undoable
+    @CoreUtils.selected
+    def stack_uv_shells(objects=None, tolerance=None, pin=False):
+        """Stack UV islands on top of each other -- one undo step; mirror of
+        mayatk's ``UvUtils.stack_uv_shells`` (:meth:`_stack_islands` has the
+        rules). *objects* None is the selection; *pin* pins the stacked islands
+        whole afterwards (in Edit Mode, the islands the selection touches).
+
+        Returns:
+            int: The islands moved (0: nothing stacked); ``[]`` with nothing
+            selected.
+        """
+        meshes = list(EditUtils._meshes(objects))
+        moved = UvUtils._stack_islands(meshes, tolerance)
+        if moved and pin:
+            UvUtils._pin_uv_loops(
+                meshes,
+                True,
+                selected_only=any(o.mode == "EDIT" for o in meshes),
+                whole_shells=True,
+            )
+        return moved
+
+    @staticmethod
+    def _stack_islands(objects, tolerance=None):
         """Stack UV islands on top of each other.
 
         ``tolerance=None`` (default): every targeted island stacks onto the first one found —
@@ -1808,6 +2051,7 @@ class UvUtils(_UvUtilsInternal):
         return moved
 
     @staticmethod
+    @CoreUtils.undoable
     # The whole body in the window's context: follow_active_quads polls the edit
     # object from screen context, and the active write addresses the context's layer.
     @CoreUtils.window_context_override()
@@ -1873,6 +2117,398 @@ class UvUtils(_UvUtilsInternal):
 
         return straightened
 
+    @classmethod
+    @CoreUtils.undoable
+    @CoreUtils.selected
+    def pack_uvs(
+        cls,
+        objects=None,
+        map_size: int = 1024,
+        udim: int = 1001,
+        coverage=(1.0, 1.0),
+        rotate: bool = True,
+        preserve_3d: bool = True,
+        padding=None,
+        engine: str = "standard",
+        margin=None,
+    ):
+        """Pack the meshes' UV islands into a UDIM tile: Blender's
+        ``uv.pack_islands`` over every face, then the map moved into the target
+        tile and shrunk to its coverage. One undo step. Mirror of mayatk's
+        ``UvUtils.pack_uvs``; Blender has one packer, whose options are
+        :attr:`PACK_ENGINES`' (mayatk's u3dLayout / xatlas options have no
+        counterpart in ``pack_islands``).
+
+        Parameters:
+            objects: Mesh object(s). None uses the selection.
+            map_size (int): Texture size the gutter derives from when neither
+                *margin* nor *padding* is given.
+            udim (int): Target UDIM tile number, e.g. 1001. ``pack_islands`` has
+                no target tile (4.x packs an island into the tile it already
+                occupies, ``udim_source="CLOSEST_UDIM"``), so the map moves by
+                the delta from the tile actually packed into.
+            coverage (tuple): (u, v) fraction of the tile to fill, anchored at
+                its bottom-left corner: a whole-map scale about that corner after
+                the pack (mayatk's fractional packBox).
+            rotate (bool): Let the packer turn islands for a tighter fit.
+            preserve_3d (bool): Equalize texel density first
+                (``uv.average_islands_scale``).
+            padding (float): Island gutter in pixels (mayatk's); None derives it
+                from *map_size*.
+            engine (str): ``"standard"``, the one packer (any name packs with it).
+            margin (float): Island gutter in UV units; wins over *padding*.
+
+        Returns:
+            (PackUvsResult): ``succeeded`` the meshes' names, ``targets`` the
+            meshes; ``[]`` with nothing selected.
+
+        Raises:
+            ValueError: No mesh among *objects*.
+            RuntimeError: The pack refused the meshes (no UV map).
+        """
+        import math
+
+        import bpy
+
+        meshes = list(EditUtils._meshes(objects))
+        if not meshes:
+            raise ValueError("No mesh objects to pack.")
+        if margin is None:
+            margin = (
+                cls.calculate_uv_padding(map_size, normalize=True)
+                if padding is None
+                else padding / float(map_size)
+            )
+        try:
+            with CoreUtils.edit_mode(meshes):
+                bpy.ops.mesh.select_all(action="SELECT")
+                if preserve_3d:
+                    bpy.ops.uv.average_islands_scale()
+                bpy.ops.uv.pack_islands(margin=margin, rotate=rotate)
+        except RuntimeError as error:  # a poll failure without a UV map
+            raise RuntimeError("No UVs found on the selection.") from error
+        u_tile, v_tile = ptk.MathUtils.udim_to_tile(udim)
+        box = cls.get_uv_bounds(meshes)
+        if box is not None:
+            du, dv = u_tile - math.floor(box[0]), v_tile - math.floor(box[1])
+            if du or dv:
+                cls.move_uvs(meshes, du=float(du), dv=float(dv))
+            cu, cv = coverage
+            if cu != 1.0 or cv != 1.0:
+                cls.scale_uvs(meshes, su=cu, sv=cv, pivot=(float(u_tile), float(v_tile)))
+        return PackUvsResult(
+            engine="standard", succeeded=[o.name for o in meshes], targets=meshes
+        )
+
+    @classmethod
+    @CoreUtils.undoable
+    @CoreUtils.selected
+    def auto_project(
+        cls,
+        objects=None,
+        map_size: int = 4096,
+        scale_mode: int = 1,
+        angle_limit: float = 66.0,
+        margin: float = 0.0,
+        progress_callback=None,
+    ):
+        """Project UVs with the host's own automatic projection: Blender's Smart
+        UV Project, over the meshes together (one layout) -- Auto Unwrap's
+        Standard method, beside :meth:`auto_unwrap`'s external engines. One undo
+        step. Mirror of mayatk's ``UvUtils.auto_project`` (``polyAutoProjection``
+        there).
+
+        Parameters:
+            objects: Mesh object(s). None uses the selection.
+            map_size, scale_mode: mayatk's projection settings; Smart UV Project
+                takes them for the shared signature.
+            angle_limit (float): The projection angle limit, in degrees (1-89).
+            margin (float): The island margin, in UV units.
+            progress_callback (callable): ``(done, total, name)`` once the
+                meshes are projected.
+
+        Returns:
+            (AutoUnwrapResult): ``engine`` ``"standard"``; ``[]`` with nothing
+            selected, or no mesh in it.
+        """
+        import math
+
+        import bpy
+        from blendertk.uv_utils._auto_unwrap import AutoUnwrapResult
+
+        meshes = list(EditUtils._meshes(objects))
+        if not meshes:
+            return []
+        with CoreUtils.edit_mode(meshes):
+            bpy.ops.mesh.select_all(action="SELECT")
+            bpy.ops.uv.smart_project(
+                angle_limit=math.radians(min(max(angle_limit, 1.0), 89.0)),
+                island_margin=margin,
+            )
+        result = AutoUnwrapResult(engine="standard", succeeded=[o.name for o in meshes])
+        if progress_callback:
+            progress_callback(len(meshes), len(meshes), "")
+        return result
+
+    @classmethod
+    @CoreUtils.undoable
+    @CoreUtils.selected
+    def unfold_uvs(
+        cls,
+        objects=None,
+        optimize: bool = True,
+        orient: bool = True,
+        stack_similar: bool = True,
+        tolerance: float = 1.0,
+        map_size: int = 4096,
+        repair: bool = False,
+        method: str = "angle_based",
+        margin: float = 0.0,
+    ):
+        """Unfold the meshes' UVs along their seams (``uv.unwrap``), then
+        optionally relax them (``uv.minimize_stretch``), axis-align each island
+        (``uv.align_rotation``) and stack the similar ones. One undo step.
+        Mirror of mayatk's ``UvUtils.unfold_uvs``.
+
+        Parameters:
+            objects: Mesh object(s). None uses the selection.
+            optimize, orient, stack_similar (bool): The passes after the unwrap.
+            tolerance (float): Stack Similar's shape tolerance.
+            method (str): ``"angle_based"`` or ``"conformal"`` (``uv.unwrap``'s
+                method, any case).
+            margin (float): Space between the islands, in UV units.
+            map_size, repair: mayatk's (``u3dUnfold``'s map size, its
+                non-manifold repair); Blender's unwrap rejects no mesh, so they
+                are taken for the shared signature.
+
+        Returns:
+            (UnfoldResult): ``unfolded`` the meshes' names; ``[]`` with nothing
+            selected, or no mesh in it.
+
+        Raises:
+            RuntimeError: The unwrap refused the meshes (no UV map).
+        """
+        import bpy
+
+        meshes = list(EditUtils._meshes(objects))
+        if not meshes:
+            return []
+        try:
+            with CoreUtils.edit_mode(meshes):
+                bpy.ops.mesh.select_all(action="SELECT")
+                bpy.ops.uv.unwrap(method=str(method).upper(), margin=margin)
+                if optimize:
+                    bpy.ops.uv.minimize_stretch(iterations=10)
+                if orient:
+                    bpy.ops.uv.align_rotation(method="AUTO")
+                if stack_similar:
+                    cls._stack_islands(meshes, tolerance)
+        except RuntimeError as error:  # a poll failure without a UV map
+            raise RuntimeError("No UVs found on the selection.") from error
+        return UnfoldResult(unfolded=[o.name for o in meshes])
+
+    @classmethod
+    @CoreUtils.undoable
+    @CoreUtils.selected
+    def cut_uvs(cls, objects=None):
+        """Cut UVs: mark UV seams on the selected edges of the meshes in Edit
+        Mode. One undo step. Mirror of mayatk's ``UvUtils.cut_uvs`` (which also
+        cuts a whole mesh object along every edge; a seam here is an Edit-Mode
+        edge's).
+
+        Returns:
+            list: The meshes seamed; ``[]`` when no edge was selected.
+
+        Raises:
+            ValueError: No mesh among *objects* is in Edit Mode.
+        """
+        return cls._mark_seams(objects, seam=True)
+
+    @classmethod
+    @CoreUtils.undoable
+    @CoreUtils.selected
+    def sew_uvs(cls, objects=None):
+        """Sew UVs: clear the UV seams on the selected edges of the meshes in
+        Edit Mode. One undo step. Mirror of mayatk's ``UvUtils.sew_uvs``.
+
+        Returns:
+            list: The meshes sewn; ``[]`` when no edge was selected.
+
+        Raises:
+            ValueError: No mesh among *objects* is in Edit Mode.
+        """
+        return cls._mark_seams(objects, seam=False)
+
+    @staticmethod
+    def _mark_seams(objects, seam):
+        """Set (or clear) the seam flag on the selected edges of the Edit-Mode
+        meshes in *objects* (:meth:`cut_uvs` / :meth:`sew_uvs`), on the live
+        edit mesh, as ``mesh.mark_seam`` does."""
+        import bmesh
+
+        meshes = [o for o in EditUtils._meshes(objects) if o.mode == "EDIT"]
+        if not meshes:
+            raise ValueError("Select edges in Edit Mode to cut or sew UV seams.")
+        marked = []
+        for obj in meshes:
+            bm = bmesh.from_edit_mesh(obj.data)
+            edges = [e for e in bm.edges if e.select]
+            for edge in edges:
+                edge.seam = seam
+            if edges:
+                bmesh.update_edit_mesh(obj.data)
+                marked.append(obj)
+        return marked
+
+    @classmethod
+    @CoreUtils.undoable
+    @CoreUtils.selected
+    def cut_hard_edges(
+        cls,
+        objects=None,
+        low_angle: float = 70.0,
+        high_angle: float = 180.0,
+        uv_borders: bool = False,
+        auto_seams: bool = False,
+    ):
+        """Mark UV seams on the meshes' hard edges -- those whose dihedral angle
+        is in ``[low_angle, high_angle]`` (``EditUtils.select_edges_by_angle``;
+        ``mesh.edges_select_sharp`` is a single lower threshold) -- and
+        optionally at the current UV island borders (``uv.seams_from_islands``)
+        and on the seams a temporary Smart UV Project pass derives
+        (:meth:`derive_auto_seams`). One undo step. Mirror of mayatk's
+        ``UvUtils.cut_hard_edges``.
+
+        Returns:
+            list: The meshes; ``[]`` for none.
+        """
+        import bpy
+
+        meshes = list(EditUtils._meshes(objects))
+        if not meshes:
+            return []
+        with CoreUtils.edit_mode(meshes):
+            bpy.ops.mesh.select_all(action="SELECT")
+            if uv_borders:
+                try:
+                    bpy.ops.uv.seams_from_islands()
+                except RuntimeError:
+                    pass  # a mesh without a UV map has no islands to seam
+            if auto_seams:
+                cls.derive_auto_seams(meshes)
+            if EditUtils.select_edges_by_angle(
+                meshes, low_angle=low_angle, high_angle=high_angle
+            ):
+                bpy.ops.mesh.mark_seam(clear=False)
+        return meshes
+
+    @classmethod
+    @CoreUtils.undoable
+    @CoreUtils.selected
+    def unwrap_cylinder(
+        cls,
+        objects=None,
+        angle=45.0,
+        invert_seam=False,
+        unfold=True,
+        orient=True,
+        map_size=4096,
+        sew=True,
+        taper_angle=20.0,
+        camera=None,
+        flat_angle=60.0,
+        trim_ratio=0.12,
+    ):
+        """Seam cylinder / tube / turned meshes by crease angle, then unfold:
+        Smart UV Project auto-seams a tube by angle (cap rings + one lengthwise
+        cut) and unwraps it to clean strips, packed with the map size's gutter
+        (:meth:`calculate_uv_padding`, mayatk's rule); *unfold* False only
+        marks the edges sharper than *angle* as seams. One undo step. Mirror of
+        mayatk's ``UvUtils.unwrap_cylinder``: its band seamer's knobs
+        (*invert_seam*, *sew*, *taper_angle*, *camera*, *flat_angle*,
+        *trim_ratio*) have no counterpart here and are taken for the shared
+        signature.
+
+        Returns:
+            list: The meshes; ``[]`` for none.
+        """
+        import math
+
+        import bpy
+
+        meshes = list(EditUtils._meshes(objects))
+        if not meshes:
+            return []
+        margin = cls.calculate_uv_padding(map_size, normalize=True)
+        with CoreUtils.edit_mode(meshes):
+            bpy.ops.mesh.select_all(action="SELECT")
+            if unfold:
+                bpy.ops.uv.smart_project(
+                    angle_limit=math.radians(min(max(angle, 1.0), 89.0)),
+                    island_margin=margin,
+                )
+                try:
+                    bpy.ops.uv.pack_islands(rotate=orient, margin=margin)
+                except TypeError:  # an older pack_islands signature
+                    bpy.ops.uv.pack_islands(margin=margin)
+            else:  # the crease seams only
+                bpy.ops.mesh.select_all(action="DESELECT")
+                bpy.ops.mesh.edges_select_sharp(sharpness=math.radians(angle))
+                bpy.ops.mesh.mark_seam(clear=False)
+        return meshes
+
+    @staticmethod
+    def uv_scope_key(objects=None):
+        """A key that changes when the UV scope *objects* name changes: object
+        names plus, for an Edit-Mode mesh, its selected vertices (the scope
+        :meth:`pin_uvs` and :meth:`stack_uv_shells` act on there); an
+        Object-Mode mesh's scope is its whole map. What a toggle compares to
+        start a fresh cycle on a new selection -- names alone would read a new
+        component selection on the same objects as the same scope. Mirror of
+        mayatk's ``UvUtils.uv_scope_key``.
+
+        Parameters:
+            objects: None reads the selection.
+        """
+        import bmesh
+
+        if objects is None:
+            objects = CoreUtils.selected_objects()
+        parts = []
+        for obj in sorted(EditUtils._meshes(objects), key=lambda o: o.name):
+            if obj.mode == "EDIT":
+                bm = bmesh.from_edit_mesh(obj.data)
+                selected = tuple(v.index for v in bm.verts if v.select)
+                parts.append((obj.name, len(selected), hash(selected)))
+            else:
+                parts.append((obj.name, -1, 0))  # the whole map
+        return tuple(parts)
+
+    @staticmethod
+    def export_uv_image():
+        """Export the UV layout as an image through the host's own dialog:
+        Blender's Export UV Layout (``uv.export_layout``) of the active mesh, its
+        file browser. Mirror of mayatk's ``UvUtils.export_uv_image`` (UV
+        Snapshot there).
+
+        Returns:
+            str: The operator run.
+
+        Raises:
+            ValueError: The active object is no mesh with a UV map.
+            RuntimeError: Export UV Layout is not available, or refused.
+        """
+        from blendertk.ui_utils._ui_utils import UiUtils
+
+        obj = CoreUtils.active_object()
+        if not (obj and obj.type == "MESH" and obj.data.uv_layers):
+            raise ValueError("Create UV Snapshot needs an active mesh with a UV map.")
+        if UiUtils.invoke_operator_dialog("uv.export_layout") is None:
+            raise RuntimeError(
+                "Export UV Layout is not available: enable the UV Layout add-on."
+            )
+        return "uv.export_layout"
+
     @staticmethod
     def derive_auto_seams(objects, angle=66.0, margin=0.0):
         """Auto-detect UV seams via a temporary Smart UV Project pass — mirror of Maya's
@@ -1917,11 +2553,20 @@ class UvUtils(_UvUtilsInternal):
         return len(meshes)
 
     @staticmethod
-    def distribute_uv_shells(objects, axis="u"):
-        """Distribute UV islands evenly along ``axis`` (``"u"`` or ``"v"``) — the first and
-        last islands keep their centers, the rest space evenly between (per object; Maya's
-        ``texDistributeShells`` equivalent). EDIT mode targets only selection-touched islands.
+    @CoreUtils.undoable
+    def distribute_uv_shells(objects, axis="u", spacing=None):
+        """Distribute UV islands along ``axis`` (``"u"`` or ``"v"``).
+
+        ``spacing`` a number — mirror of mayatk's ``UvUtils.distribute_uv_shells`` (Maya's
+        ``texDistributeShells``, what tentacle's Shell Xform panel runs): the islands are laid out
+        in a row ``spacing`` apart, rightward along U / downward along V, largest first, the first
+        centered on the islands' combined box, across every given object.
+
+        ``spacing=None`` (default): the first and last islands keep their centers, the rest space
+        evenly between (per object). EDIT mode targets only selection-touched islands.
         Returns the number of islands repositioned."""
+        if spacing is not None:
+            return _UvUtilsInternal._distribute_in_a_row(objects, axis, float(spacing))
         comp = 0 if axis.lower() == "u" else 1
         moved = 0
         for o in EditUtils._meshes(objects):
@@ -1959,6 +2604,7 @@ class UvUtils(_UvUtilsInternal):
         return moved
 
     @staticmethod
+    @CoreUtils.undoable
     def straighten_uvs(objects, u=True, v=True, angle=30.0):
         """Straighten the selected UV edges — edges within ``angle`` degrees of horizontal
         snap flat in V (``u``), near-vertical edges snap flat in U (``v``); the Maya
@@ -2016,6 +2662,7 @@ class UvUtils(_UvUtilsInternal):
         return snapped
 
     @staticmethod
+    @CoreUtils.undoable
     def align_uvs(objects, axis="u", mode="avg"):
         """Align the selected UVs — mirror of Maya's ``performAlignUV`` (min/avg/max) and
         ``performLinearAlignUV`` (``mode="linear"``). ``min`` / ``max`` / ``avg`` snap every selected
@@ -2073,6 +2720,7 @@ class UvUtils(_UvUtilsInternal):
         return moved
 
     @staticmethod
+    @CoreUtils.undoable
     def gather_uv_shells(objects):
         """Gather the targeted UV shells back into the 0-1 tile — mirror of Maya's ``UVGatherShells``:
         each island is shifted by the negative floor of its bbox-center, so a shell sitting in tile
@@ -2099,6 +2747,7 @@ class UvUtils(_UvUtilsInternal):
         return moved
 
     @staticmethod
+    @CoreUtils.undoable
     def gather_to_udim(objects, udim=None, map_size=4096):
         """Move UV shells sitting outside the target UDIM tile into it — mirror of mayatk's
         ``UvUtils.gather_to_udim``, and the cheap alternative to a repack: each stray island keeps
@@ -2161,6 +2810,7 @@ class UvUtils(_UvUtilsInternal):
         return moved if seen else None
 
     @staticmethod
+    @CoreUtils.undoable
     def orient_uv_shells(objects, to_edge=False):
         """Orient the selected UV shells — mirror of Maya's ``texOrientShells`` /
         ``UvUtils.orient_shells`` (``to_edge=False`` -> native ``uv.align_rotation`` AUTO: square each
@@ -2178,6 +2828,13 @@ class UvUtils(_UvUtilsInternal):
             return 0  # e.g. EDGE with no edge selected
 
     @staticmethod
+    def orient_shells(objects, to_edge=False):
+        """Orient the selected UV shells — mirror of mayatk's ``UvUtils.orient_shells`` (the
+        name tentacle's Shell Xform panel calls): :func:`orient_uv_shells`, one undo step."""
+        return UvUtils.orient_uv_shells(objects, to_edge=to_edge)
+
+    @staticmethod
+    @CoreUtils.undoable
     def randomize_uv_shells(objects, seed=0):
         """Randomly offset the selected UV shells — mirror of Maya's ``RandomizeShells`` (a per-shell
         random translation; ``seed`` makes it deterministic). Drives ``uv.randomize_uv_transform``

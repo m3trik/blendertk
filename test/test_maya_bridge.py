@@ -65,6 +65,11 @@ try:
         "template_modes parses BRIDGE_MODES",
         MayaBridge.template_modes(_TEMPLATE_DIR / "import.py") == ("send_to",),
     )
+    # tentacle's Maya Bridge lists, reads and opens the engine's folder.
+    check(
+        "TEMPLATE_DIR is the engine's template folder",
+        MayaBridge.TEMPLATE_DIR == _TEMPLATE_DIR,
+    )
     # The allowed-list must cover every mode a spec actually serves: the helpers filter
     # declarations against it and silently fall back to entry [0], so a `save_as`
     # template left out of it reads as an interactive send -- which then routes through
@@ -980,15 +985,15 @@ try:
         shutil.rmtree(star_root, ignore_errors=True)
 
     # ---- shots sidecar (the send half of the shot transfer) -------------------
-    from blendertk.anim_utils.shots._shots import BlenderShotStore
+    from blendertk.anim_utils.shots._shots import ShotStore
 
-    BlenderShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_mb_prefs_")
-    BlenderShotStore.clear_active()
+    ShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_mb_prefs_")
+    ShotStore.clear_active()
     bpy.context.scene.pop("shot_store", None)
     for f in (1, 24):
         cube_a.location.x = float(f)
         cube_a.keyframe_insert(data_path="location", index=0, frame=f)
-    _shot_store = BlenderShotStore.active()
+    _shot_store = ShotStore.active()
     _shot = _shot_store.define_shot("Intro", 1, 24, objects=[cube_a.name, "stayed"])
     _shot_store.edit_ledger.record_key(
         f"{cube_a.name}|location|0", 24.0, _shot.shot_id, "end"
@@ -1027,8 +1032,8 @@ try:
         str(_merged.get("INCLUDE_SCENE_DATA")),
     )
     os.remove(manifest_path)
-    BlenderShotStore.clear_active()
-    BlenderShotStore._prefs_dir_override = None
+    ShotStore.clear_active()
+    ShotStore._prefs_dir_override = None
     bpy.context.scene.pop("shot_store", None)
     os.remove(tex_path)
 

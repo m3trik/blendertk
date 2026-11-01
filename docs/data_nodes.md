@@ -93,7 +93,7 @@ same payload schemas -- one Unity reader and one GLB build serve both DCCs:
 
 | Record | Producer | Blender notes |
 |---|---|---|
-| `animation` | `BlenderShotStore.produce_export_records` | the write splits its baked scene-range AnimStack into one windowed stack per take (`fbx_utils.py`'s module docstring) |
+| `animation` | `ShotStore.produce_export_records` | the write splits its baked scene-range AnimStack into one windowed stack per take (`fbx_utils.py`'s module docstring) |
 | `audio` | `AudioUtils.export_record` | one event per playing sound strip, named for the strip, at its visible start, scoped to the takes by `ptk.AudioUtils.scope_events`; a strip trimmed at its head plays from its file's start (the export notes it) |
 | `render_effects` | `RenderEffects.export_record` | -- |
 | `shadows` | `ShadowRig.export_record` | -- |
@@ -128,7 +128,7 @@ through Blender's own routes:
   the portable records ride the sidecar's `shots` / `records` sections both
   ways.
 
-`DataNodes.OWNERS` names the Blender owners (`BlenderShotStore`, `KeyStash`,
+`DataNodes.OWNERS` names the Blender owners (`ShotStore`, `KeyStash`,
 `EmissiveGroups`); there is no bake-session owner -- a Blender bake parks
 nothing beside its record. An emissive group's membership rides the mesh data
 through a make-local (boolean face attributes), and the hand-off payload

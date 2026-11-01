@@ -1,13 +1,11 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Radial array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_radial``.
+"""Radial array duplication — mirror of mayatk's ``edit_utils.duplicate_radial``.
 
-``duplicate_radial`` orbits copies about a pivot via ``mathutils`` matrices (no temp groups);
-``DuplicateRadialSlots`` is the Switchboard wiring for the co-located ``duplicate_radial.ui``
-panel, discovered + served by ``BlenderUiHandler`` (``marking_menu.show("duplicate_radial")``).
+``duplicate_radial`` orbits copies about a pivot via ``mathutils`` matrices (no temp groups).
+Its panel is tentacle's (``ui/panels/duplicate_radial``), shared with Maya.
 
-``import bpy`` / ``mathutils`` (and the Qt-only ``uitk`` helpers) are deferred into the call
-bodies (no import side effects; headless Blender ships no Qt binding).
+``import bpy`` / ``mathutils`` are deferred into the call bodies (no import side effects).
 """
 
 import math
@@ -15,7 +13,6 @@ import math
 import pythontk as ptk
 
 from blendertk.core_utils._core_utils import CoreUtils
-from blendertk.core_utils.preview import Preview
 from blendertk.edit_utils._edit_utils import EditUtils, _AXIS_INDEX
 from blendertk.edit_utils.naming._naming import Naming
 
@@ -39,8 +36,7 @@ class _DuplicateRadialInternal(object):
 class DuplicateRadial(_DuplicateRadialInternal):
     """Radial-array duplication engine — mirror of mayatk's ``DuplicateRadial``.
 
-    Reached as ``btk.DuplicateRadial.duplicate_radial`` (class-only; the co-located
-    ``DuplicateRadialSlots`` panel is discovered by ``BlenderUiHandler``, so the module is not
+    Reached as ``btk.DuplicateRadial.duplicate_radial`` (class-only: the module is not
     wildcard-scanned onto the flat ``btk.*`` namespace)."""
 
     @staticmethod
@@ -149,174 +145,9 @@ class DuplicateRadial(_DuplicateRadialInternal):
         bpy.context.view_layer.update()
         return out
 
-
-# ----------------------------------------------------------------------------
-# UI slots
-# ----------------------------------------------------------------------------
-
-
-class DuplicateRadialSlots(ptk.LoggingMixin):
-    """Switchboard slot wiring for the Duplicate-Radial panel.
-
-    Copies are grouped under an Empty (``<name>_array``), so no Maya-style regroup finalize
-    step is needed. Self-contained (``ptk.LoggingMixin`` only).
-    """
-
-    def __init__(self, switchboard, log_level="WARNING"):
-        self.sb = switchboard
-        self.ui = self.sb.loaded_ui.duplicate_radial
-        self.logger.setLevel(log_level)
-        self.logger.set_log_prefix("[duplicate_radial] ")
-
-        # Output mode: independent copies vs shared-data instances (was the
-        # "Instance" checkbox). Copy is the default, matching the prior unchecked state.
-        self.ui.cmb_inst.clear()
-        self.ui.cmb_inst.add([("Copy", "copy"), ("Instance", "instance")])
-        self.ui.cmb_inst.setAsCurrent("copy")
-
-        # Per-field reset buttons must precede connect_multi/Preview.
-        self.sb.add_reset_buttons(self.ui)
-
-        self.preview = Preview(
-            self,
-            self.ui.chk000,
-            self.ui.b000,
-            message_func=self.sb.message_box,
-            undo_message="Duplicate Radial",
-        )
-        self.sb.connect_multi(self.ui, "s000-16", "valueChanged", self.preview.refresh)
-        self.sb.connect_multi(self.ui, "chk002-4", "toggled", self.preview.refresh)
-        self.sb.connect_multi(self.ui, "chk006-8", "toggled", self.preview.refresh)
-        self.sb.connect_multi(
-            self.ui, "cmb_inst", "currentIndexChanged", self.preview.refresh
-        )
-        self.ui.cmb000.currentIndexChanged.connect(self.preview.refresh)
-
-    def header_init(self, widget):
-        """Configure header help text."""
-        widget.set_help_text(
-            self.sb.tooltip.fmt(
-                title="Duplicate Radial",
-                body="Duplicate selected objects in a radial / circular pattern "
-                "around a chosen pivot.",
-                steps=[
-                    "Select one or more objects.",
-                    "Set <b>Copies</b>, <b>Start Angle</b>, <b>End Angle</b>, and "
-                    "the <b>Rotate Axis</b> (X / Y / Z).",
-                    "Pick the <b>Pivot</b> — Object or World.",
-                    "Optionally set per-copy <b>Translate</b> / <b>Rotate</b> / "
-                    "<b>Scale</b> offsets and a <b>Pivot Offset</b>.",
-                    "Toggle <b>Preview</b>, then <b>Duplicate</b> to commit.",
-                ],
-                sections=[
-                    (
-                        "Options",
-                        [
-                            "<b>Instance</b> — linked duplicates sharing one mesh "
-                            "(cheaper; edits propagate).",
-                            "<b>Keep Original</b> — leave the source object in place "
-                            "(off discards it after the pattern is built).",
-                            "<b>Combine</b> — merge the result into a single mesh.",
-                            "<b>Suffix</b> — append a location-based alphabetical "
-                            "suffix to the copy names.",
-                        ],
-                    ),
-                ],
-                notes=[
-                    "<b>Weight Bias</b> and <b>Weight Curve</b> control non-uniform "
-                    "angular spacing between start and end angle.",
-                ],
-            )
-        )
-
-    def s015_init(self, widget):
-        """Initialize Weight Bias."""
-        widget.setToolTip(
-            self.sb.tooltip.fmt(
-                title="Weight Bias",
-                body="Controls the direction and strength of the bias — how far "
-                "the spacing departs from linear, and toward which end.",
-                bullets=[
-                    "<code>0</code> — bias completely towards the start.",
-                    "<code>0.5</code> (default) — no bias, linear distribution.",
-                    "<code>1</code> — bias completely towards the end.",
-                ],
-                notes=[
-                    "At the default 0.5, spacing is exactly linear and "
-                    "<b>Weight Curve</b> has no visible effect — move this away "
-                    "from 0.5 first.",
-                ],
-            )
-        )
-
-    def s016_init(self, widget):
-        """Initialize Weight Curve."""
-        widget.setToolTip(
-            self.sb.tooltip.fmt(
-                title="Weight Curve",
-                body="Shapes the curvature of the bias set by Weight Bias.",
-                bullets=[
-                    "<code>0</code> — no curvature; a linear effect.",
-                    "<code>0.5</code> (default) — moderate curvature.",
-                    "<code>1</code> — maximum curvature, sharply eased toward one end.",
-                ],
-                notes=[
-                    "Has no visible effect while <b>Weight Bias</b> is at its "
-                    "default (0.5) — the two ends of the sweep are then already "
-                    "spaced identically regardless of this value.",
-                ],
-            )
-        )
-
-    def b001_init(self, widget):
-        """Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the
-        current values as the defaults, Ctrl+Shift+Click forgets them)."""
-        from uitk.managers.reset_gesture import ResetGesture
-
-        self._reset_gesture = ResetGesture(widget)
-
-    def perform_operation(self, objects):
-        num_copies = self.ui.s009.value()
-        if num_copies < 1:
-            raise ValueError("Set Copies to at least 1.")
-        DuplicateRadial.duplicate_radial(
-            objects,
-            num_copies,
-            start_angle=self.ui.s013.value(),
-            end_angle=self.ui.s014.value(),
-            weight_bias=self.ui.s015.value(),
-            weight_curve=self.ui.s016.value(),
-            rotate_axis=(
-                "x"
-                if self.ui.chk002.isChecked()
-                else "y"
-                if self.ui.chk003.isChecked()
-                else "z"
-            ),
-            offset=(self.ui.s010.value(), self.ui.s011.value(), self.ui.s012.value()),
-            translate=(
-                self.ui.s000.value(),
-                self.ui.s001.value(),
-                self.ui.s002.value(),
-            ),
-            rotate=(self.ui.s003.value(), self.ui.s004.value(), self.ui.s005.value()),
-            scale=(self.ui.s006.value(), self.ui.s007.value(), self.ui.s008.value()),
-            pivot=self._resolve_pivot(self.ui.cmb000.currentIndex()),
-            keep_original=self.ui.chk006.isChecked(),
-            instance=self.ui.cmb_inst.currentData() == "instance",
-            combine=self.ui.chk007.isChecked(),
-            suffix=self.ui.chk008.isChecked(),
-        )
-
     @staticmethod
-    def _resolve_pivot(pivot_index: int) -> str:
-        return {0: "object", 1: "world"}.get(pivot_index, "object")
-
-
-# -----------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
-
-    ui = BlenderUiHandler.instance().get("duplicate_radial", reload=True)
-    ui.show(pos="screen", app_exec=True)
+    def regroup_copies(copies):
+        """Mirror of mayatk's ``DuplicateRadial.regroup_copies``, the finalize step after a
+        committed :meth:`duplicate_radial`. Nothing to do here: that already groups each
+        source's copies under one ``<name>_array`` Empty (or joins them, with ``combine``).
+        """

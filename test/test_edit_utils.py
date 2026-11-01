@@ -381,78 +381,6 @@ try:
         f"faces={len(ns)}",
     )
 
-    # clean_geometry: merge doubles + remove loose vert
-    reset()
-    bm = bmesh.new()
-    bmesh.ops.create_cube(bm, size=2.0)
-    bm.verts.ensure_lookup_table()
-    # add a duplicate (doubled) vertex at an existing corner + a loose vertex
-    corner = bm.verts[0].co.copy()
-    bm.verts.new(corner)  # exact double -> should merge
-    bm.verts.new((10.0, 10.0, 10.0))  # loose vertex -> should be deleted
-    me = bpy.data.meshes.new("M")
-    bm.to_mesh(me)
-    bm.free()
-    o = bpy.data.objects.new("Clean", me)
-    bpy.context.collection.objects.link(o)
-    v0 = len(o.data.vertices)
-    btk.clean_geometry(o, merge_distance=0.001)
-    v1 = len(o.data.vertices)
-    check("clean_geometry removes double + loose vert", v1 == v0 - 2, f"{v0}->{v1}")
-
-    # clean_geometry recalculate makes normals outward
-    reset()
-    bpy.ops.mesh.primitive_cube_add()
-    o = bpy.context.active_object
-    btk.flip_normals(o)  # make them inward first
-    btk.clean_geometry(o, merge=False, recalculate=True)
-    p = o.data.polygons[0]
-    check(
-        "clean_geometry recalc -> outward normals",
-        p.normal.dot(p.center) > 0,
-        f"dot={p.normal.dot(p.center):.2f}",
-    )
-
-    # clean_geometry: degenerate dissolve must work with merge OFF (regression — the degenerate
-    # threshold was coupled to the merge distance, so merge-off silently disabled it).
-    reset()
-    bm = bmesh.new()
-    bmesh.ops.create_cube(bm, size=2.0)
-    bm.verts.ensure_lookup_table()
-    v1 = bm.verts[0]
-    bm.edges.new((bm.verts.new(v1.co.copy()), v1))  # zero-length edge -> degenerate
-    me = bpy.data.meshes.new("Degen")
-    bm.to_mesh(me)
-    bm.free()
-    o = bpy.data.objects.new("Degen", me)
-    bpy.context.collection.objects.link(o)
-    e0 = len(o.data.edges)
-    btk.clean_geometry(o, merge=False, delete_loose=False, degenerate=True)
-    check(
-        "clean_geometry degenerate works with merge off",
-        len(o.data.edges) < e0,
-        f"{e0}->{len(o.data.edges)}",
-    )
-
-    # clean_geometry: merge=False leaves exact-double verts in place (merge really is off)
-    reset()
-    bm = bmesh.new()
-    bmesh.ops.create_cube(bm, size=2.0)
-    bm.verts.ensure_lookup_table()
-    bm.verts.new(bm.verts[0].co.copy())  # exact double (loose)
-    me = bpy.data.meshes.new("NoMerge")
-    bm.to_mesh(me)
-    bm.free()
-    o = bpy.data.objects.new("NoMerge", me)
-    bpy.context.collection.objects.link(o)
-    v0 = len(o.data.vertices)
-    btk.clean_geometry(o, merge=False, delete_loose=False, degenerate=False)
-    check(
-        "clean_geometry merge=False keeps doubles",
-        len(o.data.vertices) == v0,
-        f"{v0}->{len(o.data.vertices)}",
-    )
-
     # _object_mode guard restores the CALLER's active object + mode (regression — the helper
     # re-activates its target, and mode restore acts on the active object).
     reset()
@@ -493,8 +421,6 @@ try:
 
     # crease_edges EDIT mode: creases only SELECTED edges (amount 5 -> 0.5)
     reset()
-    import bmesh
-
     bpy.ops.mesh.primitive_cube_add()
     o = bpy.context.active_object
     o.select_set(True)
@@ -1449,7 +1375,7 @@ try:
         _poly_curve(f"P{z}", [(0, 0, z), (1, 0, z), (2, 0, z), (3, 0, z)])
         for z in (0, 1, 2)
     ]
-    lofted = btk.loft(profs, close=False, section_spans=1)
+    lofted = (btk.NurbsUtils.loft(profs, close=False, sectionSpans=1) or [None])[0]
     check(
         "loft -> a new mesh object",
         lofted is not None and lofted.type == "MESH",
@@ -1468,7 +1394,7 @@ try:
         _poly_curve(f"Q{z}", [(0, 0, z), (1, 0, z), (2, 0, z), (3, 0, z)])
         for z in (0, 1, 2)
     ]
-    lofted = btk.loft(profs, section_spans=2)
+    lofted = (btk.NurbsUtils.loft(profs, sectionSpans=2) or [None])[0]
     check(
         "loft section_spans=2 -> 12 quads",
         lofted is not None and len(lofted.data.polygons) == 12,
@@ -1481,7 +1407,7 @@ try:
         _poly_curve(f"R{z}", [(0, 0, z), (1, 0, z), (2, 0, z), (3, 0, z)])
         for z in (0, 1, 2)
     ]
-    lofted = btk.loft(profs, close=True)
+    lofted = (btk.NurbsUtils.loft(profs, close=True) or [None])[0]
     check(
         "loft close=True -> 9 quads (periodic)",
         lofted is not None and len(lofted.data.polygons) == 9,
@@ -1491,7 +1417,7 @@ try:
     # loft with <2 profiles -> None
     reset()
     one = _poly_curve("Solo", [(0, 0, 0), (1, 0, 0)])
-    check("loft <2 profiles -> None", btk.loft([one]) is None)
+    check("loft <2 profiles -> []", btk.NurbsUtils.loft([one]) == [])
 
     # detach_components: select 2 faces of a cube in edit mode, then detach
     def select_faces(o, idxs):
@@ -1742,75 +1668,6 @@ try:
     except Exception as exc:
         check("ungroup: duplicate group in input is tolerated", False, repr(exc))
 
-    # get_standoff_distances: what sizes the Marmoset bake cage. The cage has
-    # to reach a source's FURTHEST point, and a source standing off an interior
-    # target surface is invisible to every bounding-box measure.
-    reset()
-    bpy.ops.mesh.primitive_plane_add(size=20)
-    plane = bpy.context.active_object
-    bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 6))  # spans z 5..7
-    slab = bpy.context.active_object
-    try:
-        d = btk.EditUtils.get_standoff_distances([slab], [plane], sample_limit=0)
-        got = next(iter(d.values()), None)
-        check(
-            "standoff: reports the furthest point, not the nearest",
-            got is not None and abs(got - 7.0) < 1e-4,
-            f"{d}",
-        )
-    except Exception as exc:
-        check("standoff: reports the furthest point, not the nearest", False, repr(exc))
-
-    # A fixture inside a room shell -- the ROOM_ENV case. Its bounding box is
-    # wholly inside the target's, so a bounds-derived estimate reads zero.
-    reset()
-    bpy.ops.mesh.primitive_cube_add(size=100, location=(0, 0, 0))
-    room = bpy.context.active_object
-    bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 39))  # z 38..40
-    fixture = bpy.context.active_object
-    try:
-        d = btk.EditUtils.get_standoff_distances([fixture], [room], sample_limit=0)
-        got = next(iter(d.values()), None)
-        # Ceiling at z=50; the fixture's underside at z=38 is 12 from the shell.
-        check(
-            "standoff: sees a source inside the target's box",
-            got is not None and abs(got - 12.0) < 1e-4,
-            f"{d}",
-        )
-    except Exception as exc:
-        check("standoff: sees a source inside the target's box", False, repr(exc))
-
-    try:
-        check(
-            "standoff: empty when either side has no mesh",
-            btk.EditUtils.get_standoff_distances([], [room]) == {}
-            and btk.EditUtils.get_standoff_distances([room], []) == {},
-        )
-    except Exception as exc:
-        check("standoff: empty when either side has no mesh", False, repr(exc))
-
-    # Modifiers are the norm here and the FBX export bakes them, so measuring
-    # obj.data would size the cage for a mesh that is not the one being baked.
-    reset()
-    bpy.ops.mesh.primitive_plane_add(size=20)
-    plane = bpy.context.active_object
-    bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 6))  # base spans z 5..7
-    slab = bpy.context.active_object
-    mod = slab.modifiers.new(name="lift", type="DISPLACE")
-    mod.direction = "Z"
-    mod.mid_level = 0.0
-    mod.strength = 10.0  # evaluated mesh now spans z 15..17
-    try:
-        d = btk.EditUtils.get_standoff_distances([slab], [plane], sample_limit=0)
-        got = next(iter(d.values()), None)
-        check(
-            "standoff: measures the evaluated mesh, not the base data",
-            got is not None and abs(got - 17.0) < 1e-3,
-            f"{d} (base-data answer would be 7.0)",
-        )
-    except Exception as exc:
-        check("standoff: measures the evaluated mesh, not the base data", False, repr(exc))
-
     # ---- detach_components separate_each: the explode must return exactly what the
     # pre-optimisation nested per-iteration diff returned. The loop now takes ONE
     # bpy.data.objects snapshot before it and ONE difference after, instead of a
@@ -1895,6 +1752,259 @@ try:
     check("detach separate_each (4 sources): every result is a single-face object",
           all(faces(o) == 1 for o in got))
 
+
+    # ---- get_symmetry / set_symmetry: mayatk's names (tentacle's symmetry panel) -------------
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    sym_a = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(4, 0, 0))
+    sym_b = bpy.context.active_object
+    btk.CoreUtils.select([sym_a, sym_b])  # replace: sym_a is active
+    state = btk.EditUtils.set_symmetry(axis="x", state=True)
+    check(
+        "set_symmetry: the axis on every selected mesh, the active mesh's state back",
+        sym_a.data.use_mirror_x
+        and sym_b.data.use_mirror_x
+        and state == {"enabled": True, "axes": ["x"], "space": "object", "by_axis": True},
+        f"{state}",
+    )
+    btk.EditUtils.set_symmetry(axis="Y", state=True)
+    state = btk.EditUtils.set_symmetry(axis="x", state=False)
+    check("set_symmetry: each axis is its own flag", state["axes"] == ["y"], f"{state}")
+    state = btk.EditUtils.set_symmetry(space="topo")
+    check(
+        "set_symmetry space='topo' matches by topology",
+        sym_b.data.use_mirror_topology and state["space"] == "topo",
+        f"{state}",
+    )
+    state = btk.EditUtils.set_symmetry(space="object")
+    check(
+        "set_symmetry space='object' matches by position",
+        not sym_a.data.use_mirror_topology and state["space"] == "object",
+        f"{state}",
+    )
+    try:
+        btk.EditUtils.set_symmetry(space="world")
+        check("set_symmetry: a space Blender lacks raises ValueError", False)
+    except ValueError:
+        check("set_symmetry: a space Blender lacks raises ValueError", True)
+    btk.CoreUtils.select([])
+    try:
+        btk.EditUtils.set_symmetry(axis="z", state=True)
+        check("set_symmetry with no mesh selected raises ValueError", False)
+    except ValueError:
+        check(
+            "set_symmetry with no mesh selected raises ValueError",
+            not sym_a.data.use_mirror_z,
+        )
+    check(
+        "get_symmetry with no active mesh: no space, nothing enabled",
+        btk.EditUtils.get_symmetry()
+        == {"enabled": False, "axes": [], "space": None, "by_axis": True},
+    )
+
+    # ---- the shared Edit panel's Create / Convert / Delete
+    def _clear():
+        if bpy.context.view_layer.objects.active and bpy.context.view_layer.objects.active.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        for _o in list(bpy.data.objects):
+            bpy.data.objects.remove(_o, do_unlink=True)
+
+    _clear()
+    _types = btk.Primitives.get_primitive_types()
+    check(
+        "Primitives.get_primitive_types: Maya's categories, Blender's items",
+        list(_types) == ["Polygon", "NURBS", "Curve", "Helper", "Light"]
+        and "Monkey" in _types["Polygon"] and "Directional" in _types["Light"],
+        f"{list(_types)}",
+    )
+    _missing = []
+    for _cat, _names in _types.items():
+        for _name in _names:
+            _clear()
+            try:
+                _made = btk.Primitives.create(_cat, _name)
+            except Exception as _e:  # noqa: BLE001 - a raise is the failure reported
+                _missing.append(f"{_cat}/{_name}: {_e}")
+                continue
+            if _made is None:
+                _missing.append(f"{_cat}/{_name}: nothing made")
+    check("Primitives.create makes every listed item", _missing == [], f"{_missing}")
+
+    _clear()
+    btk.Primitives.create("Helper", "Null Group")
+    _null = bpy.context.view_layer.objects.active
+    check(
+        "Primitives.create Helper/Null Group: a typed group Empty, its arrows kept",
+        _null is not None and _null.get("maya_node_type") == "group"
+        and _null.empty_display_type == "ARROWS",
+    )
+    _clear()
+    bpy.ops.mesh.primitive_plane_add()
+    _plane = bpy.context.active_object
+    bpy.ops.object.mode_set(mode="EDIT")
+    btk.Primitives.create("Polygon", "Cube")
+    _plane.update_from_editmode()
+    check(
+        "Primitives.create from Edit Mode makes a new object (Object Mode first)",
+        len(bpy.data.objects) == 2 and len(_plane.data.vertices) == 4
+        and _plane.mode == "OBJECT",
+        f"objects={len(bpy.data.objects)} plane verts={len(_plane.data.vertices)}",
+    )
+    try:
+        btk.Primitives.create("Polygon", "Teapot")
+        check("Primitives.create refuses an unknown item", False)
+    except ValueError:
+        check("Primitives.create refuses an unknown item", True)
+
+    _clear()
+    _ctrl = btk.Controls.create("circle", name="SelCtrl", select=True)
+    check(
+        "Controls.create(select=True): the control alone selected and active",
+        btk.CoreUtils.selected_objects() == [_ctrl]
+        and btk.CoreUtils.active_object() is _ctrl,
+    )
+
+    _clear()
+    bpy.ops.curve.primitive_bezier_circle_add()
+    _crv = bpy.context.active_object
+    btk.EditUtils.convert_objects(None, "Mesh")
+    check("convert_objects(None, 'Mesh'): curve -> MESH", _crv.type == "MESH", _crv.type)
+    btk.CoreUtils.select([])
+    check(
+        "convert_objects with nothing selected is []",
+        btk.EditUtils.convert_objects(None, "Mesh") == [],
+    )
+    _clear()
+    bpy.ops.mesh.primitive_cube_add()
+    _src = bpy.context.active_object
+    bpy.ops.object.duplicate_move_linked()
+    _dup = bpy.context.active_object
+    btk.CoreUtils.select([_dup])
+    btk.EditUtils.convert_objects(None, "Instance to Object")
+    check(
+        "convert_objects 'Instance to Object': the linked duplicate takes its own data",
+        _dup.data != _src.data,
+    )
+
+    _clear()
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=3, y_subdivisions=3)
+    _grid = bpy.context.active_object
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_mode(type="FACE")
+    bpy.ops.mesh.select_all(action="DESELECT")
+    _bm = bmesh.from_edit_mesh(_grid.data)
+    _bm.faces.ensure_lookup_table()
+    min(_bm.faces, key=lambda f: f.calc_center_median().length).select_set(True)
+    bmesh.update_edit_mesh(_grid.data)
+    btk.EditUtils.delete_selected()
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check(
+        "delete_selected in face mode keeps the neighbours (9 -> 8 faces)",
+        len(_grid.data.polygons) == 8,
+        len(_grid.data.polygons),
+    )
+    btk.CoreUtils.select([_grid])
+    btk.EditUtils.delete_selected()
+    check("delete_selected in Object Mode deletes the object", len(bpy.data.objects) == 0)
+
+    # ---- the polygons panel's object operations: mayatk's names and signatures
+    def _cubes_touching():
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0, 0, 0))
+        a = bpy.context.active_object
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(1, 0, 0))
+        b = bpy.context.active_object
+        both = btk.combine_objects([a, b], uninstance=False)
+        return both if not isinstance(both, list) else both[0]
+
+    both = _cubes_touching()
+    btk.CoreUtils.select([both])
+    check(
+        "merge_vertices(None) in Object Mode welds every coincident vertex",
+        btk.EditUtils.merge_vertices(None, tolerance=0.001) == [both]
+        and len(both.data.vertices) == 12,
+        f"{len(both.data.vertices)}",
+    )
+    btk.CoreUtils.select([])
+    check("merge_vertices(None) with nothing selected is []", btk.EditUtils.merge_vertices(None) == [])
+
+    bpy.ops.object.select_all(action="DESELECT")
+    bpy.ops.mesh.primitive_cube_add(size=2.0)
+    base = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(1, 1, 1))
+    cutter = bpy.context.active_object
+    btk.CoreUtils.select([cutter, base])
+    bpy.context.view_layer.objects.active = base
+    out = btk.EditUtils.boolean_objects(None, operation="difference", interactive=True)
+    check(
+        "boolean_objects(None): the active mesh is the base; interactive keeps the modifier",
+        out == [base] and any(m.type == "BOOLEAN" for m in base.modifiers),
+    )
+    try:
+        btk.EditUtils.boolean_objects([base, cutter], operation="xor")
+        check("boolean_objects rejects an unknown operation", False)
+    except ValueError:
+        check("boolean_objects rejects an unknown operation", True)
+    check("boolean_objects needs two meshes", btk.EditUtils.boolean_objects([base]) == [])
+
+    both = _cubes_touching()
+    parts = btk.EditUtils.separate_objects([both], group_by_material=True, select=True)
+    check(
+        "separate_objects(group_by_material): one Empty per material, selected",
+        len(parts) == 1
+        and parts[0].type == "EMPTY"
+        and len(parts[0].children) == 2
+        and btk.CoreUtils.selected_objects() == parts,
+        f"{[(p.name, p.type) for p in parts]}",
+    )
+
+    # ---- subdivision ops (tentacle's composed SubdivisionSlots) -------------------------
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    sub_cube = bpy.context.active_object
+    btk.CoreUtils.select([sub_cube])
+    check("triangulate(None) acts on the selection",
+          btk.EditUtils.triangulate(None) == [sub_cube] and faces(sub_cube) == 12,
+          f"faces={faces(sub_cube)}")
+    check("quadrangulate merges the triangles back",
+          btk.EditUtils.quadrangulate(None) == [sub_cube] and faces(sub_cube) == 6,
+          f"faces={faces(sub_cube)}")
+    check("subdivide_mesh(None) adds faces",
+          btk.EditUtils.subdivide_mesh(None) == [sub_cube] and faces(sub_cube) > 6)
+    btk.CoreUtils.select([])
+    for op in ("triangulate", "quadrangulate", "subdivide_mesh", "apply_subdivision",
+               "decimate", "dissolve_coplanar"):
+        check(f"{op}(None) with nothing selected -> [] (nothing runs)",
+              getattr(btk.EditUtils, op)(None) == [])
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    sub_cube = bpy.context.active_object
+    btk.EditUtils.set_subdivision([sub_cube], viewport_levels=1)
+    check("apply_subdivision(None) applies the selection's Subsurf",
+          btk.EditUtils.apply_subdivision(None) == [sub_cube]
+          and not sub_cube.modifiers and faces(sub_cube) == 24)
+    check("decimate takes Maya's delete_history (ignored)",
+          btk.EditUtils.decimate([sub_cube], percentage=10.0, delete_history=False)
+          == [sub_cube])
+    import inspect as _inspect
+
+    for algorithm, op in (("reduce", btk.EditUtils.decimate),
+                          ("planar", btk.EditUtils.dissolve_coplanar)):
+        params = _inspect.signature(op).parameters
+        check(f"DECIMATE_OPTIONS[{algorithm!r}] are the op's keywords",
+              all(o in params for o in btk.EditUtils.DECIMATE_OPTIONS[algorithm]))
+    # dissolve_coplanar's preserve_hard_edges keeps a sharp edge between coplanar faces
+    reset()
+    bpy.ops.mesh.primitive_plane_add(size=2.0)
+    grid = bpy.context.active_object
+    btk.EditUtils.subdivide_mesh([grid], cuts=1)  # 4 coplanar quads
+    for e in grid.data.edges:
+        mid = (grid.data.vertices[e.vertices[0]].co + grid.data.vertices[e.vertices[1]].co) / 2
+        e.use_edge_sharp = abs(mid.x) < 1e-6 and abs(mid.y) > 1e-6  # the inner Y-running pair
+    btk.EditUtils.dissolve_coplanar([grid], angle_tolerance=1.0, preserve_hard_edges=True)
+    check("dissolve_coplanar preserve_hard_edges keeps the sharp seam (2 faces, not 1)",
+          faces(grid) == 2, f"faces={faces(grid)}")
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

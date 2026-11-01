@@ -545,6 +545,209 @@ try:
         result["lightmaps"],
     )
 
+    # ---- what the shared Texture Combine panel asks beside the combine -------
+    # (tentacle's ``slots/tools/texture_combine.py``; its gates, rows and report
+    # are tentacle's ``test_texture_combine_panel``). Mirror of mayatk's
+    # TestPanelSelection / TestTransferSelectionSides.
+    from blendertk.uv_utils._uv_utils import UvUtils
+    from blendertk.uv_utils.texture_combine.texture_combine import CombineInputs
+
+    def pick(objs, active=None):
+        with btk.CoreUtils.window_context_override():
+            for o in list(bpy.context.view_layer.objects):
+                o.select_set(o in objs)
+            bpy.context.view_layer.objects.active = active
+
+    def cube(name, x=0.0):
+        bpy.ops.mesh.primitive_cube_add(location=(x, 0, 0))
+        o = bpy.context.active_object
+        o.name = name
+        return o
+
+    reset()
+    a, b = plane("selA"), plane("selB", 2)
+    pick([])
+    check(
+        "select takes objects (by name) and counts what exists",
+        TextureCombine.select(["selA", "goneForever"]) == 1
+        and [o.name for o in btk.CoreUtils.selected_objects()] == ["selA"],
+    )
+    check(
+        "select with nothing that exists leaves the selection alone",
+        TextureCombine.select(["goneForever"]) == 0
+        and [o.name for o in btk.CoreUtils.selected_objects()] == ["selA"],
+    )
+    count = TextureCombine.select(["selB.f[0:0]"])
+    check(
+        "select puts a face component's object in Edit Mode with those faces",
+        count == 1
+        and b.mode == "EDIT"
+        and TextureCombine.selected_faces() == ["selB.f[0:0]"],
+        f"{count} {b.mode} {TextureCombine.selected_faces()}",
+    )
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check(
+        "selected_faces holds none outside Edit Mode",
+        TextureCombine.selected_faces() == [],
+    )
+    inputs = CombineInputs(transforms=["selA"])
+    inputs.shapes["selA"] = {
+        "materials": ["matX", "matY"],
+        "face_material": np.array([0, 1, 1]),
+        "transforms": ["selA"],
+    }
+    check(
+        "material_faces names a material's faces as components",
+        TextureCombine.material_faces(inputs, "matY") == ["selA.f[1:2]"]
+        and TextureCombine.material_faces(inputs, "other") == [],
+    )
+    check(
+        "leaf_name is the object's name, a component's object",
+        TextureCombine.leaf_name("Cube.001.f[0:3]") == "Cube.001"
+        and TextureCombine.leaf_name(a) == "selA",
+    )
+    engine = TextureCombine(log_level="WARNING")
+    check(
+        "default_name falls back to the caller's word",
+        engine.default_name([]) == "combined"
+        and engine.default_name([], fallback="transfer") == "transfer",
+    )
+
+    reset()
+    a1, _a2, b = scene()
+    check(
+        "combine refuses a shader type (none to rebuild on), before any change",
+        raises(lambda: combine([a1, b], assign_shader_type="standard_surface"))
+        and TextureCombine.names() == []
+        and TextureTransfer.shader_types() == {},
+    )
+    check(
+        "TERMS speak of the active object and UV maps",
+        TextureTransfer.TERMS["uv"] == "UV Map"
+        and TextureTransfer.TERMS["first"] == "Active Mesh",
+    )
+
+    reset()
+    s, t = cube("uvSrc"), cube("uvTgt", 3)
+    check(
+        "transfer_uvs reports each pair and how (mayatk's shape)",
+        UvUtils.transfer_uvs([s], [t], match_by_similarity=False)
+        == [("uvSrc", "uvTgt", "topology")],
+    )
+
+    def joined():
+        """srcA (cube), srcB (sphere) and 'comb' = B joined with A."""
+        reset()
+        a = cube("srcA")
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=6, ring_count=4, location=(3, 0, 0))
+        b = bpy.context.active_object
+        b.name = "srcB"
+        copies = []
+        for o in (b, a):
+            c = o.copy()
+            c.data = o.data.copy()
+            bpy.context.collection.objects.link(c)
+            copies.append(c)
+        with bpy.context.temp_override(
+            active_object=copies[0], selected_editable_objects=copies
+        ):
+            bpy.ops.object.join()
+        copies[0].name = "comb"
+        return a, b, copies[0]
+
+    def sides(mode="auto", stored=()):
+        mode, source, targets = TextureTransfer.selection_sides(mode, stored)
+        names = lambda objs: None if objs is None else [o.name for o in objs]  # noqa: E731
+        return mode, names(source), names(targets)
+
+    a, b, c = joined()
+    pick([a, b, c], c)
+    check(
+        "All But Active: the active mesh is the target of every other",
+        sides("last") == ("last", ["srcA", "srcB"], ["comb"])
+        or sides("last") == ("last", ["srcB", "srcA"], ["comb"]),
+        sides("last"),
+    )
+    pick([a, b, c], a)
+    got = sides()
+    check(
+        "Auto finds the joined target whatever is active",
+        got[0] == "last" and sorted(got[1]) == ["srcA", "srcB"] and got[2] == ["comb"],
+        got,
+    )
+    pick([a], a)
+    check("Auto reads one mesh as its own UV maps", sides() == ("uvset", None, ["srcA"]))
+    pick([b, a], b)
+    check(
+        "Auto falls back to the active mesh as the source",
+        sides() == ("first", ["srcB"], ["srcA"]),
+        sides(),
+    )
+    pick([c], c)
+    got = sides("auto", ["srcA", "srcB"])
+    check(
+        "Auto reads stored sources that match the selection",
+        got[0] == "stored" and got[1] == ["srcA", "srcB"] and got[2] == ["comb"],
+        got,
+    )
+    pick([a], a)
+    check(
+        "Auto ignores a stale capture and a deleted one",
+        sides("auto", ["comb"]) == ("uvset", None, ["srcA"])
+        and sides("auto", ["goneForever"]) == ("uvset", None, ["srcA"]),
+    )
+    d = cube("deselD", 9)
+    pick([a, b], d)  # D active, not selected
+    check(
+        "a deselected active object is no side of the transfer",
+        sides("first")[1] == [] and sides("last")[2] == [],
+        f"{sides('first')} {sides('last')}",
+    )
+    pick([a, b], a)
+    names = TextureTransfer.capture_sources()
+    check(
+        "capture stores names; live_sources skips the deleted",
+        sorted(names) == ["srcA", "srcB"]
+        and [o.name for o in TextureTransfer.live_sources(["srcA", "goneForever"])]
+        == ["srcA"],
+        names,
+    )
+
+    # ---- the panel's Transfer run (TextureCombine.run_transfer) ------------
+    # pythontk's TransferRun over BlenderTransferHost; the run's decisions are
+    # pinned in pythontk's test_uv_transfer_run.
+    from blendertk.uv_utils.texture_combine._transfer_host import (
+        BlenderTransferHost,
+    )
+
+    reset()
+    run_src, run_tgt = cube("runSrc"), cube("runTgt", 3)
+    pick([run_src, run_tgt], run_src)
+    result = TextureCombine().run_transfer(source="first", transfer="uvs")
+    check(
+        "the run reads the active mesh as the source and moves its UVs",
+        isinstance(result, ptk.TransferResult)
+        and result.refusal is None
+        and result.uvs == [("runSrc", "runTgt", "topology")],
+        result,
+    )
+    pick([])
+    result = TextureCombine().run_transfer(source="first", transfer="uvs")
+    check("an empty selection is a refusal, not a raise", result.refusal == "pick_first")
+
+    class _Sub(TextureTransfer):
+        pass
+
+    run_host = BlenderTransferHost(transfers=_Sub)
+    check(
+        "the adapter answers the library's operations",
+        isinstance(run_host, ptk.TransferHost)
+        and isinstance(run_host.texture_transfer(), _Sub)
+        and run_host.has_lightmap(run_src) is False
+        and run_host.default_name([run_src]) == "runSrc",
+        run_host.default_name([run_src]),
+    )
+
     reset()
     artifacts.cleanup()
 

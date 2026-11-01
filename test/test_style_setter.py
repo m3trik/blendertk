@@ -250,6 +250,21 @@ try:
         not hasattr(btk, "install") and not hasattr(btk, "is_installed"),
     )
 
+    # ---- list_templates installs the shipped presets first (a selector calls it alone)
+    _maya_copy = ss.StyleSetter.user_preset_path("Maya")
+    if os.path.isfile(_maya_copy):
+        os.remove(_maya_copy)
+    check(
+        "list_templates() puts our 'Maya' in the list without a prior install()",
+        "Maya" in ss.StyleSetter.list_templates() and os.path.isfile(_maya_copy),
+    )
+    os.remove(_maya_copy)
+    check(
+        "list_templates(install_presets=False) leaves the preset dir alone",
+        "Maya" not in ss.StyleSetter.list_templates(install_presets=False)
+        and not os.path.isfile(_maya_copy),
+    )
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

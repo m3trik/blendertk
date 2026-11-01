@@ -13,8 +13,8 @@ Toolbag.
 Everything Marmoset-specific but DCC-agnostic (Toolbag discovery/launch, log handling, template
 rendering, the in-Toolbag helpers, the RPC client) is vendored alongside this module in the
 ``marmoset_bridge`` subpackage -- an identical copy to mayatk's, per the established pattern
-(the standalone extapps ``marmoset_workflow`` panel keeps its own copy too, since none of the
-three can import each other). This module owns only what genuinely needs Blender.
+(extapps' ``marmoset_workflow`` keeps its own copy too, for its standalone Marmoset
+Workflow panel, since none of the three can import each other). This module owns only what genuinely needs Blender.
 
 ``import bpy`` is deferred so the engine surface resolves headlessly.
 """
@@ -33,9 +33,8 @@ from blendertk.mat_utils.marmoset_bridge._marmoset_engine import (
     ROUND_TRIP,
 )
 
-# Re-exported so the slots/tests can ``from ._marmoset_bridge import SEND_TO, _TEMPLATE_DIR``
-# (mirror of mayatk's _marmoset_bridge). Without these, marmoset_bridge_slots.py fails to import
-# → MarmosetBridgeSlots never registers → discovery falls back to the engine class.
+# Re-exported so the tests can ``from ._marmoset_bridge import SEND_TO, _TEMPLATE_DIR``
+# (mirror of mayatk's _marmoset_bridge).
 from blendertk.mat_utils.marmoset_bridge._marmoset_engine import (  # noqa: F401
     SEND_TO,
     _TEMPLATE_DIR,
@@ -46,7 +45,6 @@ from blendertk.mat_utils.marmoset_bridge._marmoset_engine import (  # noqa: F401
 from . import template_params
 
 from blendertk.core_utils._core_utils import CoreUtils
-from blendertk.edit_utils._edit_utils import EditUtils
 from blendertk.env_utils.fbx_utils import FbxUtils
 from blendertk.env_utils.handoff_export import BlenderExportMixin
 from blendertk.env_utils.usd import UsdUtils
@@ -249,7 +247,7 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
     def __init__(self, toolbag_path: Optional[str] = None):
         super().__init__()
         self.deliverer = MarmosetEngine(toolbag_path)
-        # The panel redirects only the bridge's logger (`BridgeSlotsBase`); route the engine's
+        # The panel redirects only the bridge's logger (`ParamPanelSlots`); route the engine's
         # delivery-phase output through the SAME logger so it reaches the log panel.
         self.deliverer.logger = self.logger
 
@@ -261,10 +259,27 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
     def toolbag_path(self, value: Optional[str]) -> None:
         self.deliverer.toolbag_path = value
 
-    def params_defaults(self) -> Dict[str, Any]:
-        from blendertk.mat_utils.marmoset_bridge import parameters as _params
+    #: The bundled ``templates/`` folder: what a panel lists and describes.
+    TEMPLATE_DIR = _TEMPLATE_DIR
 
-        return _params.Parameters.defaults()
+    @classmethod
+    def params_registry(cls):
+        """The panel's parameter registry (``parameters.Parameters``, a
+        ``uitk.bridge.ParamRegistry``): what tentacle's Marmoset Bridge builds its
+        rows from, and :meth:`params_defaults` reads. Imported on use: the
+        registry is uitk's, and the engine surface imports without it."""
+        from . import parameters as _params
+
+        return _params.Parameters
+
+    @staticmethod
+    def list_template_modes() -> List[Tuple[str, str]]:
+        """``[(template, mode), ...]`` for every bundled template, off the class
+        as a panel reads it (:meth:`MarmosetEngine.list_template_modes`)."""
+        return MarmosetEngine.list_template_modes()
+
+    def params_defaults(self) -> Dict[str, Any]:
+        return self.params_registry().defaults()
 
     def render_template(self, *args, **kwargs) -> Optional[str]:
         """Render a Toolbag script body (delegates to the engine deliverer)."""
@@ -685,8 +700,12 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
         """
         if not (sources and targets):
             return {}
+        # Through the root at call time: Components (edit_utils) ranks above
+        # mat_utils, so a module import here would reach up the layer order.
+        import blendertk as btk
+
         try:
-            distances = EditUtils.get_standoff_distances(sources, targets)
+            distances = btk.Components.get_standoff_distances(sources, targets)
             lo, hi = self._world_bounds(targets)
         except Exception as e:  # noqa: BLE001
             self.logger.warning(

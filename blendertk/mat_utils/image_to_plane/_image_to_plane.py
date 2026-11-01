@@ -17,6 +17,8 @@ import os
 
 import pythontk as ptk
 
+from blendertk.core_utils._core_utils import CoreUtils
+
 
 class ImageToPlane(ptk.LoggingMixin):
     """Create textured planes from image files (mirror of mayatk's ``ImageToPlane``).
@@ -26,7 +28,13 @@ class ImageToPlane(ptk.LoggingMixin):
     Base Color (and Alpha when present). Planes are created at the world origin.
     """
 
+    #: The ``mat_type`` values the Image to Plane panel offers, as ``(label, value)``
+    #: (mirror of mayatk's): Blender's one, the Principled BSDF -- its standard shader,
+    #: which is what mayatk's ``"standard"`` names.
+    MAT_TYPES = (("Principled BSDF", "standard"),)
+
     @classmethod
+    @CoreUtils.undoable
     def create(
         cls,
         image_paths,
@@ -54,7 +62,9 @@ class ImageToPlane(ptk.LoggingMixin):
                 so image planes read as flat, un-scattered reference cards.
 
         Returns:
-            dict: ``{image_stem: plane_object, ...}`` (plus ``"__group__"`` when grouped).
+            dict: ``{image_stem: plane_object, ...}`` (plus ``"__group__"`` when grouped),
+            left selected: the group when grouped, else the planes (the first active), as
+            Blender's Add operators leave what they add. One undo step.
         """
         # None => the shared naming convention (pythontk.NamingConvention),
         # so a studio that respells this affix changes one definition rather
@@ -78,14 +88,17 @@ class ImageToPlane(ptk.LoggingMixin):
 
         if group and results:
             results["__group__"] = cls._group(list(results.values()), group_name)
+        if results:
+            cls._select_result(results)
         return results
 
     @classmethod
+    @CoreUtils.undoable
     def remove(cls, objects=None):
         """Remove planes and their auto-created materials/images (orphans only) — mirror of
-        mayatk's ``ImageToPlane.remove``. ``None`` → the current selection. Returns the count removed."""
+        mayatk's ``ImageToPlane.remove``. ``None`` → the current selection. Returns the count
+        removed; one undo step."""
         import bpy
-        from blendertk.core_utils._core_utils import CoreUtils
         from blendertk.mat_utils._mat_utils import MatUtils
 
         if objects is None:
@@ -118,6 +131,13 @@ class ImageToPlane(ptk.LoggingMixin):
         return count
 
     # ------------------------------------------------------------------ internals
+    @staticmethod
+    def _select_result(results) -> None:
+        """Select *results* (the group alone when grouped), the first one active."""
+        CoreUtils.select(
+            [results["__group__"]] if "__group__" in results else results.values()
+        )
+
     @classmethod
     def _create_single(
         cls, image_path, mat_type, suffix, prefix, plane_height, roughness=0.0

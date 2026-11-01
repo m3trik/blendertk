@@ -3,8 +3,8 @@ Run: blender --background --factory-startup --python blendertk/test/test_naming.
 
 Covers the engine — pattern rename (replace-all / append-suffix / filter / retain-suffix), set_case,
 strip_chars, suffix_by_type (Blender type map), append_location_based_suffix (distance ordering,
-alphabetical + integer), generate_unique_name, strip_illegal_chars. The NamingSlots Qt wiring is
-covered by the handler test (under .venv).
+alphabetical + integer), generate_unique_name, strip_illegal_chars, and the API tentacle's Naming
+panel calls (scope_objects, select_by_name, select_link, UNSUPPORTED_TYPES).
 """
 
 import sys, os, traceback
@@ -289,6 +289,222 @@ try:
     check(
         "strip illegal chars (list)",
         Naming.strip_illegal_chars(["x.y", "z 1"]) == ["x_y", "z_1"],
+    )
+
+    # ---- the tool API (what tentacle's Naming panel calls) ------------------------------------
+    reset()
+    a, b = empty("ScopeA"), empty("ScopeB")
+    btk.CoreUtils.select([a], mode="replace")
+    check("scope_objects: the selection", Naming.scope_objects() == [a])
+    check(
+        "scope_objects: the scene",
+        sorted(o.name for o in Naming.scope_objects(scene=True)) == ["ScopeA", "ScopeB"],
+    )
+
+    reset()
+    loc, mesh = empty("FindLoc"), typed("FindMe", "MESH")
+    found, searched = Naming.select_by_name("Find*")
+    check(
+        "select_by_name selects the matches",
+        sorted(o.name for o in found) == ["FindLoc", "FindMe"]
+        and searched == 2
+        and all(o.select_get() for o in found),
+        f"{[o.name for o in found]} of {searched}",
+    )
+    found, searched = Naming.select_by_name("Find*", locators_only=True)
+    check(
+        "select_by_name locators_only searches Empties",
+        [o.name for o in found] == ["FindLoc"] and searched == 1 and not mesh.select_get(),
+    )
+    found, _searched = Naming.select_by_name("NoSuch")
+    check("no match clears the selection", found == [] and not loc.select_get())
+    check(
+        "select_link labels and selects by name",
+        Naming.select_link(loc) == Naming.log_link("FindLoc", "select", node="FindLoc"),
+    )
+    check(
+        "UNSUPPORTED_TYPES name bound convention keys",
+        bool(Naming.UNSUPPORTED_TYPES)
+        and set(Naming.UNSUPPORTED_TYPES) <= {ck for _kw, ck, _tk in Naming.SUFFIX_BINDINGS},
+    )
+
+    # ==== the Naming probe's findings (2026-10-31), mirrored from mayatk ======================
+    import logging
+    import tempfile
+
+    class Captured:
+        def __init__(self):
+            self.texts = []
+            self.handler = logging.Handler()
+            self.handler.emit = lambda record: self.texts.append(record.getMessage())
+
+        def __enter__(self):
+            Naming.logger.addHandler(self.handler)
+            return self
+
+        def __exit__(self, *_exc):
+            Naming.logger.removeHandler(self.handler)
+
+        def lines(self, word):
+            return [t for t in self.texts if word in t]
+
+    def linked_object(name):
+        """A library-linked object: Blender refuses to rename it (is_editable False)."""
+        reset()
+        src = empty(name)
+        lib = os.path.join(tempfile.mkdtemp(), "naming_lib.blend")
+        bpy.data.libraries.write(lib, {src}, fake_user=True)
+        reset()
+        with bpy.data.libraries.load(lib, link=True) as (_from, to):
+            to.objects = [name]
+        obj = to.objects[0]
+        bpy.context.collection.objects.link(obj)
+        return obj
+
+    # ---- S2-C: a swap renames both (two phases in every operation) -----------------------------
+    reset()
+    a, b = empty("obj1"), empty("obj2")
+    Naming.rename([a, b], "obj2|obj1", fltr="obj1|obj2")
+    check("swap renames both", (a.name, b.name) == ("obj2", "obj1"), f"{a.name},{b.name}")
+
+    # ---- S1-D / E: a linked object is skipped in one line, nothing stranded -------------------
+    lk = linked_object("lk")
+    a, b = empty("a", x=0.0), empty("b", x=2.0)
+    lk_x = lk.matrix_world.translation.x
+    with Captured() as log:
+        Naming.append_location_based_suffix([a, lk, b])
+    names = sorted(o.name for o in bpy.data.objects)
+    check(
+        "location: linked object skipped, nothing parked",
+        lk.name == "lk" and not [n for n in names if "naming" in n] and a.name == "a_01",
+        f"{names} lk_x={lk_x}",
+    )
+    check("location: one skip line", len(log.lines("Skipped")) == 1, log.texts)
+    with Captured() as log:
+        result = Naming.rename([lk, a], "**_x")
+    check(
+        "rename: linked skipped, no failure",
+        not log.lines("Could not rename") and len(log.lines("Skipped")) == 1
+        and result == ["lk", "a_01_x"],
+        f"{result} {log.texts}",
+    )
+
+    # ---- G: a numbered duplicate is re-affixed, not decorated ----------------------------------
+    reset()
+    dup, idx = typed("crate_GEO.001", "MESH"), typed("wall_GEO_01", "MESH")
+    Naming.suffix_by_type([dup, idx])
+    check(
+        "suffix_by_type re-affixes a numbered duplicate",
+        (dup.name, idx.name) == ("crate_001_GEO", "wall_01_GEO"),
+        f"{dup.name},{idx.name}",
+    )
+
+    # ---- H: alphabetical numbering is re-runnable, a side marker kept --------------------------
+    reset()
+    tiles = [empty("tile", x=float(i)) for i in range(4)]
+    Naming.append_location_based_suffix(tiles, alphabetical=True)
+    first = [o.name for o in tiles]
+    Naming.append_location_based_suffix(tiles, alphabetical=True)
+    check(
+        "alphabetical re-run is stable",
+        first == ["tile_A", "tile_B", "tile_C", "tile_D"] and [o.name for o in tiles] == first,
+        f"{first} -> {[o.name for o in tiles]}",
+    )
+    reset()
+    c1, c2 = empty("Container_GRP", x=0.0), empty("Container_GRP", x=10.0)
+    for alpha, want in ((False, ("Container_01_GRP", "Container_02_GRP")), (True, ("Container_A_GRP", "Container_B_GRP"))):
+        for _run in range(2):
+            Naming.append_location_based_suffix(
+                [c1, c2], independent_groups=True, strip_defined_suffixes=False,
+                alphabetical=alpha, valid_suffixes=["_GRP"],
+            )
+            check(
+                f"independent groups re-run is stable (alphabetical={alpha})",
+                (c1.name, c2.name) == want,
+                f"{c1.name},{c2.name}",
+            )
+    reset()
+    left, right = empty("arm_L", x=0.0), empty("arm_R", x=1.0)
+    Naming.append_location_based_suffix([left, right], alphabetical=True)
+    check("alphabetical keeps a side marker", (left.name, right.name) == ("arm_L_A", "arm_R_B"))
+
+    # ---- K / L: every planned name is legalized ------------------------------------------------
+    reset()
+    o = empty("a1box")
+    Naming.strip_chars([o], num_chars=1)
+    check("strip leading keeps the digit", o.name == "_1box", o.name)
+    reset()
+    o = empty("c4")
+    Naming.rename([o], "1box")
+    check("leading digit gets '_'", o.name == "_1box", o.name)
+    o = empty("c7")
+    with Captured() as log:
+        Naming.rename([o], "---")
+    check("nothing legal left: skipped", o.name == "c7" and log.lines("no letters or digits"), f"{o.name} {log.texts}")
+    o = empty("c6")
+    with Captured() as log:
+        Naming.rename([o], "crate_#")
+    check("'#' is not a counter", bool(log.lines("not a counter")), log.texts)
+
+    # ---- M: the dry run predicts Blender's numbering -------------------------------------------
+    reset()
+    empty("box")
+    cs = [empty(f"c{i}") for i in range(3)]
+    dry = Naming.rename(cs, "box", dry_run=True)
+    with Captured() as log:
+        live = Naming.rename(cs, "box")
+    check(
+        "dry run predicts the live numbering",
+        dry == live == ["box.001", "box.002", "box.003"] and not log.lines("instead of"),
+        f"dry={dry} live={live} {log.texts}",
+    )
+
+    # ---- Suffix By Location's order ------------------------------------------------------------
+    def row():
+        reset()
+        spots = {
+            "east": (3, 0, 0), "west": (-3, 0, 0), "north": (0, -3, 0),
+            "up": (0, 0, 3), "center": (0, 0, 0), "far_west": (-6, 0, 0),
+            "near_east": (1, 0, 0),
+        }
+        objs = {}
+        for name, pos in spots.items():
+            objs[name] = empty(name)
+            objs[name].location = pos
+        return objs
+
+    objs = row()
+    Naming.append_location_based_suffix(list(objs.values()), order="x")
+    got = {k: o.name for k, o in objs.items()}
+    check(
+        "order x: signed position, ties by the other axes",
+        [got[k] for k in ("far_west", "west", "north", "center", "up", "near_east", "east")]
+        == ["far_west_01", "west_02", "north_03", "center_04", "up_05", "near_east_06", "east_07"],
+        got,
+    )
+    for pair in (("east", "west"), ("west", "east")):
+        objs = row()
+        Naming.append_location_based_suffix([objs[k] for k in pair])
+        check(
+            f"distance tie breaks by position ({pair[0]} first)",
+            (objs["west"].name, objs["east"].name) == ("west_01", "east_02"),
+            f"{objs['west'].name},{objs['east'].name}",
+        )
+    reset()
+    posts = [empty("post", x=float(x)) for x in (4, -2, 9, 0)]
+    for o, x in zip(posts, (4, -2, 9, 0)):
+        o.location.y = 0.001 * x
+    Naming.append_location_based_suffix(posts, order="auto")
+    check(
+        "order auto numbers along the row",
+        [o.name for o in posts] == ["post_03", "post_01", "post_04", "post_02"],
+        [o.name for o in posts],
+    )
+    Naming.append_location_based_suffix(posts, order="auto", reverse=True)
+    check(
+        "order auto reversed",
+        [o.name for o in posts] == ["post_02", "post_04", "post_01", "post_03"],
+        [o.name for o in posts],
     )
 
 except Exception:

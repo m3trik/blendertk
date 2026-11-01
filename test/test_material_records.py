@@ -103,6 +103,19 @@ try:
     )
     check("it is opaque", entry["alphaMode"] == "OPAQUE", entry["alphaMode"])
 
+    # --- a glass says the record states no transmission: the model's note
+    # (ptk.MaterialFamilies, mirror of mayatk's). Added: 2026-10-31 -----------
+    lens = fresh("TransmissiveLens")
+    principled(lens).inputs["Transmission Weight"].default_value = 0.5
+    lens_notes = []
+    MaterialRecords.entries([worn(lens, "TransmissiveLensCube")], notes=lens_notes)
+    check(
+        "a transmission is said, in the model's words",
+        lens_notes
+        == [f"Material TransmissiveLens: {ptk.MaterialFamilies.TRANSMISSION_NOTE}"],
+        lens_notes,
+    )
+
     # --- a map stands in for its value, named by its file ---------------------
     painted = fresh("Painted")
     tex = painted.node_tree.nodes.new("ShaderNodeTexImage")

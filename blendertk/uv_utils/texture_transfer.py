@@ -503,9 +503,134 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
     #: target's, a copy of the source's, or the target's own, re-used.
     ASSIGN_FROM = ("target", "source", "in_place")
 
+    #: Blender's words for what :meth:`selection_sides` reads -- the ACTIVE
+    #: object -- and for a mesh's UV channels (mirror of mayatk's ``TERMS``,
+    #: same keys): what the shared Texture Combine panel's Transfer mode says.
+    TERMS: Dict[str, str] = {
+        "uv": "UV Map",
+        "uv_current": "active",
+        "uv_linked": "the map the textures sample (the UV Map node feeding the "
+        "image, else the active-render map)",
+        "group": "parent",
+        "instances": "linked duplicates",
+        "first": "Active Mesh",
+        "first_who": "the active object",
+        "last": "All But Active",
+        "last_who": "the active object",
+        "pick_first": "Make the source active and selected (a mesh, or the "
+        "parent of several), with the target(s) selected.",
+        "pick_last": "Make the target mesh active and selected, with the source "
+        "mesh(es) selected.",
+    }
+
     def __init__(self, log_level="INFO"):
         super().__init__()
         self.logger.setLevel(log_level)
+
+    # ------------------------------------------------------------ the panel
+    # Mirror of mayatk's: what the shared Texture Combine panel's Transfer mode
+    # asks beside the transfer.
+
+    @staticmethod
+    def shader_types() -> Dict[str, str]:
+        """``{assign_shader_type: label}`` -- none: a Blender material is one
+        node graph, with no shader type to rebuild it on (mayatk's twin lists
+        ``ShaderConverter``'s)."""
+        return {}
+
+    @staticmethod
+    def meshes(objects) -> List[Any]:
+        """Mesh objects among *objects* and their children, order kept --
+        mirror of mayatk's (mesh transforms under groups)."""
+        out: List[Any] = []
+
+        def visit(o):
+            if o.type == "MESH" and o not in out:
+                out.append(o)
+            for child in o.children:
+                visit(child)
+
+        for o in objects or ():
+            visit(o)
+        return out
+
+    @classmethod
+    def capture_sources(cls) -> List[str]:
+        """The selected meshes (parents expanded) as what a caller stores to
+        transfer FROM later -- :meth:`selection_sides`'s *stored* -- by NAME:
+        an object reference dies with an undo. Mirror of mayatk's."""
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        return [o.name for o in cls.meshes(CoreUtils.selected_objects())]
+
+    @staticmethod
+    def live_sources(names) -> List[Any]:
+        """The objects of the stored *names* still in the file, order kept --
+        mirror of mayatk's (which returns the names)."""
+        import bpy
+
+        return [bpy.data.objects[n] for n in names or () if n in bpy.data.objects]
+
+    @classmethod
+    def auto_source(cls, meshes, stored=()) -> Tuple[str, Optional[Any]]:
+        """Source: Auto's reading of a selection's *meshes*: ``(mode, target)``
+        -- mirror of mayatk's (the stored meshes compared by name)."""
+        if len(meshes) >= 3:
+            try:
+                found = cls.find_combined(meshes)
+            except ValueError:
+                found = None
+            if found:
+                return "last", found[0]
+        names = {m.name for m in meshes}
+        if stored and meshes and not {s.name for s in stored} & names:
+            try:
+                pairs = cls.pair_sources(list(meshes), list(stored))
+                if all(cls.topology_matches(t, s)[0] for t, s in pairs.items()):
+                    return "stored", None
+            except ValueError:
+                pass
+        if len(meshes) == 1:
+            return "uvset", None
+        return "first", None
+
+    @classmethod
+    def selection_sides(
+        cls, mode: str = "auto", stored=()
+    ) -> Tuple[str, Optional[List[Any]], List[Any]]:
+        """Read the selection into a transfer's sides: ``(mode, source, targets)``
+        -- mirror of mayatk's, over Blender's ACTIVE object where mayatk reads
+        the selection order: ``"first"`` (Active Mesh) -- the active object (a
+        parent: its meshes) is the source, every other selected mesh a target;
+        ``"last"`` (All But Active) -- the active mesh is the target of every
+        other. Blender keeps a deselected object active: it is no side of the
+        transfer (read as one, it made a mesh nobody picked a side). ``"auto"``
+        resolves first; a joined target it finds stands in for the active one.
+        """
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        selected = CoreUtils.selected_objects()
+        active = CoreUtils.active_object()
+        if active is not None and active not in selected:
+            active = None
+        stored = cls.live_sources(stored)
+        if mode == "auto":
+            mode, target = cls.auto_source(cls.meshes(selected), stored)
+            if target is not None:
+                active = target
+        picked = cls.meshes([active]) if active is not None else []
+        if mode == "first":
+            source = picked
+            targets = [m for m in cls.meshes(selected) if m not in source]
+        elif mode == "last":
+            targets = picked
+            source = [m for m in cls.meshes(selected) if m not in targets]
+        elif mode == "stored":
+            source = stored
+            targets = [m for m in cls.meshes(selected) if m not in source]
+        else:
+            source, targets = None, cls.meshes(selected)
+        return mode, source, targets
 
     def transfer(
         self,

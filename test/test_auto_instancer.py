@@ -557,22 +557,35 @@ try:
     check("summary: return_summary defaults off (bare list, backward compatible)",
           isinstance(btk.AutoInstancer.run_once([solo], verbose=False), list))
 
-    # The strategy names bind pythontk's engine; only the triangle count is Blender's.
+    # The strategy names are pythontk's engine; only the triangle count is
+    # Blender's, injected by the AutoInstancer.
     import pythontk as ptk
     from blendertk.core_utils.auto_instancer.instancing_strategy import (
         InstancingStrategy, StrategyConfig, StrategyType,
     )
-    check("InstancingStrategy binds ptk's engine (subclass + re-exported config/enum)",
-          issubclass(InstancingStrategy, ptk.InstancingStrategy)
+    check("InstancingStrategy is ptk's engine (re-exported with config/enum)",
+          InstancingStrategy is ptk.InstancingStrategy
           and StrategyConfig is ptk.StrategyConfig and StrategyType is ptk.StrategyType)
     reset()
     bpy.ops.mesh.primitive_cube_add()
     tri_cube = bpy.context.active_object
-    strat = InstancingStrategy(StrategyConfig())
+    strat = btk.AutoInstancer(verbose=False).strategy_analyzer
     check("InstancingStrategy counts the prototype's triangles (cube = 12)",
           strat._get_triangle_count(tri_cube) == 12, str(strat._get_triangle_count(tri_cube)))
     check("InstancingStrategy: a node without a mesh counts 0",
           strat._get_triangle_count(object()) == 0)
+
+    # ------------------------------------------------------------- run_once(select=True)
+    reset()
+    a = wedge("SEL1", (0, 0, 0))
+    b = wedge("SEL2", (6, 0, 0))
+    btk.CoreUtils.select([])
+    made = btk.AutoInstancer.run_once(  # dynamic: instanced however simple
+        [a, b], is_static=False, combine_non_instanced=False, select=True, verbose=False
+    )
+    check("run_once(select=True) selects and returns what it made",
+          bool(made) and set(bpy.context.view_layer.objects.selected) == set(made),
+          str(made))
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

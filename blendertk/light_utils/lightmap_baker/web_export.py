@@ -779,6 +779,8 @@ class LightmapWebExport(ptk.LoggingMixin):
         Returns:
             The ``lightmaps`` probe entry, or ``None``.
         """
+        from blendertk.core_utils.units import Units
+
         probe = LightmapRecords.probe()
         if not probe or not glb_path or not os.path.isfile(glb_path):
             return None
@@ -787,7 +789,13 @@ class LightmapWebExport(ptk.LoggingMixin):
         # (measured 2026-10-17: a 1 BU = 1 cm scene's node at 100 BU wrote
         # 100), so the record's unit_scale -- right for the FBX route, which
         # honours it -- put a centimetre scene's probe 100x too near the origin.
-        probe = dict(probe, unit_scale=1.0)
+        # The writer states its unit (``ptk.ExportContext.WRITER_UNITS``).
+        probe = dict(
+            probe,
+            unit_scale=ptk.ExportContext.writer_unit(
+                "blender", "gltf", Units.metres_per("internal")
+            ),
+        )
         return ptk.MeshConvert.embed_glb_lightmap_probe(
             glb_path,
             probe,

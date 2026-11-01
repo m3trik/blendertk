@@ -322,12 +322,6 @@ class GeometryMatcher(_GeometryMatcherInternal):
     # ------------------------------------------------------------------
     # Hierarchy comparison
     # ------------------------------------------------------------------
-    def _is_matrix_close(self, m1, m2) -> bool:
-        """True when two matrices are equivalent within tolerance."""
-        a = np.eye(4) if m1 is None else np.array(m1, dtype=float)
-        b = np.eye(4) if m2 is None else np.array(m2, dtype=float)
-        return bool(np.max(np.abs(a - b)) <= self.tolerance)
-
     def are_meshes_identical_with_transform(self, o1, o2, matrix) -> bool:
         """True when *o1* transformed by *matrix* matches *o2* in parent space."""
         m1 = _GeometryMatcherInternal._mesh(o1)

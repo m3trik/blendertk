@@ -263,26 +263,45 @@ try:
         f"{[(i.name, i.source) for i in lone_images]}",
     )
 
-    # The panel's Assign to Selection step: one material -> assigned; several ->
-    # skipped (the user merges them by setting a Material Name).
-    from blendertk.mat_utils.game_shader import GameShaderSlots
-
-    slots = GameShaderSlots.__new__(GameShaderSlots)  # no switchboard needed
+    # GameShader.assign_network, the shared panel's Assign to Selection step:
+    # one material -> assigned; several -> skipped (the user merges them by
+    # setting a Material Name); nothing built -> nothing to assign.
+    engine = GameShader()
     target = bpy.data.objects.new("gs_assign_target", bpy.data.meshes.new("gs_assign"))
     bpy.context.scene.collection.objects.link(target)
     mat_a = bpy.data.materials.new("gs_assign_a")
     mat_b = bpy.data.materials.new("gs_assign_b")
-    slots._assign_to_selection([mat_a, mat_b], [target])
+    several = engine.assign_network([mat_a, mat_b], [target])
     check(
-        "assign to selection skips several materials",
-        len(target.data.materials) == 0,
+        "assign_network skips several materials",
+        several is False and len(target.data.materials) == 0,
         f"{[m.name for m in target.data.materials if m]}",
     )
-    slots._assign_to_selection([mat_a], [target])
     check(
-        "assign to selection assigns the one material",
-        list(target.data.materials) == [mat_a],
+        "assign_network: nothing built -> nothing assigned",
+        engine.assign_network([None], [target]) is False
+        and len(target.data.materials) == 0,
+    )
+    check(
+        "assign_network: nothing selected -> nothing assigned",
+        engine.assign_network([mat_a], []) is False,
+    )
+    one = engine.assign_network([mat_a], [target])
+    check(
+        "assign_network assigns the one material",
+        one is True and list(target.data.materials) == [mat_a],
         f"{[m.name for m in target.data.materials if m]}",
+    )
+    check(
+        "shader_type_choices: none (one surface shader; the panel hides its combo)",
+        GameShader.shader_type_choices() == [],
+    )
+    check(
+        "create_network and assign_network are each one undo step",
+        all(
+            hasattr(getattr(GameShader, n), "__wrapped__")
+            for n in ("create_network", "assign_network")
+        ),
     )
 
     # --- OpenPBR lobes: Principled IS the OpenPBR model -------------------------
@@ -357,9 +376,9 @@ try:
     )
     check(
         "lobe: the loose Specular names what displaced it",
-        GameShaderSlots._shadowed_by("Specular", lobe_plan["by_type"])
+        GameShader._shadowed_by("Specular", lobe_plan["by_type"])
         == "Specular_Level already drives that input",
-        GameShaderSlots._shadowed_by("Specular", lobe_plan["by_type"]),
+        GameShader._shadowed_by("Specular", lobe_plan["by_type"]),
     )
     check(
         "lobe: no lobe map is reported as having no Principled input",

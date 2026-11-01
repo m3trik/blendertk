@@ -30,6 +30,9 @@ Divergence from mayatk (by design):
 
 import pythontk as ptk
 
+# Eager: ``CoreUtils.undoable`` decorates ``scale_keys`` while the class body runs.
+from blendertk.core_utils._core_utils import CoreUtils
+
 
 class _ScaleKeysInternal(object):
     """Internal helpers for ScaleKeys."""
@@ -109,6 +112,7 @@ class ScaleKeys(_ScaleKeysInternal):
     """Namespace mirror of mayatk's ``ScaleKeys`` (``scale_keys`` also exposed module-level)."""
 
     @staticmethod
+    @CoreUtils.undoable
     def scale_keys(
         objects,
         factor,
@@ -123,6 +127,13 @@ class ScaleKeys(_ScaleKeysInternal):
         merge_touching=False,
         on_replace=None,
         on_move=None,
+        # mayatk's, accepted for parity: a Blender scale retimes whole blocks (no Dope
+        # Sheet narrowing, ``keys``), has no Channel Box, needs no overlap re-stagger
+        # (see the module docstring) and prints nothing.
+        keys=None,
+        channel_box_attrs_only=False,
+        prevent_overlap=False,
+        verbose=False,
     ):
         """Scale (retime) keyframes uniformly or via motion-aware speed normalization — mirror of
         ``mtk.scale_keys``/``ScaleKeys``.

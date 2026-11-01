@@ -69,11 +69,8 @@ class _AutoUnwrapInternal:
         """
         import bpy
 
+        CoreUtils.select([obj])
         with CoreUtils.window_context_override():
-            for other in list(bpy.context.view_layer.objects):
-                other.select_set(False)
-            obj.select_set(True)
-            bpy.context.view_layer.objects.active = obj
             bpy.ops.wm.obj_export(
                 filepath=path,
                 export_selected_objects=True,

@@ -6,21 +6,26 @@ Mirror of mayatk's ``_probe_placement``. The placement itself -- open air near
 the bake's middle, the room around it face by face, over what matters, at eye
 level, clear of every surface -- is host-free and lives once in pythontk
 (:class:`pythontk.ProbePlacement`, whose module docstring holds the rules and
-the scenes that forced each). This module hands it Blender's scene:
+the scenes that forced each). This module hands it Blender's scene, as its
+host adapter (:class:`BlenderProbeHost`, a :class:`pythontk.ProbeHost` and the
+:class:`pythontk.ProbeMesh` its rays intersect through):
 
-* **The rays** (:class:`_Rays`): a ``mathutils.bvhtree.BVHTree`` per object,
-  built from its EVALUATED mesh (modifiers applied, as the render sees it) in
-  world space.
+* **The rays**: a ``mathutils.bvhtree.BVHTree`` per object, built from its
+  EVALUATED mesh (modifiers applied, as the render sees it) in world space.
+  Its hits are two-sided, as Maya's ``closestIntersection`` is -- what the
+  placement reads a shell's back by.
 * **The bounds**: the same world-space vertices -- exact, as Maya's
   ``exactWorldBoundingBox`` is, never the object's local box turned.
 * **The lights**: the light objects that reach the render at a non-zero power
   -- a sun as the sky, the rest by their world position -- and an emitting
   world as the sky (mayatk's sky dome).
 * **The units and axes**: Blender's own. Everything inside is in scene units
-  (Blender units), :attr:`ProbePlacement.INTERNAL_M` the metres in one
+  (Blender units), :attr:`BlenderProbeHost.internal_m` the metres in one
   (``Units.metres_per``); Z is up. A probe's deliverables read it in glTF's Y-up
   axes -- ``LightmapBaker.bake_probe`` turns the site into them -- so Blender
   has no Z-up refusal: its axes are always Z-up, and always converted.
+
+:class:`ProbePlacement` is the shared class bound to it: configuration only.
 """
 
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -31,71 +36,32 @@ Vec = Tuple[float, float, float]
 Box = List[List[float]]
 
 
-class _Rays(ptk.ProbeRays):
-    """:class:`pythontk.ProbeRays` over Blender objects: one ``BVHTree`` each,
-    in world space. Its hits are two-sided, as Maya's ``closestIntersection``
-    is -- what the placement reads a shell's back by."""
+class BlenderProbeHost:
+    """What the probe placement asks of the Blender scene
+    (:class:`pythontk.ProbeHost`), and how its rays intersect Blender objects
+    (:class:`pythontk.ProbeMesh`): one ``BVHTree`` each, in world space.
 
-    def __init__(self, names: Sequence[str], geometry):
-        super().__init__()
-        from mathutils.bvhtree import BVHTree
-
-        for name in names:
-            verts, tris = geometry(name)
-            if not len(tris):
-                continue
-            tree = BVHTree.FromPolygons(
-                [tuple(v) for v in verts.tolist()],
-                [tuple(t) for t in tris.tolist()],
-                all_triangles=True,
-            )
-            self.add(name, verts.min(axis=0), verts.max(axis=0), tree)
-
-    def _intersect(self, tree, origin, direction, far):
-        from mathutils import Vector
-
-        location, normal, _index, distance = tree.ray_cast(
-            Vector(tuple(origin)), Vector(tuple(direction)), float(far)
-        )
-        if location is None:
-            return None
-        return distance, (location.x, location.y, location.z), normal
-
-    def _normal(self, tree, face) -> Vec:
-        return (face.x, face.y, face.z)
-
-
-class ProbePlacement(ptk.ProbePlacement):
-    """Place a lightmap bake's reflection probe in the Blender scene
-    (:class:`pythontk.ProbePlacement`, with Blender's rays, bounds, lights,
-    units and axes -- see the module docstring). Mirror of mayatk's.
-
-    Parameters:
-        baked: The baked mesh objects (or names) the render shows -- the room.
-        unbaked: The mesh objects (or names) the render shows that no bake
-            marks. Those whose footprint covers the bake's (a sky dome, a
-            ground or terrain nobody baked) are the room's surroundings: seen,
-            and walls. The rest move: the capture sees through them.
-
-    Nodes are object NAMES inside (``ProbeSite.hide`` names what moves).
+    One adapter serves one placement: it reads each object's evaluated world
+    geometry once, against the window's depsgraph. Nodes are object NAMES
+    inside (``ProbeSite.hide`` names what moves).
     """
 
     #: The up axis, as an index: Blender's Z.
-    UP: int = 2
+    up: int = 2
 
-    def __init__(self, baked: Sequence[Any], unbaked: Sequence[Any] = ()):
+    def __init__(self):
         from blendertk.core_utils._core_utils import CoreUtils
         from blendertk.core_utils.units import Units
 
-        # Metres per Blender unit, as the exporters and the probe's record read
-        # it (a unit system of None is metres, whatever the scale).
-        self.INTERNAL_M = Units.metres_per("internal")
+        #: Metres per Blender unit, as the exporters and the probe's record
+        #: read it (a unit system of None is metres, whatever the scale).
+        self.internal_m: float = Units.metres_per("internal")
         self._geometry: Dict[str, Tuple[Any, Any]] = {}
         self._depsgraph = CoreUtils._evaluated_depsgraph()  # the window's layer
-        super().__init__(self._names(baked), self._names(unbaked))
 
     @staticmethod
-    def _names(objects: Sequence[Any]) -> List[str]:
+    def nodes(objects: Sequence[Any]) -> List[str]:
+        """Objects (or names) as the object names the placement keys by."""
         return [o if isinstance(o, str) else o.name for o in objects or ()]
 
     def _world(self, name: str) -> Tuple[Any, Any]:
@@ -132,10 +98,40 @@ class ProbePlacement(ptk.ProbePlacement):
         self._geometry[name] = (verts, tris)
         return verts, tris
 
-    def _make_rays(self, nodes: Sequence[str]) -> _Rays:
-        return _Rays(nodes, self._world)
+    def rays(self, names: Sequence[str]) -> ptk.ProbeRays:
+        """A :class:`pythontk.ProbeRays` over the objects *names* name: one
+        ``BVHTree`` each, from the evaluated world geometry."""
+        from mathutils.bvhtree import BVHTree
 
-    def _bounds(self, nodes: Sequence[str]) -> Box:
+        rays = ptk.ProbeRays(self)
+        for name in names:
+            verts, tris = self._world(name)
+            if not len(tris):
+                continue
+            tree = BVHTree.FromPolygons(
+                [tuple(v) for v in verts.tolist()],
+                [tuple(t) for t in tris.tolist()],
+                all_triangles=True,
+            )
+            rays.add(name, verts.min(axis=0), verts.max(axis=0), tree)
+        return rays
+
+    @staticmethod
+    def intersect(tree, origin, direction, far):
+        from mathutils import Vector
+
+        location, normal, _index, distance = tree.ray_cast(
+            Vector(tuple(origin)), Vector(tuple(direction)), float(far)
+        )
+        if location is None:
+            return None
+        return distance, (location.x, location.y, location.z), normal
+
+    @staticmethod
+    def normal(tree, face) -> Vec:
+        return (face.x, face.y, face.z)
+
+    def bounds(self, nodes: Sequence[str]) -> Box:
         """``[[min], [max]]`` of *nodes*' world-space vertices."""
         import numpy as np
 
@@ -149,7 +145,8 @@ class ProbePlacement(ptk.ProbePlacement):
             [float(c) for c in stacked.max(axis=0)],
         ]
 
-    def _read_lights(self) -> Tuple[List[Tuple[Vec, Optional[str]]], bool]:
+    @staticmethod
+    def lights() -> Tuple[List[Tuple[Vec, Optional[str]]], bool]:
         """The placed lights the render shows at a non-zero power, ``[(world
         point, None)]``, and whether a sky lights the scene: a sun, or a
         world that emits."""
@@ -173,3 +170,29 @@ class ProbePlacement(ptk.ProbePlacement):
             t = obj.matrix_world.translation
             points.append(((t.x, t.y, t.z), None))
         return points, sky
+
+    @staticmethod
+    def to_scene(value: float) -> float:
+        """Blender lengths are scene units inside and out."""
+        return value
+
+    @staticmethod
+    def to_internal(point: Sequence[float]) -> List[float]:
+        return [float(c) for c in point]
+
+
+class ProbePlacement(ptk.ProbePlacement):
+    """Place a lightmap bake's reflection probe in the Blender scene:
+    :class:`pythontk.ProbePlacement` bound to :class:`BlenderProbeHost`
+    (Blender's rays, bounds, lights, units and axes -- see the module
+    docstring). Mirror of mayatk's.
+
+    Parameters:
+        baked: The baked mesh objects (or names) the render shows -- the room.
+        unbaked: The mesh objects (or names) the render shows that no bake
+            marks. Those whose footprint covers the bake's (a sky dome, a
+            ground or terrain nobody baked) are the room's surroundings: seen,
+            and walls. The rest move: the capture sees through them.
+    """
+
+    HOST_CLASS = BlenderProbeHost
