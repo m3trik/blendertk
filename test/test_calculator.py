@@ -21,7 +21,7 @@ def check(name, cond, detail=""):
 
 
 try:
-    import bpy
+    import bpy  # noqa: F401 -- the probe: outside Blender this raises
     from blendertk.ui_utils.calculator import CalculatorController
 
     ctrl = CalculatorController()

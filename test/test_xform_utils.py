@@ -529,7 +529,6 @@ try:
     # 10. spatial queries: get_bounding_box / get_center_point / get_distance /
     #     order_by_distance / aim_object_at_point
     import math
-    from mathutils import Vector
 
     reset()
     bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 0)); c0 = bpy.context.active_object

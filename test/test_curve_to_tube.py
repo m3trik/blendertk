@@ -22,7 +22,6 @@ def check(name, cond, detail=""):
 
 try:
     import bpy
-    import blendertk as btk
     from blendertk.nurbs_utils.curve_to_tube import CurveToTube
     from blendertk.nurbs_utils._nurbs_utils import NurbsUtils
 

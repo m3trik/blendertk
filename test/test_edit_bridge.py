@@ -58,7 +58,6 @@ class _Button:
 try:
     import bpy
     import bmesh
-    import blendertk as btk
     from blendertk.edit_utils.bridge import Bridge
     from blendertk.core_utils.preview import Preview
 

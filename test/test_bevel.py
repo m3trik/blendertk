@@ -59,7 +59,6 @@ class _Button:
 try:
     import bpy
     import bmesh
-    import blendertk as btk
     from blendertk.edit_utils.bevel import Bevel
     from blendertk.core_utils.preview import Preview
 
