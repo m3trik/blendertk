@@ -1451,7 +1451,9 @@ try:
     _inst_src = _inspect.getsource(MayaSceneImport._apply_instance_manifest)
     check(
         "instance rebuild: per-instance shaders survive via OBJECT-linked slots",
-        'slot.link = "OBJECT"' in _inst_src,
+        "_share_face_materials" in _inst_src
+        and 'slot.link = "OBJECT"'
+        in _inspect.getsource(MayaSceneImport._share_face_materials),
     )
     check(
         "instance rebuild: displaced meshes are freed (memory is the point)",
@@ -3425,6 +3427,71 @@ try:
             check("strict replay: path-matched rebuild", False, repr(e))
         finally:
             os.remove(_mpath)
+
+        # Per-face materials survive the share. The face -> slot map lives on the
+        # MESH, so the relink hands a follower the master's map; comparing slot
+        # LISTS left a whole-Red follower beside a Wood + Metal master half Red,
+        # half Metal, and a follower with the two materials swapped took the
+        # master's split (measured).
+        _cube_v = [(x, y, z) for x in (0, 1) for y in (0, 1) for z in (0, 1)]
+        _cube_f = [
+            (0, 1, 3, 2),
+            (4, 6, 7, 5),
+            (0, 4, 5, 1),
+            (2, 3, 7, 6),
+            (0, 2, 6, 4),
+            (1, 5, 7, 3),
+        ]
+
+        def _mk_split(name, mats, slot_of_face):
+            me = bpy.data.meshes.new(name + "_mesh")
+            me.from_pydata(_cube_v, [], _cube_f)
+            for m in mats:
+                me.materials.append(m)
+            for f, poly in enumerate(me.polygons):
+                poly.material_index = slot_of_face(f)
+            return _mk_obj(name, me)
+
+        def _face_mats(o):
+            return [o.material_slots[p.material_index].material for p in o.data.polygons]
+
+        _wood = bpy.data.materials.new("split_Wood")
+        _metal = bpy.data.materials.new("split_Metal")
+        _red = bpy.data.materials.new("split_Red")
+        _halves = lambda f: 0 if f < 3 else 1  # noqa: E731
+        for _n, (_label, _follower) in enumerate(
+            (
+                ("an identical split", ([_wood, _metal], _halves)),
+                ("a whole-object material", ([_red], lambda f: 0)),
+                ("the two materials swapped", ([_wood, _metal], lambda f: 1 - _halves(f))),
+                # Crosses the master's slots: the shared mesh's slots are refined.
+                ("a finer split of its own", ([_wood, _metal, _red], lambda f: f // 2)),
+            )
+        ):
+            _a = _mk_split(f"Split{_n}_001", [_wood, _metal], _halves)
+            _b = _mk_split(f"Split{_n}_002", *_follower)
+            _want = {o.name: _face_mats(o) for o in (_a, _b)}
+            with open(_mpath, "w") as f:
+                _json.dump(
+                    {
+                        "version": 2,
+                        "format": "paths",
+                        "instances": [[f"/Split{_n}_001", f"/Split{_n}_002"]],
+                    },
+                    f,
+                )
+            try:
+                _eng2._apply_instance_manifest(_mpath, [_a, _b])
+                _got = {o.name: _face_mats(o) for o in (_a, _b)}
+                check(
+                    f"strict replay: a per-face split survives beside {_label}",
+                    _b.data == _a.data and _got == _want,
+                    f"want {_want} got {_got}",
+                )
+            except Exception as e:  # noqa: BLE001
+                check(f"strict replay: a per-face split beside {_label}", False, repr(e))
+            finally:
+                os.remove(_mpath)
 
         # Unmatched member -> loud failure naming the path.
         with open(_mpath, "w") as f:
