@@ -26,7 +26,7 @@ Same subpackage names, main-module filenames, and namespace classes as mayatk â€
 
 | Package | What it covers |
 |---|---|
-| `anim_utils` | Shots suite (the Blender host of the shared pythontk shots engine, and the manifest and sequencer hosts tentacle's panels call), smart bake, blendshape animation, key scaling/staggering |
+| `anim_utils` | Shots suite (the Blender host of the shared pythontk shots engine, and the manifest and sequencer hosts tentacle's panels call), smart bake, blendshape animation, playblast, key scaling/staggering |
 | `audio_utils` | Sound-strip CRUD over the Video Sequence Editor (deliberately not a mirror of Maya's DG-node audio machinery) |
 | `cam_utils` | Camera utilities |
 | `core_utils` | `CoreUtils`, `AutoInstancer`, `Preview` (uitk's `PreviewController` bound to a Blender session), script-job manager over `bpy.app.handlers`, diagnostics |
@@ -37,9 +37,10 @@ Same subpackage names, main-module filenames, and namespace classes as mayatk â€
 | `mat_utils` | Game shader, material updater, texture path editor, shader templates, render opacity, image-to-plane, emissive groups, Marmoset + Substance live-RPC bridges |
 | `node_utils` | `NodeUtils`, `DataNodes` ([shared scene data carriers](data_nodes.md)), the Channels engine |
 | `nurbs_utils` | Curve helpers (relaxed mirror), `ImageTracer`, curve-to-tube |
-| `rig_utils` | Constraints/drivers/armature primitives; tube / wheel / telescope / shadow rigs |
-| `ui_utils` | `BlenderUiHandler`, native-menu wrapper, Qt dock container, calculator, style setter |
-| `uv_utils` | UV utilities, Rizom bridge |
+| `render_utils` | Render engines, render settings + presets, render cameras, a rendered frame (mayatk's names; no IPR) |
+| `rig_utils` | Constraints/drivers/armature primitives; tube / wheel / telescope / shadow / [articulated](https://github.com/m3trik/mayatk/blob/main/docs/articulated_rig.md) rigs |
+| `ui_utils` | `BlenderUiHandler`, `BlenderMarkingMenuHost` (the `uitk.MarkingMenuHost` adapter, over `QtRuntime` and the 3D View `KeymapBridge`), native-menu wrapper, Qt dock container, calculator, style setter |
+| `uv_utils` | UV utilities, [Texture Combine](https://github.com/m3trik/mayatk/blob/main/docs/texture_combine.md) (material atlas combine + UV / texture transfer), Rizom bridge |
 | `xform_utils` | Transforms and matrix IO |
 
 Classes â€” and, for the wildcard-scanned `*_utils` roots, their public methods â€” are exposed at the package root via the lazy-loading resolver:

@@ -1,8 +1,9 @@
-"""BlenderUiHandler discovery test — proves the co-located tool panels live in blendertk and
-are served by the handler (the mayatk/MayaUiHandler split, mirrored for Blender).
+"""BlenderUiHandler test — the handler serves windows without owning any: it names its
+toolkit on the switchboard, registers no UI source of its own (every panel is tentacle's),
+and applies its hide and export-scope rules (the mayatk/MayaUiHandler split, mirrored for Blender).
 
-Unlike the other suites this one needs **Qt, not bpy** (it loads ``.ui`` files + wires Slots,
-none of which touch Blender). So it is meant to run under the workspace ``.venv`` (PySide6)::
+Unlike the other suites this one needs **Qt, not bpy** (it drives the handler and a
+Switchboard, none of which touch Blender). So it is meant to run under the workspace ``.venv`` (PySide6)::
 
     .venv\\Scripts\\python.exe blendertk/test/test_blender_ui_handler.py
 
