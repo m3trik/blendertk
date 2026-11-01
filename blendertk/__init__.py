@@ -212,8 +212,11 @@ DEFAULT_INCLUDE = {
     # first qtpy import, stand up the QApplication + hidden parent widget, pump Qt's posted
     # events from bpy.app.timers. Qt-free at import; the methods import qtpy / bpy.
     "ui_utils.qt_runtime": ["QtBootstrap", "QtRuntime", "QtPlatformUnavailable"],
-    # Hosting a uitk marking menu in Blender: the activation keymap bridge (GHOST eats the
-    # viewport keystrokes a Qt shortcut would need) and its live-state report.
+    # Hosting a uitk marking menu in Blender: the uitk.MarkingMenuHost adapter tentacle's
+    # launcher builds its menu with (mirror of mtk.MayaMarkingMenuHost), the activation
+    # keymap bridge (GHOST eats the viewport keystrokes a Qt shortcut would need) and its
+    # live-state report.
+    "ui_utils.marking_menu_host._marking_menu_host": ["BlenderMarkingMenuHost"],
     "ui_utils.marking_menu_host.keymap_bridge": ["KeymapBridge", "ActivationDiagnostics"],
     # Opt-in mouse/slot tracer for "buttons need several clicks" support captures.
     "ui_utils.marking_menu_host.click_debugger": ["ClickDebugger"],
