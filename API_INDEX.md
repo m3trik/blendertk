@@ -505,7 +505,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
   - methods: groups, meshes
 
 ### `mat_utils/emissive_groups.py` — Emissive Groups' Blender half: one boolean FACE attribute per group on its
-- `class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal)`
+- `class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal, pythontk.PureEmissiveGroupsHost)`
   - methods: faces, add_members, remove_members, members, select, membership_stores, carrier_weights, weight_exists, ensure_weight, delete_weight, sync_weight, key_weight, foreign_color_sets, write_colors, uv_triangles, mask_path, object_names, face_count, mesh, merge_stores, discard_stores, publish, extra_warnings
 - `class EmissiveGroups(pythontk.EmissiveGroupsModel)`
   - methods: create_export_curve_proxies, remove_export_curve_proxies
@@ -809,17 +809,17 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
   - methods: begin, tick, end
 
 ### `ui_utils/marking_menu_host/_marking_menu_host.py` — What a uitk marking menu needs from Blender: :class:`BlenderMarkingMenuHost`.
-- `class BlenderMarkingMenuHost(PureMarkingMenuHost)`
-  - methods: ui_handler, start, defer, live_menu, main_window, mouse_buttons, bind_activation_key, adopt_window, key_event, attach, report_activation
+- `class BlenderMarkingMenuHost(PureMarkingMenuHost, pythontk.LoggingMixin)`
+  - methods: ui_handler, start, defer, live_menu, teardown, report, main_window, mouse_buttons, bind_activation_key, adopt_window, key_event, attach, report_activation
 
 ### `ui_utils/marking_menu_host/click_debugger.py` — Opt-in click tracer for "buttons need several clicks" reports in the menu Blender hosts.
 - `class ClickDebugger`
   - methods: log_path, enable, disable
 
 ### `ui_utils/marking_menu_host/keymap_bridge.py` — Bridge a marking menu's activation key from Blender's keymap to Qt — the half Maya needs none of.
-- `class KeymapBridge`
+- `class KeymapBridge(pythontk.LoggingMixin)`
   - methods: qt_key_to_blender_type, blender_type_to_qt_key, physical_mouse_buttons, ensure_operator, drive_press, drive_release, uninstall_keymap, addon_key_type, retype_keymap, user_keymap_items, live_press_item, rebind, sync_keymap_rebind, install_keymap, install_poller, uninstall_poller, teardown
-- `class ActivationDiagnostics`
+- `class ActivationDiagnostics(pythontk.LoggingMixin)`
   - methods: report
 
 ### `ui_utils/menu_harvest.py` — Harvest a native Blender menu into a live ``QMenu`` — the Blender half of Maya's wrap.
@@ -836,8 +836,10 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
   - methods: supported, docked, widget, area, content_region, dock, undock, teardown
 
 ### `ui_utils/qt_runtime.py` — Qt inside Blender: provision a binding, stand up a QApplication, pump it from Blender's loop.
+- `class HostedApp`
+  - methods: env, label
 - `class QtPlatformUnavailable(RuntimeError)`
-- `class QtBootstrap`
+- `class QtBootstrap(pythontk.LoggingMixin)`
   - methods: qt_importable, qt_install_dir, ensure_qt
 - `class QtRuntime`
   - methods: ensure_qapp, ensure_widget, start_pump
@@ -874,10 +876,14 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class Parameters(ParamRegistry)`
   - methods: expand_includes, preset_min_version, referenced_keys, derived_values, render_context, strip_unsupported
 
+### `uv_utils/texture_combine/_transfer_host.py` — Texture Combine's Transfer mode: Blender's half of the run (mirror of mayatk).
+- `class BlenderTransferHost(pythontk.PureTransferHost)`
+  - methods: selection_sides, face_materials, material_maps, pair_sources, texture_transfer, default_name, transfer_uvs, transfer_uvs_to_similar, has_lightmap, transfer_lightmaps, undo_chunk
+
 ### `uv_utils/texture_combine/texture_combine.py` — Several materials into ONE: one atlas, one material, in place -- no duplicated meshes.
 - `class CombineInputs`
 - `class TextureCombine(pythontk.LoggingMixin, _TextureCombineInternal)`
-  - methods: names, entry, members, owner, stale, gather, inputs_for, apply_rows, plan, default_name, combine, recombine, restore, update, forget, leaf_name, select, material_faces, selected_faces, consolidate_lightmaps, resolve_meshes
+  - methods: names, entry, members, owner, stale, gather, inputs_for, apply_rows, plan, default_name, run_transfer, combine, recombine, restore, update, forget, leaf_name, select, material_faces, selected_faces, consolidate_lightmaps, resolve_meshes
 
 ### `uv_utils/texture_transfer.py` — Transfer a mesh's textures from one UV layout to another -- no rays, no bake.
 - `class TextureTransfer(pythontk.LoggingMixin, _TextureTransferInternal)`

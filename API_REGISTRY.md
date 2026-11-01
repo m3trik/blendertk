@@ -183,6 +183,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`uv_utils/_uv_utils.py`](#uv_utils--_uv_utils) — UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
 - [`uv_utils/rizom_bridge/_rizom_bridge.py`](#uv_utils--rizom_bridge--_rizom_bridge) — RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 - [`uv_utils/rizom_bridge/parameters.py`](#uv_utils--rizom_bridge--parameters) — Registry of user-tunable RizomUV parameters exposed to the bridge UI.
+- [`uv_utils/texture_combine/_transfer_host.py`](#uv_utils--texture_combine--_transfer_host) — Texture Combine's Transfer mode: Blender's half of the run (mirror of mayatk).
 - [`uv_utils/texture_combine/texture_combine.py`](#uv_utils--texture_combine--texture_combine) — Several materials into ONE: one atlas, one material, in place -- no duplicated meshes.
 - [`uv_utils/texture_transfer.py`](#uv_utils--texture_transfer) — Transfer a mesh's textures from one UV layout to another -- no rays, no bake.
 - [`xform_utils/_xform_utils.py`](#xform_utils--_xform_utils) — Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,
@@ -194,7 +195,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L30) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L459) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L464) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -434,7 +435,7 @@ Blender shots host — the DCC layer under ``pythontk``'s one shot store.
   - `BlenderScenePersistence.save(self, data: Dict[str, Any]) -> None`
   - `BlenderScenePersistence.load(self) -> Optional[Dict[str, Any]]` — The stored document, or ``None`` when the scene holds none.
   - `BlenderScenePersistence.record_changed(self) -> bool` — Whether the channel differs from what this backend last wrote or read.
-- **[`class BlenderShotsHost(_BlenderShotsHostInternal)`](blendertk/blendertk/anim_utils/shots/_shots.py#L889)** — Blender's half of the shot store: the :class:`pythontk.ShotsHost` the
+- **[`class BlenderShotsHost(_BlenderShotsHostInternal)`](blendertk/blendertk/anim_utils/shots/_shots.py#L867)** — Blender's half of the shot store: the :class:`pythontk.ShotsHost` the
   - `BlenderShotsHost.resolve(cls) -> Optional['BlenderShotsHost']` *(class)* — The adapter when this process runs Blender (``bpy`` imports), else
   - `BlenderShotsHost.is_transform_path(data_path: str) -> bool` *(static)* — True if *data_path* is shot content: an object/bone transform
   - `BlenderShotsHost.fcurve_for_key(key: str)` *(static)* — The live fcurve ledger *key* (:meth:`curve_key`) names, or ``None``
@@ -1307,7 +1308,7 @@ Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
 
 Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
 
-- **[`class Naming(pythontk.HelpMixin, pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/naming/_naming.py#L28)** — Batch find / rename / suffix scene objects (mirror of mayatk's ``Naming``).
+- **[`class Naming(pythontk.HelpMixin, pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/naming/_naming.py#L27)** — Batch find / rename / suffix scene objects (mirror of mayatk's ``Naming``).
   - `Naming.SUFFIX_TYPES(cls) -> Tuple[Tuple[str, str, str, str], ...]` — ``(keyword, affix, label, type key)`` -- the live convention, joined
   - `Naming.affix_rules(cls, overrides=None, modes=None)` *(class)* — ``{Blender type key: AffixRule}`` -- the shared convention bound to
   - `Naming.scene_objects(cls) -> List` *(class)* — Every object in the current scene — the naming tools' "Scene" scope.
@@ -1500,7 +1501,7 @@ Launch a FRESH headless Blender to run a script / code string and capture its ou
 
 FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.fbx_utils``
 
-- **[`class FbxUtils(_FbxUtilsInternal)`](blendertk/blendertk/env_utils/fbx_utils.py#L1985)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
+- **[`class FbxUtils(_FbxUtilsInternal)`](blendertk/blendertk/env_utils/fbx_utils.py#L1986)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
   - `FbxUtils.hook(cls, role: str) -> Optional[Callable]` *(class)* — The callable :attr:`HOOKS` names for *role*, else the one an installed
   - `FbxUtils.producers(cls, only: Optional[Iterable[Any]] = None) -> Dict[Any, Callable]` *(class)* — :attr:`PRODUCERS` resolved to callables, unimportable ones skipped;
   - `FbxUtils.export_context(cls, mode: str = ptk.ExportContext.PIPELINE, writer: str = 'fbx', writer_options: Optional[Dict[str, Any]] = None, **decisions) -> ptk.ExportContext` *(class)* — A context for this file: provenance filled in, *decisions*
@@ -1713,16 +1714,16 @@ Import a converted intermediate (USD or FBX) headlessly and save it as a ``.blen
 
 Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
 
-- [`uniquify_short_names(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L416) — Rename transforms until no two share a short name;
-- [`fbx_safe_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L495) — Swap every FBX-hostile shader for an equivalent phong on its shading group.
-- [`skinning_methods(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L648) — ``{mesh transform name: skinning method}`` for the manifest's ``skins``
-- [`scene_node_types(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L669) — ``{leaf name: "locator" | "group"}`` -- the node-type sidecar section.
-- [`scene_settings(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L713) — The scene's time setup -- the manifest's ``scene`` section, the one part of a
-- [`write_manifest(entries, visibility, node_types, scene, path, lights=(), skins=None, bones=None, scene_data=None, rig=None, machinery=None, stepped=None)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L740) — The ONE conversion sidecar, consumed by MayaSceneImport: ``materials`` =
-- [`scene_lights(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L806) — The manifest's ``lights`` section: every light in the scene, as data.
-- [`stepped_keys(spell)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1127) — The manifest's ``stepped_keys``: ``{node: {channel: [frames]}}`` -- the
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1295)
-- [`scene_data_sections(cmds, spell)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1412) — The scene's portable records as manifest sections (``shots``,
+- [`uniquify_short_names(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L419) — Rename transforms until no two share a short name;
+- [`fbx_safe_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L498) — Swap every FBX-hostile shader for an equivalent phong on its shading group.
+- [`skinning_methods(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L651) — ``{mesh transform name: skinning method}`` for the manifest's ``skins``
+- [`scene_node_types(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L672) — ``{leaf name: "locator" | "group"}`` -- the node-type sidecar section.
+- [`scene_settings(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L716) — The scene's time setup -- the manifest's ``scene`` section, the one part of a
+- [`write_manifest(entries, visibility, node_types, scene, path, lights=(), skins=None, bones=None, scene_data=None, rig=None, machinery=None, stepped=None)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L743) — The ONE conversion sidecar, consumed by MayaSceneImport: ``materials`` =
+- [`scene_lights(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L809) — The manifest's ``lights`` section: every light in the scene, as data.
+- [`stepped_keys(spell)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1130) — The manifest's ``stepped_keys``: ``{node: {channel: [frames]}}`` -- the
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1298)
+- [`scene_data_sections(cmds, spell)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1415) — The scene's portable records as manifest sections (``shots``,
 - [`SRC_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L48) — constant
 - [`OUT_FBX`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L49) — constant
 - [`EMBED_TEXTURES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L50) — constant
@@ -1731,11 +1732,11 @@ Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
 - [`RIG_MODE`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L58) — constant
 - [`RIG_CAPABILITY`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L59) — constant
 - [`MODERN_SHADER_TYPES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L76) — constant
-- [`EMISSION_WEIGHT_ATTRS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L83) — constant
-- [`OPACITY_ATTRS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L90) — constant
-- [`STINGRAY_SHADER_TYPES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L93) — constant
-- [`STINGRAY_TEX_SLOTS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L96) — constant
-- [`STINGRAY_SLOT_CHANNELS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L110) — constant
+- [`EMISSION_WEIGHT_ATTRS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L86) — constant
+- [`OPACITY_ATTRS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L93) — constant
+- [`STINGRAY_SHADER_TYPES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L96) — constant
+- [`STINGRAY_TEX_SLOTS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L99) — constant
+- [`STINGRAY_SLOT_CHANNELS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L113) — constant
 
 <a id="env_utils--maya_bridge--templates--_import_scene_usd"></a>
 ### `env_utils/maya_bridge/templates/_import_scene_usd.py`
@@ -2034,7 +2035,7 @@ Workspace Map -- Blender's host adapter for ``ptk.WorkspaceMapBase``.
 
 Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 
-- **[`class LightUtils(_LightUtilsInternal)`](blendertk/blendertk/light_utils/_light_utils.py#L145)** — Namespace mirror of mayatk's ``light_utils`` (helpers also exposed module-level).
+- **[`class LightUtils(_LightUtilsInternal)`](blendertk/blendertk/light_utils/_light_utils.py#L137)** — Namespace mirror of mayatk's ``light_utils`` (helpers also exposed module-level).
   - `LightUtils.set_world_hdri(filepath=None, strength=None, rotation=0.0, visible=True, intensity=None, exposure=None)` *(static)* — Set (or update) the world environment from an HDR image.
   - `LightUtils.get_world_hdri()` *(static)* — The current world-HDRI state as a dict (``filepath``/``strength``/``intensity``/
   - `LightUtils.set_world_ray_visibility(diffuse=None, glossy=None)` *(static)* — Toggle whether the world environment contributes to **diffuse** / **glossy** lighting — the
@@ -2305,7 +2306,7 @@ Scene-stored bake sets: named object sets the bake tools read (Blender).
 
 Emissive Groups' Blender half: one boolean FACE attribute per group on its
 
-- **[`class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal)`](blendertk/blendertk/mat_utils/emissive_groups.py#L78)** — The Blender scene operations of the Emissive Groups model
+- **[`class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal, pythontk.PureEmissiveGroupsHost)`](blendertk/blendertk/mat_utils/emissive_groups.py#L78)** — The Blender scene operations of the Emissive Groups model
   - `BlenderEmissiveGroups.faces(self, faces=None) -> FaceMap`
   - `BlenderEmissiveGroups.add_members(self, store: str, face_map: FaceMap) -> None`
   - `BlenderEmissiveGroups.remove_members(self, store: str) -> None`
@@ -3550,18 +3551,20 @@ Blender's answers to uitk's cancellation contract (mayatk parity twin).
 
 What a uitk marking menu needs from Blender: :class:`BlenderMarkingMenuHost`.
 
-- **[`class BlenderMarkingMenuHost(PureMarkingMenuHost)`](blendertk/blendertk/ui_utils/marking_menu_host/_marking_menu_host.py#L42)** — Blender's answers to ``uitk.MarkingMenuHost`` (see the module docstring).
+- **[`class BlenderMarkingMenuHost(PureMarkingMenuHost, pythontk.LoggingMixin)`](blendertk/blendertk/ui_utils/marking_menu_host/_marking_menu_host.py#L51)** — Blender's answers to ``uitk.MarkingMenuHost`` and ``uitk.MarkingMenuLaunchHost`` (see
   - `BlenderMarkingMenuHost.ui_handler(self)` *(property)* — ``BlenderUiHandler``: wraps Blender's native menus, shows the tool windows.
-  - `BlenderMarkingMenuHost.start(self) -> None` — Stand up Qt in Blender: a binding, the QApplication, its parent, the pump.
+  - `BlenderMarkingMenuHost.start(self, app=None) -> None` — Stand up Qt in Blender: a binding, the QApplication, its parent, the pump.
   - `BlenderMarkingMenuHost.defer(self, fn)` — Run *fn* on a one-shot ``bpy.app.timers`` callback;
   - `BlenderMarkingMenuHost.live_menu(self)` — The menu the keymap bridge drives (one per Blender process), or None once
+  - `BlenderMarkingMenuHost.teardown(self) -> None` — Release what Blender holds for the menu before a reload: the keymap bridge (its
+  - `BlenderMarkingMenuHost.report(self, message: str, error: bool = False) -> None` — Tell the user *message*: the log (the system console and the Script Output
   - `BlenderMarkingMenuHost.main_window(self)` — ``app.blender_widget`` (set by :meth:`start`), or None: the menu then shows as
   - `BlenderMarkingMenuHost.mouse_buttons(self)` — The physically held buttons, else Qt's view.
   - `BlenderMarkingMenuHost.bind_activation_key(self, menu, key: str) -> None` — Bridge the activation key from Blender's keymap to *menu*.
   - `BlenderMarkingMenuHost.adopt_window(self, widget) -> None` — Make *widget* an OS-owned window of Blender's GHOST window.
   - `BlenderMarkingMenuHost.key_event(self, menu, event) -> None` — Ctrl+Z while the menu holds focus -> Blender's undo;
   - `BlenderMarkingMenuHost.attach(self, menu) -> None` — Blender's once-per-menu setup, each step guarded so none blocks a launch.
-  - `BlenderMarkingMenuHost.report_activation()` *(static)* — The live activation report;
+  - `BlenderMarkingMenuHost.report_activation(cls)` *(class)* — The live activation report;
 
 <a id="ui_utils--marking_menu_host--click_debugger"></a>
 ### `ui_utils/marking_menu_host/click_debugger.py`
@@ -3578,25 +3581,25 @@ Opt-in click tracer for "buttons need several clicks" reports in the menu Blende
 
 Bridge a marking menu's activation key from Blender's keymap to Qt — the half Maya needs none of.
 
-- **[`class KeymapBridge`](blendertk/blendertk/ui_utils/marking_menu_host/keymap_bridge.py#L23)** — Bridge the activation key from Blender's keymap to the Qt marking menu — the half Maya needs none o…
+- **[`class KeymapBridge(pythontk.LoggingMixin)`](blendertk/blendertk/ui_utils/marking_menu_host/keymap_bridge.py#L26)** — Bridge the activation key from Blender's keymap to the Qt marking menu — the half Maya needs none o…
   - `KeymapBridge.qt_key_to_blender_type(cls, key_show)` *(class)* — Translate a Qt key name (``'Key_F12'`` / ``'Key_Meta'``) to a Blender keymap ``type``
   - `KeymapBridge.blender_type_to_qt_key(cls, key_type)` *(class)* — Translate a Blender keymap ``type`` back to a Qt key name (``'F12'`` → ``'Key_F12'``).
   - `KeymapBridge.physical_mouse_buttons(cls)` *(class)* — Qt mouse-button mask read from the OS (``GetAsyncKeyState``), or ``NoButton``.
   - `KeymapBridge.ensure_operator(cls)` *(class)* — Register the bridge operator once per process (idempotent).
-  - `KeymapBridge.drive_press(cls, buttons=None)` *(class)* — Drive the menu's real activation state machine (arms ``_activation_key_held``, shows +
+  - `KeymapBridge.drive_press(cls, buttons=None)` *(class)* — Drive the menu's real activation state machine (``menu.activate``: arms it, shows +
   - `KeymapBridge.drive_release(cls)` *(class)* — Complete the gesture — the single release path for every Blender-side trigger (keymap
   - `KeymapBridge.uninstall_keymap(cls)` *(class)* — Remove the keymap items added by :meth:`install_keymap`.
   - `KeymapBridge.addon_key_type(cls)` *(class)* — The key OUR keymap items carry, or ``None`` when the bridge isn't installed.
   - `KeymapBridge.retype_keymap(cls, key_type)` *(class)* — Move OUR installed items onto ``key_type`` in place;
   - `KeymapBridge.user_keymap_items(cls)` *(class)* — Our bridge's 3D-View items **as Preferences ▸ Keymap sees them** (order unspecified).
   - `KeymapBridge.live_press_item(cls)` *(class)* — Our PRESS row as Preferences ▸ Keymap sees it, or ``None``.
-  - `KeymapBridge.rebind(cls, tcl, key_show)` *(class)* — Move Blender's half of the activation binding onto ``key_show`` (a Qt key name).
-  - `KeymapBridge.sync_keymap_rebind(cls, tcl)` *(class)* — Adopt a rebind made in Preferences ▸ Keymap (throttled;
-  - `KeymapBridge.install_keymap(cls, tcl, key_type)` *(class)* — Bind ``key_type`` in Blender's **3D View** keymap to the bridge operator — a PRESS item and a
-  - `KeymapBridge.install_poller(cls, tcl, key_show)` *(class)* — Global activation-key watcher (Windows-only, idempotent) — the focus-independent half
+  - `KeymapBridge.rebind(cls, menu, key_show)` *(class)* — Move Blender's half of the activation binding onto ``key_show`` (a Qt key name).
+  - `KeymapBridge.sync_keymap_rebind(cls, menu)` *(class)* — Adopt a rebind made in Preferences ▸ Keymap (throttled;
+  - `KeymapBridge.install_keymap(cls, menu, key_type)` *(class)* — Bind ``key_type`` in Blender's **3D View** keymap to the bridge operator — a PRESS item and a
+  - `KeymapBridge.install_poller(cls, menu, key_show)` *(class)* — Global activation-key watcher (Windows-only, idempotent) — the focus-independent half
   - `KeymapBridge.uninstall_poller(cls)` *(class)* — Remove the held-button poll timer (idempotent).
   - `KeymapBridge.teardown(cls)` *(class)* — Remove the keymap items and unregister the bridge operator (for add-on unregister).
-- **[`class ActivationDiagnostics`](blendertk/blendertk/ui_utils/marking_menu_host/keymap_bridge.py#L812)** — The live-activation-state report — run in Blender's Python console to see why the key isn't
+- **[`class ActivationDiagnostics(pythontk.LoggingMixin)`](blendertk/blendertk/ui_utils/marking_menu_host/keymap_bridge.py#L822)** — The live-activation-state report — run in Blender's Python console to see why the key isn't
   - `ActivationDiagnostics.report(emit=True)` *(static)* — Return (and, when ``emit``, print) the live activation state — run in Blender's Python
 
 <a id="ui_utils--menu_harvest"></a>
@@ -3642,12 +3645,15 @@ Dock any Qt widget into a native Blender area — a true child window, not an ov
 
 Qt inside Blender: provision a binding, stand up a QApplication, pump it from Blender's loop.
 
-- **[`class QtPlatformUnavailable(RuntimeError)`](blendertk/blendertk/ui_utils/qt_runtime.py#L24)** — Qt cannot open a window in this host process, so the marking menu is off.
-- **[`class QtBootstrap`](blendertk/blendertk/ui_utils/qt_runtime.py#L42)** — Make a Qt binding importable in Blender's Python *before* anything imports qtpy.
+- **[`class HostedApp`](blendertk/blendertk/ui_utils/qt_runtime.py#L28)** — The application blendertk stands Qt up for in this Blender: it names itself.
+  - `HostedApp.env(cls, suffix)` *(class)* — The ``<NAME>_<suffix>`` environment variable (``env("QT_DEPS")`` ->
+  - `HostedApp.label(cls)` *(class)* — The name as a message title or prefix (``"Tentacle"``).
+- **[`class QtPlatformUnavailable(RuntimeError)`](blendertk/blendertk/ui_utils/qt_runtime.py#L56)** — Qt cannot open a window in this host process, so the marking menu is off.
+- **[`class QtBootstrap(pythontk.LoggingMixin)`](blendertk/blendertk/ui_utils/qt_runtime.py#L74)** — Make a Qt binding importable in Blender's Python *before* anything imports qtpy.
   - `QtBootstrap.qt_importable()` *(static)* — True if qtpy can resolve a real Qt binding (Maya's bundled PySide, or Blender's installed one).
   - `QtBootstrap.qt_install_dir()` *(static)* — Where Blender's on-demand Qt deps live.
   - `QtBootstrap.ensure_qt(cls)` *(class)* — Make a Qt binding importable;
-- **[`class QtRuntime`](blendertk/blendertk/ui_utils/qt_runtime.py#L163)** — Qt in Blender — Blender has no QApplication of its own, so stand one up and pump it from
+- **[`class QtRuntime`](blendertk/blendertk/ui_utils/qt_runtime.py#L189)** — Qt in Blender — Blender has no QApplication of its own, so stand one up and pump it from
   - `QtRuntime.ensure_qapp()` *(static)* — Return the process QApplication, creating one if Blender has none.
   - `QtRuntime.ensure_widget(app)` *(static)* — Establish ``app.blender_widget`` — the parent for the marking menu.
   - `QtRuntime.start_pump(cls, app, interval=0.01)` *(class)* — Deliver Qt's POSTED events from Blender's timer loop so the Qt UI stays live (idempotent).
@@ -3797,13 +3803,31 @@ Registry of user-tunable RizomUV parameters exposed to the bridge UI.
   - `Parameters.render_context(cls, values: 'dict[str, Any]') -> 'dict[str, str]'` *(class)* — Format *values* for placeholder substitution using Lua literals.
   - `Parameters.strip_unsupported(script_text: str, version: 'tuple[int, ...]') -> str` *(static)* — Drop every line that references a placeholder requiring a newer Rizom.
 
+<a id="uv_utils--texture_combine--_transfer_host"></a>
+### `uv_utils/texture_combine/_transfer_host.py`
+
+Texture Combine's Transfer mode: Blender's half of the run (mirror of mayatk).
+
+- **[`class BlenderTransferHost(pythontk.PureTransferHost)`](blendertk/blendertk/uv_utils/texture_combine/_transfer_host.py#L21)** — What :class:`pythontk.TransferRun` asks of Blender (a
+  - `BlenderTransferHost.selection_sides(self, mode, stored)`
+  - `BlenderTransferHost.face_materials(self, mesh)`
+  - `BlenderTransferHost.material_maps(self, material)`
+  - `BlenderTransferHost.pair_sources(self, targets, sources)`
+  - `BlenderTransferHost.texture_transfer(self)`
+  - `BlenderTransferHost.default_name(self, nodes) -> str`
+  - `BlenderTransferHost.transfer_uvs(sources, targets)` *(static)*
+  - `BlenderTransferHost.transfer_uvs_to_similar(source, candidates, tolerance)` *(static)*
+  - `BlenderTransferHost.has_lightmap(mesh) -> bool` *(static)*
+  - `BlenderTransferHost.transfer_lightmaps(targets, source, **options)` *(static)*
+  - `BlenderTransferHost.undo_chunk(name)` *(static)*
+
 <a id="uv_utils--texture_combine--texture_combine"></a>
 ### `uv_utils/texture_combine/texture_combine.py`
 
 Several materials into ONE: one atlas, one material, in place -- no duplicated meshes.
 
-- **[`class CombineInputs`](blendertk/blendertk/uv_utils/texture_combine/texture_combine.py#L78)** — What :meth:`TextureCombine.gather` read: the scene side of a combine.
-- **[`class TextureCombine(pythontk.LoggingMixin, _TextureCombineInternal)`](blendertk/blendertk/uv_utils/texture_combine/texture_combine.py#L564)** — Combine the selected meshes' materials into one atlas and one material.
+- **[`class CombineInputs`](blendertk/blendertk/uv_utils/texture_combine/texture_combine.py#L79)** — What :meth:`TextureCombine.gather` read: the scene side of a combine.
+- **[`class TextureCombine(pythontk.LoggingMixin, _TextureCombineInternal)`](blendertk/blendertk/uv_utils/texture_combine/texture_combine.py#L565)** — Combine the selected meshes' materials into one atlas and one material.
   - `TextureCombine.names(cls) -> List[str]` *(class)* — The combines this file holds, oldest first.
   - `TextureCombine.entry(cls, name: str) -> Optional[Dict[str, Any]]` *(class)* — A combine's record entry (settings, rows, meshes, sources), or ``None``.
   - `TextureCombine.members(cls, name: str) -> List[str]` *(class)* — The live objects a combine moved (every linked duplicate), by name.
@@ -3814,6 +3838,7 @@ Several materials into ONE: one atlas, one material, in place -- no duplicated m
   - `TextureCombine.apply_rows(self, inputs: CombineInputs, rows: Sequence[Dict[str, Any]] = ()) -> None` — Set every island's scale from the override *rows* -- the most
   - `TextureCombine.plan(self, inputs: CombineInputs, *, sizing: str = 'proportional', normalize: str = 'resolution')` — Estimate the atlas for *inputs* (nothing packed) -- a
   - `TextureCombine.default_name(self, transforms: Sequence[str], fallback: str = 'combined') -> str` — What a blank name stands for: the meshes' common name, else
+  - `TextureCombine.run_transfer(self, **options) -> 'ptk.TransferResult'` — The panel's Transfer mode: UVs OR textures from the selection's
   - `TextureCombine.combine(self, objects=None, *, name: Optional[str] = None, rows: Sequence[Dict[str, Any]] = (), sizing: str = 'proportional', normalize: str = 'resolution', map_size: int = 4096, padding: Optional[int] = None, rotate: bool = True, supersample: int = 2, texture_padding: int = -1, output_dir: Optional[str] = None, assign_prefix: str = '', assign_suffix: Optional[str] = None, assign_shader_type: Optional[str] = None, lightmaps: bool = True, inputs: Optional[CombineInputs] = None) -> Dict[str, Any]` — Combine *objects*' materials into one atlas and one material.
   - `TextureCombine.recombine(self, name: str) -> Dict[str, Any]` — Re-read *name*'s source maps into its CURRENT layout -- a revision.
   - `TextureCombine.restore(self, name: str, forget: bool = True) -> List[str]` — Put *name*'s meshes back: original UVs and materials, exactly.

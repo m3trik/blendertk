@@ -895,7 +895,7 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.t_tt_dst_uvset_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 - `uv_utils/texture_combine/texture_combine_slots.py::TextureCombineSlots.tbl_sources_init` → `tentacle.slots.tools.texture_combine.TextureCombineSlots` (from 0.23.0)
 
-## Added (712)
+## Added (730)
 
 - `anim_utils/_anim_utils.py::AnimUtils.copied_key_counts(copied_data)`
 - `anim_utils/_anim_utils.py::AnimUtils.get_current_frame()`
@@ -1528,8 +1528,10 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `ui_utils/marking_menu_host/_marking_menu_host.py::BlenderMarkingMenuHost.live_menu(self)`
 - `ui_utils/marking_menu_host/_marking_menu_host.py::BlenderMarkingMenuHost.main_window(self)`
 - `ui_utils/marking_menu_host/_marking_menu_host.py::BlenderMarkingMenuHost.mouse_buttons(self)`
-- `ui_utils/marking_menu_host/_marking_menu_host.py::BlenderMarkingMenuHost.report_activation()`
-- `ui_utils/marking_menu_host/_marking_menu_host.py::BlenderMarkingMenuHost.start(self) -> None`
+- `ui_utils/marking_menu_host/_marking_menu_host.py::BlenderMarkingMenuHost.report(self, message: str, error: bool = False) -> None`
+- `ui_utils/marking_menu_host/_marking_menu_host.py::BlenderMarkingMenuHost.report_activation(cls)`
+- `ui_utils/marking_menu_host/_marking_menu_host.py::BlenderMarkingMenuHost.start(self, app=None) -> None`
+- `ui_utils/marking_menu_host/_marking_menu_host.py::BlenderMarkingMenuHost.teardown(self) -> None`
 - `ui_utils/marking_menu_host/_marking_menu_host.py::BlenderMarkingMenuHost.ui_handler(self)`
 - `ui_utils/marking_menu_host/click_debugger.py::ClickDebugger(class)`
 - `ui_utils/marking_menu_host/click_debugger.py::ClickDebugger.disable(cls)`
@@ -1543,19 +1545,22 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.drive_press(cls, buttons=None)`
 - `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.drive_release(cls)`
 - `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.ensure_operator(cls)`
-- `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.install_keymap(cls, tcl, key_type)`
-- `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.install_poller(cls, tcl, key_show)`
+- `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.install_keymap(cls, menu, key_type)`
+- `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.install_poller(cls, menu, key_show)`
 - `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.live_press_item(cls)`
 - `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.physical_mouse_buttons(cls)`
 - `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.qt_key_to_blender_type(cls, key_show)`
-- `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.rebind(cls, tcl, key_show)`
+- `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.rebind(cls, menu, key_show)`
 - `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.retype_keymap(cls, key_type)`
-- `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.sync_keymap_rebind(cls, tcl)`
+- `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.sync_keymap_rebind(cls, menu)`
 - `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.teardown(cls)`
 - `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.uninstall_keymap(cls)`
 - `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.uninstall_poller(cls)`
 - `ui_utils/marking_menu_host/keymap_bridge.py::KeymapBridge.user_keymap_items(cls)`
 - `ui_utils/node_icons.py::NodeIcons.audio_icon(size: int = 16)`
+- `ui_utils/qt_runtime.py::HostedApp(class)`
+- `ui_utils/qt_runtime.py::HostedApp.env(cls, suffix)`
+- `ui_utils/qt_runtime.py::HostedApp.label(cls)`
 - `ui_utils/qt_runtime.py::QtBootstrap(class)`
 - `ui_utils/qt_runtime.py::QtBootstrap.ensure_qt(cls)`
 - `ui_utils/qt_runtime.py::QtBootstrap.qt_importable()`
@@ -1589,8 +1594,21 @@ _Diff vs the last release (origin/main @ 8cca703)._
 - `uv_utils/rizom_bridge/_rizom_bridge.py::RizomUVBridge.referenced_keys(self, script_text: str) -> 'set[str]'`
 - `uv_utils/rizom_bridge/_rizom_bridge.py::RizomUVBridge.run_preset(self, objects, preset: str, params=None)`
 - `uv_utils/rizom_bridge/_rizom_bridge.py::RizomUVBridge.send_to_rizomuv(self, objects, params=None)`
+- `uv_utils/texture_combine/_transfer_host.py::BlenderTransferHost(class)`
+- `uv_utils/texture_combine/_transfer_host.py::BlenderTransferHost.default_name(self, nodes) -> str`
+- `uv_utils/texture_combine/_transfer_host.py::BlenderTransferHost.face_materials(self, mesh)`
+- `uv_utils/texture_combine/_transfer_host.py::BlenderTransferHost.has_lightmap(mesh) -> bool`
+- `uv_utils/texture_combine/_transfer_host.py::BlenderTransferHost.material_maps(self, material)`
+- `uv_utils/texture_combine/_transfer_host.py::BlenderTransferHost.pair_sources(self, targets, sources)`
+- `uv_utils/texture_combine/_transfer_host.py::BlenderTransferHost.selection_sides(self, mode, stored)`
+- `uv_utils/texture_combine/_transfer_host.py::BlenderTransferHost.texture_transfer(self)`
+- `uv_utils/texture_combine/_transfer_host.py::BlenderTransferHost.transfer_lightmaps(targets, source, **options)`
+- `uv_utils/texture_combine/_transfer_host.py::BlenderTransferHost.transfer_uvs(sources, targets)`
+- `uv_utils/texture_combine/_transfer_host.py::BlenderTransferHost.transfer_uvs_to_similar(source, candidates, tolerance)`
+- `uv_utils/texture_combine/_transfer_host.py::BlenderTransferHost.undo_chunk(name)`
 - `uv_utils/texture_combine/texture_combine.py::TextureCombine.leaf_name(cls, node) -> str`
 - `uv_utils/texture_combine/texture_combine.py::TextureCombine.material_faces(cls, inputs: CombineInputs, material) -> List[str]`
+- `uv_utils/texture_combine/texture_combine.py::TextureCombine.run_transfer(self, **options) -> 'ptk.TransferResult'`
 - `uv_utils/texture_combine/texture_combine.py::TextureCombine.select(cls, nodes) -> int`
 - `uv_utils/texture_combine/texture_combine.py::TextureCombine.selected_faces(cls) -> List[str]`
 - `uv_utils/texture_transfer.py::TextureTransfer.auto_source(cls, meshes, stored=()) -> Tuple[str, Optional[Any]]`
