@@ -19,7 +19,6 @@ deferred into the call bodies.
 """
 
 import re
-import string
 from typing import List, Tuple
 
 import pythontk as ptk
@@ -502,93 +501,27 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
             order = ptk.PointCloud.spread_axis(list(positions.values()))
         reference = positions[objects[0].name] if first_obj_as_ref else (0.0, 0.0, 0.0)
 
-        def ordered(objs):
-            keys = ptk.PointCloud.order_points(
-                [(o.name, positions[o.name]) for o in objs],
+        def ordered(names):
+            return ptk.PointCloud.order_points(
+                [(n, positions[n]) for n in names],
                 order_by=order,
                 reference=reference,
                 reverse=reverse,
             )
-            return [by_name[k] for k in keys]
 
-        strip_for_grouping = strip_defined_suffixes and not independent_groups
-        sorted_suffixes = sorted(valid_suffixes or [], key=len, reverse=True)
-
-        def strip_ints(name):
-            # '.001' too: Blender's own duplicate numbering ('tile.001' left 'tile.' -> 'tile__B').
-            if strip_trailing_ints and name and name[-1].isdigit():
-                m = re.search(r"([._]\d+|\d+)$", name)
-                if m:
-                    return name[: m.start()]
-            return name
-
-        def peel_suffix(name):
-            """``(root, suffix)``: *name* less the defined suffix it ends with."""
-            for s in sorted_suffixes:
-                if name.endswith(s):
-                    return name[: -len(s)], s
-            return name, ""
-
-        # The letters a previous alphabetical run wrote: the batch's '_A', '_B', ... (before a
-        # kept type suffix too) running from A with no gap. Only those are stripped (a re-run
-        # gave 'tile_C_C'); a side marker ('_L', '_R') is name content. Mirrors mayatk.
-        letters = set()
-        for o in objects:
-            m = re.search(r"_([A-Z])$", strip_ints(peel_suffix(strip_ints(o.name))[0]))
-            if m:
-                letters.add(m.group(1))
-        own_letters = (
-            alphabetical
-            and bool(letters)
-            and sorted(letters) == list(string.ascii_uppercase[: len(letters)])
+        # The host-free plan (strip what a previous run left, group, number) is pythontk's,
+        # written once for both hosts. '.001' too: Blender's own duplicate numbering
+        # ('tile.001' left 'tile.' -> 'tile__B').
+        new_names = ptk.StrUtils.sequence_names(
+            {o.name: o.name for o in objects},
+            order=ordered,
+            alphabetical=alphabetical,
+            strip_trailing_ints=strip_trailing_ints,
+            strip_defined_suffixes=strip_defined_suffixes,
+            valid_suffixes=valid_suffixes,
+            independent_groups=independent_groups,
+            number_separators="._",
         )
-
-        def strip_own_letter(name):
-            return name[:-2] if own_letters and re.search(r"_[A-Z]$", name) else name
-
-        def base_of(name):
-            while True:
-                before = name
-                name = strip_own_letter(strip_ints(name))
-                if strip_for_grouping and sorted_suffixes:
-                    for s in sorted_suffixes:
-                        if name.endswith(s):
-                            name = name[: -len(s)]
-                            break
-                if name == before:
-                    return name
-
-        def suffixes_for(n):
-            if alphabetical and n <= 26:
-                return list(string.ascii_uppercase)[:n]
-            pad = max(2, len(str(n)))
-            return [str(i + 1).zfill(pad) for i in range(n)]
-
-        new_names = {}
-        if independent_groups:
-            groups = {}
-            for o in objects:
-                # A kept type suffix: the number or letter before it is this tool's too
-                # (Container_01_GRP), so a re-run groups as before. Mirrors mayatk.
-                key = base_of(o.name)
-                root, suffix = peel_suffix(key)
-                groups.setdefault(base_of(root) + suffix if suffix else key, []).append(o)
-            for base, members in groups.items():
-                ranked = ordered(members)
-                root, type_suffix = base, ""
-                for s in sorted_suffixes:
-                    if base.endswith(s):
-                        root = base[: -len(s)]
-                        type_suffix = s
-                        break
-                if strip_defined_suffixes:
-                    type_suffix = ""
-                for o, sfx in zip(ranked, suffixes_for(len(ranked))):
-                    new_names[o.name] = f"{root}_{sfx}{type_suffix}"
-        else:
-            ranked = ordered(objects)
-            for o, sfx in zip(ranked, suffixes_for(len(ranked))):
-                new_names[o.name] = f"{base_of(o.name)}_{sfx}"
 
         plan = [
             (by_name[name], name, cls.strip_illegal_chars(new))

@@ -78,8 +78,11 @@ MODERN_SHADER_TYPES = ("standardSurface", "aiStandardSurface", "openPBRSurface")
 # a ``multiply`` weight scales the colour as it is (above 1 a strength), a
 # ``gate`` switches it on or off -- openPBR's emissionLuminance is in nits, so
 # read as a multiplier it blew the colour out. mayatk's ShaderAttributeMap
-# table (EMISSION_WEIGHT_ATTRS), spelled out: this template is
-# dependency-free by contract.
+# table (EMISSION_WEIGHT_ATTRS, the SSoT), spelled out: this template is
+# dependency-free by contract. Its rows for the modern surfaces only:
+# StingrayPBS's weight (emissive_intensity) is read in _translate_stingray,
+# where an unreadable one lets the map ride. Both tables are held to the SSoT
+# by m3trik/test/test_check_dcc_twins.py (MayaBridgeTemplateTablesTest).
 EMISSION_WEIGHT_ATTRS = {
     "aiStandardSurface": ("emission", "multiply"),
     "standardSurface": ("emission", "multiply"),

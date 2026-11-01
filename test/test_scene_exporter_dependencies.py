@@ -134,9 +134,12 @@ try:
 
     named = ptk.FbxMedia.dependencies(fbx)
     embedded = {row["name"]: row["bytes"] for row in ptk.FbxMedia.embedded(fbx)}
+    # The materials record names the material's map too, so the dependency
+    # pass embeds it as it does the other records' files (pythontk, 2026-10-31).
+    recorded = sorted([*sources, os.path.basename(base_color)])
     check(
-        "the records name the lightmap, the silhouette and the horizon map",
-        sorted(named) == sorted(sources),
+        "the records name the lightmap, the silhouette, the horizon map and the material's map",
+        sorted(named) == recorded,
         f"named={named}",
     )
     for name, path in sources.items():
@@ -251,7 +254,7 @@ try:
     again = ptk.FbxMedia.embed_dependencies(fbx, search_dirs=[images])
     check(
         "a second pass finds every file already inside",
-        again["embedded"] == [] and sorted(again["present"]) == sorted(sources),
+        again["embedded"] == [] and sorted(again["present"]) == recorded,
         f"{again}",
     )
 

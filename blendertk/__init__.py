@@ -904,9 +904,12 @@ MOVED_NAMES = {
         "tentacle.slots.tools._app_bridge.host_bridge.HostBridge",
         "0.23.0",
     ),
-    "loft": ("blendertk.NurbsUtils.loft", "0.23.0"),
-    "get_recent_files": ("blendertk.EnvUtils.get_recent_files", "0.23.0"),
-    "get_recent_autosave": ("blendertk.EnvUtils.get_recent_autosave", "0.23.0"),
+    "EditUtils.loft": ("blendertk.NurbsUtils.loft", "0.23.0"),
+    "CoreUtils.get_recent_files": ("blendertk.EnvUtils.get_recent_files", "0.23.0"),
+    "CoreUtils.get_recent_autosave": (
+        "blendertk.EnvUtils.get_recent_autosave",
+        "0.23.0",
+    ),
     # Re-homed onto mayatk's class names (mayatk is the reference).
     "CoreUtils.get_env_info": ("blendertk.EnvUtils.get_env_info", "0.23.0"),
     "clean_geometry": ("blendertk.Diagnostics.clean_geometry", "0.23.0"),

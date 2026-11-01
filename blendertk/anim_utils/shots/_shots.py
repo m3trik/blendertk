@@ -413,28 +413,6 @@ class _BlenderShotsHostInternal(object):
         )
 
     @staticmethod
-    def _transform_key_times(obj, value_tol: float = 1e-6, ignore=None) -> List[float]:
-        """Sorted unique key times over *obj*'s **moving** transform fcurves.
-
-        A transform channel whose values never vary (``max - min <= value_tol``
-        across ≥2 keys) is treated as held/flat and skipped — the Blender stand-in
-        for Maya's motion-only segment collection.
-        """
-        times: set = set()
-        for fc in AnimUtils.get_fcurves(obj):
-            if not BlenderShotsHost.is_transform_path(fc.data_path):
-                continue
-            if _BlenderShotsHostInternal._is_ignored_path(fc.data_path, ignore):
-                continue
-            kt, vals = AnimUtils.key_arrays(fc)
-            if not kt:
-                continue
-            if len(kt) >= 2 and (max(vals) - min(vals)) <= value_tol:
-                continue  # flat/held channel — no motion
-            times.update(round(t, 6) for t in kt)
-        return sorted(times)
-
-    @staticmethod
     def _transform_motion_intervals(
         obj, motion_rate: float = 1e-3, ignore=None
     ) -> List[Tuple[float, float]]:

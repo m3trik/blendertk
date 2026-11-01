@@ -101,14 +101,6 @@ class _LightUtilsInternal(object):
         return Vector([(a + b) / 2.0 for a, b in zip(low, high)])
 
     @staticmethod
-    def _world_extents(obj):
-        """``(x, y, z)`` size of the object's world-space bounding box."""
-        corners = _LightUtilsInternal._world_corners(obj)
-        return tuple(
-            max(c[i] for c in corners) - min(c[i] for c in corners) for i in range(3)
-        )
-
-    @staticmethod
     def _world_node_tree(create=True):
         """The scene world's node tree (creating the world / enabling nodes when needed)."""
         import bpy
