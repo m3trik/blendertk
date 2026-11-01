@@ -817,7 +817,7 @@ try:
             if _props and isinstance(_props[0], int):
                 _kinds[_props[0]] = _rec["name"]
                 if _rec["name"] == "Model":
-                    _models[_props[0]] = _ptk.FbxFile._display_name(_props[1])
+                    _models[_props[0]] = _ptk.FbxFile.display_name(_props[1])
         _parents = {}
         _animated = set()
         for _kind, _child, _parent, _prop in _file.connections():
@@ -855,7 +855,7 @@ try:
             for _rec in _hp_ptk.FbxFile.load(path, raw_payloads=False).iter_objects():
                 _props = _rec["props"]
                 if _rec["name"] == "Model" and _props and isinstance(_props[0], int):
-                    found.add(_hp_ptk.FbxFile._display_name(_props[1]))
+                    found.add(_hp_ptk.FbxFile.display_name(_props[1]))
         return found
 
     reset()

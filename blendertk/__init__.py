@@ -465,6 +465,8 @@ MOVED_NAMES = {
     # The sections of live-scene state a GLB took beside its FBX: the FBX's
     # materials record states every material (removed 2026-10-31).
     "SceneState": ("blendertk.MaterialRecords", "0.23.0"),
+    # The host seam's one convention: a model's host adapter is its HOST (2026-11-01).
+    "EmissiveGroups.adapter": ("blendertk.EmissiveGroups.HOST", "0.23.0"),
     # The curtain drape, written once for both hosts (CurtainMesh subclasses it).
     "CurtainDrape": ("pythontk.CurtainDrape", "0.23.0"),
     "DuplicateRadialSlots": (

@@ -132,8 +132,8 @@ try:
         obj.select_set(obj.name == "eg_cube")
     check(
         "selection resolves via the view layer",
-        list(EmissiveGroups.adapter.faces()) == ["eg_cube"],
-        list(EmissiveGroups.adapter.faces()),
+        list(EmissiveGroups.HOST.faces()) == ["eg_cube"],
+        list(EmissiveGroups.HOST.faces()),
     )
 
     # --- scene hygiene: authoring must not create the export carrier -------

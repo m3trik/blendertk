@@ -75,9 +75,9 @@ class _BlenderEmissiveGroupsInternal:
         return out
 
 
-class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal):
+class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal, ptk.PureEmissiveGroupsHost):
     """The Blender scene operations of the Emissive Groups model
-    (``EmissiveGroupsAdapter``), and its export stager."""
+    (``ptk.EmissiveGroupsHost``), and its export stager."""
 
     data_nodes = DataNodes
     COLOR_SET_NOUN = "color attribute"
@@ -312,7 +312,7 @@ class EmissiveGroups(ptk.EmissiveGroupsModel):
     """The Emissive Groups API in Blender: pythontk's model over the Blender half,
     plus the keyed-weight export stager Blender's FBX needs."""
 
-    adapter = BlenderEmissiveGroups()
+    HOST = BlenderEmissiveGroups()
     #: Marks the transient curve proxies the stager makes (one value, the half's).
     PROXY_MARKER = _BlenderEmissiveGroupsInternal.PROXY_MARKER
 
