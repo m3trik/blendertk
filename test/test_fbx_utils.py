@@ -967,6 +967,27 @@ try:
     if _hold is not None:
         bpy.data.collections.remove(_hold)
 
+    # The carrier test is the record contract's (``DataNodes.is_carrier``: a
+    # module's carrier, a copy an import numbered), never a name spelled here.
+    reset()
+    bpy.ops.object.empty_add()
+    carrier_copy = bpy.context.active_object
+    carrier_copy.name = "CarrierCopy"
+    carrier_copy.hide_select = True
+    with mock.patch.object(
+        DataNodes,
+        "is_carrier",
+        side_effect=lambda n, *a, **k: str(n) in (DataNodes.EXPORT, "CarrierCopy"),
+    ):
+        named_transport = FbxUtils._is_transport_node(carrier_copy)
+        with FbxUtils._carriers_shippable([carrier_copy]):
+            shown_for_write = not carrier_copy.hide_select
+    check(
+        "a carrier the record contract names is a transport node, shown for the write",
+        named_transport and shown_for_write and carrier_copy.hide_select,
+        f"transport={named_transport} shown={shown_for_write}",
+    )
+
     # ---- staged transport nodes ride beside the object they hang under -------
     # Blender writes only selected objects, so a curve proxy a stager made
     # never reached a bridge's FBX: the bracket records what each stager's

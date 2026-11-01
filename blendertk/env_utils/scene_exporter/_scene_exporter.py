@@ -480,7 +480,7 @@ class SceneExporter(ptk.SceneExporterBase):
         exportable, dropped = [], []
         for o in objects:
             try:
-                ok = getattr(o, "name", None) == DataNodes.EXPORT or (
+                ok = DataNodes.is_carrier(getattr(o, "name", None)) or (
                     (not getattr(o, "hide_select", False))
                     and o.visible_get(view_layer=vl)
                 )
@@ -740,7 +740,9 @@ class SceneExporter(ptk.SceneExporterBase):
                 f"USD: {len(linked)} shared mesh(es) are written flat; every linked "
                 "duplicate ships as its own mesh."
             )
-        if any(getattr(o, "name", "") == "data_export" for o in export_objects):
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        if any(DataNodes.is_carrier(getattr(o, "name", "")) for o in export_objects):
             options["export_custom_properties"] = True
             self.logger.info(
                 "USD: the data_export carrier ships as a prim with userProperties; "

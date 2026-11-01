@@ -2227,6 +2227,33 @@ try:
         str(captured_usd),
     )
 
+    # A carrier ships its custom properties whichever name the record contract
+    # gives it (``DataNodes.is_carrier``), never a name spelled in the writer.
+    from blendertk.node_utils.data_nodes import DataNodes as _UsdDataNodes
+
+    bpy.ops.object.empty_add()
+    usd_carrier_copy = bpy.context.active_object
+    usd_carrier_copy.name = "UsdCarrierCopy"
+    captured_usd.clear()
+    UsdUtils.export = staticmethod(_fake_usd_export)
+    try:
+        with _patch.object(
+            _UsdDataNodes,
+            "is_carrier",
+            side_effect=lambda n, *a, **k: str(n) == "UsdCarrierCopy",
+        ):
+            SceneExporter()._write_usd(
+                os.path.join(usd_dir, "usd_carrier_copy.usd"), [usd_carrier_copy]
+            )
+    finally:
+        UsdUtils.export = orig_usd
+        bpy.data.objects.remove(usd_carrier_copy, do_unlink=True)
+    check(
+        "usd output format ships a carrier's properties by the record contract's test",
+        (captured_usd.get("opts") or {}).get("export_custom_properties") is True,
+        str(captured_usd),
+    )
+
     glb_dir = os.path.join(tmp, "glb_order")
     os.makedirs(glb_dir, exist_ok=True)
     exp8 = SceneExporter()

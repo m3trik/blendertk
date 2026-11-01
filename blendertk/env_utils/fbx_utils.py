@@ -160,13 +160,14 @@ class _FbxUtilsInternal(object):
 
     @staticmethod
     def _is_transport_node(obj) -> bool:
-        """Is *obj* a node whose payload is its CUSTOM PROPERTIES -- the
-        ``data_export`` carrier, or a staged curve proxy
+        """Is *obj* a node whose payload is its CUSTOM PROPERTIES -- a
+        ``data_export`` carrier (``DataNodes.is_carrier``, the record
+        contract's test), or a staged curve proxy
         (``ptk.MeshConvert.CURVE_PROXY_MARKER``)?"""
         from blendertk.node_utils.data_nodes import DataNodes
 
         try:
-            return obj.name == DataNodes.EXPORT or bool(
+            return DataNodes.is_carrier(obj.name) or bool(
                 obj.get(ptk.MeshConvert.CURVE_PROXY_MARKER)
             )
         except (AttributeError, ReferenceError):
@@ -277,10 +278,10 @@ class _FbxUtilsInternal(object):
         try:
             for obj in _FbxUtilsInternal._resolved_objects(objects):
                 parent = obj.parent
-                is_carrier = obj.name == DataNodes.EXPORT
+                is_carrier = DataNodes.is_carrier(obj.name)
                 rides_carrier = (
                     parent is not None
-                    and parent.name == DataNodes.EXPORT
+                    and DataNodes.is_carrier(parent.name)
                     and bool(obj.get(ptk.MeshConvert.CURVE_PROXY_MARKER))
                 )
                 # A linked carrier is not this file's to edit.
