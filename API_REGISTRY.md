@@ -170,9 +170,13 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`ui_utils/blender_window.py`](#ui_utils--blender_window) — Native-window (win32/GHOST) helpers for hosting Qt widgets around a Blender window.
 - [`ui_utils/calculator.py`](#ui_utils--calculator) — Calculator — the Blender half of the Calculator tool (mirror of mayatk's ``CalculatorController``).
 - [`ui_utils/cancel_provider.py`](#ui_utils--cancel_provider) — Blender's answers to uitk's cancellation contract (mayatk parity twin).
+- [`ui_utils/marking_menu_host/_marking_menu_host.py`](#ui_utils--marking_menu_host--_marking_menu_host) — What a uitk marking menu needs from Blender: :class:`BlenderMarkingMenuHost`.
+- [`ui_utils/marking_menu_host/click_debugger.py`](#ui_utils--marking_menu_host--click_debugger) — Opt-in click tracer for "buttons need several clicks" reports in the menu Blender hosts.
+- [`ui_utils/marking_menu_host/keymap_bridge.py`](#ui_utils--marking_menu_host--keymap_bridge) — Bridge a marking menu's activation key from Blender's keymap to Qt — the half Maya needs none of.
 - [`ui_utils/menu_harvest.py`](#ui_utils--menu_harvest) — Harvest a native Blender menu into a live ``QMenu`` — the Blender half of Maya's wrap.
 - [`ui_utils/node_icons.py`](#ui_utils--node_icons) — Resolve per-object-type icons for Blender objects (mirror of ``mtk.NodeIcons``).
 - [`ui_utils/qt_dock.py`](#ui_utils--qt_dock) — Dock any Qt widget into a native Blender area — a true child window, not an overlay.
+- [`ui_utils/qt_runtime.py`](#ui_utils--qt_runtime) — Qt inside Blender: provision a binding, stand up a QApplication, pump it from Blender's loop.
 - [`ui_utils/style_setter/_style_setter.py`](#ui_utils--style_setter--_style_setter) — Match Blender's app UI chrome to another DCC's look using Blender's NATIVE theme-preset system.
 - [`ui_utils/ui_state.py`](#ui_utils--ui_state) — Persist Blender's per-session UI visibility state across sessions (``btk.UiState``).
 - [`uv_utils/_auto_unwrap.py`](#uv_utils--_auto_unwrap) — External auto-unwrap round-trip: OBJ out, engine, OBJ back, UVs transferred.
@@ -190,7 +194,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 ### `__init__.py`
 
 - [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L30) — constant
-- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L447) — constant
+- [`MOVED_NAMES`](blendertk/blendertk/__init__.py#L459) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -2189,14 +2193,14 @@ Ship a committed lightmap bake in a web (GLB) deliverable.
 
 Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
 
-- [`SHADER_TEMPLATES`](blendertk/blendertk/mat_utils/_mat_utils.py#L1374) — constant
-- **[`class MatUpdater(pythontk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1486)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
+- [`SHADER_TEMPLATES`](blendertk/blendertk/mat_utils/_mat_utils.py#L1373) — constant
+- **[`class MatUpdater(pythontk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1485)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
   - `MatUpdater.shader_type_choices()` *(static)* — No retype targets: Blender has one surface shader (Principled BSDF), so there is
   - `MatUpdater.texture_root()` *(static)* — Where a run resolves a relative Output Folder and discovers sibling maps
   - `MatUpdater.selected_materials(cls, shader_type=None)` *(class)* — The materials a run over the selection acts on: those on the selected objects
   - `MatUpdater.materials_using_textures(paths, shader_type=None)` *(static)* — The scene materials whose shader graph reads an image at one of *paths* (the
   - `MatUpdater.update_materials(cls, materials=None, config=None, verbose=False, progress_callback=None, shader_type=None)` *(class)* — Reprocess the textures of ``materials`` and repath their image nodes to the results.
-- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1832)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
+- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1831)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
   - `MatUtils.get_node_tree(idblock, create: bool = False)` *(static)* — The node tree *idblock* renders through, or ``None``.
   - `MatUtils.get_mats(objects)` *(static)* — Unique materials assigned to the given object(s), in slot order.
   - `MatUtils.get_mat_names(objects=None)` *(static)* — The names of the materials on *objects* (None: the selection), in slot
@@ -2241,7 +2245,7 @@ Material utilities — mirror of mayatk's ``MatUtils`` public names where the co
   - `MatUtils.get_image_material_map()` *(static)* — ``{image-name: [material names]}`` for every image a material's shader graph reads --
   - `MatUtils.materials_for_textures(paths)` *(static)* — Scene materials whose shader graph references an image at one of ``paths`` (matched by
   - `MatUtils.fix_color_spaces(images=None, force_update=False, dry_run=False)` *(static)* — Assign each texture image its correct color space by map type — the Blender counterpart of
-  - `MatUtils.set_texture_directory(images: Any = None, target_dir: Optional[str] = None, mode: str = 'rewrite', allow_missing: bool = False) -> int` *(static)* — Repath each image so its file lives directly under ``target_dir`` — mirror of the Texture
+  - `MatUtils.set_texture_directory(images: Any = None, target_dir: Optional[str] = None, mode: str = 'rewrite', allow_missing: bool = False) -> int` *(static)* — Repath each image so its file lives directly under ``target_dir`` — the Texture Path
   - `MatUtils.rename_texture_file(cls, path: str, new_name: str, images: Any = None) -> Dict[str, Any]` *(class)* — Rename a texture file on disk and repoint every image reading it.
   - `MatUtils.sync_material_names(cls, material: Any, base: str, material_affix: Tuple[str, str] = ('', ''), image_affix: Tuple[str, str] = ('', ''), images: Any = None, dry_run: bool = False, lightmaps: Optional[Any] = None) -> Dict[str, Any]` *(class)* — Name a material, its texture set, lightmap and images for ONE base.
   - `MatUtils.format_texture_paths_html(records=None)` *(static)* — Render :func:`get_image_records` as an HTML table for the panel/report (missing flagged).
@@ -2890,7 +2894,7 @@ Texture Path Editor engine (Blender): the file's texture paths and the commands
   - `TexturePathEditor.stored_path(self, node) -> str` — The image's stored ``filepath``, ``""`` when it is gone.
   - `TexturePathEditor.selected_file_nodes(self)` — The images the selected objects' materials read.
   - `TexturePathEditor.reload_textures() -> None` *(static)* — Force Blender to re-read every image from disk.
-  - `TexturePathEditor.set_texture_directory(self, file_nodes, target_dir: str, relocate_mode: str = 'rewrite', allow_missing: bool = False) -> int` — Repath each image so its file lives directly under *target_dir*.
+  - `TexturePathEditor.set_texture_directory(self, file_nodes, target_dir: str, relocate_mode: str = 'rewrite', allow_missing: bool = False) -> int` — Repath each image so its file lives directly under *target_dir* --
   - `TexturePathEditor.make_paths_absolute(self, file_nodes) -> int` — Rewrite ``//``-relative paths to absolute -- inverse of Normalize Paths.
   - `TexturePathEditor.normalize_paths(self, file_nodes, external_mode: str = 'rewrite') -> int` — Rewrite (selected) paths relative to the saved .blend (``//`` paths).
   - `TexturePathEditor.resolve_missing_textures(self, modes, file_nodes=None) -> int` — Rebind missing textures to files found under the texture folder.
@@ -3500,19 +3504,23 @@ Symbolic-name -> Blender native-menu resolution + Qt wrapping for the both-butto
 
 Native-window (win32/GHOST) helpers for hosting Qt widgets around a Blender window.
 
-- **[`class BlenderWindow`](blendertk/blendertk/ui_utils/blender_window.py#L34)** — Static win32 helpers for GHOST-window enumeration, geometry, embedding, ownership.
+- **[`class BlenderWindow`](blendertk/blendertk/ui_utils/blender_window.py#L41)** — Static win32 helpers for GHOST-window enumeration, geometry, embedding, ownership,
   - `BlenderWindow.process_ghost_hwnds(cls)` *(class)* — List of visible GHOST-window HWNDs owned by THIS process (``[]`` off-Windows).
   - `BlenderWindow.window_hwnd(cls, bpy_window)` *(class)* — The GHOST hwnd of a SPECIFIC already-open ``bpy.types.Window``, or None.
+  - `BlenderWindow.main_qwindow(cls)` *(class)* — Blender's main GHOST window wrapped as a foreign ``QWindow`` (cached on the QApplication).
   - `BlenderWindow.is_window(cls, hwnd) -> bool` *(class)*
   - `BlenderWindow.client_origin(cls, hwnd)` *(class)* — Screen (x, y) of the window's client-area top-left, or None.
   - `BlenderWindow.client_size(cls, hwnd)` *(class)* — (width, height) of the window's client area in physical pixels, or None.
   - `BlenderWindow.region_client_rect(cls, hwnd, region)` *(class)* — Map a bpy ``region`` inside GHOST window ``hwnd`` to a parent-CLIENT rect.
   - `BlenderWindow.set_clip_children(cls, hwnd) -> bool` *(class)* — Set ``WS_CLIPCHILDREN`` on ``hwnd`` (idempotent);
   - `BlenderWindow.move_child(cls, hwnd, rect) -> bool` *(class)* — Place child window ``hwnd`` at ``rect`` = (x, y, w, h) in its parent's client
+  - `BlenderWindow.native_modal_loop_active(cls, cooldown=0.0)` *(class)* — True while THIS thread is inside a native modal size/move or menu loop — e.g.
   - `BlenderWindow.keyboard_focus(cls)` *(class)* — ``GetFocus()`` — the hwnd receiving this thread's keystrokes, or 0/None.
   - `BlenderWindow.cursor_over(cls, hwnd) -> bool` *(class)* — True when the pointer is over ``hwnd`` (or one of its child windows).
   - `BlenderWindow.set_keyboard_focus(cls, hwnd) -> bool` *(class)* — ``SetFocus(hwnd)`` — route this thread's keystrokes to ``hwnd``;
   - `BlenderWindow.set_owner(cls, widget, owner_hwnd)` *(class)* — Make Qt ``widget`` an *owned* window of ``owner_hwnd`` (``GWLP_HWNDPARENT``).
+  - `BlenderWindow.restore_foreground(cls, active_menu)` *(class)* — Give Blender's GHOST window OS focus back unless a visible tentacle window holds it
+  - `BlenderWindow.restore_foreground_if_stranded(cls, active_menu)` *(class)* — Self-heal "OS foreground stuck on one of our HIDDEN Qt windows";
 
 <a id="ui_utils--calculator"></a>
 ### `ui_utils/calculator.py`
@@ -3536,6 +3544,60 @@ Blender's answers to uitk's cancellation contract (mayatk parity twin).
   - `BlenderCancelProvider.begin(self, scope, label: str = '', rollback: bool = False) -> Any` — Start Blender's progress readout for the operation.
   - `BlenderCancelProvider.tick(self, value: Optional[int] = None, total: Optional[int] = None, text: Optional[str] = None) -> None` — Mirror progress into Blender's cursor progress readout.
   - `BlenderCancelProvider.end(self, token: Any, cancelled: bool = False, rollback: bool = False) -> None` — End the progress readout.
+
+<a id="ui_utils--marking_menu_host--_marking_menu_host"></a>
+### `ui_utils/marking_menu_host/_marking_menu_host.py`
+
+What a uitk marking menu needs from Blender: :class:`BlenderMarkingMenuHost`.
+
+- **[`class BlenderMarkingMenuHost(PureMarkingMenuHost)`](blendertk/blendertk/ui_utils/marking_menu_host/_marking_menu_host.py#L42)** — Blender's answers to ``uitk.MarkingMenuHost`` (see the module docstring).
+  - `BlenderMarkingMenuHost.ui_handler(self)` *(property)* — ``BlenderUiHandler``: wraps Blender's native menus, shows the tool windows.
+  - `BlenderMarkingMenuHost.start(self) -> None` — Stand up Qt in Blender: a binding, the QApplication, its parent, the pump.
+  - `BlenderMarkingMenuHost.defer(self, fn)` — Run *fn* on a one-shot ``bpy.app.timers`` callback;
+  - `BlenderMarkingMenuHost.live_menu(self)` — The menu the keymap bridge drives (one per Blender process), or None once
+  - `BlenderMarkingMenuHost.main_window(self)` — ``app.blender_widget`` (set by :meth:`start`), or None: the menu then shows as
+  - `BlenderMarkingMenuHost.mouse_buttons(self)` — The physically held buttons, else Qt's view.
+  - `BlenderMarkingMenuHost.bind_activation_key(self, menu, key: str) -> None` — Bridge the activation key from Blender's keymap to *menu*.
+  - `BlenderMarkingMenuHost.adopt_window(self, widget) -> None` — Make *widget* an OS-owned window of Blender's GHOST window.
+  - `BlenderMarkingMenuHost.key_event(self, menu, event) -> None` — Ctrl+Z while the menu holds focus -> Blender's undo;
+  - `BlenderMarkingMenuHost.attach(self, menu) -> None` — Blender's once-per-menu setup, each step guarded so none blocks a launch.
+  - `BlenderMarkingMenuHost.report_activation()` *(static)* — The live activation report;
+
+<a id="ui_utils--marking_menu_host--click_debugger"></a>
+### `ui_utils/marking_menu_host/click_debugger.py`
+
+Opt-in click tracer for "buttons need several clicks" reports in the menu Blender hosts.
+
+- **[`class ClickDebugger`](blendertk/blendertk/ui_utils/marking_menu_host/click_debugger.py#L19)** — Opt-in two-layer tracer for "buttons need several clicks" reports.
+  - `ClickDebugger.log_path(cls)` *(class)* — Resolve (and cache) the trace sink — managed scratch, not the user's home.
+  - `ClickDebugger.enable(cls)` *(class)* — Turn on click tracing — run in Blender's Python Console, reproduce the multi-click, then
+  - `ClickDebugger.disable(cls)` *(class)* — Remove the click tracer installed by :meth:`enable`.
+
+<a id="ui_utils--marking_menu_host--keymap_bridge"></a>
+### `ui_utils/marking_menu_host/keymap_bridge.py`
+
+Bridge a marking menu's activation key from Blender's keymap to Qt — the half Maya needs none of.
+
+- **[`class KeymapBridge`](blendertk/blendertk/ui_utils/marking_menu_host/keymap_bridge.py#L23)** — Bridge the activation key from Blender's keymap to the Qt marking menu — the half Maya needs none o…
+  - `KeymapBridge.qt_key_to_blender_type(cls, key_show)` *(class)* — Translate a Qt key name (``'Key_F12'`` / ``'Key_Meta'``) to a Blender keymap ``type``
+  - `KeymapBridge.blender_type_to_qt_key(cls, key_type)` *(class)* — Translate a Blender keymap ``type`` back to a Qt key name (``'F12'`` → ``'Key_F12'``).
+  - `KeymapBridge.physical_mouse_buttons(cls)` *(class)* — Qt mouse-button mask read from the OS (``GetAsyncKeyState``), or ``NoButton``.
+  - `KeymapBridge.ensure_operator(cls)` *(class)* — Register the bridge operator once per process (idempotent).
+  - `KeymapBridge.drive_press(cls, buttons=None)` *(class)* — Drive the menu's real activation state machine (arms ``_activation_key_held``, shows +
+  - `KeymapBridge.drive_release(cls)` *(class)* — Complete the gesture — the single release path for every Blender-side trigger (keymap
+  - `KeymapBridge.uninstall_keymap(cls)` *(class)* — Remove the keymap items added by :meth:`install_keymap`.
+  - `KeymapBridge.addon_key_type(cls)` *(class)* — The key OUR keymap items carry, or ``None`` when the bridge isn't installed.
+  - `KeymapBridge.retype_keymap(cls, key_type)` *(class)* — Move OUR installed items onto ``key_type`` in place;
+  - `KeymapBridge.user_keymap_items(cls)` *(class)* — Our bridge's 3D-View items **as Preferences ▸ Keymap sees them** (order unspecified).
+  - `KeymapBridge.live_press_item(cls)` *(class)* — Our PRESS row as Preferences ▸ Keymap sees it, or ``None``.
+  - `KeymapBridge.rebind(cls, tcl, key_show)` *(class)* — Move Blender's half of the activation binding onto ``key_show`` (a Qt key name).
+  - `KeymapBridge.sync_keymap_rebind(cls, tcl)` *(class)* — Adopt a rebind made in Preferences ▸ Keymap (throttled;
+  - `KeymapBridge.install_keymap(cls, tcl, key_type)` *(class)* — Bind ``key_type`` in Blender's **3D View** keymap to the bridge operator — a PRESS item and a
+  - `KeymapBridge.install_poller(cls, tcl, key_show)` *(class)* — Global activation-key watcher (Windows-only, idempotent) — the focus-independent half
+  - `KeymapBridge.uninstall_poller(cls)` *(class)* — Remove the held-button poll timer (idempotent).
+  - `KeymapBridge.teardown(cls)` *(class)* — Remove the keymap items and unregister the bridge operator (for add-on unregister).
+- **[`class ActivationDiagnostics`](blendertk/blendertk/ui_utils/marking_menu_host/keymap_bridge.py#L812)** — The live-activation-state report — run in Blender's Python console to see why the key isn't
+  - `ActivationDiagnostics.report(emit=True)` *(static)* — Return (and, when ``emit``, print) the live activation state — run in Blender's Python
 
 <a id="ui_utils--menu_harvest"></a>
 ### `ui_utils/menu_harvest.py`
@@ -3574,6 +3636,21 @@ Dock any Qt widget into a native Blender area — a true child window, not an ov
   - `QtDock.dock(self, widget, height: Optional[int] = None) -> bool` — Dock ``widget``: create/dock the placeholder area, embed the widget as a
   - `QtDock.undock(self) -> None` — Release the widget (un-parent to a hidden top-level, ready to re-dock) and
   - `QtDock.teardown(self) -> None` — Full uninstall for a host reload: :meth:`undock` + drop the widget reference.
+
+<a id="ui_utils--qt_runtime"></a>
+### `ui_utils/qt_runtime.py`
+
+Qt inside Blender: provision a binding, stand up a QApplication, pump it from Blender's loop.
+
+- **[`class QtPlatformUnavailable(RuntimeError)`](blendertk/blendertk/ui_utils/qt_runtime.py#L24)** — Qt cannot open a window in this host process, so the marking menu is off.
+- **[`class QtBootstrap`](blendertk/blendertk/ui_utils/qt_runtime.py#L42)** — Make a Qt binding importable in Blender's Python *before* anything imports qtpy.
+  - `QtBootstrap.qt_importable()` *(static)* — True if qtpy can resolve a real Qt binding (Maya's bundled PySide, or Blender's installed one).
+  - `QtBootstrap.qt_install_dir()` *(static)* — Where Blender's on-demand Qt deps live.
+  - `QtBootstrap.ensure_qt(cls)` *(class)* — Make a Qt binding importable;
+- **[`class QtRuntime`](blendertk/blendertk/ui_utils/qt_runtime.py#L163)** — Qt in Blender — Blender has no QApplication of its own, so stand one up and pump it from
+  - `QtRuntime.ensure_qapp()` *(static)* — Return the process QApplication, creating one if Blender has none.
+  - `QtRuntime.ensure_widget(app)` *(static)* — Establish ``app.blender_widget`` — the parent for the marking menu.
+  - `QtRuntime.start_pump(cls, app, interval=0.01)` *(class)* — Deliver Qt's POSTED events from Blender's timer loop so the Qt UI stays live (idempotent).
 
 <a id="ui_utils--style_setter--_style_setter"></a>
 ### `ui_utils/style_setter/_style_setter.py`
@@ -3782,7 +3859,7 @@ Transfer a mesh's textures from one UV layout to another -- no rays, no bake.
 
 Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,
 
-- **[`class XformUtils(_XformUtilsInternal)`](blendertk/blendertk/xform_utils/_xform_utils.py#L196)** — Namespace mirror of mayatk's ``XformUtils`` (helpers also exposed module-level).
+- **[`class XformUtils(_XformUtilsInternal)`](blendertk/blendertk/xform_utils/_xform_utils.py#L262)** — Namespace mirror of mayatk's ``XformUtils`` (helpers also exposed module-level).
   - `XformUtils.get_world_bbox(obj)` *(static)* — Return ``(min, max)`` ``Vector``s of ``obj``'s bounding box in world space.
   - `XformUtils.freeze_transforms(objects, location=True, rotation=False, scale=True, store=True, instance_strategy='skip', *, translate=None, rotate=None, center_pivot=0, freeze_children=False, force=True, delete_history=False, connection_strategy='preserve', from_channel_box=False)` *(static)* — Freeze: apply (bake) the given channels into the object data -- Blender's
   - `XformUtils.restore_transforms(objects, delete_attrs=True, channels=None, traverse=False, prefix=_DEFAULT_BAKE_PREFIX)` *(static)* — Un-freeze: compose the stored pre-freeze channels back into the local transform

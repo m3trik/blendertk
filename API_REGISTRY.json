@@ -23,7 +23,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 447,
+          "line": 459,
           "deprecated": false
         }
       ]
@@ -9120,7 +9120,7 @@
               "kind": "staticmethod",
               "signature": "(file_path: str, glb: Optional[str] = None, search_dirs: Optional[Iterable[str]] = None, logger: Optional[logging.Logger] = None, walk_root: Optional[str] = None, files: Optional[Iterable[Any]] = None) -> Optional[Dict[str, Any]]",
               "summary": "The passes a written FBX deliverable takes, in place.",
-              "line": 3334,
+              "line": 3335,
               "deprecated": false
             }
           ]
@@ -9910,7 +9910,7 @@
               "kind": "property",
               "signature": "(self) -> Optional[str]",
               "summary": "The Blender executable used for the bake — this host's own binary.",
-              "line": 2801,
+              "line": 2865,
               "deprecated": false
             },
             {
@@ -9919,7 +9919,7 @@
               "kind": "method",
               "signature": "(self) -> str",
               "summary": "Return :attr:`blender_path` or raise an error naming what's missing.",
-              "line": 2823,
+              "line": 2887,
               "deprecated": false
             },
             {
@@ -9928,7 +9928,7 @@
               "kind": "method",
               "signature": "(self, src_path: str, out_path: str, reduce_keys: Union[bool, str, None] = None, info: Optional[Mapping[str, str]] = None, stream_home: Optional[str] = None) -> str",
               "summary": "Render the Blender-side intermediate->.blend bake script (exposed for",
-              "line": 2833,
+              "line": 2897,
               "deprecated": false
             },
             {
@@ -9937,7 +9937,7 @@
               "kind": "method",
               "signature": "(self, src_path: str, out_path: str, *, timeout: Optional[float] = None, reduce_keys: Union[bool, str, None] = None, on_output: Optional[Callable[[Optional[str]], Optional[bool]]] = None, info: Optional[Mapping[str, str]] = None, stream_home: Optional[str] = None) -> Any",
               "summary": "Bake the USD/FBX intermediate *src_path* into the .blend at *out_path*",
-              "line": 2881,
+              "line": 2945,
               "deprecated": false
             },
             {
@@ -9946,7 +9946,7 @@
               "kind": "method",
               "signature": "(self, src_path: str, *, via: str = 'fbx', use_cache: bool = True, timeout: Optional[float] = None, rig_mode: str = 'auto', reduce_keys: Union[bool, str, None] = REDUCE_KEYS_DEFAULT, progress: Optional[Callable[..., Optional[bool]]] = None, project: Optional[str] = None, **script_opts: Any) -> str",
               "summary": "Bake *src_path* to a ``.blend`` in the project's bake cache and return its",
-              "line": 2936,
+              "line": 3000,
               "deprecated": false
             },
             {
@@ -9955,7 +9955,7 @@
               "kind": "classmethod",
               "signature": "(cls, project: Optional[str] = None, create: bool = False) -> Optional[str]",
               "summary": "Where the bakes of *project* (default: the open file's) live: its",
-              "line": 3111,
+              "line": 3175,
               "deprecated": false
             },
             {
@@ -9964,7 +9964,7 @@
               "kind": "classmethod",
               "signature": "(cls, src_path: str, project: Optional[str] = None) -> Optional[str]",
               "summary": "Where *project*'s (default: the open file's) bake of *src_path* lives",
-              "line": 3185,
+              "line": 3249,
               "deprecated": false
             },
             {
@@ -9973,7 +9973,7 @@
               "kind": "classmethod",
               "signature": "(cls, baked_path: str) -> Dict[str, str]",
               "summary": "The bake record of the ``.blend`` at *baked_path* --",
-              "line": 3201,
+              "line": 3265,
               "deprecated": false
             },
             {
@@ -9982,7 +9982,7 @@
               "kind": "classmethod",
               "signature": "(cls, baked_path: str) -> Optional[str]",
               "summary": "The foreign scene *baked_path* was baked from, or None if it is not a bake.",
-              "line": 3243,
+              "line": 3307,
               "deprecated": false
             },
             {
@@ -9991,7 +9991,7 @@
               "kind": "method",
               "signature": "(self, baked_path: str, project: Optional[str] = None) -> Optional[str]",
               "summary": "The project bake standing in for the bake *baked_path* that lives in",
-              "line": 3255,
+              "line": 3319,
               "deprecated": false
             },
             {
@@ -10000,7 +10000,7 @@
               "kind": "method",
               "signature": "(self, project: Optional[str] = None, dry_run: bool = False) -> List[str]",
               "summary": "Remove the bakes in *project*'s bake cache that no file references.",
-              "line": 3299,
+              "line": 3363,
               "deprecated": false
             },
             {
@@ -10009,7 +10009,7 @@
               "kind": "staticmethod",
               "signature": "(maya_exe: str) -> Optional[str]",
               "summary": "Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.",
-              "line": 3335,
+              "line": 3399,
               "deprecated": false
             },
             {
@@ -10018,7 +10018,7 @@
               "kind": "staticmethod",
               "signature": "(src_path: str) -> bool",
               "summary": "Cheap pre-conversion probe: does the scene declare *driven* animation the",
-              "line": 3346,
+              "line": 3410,
               "deprecated": false
             },
             {
@@ -10027,7 +10027,7 @@
               "kind": "staticmethod",
               "signature": "(root_dir: str, recursive: bool = False, extensions: Optional[Sequence[str]] = None) -> List[str]",
               "summary": "Every importable Maya scene (``.ma`` / ``.mb``) under *root_dir* — sorted abs paths.",
-              "line": 3407,
+              "line": 3471,
               "deprecated": false
             }
           ]
@@ -13626,7 +13626,7 @@
         {
           "name": "MatUpdater",
           "summary": "Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.",
-          "line": 1486,
+          "line": 1485,
           "bases": [
             "pythontk.LoggingMixin",
             "_MatUtilsInternal"
@@ -13638,7 +13638,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "No retype targets: Blender has one surface shader (Principled BSDF), so there is",
-              "line": 1510,
+              "line": 1509,
               "deprecated": false
             },
             {
@@ -13647,7 +13647,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Where a run resolves a relative Output Folder and discovers sibling maps",
-              "line": 1517,
+              "line": 1516,
               "deprecated": false
             },
             {
@@ -13656,7 +13656,7 @@
               "kind": "classmethod",
               "signature": "(cls, shader_type=None)",
               "summary": "The materials a run over the selection acts on: those on the selected objects",
-              "line": 1535,
+              "line": 1534,
               "deprecated": false
             },
             {
@@ -13665,7 +13665,7 @@
               "kind": "staticmethod",
               "signature": "(paths, shader_type=None)",
               "summary": "The scene materials whose shader graph reads an image at one of *paths* (the",
-              "line": 1556,
+              "line": 1555,
               "deprecated": false
             },
             {
@@ -13674,7 +13674,7 @@
               "kind": "classmethod",
               "signature": "(cls, materials=None, config=None, verbose=False, progress_callback=None, shader_type=None)",
               "summary": "Reprocess the textures of ``materials`` and repath their image nodes to the results.",
-              "line": 1563,
+              "line": 1562,
               "deprecated": false
             }
           ]
@@ -13682,7 +13682,7 @@
         {
           "name": "MatUtils",
           "summary": "Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).",
-          "line": 1832,
+          "line": 1831,
           "bases": [
             "_MatUtilsInternal"
           ],
@@ -13693,7 +13693,7 @@
               "kind": "staticmethod",
               "signature": "(idblock, create: bool = False)",
               "summary": "The node tree *idblock* renders through, or ``None``.",
-              "line": 1836,
+              "line": 1835,
               "deprecated": false
             },
             {
@@ -13702,7 +13702,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Unique materials assigned to the given object(s), in slot order.",
-              "line": 1869,
+              "line": 1868,
               "deprecated": false
             },
             {
@@ -13711,7 +13711,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "The names of the materials on *objects* (None: the selection), in slot",
-              "line": 1879,
+              "line": 1878,
               "deprecated": false
             },
             {
@@ -13720,7 +13720,7 @@
               "kind": "staticmethod",
               "signature": "(exclude_defaults=False, exc_renderer=None)",
               "summary": "The names of the file's materials, sorted (grease-pencil ones left out)",
-              "line": 1888,
+              "line": 1887,
               "deprecated": false
             },
             {
@@ -13729,7 +13729,7 @@
               "kind": "staticmethod",
               "signature": "(materials)",
               "summary": "What a material list shows per material, and what needs attention --",
-              "line": 1896,
+              "line": 1895,
               "deprecated": false
             },
             {
@@ -13738,7 +13738,7 @@
               "kind": "staticmethod",
               "signature": "(mat_type='standard', name='')",
               "summary": "Create a new material (mirror of ``mtk.MatUtils.create_mat``).",
-              "line": 1939,
+              "line": 1938,
               "deprecated": false
             },
             {
@@ -13747,7 +13747,7 @@
               "kind": "staticmethod",
               "signature": "(objects, material, create=True)",
               "summary": "Assign ``material`` to the given object(s) — whole-object assignment (all slots).",
-              "line": 1961,
+              "line": 1960,
               "deprecated": false
             },
             {
@@ -13756,7 +13756,7 @@
               "kind": "staticmethod",
               "signature": "(material, objects=None)",
               "summary": "Objects using ``material`` (mirror of ``mtk.find_by_mat_id`` at the object level).",
-              "line": 1985,
+              "line": 1984,
               "deprecated": false
             },
             {
@@ -13765,7 +13765,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Objects carrying no material — the complement of :meth:`find_by_mat_id`.",
-              "line": 2000,
+              "line": 1999,
               "deprecated": false
             },
             {
@@ -13774,7 +13774,7 @@
               "kind": "staticmethod",
               "signature": "(material, objects=None, shell=False, add=False)",
               "summary": "Select what uses *material* (:meth:`find_by_mat_id`), one undo step --",
-              "line": 2025,
+              "line": 2024,
               "deprecated": false
             },
             {
@@ -13783,7 +13783,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, add=False)",
               "summary": "Select the objects carrying no material (:meth:`find_unassigned`), one",
-              "line": 2056,
+              "line": 2055,
               "deprecated": false
             },
             {
@@ -13792,7 +13792,7 @@
               "kind": "staticmethod",
               "signature": "(material)",
               "summary": "Show *material*'s settings: select the objects using it, the first one",
-              "line": 2073,
+              "line": 2072,
               "deprecated": false
             },
             {
@@ -13801,7 +13801,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, previous=None)",
               "summary": "Assign a new random-colored material to *objects* (None: the selection),",
-              "line": 2100,
+              "line": 2099,
               "deprecated": false
             },
             {
@@ -13810,7 +13810,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Assign a new material Blender's way (the material slot's New: a",
-              "line": 2139,
+              "line": 2138,
               "deprecated": false
             },
             {
@@ -13819,7 +13819,7 @@
               "kind": "staticmethod",
               "signature": "(material, name)",
               "summary": "Rename *material* (a Material or its name) to *name*, one undo step --",
-              "line": 2165,
+              "line": 2164,
               "deprecated": false
             },
             {
@@ -13828,7 +13828,7 @@
               "kind": "staticmethod",
               "signature": "(materials)",
               "summary": "Delete the materials (names or datablocks), one undo step;",
-              "line": 2181,
+              "line": 2180,
               "deprecated": false
             },
             {
@@ -13837,7 +13837,7 @@
               "kind": "staticmethod",
               "signature": "(material, add=False)",
               "summary": "Select every scene object using ``material`` (optionally adding to the selection).",
-              "line": 2198,
+              "line": 2197,
               "deprecated": false
             },
             {
@@ -13846,7 +13846,7 @@
               "kind": "staticmethod",
               "signature": "(reset_viewport=False)",
               "summary": "Reload every file image -- a TILED set too -- from disk (mirror of",
-              "line": 2213,
+              "line": 2212,
               "deprecated": false
             },
             {
@@ -13855,7 +13855,7 @@
               "kind": "staticmethod",
               "signature": "(inc=None, exc=None, sort=False, as_dict=False, exclude_defaults=True, **filter_kwargs)",
               "summary": "Scene materials with flexible name filtering — mirror of ``mtk.MatUtils.get_scene_mats``.",
-              "line": 2233,
+              "line": 2232,
               "deprecated": false
             },
             {
@@ -13864,7 +13864,7 @@
               "kind": "staticmethod",
               "signature": "(mat)",
               "summary": "True iff something uses ``mat`` — mirror of ``mtk.is_mat_assigned`` (in use: what",
-              "line": 2262,
+              "line": 2261,
               "deprecated": false
             },
             {
@@ -13873,7 +13873,7 @@
               "kind": "staticmethod",
               "signature": "(mat)",
               "summary": "``mat``'s viewport display colour as ``(r, g, b)`` in 0..1 -- mirror of",
-              "line": 2273,
+              "line": 2272,
               "deprecated": false
             },
             {
@@ -13882,7 +13882,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, materials=None, absolute=True, exclude_bundled=False)",
               "summary": "Unique texture file paths in scope — mirror of ``mtk.MatUtils.get_texture_paths``.",
-              "line": 2294,
+              "line": 2293,
               "deprecated": false
             },
             {
@@ -13891,7 +13891,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "``{label: () -> [path]}``: the selections a texture-file tool (Map Converter)",
-              "line": 2317,
+              "line": 2316,
               "deprecated": false
             },
             {
@@ -13900,7 +13900,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, materials=None, exclude_defaults=False, exclude_unassigned=False)",
               "summary": "Image metadata for the textures in scope — mirror of ``mtk.MatUtils.get_texture_info``.",
-              "line": 2332,
+              "line": 2331,
               "deprecated": false
             },
             {
@@ -13909,7 +13909,7 @@
               "kind": "staticmethod",
               "signature": "(materials=None, objects=None, optimize_check=False, progress_callback=None, exclude_defaults=False, exclude_unassigned=False, include_textures=True, include_image_metadata=True, **optimize_kwargs)",
               "summary": "Aggregate per-material info (name, type, textures + image metadata) — mirror of",
-              "line": 2362,
+              "line": 2361,
               "deprecated": false
             },
             {
@@ -13918,7 +13918,7 @@
               "kind": "staticmethod",
               "signature": "(records)",
               "summary": "Render :func:`get_mat_info` output as styled HTML (delegates to ``pythontk.MatReport``).",
-              "line": 2431,
+              "line": 2430,
               "deprecated": false
             },
             {
@@ -13927,7 +13927,7 @@
               "kind": "staticmethod",
               "signature": "(info_list)",
               "summary": "Render :func:`get_texture_info` output as styled HTML (delegates to ``pythontk.MatReport``).",
-              "line": 2436,
+              "line": 2435,
               "deprecated": false
             },
             {
@@ -13936,7 +13936,7 @@
               "kind": "staticmethod",
               "signature": "(materials=None, strict=False, verify=True)",
               "summary": "Groups of materials that are texture-level duplicates — mirror of",
-              "line": 2441,
+              "line": 2440,
               "deprecated": false
             },
             {
@@ -13945,7 +13945,7 @@
               "kind": "staticmethod",
               "signature": "(duplicate_groups, delete=True, verify=True)",
               "summary": "Reassign every object using a duplicate to the group's first (canonical) material, then",
-              "line": 2509,
+              "line": 2508,
               "deprecated": false
             },
             {
@@ -13954,7 +13954,7 @@
               "kind": "staticmethod",
               "signature": "(materials=None)",
               "summary": "``{duplicate: original}`` names: each verified duplicate among *materials*",
-              "line": 2550,
+              "line": 2549,
               "deprecated": false
             },
             {
@@ -13963,7 +13963,7 @@
               "kind": "staticmethod",
               "signature": "(pairs)",
               "summary": "Merge each ``{duplicate: original}`` pair (names) into its original",
-              "line": 2567,
+              "line": 2566,
               "deprecated": false
             },
             {
@@ -13972,7 +13972,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Delete the materials nothing uses (:meth:`is_mat_assigned`), one undo step — mirror of",
-              "line": 2593,
+              "line": 2592,
               "deprecated": false
             },
             {
@@ -13981,7 +13981,7 @@
               "kind": "staticmethod",
               "signature": "(images)",
               "summary": "``(material, node)`` for every ``ShaderNodeTexImage`` bound to ``images``.",
-              "line": 2613,
+              "line": 2612,
               "deprecated": false
             },
             {
@@ -13990,7 +13990,7 @@
               "kind": "staticmethod",
               "signature": "(images, activate=True)",
               "summary": "Select the Image Texture nodes bound to ``images`` — the Blender analogue of Maya's",
-              "line": 2658,
+              "line": 2657,
               "deprecated": false
             },
             {
@@ -13999,7 +13999,7 @@
               "kind": "staticmethod",
               "signature": "(materials, mode=None)",
               "summary": "Open the Shader Editor focused on ``materials`` — the Blender analogue of Maya's",
-              "line": 2708,
+              "line": 2707,
               "deprecated": false
             },
             {
@@ -14008,7 +14008,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Every file-backed image datablock as a record for the Texture Path Editor:",
-              "line": 2731,
+              "line": 2730,
               "deprecated": false
             },
             {
@@ -14017,7 +14017,7 @@
               "kind": "classmethod",
               "signature": "(cls, images, new_path=None)",
               "summary": "Context manager: hold the ``filepath`` of *images* for the block, restore on exit.",
-              "line": 2761,
+              "line": 2760,
               "deprecated": false
             },
             {
@@ -14026,7 +14026,7 @@
               "kind": "staticmethod",
               "signature": "(image, new_path, reload=True)",
               "summary": "Point ``image`` (datablock or name) at ``new_path`` and reload it — mirror of the Texture",
-              "line": 2819,
+              "line": 2818,
               "deprecated": false
             },
             {
@@ -14035,7 +14035,7 @@
               "kind": "staticmethod",
               "signature": "(abspath, blenddir=None, project_root=None)",
               "summary": "Convert an absolute path to a Blender ``//``-relative path when it falls inside the",
-              "line": 2836,
+              "line": 2835,
               "deprecated": false
             },
             {
@@ -14044,7 +14044,7 @@
               "kind": "staticmethod",
               "signature": "(search_dir, recursive=True, stem=False, texture=False, fuzzy=False, images=None)",
               "summary": "Repath missing FILE images within ``search_dir`` — the Blender analogue of Maya's Texture",
-              "line": 2884,
+              "line": 2883,
               "deprecated": false
             },
             {
@@ -14053,7 +14053,7 @@
               "kind": "staticmethod",
               "signature": "(mode='relative', project_dir=None, images=None)",
               "summary": "Normalize file image paths — mirror of the Texture Path Editor's 'Normalize Paths'.",
-              "line": 2981,
+              "line": 2980,
               "deprecated": false
             },
             {
@@ -14062,7 +14062,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "``{image-name: [material names]}`` for every image a material's shader graph reads --",
-              "line": 3069,
+              "line": 3070,
               "deprecated": false
             },
             {
@@ -14071,7 +14071,7 @@
               "kind": "staticmethod",
               "signature": "(paths)",
               "summary": "Scene materials whose shader graph references an image at one of ``paths`` (matched by",
-              "line": 3087,
+              "line": 3088,
               "deprecated": false
             },
             {
@@ -14080,7 +14080,7 @@
               "kind": "staticmethod",
               "signature": "(images=None, force_update=False, dry_run=False)",
               "summary": "Assign each texture image its correct color space by map type — the Blender counterpart of",
-              "line": 3108,
+              "line": 3109,
               "deprecated": false
             },
             {
@@ -14088,8 +14088,8 @@
               "qualname": "MatUtils.set_texture_directory",
               "kind": "staticmethod",
               "signature": "(images: Any = None, target_dir: Optional[str] = None, mode: str = 'rewrite', allow_missing: bool = False) -> int",
-              "summary": "Repath each image so its file lives directly under ``target_dir`` — mirror of the Texture",
-              "line": 3156,
+              "summary": "Repath each image so its file lives directly under ``target_dir`` — the Texture Path",
+              "line": 3157,
               "deprecated": false
             },
             {
@@ -14098,7 +14098,7 @@
               "kind": "classmethod",
               "signature": "(cls, path: str, new_name: str, images: Any = None) -> Dict[str, Any]",
               "summary": "Rename a texture file on disk and repoint every image reading it.",
-              "line": 3224,
+              "line": 3200,
               "deprecated": false
             },
             {
@@ -14107,7 +14107,7 @@
               "kind": "classmethod",
               "signature": "(cls, material: Any, base: str, material_affix: Tuple[str, str] = ('', ''), image_affix: Tuple[str, str] = ('', ''), images: Any = None, dry_run: bool = False, lightmaps: Optional[Any] = None) -> Dict[str, Any]",
               "summary": "Name a material, its texture set, lightmap and images for ONE base.",
-              "line": 3272,
+              "line": 3248,
               "deprecated": false
             },
             {
@@ -14116,7 +14116,7 @@
               "kind": "staticmethod",
               "signature": "(records=None)",
               "summary": "Render :func:`get_image_records` as an HTML table for the panel/report (missing flagged).",
-              "line": 3345,
+              "line": 3321,
               "deprecated": false
             },
             {
@@ -14125,7 +14125,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The available Principled-BSDF template names (mirror of Maya's Shader Templates list).",
-              "line": 3368,
+              "line": 3344,
               "deprecated": false
             },
             {
@@ -14134,7 +14134,7 @@
               "kind": "staticmethod",
               "signature": "(material, template)",
               "summary": "Apply a Principled-BSDF template preset to ``material``'s shader.",
-              "line": 3373,
+              "line": 3349,
               "deprecated": false
             },
             {
@@ -14143,7 +14143,7 @@
               "kind": "staticmethod",
               "signature": "(template, name=None)",
               "summary": "Create a new node-based material configured from a Principled-BSDF ``template`` — mirror of",
-              "line": 3388,
+              "line": 3364,
               "deprecated": false
             },
             {
@@ -14152,7 +14152,7 @@
               "kind": "staticmethod",
               "signature": "(material)",
               "summary": "Capture a material's shader node graph as a portable, JSON-safe dict — the Blender analogue of",
-              "line": 3396,
+              "line": 3372,
               "deprecated": false
             },
             {
@@ -14161,7 +14161,7 @@
               "kind": "staticmethod",
               "signature": "(data, name=None, textures=None)",
               "summary": "Rebuild a material from a :func:`serialize_material` dict — the Blender analogue of mayatk's",
-              "line": 3463,
+              "line": 3439,
               "deprecated": false
             },
             {
@@ -14170,7 +14170,7 @@
               "kind": "staticmethod",
               "signature": "(textures, config=None)",
               "summary": "Classify ``textures`` and reduce them to ONE source per Principled input.",
-              "line": 3554,
+              "line": 3530,
               "deprecated": false
             },
             {
@@ -14179,7 +14179,7 @@
               "kind": "staticmethod",
               "signature": "(textures, name=None, normal_direction='OpenGL', config=None, plan=None, ambient_occlusion=True)",
               "summary": "Build a Principled-BSDF material from a set of PBR texture files — Blender mirror of mayatk's",
-              "line": 3637,
+              "line": 3613,
               "deprecated": false
             },
             {
@@ -14188,7 +14188,7 @@
               "kind": "staticmethod",
               "signature": "(textures, name=None, normal_direction='OpenGL', prefix='', suffix='', config=None)",
               "summary": "Batch builder — Blender mirror of mayatk's ``GameShader.create_network`` batch path.",
-              "line": 4102,
+              "line": 4078,
               "deprecated": false
             },
             {
@@ -14197,7 +14197,7 @@
               "kind": "staticmethod",
               "signature": "(materials=None, config=None, verbose=False, progress_callback=None)",
               "summary": "Moved to :meth:`MatUpdater.update_materials`, its one owner (also the",
-              "line": 4171,
+              "line": 4147,
               "deprecated": true,
               "remove_in": "0.23.0"
             }
@@ -14211,7 +14211,7 @@
           "kind": "constant",
           "signature": "",
           "summary": "",
-          "line": 1374,
+          "line": 1373,
           "deprecated": false
         }
       ]
@@ -18096,7 +18096,7 @@
               "qualname": "TexturePathEditor.set_texture_directory",
               "kind": "method",
               "signature": "(self, file_nodes, target_dir: str, relocate_mode: str = 'rewrite', allow_missing: bool = False) -> int",
-              "summary": "Repath each image so its file lives directly under *target_dir*.",
+              "summary": "Repath each image so its file lives directly under *target_dir* --",
               "line": 282,
               "deprecated": false
             },
@@ -18106,7 +18106,7 @@
               "kind": "method",
               "signature": "(self, file_nodes) -> int",
               "summary": "Rewrite ``//``-relative paths to absolute -- inverse of Normalize Paths.",
-              "line": 349,
+              "line": 355,
               "deprecated": false
             },
             {
@@ -18115,7 +18115,7 @@
               "kind": "method",
               "signature": "(self, file_nodes, external_mode: str = 'rewrite') -> int",
               "summary": "Rewrite (selected) paths relative to the saved .blend (``//`` paths).",
-              "line": 375,
+              "line": 381,
               "deprecated": false
             },
             {
@@ -18124,7 +18124,7 @@
               "kind": "method",
               "signature": "(self, modes, file_nodes=None) -> int",
               "summary": "Rebind missing textures to files found under the texture folder.",
-              "line": 414,
+              "line": 420,
               "deprecated": false
             },
             {
@@ -18133,7 +18133,7 @@
               "kind": "method",
               "signature": "(self, file_nodes)",
               "summary": "The images whose stored path does not resolve -- what a Find & Copy",
-              "line": 462,
+              "line": 468,
               "deprecated": false
             },
             {
@@ -18142,7 +18142,7 @@
               "kind": "method",
               "signature": "(self, file_nodes, answers, lightmaps=(), choices=None, progress=None)",
               "summary": "What Find & Copy would do: one row per image and per lightmap.",
-              "line": 477,
+              "line": 483,
               "deprecated": false
             },
             {
@@ -18151,7 +18151,7 @@
               "kind": "method",
               "signature": "(self, file_nodes, answers, lightmaps=(), dry_run=False, progress=None, plan=None) -> bool",
               "summary": "Find & Copy: gather the scope's textures into one folder and repath.",
-              "line": 523,
+              "line": 529,
               "deprecated": false
             },
             {
@@ -18160,7 +18160,7 @@
               "kind": "method",
               "signature": "(self, nodes)",
               "summary": "The files the file reads through images other than *nodes*",
-              "line": 558,
+              "line": 564,
               "deprecated": false
             },
             {
@@ -18169,7 +18169,7 @@
               "kind": "staticmethod",
               "signature": "(path: str, file_node=None) -> str",
               "summary": "The path an image stores for the absolute *path*: ``//``-relative",
-              "line": 576,
+              "line": 580,
               "deprecated": false
             },
             {
@@ -18178,7 +18178,7 @@
               "kind": "method",
               "signature": "(self, rows) -> int",
               "summary": "Point each landed Collect row at its destination (``ptk.CollectHost``),",
-              "line": 582,
+              "line": 586,
               "deprecated": false
             },
             {
@@ -18187,7 +18187,7 @@
               "kind": "method",
               "signature": "(self, file_node, path: str, relative: bool = False) -> str",
               "summary": "Point *file_node*'s image at *path* -- Browse for File, or a typed path.",
-              "line": 694,
+              "line": 698,
               "deprecated": false
             },
             {
@@ -18196,7 +18196,7 @@
               "kind": "method",
               "signature": "(self, stored: str, typed: str, file_node=None) -> bool",
               "summary": "Whether a typed path renames *stored*'s file rather than repointing.",
-              "line": 723,
+              "line": 727,
               "deprecated": false
             },
             {
@@ -18205,7 +18205,7 @@
               "kind": "method",
               "signature": "(self, file_node, typed: str, shader=None, sync=None) -> str",
               "summary": "A path typed into *file_node*'s row: rename its file, or repoint it",
-              "line": 753,
+              "line": 757,
               "deprecated": false
             },
             {
@@ -18214,7 +18214,7 @@
               "kind": "method",
               "signature": "(self, context, new_name: str, sync=None) -> bool",
               "summary": "Rename the texture file *context* names to *new_name* (mirror of mayatk's).",
-              "line": 792,
+              "line": 796,
               "deprecated": false
             },
             {
@@ -18223,7 +18223,7 @@
               "kind": "method",
               "signature": "(self, shader) -> bool",
               "summary": "Whether *shader* is one local material -- what a material cell may rename.",
-              "line": 847,
+              "line": 851,
               "deprecated": false
             },
             {
@@ -18232,7 +18232,7 @@
               "kind": "method",
               "signature": "(self, shader, new_name: str, sync=None) -> str",
               "summary": "Rename the material *shader*;",
-              "line": 862,
+              "line": 866,
               "deprecated": false
             },
             {
@@ -18241,7 +18241,7 @@
               "kind": "method",
               "signature": "(self, file_node, new_name: str, shader=None, sync=None) -> str",
               "summary": "Rename *file_node*'s image datablock;",
-              "line": 883,
+              "line": 887,
               "deprecated": false
             },
             {
@@ -18250,7 +18250,7 @@
               "kind": "method",
               "signature": "(self, shaders=(), lightmaps=()) -> int",
               "summary": "Select the objects using the materials *shaders* and those *lightmaps*",
-              "line": 986,
+              "line": 990,
               "deprecated": false
             },
             {
@@ -18259,7 +18259,7 @@
               "kind": "method",
               "signature": "(self, file_nodes) -> int",
               "summary": "Select the Image Texture nodes bound to *file_nodes*' images (Maya's file",
-              "line": 1010,
+              "line": 1014,
               "deprecated": false
             },
             {
@@ -18268,7 +18268,7 @@
               "kind": "method",
               "signature": "(self, file_nodes) -> None",
               "summary": "Graph the materials reading *file_nodes*' images in the Shader Editor",
-              "line": 1016,
+              "line": 1020,
               "deprecated": false
             },
             {
@@ -18277,7 +18277,7 @@
               "kind": "method",
               "signature": "(self, file_nodes)",
               "summary": "What removing *file_nodes*' images would leave behind, as sentences: the",
-              "line": 1028,
+              "line": 1032,
               "deprecated": false
             },
             {
@@ -18286,7 +18286,7 @@
               "kind": "method",
               "signature": "(self, file_nodes) -> int",
               "summary": "Remove *file_nodes*' image datablocks from the .blend (one undo step).",
-              "line": 1042,
+              "line": 1046,
               "deprecated": false
             },
             {
@@ -18295,7 +18295,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "The file's lightmap dependency records (``LightmapRecords``);",
-              "line": 1075,
+              "line": 1079,
               "deprecated": false
             },
             {
@@ -18304,7 +18304,7 @@
               "kind": "method",
               "signature": "(self, dep)",
               "summary": "``(material, node)`` labels for a lightmap row (mirror of mayatk's): the",
-              "line": 1084,
+              "line": 1088,
               "deprecated": false
             },
             {
@@ -18313,7 +18313,7 @@
               "kind": "method",
               "signature": "(self, lightmaps, relative: bool) -> int",
               "summary": "Re-spell the scoped lightmap markers' folders: ``//``-relative inside the",
-              "line": 1114,
+              "line": 1118,
               "deprecated": false
             },
             {
@@ -18322,7 +18322,7 @@
               "kind": "method",
               "signature": "(self, dep, folder: str) -> bool",
               "summary": "Point every marker naming *dep*'s map at *folder* (files untouched;",
-              "line": 1133,
+              "line": 1137,
               "deprecated": false
             },
             {
@@ -18331,7 +18331,7 @@
               "kind": "method",
               "signature": "(self, dep, new_name: str) -> None",
               "summary": "Rename a lightmap's file and re-stamp the markers that bind it by name.",
-              "line": 1150,
+              "line": 1154,
               "deprecated": false
             },
             {
@@ -18340,7 +18340,7 @@
               "kind": "method",
               "signature": "(self, deps)",
               "summary": "``(objects, kept)``: the objects reverting *deps* would clear, and the",
-              "line": 1180,
+              "line": 1184,
               "deprecated": false
             },
             {
@@ -18349,7 +18349,7 @@
               "kind": "method",
               "signature": "(self, objects)",
               "summary": "The Lightmap Baker's Revert Selected on *objects* (markers cleared, the",
-              "line": 1193,
+              "line": 1197,
               "deprecated": false
             }
           ]
@@ -22471,8 +22471,8 @@
       "classes": [
         {
           "name": "BlenderWindow",
-          "summary": "Static win32 helpers for GHOST-window enumeration, geometry, embedding, ownership.",
-          "line": 34,
+          "summary": "Static win32 helpers for GHOST-window enumeration, geometry, embedding, ownership,",
+          "line": 41,
           "bases": [],
           "members": [
             {
@@ -22481,7 +22481,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "List of visible GHOST-window HWNDs owned by THIS process (``[]`` off-Windows).",
-              "line": 61,
+              "line": 74,
               "deprecated": false
             },
             {
@@ -22490,7 +22490,16 @@
               "kind": "classmethod",
               "signature": "(cls, bpy_window)",
               "summary": "The GHOST hwnd of a SPECIFIC already-open ``bpy.types.Window``, or None.",
-              "line": 90,
+              "line": 103,
+              "deprecated": false
+            },
+            {
+              "name": "main_qwindow",
+              "qualname": "BlenderWindow.main_qwindow",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "Blender's main GHOST window wrapped as a foreign ``QWindow`` (cached on the QApplication).",
+              "line": 122,
               "deprecated": false
             },
             {
@@ -22499,7 +22508,7 @@
               "kind": "classmethod",
               "signature": "(cls, hwnd) -> bool",
               "summary": "",
-              "line": 110,
+              "line": 165,
               "deprecated": false
             },
             {
@@ -22508,7 +22517,7 @@
               "kind": "classmethod",
               "signature": "(cls, hwnd)",
               "summary": "Screen (x, y) of the window's client-area top-left, or None.",
-              "line": 116,
+              "line": 171,
               "deprecated": false
             },
             {
@@ -22517,7 +22526,7 @@
               "kind": "classmethod",
               "signature": "(cls, hwnd)",
               "summary": "(width, height) of the window's client area in physical pixels, or None.",
-              "line": 130,
+              "line": 185,
               "deprecated": false
             },
             {
@@ -22526,7 +22535,7 @@
               "kind": "classmethod",
               "signature": "(cls, hwnd, region)",
               "summary": "Map a bpy ``region`` inside GHOST window ``hwnd`` to a parent-CLIENT rect.",
-              "line": 145,
+              "line": 200,
               "deprecated": false
             },
             {
@@ -22535,7 +22544,7 @@
               "kind": "classmethod",
               "signature": "(cls, hwnd) -> bool",
               "summary": "Set ``WS_CLIPCHILDREN`` on ``hwnd`` (idempotent);",
-              "line": 168,
+              "line": 223,
               "deprecated": false
             },
             {
@@ -22544,7 +22553,16 @@
               "kind": "classmethod",
               "signature": "(cls, hwnd, rect) -> bool",
               "summary": "Place child window ``hwnd`` at ``rect`` = (x, y, w, h) in its parent's client",
-              "line": 206,
+              "line": 261,
+              "deprecated": false
+            },
+            {
+              "name": "native_modal_loop_active",
+              "qualname": "BlenderWindow.native_modal_loop_active",
+              "kind": "classmethod",
+              "signature": "(cls, cooldown=0.0)",
+              "summary": "True while THIS thread is inside a native modal size/move or menu loop — e.g.",
+              "line": 284,
               "deprecated": false
             },
             {
@@ -22553,7 +22571,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "``GetFocus()`` — the hwnd receiving this thread's keystrokes, or 0/None.",
-              "line": 229,
+              "line": 346,
               "deprecated": false
             },
             {
@@ -22562,7 +22580,7 @@
               "kind": "classmethod",
               "signature": "(cls, hwnd) -> bool",
               "summary": "True when the pointer is over ``hwnd`` (or one of its child windows).",
-              "line": 241,
+              "line": 358,
               "deprecated": false
             },
             {
@@ -22571,7 +22589,7 @@
               "kind": "classmethod",
               "signature": "(cls, hwnd) -> bool",
               "summary": "``SetFocus(hwnd)`` — route this thread's keystrokes to ``hwnd``;",
-              "line": 272,
+              "line": 389,
               "deprecated": false
             },
             {
@@ -22580,7 +22598,25 @@
               "kind": "classmethod",
               "signature": "(cls, widget, owner_hwnd)",
               "summary": "Make Qt ``widget`` an *owned* window of ``owner_hwnd`` (``GWLP_HWNDPARENT``).",
-              "line": 301,
+              "line": 418,
+              "deprecated": false
+            },
+            {
+              "name": "restore_foreground",
+              "qualname": "BlenderWindow.restore_foreground",
+              "kind": "classmethod",
+              "signature": "(cls, active_menu)",
+              "summary": "Give Blender's GHOST window OS focus back unless a visible tentacle window holds it",
+              "line": 513,
+              "deprecated": false
+            },
+            {
+              "name": "restore_foreground_if_stranded",
+              "qualname": "BlenderWindow.restore_foreground_if_stranded",
+              "kind": "classmethod",
+              "signature": "(cls, active_menu)",
+              "summary": "Self-heal \"OS foreground stuck on one of our HIDDEN Qt windows\";",
+              "line": 544,
               "deprecated": false
             }
           ]
@@ -22696,6 +22732,352 @@
               "signature": "(self, token: Any, cancelled: bool = False, rollback: bool = False) -> None",
               "summary": "End the progress readout.",
               "line": 123,
+              "deprecated": false
+            }
+          ]
+        }
+      ],
+      "constants": []
+    },
+    {
+      "relpath": "ui_utils/marking_menu_host/_marking_menu_host.py",
+      "summary": "What a uitk marking menu needs from Blender: :class:`BlenderMarkingMenuHost`.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "BlenderMarkingMenuHost",
+          "summary": "Blender's answers to ``uitk.MarkingMenuHost`` (see the module docstring).",
+          "line": 42,
+          "bases": [
+            "PureMarkingMenuHost"
+          ],
+          "members": [
+            {
+              "name": "ui_handler",
+              "qualname": "BlenderMarkingMenuHost.ui_handler",
+              "kind": "property",
+              "signature": "(self)",
+              "summary": "``BlenderUiHandler``: wraps Blender's native menus, shows the tool windows.",
+              "line": 49,
+              "deprecated": false
+            },
+            {
+              "name": "start",
+              "qualname": "BlenderMarkingMenuHost.start",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Stand up Qt in Blender: a binding, the QApplication, its parent, the pump.",
+              "line": 56,
+              "deprecated": false
+            },
+            {
+              "name": "defer",
+              "qualname": "BlenderMarkingMenuHost.defer",
+              "kind": "method",
+              "signature": "(self, fn)",
+              "summary": "Run *fn* on a one-shot ``bpy.app.timers`` callback;",
+              "line": 63,
+              "deprecated": false
+            },
+            {
+              "name": "live_menu",
+              "qualname": "BlenderMarkingMenuHost.live_menu",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "The menu the keymap bridge drives (one per Blender process), or None once",
+              "line": 89,
+              "deprecated": false
+            },
+            {
+              "name": "main_window",
+              "qualname": "BlenderMarkingMenuHost.main_window",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "``app.blender_widget`` (set by :meth:`start`), or None: the menu then shows as",
+              "line": 131,
+              "deprecated": false
+            },
+            {
+              "name": "mouse_buttons",
+              "qualname": "BlenderMarkingMenuHost.mouse_buttons",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "The physically held buttons, else Qt's view.",
+              "line": 139,
+              "deprecated": false
+            },
+            {
+              "name": "bind_activation_key",
+              "qualname": "BlenderMarkingMenuHost.bind_activation_key",
+              "kind": "method",
+              "signature": "(self, menu, key: str) -> None",
+              "summary": "Bridge the activation key from Blender's keymap to *menu*.",
+              "line": 154,
+              "deprecated": false
+            },
+            {
+              "name": "adopt_window",
+              "qualname": "BlenderMarkingMenuHost.adopt_window",
+              "kind": "method",
+              "signature": "(self, widget) -> None",
+              "summary": "Make *widget* an OS-owned window of Blender's GHOST window.",
+              "line": 177,
+              "deprecated": false
+            },
+            {
+              "name": "key_event",
+              "qualname": "BlenderMarkingMenuHost.key_event",
+              "kind": "method",
+              "signature": "(self, menu, event) -> None",
+              "summary": "Ctrl+Z while the menu holds focus -> Blender's undo;",
+              "line": 212,
+              "deprecated": false
+            },
+            {
+              "name": "attach",
+              "qualname": "BlenderMarkingMenuHost.attach",
+              "kind": "method",
+              "signature": "(self, menu) -> None",
+              "summary": "Blender's once-per-menu setup, each step guarded so none blocks a launch.",
+              "line": 247,
+              "deprecated": false
+            },
+            {
+              "name": "report_activation",
+              "qualname": "BlenderMarkingMenuHost.report_activation",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "The live activation report;",
+              "line": 290,
+              "deprecated": false
+            }
+          ]
+        }
+      ],
+      "constants": []
+    },
+    {
+      "relpath": "ui_utils/marking_menu_host/click_debugger.py",
+      "summary": "Opt-in click tracer for \"buttons need several clicks\" reports in the menu Blender hosts.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ClickDebugger",
+          "summary": "Opt-in two-layer tracer for \"buttons need several clicks\" reports.",
+          "line": 19,
+          "bases": [],
+          "members": [
+            {
+              "name": "log_path",
+              "qualname": "ClickDebugger.log_path",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "Resolve (and cache) the trace sink — managed scratch, not the user's home.",
+              "line": 46,
+              "deprecated": false
+            },
+            {
+              "name": "enable",
+              "qualname": "ClickDebugger.enable",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "Turn on click tracing — run in Blender's Python Console, reproduce the multi-click, then",
+              "line": 227,
+              "deprecated": false
+            },
+            {
+              "name": "disable",
+              "qualname": "ClickDebugger.disable",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "Remove the click tracer installed by :meth:`enable`.",
+              "line": 259,
+              "deprecated": false
+            }
+          ]
+        }
+      ],
+      "constants": []
+    },
+    {
+      "relpath": "ui_utils/marking_menu_host/keymap_bridge.py",
+      "summary": "Bridge a marking menu's activation key from Blender's keymap to Qt — the half Maya needs none of.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "KeymapBridge",
+          "summary": "Bridge the activation key from Blender's keymap to the Qt marking menu — the half Maya needs none o…",
+          "line": 23,
+          "bases": [],
+          "members": [
+            {
+              "name": "qt_key_to_blender_type",
+              "qualname": "KeymapBridge.qt_key_to_blender_type",
+              "kind": "classmethod",
+              "signature": "(cls, key_show)",
+              "summary": "Translate a Qt key name (``'Key_F12'`` / ``'Key_Meta'``) to a Blender keymap ``type``",
+              "line": 126,
+              "deprecated": false
+            },
+            {
+              "name": "blender_type_to_qt_key",
+              "qualname": "KeymapBridge.blender_type_to_qt_key",
+              "kind": "classmethod",
+              "signature": "(cls, key_type)",
+              "summary": "Translate a Blender keymap ``type`` back to a Qt key name (``'F12'`` → ``'Key_F12'``).",
+              "line": 133,
+              "deprecated": false
+            },
+            {
+              "name": "physical_mouse_buttons",
+              "qualname": "KeymapBridge.physical_mouse_buttons",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "Qt mouse-button mask read from the OS (``GetAsyncKeyState``), or ``NoButton``.",
+              "line": 190,
+              "deprecated": false
+            },
+            {
+              "name": "ensure_operator",
+              "qualname": "KeymapBridge.ensure_operator",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "Register the bridge operator once per process (idempotent).",
+              "line": 215,
+              "deprecated": false
+            },
+            {
+              "name": "drive_press",
+              "qualname": "KeymapBridge.drive_press",
+              "kind": "classmethod",
+              "signature": "(cls, buttons=None)",
+              "summary": "Drive the menu's real activation state machine (arms ``_activation_key_held``, shows +",
+              "line": 281,
+              "deprecated": false
+            },
+            {
+              "name": "drive_release",
+              "qualname": "KeymapBridge.drive_release",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "Complete the gesture — the single release path for every Blender-side trigger (keymap",
+              "line": 328,
+              "deprecated": false
+            },
+            {
+              "name": "uninstall_keymap",
+              "qualname": "KeymapBridge.uninstall_keymap",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "Remove the keymap items added by :meth:`install_keymap`.",
+              "line": 350,
+              "deprecated": false
+            },
+            {
+              "name": "addon_key_type",
+              "qualname": "KeymapBridge.addon_key_type",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "The key OUR keymap items carry, or ``None`` when the bridge isn't installed.",
+              "line": 361,
+              "deprecated": false
+            },
+            {
+              "name": "retype_keymap",
+              "qualname": "KeymapBridge.retype_keymap",
+              "kind": "classmethod",
+              "signature": "(cls, key_type)",
+              "summary": "Move OUR installed items onto ``key_type`` in place;",
+              "line": 392,
+              "deprecated": false
+            },
+            {
+              "name": "user_keymap_items",
+              "qualname": "KeymapBridge.user_keymap_items",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "Our bridge's 3D-View items **as Preferences ▸ Keymap sees them** (order unspecified).",
+              "line": 402,
+              "deprecated": false
+            },
+            {
+              "name": "live_press_item",
+              "qualname": "KeymapBridge.live_press_item",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "Our PRESS row as Preferences ▸ Keymap sees it, or ``None``.",
+              "line": 426,
+              "deprecated": false
+            },
+            {
+              "name": "rebind",
+              "qualname": "KeymapBridge.rebind",
+              "kind": "classmethod",
+              "signature": "(cls, tcl, key_show)",
+              "summary": "Move Blender's half of the activation binding onto ``key_show`` (a Qt key name).",
+              "line": 448,
+              "deprecated": false
+            },
+            {
+              "name": "sync_keymap_rebind",
+              "qualname": "KeymapBridge.sync_keymap_rebind",
+              "kind": "classmethod",
+              "signature": "(cls, tcl)",
+              "summary": "Adopt a rebind made in Preferences ▸ Keymap (throttled;",
+              "line": 485,
+              "deprecated": false
+            },
+            {
+              "name": "install_keymap",
+              "qualname": "KeymapBridge.install_keymap",
+              "kind": "classmethod",
+              "signature": "(cls, tcl, key_type)",
+              "summary": "Bind ``key_type`` in Blender's **3D View** keymap to the bridge operator — a PRESS item and a",
+              "line": 551,
+              "deprecated": false
+            },
+            {
+              "name": "install_poller",
+              "qualname": "KeymapBridge.install_poller",
+              "kind": "classmethod",
+              "signature": "(cls, tcl, key_show)",
+              "summary": "Global activation-key watcher (Windows-only, idempotent) — the focus-independent half",
+              "line": 599,
+              "deprecated": false
+            },
+            {
+              "name": "uninstall_poller",
+              "qualname": "KeymapBridge.uninstall_poller",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "Remove the held-button poll timer (idempotent).",
+              "line": 775,
+              "deprecated": false
+            },
+            {
+              "name": "teardown",
+              "qualname": "KeymapBridge.teardown",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "Remove the keymap items and unregister the bridge operator (for add-on unregister).",
+              "line": 788,
+              "deprecated": false
+            }
+          ]
+        },
+        {
+          "name": "ActivationDiagnostics",
+          "summary": "The live-activation-state report — run in Blender's Python console to see why the key isn't",
+          "line": 812,
+          "bases": [],
+          "members": [
+            {
+              "name": "report",
+              "qualname": "ActivationDiagnostics.report",
+              "kind": "staticmethod",
+              "signature": "(emit=True)",
+              "summary": "Return (and, when ``emit``, print) the live activation state — run in Blender's Python",
+              "line": 817,
               "deprecated": false
             }
           ]
@@ -22900,6 +23282,93 @@
               "signature": "(self) -> None",
               "summary": "Full uninstall for a host reload: :meth:`undock` + drop the widget reference.",
               "line": 247,
+              "deprecated": false
+            }
+          ]
+        }
+      ],
+      "constants": []
+    },
+    {
+      "relpath": "ui_utils/qt_runtime.py",
+      "summary": "Qt inside Blender: provision a binding, stand up a QApplication, pump it from Blender's loop.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "QtPlatformUnavailable",
+          "summary": "Qt cannot open a window in this host process, so the marking menu is off.",
+          "line": 24,
+          "bases": [
+            "RuntimeError"
+          ],
+          "members": []
+        },
+        {
+          "name": "QtBootstrap",
+          "summary": "Make a Qt binding importable in Blender's Python *before* anything imports qtpy.",
+          "line": 42,
+          "bases": [],
+          "members": [
+            {
+              "name": "qt_importable",
+              "qualname": "QtBootstrap.qt_importable",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "True if qtpy can resolve a real Qt binding (Maya's bundled PySide, or Blender's installed one).",
+              "line": 59,
+              "deprecated": false
+            },
+            {
+              "name": "qt_install_dir",
+              "qualname": "QtBootstrap.qt_install_dir",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "Where Blender's on-demand Qt deps live.",
+              "line": 69,
+              "deprecated": false
+            },
+            {
+              "name": "ensure_qt",
+              "qualname": "QtBootstrap.ensure_qt",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "Make a Qt binding importable;",
+              "line": 103,
+              "deprecated": false
+            }
+          ]
+        },
+        {
+          "name": "QtRuntime",
+          "summary": "Qt in Blender — Blender has no QApplication of its own, so stand one up and pump it from",
+          "line": 163,
+          "bases": [],
+          "members": [
+            {
+              "name": "ensure_qapp",
+              "qualname": "QtRuntime.ensure_qapp",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "Return the process QApplication, creating one if Blender has none.",
+              "line": 172,
+              "deprecated": false
+            },
+            {
+              "name": "ensure_widget",
+              "qualname": "QtRuntime.ensure_widget",
+              "kind": "staticmethod",
+              "signature": "(app)",
+              "summary": "Establish ``app.blender_widget`` — the parent for the marking menu.",
+              "line": 237,
+              "deprecated": false
+            },
+            {
+              "name": "start_pump",
+              "qualname": "QtRuntime.start_pump",
+              "kind": "classmethod",
+              "signature": "(cls, app, interval=0.01)",
+              "summary": "Deliver Qt's POSTED events from Blender's timer loop so the Qt UI stays live (idempotent).",
+              "line": 253,
               "deprecated": false
             }
           ]
@@ -24373,7 +24842,7 @@
         {
           "name": "XformUtils",
           "summary": "Namespace mirror of mayatk's ``XformUtils`` (helpers also exposed module-level).",
-          "line": 196,
+          "line": 262,
           "bases": [
             "_XformUtilsInternal"
           ],
@@ -24384,7 +24853,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Return ``(min, max)`` ``Vector``s of ``obj``'s bounding box in world space.",
-              "line": 200,
+              "line": 266,
               "deprecated": false
             },
             {
@@ -24393,7 +24862,7 @@
               "kind": "staticmethod",
               "signature": "(objects, location=True, rotation=False, scale=True, store=True, instance_strategy='skip', *, translate=None, rotate=None, center_pivot=0, freeze_children=False, force=True, delete_history=False, connection_strategy='preserve', from_channel_box=False)",
               "summary": "Freeze: apply (bake) the given channels into the object data -- Blender's",
-              "line": 214,
+              "line": 280,
               "deprecated": false
             },
             {
@@ -24402,7 +24871,7 @@
               "kind": "staticmethod",
               "signature": "(objects, delete_attrs=True, channels=None, traverse=False, prefix=_DEFAULT_BAKE_PREFIX)",
               "summary": "Un-freeze: compose the stored pre-freeze channels back into the local transform",
-              "line": 389,
+              "line": 462,
               "deprecated": false
             },
             {
@@ -24411,7 +24880,7 @@
               "kind": "staticmethod",
               "signature": "(objects, prefix=_DEFAULT_BAKE_PREFIX)",
               "summary": "Map each object → whether it carries pre-freeze bake data (mirror of",
-              "line": 508,
+              "line": 581,
               "deprecated": false
             },
             {
@@ -24420,7 +24889,7 @@
               "kind": "staticmethod",
               "signature": "(objects, prefix=_DEFAULT_BAKE_PREFIX, channels=None, traverse=False)",
               "summary": "Capture the current local channels as cumulative bake history — mirror of",
-              "line": 516,
+              "line": 589,
               "deprecated": false
             },
             {
@@ -24429,7 +24898,7 @@
               "kind": "staticmethod",
               "signature": "(obj, prefix=_DEFAULT_BAKE_PREFIX)",
               "summary": "Read one object's stored pre-freeze channels back as plain values —",
-              "line": 556,
+              "line": 629,
               "deprecated": false
             },
             {
@@ -24438,7 +24907,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, scale_factor=1.1)",
               "summary": "Scale each CONNECTED set of selected edges about that set's own centroid — mirror",
-              "line": 592,
+              "line": 665,
               "deprecated": false
             },
             {
@@ -24447,7 +24916,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, align='Min', origin=False, center_pivot=False, freeze_transforms=False)",
               "summary": "Drop each object so its bbox ``Min`` / ``Mid`` / ``Max`` sits on the ground (Z=0).",
-              "line": 633,
+              "line": 706,
               "deprecated": false
             },
             {
@@ -24456,7 +24925,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, mode='object')",
               "summary": "Move each object's origin (Blender's single pivot) — mirror of Maya's Center Pivot.",
-              "line": 673,
+              "line": 746,
               "deprecated": false
             },
             {
@@ -24465,7 +24934,7 @@
               "kind": "staticmethod",
               "signature": "(objects, translate=True, rotate=False, scale=False, bake=True, world_space=True, mirror='', select_targets_after_transfer=False)",
               "summary": "Transfer the object **origin** from the first object to the rest — mirror of Maya's",
-              "line": 720,
+              "line": 793,
               "deprecated": false
             },
             {
@@ -24474,7 +24943,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, position=True, orientation=True)",
               "summary": "Reset the pivot: Blender's single origin back on the geometry's",
-              "line": 797,
+              "line": 870,
               "deprecated": false
             },
             {
@@ -24483,7 +24952,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, pivot_type='object', mode='set')",
               "summary": "World-align the pivot.",
-              "line": 818,
+              "line": 891,
               "deprecated": false
             },
             {
@@ -24492,7 +24961,7 @@
               "kind": "staticmethod",
               "signature": "(objects, position=False, orientation=False)",
               "summary": "Bake Blender's temporary pivot, the 3D cursor, into the objects' origins",
-              "line": 888,
+              "line": 961,
               "deprecated": false
             },
             {
@@ -24501,7 +24970,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Center-pivot mode keys understood by :func:`center_pivot`.",
-              "line": 906,
+              "line": 979,
               "deprecated": false
             },
             {
@@ -24510,7 +24979,7 @@
               "kind": "staticmethod",
               "signature": "(source=None, target=None, average=True)",
               "summary": "Uniformly rescale ``source`` object(s) to match ``target``'s bounding-box size.",
-              "line": 912,
+              "line": 985,
               "deprecated": false
             },
             {
@@ -24519,7 +24988,7 @@
               "kind": "staticmethod",
               "signature": "(source, target, pivot='center')",
               "summary": "Move ``source`` object(s) so their pivot aligns with the ``target``'s pivot point.",
-              "line": 944,
+              "line": 1017,
               "deprecated": false
             },
             {
@@ -24528,7 +24997,7 @@
               "kind": "staticmethod",
               "signature": "(objects, value='', world_space=True)",
               "summary": "Combined bounding box of ``objects`` — mirror of ``mtk.get_bounding_box`` (name + behavior).",
-              "line": 962,
+              "line": 1035,
               "deprecated": false
             },
             {
@@ -24537,7 +25006,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Bounding-box center of ``objects`` as an ``(x, y, z)`` tuple (mirror of",
-              "line": 1002,
+              "line": 1075,
               "deprecated": false
             },
             {
@@ -24546,7 +25015,7 @@
               "kind": "staticmethod",
               "signature": "(obj, pivot)",
               "summary": "World pivot frame (orientation + position, scale stripped) for a per-object linear/",
-              "line": 1008,
+              "line": 1081,
               "deprecated": false
             },
             {
@@ -24555,7 +25024,7 @@
               "kind": "staticmethod",
               "signature": "(a, b)",
               "summary": "Distance between two points — each an object (world origin), ``Vector``, or 3-sequence",
-              "line": 1073,
+              "line": 1146,
               "deprecated": false
             },
             {
@@ -24564,7 +25033,7 @@
               "kind": "staticmethod",
               "signature": "(objects, reference_point=None, reverse=False)",
               "summary": "Order ``objects`` by distance from ``reference_point`` (an object / Vector / 3-seq;",
-              "line": 1081,
+              "line": 1154,
               "deprecated": false
             },
             {
@@ -24573,7 +25042,7 @@
               "kind": "staticmethod",
               "signature": "(objects, target_pos, aim_vect=(1, 0, 0), up_vect=(0, 1, 0))",
               "summary": "Aim ``objects`` at a world-space point — mirror of ``mtk.aim_object_at_point`` (which uses",
-              "line": 1099,
+              "line": 1172,
               "deprecated": false
             },
             {
@@ -24582,7 +25051,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, prefix=_DEFAULT_BAKE_PREFIX, name='Authored')",
               "summary": "Point the transform gizmo at an object's PRE-FREEZE axes, without un-freezing —",
-              "line": 1120,
+              "line": 1193,
               "deprecated": false
             },
             {
@@ -24591,7 +25060,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The pivot keys the operations resolve (``get_operation_axis_matrix``,",
-              "line": 1167,
+              "line": 1240,
               "deprecated": false
             },
             {
@@ -24600,7 +25069,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, pivot='center', all_to_last=True, match_scale=False)",
               "summary": "Move To -- mirror of ``mtk.XformUtils.move_to_target``: the objects move",
-              "line": 1218,
+              "line": 1291,
               "deprecated": false
             },
             {
@@ -24609,7 +25078,7 @@
               "kind": "staticmethod",
               "signature": "(mode, objects=None)",
               "summary": "Align To -- mirror of ``mtk.XformUtils.align_to``: align the selected",
-              "line": 1250,
+              "line": 1323,
               "deprecated": false
             },
             {
@@ -24618,7 +25087,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Increment snapping per transform kind -- mirror of",
-              "line": 1292,
+              "line": 1365,
               "deprecated": false
             },
             {
@@ -24627,7 +25096,7 @@
               "kind": "staticmethod",
               "signature": "(kind, state=None, increment=None)",
               "summary": "Set the *kind* (``\"move\"``, ``\"scale\"``, ``\"rotate\"``) increment snapping",
-              "line": 1314,
+              "line": 1387,
               "deprecated": false
             },
             {
@@ -24636,7 +25105,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The transform constraints -- mirror of",
-              "line": 1358,
+              "line": 1431,
               "deprecated": false
             },
             {
@@ -24645,7 +25114,7 @@
               "kind": "staticmethod",
               "signature": "(kind, state=True)",
               "summary": "Turn a transform constraint on or off -- mirror of",
-              "line": 1375,
+              "line": 1448,
               "deprecated": false
             },
             {
@@ -24654,7 +25123,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Each object's rotation mode, Maya-spelled: ``{object: \"xyz\"}``",
-              "line": 1419,
+              "line": 1492,
               "deprecated": false
             },
             {
@@ -24663,7 +25132,7 @@
               "kind": "staticmethod",
               "signature": "(objects, order, preserve=True)",
               "summary": "Change objects' Euler order keeping their pose and keyed animation --",
-              "line": 1442,
+              "line": 1515,
               "deprecated": false
             }
           ]

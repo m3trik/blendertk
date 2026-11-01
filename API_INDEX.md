@@ -798,7 +798,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `ui_utils/blender_window.py` — Native-window (win32/GHOST) helpers for hosting Qt widgets around a Blender window.
 - `class BlenderWindow`
-  - methods: process_ghost_hwnds, window_hwnd, is_window, client_origin, client_size, region_client_rect, set_clip_children, move_child, keyboard_focus, cursor_over, set_keyboard_focus, set_owner
+  - methods: process_ghost_hwnds, window_hwnd, main_qwindow, is_window, client_origin, client_size, region_client_rect, set_clip_children, move_child, native_modal_loop_active, keyboard_focus, cursor_over, set_keyboard_focus, set_owner, restore_foreground, restore_foreground_if_stranded
 
 ### `ui_utils/calculator.py` — Calculator — the Blender half of the Calculator tool (mirror of mayatk's ``CalculatorController``).
 - `class CalculatorController`
@@ -807,6 +807,20 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `ui_utils/cancel_provider.py` — Blender's answers to uitk's cancellation contract (mayatk parity twin).
 - `class BlenderCancelProvider(CancelProvider)`
   - methods: begin, tick, end
+
+### `ui_utils/marking_menu_host/_marking_menu_host.py` — What a uitk marking menu needs from Blender: :class:`BlenderMarkingMenuHost`.
+- `class BlenderMarkingMenuHost(PureMarkingMenuHost)`
+  - methods: ui_handler, start, defer, live_menu, main_window, mouse_buttons, bind_activation_key, adopt_window, key_event, attach, report_activation
+
+### `ui_utils/marking_menu_host/click_debugger.py` — Opt-in click tracer for "buttons need several clicks" reports in the menu Blender hosts.
+- `class ClickDebugger`
+  - methods: log_path, enable, disable
+
+### `ui_utils/marking_menu_host/keymap_bridge.py` — Bridge a marking menu's activation key from Blender's keymap to Qt — the half Maya needs none of.
+- `class KeymapBridge`
+  - methods: qt_key_to_blender_type, blender_type_to_qt_key, physical_mouse_buttons, ensure_operator, drive_press, drive_release, uninstall_keymap, addon_key_type, retype_keymap, user_keymap_items, live_press_item, rebind, sync_keymap_rebind, install_keymap, install_poller, uninstall_poller, teardown
+- `class ActivationDiagnostics`
+  - methods: report
 
 ### `ui_utils/menu_harvest.py` — Harvest a native Blender menu into a live ``QMenu`` — the Blender half of Maya's wrap.
 - `class MenuHarvest(_MenuHarvestInternal)`
@@ -820,6 +834,13 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `ui_utils/qt_dock.py` — Dock any Qt widget into a native Blender area — a true child window, not an overlay.
 - `class QtDock`
   - methods: supported, docked, widget, area, content_region, dock, undock, teardown
+
+### `ui_utils/qt_runtime.py` — Qt inside Blender: provision a binding, stand up a QApplication, pump it from Blender's loop.
+- `class QtPlatformUnavailable(RuntimeError)`
+- `class QtBootstrap`
+  - methods: qt_importable, qt_install_dir, ensure_qt
+- `class QtRuntime`
+  - methods: ensure_qapp, ensure_widget, start_pump
 
 ### `ui_utils/style_setter/_style_setter.py` — Match Blender's app UI chrome to another DCC's look using Blender's NATIVE theme-preset system.
 - constants: STYLES_DIR
