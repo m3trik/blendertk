@@ -76,6 +76,11 @@ ignore = ["E402"]  # house pattern: try-guarded DCC imports precede the other im
 # part or any part below it; "a | b" makes peers of one rank. Checked by
 # m3trik/scripts/check_layers.py against a frozen baseline of today's exceptions.
 order = [
+    # Hosting a uitk marking menu in Blender: the host adapter wires the keymap
+    # bridge, the Script Output console (env_utils) and the ordered-selection
+    # tracker (edit_utils) into a menu's launch -- above every domain it reads,
+    # imported by none.
+    "ui_utils/marking_menu_host",
     # Texture Combine composes TextureTransfer, the lightmap re-pack and the
     # UV diagnostics: a tool above every domain it reads, imported by none.
     "uv_utils/texture_combine",

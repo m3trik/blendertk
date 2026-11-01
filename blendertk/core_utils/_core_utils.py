@@ -110,8 +110,8 @@ class _CoreUtilsInternal(object):
     def _blender_python_exe():
         """Blender's *bundled* Python interpreter (``sys.executable`` is the Blender binary, not a
         python — so it can't be driven with ``-m pip``). Looks in ``<sys.prefix>/bin`` for the
-        python launcher; falls back to ``sys.executable``. Mirrors ``tcl_blender._QtBootstrap.blender_python_exe``
-        but kept local so blendertk carries no back-dependency on tentacle."""
+        python launcher; falls back to ``sys.executable``. The one copy: the Qt bootstrap
+        (``QtBootstrap`` / ``QtRuntime``) and ``EnvUtils.python_executable`` call it."""
         import sys
 
         for name in ("python.exe", "python3.exe", "python", "python3"):
@@ -386,7 +386,7 @@ class _CoreUtilsInternal(object):
         ``bpy.context.selected_objects`` / ``active_object`` are *screen-context* members: they are
         populated only when ``bpy.context.window`` is non-``None``. tentacle drives the Blender slots
         from Qt events delivered inside a ``bpy.app.timers`` callback (see
-        ``tcl_blender._QtHost.start_pump``) — a context whose ``window`` is frequently ``None`` (proven:
+        ``QtRuntime.start_pump``) — a context whose ``window`` is frequently ``None`` (proven:
         with ``window=None`` those members return ``[]`` / ``None`` while a cube is selected). The view
         layer is window-independent, so reading selection through ``view_layer.objects`` is correct from
         that context. Falls back to the scene's first view layer if even ``context.view_layer`` is unset.

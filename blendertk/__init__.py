@@ -208,6 +208,15 @@ DEFAULT_INCLUDE = {
     "ui_utils.blender_window": [
         "BlenderWindow",
     ],
+    # Qt inside Blender (moved from tentacle's tcl_blender): provision a binding before the
+    # first qtpy import, stand up the QApplication + hidden parent widget, pump Qt's posted
+    # events from bpy.app.timers. Qt-free at import; the methods import qtpy / bpy.
+    "ui_utils.qt_runtime": ["QtBootstrap", "QtRuntime", "QtPlatformUnavailable"],
+    # Hosting a uitk marking menu in Blender: the activation keymap bridge (GHOST eats the
+    # viewport keystrokes a Qt shortcut would need) and its live-state report.
+    "ui_utils.marking_menu_host.keymap_bridge": ["KeymapBridge", "ActivationDiagnostics"],
+    # Opt-in mouse/slot tracer for "buttons need several clicks" support captures.
+    "ui_utils.marking_menu_host.click_debugger": ["ClickDebugger"],
     # The native dock container: hosts ANY Qt widget as the body of a true docked Blender
     # area (a WS_CHILD of the GHOST window glued to the area's content region — no overlay,
     # no polling). Backs ``env_utils.script_output``; reusable for any docked Qt panel.
