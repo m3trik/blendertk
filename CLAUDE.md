@@ -46,9 +46,16 @@ and blendertk holds the host operations, no UI. Blender specifics:
   (`--background`) ships no Qt binding, so the engine surface must import Qt-free (the same reason
   `import bpy` is deferred).
 - `BlenderUiHandler` (`ui_utils/blender_ui_handler.py`, mirror of `MayaUiHandler`) registers no UI
-  source of its own; it wraps Blender's native menus, wired into `tcl_blender` via `handlers={"ui":
-  BlenderUiHandler}`. Verify with `test/test_blender_ui_handler.py` (needs Qt, not bpy → runs under
+  source of its own; it wraps Blender's native menus, and `BlenderMarkingMenuHost.ui_handler` names
+  it to the marking menu. Verify with `test/test_blender_ui_handler.py` (needs Qt, not bpy → runs under
   the workspace `.venv`; skips→PASS under the Blender harness).
+
+- **Hosting a marking menu**: `BlenderMarkingMenuHost` (`ui_utils/marking_menu_host/`, a
+  `uitk.MarkingMenuHost`) over `QtBootstrap`/`QtRuntime` (`ui_utils/qt_runtime.py`: Qt
+  provisioned, a QApplication pumped from `bpy.app.timers`), `KeymapBridge` (the 3D View keymap
+  carries the activation key; its operator's `tentacle.show_marking_menu` idname is a saved name)
+  and `BlenderWindow`. Verify the bridge by calling its operator and poller in a fresh
+  `blender --background`, never with synthesized keystrokes.
 
 ## Imports
 
