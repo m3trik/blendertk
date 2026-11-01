@@ -66,7 +66,12 @@ ADAPTERS = (
         "CollectHost",
         _adapter("blendertk.mat_utils.texture_path_editor", "TexturePathEditor"),
     ),
-    ("TransferHost", _adapter("blendertk.uv_utils.texture_transfer", "BlenderTransferHost")),
+    (
+        "TransferHost",
+        _adapter(
+            "blendertk.uv_utils.texture_combine._transfer_host", "BlenderTransferHost"
+        ),
+    ),
 )
 
 

@@ -713,6 +713,41 @@ try:
         names,
     )
 
+    # ---- the panel's Transfer run (TextureCombine.run_transfer) ------------
+    # pythontk's TransferRun over BlenderTransferHost; the run's decisions are
+    # pinned in pythontk's test_uv_transfer_run.
+    from blendertk.uv_utils.texture_combine._transfer_host import (
+        BlenderTransferHost,
+    )
+
+    reset()
+    run_src, run_tgt = cube("runSrc"), cube("runTgt", 3)
+    pick([run_src, run_tgt], run_src)
+    result = TextureCombine().run_transfer(source="first", transfer="uvs")
+    check(
+        "the run reads the active mesh as the source and moves its UVs",
+        isinstance(result, ptk.TransferResult)
+        and result.refusal is None
+        and result.uvs == [("runSrc", "runTgt", "topology")],
+        result,
+    )
+    pick([])
+    result = TextureCombine().run_transfer(source="first", transfer="uvs")
+    check("an empty selection is a refusal, not a raise", result.refusal == "pick_first")
+
+    class _Sub(TextureTransfer):
+        pass
+
+    run_host = BlenderTransferHost(transfers=_Sub)
+    check(
+        "the adapter answers the library's operations",
+        isinstance(run_host, ptk.TransferHost)
+        and isinstance(run_host.texture_transfer(), _Sub)
+        and run_host.has_lightmap(run_src) is False
+        and run_host.default_name([run_src]) == "runSrc",
+        run_host.default_name([run_src]),
+    )
+
     reset()
     artifacts.cleanup()
 

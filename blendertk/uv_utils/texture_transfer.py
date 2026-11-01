@@ -632,17 +632,6 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
             source, targets = None, cls.meshes(selected)
         return mode, source, targets
 
-    @classmethod
-    def run(cls, **options) -> "ptk.TransferResult":
-        """The Texture Combine panel's Transfer: UVs OR textures from the
-        selection's source onto its targets, one undo step.
-
-        :meth:`pythontk.TransferRun.run` -- its keywords (the panel's rows as
-        plain values) and its :class:`pythontk.TransferResult` -- over Blender
-        (:class:`BlenderTransferHost`, bound to this class). Mirror of mayatk's.
-        """
-        return ptk.TransferRun(BlenderTransferHost(cls)).run(**options)
-
     def transfer(
         self,
         targets,
@@ -1415,74 +1404,3 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
             created[label] = new_mat.name
             self.logger.info(f"Assigned {new_mat.name} ({len(channels)} map(s)).")
         return created
-
-
-class BlenderTransferHost(ptk.PureTransferHost):
-    """What :class:`pythontk.TransferRun` asks of Blender (a
-    :class:`pythontk.TransferHost`): this library's own operations, by name --
-    *transfers*' (:class:`TextureTransfer` or a subclass) selection reading,
-    pairing, materials and engine, the UV passes (``UvUtils``), the lightmap
-    pass (``LightmapRecords``), a blank name (``TextureCombine.default_name``)
-    and one undo step: each of the Pure default's answers, from the scene.
-    Mirror of mayatk's ``MayaTransferHost``.
-    """
-
-    def __init__(self, transfers=None):
-        self.transfers = transfers or TextureTransfer
-
-    def selection_sides(self, mode, stored):
-        return self.transfers.selection_sides(mode, stored)
-
-    def face_materials(self, mesh):
-        return self.transfers.face_materials(mesh)
-
-    def material_maps(self, material):
-        return self.transfers.material_maps(material)
-
-    def pair_sources(self, targets, sources):
-        return self.transfers.pair_sources(targets, sources)
-
-    def texture_transfer(self):
-        return self.transfers()
-
-    @staticmethod
-    def default_name(nodes) -> str:
-        from blendertk.uv_utils.texture_combine.texture_combine import TextureCombine
-
-        return TextureCombine(log_level="WARNING").default_name(
-            nodes, fallback="transfer"
-        )
-
-    @staticmethod
-    def transfer_uvs(sources, targets):
-        from blendertk.uv_utils._uv_utils import UvUtils
-
-        return UvUtils.transfer_uvs(sources, targets, match_by_similarity=False)
-
-    @staticmethod
-    def transfer_uvs_to_similar(source, candidates, tolerance):
-        from blendertk.uv_utils._uv_utils import UvUtils
-
-        return UvUtils.transfer_uvs_to_similar(source, candidates, tolerance=tolerance)
-
-    @staticmethod
-    def has_lightmap(mesh) -> bool:
-        from blendertk.light_utils.lightmap_baker.lightmap_records import (
-            LightmapRecords,
-        )
-
-        return bool(LightmapRecords.baked_objects([mesh]))
-
-    @staticmethod
-    def transfer_lightmaps(targets, source, **options):
-        from blendertk.light_utils.lightmap_baker.lightmap_records import (
-            LightmapRecords,
-        )
-
-        return LightmapRecords.transfer_lightmaps(targets, source, **options)
-
-    @staticmethod
-    def undo_chunk(name):
-        from blendertk.core_utils._core_utils import CoreUtils
-
-        return CoreUtils.undo_chunk(name)

@@ -1482,42 +1482,6 @@ try:
         f"entry={entry!r}",
     )
 
-    # ------------------------------------------------- the panel's run
-    # TextureTransfer.run: pythontk's TransferRun over BlenderTransferHost
-    # (the run's decisions are pinned in pythontk's test_uv_transfer_run).
-    from blendertk.uv_utils.texture_transfer import BlenderTransferHost
-
-    reset()
-    run_src, run_tgt = plane("runSrc"), plane("runTgt")
-    bpy.ops.object.select_all(action="DESELECT")
-    for o in (run_src, run_tgt):
-        o.select_set(True)
-    bpy.context.view_layer.objects.active = run_src
-    result = TextureTransfer.run(source="first", transfer="uvs")
-    check(
-        "the run reads the active mesh as the source and moves its UVs",
-        isinstance(result, ptk.TransferResult)
-        and result.refusal is None
-        and result.uvs == [("runSrc", "runTgt", "topology")],
-        result,
-    )
-    bpy.ops.object.select_all(action="DESELECT")
-    bpy.context.view_layer.objects.active = None
-    result = TextureTransfer.run(source="first", transfer="uvs")
-    check("an empty selection is a refusal, not a raise", result.refusal == "pick_first")
-
-    class _Sub(TextureTransfer):
-        pass
-
-    run_host = BlenderTransferHost(_Sub)
-    check(
-        "the adapter answers the library's operations",
-        isinstance(run_host.texture_transfer(), _Sub)
-        and run_host.has_lightmap(run_src) is False
-        and run_host.default_name([run_src]) == "runSrc",
-        run_host.default_name([run_src]),
-    )
-
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())
