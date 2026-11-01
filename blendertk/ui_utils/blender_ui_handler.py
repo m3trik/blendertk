@@ -35,7 +35,7 @@ class BlenderUiHandler(UiHandler):
 
         ``switchboard`` is optional. When omitted a fresh ``Switchboard`` is
         constructed so the handler can be stood up by a startup script without any
-        prior setup. Production callers (tentacle's ``tcl_blender``) pass an explicit
+        prior setup. Production callers (tentacle's launcher) pass an explicit
         instance to share state with the rest of the application.
         """
         if switchboard is None:
@@ -174,7 +174,7 @@ class BlenderUiHandler(UiHandler):
         """Return the BlenderUiHandler singleton, bootstrapping if needed.
 
         Mirrors :meth:`MayaUiHandler.instance`: a no-argument call returns an existing
-        handler (e.g. the one tentacle's ``tcl_blender`` built with the app switchboard)
+        handler (e.g. the one tentacle's launcher built with the app switchboard)
         rather than keying a fresh, broken handler off ``id(None)``. This makes the
         shelf/console one-liner reliable::
 

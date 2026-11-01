@@ -535,7 +535,7 @@ try:
 
         M.remove_macros()
 
-        # 12b. Preset persistence + apply_saved_macros (tentacle's TclBlender launch entry point) —
+        # 12b. Preset persistence + apply_saved_macros (tentacle's Tcl.build launch path) —
         # writes/reads real files under the user PresetStore tier, cleaned up afterward.
         try:
             saved_path = M.save_preset("_test_roundtrip", {"m_frame": {"key": "ctl+alt+f", "cat": "Display"}})

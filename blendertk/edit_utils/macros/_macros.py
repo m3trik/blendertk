@@ -13,7 +13,7 @@ anything inside a running Blender. ``Macros`` IS in ``DEFAULT_INCLUDE`` (so ``bt
 mirrors ``mtk.Macros``), so the ``bpy`` import is **guarded** (``bpy = None`` when absent) —
 exactly like mayatk's ``macros`` guards ``maya.cmds`` — so resolving the package surface never
 requires Blender (no module-level ``bpy`` use; the operator class is built inside
-``_ensure_operator``). Bindings are applied from the active preset: ``TclBlender`` calls
+``_ensure_operator``). Bindings are applied from the active preset: tentacle's ``Tcl.build`` calls
 ``Macros.apply_saved_macros()`` on construction (the counterpart of Maya's
 ``userSetup.py`` applying the mayatk macros at startup).
 
@@ -732,7 +732,7 @@ class MacroManager:
     # Mirror of mayatk's ``MacroManager`` management surface: the single source of
     # truth for discovering, querying, applying, clearing, and persisting macro
     # bindings. Both the unified shortcut editor (``Macros.show_editor``) and
-    # tentacle's Blender launch path (``TclBlender`` applies the active preset
+    # tentacle's launch path (``Tcl.build`` applies the active preset
     # on construction) are thin consumers; nothing here imports Qt. A *binding* is a
     # ``{"key": <maya-style token>, "cat": <category>}`` dict; a *binding set* maps
     # macro name -> binding and is exactly what a preset file stores.
@@ -1023,8 +1023,8 @@ class MacroManager:
         Resolution order: explicit *name* -> the persisted active preset ->
         the shipped ``default`` template. A stale active pointer falls back to
         ``default``. Loading an explicit *name* makes it active. tentacle's
-        Blender entry point (``TclBlender``) calls this on launch, exactly as
-        the Maya side applies the active preset from ``TclMaya`` — Blender's
+        launcher (``Tcl.build``) calls this on launch, for Blender exactly as
+        for Maya — Blender's
         keymap edits don't outlive the process on their own (see the class
         docstring), so this call is what makes bindings "stick" across sessions
         rather than the keyconfig itself.

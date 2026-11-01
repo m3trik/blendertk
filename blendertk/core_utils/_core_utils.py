@@ -803,7 +803,7 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         tools (Material Updater, Map Converter/Packer, bridge map-staging). This pip-installs the
         missing wheels into Blender's per-version *user-modules* dir (already on ``sys.path``) via
         :class:`pythontk.PackageManager`, driven against Blender's **bundled** interpreter — the same
-        on-demand model tcl_blender uses for Qt, but owned here so the provisioning *policy* lives in
+        on-demand model ``QtBootstrap`` uses for Qt, owned here so the provisioning *policy* lives in
         the Blender library layer (blendertk), not the entry point.
 
         Args:
