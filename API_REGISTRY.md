@@ -897,7 +897,7 @@ Scene audit -- the Blender port of mayatk's ``core_utils.diagnostics.scene_audit
 
 - **[`class SceneInfoSection`](blendertk/blendertk/core_utils/diagnostics/scene_audit.py#L41)** — Get Scene Info's report sections -- mirror of ``mtk.SceneInfoSection``.
   - `SceneInfoSection.normalize(cls, sections: Optional[Iterable[str]]) -> List[str]` *(class)* — *sections* as known keys, de-duplicated in the caller's order.
-- **[`class SceneAnalyzer`](blendertk/blendertk/core_utils/diagnostics/scene_audit.py#L147)** — Get Scene Info in Blender -- mirror of ``mtk.SceneAnalyzer``'s sectioned report.
+- **[`class SceneAnalyzer`](blendertk/blendertk/core_utils/diagnostics/scene_audit.py#L131)** — Get Scene Info in Blender -- mirror of ``mtk.SceneAnalyzer``'s sectioned report.
   - `SceneAnalyzer.format_audit_html(cls, adaptive: bool = False, objects=None, progress_callback: Optional[Callable[[int, int, str], None]] = None, sections: Optional[Iterable[str]] = None, scope: Optional[str] = None) -> Dict[str, str]` *(class)* — Run the audit and return ``{"_header": html, section: html, ...}``.
   - `SceneAnalyzer.format_audit_text(cls, adaptive: bool = False, objects=None, sections: Optional[Iterable[str]] = None, scope: Optional[str] = None) -> Dict[str, str]` *(class)* — :meth:`format_audit_html` as plain text (console / log).
 
@@ -2103,7 +2103,6 @@ High-level lightmap baking workflow for Blender -> game engines (Unity-first).
   - `LightmapBaker.bounces(self) -> int` *(property)* — Diffuse bounces the bake integrates -- role-twin of mayatk's ``gi_depth``.
   - `LightmapBaker.adaptive(self) -> bool` *(property)* — Whether the bake spends its samples adaptively: a texel stops once its
   - `LightmapBaker.preset_store() -> 'ptk.PresetStore'` *(static)* — Shared store of lightmap quality presets (built-in + user tiers).
-  - `LightmapBaker.preset_name(cls, name: str) -> str` *(class)* — *name* as the preset store knows it now: itself when the store has
   - `LightmapBaker.from_preset(cls, name: str, **overrides) -> 'LightmapBaker'` *(class)* — Construct a baker from a named preset.
   - `LightmapBaker.bake_targets(cls, objects=None) -> List[str]` *(class)* — The names of the meshes a bake of *objects* acts on (default: the selection).
   - `LightmapBaker.bake(self, objects=None, packing: str = 'atlas', output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap', on_progress: Optional[Callable[[int, int, str], bool]] = None, intensity: float = 1.0, **kwargs) -> LightmapBakeResult` — Bake *objects*' lightmaps and record them: the whole workflow, as the panel runs it.

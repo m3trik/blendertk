@@ -47,7 +47,7 @@
               "kind": "classmethod",
               "signature": "(cls, level)",
               "summary": "The canonical :attr:`OPTIMIZE_LEVELS` key *level* names, or None for OFF.",
-              "line": 1170,
+              "line": 1155,
               "deprecated": false
             },
             {
@@ -56,7 +56,7 @@
               "kind": "classmethod",
               "signature": "(cls, level)",
               "summary": "Resolve an optimization level into :meth:`optimize_keys` kwargs.",
-              "line": 1198,
+              "line": 1183,
               "deprecated": false
             },
             {
@@ -65,7 +65,7 @@
               "kind": "staticmethod",
               "signature": "(fc)",
               "summary": "``(times, values)`` of *fc*'s keyframe points as plain float lists (time order).",
-              "line": 1235,
+              "line": 1220,
               "deprecated": false
             },
             {
@@ -74,7 +74,7 @@
               "kind": "staticmethod",
               "signature": "(fc)",
               "summary": "Key times of *fc* as a plain float list (time order).",
-              "line": 1245,
+              "line": 1230,
               "deprecated": false
             },
             {
@@ -83,7 +83,7 @@
               "kind": "staticmethod",
               "signature": "(fc)",
               "summary": "Per-key ``interpolation`` enum ints of *fc* (see :meth:`interpolation_value`).",
-              "line": 1250,
+              "line": 1235,
               "deprecated": false
             },
             {
@@ -92,7 +92,7 @@
               "kind": "staticmethod",
               "signature": "(fcurves) -> list",
               "summary": "Read fcurves as host-free :class:`pythontk.KeyCurve` s (mirror of mayatk).",
-              "line": 1267,
+              "line": 1252,
               "deprecated": false
             },
             {
@@ -101,7 +101,7 @@
               "kind": "staticmethod",
               "signature": "(edits) -> int",
               "summary": "Offset key VALUES in place: ``{fcurve: [(time, delta), ...]}`` (mirror of mayatk).",
-              "line": 1353,
+              "line": 1338,
               "deprecated": false
             },
             {
@@ -110,7 +110,7 @@
               "kind": "staticmethod",
               "signature": "(times, lo, hi, inclusive_hi: bool = True)",
               "summary": "``(i0, i1)`` slice bounds of the keys of sorted *times* inside ``[lo, hi]``.",
-              "line": 1390,
+              "line": 1375,
               "deprecated": false
             },
             {
@@ -119,7 +119,7 @@
               "kind": "staticmethod",
               "signature": "(fc, lo, hi, delta: float, inclusive_hi: bool = True) -> int",
               "summary": "Translate *fc*'s keys (and both handles) inside ``[lo, hi]`` by *delta*.",
-              "line": 1408,
+              "line": 1393,
               "deprecated": false
             },
             {
@@ -128,7 +128,7 @@
               "kind": "staticmethod",
               "signature": "(fc, lo, hi, old_start, old_end, new_start, new_end) -> int",
               "summary": "Linearly remap *fc*'s keys (and handles) in ``[lo, hi]`` from one span to another.",
-              "line": 1422,
+              "line": 1407,
               "deprecated": false
             },
             {
@@ -137,7 +137,7 @@
               "kind": "staticmethod",
               "signature": "(fc, lo, hi) -> bool",
               "summary": "Set the LAST key of *fc* inside ``[lo, hi]`` to ``CONSTANT`` interpolation.",
-              "line": 1437,
+              "line": 1422,
               "deprecated": false
             },
             {
@@ -146,7 +146,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Yield with *objects* evaluated by the depsgraph at ANY frame: revealed",
-              "line": 1454,
+              "line": 1439,
               "deprecated": false
             },
             {
@@ -155,7 +155,7 @@
               "kind": "staticmethod",
               "signature": "(action, slot, fc) -> bool",
               "summary": "Remove *fc* from *action*, slot-aware (the legacy flat list, or the",
-              "line": 1497,
+              "line": 1482,
               "deprecated": false
             },
             {
@@ -164,7 +164,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "All fcurves across the given objects' actions (slot-aware;",
-              "line": 1508,
+              "line": 1493,
               "deprecated": false
             },
             {
@@ -173,7 +173,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "``(start, end)`` of EVERYTHING that animates *objects* over time, or ``None``.",
-              "line": 1533,
+              "line": 1518,
               "deprecated": false
             },
             {
@@ -182,7 +182,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "True when *objects* carry animation :meth:`get_fcurves` cannot see:",
-              "line": 1564,
+              "line": 1549,
               "deprecated": false
             },
             {
@@ -191,7 +191,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "True if the blend file contains any action carrying fcurves (keyed motion).",
-              "line": 1578,
+              "line": 1563,
               "deprecated": false
             },
             {
@@ -200,7 +200,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The scene's current frame (``scene.frame_current``): the read",
-              "line": 1597,
+              "line": 1582,
               "deprecated": false
             },
             {
@@ -209,7 +209,7 @@
               "kind": "staticmethod",
               "signature": "(time=None, update=True, relative=False, snap_mode=None, invert_snap=False)",
               "summary": "Set the scene's current frame, with optional relative offset and clean-number snapping —",
-              "line": 1610,
+              "line": 1595,
               "deprecated": false
             },
             {
@@ -218,7 +218,7 @@
               "kind": "staticmethod",
               "signature": "(objects, offset)",
               "summary": "Shift every key of the given objects by ``offset`` frames.",
-              "line": 1661,
+              "line": 1646,
               "deprecated": false
             },
             {
@@ -227,7 +227,7 @@
               "kind": "staticmethod",
               "signature": "(objects, frame=None, retain_spacing=True, selected_keys_only=False, align='auto', on_replace=None, on_move=None, channel_box_attrs_only=False)",
               "summary": "Move the objects' keys so they align to ``frame`` (default: the current frame).",
-              "line": 1667,
+              "line": 1652,
               "deprecated": false
             },
             {
@@ -236,7 +236,7 @@
               "kind": "staticmethod",
               "signature": "(objects, spacing=1, frame=None, relative=False, preserve_keys=False, selected_keys_only=False, exact_gap=False, on_replace=None, on_move=None, time=None)",
               "summary": "Add (+) or remove (−) ``spacing`` frames of space at ``frame`` (default: the current",
-              "line": 1777,
+              "line": 1762,
               "deprecated": false
             },
             {
@@ -245,7 +245,7 @@
               "kind": "staticmethod",
               "signature": "(objects, target_frame=None, use_earliest=True, on_replace=None, on_move=None)",
               "summary": "Shift each object's SELECTED keyframes (``select_control_point``, e.g.",
-              "line": 1904,
+              "line": 1889,
               "deprecated": false
             },
             {
@@ -254,7 +254,7 @@
               "kind": "staticmethod",
               "signature": "(objects, visible=True, frame=None, when='current', offset=0, group_overlapping=False, on_replace=None)",
               "summary": "Key viewport + render visibility (``hide_viewport``/``hide_render``) — mirror of",
-              "line": 1972,
+              "line": 1957,
               "deprecated": false
             },
             {
@@ -263,7 +263,7 @@
               "kind": "staticmethod",
               "signature": "(objects, step=1.0, time_range=None, ignore_visibility=False, percent=None, ignore=None)",
               "summary": "Insert sampled keys every ``step`` frames between each fcurve's first and last key",
-              "line": 2028,
+              "line": 2013,
               "deprecated": false
             },
             {
@@ -272,7 +272,7 @@
               "kind": "staticmethod",
               "signature": "(objects, time_range=None, ignore_visibility=False, on_delete=None, ignore=None)",
               "summary": "Remove every key strictly between each fcurve's first and last (keeps only the",
-              "line": 2105,
+              "line": 2090,
               "deprecated": false
             },
             {
@@ -281,7 +281,7 @@
               "kind": "staticmethod",
               "signature": "(objects, time=None, add_to_selection=False, channel_box_only=False)",
               "summary": "Select keyframe points (``select_control_point`` — visible in the Dope Sheet /",
-              "line": 2147,
+              "line": 2132,
               "deprecated": false
             },
             {
@@ -290,7 +290,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, mode='time', value_pivot=0.0, start_frame=None, relative=True, delete_original=False, selected_only=False, on_replace=None, on_move=None, time=None)",
               "summary": "Mirror keys to reverse motion — Blender analogue of Maya's invert (modes mirror its X/Y/both",
-              "line": 2183,
+              "line": 2168,
               "deprecated": false
             },
             {
@@ -299,7 +299,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, method='nearest', selected_only=False, time_range=None, include_driven=False, through_blends=True, on_move=None)",
               "summary": "Snap keys to whole frames -- mayatk's ``snap_keys_to_frames`` by name, signature",
-              "line": 2378,
+              "line": 2363,
               "deprecated": false
             },
             {
@@ -308,7 +308,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, method='nearest', recursive=True, on_move=None)",
               "summary": "Snap every key on a fractional frame back onto a whole one, over the Repair",
-              "line": 2409,
+              "line": 2394,
               "deprecated": false
             },
             {
@@ -317,7 +317,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, selected_only=False, time_range=None, method='nearest', on_move=None)",
               "summary": "Snap keys to whole frames (or \"clean\" numbers) — mirror of ``mtk.snap_keys_to_frames``.",
-              "line": 2436,
+              "line": 2421,
               "deprecated": false
             },
             {
@@ -326,7 +326,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, interpolation='stepped', keys='auto', tangent='out')",
               "summary": "Set the interpolation of the chosen keys -- mirror of mayatk's (the Animation",
-              "line": 2522,
+              "line": 2507,
               "deprecated": false
             },
             {
@@ -335,7 +335,7 @@
               "kind": "staticmethod",
               "signature": "(objects, interpolation='CONSTANT', handle=None)",
               "summary": "Set fcurve key ``interpolation`` (``CONSTANT`` / ``LINEAR`` / ``BEZIER`` / ``SINE`` …) on",
-              "line": 2580,
+              "line": 2565,
               "deprecated": false
             },
             {
@@ -344,7 +344,7 @@
               "kind": "staticmethod",
               "signature": "(objects, stepped=True)",
               "summary": "Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.",
-              "line": 2597,
+              "line": 2582,
               "deprecated": false
             },
             {
@@ -353,7 +353,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Force CONSTANT interpolation on the ``hide_viewport`` / ``hide_render``",
-              "line": 2602,
+              "line": 2587,
               "deprecated": false
             },
             {
@@ -362,7 +362,7 @@
               "kind": "staticmethod",
               "signature": "(obj, keys, frame_offset=0.0)",
               "summary": "Key a carried visibility curve onto *obj* as its ``hide_viewport`` +",
-              "line": 2624,
+              "line": 2609,
               "deprecated": false
             },
             {
@@ -371,7 +371,7 @@
               "kind": "staticmethod",
               "signature": "(objects, time=None, on_delete=None, channel_box_only=False)",
               "summary": "Remove animation from the given objects — mirror of ``mtk.delete_keys``.",
-              "line": 2653,
+              "line": 2638,
               "deprecated": false
             },
             {
@@ -380,7 +380,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Set the scene frame range to the keyed extent of ``objects`` (or every scene object).",
-              "line": 2708,
+              "line": 2693,
               "deprecated": false
             },
             {
@@ -389,7 +389,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, mode='auto')",
               "summary": "Return a copy-buffer for :func:`paste_keys` — mirror of ``mtk.AnimUtils.copy_keys`` (same",
-              "line": 2725,
+              "line": 2710,
               "deprecated": false
             },
             {
@@ -398,7 +398,7 @@
               "kind": "staticmethod",
               "signature": "(copied_data)",
               "summary": "What a :meth:`copy_keys` buffer holds, for a panel's report -- mirror of mayatk's.",
-              "line": 2822,
+              "line": 2807,
               "deprecated": false
             },
             {
@@ -407,7 +407,7 @@
               "kind": "staticmethod",
               "signature": "(objects, buffer, target_time=None, on_replace=None)",
               "summary": "Paste a copy-buffer from :func:`copy_keys` onto ``objects`` — mirror of",
-              "line": 2850,
+              "line": 2835,
               "deprecated": false
             },
             {
@@ -416,7 +416,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, relative=False, optimize=False, on_replace=None, on_delete=None, transfer_tangents=True)",
               "summary": "Transfer keyframes from the first object (source) onto the rest (targets) — mirror of",
-              "line": 2913,
+              "line": 2898,
               "deprecated": false
             },
             {
@@ -425,7 +425,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, value_tolerance=0.001, stats=None, max_error=None, on_delete=None)",
               "summary": "Reduce baked fcurves to their shape-defining keys and refit the handles —",
-              "line": 3035,
+              "line": 3020,
               "deprecated": false
             },
             {
@@ -434,7 +434,7 @@
               "kind": "staticmethod",
               "signature": "(objects, value_tolerance=1e-05, remove=False, time_range=None, selected_only=False)",
               "summary": "Interior keys of a flat run — mirror of ``mtk.AnimUtils.get_redundant_flat_keys``.",
-              "line": 3091,
+              "line": 3076,
               "deprecated": false
             },
             {
@@ -443,7 +443,7 @@
               "kind": "staticmethod",
               "signature": "(objects) -> list",
               "summary": "Unwrap Euler rotation curves -- mirror of ``mtk.AnimUtils.euler_filter``.",
-              "line": 3148,
+              "line": 3133,
               "deprecated": false
             },
             {
@@ -452,7 +452,7 @@
               "kind": "staticmethod",
               "signature": "(objects, value_tolerance=0.001, time_range=None, selected_only=False, on_delete=None)",
               "summary": "Drop the keys that do not contribute to a curve's shape — mirror of",
-              "line": 3183,
+              "line": 3168,
               "deprecated": false
             },
             {
@@ -461,7 +461,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None, max_error=None, on_delete=None, progress_callback=None, recursive=True, quiet=False)",
               "summary": "Remove redundant animation data — mirror of ``mtk.AnimUtils.optimize_keys``.",
-              "line": 3265,
+              "line": 3250,
               "deprecated": false
             },
             {
@@ -470,7 +470,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0, on_delete=None, delete_corrupted=None, time_range_threshold=None, recursive=True, quiet=False)",
               "summary": "Detect and repair corrupted animation fcurves — mirror of",
-              "line": 3369,
+              "line": 3354,
               "deprecated": false
             },
             {
@@ -479,7 +479,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, on_delete=None)",
               "summary": "Remove the bookend keys :meth:`tie_keyframes` inserted -- mayatk's",
-              "line": 3480,
+              "line": 3465,
               "deprecated": false
             },
             {
@@ -488,7 +488,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, untie=False, frame_range=None, absolute=False, on_delete=None)",
               "summary": "Add (tie) or remove (untie) bookend keys at the playback-range boundaries — mirror of",
-              "line": 3491,
+              "line": 3476,
               "deprecated": false
             },
             {
@@ -497,7 +497,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, frame_range=None, step=1, only_selected=False, visual_keying=True, clear_constraints=False, clear_parents=False, use_current_action=True, bake_types=None)",
               "summary": "Bake animation to plain keyframes — the Blender analogue of Maya's Smart Bake (wraps the",
-              "line": 3554,
+              "line": 3539,
               "deprecated": false
             },
             {
@@ -506,7 +506,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, frame_range=None, step=1)",
               "summary": "Bake driven/animated blend-shape (shape-key) weights to explicit keyframes — the Blender",
-              "line": 3626,
+              "line": 3611,
               "deprecated": false
             },
             {
@@ -515,7 +515,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, by_time=False, ignore_holds=False)",
               "summary": "Per-object animation summary — mirror of ``mtk`` get-animation-info.",
-              "line": 3703,
+              "line": 3688,
               "deprecated": false
             },
             {
@@ -524,7 +524,7 @@
               "kind": "staticmethod",
               "signature": "(records)",
               "summary": "Render :func:`get_animation_info` records as CSV (paste into a spreadsheet) — mirror of",
-              "line": 3754,
+              "line": 3739,
               "deprecated": false
             },
             {
@@ -533,7 +533,7 @@
               "kind": "staticmethod",
               "signature": "(records)",
               "summary": "Render :func:`get_animation_info` records as an HTML table for the text-view dialog.",
-              "line": 3784,
+              "line": 3769,
               "deprecated": false
             },
             {
@@ -542,7 +542,7 @@
               "kind": "staticmethod",
               "signature": "(scene, file_format='PNG', container=None, codec=None, quality=None)",
               "summary": "Apply playblast/render output settings to ``scene.render`` — the engine behind the rendering",
-              "line": 3810,
+              "line": 3795,
               "deprecated": false
             },
             {
@@ -551,7 +551,7 @@
               "kind": "staticmethod",
               "signature": "() -> None",
               "summary": "Deselect every key, whatever is or is not selected.",
-              "line": 3851,
+              "line": 3836,
               "deprecated": false
             },
             {
@@ -560,7 +560,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Graph Editor / Dope Sheet key selection, per fcurve.",
-              "line": 3899,
+              "line": 3884,
               "deprecated": false
             },
             {
@@ -569,7 +569,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The timeline's preview range, or ``None`` when it is off.",
-              "line": 3933,
+              "line": 3918,
               "deprecated": false
             },
             {
@@ -578,7 +578,7 @@
               "kind": "staticmethod",
               "signature": "(sources, gate=None, name='previewLayer')",
               "summary": "Play foreign actions on objects through throwaway NLA tracks.",
-              "line": 3950,
+              "line": 3935,
               "deprecated": false
             },
             {
@@ -587,7 +587,7 @@
               "kind": "staticmethod",
               "signature": "(handle) -> bool",
               "summary": "Tear down :meth:`create_preview_layer`'s tracks and restore the active action.",
-              "line": 4028,
+              "line": 4013,
               "deprecated": false
             },
             {
@@ -4744,7 +4744,7 @@
               "kind": "classmethod",
               "signature": "(cls, sections: Optional[Iterable[str]]) -> List[str]",
               "summary": "*sections* as known keys, de-duplicated in the caller's order.",
-              "line": 124,
+              "line": 109,
               "deprecated": false
             }
           ]
@@ -4752,7 +4752,7 @@
         {
           "name": "SceneAnalyzer",
           "summary": "Get Scene Info in Blender -- mirror of ``mtk.SceneAnalyzer``'s sectioned report.",
-          "line": 147,
+          "line": 131,
           "bases": [],
           "members": [
             {
@@ -4761,7 +4761,7 @@
               "kind": "classmethod",
               "signature": "(cls, adaptive: bool = False, objects=None, progress_callback: Optional[Callable[[int, int, str], None]] = None, sections: Optional[Iterable[str]] = None, scope: Optional[str] = None) -> Dict[str, str]",
               "summary": "Run the audit and return ``{\"_header\": html, section: html, ...}``.",
-              "line": 179,
+              "line": 163,
               "deprecated": false
             },
             {
@@ -4770,7 +4770,7 @@
               "kind": "classmethod",
               "signature": "(cls, adaptive: bool = False, objects=None, sections: Optional[Iterable[str]] = None, scope: Optional[str] = None) -> Dict[str, str]",
               "summary": ":meth:`format_audit_html` as plain text (console / log).",
-              "line": 208,
+              "line": 192,
               "deprecated": false
             }
           ]
@@ -11396,7 +11396,7 @@
               "kind": "method",
               "signature": "(self) -> Dict[str, str]",
               "summary": "Live value for every token in :attr:`NAME_TOKENS` but the counter.",
-              "line": 779,
+              "line": 770,
               "deprecated": false
             },
             {
@@ -11405,7 +11405,7 @@
               "kind": "method",
               "signature": "(self, pattern: Optional[str] = None, export_dir: Optional[str] = None, output_format: str = 'fbx', *, report: bool = True) -> Dict[str, Any]",
               "summary": "Resolve the Output Filename field into the file(s) an export writes.",
-              "line": 807,
+              "line": 798,
               "deprecated": false
             },
             {
@@ -11414,7 +11414,7 @@
               "kind": "method",
               "signature": "(self, *, extension: str = '.fbx', output_format: Optional[str] = None) -> str",
               "summary": "The full export path, from the fields :meth:`perform_export` stamps.",
-              "line": 849,
+              "line": 840,
               "deprecated": false
             },
             {
@@ -11423,7 +11423,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> List[str]",
               "summary": "All FBX export-option preset names (built-in + user;",
-              "line": 967,
+              "line": 958,
               "deprecated": false
             },
             {
@@ -11432,7 +11432,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> str",
               "summary": "Writable directory FBX export-option presets are saved to (the \"Open Preset",
-              "line": 973,
+              "line": 964,
               "deprecated": false
             },
             {
@@ -11441,7 +11441,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str) -> Optional[str]",
               "summary": "Filesystem path *name* resolves to (built-in or user tier), or ``None`` if it",
-              "line": 979,
+              "line": 970,
               "deprecated": false
             },
             {
@@ -11450,7 +11450,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str, options: Optional[Dict[str, Any]] = None) -> str",
               "summary": "Save *options* (default: :data:`_DEFAULT_FBX_OPTIONS`) as user preset *name*.",
-              "line": 987,
+              "line": 978,
               "deprecated": false
             },
             {
@@ -11459,7 +11459,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str) -> bool",
               "summary": "Delete the *user* FBX export-option preset *name* (built-ins are read-only).",
-              "line": 998,
+              "line": 989,
               "deprecated": false
             },
             {
@@ -11468,7 +11468,7 @@
               "kind": "property",
               "signature": "(self) -> Dict[str, Optional[str]]",
               "summary": "The FBX presets the panel's FBX Preset combo lists, keyed by name --",
-              "line": 1004,
+              "line": 995,
               "deprecated": false
             },
             {
@@ -11477,7 +11477,7 @@
               "kind": "method",
               "signature": "(self) -> Dict[str, Optional[str]]",
               "summary": "Re-scan the FBX presets (the panel's refresh button) and return",
-              "line": 1012,
+              "line": 1003,
               "deprecated": false
             },
             {
@@ -11486,7 +11486,7 @@
               "kind": "method",
               "signature": "(self, preset: Optional[str]) -> Dict[str, str]",
               "summary": "*preset* -- a value of :attr:`presets`, its name -- as metadata an export",
-              "line": 1019,
+              "line": 1010,
               "deprecated": false
             },
             {
@@ -11495,7 +11495,7 @@
               "kind": "method",
               "signature": "(self, metadata: Optional[Dict[str, str]]) -> Optional[str]",
               "summary": "Save the FBX preset an export preset embedded (:meth:`fbx_preset_metadata`)",
-              "line": 1035,
+              "line": 1026,
               "deprecated": false
             },
             {
@@ -11504,7 +11504,7 @@
               "kind": "method",
               "signature": "(self, preset: Optional[str] = None) -> None",
               "summary": "Open *preset* (a value of :attr:`presets`) for editing: its JSON in the",
-              "line": 1063,
+              "line": 1054,
               "deprecated": false
             },
             {
@@ -11513,7 +11513,7 @@
               "kind": "staticmethod",
               "signature": "(export_mode: str = 'visible') -> List",
               "summary": "The objects an export scope names -- what the panel's Scope row hands",
-              "line": 1099,
+              "line": 1090,
               "deprecated": false
             },
             {
@@ -11522,7 +11522,7 @@
               "kind": "method",
               "signature": "(self, name: Optional[str] = None, verify: bool = False) -> Optional[dict]",
               "summary": "Load a named FBX export-option preset so the next :meth:`perform_export` call",
-              "line": 1125,
+              "line": 1116,
               "deprecated": false
             },
             {
@@ -11531,7 +11531,7 @@
               "kind": "method",
               "signature": "(self) -> dict",
               "summary": "Return (and log) the FBX export kwargs the next :meth:`perform_export` call will",
-              "line": 1286,
+              "line": 1277,
               "deprecated": false
             }
           ]
@@ -12935,16 +12935,7 @@
               "kind": "staticmethod",
               "signature": "() -> 'ptk.PresetStore'",
               "summary": "Shared store of lightmap quality presets (built-in + user tiers).",
-              "line": 483,
-              "deprecated": false
-            },
-            {
-              "name": "preset_name",
-              "qualname": "LightmapBaker.preset_name",
-              "kind": "classmethod",
-              "signature": "(cls, name: str) -> str",
-              "summary": "*name* as the preset store knows it now: itself when the store has",
-              "line": 494,
+              "line": 466,
               "deprecated": false
             },
             {
@@ -12953,7 +12944,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str, **overrides) -> 'LightmapBaker'",
               "summary": "Construct a baker from a named preset.",
-              "line": 505,
+              "line": 477,
               "deprecated": false
             },
             {
@@ -12962,7 +12953,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects=None) -> List[str]",
               "summary": "The names of the meshes a bake of *objects* acts on (default: the selection).",
-              "line": 552,
+              "line": 524,
               "deprecated": false
             },
             {
@@ -12971,7 +12962,7 @@
               "kind": "method",
               "signature": "(self, objects=None, packing: str = 'atlas', output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap', on_progress: Optional[Callable[[int, int, str], bool]] = None, intensity: float = 1.0, **kwargs) -> LightmapBakeResult",
               "summary": "Bake *objects*' lightmaps and record them: the whole workflow, as the panel runs it.",
-              "line": 594,
+              "line": 566,
               "deprecated": false
             },
             {
@@ -12980,7 +12971,7 @@
               "kind": "method",
               "signature": "(self, objects=None, reach: Optional[float] = None, output_dir: Optional[str] = None, relocate: bool = False)",
               "summary": "What a re-bake of the changed objects would redo, and why -- the dry run.",
-              "line": 792,
+              "line": 764,
               "deprecated": false
             },
             {
@@ -12989,7 +12980,7 @@
               "kind": "method",
               "signature": "(self, packing: Optional[str] = None, reach: Optional[float] = None, lighting: bool = True, relocate: bool = False, **bake_kwargs) -> LightmapBakeResult",
               "summary": "Re-bake what changed since the last bake, and what that change shades.",
-              "line": 931,
+              "line": 903,
               "deprecated": false
             },
             {
@@ -12998,7 +12989,7 @@
               "kind": "method",
               "signature": "(self, objects=None, output_dir: Optional[str] = None, relocate: bool = False, intensity: Optional[float] = None)",
               "summary": "What :meth:`rebake` of *objects* would redo -- its dry run.",
-              "line": 989,
+              "line": 961,
               "deprecated": false
             },
             {
@@ -13007,7 +12998,7 @@
               "kind": "method",
               "signature": "(self, objects=None, packing: Optional[str] = None, relocate: bool = False, **bake_kwargs) -> LightmapBakeResult",
               "summary": "Re-bake *objects* the way each was baked, changed or not.",
-              "line": 1017,
+              "line": 989,
               "deprecated": false
             },
             {
@@ -13016,7 +13007,7 @@
               "kind": "method",
               "signature": "(self, objects=None) -> Dict[str, List[str]]",
               "summary": "``{folder: [map file names]}`` -- where the maps *objects* (names)",
-              "line": 1137,
+              "line": 1109,
               "deprecated": false
             },
             {
@@ -13025,7 +13016,7 @@
               "kind": "method",
               "signature": "(self, output_dir: Optional[str] = None, relocate: bool = False)",
               "summary": "The file's bake state, map by map -- the Bake State viewer.",
-              "line": 1150,
+              "line": 1122,
               "deprecated": false
             },
             {
@@ -13034,7 +13025,7 @@
               "kind": "method",
               "signature": "(self, report: Optional['ptk.StaleReport'] = None, output_dir: Optional[str] = None, relocate: bool = False) -> List[Dict[str, Any]]",
               "summary": "The lightmaps the file reads, each with its state -- the Lightmap",
-              "line": 1165,
+              "line": 1137,
               "deprecated": false
             },
             {
@@ -13043,7 +13034,7 @@
               "kind": "method",
               "signature": "(self, maps: Optional[Dict[str, str]] = None) -> Optional[str]",
               "summary": "Capture the room the file's bake lit as a reflection probe, and record it.",
-              "line": 1538,
+              "line": 1510,
               "deprecated": false
             },
             {
@@ -13052,7 +13043,7 @@
               "kind": "method",
               "signature": "(self, objects=None) -> Optional[str]",
               "summary": "Why this file cannot bake *objects* now, or ``None`` (mirror of mayatk's).",
-              "line": 1709,
+              "line": 1681,
               "deprecated": false
             },
             {
@@ -13061,7 +13052,7 @@
               "kind": "method",
               "signature": "(self, paths) -> Optional[str]",
               "summary": "A warning about a finished bake's level, or ``None`` when it is plausible.",
-              "line": 1827,
+              "line": 1799,
               "deprecated": false
             },
             {
@@ -13070,7 +13061,7 @@
               "kind": "method",
               "signature": "(self, objects=None, prefix: str = 'lightmap_irr_', **kwargs) -> Dict[str, str]",
               "summary": "Bake a **lighting-only** irradiance lightmap per object -- THE bake.",
-              "line": 1975,
+              "line": 1947,
               "deprecated": false
             },
             {
@@ -13079,7 +13070,7 @@
               "kind": "method",
               "signature": "(self, objects=None, output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap', claims: Optional[Dict[str, Any]] = None, **kwargs) -> Dict[str, Tuple[str, List[float]]]",
               "summary": "Bake a material-atlased lighting-only lightmap set — plan first, then bake to plan.",
-              "line": 2197,
+              "line": 2169,
               "deprecated": false
             },
             {
@@ -13088,7 +13079,7 @@
               "kind": "method",
               "signature": "(self, objects) -> Dict[str, List[Tuple[str, List[float]]]]",
               "summary": "``{material: [(object_name, rect), ...]}`` — the atlas layout, decided before baking.",
-              "line": 2925,
+              "line": 2897,
               "deprecated": false
             },
             {
@@ -13097,7 +13088,7 @@
               "kind": "method",
               "signature": "(self, plan: Dict[str, List[Tuple[str, List[float]]]]) -> Dict[str, Tuple[int, int]]",
               "summary": "``{object_name: (width, height)}`` — the pixel footprint each object occupies.",
-              "line": 3033,
+              "line": 3005,
               "deprecated": false
             },
             {
@@ -13106,7 +13097,7 @@
               "kind": "method",
               "signature": "(self, mapping: Dict[str, str], output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap', plan: Optional[Dict[str, List[Tuple[str, List[float]]]]] = None, claims: Optional[Dict[str, Any]] = None, regions: Optional[Dict[str, Tuple[float, float, float, float]]] = None) -> Dict[str, Tuple[str, List[float]]]",
               "summary": "Consolidate ``{object_name: per_object_exr}`` into one atlas EXR per primary material.",
-              "line": 3101,
+              "line": 3073,
               "deprecated": false
             },
             {
@@ -13115,7 +13106,7 @@
               "kind": "method",
               "signature": "(self, mapping: Dict[str, str], *, scale_offsets: Optional[Dict[str, List[float]]] = None) -> Dict[str, str]",
               "summary": "Record maps baked elsewhere: :meth:`LightmapRecords.commit`.",
-              "line": 4257,
+              "line": 4229,
               "deprecated": false
             },
             {
@@ -13124,7 +13115,7 @@
               "kind": "method",
               "signature": "(self, objects=None) -> List[str]",
               "summary": "Take the lightmaps off *objects*, or off every baked object for ``None``.",
-              "line": 4272,
+              "line": 4244,
               "deprecated": false
             },
             {
@@ -13133,7 +13124,7 @@
               "kind": "method",
               "signature": "(self, objects=None) -> List[str]",
               "summary": ":meth:`revert`, under its original name.",
-              "line": 4281,
+              "line": 4253,
               "deprecated": false
             },
             {
@@ -13142,7 +13133,7 @@
               "kind": "method",
               "signature": "(self, objects=None) -> List[str]",
               "summary": "The objects :meth:`revert` would take the lightmap from (names).",
-              "line": 4285,
+              "line": 4257,
               "deprecated": false
             },
             {
@@ -13151,7 +13142,7 @@
               "kind": "method",
               "signature": "(self, objects=None) -> List[str]",
               "summary": "Start tracking *objects*' untracked maps as they stand -- no render.",
-              "line": 4292,
+              "line": 4264,
               "deprecated": false
             },
             {
@@ -13160,7 +13151,7 @@
               "kind": "method",
               "signature": "(self, maps=None) -> List[Tuple[int, float]]",
               "summary": "``[(size, kept)]`` -- the atlas sizes :meth:`combine` of *maps* can",
-              "line": 4312,
+              "line": 4284,
               "deprecated": false
             },
             {
@@ -13169,7 +13160,7 @@
               "kind": "method",
               "signature": "(self, maps=None, size: Optional[int] = None, merge_materials: bool = True, on_progress: Optional[Callable[[int, int, str], Any]] = None) -> LightmapBakeResult",
               "summary": "Pack each split group *maps* belong to into one atlas -- no render.",
-              "line": 4345,
+              "line": 4317,
               "deprecated": false
             },
             {
@@ -13178,7 +13169,7 @@
               "kind": "classmethod",
               "signature": "(cls, paths) -> Dict[str, Tuple[float, float]]",
               "summary": "``{path: (mean RGB, fraction of channels at the half-float ceiling)}``.",
-              "line": 4623,
+              "line": 4595,
               "deprecated": false
             },
             {
@@ -13187,7 +13178,7 @@
               "kind": "classmethod",
               "signature": "(cls, paths) -> Optional[Tuple[str, float, float]]",
               "summary": "``(path, mean, saturated)`` for the BRIGHTEST map, or ``None`` if unreadable.",
-              "line": 4673,
+              "line": 4645,
               "deprecated": false
             },
             {
@@ -13196,7 +13187,7 @@
               "kind": "staticmethod",
               "signature": "(scope: str = 'selected') -> List[Any]",
               "summary": "The mesh objects a Scope word names, before the Exclude set (mirror",
-              "line": 4820,
+              "line": 4792,
               "deprecated": false
             },
             {
@@ -13205,7 +13196,7 @@
               "kind": "classmethod",
               "signature": "(cls, scope: str = 'selected') -> List[Any]",
               "summary": "The light objects a Scope word holds (mirror of mayatk's): what",
-              "line": 4858,
+              "line": 4830,
               "deprecated": false
             },
             {
@@ -13214,7 +13205,7 @@
               "kind": "staticmethod",
               "signature": "(objects) -> List[Any]",
               "summary": "Make *objects* the selection -- names or objects -- or clear it when",
-              "line": 4886,
+              "line": 4858,
               "deprecated": false
             }
           ]
