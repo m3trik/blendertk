@@ -128,9 +128,11 @@ class TestDefer(_HostCase):
         self.bpy.context.window_manager.popup_menu.side_effect = _popup
         return drawn
 
-    def test_a_missing_engine_reaches_the_user_not_the_hidden_console(self):
-        """The install hint is the whole point of the missing-engine ImportError: raised
-        from a timer callback it would print to the hidden SYSTEM console."""
+    def test_an_import_error_in_the_build_reaches_the_user_not_the_hidden_console(self):
+        """An ImportError raised by the build (a dependency the build imports) carries its
+        install hint, which is the whole point: raised from a timer callback it would
+        print to the hidden SYSTEM console. (A missing blendertk raises before any
+        adapter exists -- the launcher's caller sees that one.)"""
         drawn = self._popup_lines()
 
         def build():
@@ -187,6 +189,18 @@ class TestDefer(_HostCase):
         callback = self._deferred(build)
         with self.assertRaises(ValueError):
             callback()
+
+
+class TestLiveMenu(_HostCase):
+    def test_the_bridges_menu_is_the_live_one(self):
+        from blendertk.ui_utils.marking_menu_host.keymap_bridge import KeymapBridge
+
+        before = KeymapBridge.tcl
+        self.addCleanup(setattr, KeymapBridge, "tcl", before)
+        KeymapBridge.tcl = None
+        self.assertIsNone(self.host.live_menu(), "no bridge, no live menu")
+        KeymapBridge.tcl = menu = object()
+        self.assertIs(self.host.live_menu(), menu)
 
 
 class TestActivationBinding(_HostCase):

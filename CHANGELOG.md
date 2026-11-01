@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-10-31 -- `BlenderMarkingMenuHost.live_menu()` is the keymap bridge's menu (`ui_utils/marking_menu_host/_marking_menu_host.py`).** A repeat launch hands it back instead of stacking a second menu over the same keymap; there is none after `KeymapBridge.teardown` (an add-on unregister, a reload). The startup-popup test now says what it pins: an ImportError raised by the build.
+  - Test(s): `test_marking_menu_host.py` (`TestLiveMenu`).
 - **2026-10-31 - `FbxUtils.embed_dependencies` lists the `materials` record's maps among the files it embeds (`env_utils/fbx_utils.py`, docstring; mirror of mayatk).** pythontk's dependency pass now embeds every map the record names.
   - Test(s): docstring only; the 16 modules `affected_tests.py` selects: 2525 checks passed.
 - **2026-10-31 -- Docs: blendertk hosts the marking menu in Blender (`CLAUDE.md`, `docs/STRUCTURE.md`).** The `ui_utils` row names `BlenderWindow`'s merged helpers (its "DRY reconciliation deferred" note is done), `qt_runtime.py` and `marking_menu_host/` (`BlenderMarkingMenuHost` ↔ `mtk.MayaMarkingMenuHost`); CLAUDE.md says where the hosting lives and how the bridge is verified (its operator and poller in a fresh `blender --background`, never synthesized keystrokes).

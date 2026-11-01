@@ -86,6 +86,12 @@ class BlenderMarkingMenuHost(PureMarkingMenuHost):
         bpy.app.timers.register(build, first_interval=self.START_DELAY, persistent=True)
         return None
 
+    def live_menu(self):
+        """The menu the keymap bridge drives (one per Blender process), or None once
+        ``KeymapBridge.teardown`` (an add-on unregister, a reload) let it go: a repeat
+        launch hands it back instead of stacking a second menu over the same keymap."""
+        return KeymapBridge.tcl
+
     @staticmethod
     def _report_startup_error(error):
         """Show *error* in Blender, falling back to the console.
