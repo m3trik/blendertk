@@ -5,8 +5,10 @@
 Blender is not a Qt app (GHOST event loop, no bundled PySide6), so -- unlike Maya, which
 provides a live QApplication -- a Qt UI in Blender needs three things before its first widget:
 
+* :class:`HostedApp` -- the application Qt is stood up for, named by it (tentacle:
+  ``"tentacle"``): the name that spells its env vars, its managed folder and its messages.
 * :class:`QtBootstrap` -- a Qt binding importable in Blender's bundled Python (pip-installed
-  on first launch, or a pre-staged ``TENTACLE_QT_DEPS`` folder), and ``QT_API`` pinned.
+  on first launch, or a pre-staged ``<NAME>_QT_DEPS`` folder), and ``QT_API`` pinned.
 * :class:`QtRuntime` -- the process QApplication, the hidden ``blender_widget`` parent, and an
   event pump on ``bpy.app.timers`` that delivers Qt's posted events.
 * :class:`QtPlatformUnavailable` -- the error raised, before any QApplication exists, when Qt
@@ -19,6 +21,36 @@ so blendertk owns Blender's Qt hosting. Importable without Qt and without a runn
 
 import os
 import sys
+
+import pythontk as ptk
+
+
+class HostedApp:
+    """The application blendertk stands Qt up for in this Blender: it names itself.
+
+    blendertk is a library and names no product. Whatever launches a Qt UI here sets
+    :attr:`name` before the first :meth:`QtBootstrap.ensure_qt` (tentacle's entry points set
+    ``"tentacle"``, ``Tcl.APP_NAME``; ``BlenderMarkingMenuHost.start(app=)`` does it for a
+    launcher), and that name spells what is made for it: the env vars it reads
+    (:meth:`env`: ``TENTACLE_QT_DEPS``, ``TENTACLE_CLICK_DEBUG_LOG``), the managed qt_deps
+    folder (:meth:`QtBootstrap.qt_install_dir`) and the prefix of its messages
+    (:meth:`label`). So an install named ``"tentacle"`` keeps every ``TENTACLE_*`` variable
+    and folder it had. One hosted application per Blender process: class state.
+    """
+
+    #: The hosted application's name, lower case; the default names the library itself.
+    name = "blendertk"
+
+    @classmethod
+    def env(cls, suffix):
+        """The ``<NAME>_<suffix>`` environment variable (``env("QT_DEPS")`` ->
+        ``$TENTACLE_QT_DEPS``), or None when unset."""
+        return os.environ.get(f"{cls.name.upper()}_{suffix}")
+
+    @classmethod
+    def label(cls):
+        """The name as a message title or prefix (``"Tentacle"``)."""
+        return cls.name.capitalize()
 
 
 class QtPlatformUnavailable(RuntimeError):
@@ -39,7 +71,7 @@ class QtPlatformUnavailable(RuntimeError):
 # pip-install Qt into Maya (it would shadow/clash with the bundled copy). That's also why
 # tentacle/uitk deliberately exclude qtpy/PySide from their pyproject ``dependencies``. Blender's
 # bundled Python ships *no* Qt, so it has to be provided.
-class QtBootstrap:
+class QtBootstrap(ptk.LoggingMixin):
     """Make a Qt binding importable in Blender's Python *before* anything imports qtpy.
 
     :meth:`ensure_qt` must run before the first ``qtpy`` import: ``QT_API`` has to be set
@@ -52,8 +84,6 @@ class QtBootstrap:
     #: the same set alongside the package so this bootstrap finds a binding and no-ops
     #: (its copy is drift-guarded against this one by ``test_tentacle_installer.py``).
     QT_SPECS = ("PySide6", "qtpy")
-    #: An optional pre-staged folder holding PySide6 + qtpy (skips the on-demand install).
-    QT_DEPS = os.environ.get("TENTACLE_QT_DEPS")
 
     @staticmethod
     def qt_importable():
@@ -74,8 +104,9 @@ class QtBootstrap:
         provisioned there can shadow a dist Blender ships. (The pre-2026-08 target was the
         sibling ``scripts/modules``, which sits at ``sys.path`` index 0 — a copy already
         there keeps winning imports, so existing installs stay live.) Falls back to a
-        non-roaming managed dir when bpy isn't importable (the install itself is
-        bpy-gated, so that branch is just the reuse-scan)."""
+        non-roaming managed dir named for the hosted application (:class:`HostedApp`) when
+        bpy isn't importable (the install itself is bpy-gated, so that branch is just the
+        reuse-scan)."""
         try:
             import bpy
 
@@ -83,18 +114,12 @@ class QtBootstrap:
                 bpy.utils.user_resource("SCRIPTS", path="addons/modules", create=True)
             )
         except Exception:
-            # Windows: LOCALAPPDATA. Linux/macOS: the XDG data dir, never loose
-            # in the home folder -- an absolute $XDG_DATA_HOME only, per the spec
-            # (ptk.UserConfig.xdg_home's rule, spelled out: this runs before the
-            # sibling packages are importable).
-            base = os.environ.get("LOCALAPPDATA")
-            if not base:
-                base = os.environ.get("XDG_DATA_HOME", "")
-                if not os.path.isabs(base):
-                    base = os.path.join(os.path.expanduser("~"), ".local", "share")
+            # Windows: LOCALAPPDATA. Linux/macOS: the XDG data dir, never loose in the
+            # home folder (pythontk's rule).
+            base = os.environ.get("LOCALAPPDATA") or ptk.UserConfig.xdg_home("data")
             return os.path.join(
                 base,
-                "tentacle",
+                HostedApp.name,
                 "qt_deps",
                 f"py{sys.version_info[0]}{sys.version_info[1]}",
             )
@@ -103,7 +128,8 @@ class QtBootstrap:
     def ensure_qt(cls):
         """Make a Qt binding importable; no-op under Maya, on-demand pip-install under Blender.
 
-        ``ensure_qt`` adds a pre-staged folder if you point ``TENTACLE_QT_DEPS`` at one, otherwise
+        ``ensure_qt`` adds a pre-staged folder if you point ``<NAME>_QT_DEPS`` (the hosted
+        application's, :meth:`HostedApp.env`: ``TENTACLE_QT_DEPS``) at one, otherwise
         pip-installs PySide6 + qtpy into Blender's *own* user-modules dir **on first launch** (the
         on-demand install) — gated on actually running inside Blender so a bare interpreter never gets
         an unsolicited download.
@@ -115,7 +141,7 @@ class QtBootstrap:
             return
         install_dir = cls.qt_install_dir()
         for target in (
-            cls.QT_DEPS,
+            HostedApp.env("QT_DEPS"),
             install_dir,
         ):  # reuse a pre-staged / previously-installed dir (append: host keeps precedence)
             if target and os.path.isdir(target) and target not in sys.path:
@@ -135,8 +161,9 @@ class QtBootstrap:
         from blendertk.core_utils._core_utils import CoreUtils
 
         py = CoreUtils._blender_python_exe()
-        print(
-            f"tentacle: Blender has no Qt — installing PySide6 + qtpy into {install_dir} (first launch only)…"
+        cls.logger.info(
+            f"{HostedApp.name}: Blender has no Qt -- installing PySide6 + qtpy into "
+            f"{install_dir} (first launch only)..."
         )
         try:
             os.makedirs(install_dir, exist_ok=True)
@@ -144,15 +171,14 @@ class QtBootstrap:
             # Resolver-aware, never a raw ``pip install --target``: that plans a
             # complete standalone closure and re-downloads deps Blender already
             # ships (this is how a shadowing ``packaging`` landed in profiles).
-            import pythontk as ptk
-
             ptk.PackageManager(python_path=py).install_targeted(
                 list(cls.QT_SPECS), install_dir
             )
         except Exception as error:
-            print(
-                f"tentacle: on-demand Qt install failed ({error}). Set TENTACLE_QT_DEPS to a folder "
-                "holding PySide6 + qtpy, or pip-install them into Blender's Python."
+            cls.logger.error(
+                f"{HostedApp.name}: on-demand Qt install failed ({error}). Set "
+                f"{HostedApp.name.upper()}_QT_DEPS to a folder holding PySide6 + qtpy, or "
+                "pip-install them into Blender's Python."
             )
             return
         # APPEND, never insert(0): the host's bundled packages keep import precedence.
@@ -221,12 +247,12 @@ class QtRuntime:
             )
         except (OSError, subprocess.SubprocessError) as e:
             raise QtPlatformUnavailable(
-                "tentacle: could not test whether Qt can open a window here, so the "
-                f"marking menu is off: {e}"
+                f"{HostedApp.name}: could not test whether Qt can open a window here, so "
+                f"the marking menu is off: {e}"
             ) from e
         if probe.returncode != 0 or "ok" not in probe.stdout:
             raise QtPlatformUnavailable(
-                "tentacle: Qt cannot open a window here, so the marking menu is off "
+                f"{HostedApp.name}: Qt cannot open a window here, so the marking menu is off "
                 f"(QT_QPA_PLATFORM={os.environ.get('QT_QPA_PLATFORM', '')!r}).\n"
                 f"{probe.stderr.strip()[-800:]}\n"
                 "On Linux, Qt's X11 plug-in needs: libxcb-cursor0 libxkbcommon-x11-0 "

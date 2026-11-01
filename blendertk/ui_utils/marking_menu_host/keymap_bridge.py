@@ -17,22 +17,29 @@ import os
 import sys
 import time
 
+import pythontk as ptk
+
 from blendertk.ui_utils.blender_window import BlenderWindow
+from blendertk.ui_utils.qt_runtime import HostedApp
 
 
-class KeymapBridge:
+class KeymapBridge(ptk.LoggingMixin):
     """Bridge the activation key from Blender's keymap to the Qt marking menu — the half Maya needs none of.
 
     Maya is a Qt app, so MarkingMenu's ``QShortcut`` (ApplicationShortcut context) catches the
     activation key from anywhere — Maya adds nothing. Blender's GHOST owns the keyboard, so that
     shortcut never sees viewport keystrokes. This registers one Blender operator + a **3D-View**
-    keymap item that calls ``tcl.show(...)``, restoring the "instantiate and the key works" behavior —
+    keymap item that drives the menu, restoring the "instantiate and the key works" behavior —
     automatically, on construction, with no separate add-on to enable. Scoped to the viewport on
     purpose: a 3D-View region keymap item is evaluated before the global ``Screen`` keymap, so it takes
     the key when the viewport has focus *without* us disabling anyone's global shortcut (F12 still
     renders everywhere else). ``import bpy`` is deferred so importing this module never needs Blender.
 
-    One per Blender process: the live menu (:attr:`tcl`), the keymap items (:attr:`keymaps`), the
+    The menu is driven through what ``uitk.MarkingMenu`` publishes for a host that owns the
+    keyboard -- ``activate(buttons=)`` on key-down, ``release()`` on key-up, ``armed`` while the
+    key is held -- never its private handlers.
+
+    One per Blender process: the live menu (:attr:`menu`), the keymap items (:attr:`keymaps`), the
     held-button poller (:attr:`poller`) and the in-flight gesture flag (:attr:`gesture_active`) are
     class state, so the registered Blender operator and the poller timer reach them through the class.
     They reset when the module is re-executed on reload (matching the old module globals' semantics).
@@ -44,7 +51,7 @@ class KeymapBridge:
 
     DEBUG = False  # set True to log each activation (helps confirm the keymap is firing live)
 
-    tcl = None  # the live marking menu the operator drives (one Qt host per Blender process)
+    menu = None  # the live marking menu the operator drives (one Qt host per Blender process)
     keymaps = []  # (keymap, keymap_item) pairs we added, for clean removal
     poller = (
         None  # live poll callback (held-button activation fallback), for clean removal
@@ -220,18 +227,20 @@ class KeymapBridge:
             return
 
         class TENTACLE_OT_show_marking_menu(bpy.types.Operator):
-            """Bridge a Blender key event to the tentacle Qt marking menu.
+            """Bridge a Blender key event to the Qt marking menu.
 
             GHOST owns the keyboard, so the menu's own Qt shortcut never fires from the viewport — this
             operator stands in for it, driving the SAME interaction state machine Maya's Qt
-            ``GlobalShortcut`` does: ``KeymapBridge.drive_press`` on key-down (arms the gesture +
-            ``_activation_key_held``, shows + syncs the menu) and ``KeymapBridge.drive_release`` on
-            key-up (completes/hides, releases the grab). Two keymap items (PRESS + RELEASE) set ``phase``.
-            The old bridge called ``show()`` directly — it painted the overlay but never armed it, so the
-            menu was "stuck at the launch screen" (no grab → child buttons swallowed the click → no nav)."""
+            ``GlobalShortcut`` does: ``KeymapBridge.drive_press`` on key-down (``menu.activate``: arms
+            the gesture, shows + syncs the menu) and ``KeymapBridge.drive_release`` on key-up
+            (``menu.release``: completes/hides, releases the grab). Two keymap items (PRESS + RELEASE)
+            set ``phase``. The old bridge called ``show()`` directly — it painted the overlay but never
+            armed it, so the menu was "stuck at the launch screen" (no grab → child buttons swallowed
+            the click → no nav)."""
 
             bl_idname = "tentacle.show_marking_menu"
-            bl_label = "Tentacle Marking Menu"
+            # The menu's application names it (HostedApp, set before the first launch).
+            bl_label = f"{HostedApp.label()} Marking Menu"
             # "press" (key-down) or "release" (key-up). The F821 suppression is a
             # pyflakes false positive: it misreads the string default inside the
             # bpy.props annotation as a forward-reference type name.
@@ -240,38 +249,43 @@ class KeymapBridge:
             def execute(self, context):
                 # Key-up: complete/hide the gesture and release the mouse grab.
                 if self.phase == "release":
-                    if KeymapBridge.tcl is None:
+                    if KeymapBridge.menu is None:
                         return {
                             "CANCELLED"
                         }  # inactive → consume nothing (symmetry with the press branch)
                     try:
                         KeymapBridge.drive_release()
                     except Exception as error:
-                        self.report({"ERROR"}, f"Tentacle: {error}")
+                        self.report({"ERROR"}, f"{HostedApp.label()}: {error}")
                         if KeymapBridge.DEBUG:
-                            print(f"tentacle: release failed → {error!r}")
+                            KeymapBridge.logger.warning(f"release failed → {error!r}")
                     return {"FINISHED"}
 
                 # Key-down, no live menu → let the key do its normal thing (CANCELLED passes F12 through
-                # to render). report() — not print() — is what's visible from a keymap-invoked operator
-                # (print goes to the hidden system console, never the Python Console panel).
-                if KeymapBridge.tcl is None:
+                # to render). report() — not a log line — is what's visible from a keymap-invoked
+                # operator (the log goes to the hidden system console, never the Python Console panel).
+                if KeymapBridge.menu is None:
                     if KeymapBridge.DEBUG:
                         self.report(
-                            {"WARNING"}, "Tentacle: key fired but no live menu → render"
+                            {"WARNING"},
+                            f"{HostedApp.label()}: key fired but no live menu → render",
                         )
                     return {"CANCELLED"}
                 if KeymapBridge.DEBUG:
-                    self.report({"INFO"}, "Tentacle: key fired → marking menu")
+                    self.report(
+                        {"INFO"}, f"{HostedApp.label()}: key fired → marking menu"
+                    )
                 try:
                     KeymapBridge.drive_press()
                 except (
                     Exception
                 ) as error:  # surface in the status bar, never crash Blender
-                    self.report({"ERROR"}, f"Tentacle: {error}")
+                    self.report({"ERROR"}, f"{HostedApp.label()}: {error}")
                     if KeymapBridge.DEBUG:
-                        print(f"tentacle: activation press failed → {error!r}")
-                # ALWAYS consume the key-down once tentacle is active so it never falls through to render.
+                        KeymapBridge.logger.warning(
+                            f"activation press failed → {error!r}"
+                        )
+                # ALWAYS consume the key-down once a menu is live so it never falls through to render.
                 return {"FINISHED"}
 
         bpy.utils.register_class(TENTACLE_OT_show_marking_menu)
@@ -279,15 +293,15 @@ class KeymapBridge:
     # --- activation state machine -----------------------------------------------------------
     @classmethod
     def drive_press(cls, buttons=None):
-        """Drive the menu's real activation state machine (arms ``_activation_key_held``, shows +
-        syncs the menu) — the entry point Maya's Qt shortcut calls — then nudge the overlay to the
-        front (GHOST keeps OS focus). Released by :meth:`drive_release` (key-up) or by the menu
-        itself after an action.
+        """Drive the menu's real activation state machine (``menu.activate``: arms it, shows +
+        syncs the menu) — what Maya's Qt shortcut drives — then nudge the overlay to the front
+        (GHOST keeps OS focus). Released by :meth:`drive_release` (key-up) or by the menu itself
+        after an action.
 
         Crucially this does **not** grab the mouse for the plain key-hold (no-button) path — it
         mirrors Maya, where the shared ``MarkingMenu`` grabs *only* when a button is already held
         (the chord gesture, via ``_transfer_mouse_control``, reached through
-        ``_on_activation_press(buttons=...)``). An explicit ``grabMouse()`` on the always-visible
+        ``menu.activate(buttons=...)``). An explicit ``grabMouse()`` on the always-visible
         overlay was the cause of "Blender menu buttons need several clicks": a Qt mouse grab
         suppresses the child enter/leave events hover-navigation relies on (``child_enterEvent`` never
         fires → submenus don't open on hover) **and** funnels every click into ``MarkingMenu``'s own
@@ -310,17 +324,12 @@ class KeymapBridge:
         # MouseTracking during the gesture — GHOST doesn't deliver MouseMove to the grabbed Qt
         # overlay, so the menu's own event-driven hover tracking never fires (see install_poller).
         cls.chord_active = buttons is not None and buttons != QtCore.Qt.NoButton
-        if buttons is None:
-            # bare call keeps the keymap path working against uitk builds (and harness stubs)
-            # that predate the `buttons` kwarg — only the poller's chord path needs it.
-            cls.tcl._on_activation_press()
-        else:
-            # Button held at activation → the shared state machine grabs the mouse itself
-            # (_transfer_mouse_control) for the chord gesture, same as Maya. No grab here.
-            cls.tcl._on_activation_press(buttons=buttons)
+        # A button held at activation → the shared state machine grabs the mouse itself
+        # (_transfer_mouse_control) for the chord gesture, same as Maya. No grab here.
+        cls.menu.activate(buttons=buttons)
         for nudge in ("raise_", "activateWindow"):
             try:
-                getattr(cls.tcl, nudge)()
+                getattr(cls.menu, nudge)()
             except Exception:
                 pass
 
@@ -329,21 +338,21 @@ class KeymapBridge:
         """Complete the gesture — the single release path for every Blender-side trigger (keymap
         RELEASE item, Qt ``keyReleaseEvent``, key-watcher edge/stuck checks). Mirrors Maya's
         ``GlobalShortcut.released``, which fires application-wide on key-up no matter which window
-        has focus: ``_on_activation_release`` must run even when ``_show_window`` already cleared
-        ``_activation_key_held`` (opening a standalone window mid-gesture does that, see uitk
-        ``_show_window``) — it's what clears ``_standalone_suppress`` (otherwise every subsequent
+        has focus: ``menu.release()`` must run even when the menu is no longer ``armed`` (opening
+        a standalone window mid-gesture disarms it, see uitk ``_show_window``) — it's what clears
+        the menu's standalone suppression (otherwise every subsequent
         press is silently ignored) and what runs ``request_hide`` on unpinned standalone windows
-        at key-up. Afterwards hand OS focus back to Blender unless a tentacle window kept it —
+        at key-up. Afterwards hand OS focus back to Blender unless one of the menu's Qt windows kept it —
         otherwise the foreground is left on a hidden window and the next key press reaches neither
         Blender's keymap nor Qt until the user clicks the viewport."""
         cls.gesture_active = False
         cls.chord_active = False
-        if cls.tcl is None:
+        if cls.menu is None:
             return
         try:
-            cls.tcl._on_activation_release()
+            cls.menu.release()
         finally:
-            BlenderWindow.restore_foreground(cls.tcl)
+            BlenderWindow.restore_foreground(cls.menu)
 
     # --- keymap install / uninstall ---------------------------------------------------------
     @classmethod
@@ -445,7 +454,7 @@ class KeymapBridge:
         cls._retype_items(cls.user_keymap_items(), key_type)
 
     @classmethod
-    def rebind(cls, tcl, key_show):
+    def rebind(cls, menu, key_show):
         """Move Blender's half of the activation binding onto ``key_show`` (a Qt key name).
 
         ``MarkingMenu.set_activation_key`` moves the Qt half — the chord table and the
@@ -469,7 +478,7 @@ class KeymapBridge:
         if key_type != cls.addon_key_type():
             # Nothing installed yet, or the retype failed — build from scratch.
             if not cls.retype_keymap(key_type):
-                cls.install_keymap(tcl, key_type)
+                cls.install_keymap(menu, key_type)
         # The rows Preferences ▸ Keymap shows are a MERGED copy of our items (see
         # user_keymap_items) and do not follow an addon-item retype — including a
         # customization Blender restored from userpref.blend. Left on the old key,
@@ -482,7 +491,7 @@ class KeymapBridge:
         cls._sync_sibling_items(key_type)
 
     @classmethod
-    def sync_keymap_rebind(cls, tcl):
+    def sync_keymap_rebind(cls, menu):
         """Adopt a rebind made in Preferences ▸ Keymap (throttled; driven by the poller).
 
         Blender's keymap editor is a *working* rebind route — after an edit the new key reaches our
@@ -495,12 +504,12 @@ class KeymapBridge:
         built from scratch every launch, which is why the editor showed ``Z`` again next session).
 
         Never runs while the activation key is armed — moving it out from under a live gesture
-        would strand that gesture. ``_activation_key_held`` is checked alongside
+        would strand that gesture. The menu's ``armed`` is checked alongside
         ``gesture_active`` because a press that half-failed leaves the first set without the
         second (see :meth:`install_poller`), and that is exactly the state a rebind must not hit."""
-        if cls.gesture_active or cls.tcl is not tcl:
+        if cls.gesture_active or cls.menu is not menu:
             return
-        if getattr(tcl, "_activation_key_held", False):
+        if getattr(menu, "armed", False):
             return
         now = time.monotonic()
         if now - cls._last_key_scan < cls.KEY_SCAN_INTERVAL:
@@ -518,8 +527,8 @@ class KeymapBridge:
             return
         if not state[1]:
             cls._declined = state
-            print(
-                f"{__file__}: the marking menu's activation key must be an UNMODIFIED key press, "
+            cls.logger.warning(
+                "the marking menu's activation key must be an UNMODIFIED key press, "
                 f"and Preferences ▸ Keymap has it on '{live}' with a modifier — not adopted, the "
                 "menu keeps its previous key. Rebind it without Ctrl/Alt/Shift/Cmd."
             )
@@ -527,8 +536,8 @@ class KeymapBridge:
         qt_key = cls.blender_type_to_qt_key(live)
         if qt_key is None:
             cls._declined = state  # report once, not once a second
-            print(
-                f"{__file__}: Preferences ▸ Keymap bound the marking menu to '{live}', which has "
+            cls.logger.warning(
+                f"Preferences ▸ Keymap bound the marking menu to '{live}', which has "
                 "no Qt key equivalent — the menu keeps its previous activation key. Pick a "
                 "standard keyboard key."
             )
@@ -536,23 +545,25 @@ class KeymapBridge:
         cls._declined = None
         cls._sync_sibling_items(live)
         try:
-            tcl.set_activation_key(qt_key)  # Qt chords + persistence
+            menu.set_activation_key(qt_key)  # Qt chords + persistence
             # …and Blender's half explicitly, rather than relying on the callback chain through
             # set_activation_key: that one returns early when the Qt side ALREADY holds this key,
             # which would leave our item on the old one — and this scan re-firing on it every
             # second forever. rebind() is idempotent, so the usual double call costs nothing.
-            cls.rebind(tcl, qt_key)
+            cls.rebind(menu, qt_key)
         except Exception as error:
             # Bounded and audible: retrying a key that reliably fails would spin silently.
             cls._declined = state
-            print(f"{__file__}: could not adopt the '{live}' keymap rebind → {error!r}")
+            cls.logger.warning(
+                f"could not adopt the '{live}' keymap rebind → {error!r}"
+            )
 
     @classmethod
-    def install_keymap(cls, tcl, key_type):
+    def install_keymap(cls, menu, key_type):
         """Bind ``key_type`` in Blender's **3D View** keymap to the bridge operator — a PRESS item and a
         RELEASE item — so holding the key over the viewport opens the marking menu and releasing it
         completes/hides, the same press/hold/release gesture as Maya (driven through the operator since
-        GHOST consumes the key before Qt). Records ``tcl`` as the live menu the operator drives.
+        GHOST consumes the key before Qt). Records ``menu`` as the live menu the operator drives.
 
         Scoped to the viewport on purpose: a 3D-View region keymap item is evaluated before the global
         ``Screen`` keymap, so it takes the key over the viewport and naturally wins over ``render.render``
@@ -563,7 +574,7 @@ class KeymapBridge:
         """
         import bpy
 
-        cls.tcl = tcl
+        cls.menu = menu
         cls.ensure_operator()
         cls.uninstall_keymap()  # re-launch safe
         kc = bpy.context.window_manager.keyconfigs.addon
@@ -579,11 +590,10 @@ class KeymapBridge:
             for item in bpy.types.KeyMapItem.bl_rna.properties["type"].enum_items
         }
         if key_type not in valid_types:
-            print(
-                f"{__file__}: the activation key maps to Blender keymap type '{key_type}', which "
+            cls.logger.warning(
+                f"the activation key maps to Blender keymap type '{key_type}', which "
                 "is not a valid keymap type — the 3D-View bridge was not installed. Pick a "
-                "different key (Tcl.launch(key_show=...) / TENTACLE_KEY), or bind it via "
-                "Preferences ▸ Keymap."
+                "different activation key, or bind it via Preferences ▸ Keymap."
             )
             return
         km = kc.keymaps.new(name="3D View", space_type="VIEW_3D")
@@ -596,7 +606,7 @@ class KeymapBridge:
 
     # --- held-button poller -----------------------------------------------------------------
     @classmethod
-    def install_poller(cls, tcl, key_show):
+    def install_poller(cls, menu, key_show):
         """Global activation-key watcher (Windows-only, idempotent) — the focus-independent half
         of the bridge. Qt only receives the key when a Qt window has OS focus, and Blender's
         keymap only when GHOST has it *and* dispatch isn't eaten, so neither side alone can track
@@ -612,12 +622,12 @@ class KeymapBridge:
         press path with the OS-read button mask — ``QApplication.mouseButtons()`` is blind to
         GHOST's mouse state. Nothing competes for the key here (the measured eaten-by-Blender
         state means no render fires alongside). *Plain key over one of OUR Qt windows:* when a
-        tentacle window holds the OS foreground (a pinned tool panel in use — or a stranded
+        Qt window of ours holds the OS foreground (a pinned tool panel in use — or a stranded
         hidden window the foreground watchdog hasn't healed yet), GHOST doesn't have focus so
         the keymap can't fire, and Qt's own shortcut is inert (its owner widget is hidden) —
         Maya's ``ApplicationShortcut`` covers exactly this state, so the poller does here. The
         keymap operator owns the GHOST-focused no-button path (mutually exclusive with both
-        cases — no double-press race; ``_activation_key_held`` dedups any residue).
+        cases — no double-press race; the menu's ``armed`` dedups any residue).
 
         **Foreground watchdog (level).** :meth:`BlenderWindow.restore_foreground_if_stranded`
         every tick: a Qt popup that took activation and hid after the gesture ended (an
@@ -636,10 +646,10 @@ class KeymapBridge:
         but every event-driven release path is conditional: Qt's ``keyReleaseEvent`` needs the
         overlay to have won the focus tussle, and the RELEASE keymap item is region-scoped (cursor
         must still hover the viewport). Miss both and the menu stays open with the mouse grab
-        eating every click. A *half-failed* press is worse: ``_on_activation_press``'s error
-        handler resets ``_activation_key_held`` but doesn't un-show/un-grab, leaving a stuck
+        eating every click. A *half-failed* press is worse: ``activate``'s error handler
+        disarms the menu but doesn't un-show/un-grab, leaving a stuck
         overlay no flag-gated path will ever release. So: whenever the key is physically up and
-        the gesture is still armed (``_activation_key_held``) **or** the overlay is visible while
+        the gesture is still armed (``menu.armed``) **or** the overlay is visible while
         holding the mouse grab (the half-failed-press signature; the grab gate keeps programmatic
         ``show()`` — harnesses, tools — untouched), complete the release. ``drive_release``
         is idempotent and hiding auto-releases the Qt grab.
@@ -653,10 +663,10 @@ class KeymapBridge:
 
             def _rebind_scan():
                 try:
-                    cls.sync_keymap_rebind(tcl)
+                    cls.sync_keymap_rebind(menu)
                 except Exception as error:  # a raising bpy timer unregisters itself
                     if KeymapBridge.DEBUG:
-                        print(f"tentacle: rebind scan failed → {error!r}")
+                        cls.logger.warning(f"rebind scan failed → {error!r}")
                 return 1.0
 
             bpy.app.timers.register(_rebind_scan, persistent=True)
@@ -691,10 +701,10 @@ class KeymapBridge:
                 # (cameras/editors upper+lower) never reveal their nav buttons and hover-nav into a
                 # submenu never happens. track() reads the live cursor + grab state directly, so
                 # driving it on the timer reproduces what mouse-move would do under Maya's Qt host.
-                if cls.chord_active and cls.tcl is tcl and tcl.isVisible():
+                if cls.chord_active and cls.menu is menu and menu.isVisible():
                     try:
-                        tcl.mouse_tracking.update_child_widgets()  # follow submenu transitions
-                        tcl.mouse_tracking.track()
+                        menu.mouse_tracking.update_child_widgets()  # follow submenu transitions
+                        menu.mouse_tracking.track()
                     except Exception:
                         pass
                 # Foreground watchdog — heal "foreground stuck on a hidden Qt window" (see
@@ -703,10 +713,10 @@ class KeymapBridge:
                 # off during a live gesture: menu-page transitions hide a window that may still
                 # hold the foreground for a tick (_do_pending_hide re-raises it), and yanking
                 # focus to GHOST mid-gesture would kill the interaction.
-                if cls.tcl is tcl and not cls.gesture_active:
-                    BlenderWindow.restore_foreground_if_stranded(tcl)
+                if cls.menu is menu and not cls.gesture_active:
+                    BlenderWindow.restore_foreground_if_stranded(menu)
                 # Adopt a Preferences ▸ Keymap rebind (throttled internally).
-                cls.sync_keymap_rebind(tcl)
+                cls.sync_keymap_rebind(menu)
                 vk = cls.active_vk
                 if (
                     vk is None
@@ -731,7 +741,7 @@ class KeymapBridge:
                             )
                             is not None
                         )
-                    if fire and cls.tcl is tcl and not tcl._activation_key_held:
+                    if fire and cls.menu is menu and not menu.armed:
                         try:
                             if held != QtCore.Qt.NoButton:
                                 cls.drive_press(buttons=held)
@@ -740,7 +750,7 @@ class KeymapBridge:
                         except Exception as error:
                             # Always audible (system console) — a silent failure here reads as
                             # "the menu just doesn't work"; then tear down any half-armed state.
-                            print(f"tentacle: poller activation failed → {error!r}")
+                            cls.logger.error(f"poller activation failed → {error!r}")
                             try:
                                 cls.drive_release()
                             except Exception:
@@ -750,10 +760,10 @@ class KeymapBridge:
                     # gesture_active covers presses whose flags were since cleared (opening a
                     # standalone window does — see drive_release); the stuck checks
                     # cover armed/half-failed states reached without the bridge.
-                    stuck = tcl._activation_key_held or (
-                        tcl.isVisible() and QtWidgets.QWidget.mouseGrabber() is tcl
+                    stuck = menu.armed or (
+                        menu.isVisible() and QtWidgets.QWidget.mouseGrabber() is menu
                     )
-                    if (cls.gesture_active or stuck) and cls.tcl is tcl:
+                    if (cls.gesture_active or stuck) and cls.menu is menu:
                         try:
                             cls.drive_release()
                         except Exception:
@@ -763,7 +773,7 @@ class KeymapBridge:
                 # Swallow: a raising bpy timer is auto-unregistered, and a dead watchdog means
                 # permanently stuck menus. Still audible in debug so plumbing bugs surface.
                 if KeymapBridge.DEBUG:
-                    print(f"tentacle: key-watcher tick failed → {error!r}")
+                    cls.logger.warning(f"key-watcher tick failed → {error!r}")
             return 0.02
 
         bpy.app.timers.register(
@@ -789,7 +799,7 @@ class KeymapBridge:
         """Remove the keymap items and unregister the bridge operator (for add-on unregister)."""
         import bpy
 
-        cls.tcl = (
+        cls.menu = (
             None  # the next launch() builds a fresh instance (with a fresh keymap)
         )
         cls.gesture_active = False
@@ -809,7 +819,7 @@ class KeymapBridge:
                 pass
 
 
-class ActivationDiagnostics:
+class ActivationDiagnostics(ptk.LoggingMixin):
     """The live-activation-state report — run in Blender's Python console to see why the key isn't
     showing the menu (moved from tentacle's ``tcl_blender.Diagnostics``)."""
 
@@ -820,11 +830,11 @@ class ActivationDiagnostics:
 
             print(tcl_blender.diagnose())
 
-        ``emit`` defaults on for the interactive ``diagnose()``; tentacle's ``register()``
-        passes ``emit=False`` so a routine launch doesn't dump the whole multi-line report to the
-        console every time — it prints only on a PROBLEM/CONFLICT.
+        ``emit`` (logged at INFO) defaults on for the interactive ``diagnose()``; tentacle's
+        ``register()`` passes ``emit=False`` so a routine launch doesn't dump the whole multi-line
+        report every time — it is logged only on a PROBLEM/CONFLICT.
 
-        The returned string is shown right in the Python Console panel (``print()`` alone would land in
+        The returned string is shown right in the Python Console panel (the log alone would land in
         the hidden *system* console). Reports the live module file (a stale/duplicate copy on
         ``sys.path`` is the #1 cause of "nothing happens"), whether the bridge operator is registered,
         whether a live marking menu is wired, the keymap item(s) we installed, any *other* active item
@@ -875,16 +885,19 @@ class ActivationDiagnostics:
 
         if not (operator_ok and our_active):
             verdict = (
-                "PROBLEM: activation key not installed — call tcl_blender.register(). If you "
-                "just did, a stale/duplicate copy is on sys.path — check 'module file' above."
+                "PROBLEM: activation key not installed — launch the marking menu (tentacle: "
+                "tcl_blender.register()). If you just did, a stale/duplicate copy is on "
+                "sys.path — check 'module file' above."
             )
-        elif KeymapBridge.tcl is None:
-            verdict = "PROBLEM: no live menu wired — call tcl_blender.register() (it runs launch())."
+        elif KeymapBridge.menu is None:
+            verdict = (
+                "PROBLEM: no live menu wired — launch the marking menu again (tentacle: "
+                "tcl_blender.register())."
+            )
         elif addon_rivals:
             verdict = (
                 f"CONFLICT: another add-on's 3D View binding {addon_rivals} shares the key and "
-                "may win — disable it, or pick a different activation key "
-                "(register(key_show=...) / TENTACLE_KEY)."
+                "may win — disable it, or pick a different activation key."
             )
         else:
             # Reached only with an active item of ours, so our_keys is never empty here
@@ -894,15 +907,15 @@ class ActivationDiagnostics:
             verdict = (
                 f"LIKELY WORKING: '{key}' is bound in the 3D View keymap{shadow_note}. Hover the "
                 "3D viewport and press it. If render still opens, set blendertk.KeymapBridge.DEBUG="
-                "True — each fire then shows 'Tentacle: key fired' in the status bar (print() "
-                "output is in the hidden system console: Window > Toggle System Console)."
+                f"True — each fire then shows '{HostedApp.label()}: key fired' in the status bar "
+                "(log output is in the hidden system console: Window > Toggle System Console)."
             )
 
         lines = [
-            "=== tentacle Blender activation ===",
+            f"=== {HostedApp.name} Blender activation ===",
             f"module file        : {__file__}",
             f"operator registered: {operator_ok}",
-            f"live marking menu   : {KeymapBridge.tcl!r}",
+            f"live marking menu   : {KeymapBridge.menu!r}",
             f"DEBUG (logs fires)  : {KeymapBridge.DEBUG}",
             f"key watcher (poll)  : {'installed' if KeymapBridge.poller is not None else 'NOT installed'} (held-button press + release watchdog)",
             f"our keymap items    : {[(km.name, kmi.type, kmi.value, kmi.active) for km, kmi in KeymapBridge.keymaps]}",
@@ -912,5 +925,5 @@ class ActivationDiagnostics:
         ]
         report = "\n".join(lines)
         if emit:
-            print(report)
+            ActivationDiagnostics.logger.info(report)
         return report

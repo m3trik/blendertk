@@ -39,6 +39,75 @@ def _fake_bpy():
     return module
 
 
+class TestHostedApp(unittest.TestCase):
+    """blendertk names no product: the application it hosts Qt for names itself
+    (tentacle's entry points set ``HostedApp.name``), and that name spells its env vars,
+    its managed qt_deps folder and its messages -- so an install named "tentacle" keeps
+    reading ``TENTACLE_QT_DEPS`` and its existing folder."""
+
+    def setUp(self):
+        from blendertk.ui_utils.qt_runtime import HostedApp
+
+        self.app = HostedApp
+        before = HostedApp.name
+        self.addCleanup(setattr, HostedApp, "name", before)
+
+    def test_the_name_spells_the_env_vars(self):
+        self.app.name = "tentacle"
+        with mock.patch.dict(os.environ, {"TENTACLE_QT_DEPS": "X:/staged"}):
+            self.assertEqual(self.app.env("QT_DEPS"), "X:/staged")
+        self.app.name = "studio"
+        with mock.patch.dict(os.environ, {"STUDIO_QT_DEPS": "Y:/staged"}, clear=False):
+            self.assertEqual(self.app.env("QT_DEPS"), "Y:/staged")
+
+    def test_the_label_is_the_name_capitalized(self):
+        self.app.name = "tentacle"
+        self.assertEqual(self.app.label(), "Tentacle")
+
+    def test_the_qt_deps_folder_outside_blender_keeps_its_path(self):
+        """No bpy: LOCALAPPDATA on Windows, else the XDG data home (pythontk's rule)."""
+        from blendertk.ui_utils.qt_runtime import QtBootstrap
+
+        self.app.name = "tentacle"
+        tag = f"py{sys.version_info[0]}{sys.version_info[1]}"
+        with mock.patch.dict(sys.modules, {"bpy": None}), mock.patch.dict(
+            os.environ, {"LOCALAPPDATA": "C:/Local"}
+        ):
+            self.assertEqual(
+                os.path.normpath(QtBootstrap.qt_install_dir()),
+                os.path.normpath(os.path.join("C:/Local", "tentacle", "qt_deps", tag)),
+            )
+        env = {k: v for k, v in os.environ.items() if k != "LOCALAPPDATA"}
+        env["XDG_DATA_HOME"] = os.path.abspath("xdg_data")
+        with mock.patch.dict(sys.modules, {"bpy": None}), mock.patch.dict(
+            os.environ, env, clear=True
+        ):
+            self.assertEqual(
+                os.path.normpath(QtBootstrap.qt_install_dir()),
+                os.path.normpath(os.path.join(env["XDG_DATA_HOME"], "tentacle", "qt_deps", tag)),
+            )
+
+    def test_the_library_modules_log_rather_than_print(self):
+        """A host library reports through a logger; only the click tracer's console lines
+        (a support capture's instructions) are deliberate prints."""
+        import ast
+
+        root = os.path.join(REPO, "blendertk", "ui_utils")
+        for rel in (
+            "qt_runtime.py",
+            os.path.join("marking_menu_host", "keymap_bridge.py"),
+            os.path.join("marking_menu_host", "_marking_menu_host.py"),
+        ):
+            with self.subTest(module=rel):
+                tree = ast.parse(open(os.path.join(root, rel), encoding="utf-8").read())
+                prints = [
+                    node.lineno
+                    for node in ast.walk(tree)
+                    if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "print"
+                ]
+                self.assertEqual(prints, [])
+
+
 class TestLinuxQtRuntime(unittest.TestCase):
     """The Linux-only parts of ``QtRuntime``: the platform preflight and the pump.
 

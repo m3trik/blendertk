@@ -195,12 +195,61 @@ class TestLiveMenu(_HostCase):
     def test_the_bridges_menu_is_the_live_one(self):
         from blendertk.ui_utils.marking_menu_host.keymap_bridge import KeymapBridge
 
-        before = KeymapBridge.tcl
-        self.addCleanup(setattr, KeymapBridge, "tcl", before)
-        KeymapBridge.tcl = None
+        before = KeymapBridge.menu
+        self.addCleanup(setattr, KeymapBridge, "menu", before)
+        KeymapBridge.menu = None
         self.assertIsNone(self.host.live_menu(), "no bridge, no live menu")
-        KeymapBridge.tcl = menu = object()
+        KeymapBridge.menu = menu = object()
         self.assertIs(self.host.live_menu(), menu)
+
+
+class TestTheLauncherHalf(_HostCase):
+    """What a launcher asks: ``start(app=)`` names the application Qt is stood up for,
+    ``teardown`` lets go of the keymap bridge and the docked console before a reload,
+    ``report`` tells the user."""
+
+    def test_start_names_the_application(self):
+        from blendertk.ui_utils.qt_runtime import HostedApp, QtBootstrap, QtRuntime
+
+        before = HostedApp.name
+        self.addCleanup(setattr, HostedApp, "name", before)
+        with mock.patch.object(QtBootstrap, "ensure_qt"), mock.patch.object(
+            QtRuntime, "ensure_qapp"
+        ), mock.patch.object(QtRuntime, "ensure_widget"), mock.patch.object(
+            QtRuntime, "start_pump"
+        ):
+            self.host.start(app="tentacle")
+        self.assertEqual(HostedApp.name, "tentacle")
+
+    def test_teardown_lets_go_of_the_bridge_and_the_console(self):
+        from blendertk.ui_utils.marking_menu_host.keymap_bridge import KeymapBridge
+
+        console = mock.Mock()
+        script_output = types.ModuleType("blendertk.env_utils.script_output")
+        script_output.ScriptConsole = types.SimpleNamespace(_instance=console)
+        with mock.patch.object(KeymapBridge, "teardown") as bridge, mock.patch.dict(
+            sys.modules, {"blendertk.env_utils.script_output": script_output}
+        ):
+            self.host.teardown()
+        bridge.assert_called_once_with()
+        console.teardown.assert_called_once_with()
+
+    def test_teardown_imports_no_console_that_never_came_up(self):
+        from blendertk.ui_utils.marking_menu_host.keymap_bridge import KeymapBridge
+
+        with mock.patch.object(KeymapBridge, "teardown"), mock.patch.dict(
+            sys.modules, {"blendertk.env_utils.script_output": None}
+        ):
+            self.host.teardown()  # must not raise or import
+
+    def test_report_reaches_the_log_and_an_error_a_popup(self):
+        self.bpy.app.timers.register.reset_mock()
+        with self.assertLogs(type(self.host).logger, level="INFO"):
+            self.host.report("Tentacle reloaded (3 modules).")
+        self.bpy.app.timers.register.assert_not_called()
+        with self.assertLogs(type(self.host).logger, level="ERROR"):
+            self.host.report("Tentacle reload FAILED", error=True)
+        self.bpy.app.timers.register.assert_called_once()
 
 
 class TestActivationBinding(_HostCase):
@@ -209,12 +258,12 @@ class TestActivationBinding(_HostCase):
         from blendertk.ui_utils.marking_menu_host.keymap_bridge import KeymapBridge
 
         self.bridge = KeymapBridge
-        before = self.bridge.tcl
-        self.addCleanup(setattr, self.bridge, "tcl", before)
+        before = self.bridge.menu
+        self.addCleanup(setattr, self.bridge, "menu", before)
 
     def test_a_new_menu_gets_the_keymap_and_the_poller(self):
         menu = object()
-        self.bridge.tcl = None
+        self.bridge.menu = None
         with (
             mock.patch.object(self.bridge, "install_keymap") as keymap,
             mock.patch.object(self.bridge, "install_poller") as poller,
@@ -227,7 +276,7 @@ class TestActivationBinding(_HostCase):
 
     def test_the_live_menu_is_rebound_in_place(self):
         menu = object()
-        self.bridge.tcl = menu
+        self.bridge.menu = menu
         with (
             mock.patch.object(self.bridge, "install_keymap") as keymap,
             mock.patch.object(self.bridge, "rebind") as rebind,
@@ -237,7 +286,7 @@ class TestActivationBinding(_HostCase):
         keymap.assert_not_called()
 
     def test_a_failing_bridge_never_raises(self):
-        self.bridge.tcl = None
+        self.bridge.menu = None
         with (
             mock.patch.object(
                 self.bridge, "install_keymap", side_effect=RuntimeError("no keyconfig")
@@ -275,7 +324,7 @@ class TestInput(_HostCase):
 
         from blendertk.ui_utils.marking_menu_host.keymap_bridge import KeymapBridge
 
-        menu = types.SimpleNamespace(_activation_key=int(QtCore.Qt.Key_F12))
+        menu = types.SimpleNamespace(activation_key=int(QtCore.Qt.Key_F12))
         release = QtGui.QKeyEvent(
             QtCore.QEvent.KeyRelease, QtCore.Qt.Key_F12, QtCore.Qt.NoModifier
         )
@@ -291,7 +340,7 @@ class TestInput(_HostCase):
     def test_ctrl_z_is_blenders_undo(self):
         from qtpy import QtCore, QtGui, QtWidgets
 
-        menu = types.SimpleNamespace(_activation_key=int(QtCore.Qt.Key_F12))
+        menu = types.SimpleNamespace(activation_key=int(QtCore.Qt.Key_F12))
         press = QtGui.QKeyEvent(
             QtCore.QEvent.KeyPress, QtCore.Qt.Key_Z, QtCore.Qt.ControlModifier
         )

@@ -51,11 +51,13 @@ and blendertk holds the host operations, no UI. Blender specifics:
   the workspace `.venv`; skips→PASS under the Blender harness).
 
 - **Hosting a marking menu**: `BlenderMarkingMenuHost` (`ui_utils/marking_menu_host/`, a
-  `uitk.MarkingMenuHost`) over `QtBootstrap`/`QtRuntime` (`ui_utils/qt_runtime.py`: Qt
-  provisioned, a QApplication pumped from `bpy.app.timers`), `KeymapBridge` (the 3D View keymap
-  carries the activation key; its operator's `tentacle.show_marking_menu` idname is a saved name)
-  and `BlenderWindow`. Verify the bridge by calling its operator and poller in a fresh
-  `blender --background`, never with synthesized keystrokes.
+  `uitk.MarkingMenuHost` and `uitk.MarkingMenuLaunchHost`) over `QtBootstrap`/`QtRuntime`
+  (`ui_utils/qt_runtime.py`: Qt provisioned, a QApplication pumped from `bpy.app.timers`),
+  `KeymapBridge` (the 3D View keymap carries the activation key and drives the menu through its
+  public `activate`/`release`/`armed`; its operator's `tentacle.show_marking_menu` idname is a
+  saved name) and `BlenderWindow`. Name no product: the hosted application names itself
+  (`HostedApp`, its env vars, folder and messages). Verify the bridge by calling its operator and
+  poller in a fresh `blender --background`, never with synthesized keystrokes.
 
 ## Imports
 

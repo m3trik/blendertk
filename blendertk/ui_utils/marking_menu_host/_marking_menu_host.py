@@ -2,13 +2,19 @@
 # coding=utf-8
 """What a uitk marking menu needs from Blender: :class:`BlenderMarkingMenuHost`.
 
-Blender is not a Qt app, so it answers most of ``uitk.MarkingMenuHost`` differently from a
-plain Qt application (``uitk.PureMarkingMenuHost``):
+Blender is not a Qt app, so it answers most of ``uitk.MarkingMenuHost`` (the menu's questions)
+and ``uitk.MarkingMenuLaunchHost`` (a launcher's) differently from a plain Qt application
+(``uitk.PureMarkingMenuHost``):
 
 * **start** provisions a Qt binding, the ``QApplication``, the hidden ``blender_widget``
-  parent and the event pump (:class:`~blendertk.ui_utils.qt_runtime.QtRuntime`);
+  parent and the event pump (:class:`~blendertk.ui_utils.qt_runtime.QtRuntime`), for the
+  application the launcher names (:class:`~blendertk.ui_utils.qt_runtime.HostedApp`);
 * **defer** builds on a one-shot persistent ``bpy.app.timers`` callback (startup scripts run
   before the UI settles) and shows the two errors that carry their fix in a popup;
+* **live_menu** hands back the menu the keymap bridge drives (one per process);
+* **teardown** removes the keymap bridge and the docked Script Output console before a
+  reload, while their handles are reachable from the code being replaced;
+* **report** logs, and shows an error in a popup too;
 * **bind_activation_key** installs the 3D View keymap bridge and its poller
   (:class:`~blendertk.ui_utils.marking_menu_host.keymap_bridge.KeymapBridge`): GHOST owns
   the keyboard, so the menu's own Qt shortcut never sees a viewport keystroke;
@@ -24,7 +30,9 @@ methods that need them.
 """
 
 import re
+import sys
 
+import pythontk as ptk
 from uitk import PureMarkingMenuHost
 
 from blendertk.ui_utils.blender_window import BlenderWindow
@@ -33,14 +41,16 @@ from blendertk.ui_utils.marking_menu_host.keymap_bridge import (
     KeymapBridge,
 )
 from blendertk.ui_utils.qt_runtime import (
+    HostedApp,
     QtBootstrap,
     QtPlatformUnavailable,
     QtRuntime,
 )
 
 
-class BlenderMarkingMenuHost(PureMarkingMenuHost):
-    """Blender's answers to ``uitk.MarkingMenuHost`` (see the module docstring)."""
+class BlenderMarkingMenuHost(PureMarkingMenuHost, ptk.LoggingMixin):
+    """Blender's answers to ``uitk.MarkingMenuHost`` and ``uitk.MarkingMenuLaunchHost`` (see
+    the module docstring)."""
 
     #: Blender startup scripts run before the UI has settled; the Qt host needs a beat.
     START_DELAY = 0.5
@@ -53,8 +63,16 @@ class BlenderMarkingMenuHost(PureMarkingMenuHost):
         return BlenderUiHandler
 
     # ---------------------------------------------------------------- launcher
-    def start(self) -> None:
-        """Stand up Qt in Blender: a binding, the QApplication, its parent, the pump."""
+    def start(self, app=None) -> None:
+        """Stand up Qt in Blender: a binding, the QApplication, its parent, the pump.
+
+        Parameters:
+            app (str): The application it is stood up for (tentacle: ``"tentacle"``), which
+                names its env vars, its qt_deps folder and its messages (:class:`HostedApp`);
+                ``None`` keeps the name already set.
+        """
+        if app:
+            HostedApp.name = app
         QtBootstrap.ensure_qt()
         app = QtRuntime.ensure_qapp()
         QtRuntime.ensure_widget(app)
@@ -80,7 +98,7 @@ class BlenderMarkingMenuHost(PureMarkingMenuHost):
                 # its entire value, so it has to reach a surface they are looking
                 # at. Scoped to these two deliberately: a real bug in registration
                 # keeps its traceback rather than being dressed up as one of them.
-                self._report_startup_error(error)
+                self._show_error(error)
             return None  # a timer returning None is unregistered — one shot, not a poll
 
         bpy.app.timers.register(build, first_interval=self.START_DELAY, persistent=True)
@@ -90,11 +108,49 @@ class BlenderMarkingMenuHost(PureMarkingMenuHost):
         """The menu the keymap bridge drives (one per Blender process), or None once
         ``KeymapBridge.teardown`` (an add-on unregister, a reload) let it go: a repeat
         launch hands it back instead of stacking a second menu over the same keymap."""
-        return KeymapBridge.tcl
+        return KeymapBridge.menu
 
-    @staticmethod
-    def _report_startup_error(error):
-        """Show *error* in Blender, falling back to the console.
+    def teardown(self) -> None:
+        """Release what Blender holds for the menu before a reload: the keymap bridge (its
+        items, operator and poller) and the docked Script Output console.
+
+        The console is torn down from the OLD module: its draw-handler glue, liveness
+        watchdog, embedded widget, stdout tee and docked Info Log area would all survive the
+        reload, and the reloaded module's ``restore()`` (:meth:`attach`) would then dock a
+        SECOND area. ``teardown()`` leaves the persisted visible-flag alone, so the
+        post-reload restore re-opens it fresh. Reached through ``sys.modules``, never an
+        import: a console that never came up has nothing to release.
+        """
+        KeymapBridge.teardown()
+        script_output = sys.modules.get("blendertk.env_utils.script_output")
+        if script_output is None:
+            return
+        try:
+            console = script_output.ScriptConsole._instance
+            if console is not None:
+                console.teardown()
+        except Exception as error:  # never block the reload it precedes
+            self.logger.warning(f"Script Output teardown skipped: {error}")
+
+    def report(self, message: str, error: bool = False) -> None:
+        """Tell the user *message*: the log (the system console and the Script Output
+        transcript), and an error in a popup too -- on the next timer tick, since a launcher
+        reports from inside the click that asked (a reload)."""
+        if not error:
+            self.logger.info(message)
+            return
+        self.logger.error(message)
+        import bpy
+
+        def show():
+            self._show_error(message)
+            return None  # one shot
+
+        bpy.app.timers.register(show, first_interval=0.1, persistent=True)
+
+    @classmethod
+    def _show_error(cls, error):
+        """Show *error* in Blender, falling back to the log.
 
         ``popup_menu`` is the only surface available here: there is no operator to
         ``self.report`` from, and a timer callback is not guaranteed a UI context,
@@ -123,9 +179,11 @@ class BlenderMarkingMenuHost(PureMarkingMenuHost):
                 for line in lines:
                     self.layout.label(text=line)
 
-            bpy.context.window_manager.popup_menu(draw, title="Tentacle", icon="ERROR")
-        except Exception:  # noqa: BLE001 -- no UI context; the console is all that is left
-            print(f"[tentacle] {text}")
+            bpy.context.window_manager.popup_menu(
+                draw, title=HostedApp.label(), icon="ERROR"
+            )
+        except Exception:  # noqa: BLE001 -- no UI context; the log is all that is left
+            cls.logger.error(text)
 
     # ---------------------------------------------------------------- the menu's questions
     def main_window(self):
@@ -160,19 +218,19 @@ class BlenderMarkingMenuHost(PureMarkingMenuHost):
         poller's virtual-key -- which the menu's Qt shortcut alone would leave behind.
         Never raises: a live Qt binding beats no binding.
         """
-        if KeymapBridge.tcl is not menu:
+        if KeymapBridge.menu is not menu:
             try:
                 KeymapBridge.install_keymap(
                     menu, KeymapBridge.qt_key_to_blender_type(key)
                 )
                 KeymapBridge.install_poller(menu, key)
             except Exception as error:
-                print(f"{__file__}: Blender keymap bridge skipped: {error}")
+                self.logger.warning(f"Blender keymap bridge skipped: {error}")
             return
         try:
             KeymapBridge.rebind(menu, key)
         except Exception as error:
-            print(f"{__file__}: Blender keymap rebind skipped: {error}")
+            self.logger.warning(f"Blender keymap rebind skipped: {error}")
 
     def adopt_window(self, widget) -> None:
         """Make *widget* an OS-owned window of Blender's GHOST window.
@@ -207,7 +265,7 @@ class BlenderMarkingMenuHost(PureMarkingMenuHost):
             # Best-effort z-order nicety; DEBUG-gated so a persistent failure can't spam the
             # console (this runs per tool-window open, not just once at construction).
             if KeymapBridge.DEBUG:
-                print(f"{__file__}: parent-to-Blender skipped: {error}")
+                self.logger.warning(f"parent-to-Blender skipped: {error}")
 
     def key_event(self, menu, event) -> None:
         """Ctrl+Z while the menu holds focus -> Blender's undo; the activation key's
@@ -237,7 +295,7 @@ class BlenderMarkingMenuHost(PureMarkingMenuHost):
                     pass
         elif (
             event.type() == QtCore.QEvent.KeyRelease
-            and event.key() == menu._activation_key
+            and event.key() == menu.activation_key
         ):
             try:
                 KeymapBridge.drive_release()
@@ -256,7 +314,7 @@ class BlenderMarkingMenuHost(PureMarkingMenuHost):
 
             ScriptConsole.restore()
         except Exception as error:
-            print(f"{__file__}: script_output restore skipped: {error}")
+            self.logger.warning(f"script_output restore skipped: {error}")
 
         # Arm the ordered-selection tracker from launch so click order is already
         # recorded when an order-consuming tool (Reorder Selection, ordered transfers)
@@ -267,7 +325,7 @@ class BlenderMarkingMenuHost(PureMarkingMenuHost):
 
             SelectionOrder.enable()
         except Exception as error:
-            print(f"{__file__}: SelectionOrder enable skipped: {error}")
+            self.logger.warning(f"SelectionOrder enable skipped: {error}")
 
         # ExecutionMonitor spawns the slots' spinner and over-threshold dialog as
         # subprocesses, so the interpreter it uses has to be a real python: hand it
@@ -276,19 +334,17 @@ class BlenderMarkingMenuHost(PureMarkingMenuHost):
         # ``<prefix>/bin/python.exe``), but blendertk supports 4.x, where it was the
         # Blender binary. Pinning it explicitly costs nothing and cannot regress.
         try:
-            import pythontk as ptk
-
             from blendertk.env_utils._env_utils import EnvUtils
 
             ptk.ExecutionMonitor.set_interpreter(EnvUtils.python_executable())
         except Exception as error:
-            print(f"{__file__}: ExecutionMonitor interpreter skipped: {error}")
+            self.logger.warning(f"ExecutionMonitor interpreter skipped: {error}")
 
         self.report_activation()
 
-    @staticmethod
-    def report_activation():
-        """The live activation report; on a PROBLEM or CONFLICT, also printed in full and
+    @classmethod
+    def report_activation(cls):
+        """The live activation report; on a PROBLEM or CONFLICT, also logged in full and
         raised as a Blender popup (a console user can't see the hidden system console).
         Silent on success — a routine launch shouldn't announce itself.
 
@@ -297,7 +353,8 @@ class BlenderMarkingMenuHost(PureMarkingMenuHost):
         """
         report = ActivationDiagnostics.report(emit=False)
         if "PROBLEM" in report or "CONFLICT" in report:
-            print(report)  # something's actually wrong — surface the full diagnostic
+            # Something's actually wrong: the full diagnostic.
+            cls.logger.warning(report)
             message = report.splitlines()[-1].split(": ", 1)[
                 -1
             ]  # verdict text, minus the "VERDICT :" label
@@ -306,7 +363,7 @@ class BlenderMarkingMenuHost(PureMarkingMenuHost):
 
                 bpy.context.window_manager.popup_menu(
                     lambda menu, _ctx: menu.layout.label(text=message[:200]),
-                    title="Tentacle activation",
+                    title=f"{HostedApp.label()} activation",
                     icon="ERROR",
                 )
             except Exception:

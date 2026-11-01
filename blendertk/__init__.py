@@ -211,7 +211,12 @@ DEFAULT_INCLUDE = {
     # Qt inside Blender (moved from tentacle's tcl_blender): provision a binding before the
     # first qtpy import, stand up the QApplication + hidden parent widget, pump Qt's posted
     # events from bpy.app.timers. Qt-free at import; the methods import qtpy / bpy.
-    "ui_utils.qt_runtime": ["QtBootstrap", "QtRuntime", "QtPlatformUnavailable"],
+    "ui_utils.qt_runtime": [
+        "HostedApp",
+        "QtBootstrap",
+        "QtRuntime",
+        "QtPlatformUnavailable",
+    ],
     # Hosting a uitk marking menu in Blender: the uitk.MarkingMenuHost adapter tentacle's
     # launcher builds its menu with (mirror of mtk.MayaMarkingMenuHost), the activation
     # keymap bridge (GHOST eats the viewport keystrokes a Qt shortcut would need) and its

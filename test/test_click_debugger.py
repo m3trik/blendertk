@@ -82,9 +82,15 @@ class ClickDebuggerSink(unittest.TestCase):
         )
 
     def test_env_var_overrides_the_sink(self):
-        """An explicit path wins, so a support capture can be steered anywhere."""
+        """An explicit path wins, so a support capture can be steered anywhere -- under
+        the hosted application's name (``TENTACLE_CLICK_DEBUG_LOG`` for tentacle)."""
+        from blendertk.ui_utils.qt_runtime import HostedApp
+
+        before = HostedApp.name
+        self.addCleanup(setattr, HostedApp, "name", before)
+        HostedApp.name = "tentacle"
         wanted = Path(HERE) / "temp_tests" / "click_debug_override.log"
-        with mock.patch.dict(os.environ, {self.dbg.PATH_ENV: str(wanted)}):
+        with mock.patch.dict(os.environ, {"TENTACLE_CLICK_DEBUG_LOG": str(wanted)}):
             self.dbg._path = None
             self.assertEqual(Path(self.dbg.log_path()), wanted)
 

@@ -13,14 +13,14 @@ import os
 import sys
 import time
 
-from blendertk.ui_utils.qt_runtime import QtRuntime
+from blendertk.ui_utils.qt_runtime import HostedApp, QtRuntime
 
 
 class ClickDebugger:
     """Opt-in two-layer tracer for "buttons need several clicks" reports.
 
     (1) An app-wide mouse-event observer logs every press/release/dblclick (target widget,
-    ``widgetAt``, grab owner, active window, foreground, ``_activation_key_held``).
+    ``widgetAt``, grab owner, active window, foreground, the menu's ``armed``).
     (2) A slot-dispatch trace (:meth:`_install_slot_trace`) logs whether each click's slot
     actually ran.
 
@@ -31,10 +31,6 @@ class ClickDebugger:
     lost connection), a debounce/coalesce swallow, or the slot running but raising into Blender's
     hidden system console.
     """
-
-    #: Env override for the trace sink — an explicit (absolute or ``~``-relative) path
-    #: wins over managed scratch, for a support capture that has to land somewhere known.
-    PATH_ENV = "TENTACLE_CLICK_DEBUG_LOG"
 
     _path = None  # resolved lazily by log_path(), never at import (it sweeps a dir)
     _fh = None
@@ -55,17 +51,20 @@ class ClickDebugger:
         and creates nothing: only :meth:`enable` ever opens the file.
 
         Returns:
-            (str): Absolute path of the trace log. :attr:`PATH_ENV` overrides it.
+            (str): Absolute path of the trace log. The hosted application's
+            ``<NAME>_CLICK_DEBUG_LOG`` (:meth:`HostedApp.env`: ``TENTACLE_CLICK_DEBUG_LOG``)
+            overrides it -- an explicit (absolute or ``~``-relative) path wins over managed
+            scratch, for a support capture that has to land somewhere known.
         """
         if cls._path is None:
-            override = os.environ.get(cls.PATH_ENV)
+            override = HostedApp.env("CLICK_DEBUG_LOG")
             if override:
                 cls._path = os.path.abspath(os.path.expanduser(override))
             else:
                 import pythontk as ptk
 
                 cls._path = ptk.TempArtifacts(
-                    "tentacle_click_debug", policy="detached"
+                    f"{HostedApp.name}_click_debug", policy="detached"
                 ).path(extension=".log", name=str(os.getpid()))
         return cls._path
 
@@ -201,7 +200,7 @@ class ClickDebugger:
                         at = QtWidgets.QApplication.widgetAt(gpos)
                         grab = QtWidgets.QWidget.mouseGrabber()
                         active = app.activeWindow() if app else None
-                        held = getattr(KeymapBridge.tcl, "_activation_key_held", None)
+                        held = getattr(KeymapBridge.menu, "armed", None)
                         fg = ""
                         if sys.platform == "win32" and app is not None:
                             try:
@@ -229,7 +228,7 @@ class ClickDebugger:
         share the log file whose path this prints (see :meth:`log_path`).
 
         Installs an application-wide mouse-event observer (logs every press/release with the target
-        widget, ``widgetAt``, grab owner, active window, foreground, and ``_activation_key_held``).
+        widget, ``widgetAt``, grab owner, active window, foreground, and the menu's ``armed``).
         :meth:`disable` removes it.
 
         Returns:
@@ -250,7 +249,7 @@ class ClickDebugger:
             app.installEventFilter(cls._filter)
         cls._install_slot_trace()  # also trace whether each click's slot actually runs
         print(
-            f"tentacle: click debugging ON\n  {target}\n"
+            f"{HostedApp.name}: click debugging ON\n  {target}\n"
             "Reproduce the multi-click, then blendertk.ClickDebugger.disable()."
         )
         return target
@@ -271,4 +270,4 @@ class ClickDebugger:
             except Exception:
                 pass
             cls._fh = None
-        print("tentacle: click debugging OFF")
+        print(f"{HostedApp.name}: click debugging OFF")

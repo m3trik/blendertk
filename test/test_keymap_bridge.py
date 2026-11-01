@@ -40,6 +40,61 @@ def _user_keymap_row(key_type, value="PRESS"):
     )
 
 
+class TestTheBridgeDrivesTheMenusPublicSurface(unittest.TestCase):
+    """The bridge drives a ``uitk.MarkingMenu`` through what the menu publishes for a
+    keyboard-owning host -- ``activate(buttons=)``, ``release()``, ``armed`` -- never its
+    private members, and holds it as ``KeymapBridge.menu``."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from qtpy import QtCore  # noqa: F401
+        except Exception as error:
+            raise unittest.SkipTest(f"no Qt binding: {error}")
+        from blendertk.ui_utils.marking_menu_host.keymap_bridge import KeymapBridge
+
+        cls.bridge = KeymapBridge
+
+    def setUp(self):
+        before = (self.bridge.menu, self.bridge.gesture_active, self.bridge.chord_active)
+        self.addCleanup(self._restore, before)
+        self.menu = mock.Mock(armed=False)
+        self.bridge.menu = self.menu
+
+    def _restore(self, before):
+        self.bridge.menu, self.bridge.gesture_active, self.bridge.chord_active = before
+
+    def test_a_key_down_activates_the_menu(self):
+        self.bridge.drive_press()
+        self.menu.activate.assert_called_once_with(buttons=None)
+        self.assertTrue(self.bridge.gesture_active)
+
+    def test_a_held_button_is_passed_on(self):
+        from qtpy import QtCore
+
+        self.bridge.drive_press(buttons=QtCore.Qt.LeftButton)
+        self.menu.activate.assert_called_once_with(buttons=QtCore.Qt.LeftButton)
+        self.assertTrue(self.bridge.chord_active)
+
+    def test_a_key_up_releases_the_menu(self):
+        from blendertk.ui_utils.blender_window import BlenderWindow
+
+        with mock.patch.object(BlenderWindow, "restore_foreground") as restore:
+            self.bridge.drive_release()
+        self.menu.release.assert_called_once_with()
+        restore.assert_called_once_with(self.menu)
+        self.assertFalse(self.bridge.gesture_active)
+
+    def test_an_armed_menu_is_never_rebound_under_its_gesture(self):
+        self.menu.armed = True
+        before = self.bridge._last_key_scan
+        self.addCleanup(setattr, self.bridge, "_last_key_scan", before)
+        self.bridge._last_key_scan = 0.0
+        with mock.patch.object(self.bridge, "live_press_item") as scan:
+            self.bridge.sync_keymap_rebind(self.menu)
+        scan.assert_not_called()
+
+
 class TestBlenderKeyTranslation(unittest.TestCase):
     """The Qt ↔ Blender keymap-``type`` translation — Blender's half of the activation-key contract.
 
@@ -189,7 +244,7 @@ class TestBlenderKeyTranslation(unittest.TestCase):
             bridge.keymaps,
             bridge.active_vk,
             bridge.key_down,
-            bridge.tcl,
+            bridge.menu,
             bridge.gesture_active,
             bridge._last_key_scan,
             bridge._declined,
@@ -197,11 +252,11 @@ class TestBlenderKeyTranslation(unittest.TestCase):
         addon_item = types.SimpleNamespace(type="Z")
         user_row = _user_keymap_row("Z")
         tcl = types.SimpleNamespace(
-            _activation_key_held=False, set_activation_key=mock.Mock()
+            armed=False, set_activation_key=mock.Mock()
         )
         try:
             bridge.keymaps = [(None, addon_item)]
-            bridge.tcl = tcl
+            bridge.menu = tcl
             bridge.gesture_active = False
             bridge._declined = None
             with mock.patch.object(
@@ -216,7 +271,7 @@ class TestBlenderKeyTranslation(unittest.TestCase):
                 bridge.keymaps,
                 bridge.active_vk,
                 bridge.key_down,
-                bridge.tcl,
+                bridge.menu,
                 bridge.gesture_active,
                 bridge._last_key_scan,
                 bridge._declined,
