@@ -628,20 +628,19 @@ class _MatUtilsInternal:
         return out
 
     @staticmethod
-    def _safe_relocate(src, dst, mode):
-        """Relocate ``src`` → ``dst`` (``mode`` ``"copy"``/``"move"``) with a same-name collision guard
-        — mirror of the Maya Texture Path Editor's policy (DRY'd here across the three relocate ops).
+    def _safe_copy(src, dst):
+        """Copy ``src`` → ``dst`` with a same-name collision guard — mirror of the Maya Texture
+        Path Editor's policy. Never moves: a move's take-away is ``ptk.FileCollect``'s (``apply``,
+        ``finish_move``), once every reader is repointed and nothing still reads the original.
 
         Returns:
             ``"relocated"`` — the file was written to ``dst``.
-            ``"rebind"``    — ``dst`` already holds a file of identical CONTENT (reuse it
-                              without overwriting; for ``"move"`` the redundant ``src`` is
-                              removed), or ``src`` already IS ``dst`` however either is
-                              spelled (a junction, a mapped drive) -- which is never removed.
+            ``"rebind"``    — ``dst`` already holds a file of identical CONTENT (reused, never
+                              rewritten), or ``src`` already IS ``dst`` however either is spelled
+                              (a junction, a mapped drive).
             ``"skip"``      — ``dst`` holds a DIFFERENT file: refuse to overwrite, so we never
                               rebind to the wrong texture (and never destroy the external).
-                              Size is not the test: two bakes of one map are the same size,
-                              and a move that trusted it deleted the new one.
+                              Size is not the test: two bakes of one map are the same size.
             ``"error"``     — the disk op failed.
         """
         import shutil
@@ -658,28 +657,21 @@ class _MatUtilsInternal:
                         f"different content; skipping to avoid a wrong-file rebind: {dst}"
                     )
                     return "skip"  # different file, same name — don't clobber / wrong-rebind
-                if mode == "move":
-                    try:
-                        os.remove(
-                            src
-                        )  # dst is equivalent; the source copy is redundant
-                    except OSError:
-                        pass
                 return "rebind"
             os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
-            shutil.move(src, dst) if mode == "move" else shutil.copy2(src, dst)
+            shutil.copy2(src, dst)
             return "relocated"
         except (OSError, shutil.Error):
             return "error"
 
     @staticmethod
-    def _copy_files(sources, dest_dir, mode, progress=None):
-        """``[(src, dst)]`` for each of *sources* now in *dest_dir* -- copied (or,
-        ``mode="move"``, moved) under :meth:`_safe_relocate`'s policy: identical
-        bytes already there are reused, a different file is never replaced.
-        The copier a Collect (``ptk.FileCollect.apply``) hands its files to; it
-        asks for copies and takes a moved source away itself, once it landed.
-        *progress* ``(done, total)`` ticks per file; a False back stops."""
+    def _copy_files(sources, dest_dir, mode="copy", progress=None):
+        """``[(src, dst)]`` for each of *sources* now in *dest_dir* -- copied under
+        :meth:`_safe_copy`'s policy: identical bytes already there are reused, a
+        different file is never replaced. The copier a Collect
+        (``ptk.FileCollect.apply``) hands its files to: it asks for copies
+        (*mode* is always ``"copy"``) and takes a moved source away itself, once
+        it landed. *progress* ``(done, total)`` ticks per file; a False back stops."""
         landed = []
         sources = list(sources)
         for done, src in enumerate(sources, 1):
@@ -688,31 +680,26 @@ class _MatUtilsInternal:
             dst = ptk.FileUtils.format_path(
                 os.path.join(dest_dir, os.path.basename(src))
             )
-            if _MatUtilsInternal._safe_relocate(src, dst, mode) in (
-                "relocated",
-                "rebind",
-            ):
+            if _MatUtilsInternal._safe_copy(src, dst) in ("relocated", "rebind"):
                 landed.append((src, dst))
         return landed
 
     @staticmethod
-    def _relocate(path, dest_dir, mode):
-        """Relocate the file *path* names into *dest_dir* -- one file, or EVERY tile
-        of a tile set (``rock.<UDIM>.png``) -- under :meth:`_safe_relocate`'s policy.
+    def _copy_whole(path, dest_dir):
+        """Copy the file *path* names into *dest_dir* -- one file, or EVERY tile of
+        a tile set (``rock.<UDIM>.png``) -- under :meth:`_safe_copy`'s policy.
 
         A set lands whole or not at all. A first pass writes nothing: a tile whose
         destination holds ANOTHER file refuses the set before one tile is copied --
         copied one by one, the tiles before it stayed in *dest_dir*, foreign to the
         same-named set already there (review, 2026-10-05). A copy failing later
-        takes back the tiles this call wrote. A move removes the sources only once
-        every tile is at *dest_dir*, so a set is never split between two folders.
-        Returns ``_safe_relocate``'s verdict for the whole: ``"skip"`` / ``"error"``
-        when any file was refused (sources untouched, nothing left behind),
-        ``"relocated"`` when one was written, else ``"rebind"``.
+        takes back the tiles this call wrote. Returns :meth:`_safe_copy`'s verdict
+        for the whole: ``"skip"`` / ``"error"`` when any file was refused (nothing
+        left behind), ``"relocated"`` when one was written, else ``"rebind"``.
         """
         if not ptk.TiledPath.has_token(path):
             dst = os.path.join(dest_dir, os.path.basename(path))
-            return _MatUtilsInternal._safe_relocate(path, dst, mode)
+            return _MatUtilsInternal._safe_copy(path, dst)
         pairs = [
             (src, os.path.join(dest_dir, os.path.basename(src)))
             for src in ptk.TiledPath.tiles(path)
@@ -733,7 +720,7 @@ class _MatUtilsInternal:
                 return "skip"
         landed = []
         for src, dst in pairs:
-            outcome = _MatUtilsInternal._safe_relocate(src, dst, "copy")
+            outcome = _MatUtilsInternal._safe_copy(src, dst)
             if outcome in ("skip", "error"):
                 for _src, written, how in landed:
                     if how == "relocated":  # this call's copy, not a file it found
@@ -743,15 +730,27 @@ class _MatUtilsInternal:
                             pass
                 return outcome
             landed.append((src, dst, outcome))
-        if mode == "move":
-            for src, dst, _outcome in landed:
-                if not ptk.FileUtils.is_same_file(src, dst):
-                    try:
-                        os.remove(src)
-                    except OSError:
-                        pass
         relocated = any(outcome == "relocated" for _s, _d, outcome in landed)
         return "relocated" if relocated else "rebind"
+
+    @staticmethod
+    def _paths_read_by_images(exclude=()):
+        """The files the .blend's images read, absolute and library-aware (a linked
+        image's ``//`` path against its library) -- every image with a path but
+        *exclude* (datablocks or names). What a move keeps: the Texture Path
+        Editor's ``read_elsewhere`` (the images outside a Collect) and Normalize
+        Paths' move (every image once repointed)."""
+        import bpy
+
+        held = {
+            img.as_pointer()
+            for img in _MatUtilsInternal._resolve_images(list(exclude))
+        } if exclude else set()
+        return [
+            _MatUtilsInternal._abspath(img)
+            for img in bpy.data.images
+            if img.filepath and img.as_pointer() not in held
+        ]
 
     @staticmethod
     def _html_escape(s):
@@ -2987,7 +2986,9 @@ class MatUtils(_MatUtilsInternal):
           * ``"copy"`` / ``"move"`` — bring *external* textures (outside ``project_dir``, default
             the workspace's texture folder — its ``sourceImages`` rule when marked, else
             ``<blenddir>/textures``) into that folder and repath to them. A TILED set travels
-            whole, every tile (:meth:`_relocate`).
+            whole, every tile (:meth:`_copy_whole`). A move then takes each original away
+            through ``ptk.FileCollect.finish_move``: once its copy holds the whole bytes, never
+            while any image still reads it (one outside *images*, a linked one).
 
         ``images=None`` targets every FILE image and TILED set in the .blend (the default); pass an
         explicit list to restrict the scope (the Texture Path Editor's selection-aware scope —
@@ -3009,43 +3010,43 @@ class MatUtils(_MatUtilsInternal):
                 if not project_dir:
                     return 0
             os.makedirs(project_dir, exist_ok=True)
-            # Source path -> repathed form, MOVE mode. Blender dedupes a shared
-            # file into ONE datablock, but duplicated datablocks (`.001` twins)
-            # pointing at the same file are routine — after the first twin's
-            # move the source is gone, and re-checking the disk would misread
-            # "shared" as "missing" and strand the second twin absolute on a
-            # deleted file (mirror of mayatk's moved_this_run rule).
-            moved_this_run = {}
+            # ``(external, staged)``, MOVE mode: the originals go only after every
+            # image is repointed (``ptk.FileCollect.finish_move``), so a `.001`
+            # twin storing the same file still finds it, and an image outside the
+            # batch -- or a linked one -- keeps it (mirror of mayatk's).
+            staged = []
             for img in images:
                 ap = _MatUtilsInternal._abspath(img)
                 if not (ap and ptk.TiledPath.tiles(ap)):  # a set: any tile on disk
-                    moved_rel = moved_this_run.get(os.path.normcase(ap)) if ap else None
-                    if moved_rel is not None:
-                        img.filepath = moved_rel
-                        try:
-                            img.reload()
-                        except RuntimeError:
-                            pass
-                        changed += 1
                     continue
                 if _MatUtilsInternal._is_within(ap, project_dir):
                     continue
                 dst = os.path.join(project_dir, os.path.basename(ap))
-                if _MatUtilsInternal._relocate(ap, project_dir, mode) in (
-                    "skip",
-                    "error",
-                ):
-                    continue  # different-size collision — don't clobber / wrong-rebind
+                if _MatUtilsInternal._copy_whole(ap, project_dir) in ("skip", "error"):
+                    continue  # a different file of the name -- don't clobber / wrong-rebind
                 img.filepath = MatUtils.to_project_relative(dst, blenddir)
                 if mode == "move":
-                    moved_this_run[os.path.normcase(ap)] = img.filepath
-                # The file moved out from under the datablock; re-read it so the buffer matches the
-                # new path (the other three relocate ops already do this).
+                    staged.append((ap, dst))
+                # Re-read it so the buffer matches the new path (the other relocate ops
+                # do this too).
                 try:
                     img.reload()
                 except RuntimeError:
                     pass
                 changed += 1
+            if staged:
+                # A move takes an original away only once its staged copy holds its
+                # whole bytes, never when the copy IS it however spelled, and never
+                # while an image still reads it -- one outside the batch, a linked one.
+                _taken, kept = ptk.FileCollect.finish_move(
+                    staged, keep=_MatUtilsInternal._paths_read_by_images()
+                )
+                if kept:
+                    logging.getLogger(__name__).warning(
+                        f"Normalize Paths (move): {len(kept)} original(s) left in place -- "
+                        f"other images still read them: {', '.join(kept[:5])}"
+                        f"{', ...' if len(kept) > 5 else ''}"
+                    )
             return changed
 
         for img in images:  # relative / absolute

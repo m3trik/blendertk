@@ -1791,6 +1791,33 @@ try:
             f"n={n} {_abspath(img)}",
         )
 
+    def _normalize_move_outside_reader():
+        """Normalize Paths' move took the external file away as soon as the
+        batch's image was staged: an image outside the batch reading it was
+        left on a deleted path (mayatk's twin, BACKLOG 2026-10-31)."""
+        folder = _udim_case("normalize_move_outside")
+        src, moved = _source(folder, "ext", "shared_out.png", b"SHARED")
+        outside = _image("shared_outside", os.path.dirname(src), "shared_out.png")
+        project = os.path.join(folder, "sourceimages")
+        n = btk.normalize_texture_paths("move", project_dir=project, images=[moved])
+        check(
+            "Normalize Paths (move) leaves a file an image outside the batch reads",
+            n == 1
+            and _bytes(src) == b"SHARED"
+            and _same(_abspath(outside), src)
+            and _same(_abspath(moved), os.path.join(project, "shared_out.png"))
+            and _bytes(_abspath(moved)) == b"SHARED",
+            f"n={n} src={_bytes(src)} {_abspath(moved)}",
+        )
+        n = btk.normalize_texture_paths("move", project_dir=project, images=[outside])
+        check(
+            "...and takes it once its last reader is repointed",
+            n == 1
+            and not os.path.exists(src)
+            and _same(_abspath(outside), os.path.join(project, "shared_out.png")),
+            f"n={n} {_abspath(outside)}",
+        )
+
     for _name, _body in (
         ("rename repoints every reader", _rename_repoints_every_reader),
         ("rename keeps the spelling", _rename_keeps_the_spelling),
@@ -1836,6 +1863,7 @@ try:
         ("set directory move outside reader", _set_directory_move_outside_reader),
         ("set directory move namesakes", _set_directory_move_namesakes),
         ("set directory brings a file up", _set_directory_brings_a_file_up),
+        ("normalize move outside reader", _normalize_move_outside_reader),
     ):
         _section(_name, _body)
     btk.EnvUtils.set_current_workspace(None)

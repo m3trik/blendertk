@@ -564,19 +564,17 @@ class TexturePathEditor(ptk.LoggingMixin):
     def read_elsewhere(self, nodes):
         """The files the file reads through images other than *nodes*
         (``ptk.CollectHost``): every image, linked ones included, resolved
-        library-aware. A Move copies these instead of taking them away --
-        moved, a linked image (or one out of scope) reading the same file was
-        left on a deleted path. Mirror of mayatk's."""
+        library-aware (``_MatUtilsInternal._paths_read_by_images``, which
+        Normalize Paths' move keeps by too). A Move copies these instead of
+        taking them away -- moved, a linked image (or one out of scope) reading
+        the same file was left on a deleted path. Mirror of mayatk's."""
         try:
-            import bpy
+            import bpy  # noqa: F401
         except ImportError:
             return []
-        held = {img.as_pointer() for img in self._images(nodes)}
-        return [
-            self._resolve(img.filepath, getattr(img, "library", None))
-            for img in bpy.data.images
-            if img.filepath and img.as_pointer() not in held
-        ]
+        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
+
+        return _MatUtilsInternal._paths_read_by_images(self._images(nodes))
 
     @staticmethod
     def stored_form(path: str, file_node=None) -> str:

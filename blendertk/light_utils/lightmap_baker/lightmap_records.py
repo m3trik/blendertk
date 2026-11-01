@@ -1956,7 +1956,7 @@ class LightmapRecords(ptk.LoggingMixin):
         sources: List[str], dest_dir: str, mode: str, progress=None
     ) -> List[Tuple[str, str]]:
         """Copy (``mode="move"``: move) *sources* under the Texture Path Editor's
-        own collision policy (``_safe_relocate``: identical bytes = reuse, a
+        own collision policy (``_safe_copy``: identical bytes = reuse, a
         different file = skip). A Collect hands it ``"copy"`` and takes a moved
         source away itself, once it landed (``ptk.FileCollect.apply``;
         :meth:`keep_sources` marks what a move keeps). Mirror of mayatk's."""
