@@ -219,10 +219,10 @@ class SceneExporter(ptk.SceneExporterBase):
         panel sends every row (tentacle's ``SceneExporterSlots`` reads them), so a headless
         caller that wants the panel's behaviour passes every row it wants on.
 
-        ``tasks["version"]`` is the retired Version input (warns; removed in
-        pythontk 0.19.0). It folds into *output_name* once, here
-        (``ptk.ExportProfile.fold_legacy_naming``), and the log names the
-        pattern that says the same thing (mirror of mayatk).
+        ``tasks["version"]``, the retired Version input, was removed in
+        pythontk 0.19.0: a run that still sends it is refused before anything
+        is touched, and the log names the Output Filename counter that
+        replaces it (``*_v{n:03d}``; mirror of mayatk).
 
         *create_log_file* appends the run to the .blend's log -- one file per
         scene in the per-user cache, its runs trimmed to the newest
@@ -277,18 +277,9 @@ class SceneExporter(ptk.SceneExporterBase):
         for level, message in notes:
             getattr(self.logger, level)(message)
         if any(level == "error" for level, _ in notes):
-            return False  # a config error (an unknown texture file type)
-        # The retired Version input folds into the name ONCE, here; everything
-        # past this point -- the path, the sidecar, the log -- reads the pattern.
-        self.output_name = ptk.ExportProfile.fold_legacy_naming(
-            output_name, run.version_format
-        )
-        if self.output_name != output_name:
-            self.logger.warning(
-                "The Version input is retired: write it into the Output "
-                "Filename instead -- this export resolves as "
-                f"{self.output_name!r}."
-            )
+            # A config error: an unknown texture file type, or the removed
+            # tasks["version"] (the note names the counter replacing it).
+            return False
         # "usd": the deliverable is a USD layer (mirror of mayatk). Same pipeline
         # up to the write; the FBX-only knobs (preset, takes, GLB) are reported
         # inert rather than silently ignored.

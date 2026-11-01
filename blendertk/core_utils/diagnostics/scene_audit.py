@@ -56,9 +56,6 @@ class SceneInfoSection:
     TEXTURES = "textures"
     PIPELINE = "pipeline"
     ASSUMPTIONS = "assumptions"
-    #: RETIRED (until 2026-09-24) -- a multi-material-meshes table; :attr:`MATERIALS`
-    #: replaced it. :meth:`normalize` still resolves it, warning until 0.22.0.
-    CATEGORIES = "categories"
 
     ALL: Tuple[str, ...] = (
         OVERVIEW,
@@ -108,25 +105,13 @@ class SceneInfoSection:
         PIPELINE,
     }
 
-    #: Re-dated from 0.13.0 on 2026-10-24: a saved section list is saved data,
-    #: which gets the longest window (CODE_STANDARD section 0).
-    _resolve_retired = staticmethod(
-        ptk.Deprecation.values(
-            {CATEGORIES: MATERIALS},
-            what="SceneInfoSection key",
-            remove_in="0.23.0",
-            since="2026-09-24",
-            reason="The Materials section lists every material with its cost.",
-        )
-    )
-
     @classmethod
     def normalize(cls, sections: Optional[Iterable[str]]) -> List[str]:
         """*sections* as known keys, de-duplicated in the caller's order.
 
         ``None`` means all, in :attr:`ALL` order; unknown keys are dropped (a UI may pass
-        through whatever the user picked); a retired key resolves to its replacement,
-        with a deprecation warning.
+        through whatever the user picked) -- a removed one too: ``"categories"`` (whose
+        table :attr:`MATERIALS` replaced) stopped resolving in 0.23.0 (mirror of mayatk).
 
         Parameters:
             sections: Section keys, or ``None``.
@@ -138,7 +123,6 @@ class SceneInfoSection:
             return list(cls.ALL)
         out: List[str] = []
         for key in sections:
-            key = cls._resolve_retired(key)
             if key in cls.LABELS and key not in out:
                 out.append(key)
         return out

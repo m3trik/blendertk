@@ -462,6 +462,11 @@ DEFAULT_INCLUDE = {
 #: read raises MovedNameError naming the new home. ``{name: (new home, version)}``;
 #: a move adds its names here in the same change set.
 MOVED_NAMES = {
+    # The lightmap tier alias and the Get Scene Info section key, their
+    # deprecation windows closed (2026-11-01): a tier name is looked up as
+    # given, and the removed key's table is the Materials section (mirror of mayatk).
+    "LightmapBaker.preset_name": ("blendertk.LightmapBaker.from_preset", "0.23.0"),
+    "SceneInfoSection.CATEGORIES": ("blendertk.SceneInfoSection.MATERIALS", "0.23.0"),
     # The sections of live-scene state a GLB took beside its FBX: the FBX's
     # materials record states every material (removed 2026-10-31).
     "SceneState": ("blendertk.MaterialRecords", "0.23.0"),

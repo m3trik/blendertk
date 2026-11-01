@@ -1151,21 +1151,6 @@ class AnimUtils(_AnimUtilsInternal):
     #: levels existed, so a bool keeps behaving exactly as it did.
     DEFAULT_OPTIMIZE_LEVEL = "flat"
 
-    #: Retired level names -> the canonical key, warning until they go.
-    #: ``"unbake"`` (until 2026-09-02) read as reversing a bake -- which is
-    #: ``SmartBake.restore`` -- when the level only thins a bake to its
-    #: extremes; a saved template or preset may still say it. Re-dated from
-    #: 0.11.0 on 2026-10-24: saved data gets the longest window
-    #: (CODE_STANDARD section 0).
-    _resolve_retired_level = staticmethod(
-        ptk.Deprecation.values(
-            {"unbake": "extremes"},
-            what="AnimUtils optimize level",
-            remove_in="0.23.0",
-            since="2026-09-23",
-        )
-    )
-
     @classmethod
     def normalize_optimize_level(cls, level):
         """The canonical :attr:`OPTIMIZE_LEVELS` key *level* names, or None for OFF.
@@ -1186,7 +1171,7 @@ class AnimUtils(_AnimUtilsInternal):
             return None  # branch: "" is a falsy config value, not a bad level
         if not isinstance(level, str):  # True, or a legacy truthy bool flag
             return cls.DEFAULT_OPTIMIZE_LEVEL
-        key = cls._resolve_retired_level(level.strip().lower())
+        key = level.strip().lower()
         if key not in cls.OPTIMIZE_LEVELS:
             raise ValueError(
                 f"Unknown optimize level {level!r}; expected one of "

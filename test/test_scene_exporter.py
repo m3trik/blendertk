@@ -4956,13 +4956,6 @@ try:
     os.makedirs(_ndir, exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_ndir, "test_scene.blend"))
 
-    import warnings as _naming_warnings
-
-    def _retired_warned(caught, *names):
-        """Whether *caught* holds a DeprecationWarning naming each of *names*."""
-        said = [str(w.message) for w in caught if w.category is DeprecationWarning]
-        return all(any(name in m for m in said) for name in names)
-
     def _stem_for(output_name):
         """The stem the panel would write for *output_name*."""
         _e = SceneExporter()
@@ -5042,25 +5035,41 @@ try:
         == ["test_scene_v007.fbx", "test_scene_v007.glb"],
         f"glb={_glb['paths']} pair={_pair['paths']}",
     )
-    # perform_export folds a caller's retired tasks["version"] ONCE, at its
-    # entry point (resolved before the empty-objects abort): it warns, and
-    # output_name -- what everything after reads -- states the whole rule.
+    # perform_export refuses a caller's removed tasks["version"] (it folded into
+    # the name with a notice until pythontk 0.19.0): the run stops before a path
+    # resolves, and the log names the key and the counter replacing it -- never
+    # an unversioned write under a name the caller did not ask for (mirror of
+    # mayatk).
+    import logging as _version_logging
+
+    class _VersionLog(_version_logging.Handler):
+        def __init__(self):
+            super().__init__(level=_version_logging.ERROR)
+            self.messages = []
+
+        def emit(self, record):
+            self.messages.append(record.getMessage())
+
     _e = SceneExporter()
-    with _naming_warnings.catch_warnings(record=True) as _caught:
-        _naming_warnings.simplefilter("always")
-        _e.perform_export(
+    _vlog = _VersionLog()
+    _e.logger.addHandler(_vlog)
+    try:
+        _refused = _e.perform_export(
             export_dir=_ndir,
             objects=[],
             output_name="WIP_*",
             tasks={"version": "{stem}_v{n:03d}"},
         )
-    _got = os.path.splitext(os.path.basename(_e.export_path or ""))[0]
+    finally:
+        _e.logger.removeHandler(_vlog)
     check(
-        "perform_export's retired tasks['version'] warns and folds into the name once",
-        _retired_warned(_caught, "tasks['version']")
-        and _got == "WIP_test_scene_v001"
-        and "*" not in (_e.output_name or ""),
-        f"got={_got!r} output_name={_e.output_name!r}",
+        "perform_export refuses the removed tasks['version'] by name, before a path",
+        _refused is False
+        and not getattr(_e, "export_path", None)
+        and any(
+            "tasks['version']" in m and "*_v{n:03d}" in m for m in _vlog.messages
+        ),
+        f"result={_refused!r} messages={_vlog.messages}",
     )
     check(
         "the naming state perform_export used to stamp is gone",

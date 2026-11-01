@@ -13,7 +13,6 @@ import shutil
 import sys
 import tempfile
 import traceback
-import warnings
 
 import numpy as np  # ships with Blender
 
@@ -86,19 +85,21 @@ try:
         baker.resolution == 1024 and baker.samples == 1024,
         f"{baker.resolution}/{baker.samples}",
     )
-    # "quest" was renamed "mobile" (mirrors mayatk): a script naming the old tier
-    # still bakes at its dials, and is told the new name.
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        old = LightmapBaker.from_preset("quest")
+    # "quest" was renamed "mobile" on 2026-09-23 and built it with a notice until
+    # 0.23.0. Now it is a name the store lacks: refused like any unknown preset,
+    # naming the tiers that exist, never baking as "mobile" (mirrors mayatk).
+    try:
+        LightmapBaker.from_preset("quest")
+        _quest_refusal = None
+    except ValueError as e:
+        _quest_refusal = str(e)
     check(
-        "the renamed quest tier still builds mobile, with a notice",
-        (old.resolution, old.samples, old.bounces) == (1024, 1024, 4)
-        and any(
-            issubclass(w.category, DeprecationWarning) and "mobile" in str(w.message)
-            for w in caught
-        ),
-        f"{[str(w.message) for w in caught]}",
+        "the removed quest tier is refused by name",
+        _quest_refusal is not None
+        and "Unknown lightmap preset 'quest'" in _quest_refusal
+        and "mobile" in _quest_refusal
+        and not hasattr(LightmapBaker, "preset_name"),
+        f"refusal={_quest_refusal!r}",
     )
     baker = LightmapBaker.from_preset("preview", resolution=64, samples=1)
     check(
@@ -3451,14 +3452,6 @@ try:
     finally:
         for _o in (_seen, _hidden, _lamp, _far_lamp):
             bpy.data.objects.remove(_o, do_unlink=True)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        _renamed = LightmapBaker.preset_name("quest")
-    check(
-        "preset_name keeps a stored tier and follows a retired one",
-        LightmapBaker.preset_name("mobile") == "mobile" and _renamed == "mobile",
-        _renamed,
-    )
     check(
         "the Samples range holds every shipped tier's Cycles paths",
         all(

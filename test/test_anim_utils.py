@@ -83,22 +83,23 @@ try:
         f"hide_viewport={mover.hide_viewport}",
     )
 
-    # ---- the retired "unbake" optimize level (renamed "extremes" 2026-09-02)
-    # resolves through ptk.Deprecation.values: it still lands on the live
-    # level, and now it SAYS so and names the release it stops working in.
-    import warnings
-
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        level = AnimUtils.normalize_optimize_level("  Unbake ")
-    notices = [w for w in caught if issubclass(w.category, DeprecationWarning)]
-    check(
-        "retired 'unbake' level: resolves to 'extremes' and warns",
-        level == "extremes"
-        and len(notices) == 1
-        and "blendertk 0.23.0" in str(notices[0].message),
-        f"level={level!r} notices={[str(w.message) for w in notices]}",
-    )
+    # ---- the removed "unbake" optimize level (renamed "extremes" 2026-09-02;
+    # resolved with a notice until 0.23.0) is an unknown level now: refused by
+    # name like any other, never standing in for "extremes" (mirror of mayatk).
+    for _call in (AnimUtils.normalize_optimize_level, AnimUtils.resolve_optimize_level):
+        try:
+            _call("  Unbake ")
+            _refusal = None
+        except ValueError as e:
+            _refusal = str(e)
+        check(
+            f"removed 'unbake' level: {_call.__name__} refuses it by name",
+            _refusal is not None
+            and "Unknown optimize level '  Unbake '" in _refusal
+            and "extremes" in _refusal
+            and "unbake" not in AnimUtils.OPTIMIZE_LEVELS,
+            f"refusal={_refusal!r}",
+        )
     check(
         "retired AnimUtils.unbake_keys alias stays removed (2026-09-21)",
         not hasattr(AnimUtils, "unbake_keys"),
