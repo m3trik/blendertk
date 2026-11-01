@@ -286,18 +286,26 @@ class TexturePathEditor(ptk.LoggingMixin):
         relocate_mode: str = "rewrite",
         allow_missing: bool = False,
     ) -> int:
-        """Repath each image so its file lives directly under *target_dir*.
+        """Repath each image so its file lives directly under *target_dir* --
+        mirror of mayatk's.
 
-        *relocate_mode*: ``"rewrite"`` (path only), ``"copy"`` / ``"move"``
-        (relocate the file first; a TILED set travels whole). An image is
-        repathed only when its file is ACTUALLY at the target afterwards, unless
-        *allow_missing*; the rest keep their path and are reported. A copy/move
-        whose destination holds a different file is skipped, and a LINKED image
-        is left (its path is its library's). Records prior paths in
+        The file work is ``ptk.FileCollect.set_directory`` over this host (a
+        FLAT Collect: the engine Find & Copy runs on). *relocate_mode*:
+        ``"rewrite"`` (path only), or ``"copy"`` / ``"move"`` -- each file
+        brought in under its name, a TILED set whole, identical bytes already
+        there reused, and a move takes a source away only once its copy
+        compares whole, never one that IS the destination however spelled (a
+        junction, a mapped drive), never one another image still reads (it is
+        copied). A name a different file holds at the destination, or that two
+        different files of the batch bring, leaves those images on their path,
+        warned.
+
+        An image is repathed only when its file is ACTUALLY at the target
+        afterwards, unless *allow_missing*; one whose file is on disk nowhere
+        has nothing to bring and is repathed by that rule. A LINKED image is
+        left (its path is its library's). Records prior paths in
         :attr:`previous_paths`. Returns the number of images repathed.
         """
-        import bpy
-
         if relocate_mode not in self.RELOCATE_MODES:
             raise ValueError(
                 f"Unknown relocate_mode {relocate_mode!r}; expected one of "
@@ -314,30 +322,28 @@ class TexturePathEditor(ptk.LoggingMixin):
                 f"Set Directory: linked, their library's path: {', '.join(linked)}.",
                 "warning",
             )
-        images = [img for img in images if getattr(img, "library", None) is None]
-        if not images:
+        names = [img.name for img in images if getattr(img, "library", None) is None]
+        if not (names and target_dir):
             return 0
-        before = {img.name: img.filepath for img in images}
-        record = self._snapshot(images)
-        count = btk.set_texture_directory(
-            images, target_dir, mode=relocate_mode, allow_missing=allow_missing
+        target = os.path.normpath(target_dir)
+        done = ptk.FileCollect(self).set_directory(
+            names,
+            target,
+            relocate_mode,
+            allow_missing=allow_missing,
+            copy=self._copy_into,
+            kind="texture",
         )
-        record()
-        absent = [
-            img.name
-            for img in images
-            if img.filepath == before.get(img.name)
-            and not ptk.TiledPath.tiles(
-                os.path.join(target_dir, bpy.path.basename(img.filepath))
-            )
-        ]
-        if absent and not allow_missing:
+        for level, message, items in done["report"]:
+            self._log(f"Set Directory: {message}", level, items)
+        count = self._repath_nodes(done["repath"])
+        if done["absent"]:
             self._log(
-                f"Set Directory: {len(absent)} texture(s) left on their path -- "
-                f"{target_dir} holds no file of that name. Copy / Move brings the "
-                "files along; Allow Missing Targets points them there anyway.",
+                f"Set Directory: {len(done['absent'])} texture(s) left on their "
+                f"path -- {target} holds no file of that name. Copy / Move brings "
+                "the files along; Allow Missing Targets points them there anyway.",
                 "warning",
-                items=absent,
+                items=done["absent"],
             )
         return count
 

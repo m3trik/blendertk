@@ -3159,13 +3159,14 @@ class MatUtils(_MatUtilsInternal):
         mode: str = "rewrite",
         allow_missing: bool = False,
     ) -> int:
-        """Repath each image so its file lives directly under ``target_dir`` — mirror of the Texture
-        Path Editor's *Set Directory*.
+        """Repath each image so its file lives directly under ``target_dir`` — the Texture Path
+        Editor's *Set Directory*, which this runs (``TexturePathEditor.set_texture_directory``).
 
-        ``mode``: ``"rewrite"`` (path only), ``"copy"`` / ``"move"`` (relocate the file on disk first,
-        then repath; a TILED set travels whole, every tile -- :meth:`_relocate`). ``images=None``
-        targets every FILE image and TILED set. A copy/move whose destination already holds a
-        different file is skipped (no overwrite, no wrong-file rebind).
+        ``mode``: ``"rewrite"`` (path only), or ``"copy"`` / ``"move"``: a flat ``ptk.FileCollect``
+        into ``target_dir`` (a TILED set travels whole; a move keeps a file another image reads, and
+        takes a source away only once its copy compares whole). ``images=None`` targets every FILE
+        image and TILED set. A name a different file holds at the destination leaves the image on its
+        path (no overwrite, no wrong-file rebind), and so does a linked image (its library's path).
 
         An image is repathed only when its file is ACTUALLY at the target afterwards, tiles
         resolved (``ptk.TiledPath.tiles``): the path pass used to rewrite every image whatever the
@@ -3184,41 +3185,15 @@ class MatUtils(_MatUtilsInternal):
         """
         if not target_dir:
             return 0
-        count, absent = 0, []
-        for img in _MatUtilsInternal._resolve_images(images):
-            ap = _MatUtilsInternal._abspath(img)
-            old = getattr(img, "filepath", "") or ""
-            if not old:
-                continue
-            dst = os.path.join(target_dir, os.path.basename(ap or old))
-            new = MatUtils.to_project_relative(dst)
-            if new == old:
-                continue  # already there — nothing to relocate or rewrite (mirrors mayatk)
-            if mode in ("copy", "move") and ap and ptk.TiledPath.tiles(ap):
-                if _MatUtilsInternal._relocate(ap, target_dir, mode) in (
-                    "skip",
-                    "error",
-                ):
-                    continue  # leave the image on its current (valid) path
-            # The target is what the image will READ: it has to hold the file (a texture
-            # already sitting there needs no copy and is still rebound).
-            if not (allow_missing or ptk.TiledPath.tiles(dst)):
-                absent.append(img.name)
-                continue
-            img.filepath = new
-            try:
-                img.reload()
-            except RuntimeError:
-                pass
-            count += 1
-        if absent:
-            logging.getLogger(__name__).warning(
-                f"Set Directory: {len(absent)} image(s) left on their current path -- "
-                f"{target_dir} holds no texture of that name ({', '.join(absent[:5])}"
-                f"{', ...' if len(absent) > 5 else ''}). Copy / move brings the files along; "
-                "allow_missing points them there anyway."
-            )
-        return count
+        # Deferred: the editor is this module's caller (its CollectHost reads images).
+        from blendertk.mat_utils.texture_path_editor import TexturePathEditor
+
+        return TexturePathEditor().set_texture_directory(
+            _MatUtilsInternal._resolve_images(images),
+            target_dir,
+            relocate_mode=mode,
+            allow_missing=allow_missing,
+        )
 
     @classmethod
     def rename_texture_file(

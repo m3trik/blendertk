@@ -1658,6 +1658,139 @@ try:
             _abspath(img),
         )
 
+    # 17. Set Directory's Move guards (BACKLOG 2026-10-23, S1; mirror of
+    # mayatk's): copy / move is a flat ptk.FileCollect, so a move takes a
+    # source away only once its copy compares whole. Added: 2026-10-31
+    def _bytes(path):
+        try:
+            with open(path, "rb") as fh:
+                return fh.read()
+        except OSError:
+            return None
+
+    def _junction(link, target):
+        """A directory junction *link* naming *target* (no elevation needed;
+        mayatk's tests' way); ``None`` where none can be made."""
+        try:
+            import _winapi
+
+            _winapi.CreateJunction(os.path.normpath(target), os.path.normpath(link))
+        except (ImportError, AttributeError, OSError):
+            return None
+        return link
+
+    def _source(folder, sub, name, data):
+        """*data* written to ``folder/sub/name`` and an image reading it."""
+        os.makedirs(os.path.join(folder, sub), exist_ok=True)
+        path = _write(os.path.join(folder, sub), name, data)
+        return path, _image(f"{sub}_{name}", os.path.dirname(path), name)
+
+    def _set_directory_move_same_size():
+        folder = _udim_case("move_same_size")
+        os.makedirs(os.path.join(folder, "dest"))
+        theirs = _write(os.path.join(folder, "dest"), "wood.tga", b"THEIRS!!")
+        src, img = _source(folder, "ext", "wood.tga", b"OURS!!!!")
+        editor, _said = _editor()
+        n = editor.set_texture_directory(
+            [img.name], os.path.dirname(theirs), relocate_mode="move"
+        )
+        check(
+            "Set Directory (move) never takes a same-size different file for its copy",
+            n == 0
+            and _bytes(src) == b"OURS!!!!"
+            and _bytes(theirs) == b"THEIRS!!"
+            and _same(_abspath(img), src),
+            f"n={n} {_abspath(img)} src={_bytes(src)}",
+        )
+
+    def _set_directory_move_alias():
+        folder = _udim_case("move_alias")
+        src, img = _source(folder, "real", "metal.png", b"ONLY COPY")
+        alias = _junction(os.path.join(folder, "alias"), os.path.dirname(src))
+        if alias is None:
+            check("...through a junction: SKIPPED, no junction can be made here", True)
+            return
+        try:
+            editor, _said = _editor()
+            n = editor.set_texture_directory([img.name], alias, relocate_mode="move")
+            check(
+                "...nor deletes the only copy through an alias of its own folder",
+                n == 1
+                and _bytes(src) == b"ONLY COPY"
+                and _same(_abspath(img), os.path.join(alias, "metal.png"))
+                and _bytes(_abspath(img)) == b"ONLY COPY",
+                f"n={n} {_abspath(img)} src={_bytes(src)}",
+            )
+        finally:
+            os.rmdir(alias)  # the junction, never its target
+
+    def _set_directory_move_shared():
+        folder = _udim_case("move_shared")
+        src, first = _source(folder, "ext", "stone.png", b"STONE")
+        second = _image("stone_b", os.path.dirname(src), "stone.png")
+        dest = os.path.join(folder, "dest")
+        editor, _said = _editor()
+        n = editor.set_texture_directory(
+            [first.name, second.name], dest, relocate_mode="move"
+        )
+        check(
+            "...repaths every image of the batch reading one file",
+            n == 2
+            and not os.path.exists(src)
+            and all(
+                _same(_abspath(i), os.path.join(dest, "stone.png"))
+                and _bytes(_abspath(i)) == b"STONE"
+                for i in (first, second)
+            ),
+            f"n={n} {_abspath(first)} {_abspath(second)}",
+        )
+
+    def _set_directory_move_outside_reader():
+        folder = _udim_case("move_outside")
+        src, moved = _source(folder, "ext", "moss.png", b"MOSS")
+        outside = _image("moss_outside", os.path.dirname(src), "moss.png")
+        editor, _said = _editor()
+        n = editor.set_texture_directory(
+            [moved.name], os.path.join(folder, "dest"), relocate_mode="move"
+        )
+        check(
+            "...copies a file an image outside the batch still reads",
+            n == 1
+            and _bytes(src) == b"MOSS"
+            and _same(_abspath(outside), src)
+            and _bytes(_abspath(moved)) == b"MOSS",
+            f"n={n} src={_bytes(src)} {_abspath(moved)}",
+        )
+
+    def _set_directory_move_namesakes():
+        folder = _udim_case("move_namesakes")
+        _wood_src, wood = _source(folder, "wood", "diffuse.tga", b"WOOD")
+        _metal_src, metal = _source(folder, "metal", "diffuse.tga", b"METL")
+        editor, _said = _editor()
+        editor.set_texture_directory(
+            [wood.name, metal.name], os.path.join(folder, "one"), relocate_mode="move"
+        )
+        check(
+            "...never rebinds one namesake of the batch to another",
+            _bytes(_abspath(wood)) == b"WOOD" and _bytes(_abspath(metal)) == b"METL",
+            f"{_abspath(wood)} {_abspath(metal)}",
+        )
+
+    def _set_directory_brings_a_file_up():
+        folder = _udim_case("move_below")
+        target = os.path.join(folder, "flat")
+        src, img = _source(target, "sub", "rock.png", b"ROCK")
+        editor, _said = _editor()
+        n = editor.set_texture_directory([img.name], target, relocate_mode="move")
+        check(
+            "...and brings a file in a folder below the target up to it (flat)",
+            n == 1
+            and not os.path.exists(src)
+            and _same(_abspath(img), os.path.join(target, "rock.png"))
+            and _bytes(_abspath(img)) == b"ROCK",
+            f"n={n} {_abspath(img)}",
+        )
+
     for _name, _body in (
         ("rename repoints every reader", _rename_repoints_every_reader),
         ("rename keeps the spelling", _rename_keeps_the_spelling),
@@ -1697,6 +1830,12 @@ try:
         ("udim editor", _udim_editor),
         ("set directory allow missing", _set_directory_allow_missing),
         ("editor allow missing option", _editor_allow_missing_option),
+        ("set directory move same size", _set_directory_move_same_size),
+        ("set directory move alias", _set_directory_move_alias),
+        ("set directory move shared", _set_directory_move_shared),
+        ("set directory move outside reader", _set_directory_move_outside_reader),
+        ("set directory move namesakes", _set_directory_move_namesakes),
+        ("set directory brings a file up", _set_directory_brings_a_file_up),
     ):
         _section(_name, _body)
     btk.EnvUtils.set_current_workspace(None)
