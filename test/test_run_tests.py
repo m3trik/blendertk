@@ -441,6 +441,156 @@ print("===RESULT: PASS=== (1/1)")
                     )
 
 
+class _StubSession:
+    """A kept Blender that answers each call with what a suite printed."""
+
+    TEMP_FOLDER = "temp"
+
+    def __init__(self, folder, stdout="", outcome=None):
+        self.folder = Path(folder)
+        self.stdout = stdout
+        self.outcome = outcome
+        self.calls = []
+
+    def run(self, entry, request, scope=None):
+        import ast
+
+        from pythontk import Outcome
+
+        self.calls.append((entry, request))
+        call = next(
+            node
+            for node in ast.walk(ast.parse(request.args["code"]))
+            if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "run_kept_suite"
+        )
+        suite, out, err, prelude = (ast.literal_eval(a) for a in call.args)
+        if self.outcome is not None:
+            return self.outcome
+        Path(out).write_text(self.stdout, encoding="utf-8")
+        Path(err).write_text("", encoding="utf-8")
+        return Outcome(op=entry["id"], status="done", result={"value": 0})
+
+
+class TestReuseRunsSuitesInAKeptBlender(unittest.TestCase):
+    """``--reuse``: each Blender suite is a call in one background Blender this
+    tooling launched and keeps between runs (pythontk's
+    ``SessionOperationHost``), never a Blender a person opened; a Qt-only suite
+    still runs in a fresh ``.venv`` interpreter."""
+
+    def setUp(self):
+        self.work = os.path.join(HERE, "temp_tests", f"kept_{os.getpid()}")
+        os.makedirs(self.work, exist_ok=True)
+        self.addCleanup(shutil.rmtree, self.work, True)
+        # The runner drives the kept Blender through pythontk; inside a harness
+        # Blender this checkout's copy is not on the path by itself.
+        pythontk = os.path.join(os.path.dirname(os.path.dirname(HERE)), "pythontk")
+        if os.path.isdir(pythontk) and pythontk not in sys.path:
+            sys.path.insert(0, pythontk)
+
+    def _runner(self, session):
+        runner = run_tests.BlenderTestRunner(blender="blender.exe", reuse=True)
+        runner._session = session
+        runner.temp_root = self.work
+        return runner
+
+    def test_a_blender_suite_is_a_call_in_the_kept_blender(self):
+        session = _StubSession(self.work, stdout="OK one\n===RESULT: PASS=== (1/1)\n")
+        with mock.patch.object(run_tests.subprocess, "run") as fresh:
+            result = self._runner(session).run_suite(Path(HERE, "test_fake.py"))
+        fresh.assert_not_called()
+        self.assertEqual(result, (True, 1, 0, False))
+        (entry, request), = session.calls
+        self.assertEqual((entry["id"], request.dry_run), ("blender.python.exec", False))
+        self.assertIn("test_fake.py", request.args["code"])
+
+    def test_the_suite_is_pinned_to_the_kept_blenders_own_temp(self):
+        """The run's root goes with the run; the kept Blender outlives it."""
+        import ast
+
+        session = _StubSession(self.work, stdout="===RESULT: PASS=== (1/1)\n")
+        self._runner(session).run_suite(Path(HERE, "test_fake.py"))
+        code = session.calls[0][1].args["code"]
+        call = next(
+            n for n in ast.walk(ast.parse(code))
+            if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "run_kept_suite"
+        )
+        prelude = ast.literal_eval(call.args[3])
+        own = str(Path(self.work) / _StubSession.TEMP_FOLDER)
+        self.assertIn(repr(own), prelude)
+        self.assertIn("BLENDERTK_TEST_TEMP_ROOT", prelude)
+
+    def test_a_qt_only_suite_still_runs_in_a_fresh_interpreter(self):
+        session = _StubSession(self.work)
+        done = subprocess.CompletedProcess([], 0, stdout="===RESULT: PASS=== (1/1)\n", stderr="")
+        with mock.patch.object(run_tests.subprocess, "run", return_value=done) as fresh:
+            result = self._runner(session).run_suite(
+                Path(HERE, "test_fake.py"), python=sys.executable
+            )
+        self.assertEqual(fresh.call_count, 1)
+        self.assertEqual(session.calls, [])
+        self.assertTrue(result[0])
+
+    def test_a_kept_call_that_times_out_costs_one_failure(self):
+        from pythontk import Outcome
+
+        timed_out = Outcome(
+            op="blender.python.exec",
+            status="failed",
+            error="blender session: it timed out after 600 s, so its instance was stopped",
+        )
+        session = _StubSession(self.work, outcome=timed_out)
+        with mock.patch("sys.stdout", new_callable=lambda: __import__("io").StringIO()):
+            result = self._runner(session).run_suite(Path(HERE, "test_fake.py"))
+        self.assertEqual(result, (False, 0, 1, False))
+
+    def test_the_session_is_made_before_the_runs_temp_is_isolated(self):
+        runner = run_tests.BlenderTestRunner(blender="blender.exe", reuse=True)
+        order = []
+        with mock.patch.object(
+            runner, "_keep_session", side_effect=lambda: order.append("keep")
+        ), mock.patch.object(
+            runner, "_isolate_temp", side_effect=lambda: order.append("isolate")
+        ), mock.patch.object(runner, "discover", return_value=[]), mock.patch(
+            "sys.stdout", new_callable=lambda: __import__("io").StringIO()
+        ):
+            runner.run()
+        self.assertEqual(order, ["keep", "isolate"])
+
+    def test_two_suites_share_one_kept_blender_each_from_a_fresh_scene(self):
+        blender = TestChildTempRoot._blender()
+        if not blender:
+            self.skipTest("no Blender installed")
+        suite = Path(self.work, "probe_kept.py")
+        suite.write_text(
+            "import os, bpy\n"
+            "fresh = 'LEFT_BY_A_SUITE' not in bpy.data.objects and 'Cube' in bpy.data.objects\n"
+            "bpy.data.objects.new('LEFT_BY_A_SUITE', None)\n"
+            "print(f\"{'OK  ' if fresh else 'FAIL'} a factory scene | {os.getpid()}\")\n"
+            "print(f\"===RESULT: {'PASS' if fresh else 'FAIL'}=== ({int(fresh)}/1)\")\n",
+            encoding="utf-8",
+        )
+        runner = run_tests.BlenderTestRunner(blender=blender, reuse=True)
+        runner.KEEP_SECONDS = 30
+        runner._session = runner._keep_session(tag=f"test-{os.getpid()}")  # never a run's
+        self.addCleanup(runner._session._kill)
+        first = runner.run_suite(suite)
+        pid = (runner._session.queue.worker() or {}).get("pid")
+        second = runner.run_suite(suite)
+        self.assertEqual((first, second), ((True, 1, 0, False),) * 2)
+        self.assertEqual((runner._session.queue.worker() or {}).get("pid"), pid)
+
+    def test_a_second_run_on_this_checkout_takes_another_kept_blender(self):
+        tag = f"claim-{os.getpid()}"
+        first = run_tests.BlenderTestRunner(blender=sys.executable, reuse=True)
+        second = run_tests.BlenderTestRunner(blender=sys.executable, reuse=True)
+        mine = first._keep_session(tag=tag)  # nothing is launched until a call
+        self.addCleanup(mine.close)
+        theirs = second._keep_session(tag=tag)
+        self.assertIsNotNone(theirs)
+        self.addCleanup(theirs.close)
+        self.assertNotEqual(mine.session, theirs.session)
+
+
 if __name__ == "__main__":
     argv = [sys.argv[0]] + (
         sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []

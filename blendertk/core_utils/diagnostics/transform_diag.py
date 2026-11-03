@@ -17,10 +17,17 @@ matrix back to Loc·Rot·Scale, dropping the shear) — the object is un-parente
 analogue of Maya's freeze. ``import bpy`` is deferred into the call body.
 """
 
+from typing import Optional, Sequence, Union
+
 import pythontk as ptk
 
 from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.xform_utils._xform_utils import XformUtils
+
+# An object or its name, one or several: what mtk's diagnostics take, typed alike so
+# the twin operations share one argument schema.
+_NodeLike = Union[str, object]
+_NodeSeq = Union[_NodeLike, Sequence[_NodeLike]]
 
 
 class _TransformDiagnosticsInternal(object):
@@ -41,17 +48,9 @@ class _TransformDiagnosticsInternal(object):
     @staticmethod
     def _resolve(objects):
         """Coerce names/datablocks (or None -> selection) to a list of objects."""
-        import bpy
-        from blendertk.core_utils._core_utils import CoreUtils
-
         if objects is None:
             objects = list(CoreUtils.selected_objects())
-        pool = []
-        for o in ptk.make_iterable(objects):
-            obj = bpy.data.objects.get(o) if isinstance(o, str) else o
-            if obj is not None:
-                pool.append(obj)
-        return pool
+        return CoreUtils.get_objects(objects)
 
     # Transform data paths the fix rewrites (parent_clear / visual_transform_apply
     # write the whole local transform, unlike Maya's rotate/scale-only freeze).
@@ -144,14 +143,18 @@ class TransformDiagnostics(_TransformDiagnosticsInternal):
         raise ValueError(f"Unknown scope {scope!r}: expected 'selection' or 'all'.")
 
     @staticmethod
-    def get_non_orthogonal(objects=None, tolerance=1e-5, detailed=False):
+    def get_non_orthogonal(
+        objects: Optional[_NodeSeq] = None,
+        tolerance: Optional[float] = None,
+        detailed: bool = False,
+    ):
         """Return the objects whose evaluated (world) axes are not perpendicular — the
         condition FBX reports as "Non-orthogonal matrix support" (mirror of
         ``mtk.TransformDiagnostics.get_non_orthogonal``).
 
         Args:
             objects: objects (datablocks or names) to check; ``None`` uses the current selection.
-            tolerance: max axis-pair cosine treated as orthogonal.
+            tolerance: max axis-pair cosine treated as orthogonal; ``None`` is 1e-5.
             detailed: return a per-object diagnosis dict instead of a flat list.
 
         Returns:
@@ -164,6 +167,7 @@ class TransformDiagnostics(_TransformDiagnosticsInternal):
             would write it (``driver:``/``anim:``/``constraint:`` tags) — non-empty means
             :meth:`fix_non_orthogonal_axes` skips the object unless ``break_connections`` is set.
         """
+        tolerance = 1e-5 if tolerance is None else tolerance
         found = {}
         for obj in _TransformDiagnosticsInternal._resolve(objects):
             skew = _TransformDiagnosticsInternal._matrix_skew(obj.matrix_world.to_3x3())

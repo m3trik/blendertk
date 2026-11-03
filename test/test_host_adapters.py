@@ -72,6 +72,12 @@ ADAPTERS = (
             "blendertk.uv_utils.texture_combine._transfer_host", "BlenderTransferHost"
         ),
     ),
+    (
+        "OperationHost",  # the ``blender`` runner blendertk registers
+        lambda: importlib.import_module(
+            "blendertk.env_utils.blender_scene_files"
+        ).BlenderSceneFiles.operation_host(),
+    ),
 )
 
 

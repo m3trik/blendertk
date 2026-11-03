@@ -1,0 +1,86 @@
+{
+  "format": 1,
+  "provider": "blendertk",
+  "operations": [
+    {
+      "id": "blender.python.exec",
+      "title": "Run Python in Blender",
+      "summary": "Run *code* in the console namespace, as the next snippet typed into a console.",
+      "effect": "code",
+      "host": "blender",
+      "target": "pythontk:PythonConsole.run",
+      "dry_run": false,
+      "args": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Python source: statements, then optionally an expression whose value comes back. Names it defines stay for later calls."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "code"
+        ]
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "id": "blender.scene.view",
+      "title": "An image of the scene",
+      "summary": "An image of the scene: a Workbench render to a PNG in pythontk's temp root, with the scene left as it was (its camera, render settings and objects).",
+      "effect": "read",
+      "host": "blender",
+      "target": "blendertk:CamUtils.capture_view",
+      "dry_run": true,
+      "args": {
+        "type": "object",
+        "properties": {
+          "objects": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The objects to frame, by name (default: every visible mesh). Ignored with *camera*.",
+            "default": null
+          },
+          "camera": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A camera object to look through, by name, instead of a view from the front-right above that frames *objects*.",
+            "default": null
+          },
+          "width": {
+            "type": "integer",
+            "description": "The image's width, in pixels.",
+            "default": 960
+          },
+          "height": {
+            "type": "integer",
+            "description": "The image's height, in pixels.",
+            "default": 540
+          }
+        },
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "string"
+      }
+    }
+  ]
+}

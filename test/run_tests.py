@@ -4,8 +4,9 @@
 Main test runner for blendertk.
 
 Runs every headless suite in a FRESH background Blender (session-safety rule:
-never attach to a running instance) and aggregates the ``===RESULT===``
-sentinels. Each suite reports its checks as ``OK <name>`` / ``FAIL <name>``
+never attach to a running instance) -- or, with ``--reuse``, in one background
+Blender this tooling launched and keeps between runs -- and aggregates the
+``===RESULT===`` sentinels. Each suite reports its checks as ``OK <name>`` / ``FAIL <name>``
 lines, so the totals here -- and the README badge -- count *individual checks*,
 the same unit every sibling package reports. See
 m3trik/docs/TEST_BADGE_STANDARD.md.
@@ -17,6 +18,16 @@ Run with:
     python run_tests.py --blender <path>      # explicit Blender executable
     python run_tests.py --no-badge            # skip the README badge update
     python run_tests.py --suite-timeout 900   # per-suite kill timer (default 600s)
+    python run_tests.py --reuse               # Blender suites in a kept background Blender
+
+``--reuse`` runs each Blender suite as a call in one background Blender
+(pythontk's ``SessionOperationHost``, one per checkout): the first run starts
+it, later runs reuse it, and it ends by itself ``KEEP_SECONDS`` after its last
+suite. Each suite starts from the factory scene, with blendertk and the test
+modules imported afresh; a change to other code it loaded (pythontk, uitk)
+restarts it, and so does a suite that hangs past its timer. Suites share one
+process, so one that leaks state (a persistent handler) can affect a later
+one: a fresh run is the reference. Qt-only suites run in the ``.venv`` as always.
 """
 
 import argparse
@@ -27,7 +38,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 TEST_DIR = Path(__file__).resolve().parent
 PACKAGE_ROOT = TEST_DIR.parent
@@ -145,12 +156,29 @@ class BlenderTestRunner:
         )
     )
 
+    #: Seconds a kept Blender (--reuse) waits for the next suite before it ends
+    #: by itself.
+    KEEP_SECONDS = 900
+    #: Seconds a kept Blender has to stop a suite past its timer before it is killed.
+    KEEP_GRACE = 5
+    #: Kept Blenders a run may look past while other runs on this checkout
+    #: hold theirs (each run claims its own; none left: fresh suites).
+    SPARE_SESSIONS = 4
+
     def __init__(
-        self, blender: str, test_dir: Path = TEST_DIR, suite_timeout: int = 600
+        self,
+        blender: str,
+        test_dir: Path = TEST_DIR,
+        suite_timeout: int = 600,
+        reuse: bool = False,
     ):
         self.blender = blender
         self.test_dir = test_dir
         self.suite_timeout = suite_timeout
+        #: Run the Blender suites in a kept Blender (``--reuse``).
+        self.reuse = reuse
+        #: That Blender's session (:meth:`_keep_session`), once the run starts.
+        self._session: Any = None
         self.venv_python = find_venv_python()
         #: The run's throwaway temp root (:meth:`_isolate_temp`); None = real TEMP.
         self.temp_root: Optional[str] = None
@@ -278,7 +306,25 @@ class BlenderTestRunner:
         Returns:
             Tuple of (passed, ok_checks, failed_checks, skipped).
         """
-        cmd = self._child_command(suite, python)
+        if self._session is not None and not python:
+            stdout, stderr, timed_out = self._run_kept(suite)
+        else:
+            stdout, stderr, timed_out = self._run_child(suite, python)
+        if timed_out:
+            # A hung suite must cost a failure, not stall the whole run: with
+            # no timeout, one wedged Blender blocked every suite behind it.
+            self._print_detail(
+                f"TIMEOUT {suite.name}: no result after {self.suite_timeout}s "
+                "(process killed)"
+            )
+            return False, 0, 1, False
+        return self._verdict(suite, stdout.splitlines(), stderr)
+
+    def _run_child(
+        self, suite: Path, python: Optional[str] = None
+    ) -> Tuple[str, str, bool]:
+        """One suite in a fresh child: what it printed to stdout and stderr,
+        and whether it ran past its timer (it was killed)."""
         # UTF-8 on both ends of the pipe: a child Python picks its stdout codec
         # from the locale when stdout is a pipe (cp1252 here), so a suite that
         # prints one glyph outside it died with UnicodeEncodeError and read as
@@ -295,7 +341,7 @@ class BlenderTestRunner:
         env.setdefault("QT_QPA_PLATFORM", "offscreen")
         try:
             proc = subprocess.run(
-                cmd,
+                self._child_command(suite, python),
                 # A closed stdin: a child that inherits the launching console
                 # reads as interactive (``sys.stdin.isatty()``), and the exporter's
                 # console consent then waits on a ``[y/N]`` nobody will type --
@@ -311,15 +357,144 @@ class BlenderTestRunner:
                 env=env,
             )
         except subprocess.TimeoutExpired:
-            # A hung suite must cost a failure, not stall the whole run: with
-            # no timeout, one wedged Blender blocked every suite behind it.
-            self._print_detail(
-                f"TIMEOUT {suite.name}: no result after {self.suite_timeout}s "
-                "(process killed)"
-            )
-            return False, 0, 1, False
-        lines = (proc.stdout or "").splitlines()
+            return "", "", True
+        return proc.stdout or "", proc.stderr or "", False
 
+    def _keep_session(self, tag: str = "") -> Any:
+        """The kept background Blender (--reuse): one per checkout and Blender,
+        keyed by its root and the executable, so two worktrees never share one,
+        nor a run naming another Blender (--blender); *tag* sets one apart (a
+        test's). Made before the run isolates its temp, which would put the
+        session's folder in the run's throwaway root."""
+        import hashlib
+
+        import pythontk as ptk
+
+        # This checkout's blendertk, installed or not: the kept Blender is
+        # handed the roots this process imports it from.
+        if str(PACKAGE_ROOT) not in sys.path:
+            sys.path.insert(0, str(PACKAGE_ROOT))
+        checkout = hashlib.sha1(
+            os.path.normcase(f"{PACKAGE_ROOT.parent}|{os.path.abspath(self.blender)}").encode("utf-8")
+        ).hexdigest()[:10]
+        env = dict(
+            os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1", PYTHONUNBUFFERED="1"
+        )
+        env.setdefault("QT_QPA_PLATFORM", "offscreen")
+        batch = ptk.BatchOperationHost(
+            self.blender,
+            scene_files="blendertk:BlenderSceneFiles",
+            launch_args=lambda script: ["--background", "--factory-startup", "--python", script],
+            packages=("blendertk",),
+            env=env,
+            timeout=self.suite_timeout,
+            grace=self.KEEP_GRACE,
+        )
+        for index in range(1 + self.SPARE_SESSIONS):
+            session = ptk.SessionOperationHost(
+                batch,
+                "-".join(p for p in ("tests", checkout, tag, str(index or "")) if p),
+                "blender",
+                keep=self.KEEP_SECONDS,
+                reload=[str(PACKAGE_ROOT)],
+            )
+            if session.claim():  # no other run on this checkout is using it
+                return session
+        return None  # every one is another run's: this one runs fresh
+
+    def _run_kept(self, suite: Path) -> Tuple[str, str, bool]:
+        """One suite as a call in the kept Blender: what it printed to stdout
+        and stderr, and whether it ran past its timer (the session then
+        stopped that Blender, and the next suite starts a fresh one).
+
+        Pinned to the kept Blender's own temp root, not the run's: that one
+        goes with the run, and the Blender outlives it.
+        """
+        import tempfile
+
+        import pythontk as ptk
+
+        root = str(self._session.folder / self._session.TEMP_FOLDER)
+        pin = (
+            self._PIN_TEMP.format(root)
+            + f"; os.environ['BLENDERTK_TEST_TEMP_ROOT'] = {root!r}"
+        )
+        settings = (
+            self._SANDBOX_SETTINGS.format(self._SANDBOX_ROOTS)
+            if self.sandbox_settings
+            else ""
+        )
+        prelude = "\n".join(code for code in (pin, settings) if code)
+        out_dir = tempfile.mkdtemp(prefix="kept_suite_", dir=self.temp_root or None)
+        out, err = os.path.join(out_dir, "stdout.txt"), os.path.join(out_dir, "stderr.txt")
+        code = (
+            "import importlib.util as _util\n"
+            f"_spec = _util.spec_from_file_location('_blendertk_run_tests', {str(Path(__file__).resolve())!r})\n"
+            "_harness = _util.module_from_spec(_spec)\n"
+            "_spec.loader.exec_module(_harness)\n"
+            f"_harness.BlenderTestRunner.run_kept_suite({str(suite)!r}, {out!r}, {err!r}, {prelude!r})\n"
+        )
+        entry = ptk.Operation(
+            "blender.python.exec", "pythontk:PythonConsole.run", effect="code", host="blender"
+        ).describe()
+        outcome = self._session.run(
+            entry, ptk.OpRequest(op=entry["id"], args={"code": code}, dry_run=False)
+        )
+        try:
+            texts = []
+            for path in (out, err):
+                try:
+                    with open(path, encoding="utf-8", errors="replace") as handle:
+                        texts.append(handle.read())
+                except OSError:
+                    texts.append("")
+        finally:
+            shutil.rmtree(out_dir, ignore_errors=True)
+        stdout, stderr = texts
+        if "timed out after" in (outcome.error or ""):
+            return stdout, stderr, True
+        if not outcome.ok:  # the Blender's own failure: the suite's stderr tail says it
+            stderr = f"{stderr}\n{outcome.error or outcome.status}".strip()
+        return stdout, stderr, False
+
+    @staticmethod
+    def run_kept_suite(suite: str, out: str, err: str, prelude: str = "") -> int:
+        """In a kept Blender (``--reuse``): run *suite* as a fresh ``blender
+        --background --factory-startup --python <suite>`` would -- from the
+        factory scene, after the run's *prelude*, as ``__main__`` -- what it
+        prints going to *out* and *err*.
+
+        Returns:
+            Its exit code: what it passed to ``sys.exit``, 1 when it raised.
+        """
+        import contextlib
+        import runpy
+        import traceback
+
+        import bpy
+
+        bpy.ops.wm.read_factory_settings()
+        code = 0
+        argv, path = sys.argv[:], sys.path[:]
+        with open(out, "w", encoding="utf-8") as stdout, open(
+            err, "w", encoding="utf-8"
+        ) as stderr, contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            sys.argv[:] = [argv[0], "--background", "--factory-startup", "--python", suite]
+            try:
+                if prelude:
+                    exec(compile(prelude, "<prelude>", "exec"), {"__name__": "__prelude__"})
+                runpy.run_path(suite, run_name="__main__")
+            except SystemExit as exc:
+                code = exc.code if isinstance(exc.code, int) else int(exc.code is not None)
+            except Exception:
+                traceback.print_exc()
+                code = 1
+            finally:
+                sys.argv[:], sys.path[:] = argv, path
+        return code
+
+    def _verdict(self, suite: Path, lines: List[str], stderr: str) -> Tuple[bool, int, int, bool]:
+        """A suite's sentinel and checks, read from what it printed."""
         verdicts = [m for m in map(SENTINEL.match, lines) if m]
         passed = len(verdicts) == 1 and verdicts[0].group(1) == "PASS"
         skipped = bool(verdicts) and verdicts[0].group(4) == "skipped"
@@ -349,7 +524,7 @@ class BlenderTestRunner:
             # the one piece of output that explained the failure was captured and
             # then thrown away. Same defect the pythontk/tentacle runners had at
             # their TeeStream, in this harness's shape.
-            tail = (proc.stderr or "").strip().splitlines()[-5:]
+            tail = (stderr or "").strip().splitlines()[-5:]
             if tail:
                 # Labelled: Blender writes its own warnings here too, and an
                 # unlabelled tail reads as more failing checks.
@@ -379,6 +554,15 @@ class BlenderTestRunner:
 
     def run(self, patterns: Optional[List[str]] = None) -> dict:
         """Run the selected suites and return aggregate counts."""
+        if self.reuse:
+            self._session = self._keep_session()  # before the temp isolation below
+            print(
+                f"Reuse:   Blender suites run in a kept background Blender; it ends "
+                f"{self.KEEP_SECONDS}s after its last suite"
+                if self._session is not None
+                else "Reuse:   every kept Blender of this checkout is another run's; "
+                "suites run fresh"
+            )
         self.temp_root = self._isolate_temp()
         suites = self.discover(patterns)
         if not suites:
@@ -480,6 +664,11 @@ def main() -> int:
         "--no-badge", action="store_true", help="Skip the README badge update"
     )
     parser.add_argument(
+        "--reuse",
+        action="store_true",
+        help="Run the Blender suites in a background Blender this tooling keeps between runs",
+    )
+    parser.add_argument(
         "--suite-timeout",
         type=int,
         default=600,
@@ -492,7 +681,9 @@ def main() -> int:
         print("[ERROR] Blender not found (pass --blender or set BLENDERTK_BLENDER)")
         return 1
 
-    runner = BlenderTestRunner(blender, suite_timeout=args.suite_timeout)
+    runner = BlenderTestRunner(
+        blender, suite_timeout=args.suite_timeout, reuse=args.reuse
+    )
 
     if args.list:
         for suite in runner.discover():

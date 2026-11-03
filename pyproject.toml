@@ -38,6 +38,14 @@ Repository = "https://github.com/m3trik/blendertk"
 Changelog = "https://github.com/m3trik/blendertk/blob/main/CHANGELOG.md"
 Issues = "https://github.com/m3trik/blendertk/issues"
 
+# Operations (``python -m pythontk ops``): blendertk's declarations, and the
+# runner that gives each ``host="blender"`` call a fresh background Blender.
+[project.entry-points."pythontk.operations"]
+blendertk = "blendertk.operations"
+
+[project.entry-points."pythontk.operation_hosts"]
+blender = "blendertk:BlenderSceneFiles.operation_host"
+
 [tool.setuptools.dynamic]
 version = {attr = "blendertk.__version__"}
 readme = {file = "docs/README.md", content-type = "text/markdown"}

@@ -390,10 +390,15 @@ class _AnimationTasksMixin(_TaskDataMixin):
         mayatk's ``_include_data_export_node``).  A hidden carrier is folded in
         as it is: the write shows it for itself and hides it again after
         (``FbxUtils._carriers_shippable``, lifted from here 2026-10-05 so every
-        writer ships it the same way).
+        writer ships it the same way). A carrier the publish removed -- an
+        import's leftover (``ptk.SceneStoreBase.migrate``) -- leaves the set
+        with it: a removed object raises on its first read.
         """
         from blendertk.node_utils.data_nodes import DataNodes
 
+        live = self._live_objects()
+        if len(live) != len(self.objects or []):
+            self.objects = live
         carrier = DataNodes.get_export_node(create=False)
         if carrier is None:
             self.logger.debug("No data_export carrier in scene — nothing to include.")

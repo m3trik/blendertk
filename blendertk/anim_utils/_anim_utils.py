@@ -11,6 +11,7 @@ effects).
 import html as _html
 
 from contextlib import contextmanager
+from typing import List, Optional, Tuple
 
 import pythontk as ptk
 
@@ -1505,7 +1506,7 @@ class AnimUtils(_AnimUtilsInternal):
         this side: in Blender the fcurve IS the channel.
         """
         objs, curves = [], []
-        for o in ptk.make_iterable(objects):
+        for o in CoreUtils.get_objects(objects):  # a name is its object
             (curves if _AnimUtilsInternal._is_fcurve(o) else objs).append(o)
         for action, slot in _AnimUtilsInternal._actions(objs):
             curves.extend(_AnimUtilsInternal._slot_fcurves(action, slot))
@@ -1906,7 +1907,7 @@ class AnimUtils(_AnimUtilsInternal):
         Returns the number of keys moved (0 = nothing selected, or already aligned).
         """
         objs, curves = [], []
-        for o in ptk.make_iterable(objects):
+        for o in CoreUtils.get_objects(objects):  # a name is its object
             (curves if _AnimUtilsInternal._is_fcurve(o) else objs).append(o)
         groups = [
             _AnimUtilsInternal._slot_fcurves(action, slot)
@@ -3074,11 +3075,11 @@ class AnimUtils(_AnimUtilsInternal):
 
     @staticmethod
     def get_redundant_flat_keys(
-        objects,
-        value_tolerance=1e-5,
-        remove=False,
-        time_range=None,
-        selected_only=False,
+        objects: List[str],
+        value_tolerance: float = 1e-5,
+        remove: bool = False,
+        time_range: Optional[Tuple[float, float]] = None,
+        selected_only: bool = False,
     ):
         """Interior keys of a flat run — mirror of ``mtk.AnimUtils.get_redundant_flat_keys``.
 
@@ -3089,7 +3090,15 @@ class AnimUtils(_AnimUtilsInternal):
         This is the pass that matters on hand-animated footage, where a hold is
         usually spelled with ``CONSTANT`` interpolation — and a stepped curve is
         exactly what :func:`simplify_curve` will not touch. Scope narrows the same
-        two ways as that function and *objects* may be fcurves.
+        two ways as that function.
+
+        Parameters:
+            objects: Objects (or their names) whose curves are read, or fcurves.
+            value_tolerance: How close a key's value must be to its neighbours'.
+            remove: Delete the redundant keys.
+            time_range: ``(start, end)`` window a key must fall inside; ``None`` is every
+                interior key.
+            selected_only: Only keys selected in the Graph Editor.
         """
 
         def candidate(key):

@@ -1092,6 +1092,12 @@ try:
         len(dupes) == 1 and dupes[0] in (a, b),
         f"{[d.name for d in dupes]}",
     )
+    named = btk.get_overlapping_duplicates(objects=[a.name, b.name, "Nope"])
+    check(
+        "get_overlapping_duplicates takes object names (an operation's arguments)",
+        [d.name for d in named] == [d.name for d in dupes],
+        f"{[d.name for d in named]}",
+    )
     reset()
     bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
     bpy.ops.mesh.primitive_cube_add(location=(5, 0, 0))

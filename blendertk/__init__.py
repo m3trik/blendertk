@@ -112,6 +112,8 @@ DEFAULT_INCLUDE = {
     "env_utils.blender_connection": [
         "BlenderConnection",
     ],
+    # The ``blender`` operation host — mirror of mayatk's ``env_utils.maya_scene_files``.
+    "env_utils.blender_scene_files": "BlenderSceneFiles",
     # Script Output console — mirror of mayatk's ``env_utils.script_output``. Docks a native
     # Info Log area into the main window (the anchor) and shadows it with a frameless
     # ``uitk.ScriptOutput`` skin (Route 2+); capture (stdout/stderr/logging) runs from startup
@@ -176,7 +178,7 @@ DEFAULT_INCLUDE = {
     # The WebXR delivery half of the same tool — everything between a Cycles
     # lightmap EXR and a browser-ready GLB. Registered like its sibling above
     # because it is cross-package public surface: mayatk's ``bake_lightmaps``
-    # bridge template is its consumer, and the API registry already publishes it.
+    # bridge template is its consumer, and its public surface (api.search) shows it.
     "light_utils.lightmap_baker.web_export": [
         "LightmapWebExport",
     ],

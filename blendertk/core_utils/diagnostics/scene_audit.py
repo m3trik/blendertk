@@ -163,9 +163,9 @@ class SceneAnalyzer:
     def format_audit_html(
         cls,
         adaptive: bool = False,
-        objects=None,
+        objects: Optional[List] = None,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
-        sections: Optional[Iterable[str]] = None,
+        sections: Optional[List[str]] = None,
         scope: Optional[str] = None,
     ) -> Dict[str, str]:
         """Run the audit and return ``{"_header": html, section: html, ...}``.
@@ -192,11 +192,21 @@ class SceneAnalyzer:
     def format_audit_text(
         cls,
         adaptive: bool = False,
-        objects=None,
-        sections: Optional[Iterable[str]] = None,
+        objects: Optional[List] = None,
+        sections: Optional[List[str]] = None,
         scope: Optional[str] = None,
     ) -> Dict[str, str]:
-        """:meth:`format_audit_html` as plain text (console / log)."""
+        """Run the audit and return ``{"_header": text, section: text, ...}``:
+        :meth:`format_audit_html` as plain text (console / log).
+
+        Parameters:
+            adaptive: The Adaptive (Game Ready) budget profile, else Generic.
+            objects: Objects (or their names) to audit, each with everything under
+                it. ``None`` resolves *scope* instead.
+            sections: :class:`SceneInfoSection` keys; ``None`` means all.
+            scope: With no *objects*: ``"all"`` (every scene object) or
+                ``"selection"`` (default).
+        """
         return cls._format("to_text", adaptive, objects, None, sections, scope)
 
     @classmethod

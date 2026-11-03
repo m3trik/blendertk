@@ -621,6 +621,43 @@ class DataNodes(ptk.SceneStoreBase):
         }
 
     @classmethod
+    def _leftover_carriers(cls) -> Dict[str, Tuple[ptk.Scope, "_Carrier"]]:
+        """Every local Empty named as a copy of the ``data_export`` carrier
+        beside this file's own -- what a plain append numbered
+        (``data_export.001``) -- by name (mirror of mayatk's). A copy is told
+        by its name AND its shape, an Empty (no object data), as
+        :meth:`_export_object` makes the carrier: a user's mesh named like one
+        is never offered. A linked or library-overridden one is its
+        library's, and stays; so does one parenting other objects, which are
+        not a migration's to delete. The private carrier is the scene's
+        group, which no append brings."""
+        import bpy
+
+        found: Dict[str, Tuple[ptk.Scope, _Carrier]] = {}
+        for obj in bpy.data.objects:
+            if (
+                obj.name == cls.EXPORT
+                or obj.type != "EMPTY"
+                or obj.data is not None
+                or obj.library is not None
+                or obj.override_library is not None
+                or not cls.is_carrier(obj.name)
+            ):
+                continue
+            if obj.children:
+                logger.warning(
+                    "%s: a carrier an import left parents other objects; "
+                    "left as it is.",
+                    obj.name,
+                )
+                continue
+            found[obj.name] = (
+                _Scope.DELIVERABLE,
+                _Carrier(cls._object_values(obj), [obj]),
+            )
+        return found
+
+    @classmethod
     def _carrier_values(cls, carrier: "_Carrier") -> Dict[str, Any]:
         return dict(carrier.values)
 

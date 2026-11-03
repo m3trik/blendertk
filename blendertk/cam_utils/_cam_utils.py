@@ -13,6 +13,8 @@ framing tools and works on the **RegionView3D / SpaceView3D** instead — the vi
 orbits — so those need a 3D viewport (present, though not interactive, in ``--background``).
 """
 
+from typing import List, Optional
+
 import pythontk as ptk
 
 from blendertk.core_utils._core_utils import CoreUtils
@@ -561,6 +563,134 @@ class CamUtils(_CamUtilsInternal):
         with CoreUtils.window_context_override():
             scene = bpy.context.scene
         return [o.name for o in scene.objects if o.type == "CAMERA"]
+
+    #: The direction a capture looks from when no camera is named: front-right
+    #: and above the objects, as Maya's default persp camera does (Z up here).
+    CAPTURE_FROM = (1.0, -1.0, 0.75)
+
+    @staticmethod
+    def capture_view(
+        objects: Optional[List[str]] = None,
+        camera: Optional[str] = None,
+        width: int = 960,
+        height: int = 540,
+    ) -> str:
+        """An image of the scene: a Workbench render to a PNG in pythontk's
+        temp root, with the scene left as it was (its camera, render settings
+        and objects). It needs no viewport, so it works in ``--background``.
+        Twin of mayatk's ``CamUtils.capture_view`` (a playblast there).
+
+        A Workbench render, not ``PlayblastExporter``'s capture: that one is
+        the OpenGL viewport render (``render.opengl``), which needs a
+        viewport, and ``--background`` has none (CODE_STANDARD section 15).
+
+        Parameters:
+            objects: The objects to frame, by name (default: every visible
+                mesh). Ignored with *camera*.
+            camera: A camera object to look through, by name, instead of a
+                view from the front-right above that frames *objects*.
+            width: The image's width, in pixels.
+            height: The image's height, in pixels.
+
+        Returns:
+            The PNG's path (the temp root sweeps it by age).
+
+        Raises:
+            ValueError: *camera* names no camera object, or *objects* a name no
+                object has.
+        """
+        import math
+
+        import bpy
+        from mathutils import Vector
+
+        scene = bpy.context.scene
+        render = scene.render
+        if camera is not None:
+            shot = bpy.data.objects.get(camera)
+            if shot is None or shot.type != "CAMERA":
+                raise ValueError(f"No camera named {camera!r}.")
+        targets = CoreUtils.get_objects(objects) if objects else None
+        if objects and len(targets) != len(list(ptk.make_iterable(objects))):
+            found = {o.name for o in targets}
+            missing = [
+                n
+                for n in ptk.make_iterable(objects)
+                if isinstance(n, str) and n not in found
+            ]
+            raise ValueError(f"No object named {', '.join(map(repr, missing))}.")
+        path = ptk.TempArtifacts("view_capture", max_age_days=1).path(extension=".png")
+        settings = render.image_settings
+        saved = (
+            scene.camera,
+            render.engine,
+            render.resolution_x,
+            render.resolution_y,
+            render.resolution_percentage,
+            render.filepath,
+            settings.file_format,
+            settings.color_mode,
+            settings.color_depth,
+        )
+        temp = None
+        try:
+            if camera is None:
+                layer = CoreUtils.active_view_layer()  # the layer the operators act on
+                if layer is not None:
+                    layer.update()  # matrices current after a script moved things
+                targets = targets or [
+                    o
+                    for o in scene.objects
+                    if o.type == "MESH" and o.visible_get(view_layer=layer)
+                ]
+                corners = [
+                    o.matrix_world @ Vector(c) for o in targets for c in o.bound_box
+                ]
+                if corners:
+                    low = Vector(tuple(min(c[i] for c in corners) for i in range(3)))
+                    high = Vector(tuple(max(c[i] for c in corners) for i in range(3)))
+                    center = (low + high) / 2
+                    radius = max(max((c - center).length for c in corners), 1e-3)
+                else:
+                    center, radius = Vector((0.0, 0.0, 0.0)), 1.0
+                data = bpy.data.cameras.new("view_capture")
+                temp = bpy.data.objects.new("view_capture", data)
+                scene.collection.objects.link(temp)
+                aspect = width / float(height)
+                # The angle spans the image's longer side; the shorter one must hold the objects.
+                half = math.tan(data.angle / 2)
+                fov = 2 * math.atan(half / aspect if aspect >= 1 else half * aspect)
+                distance = radius / math.sin(fov / 2) * 1.05
+                facing = Vector(CamUtils.CAPTURE_FROM).normalized()
+                temp.location = center + facing * distance
+                temp.rotation_euler = (-facing).to_track_quat("-Z", "Y").to_euler()
+                data.clip_start = max(distance - radius * 2, distance * 1e-3)
+                data.clip_end = distance + radius * 2
+                shot = temp
+            scene.camera = shot
+            render.engine = "BLENDER_WORKBENCH"
+            render.resolution_x, render.resolution_y = int(width), int(height)
+            render.resolution_percentage = 100
+            render.image_settings.file_format = "PNG"
+            render.filepath = path
+            bpy.ops.render.render(write_still=True)
+        finally:
+            (
+                scene.camera,
+                render.engine,
+                render.resolution_x,
+                render.resolution_y,
+                render.resolution_percentage,
+                render.filepath,
+                settings.file_format,
+                settings.color_mode,
+                settings.color_depth,
+            ) = saved
+            if temp is not None:
+                data = temp.data
+                bpy.data.objects.remove(temp, do_unlink=True)
+                bpy.data.cameras.remove(data)
+        return path
 
     @staticmethod
     @CoreUtils.undoable

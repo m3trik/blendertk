@@ -5385,6 +5385,50 @@ try:
         f"{sorted(_px_models)}",
     )
 
+    # ---- a leftover carrier the publish removes leaves the export set (2026-11-03) -----
+    # A plain append's ``data_export.001`` holding nothing a reader takes goes at the
+    # commit (``ptk.SceneStoreBase.migrate``) and leaves the export set with it: left
+    # there, its removed object raised ``ReferenceError: StructRNA of type Object has
+    # been removed`` on the carrier task's first read. Mirror of mayatk's
+    # ``test_a_leftover_carrier_the_publish_removes_leaves_the_export_set``.
+    for _o in (bpy.data.objects, bpy.data.actions):
+        for _block in list(_o):
+            _o.remove(_block)
+    bpy.ops.mesh.primitive_cube_add()
+    _lc_cube = bpy.context.active_object
+    _lc_cube.name = "LeftoverCarrierCube"
+    DataNodes.write(ptk.Scope.DELIVERABLE, "test_channel", json.dumps({"v": 1}))
+    _lc_stale = bpy.data.objects.new("data_export.001", None)
+    bpy.context.scene.collection.objects.link(_lc_stale)
+    _lc_stale["handoff"] = '{"version": 1}'
+    _lc_dir = os.path.join(tmp, "leftover_carrier")
+    os.makedirs(_lc_dir, exist_ok=True)
+    _lc_exp = SceneExporter()
+    try:
+        _lc_result = _lc_exp.perform_export(
+            export_dir=_lc_dir,
+            objects=[_lc_cube, _lc_stale],
+            output_name="leftover_carrier",
+            export_visible=True,
+            tasks={"export_data_node": True},
+        )
+        _lc_error = None
+    except Exception as _e:  # the regression raised here
+        _lc_result, _lc_error = None, _e
+    _lc_set = list(_lc_exp.task_manager.objects or [])
+    _lc_carrier = DataNodes.get_export_node(create=False)
+    check(
+        "a leftover carrier the publish removes leaves the export set",
+        _lc_error is None
+        and _lc_result is True
+        and bpy.data.objects.get("data_export.001") is None
+        and len(_lc_exp.task_manager._live_objects()) == len(_lc_set)
+        and _lc_carrier is not None
+        and _lc_carrier in _lc_set
+        and _lc_cube in _lc_set,
+        f"result={_lc_result} error={_lc_error!r}",
+    )
+
     shutil.rmtree(tmp, ignore_errors=True)
     shutil.rmtree(_PRESETS_ROOT, ignore_errors=True)
     if _CACHE_ROOT:
