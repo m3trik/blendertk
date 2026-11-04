@@ -62,7 +62,7 @@ left to export.
 **Engine hand-off.** ``refresh_export_metadata`` publishes a ``shadows`` JSON channel
 onto the shared ``data_export`` carrier (``btk.DataNodes``) at authoring time
 (create/bake/delete), and is registered in ``FbxUtils.PRODUCERS`` so the Scene Exporter
-re-refreshes it at export time. unitytk's ``ShadowPlaneController.cs`` joins records to the
+re-refreshes it at export time. unitytk's ``ShadowPlaneImporter`` joins records to the
 imported planes by GameObject name and finishes the Unity setup automatically. The baked
 ``opacity`` prop reaches Unity through the same custom-property route as Maya's; the
 visibility-pair mirror and the GLB fade channel are produced by mayatk's RenderOpacity tool,
@@ -2581,7 +2581,7 @@ class ShadowRig(ptk.LoggingMixin):
         has no shadow planes -- the ``ptk.SceneRecords.SHADOWS`` producer
         (``FbxUtils.PRODUCERS``, mirror of mayatk's).  Pure: it reads the
         planes' stamps and never writes.  The payload joins Unity-side by
-        GameObject name (unitytk's ``ShadowPlaneController.cs``):
+        GameObject name (unitytk's ``ShadowPlaneImporter``):
 
         ``{"version": 2, "unit_scale": <m per unit>, "planes": [...]}``
 
