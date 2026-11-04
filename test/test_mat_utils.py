@@ -212,6 +212,22 @@ try:
         check("get_texture_paths: material names resolve",
               [os.path.basename(p) for p in MatUtils.get_texture_paths(materials=["CrateA"])]
               == ["Crate_BaseColor.png"])
+        # ---- names, as code an agent runs hands them in ------
+        check("get_texture_paths: object names resolve",
+              [os.path.basename(p) for p in MatUtils.get_texture_paths(objects=["CrateA_geo"])]
+              == ["Crate_BaseColor.png"])
+        check("get_mat_info: object names resolve",
+              [r["material"] for r in MatUtils.get_mat_info(objects=["CrateA_geo", "Nope"])]
+              == ["CrateA"])
+        check("find_unassigned: object names resolve, a name gone left out",
+              [o.name for o in MatUtils.find_unassigned(["Bare_geo", "CrateA_geo", "Nope"])]
+              == ["Bare_geo"])
+        for dup in ("DupX", "DupY"):
+            MatUtils.create_mat("standard", name=dup).node_tree.nodes.new(
+                "ShaderNodeTexImage").image = crate
+        groups = MatUtils.find_materials_with_duplicate_textures(materials=["DupX", "DupY", "Nope"])
+        check("find_materials_with_duplicate_textures: material names resolve",
+              [[m.name for m in g] for g in groups] == [["DupX", "DupY"]], groups)
         check("get_texture_paths(exclude_bundled): a project texture stays",
               len(MatUtils.get_texture_paths(materials=["CrateA"], exclude_bundled=True)) == 1)
         check("get_texture_paths(exclude_bundled): Blender's own installation is dropped",

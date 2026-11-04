@@ -12,6 +12,7 @@ modifier helpers bake via ``modifier_apply`` (guarded into OBJECT mode). All **h
 """
 
 import math
+from typing import List, Optional
 
 import pythontk as ptk
 
@@ -71,8 +72,9 @@ class _EditUtilsInternal(object):
 
     @staticmethod
     def _meshes(objects):
+        """The meshes among *objects* (objects or their names)."""
         return [
-            o for o in ptk.make_iterable(objects) if getattr(o, "type", None) == "MESH"
+            o for o in CoreUtils.get_objects(objects) if getattr(o, "type", None) == "MESH"
         ]
 
     @staticmethod
@@ -2403,7 +2405,11 @@ class EditUtils(_EditUtilsInternal):
     @staticmethod
     @CoreUtils._object_mode
     def get_overlapping_duplicates(
-        objects=None, retain=None, select=False, delete=False, round_ndigits=5
+        objects: Optional[List] = None,
+        retain: Optional[List] = None,
+        select: bool = False,
+        delete: bool = False,
+        round_ndigits: int = 5,
     ):
         """Find duplicate mesh objects overlapping in world space — mirror of
         ``mtk.get_overlapping_duplicates``. Each mesh is fingerprinted by vertex/face count, its rounded
@@ -2413,8 +2419,16 @@ class EditUtils(_EditUtilsInternal):
         ``objects`` is the pool to scan (``None`` = every scene mesh). ``retain`` (e.g. the current
         selection) flips the search to *"duplicates **of** the retained objects, omitting them"*: only
         groups containing a retained object are reported, and the retained ones are kept. With no
-        ``retain`` the first of each group is kept and the rest reported. ``select`` selects / ``delete``
-        removes the duplicates. Returns the list of duplicate objects."""
+        ``retain`` the first of each group is kept and the rest reported. Returns the list of
+        duplicate objects.
+
+        Parameters:
+            objects: The objects (or their names) to scan; ``None`` is every scene mesh.
+            retain: Objects (or their names) whose duplicates alone are reported.
+            select: Select the duplicates.
+            delete: Delete the duplicates.
+            round_ndigits: Decimal places positions are compared at.
+        """
         import bpy
         from mathutils import Vector
 

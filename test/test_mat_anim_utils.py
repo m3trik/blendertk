@@ -2546,6 +2546,11 @@ try:
         len(_times(h, 0)) == 6,
         f"{_times(h, 0)}",
     )
+    check(
+        "get_redundant_flat_keys takes object names (an operation's arguments)",
+        [t for _, t in btk.get_redundant_flat_keys([h.name], value_tolerance=1e-4)]
+        == [[10.0, 20.0, 30.0, 40.0]],
+    )
     btk.get_redundant_flat_keys([hfc], remove=True, value_tolerance=1e-4)
     check(
         "get_redundant_flat_keys strips a stepped hold's interiors",

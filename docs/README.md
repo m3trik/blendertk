@@ -1,7 +1,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 [![PyPI](https://img.shields.io/pypi/v/blendertk.svg)](https://pypi.org/project/blendertk/)
 [![Blender](https://img.shields.io/badge/Blender-4.x+-orange.svg)](https://www.blender.org/)
-[![Tests](https://img.shields.io/badge/Tests-7838%20passed-brightgreen.svg)](../test/)
+[![Tests](https://img.shields.io/badge/Tests-7785%20passed-brightgreen.svg)](../test/)
 ![Platform](https://img.shields.io/badge/Platform-Windows%2C%20Linux-lightgrey.svg)
 
 # blendertk
@@ -32,7 +32,7 @@ Same subpackage names, main-module filenames, and namespace classes as mayatk �
 | `core_utils` | `CoreUtils`, `AutoInstancer`, `Preview` (uitk's `PreviewController` bound to a Blender session), script-job manager over `bpy.app.handlers`, diagnostics |
 | `display_utils` | Color ID, exploded view, Blender-only `OutlinerTint` |
 | `edit_utils` | `EditUtils`, mirror, cut-on-axis, duplicate (linear/radial/grid), bevel, bridge, snap, naming, curtain rig, target weld |
-| `env_utils` | `BlenderConnection`, workspaces (`workspace.mel` shared with Maya), reference manager, hierarchy sync, FBX/USD, scene exporter, Maya + Unity bridges, WebXR preview, docked script console |
+| `env_utils` | `BlenderConnection`, `BlenderSceneFiles` (the `blender` operation host: a fresh background Blender per `python -m pythontk ops` call, one kept per MCP session), workspaces (`workspace.mel` shared with Maya), reference manager, hierarchy sync, FBX/USD, scene exporter, Maya + Unity bridges, WebXR preview, docked script console |
 | `light_utils` | Lightmap baker + web export, HDR manager, lights-from-geometry |
 | `mat_utils` | Game shader, material updater, texture path editor, shader templates, render opacity, image-to-plane, emissive groups, Marmoset + Substance live-RPC bridges |
 | `node_utils` | `NodeUtils`, `DataNodes` ([shared scene data carriers](data_nodes.md)), the Channels engine |
@@ -53,7 +53,7 @@ btk.EditUtils.mirror(...)                   # class-qualified — mirrors mtk.Ed
 btk.AutoInstancer(tolerance=0.001).run()    # same call in mayatk: mtk.AutoInstancer(...).run()
 ```
 
-Full public surface (auto-generated): [`API_REGISTRY.md`](../API_REGISTRY.md); compact index: [`API_INDEX.md`](../API_INDEX.md).
+Full public surface, searched live from the installed source: `python -m pythontk ops run api.search "query=<words>"`.
 
 ## Highlights
 
@@ -70,7 +70,7 @@ Parity is measured, not eyeballed: `compare_panel_surface.py` resolves every cal
 
 ## Session safety
 
-Nothing in blendertk attaches to a running Blender. Tests and headless tooling always launch a **fresh** `blender --background --factory-startup` process; `BlenderConnection` does the same. See [CLAUDE.md](../CLAUDE.md) for the full rule.
+Nothing in blendertk attaches to a running Blender. Tests and headless tooling always launch a **fresh** `blender --background --factory-startup` process; `BlenderConnection` does the same. See [AGENTS.md](../AGENTS.md) for the full rule.
 
 ## Guides
 
@@ -81,11 +81,11 @@ Nothing in blendertk attaches to a running Blender. Tests and headless tooling a
 
 ## Links
 
-- **Full API:** [`API_REGISTRY.md`](../API_REGISTRY.md) · [`API_CHANGES.md`](../API_CHANGES.md)
+- **Full API:** `python -m pythontk ops run api.search "query=<words>"` (the installed source, searched)
 - **Structure / parity map:** [`STRUCTURE.md`](STRUCTURE.md)
 - **Test suite:** [`test/README.md`](../test/README.md) — suite layout, sentinel conventions, fresh-instance runner
 - **Changelog:** [`CHANGELOG.md`](../CHANGELOG.md)
-- **Contributor / AI-agent guide:** [`CLAUDE.md`](../CLAUDE.md)
+- **Contributor / AI-agent guide:** [`AGENTS.md`](../AGENTS.md)
 - **PyPI:** https://pypi.org/project/blendertk/
 - **Issues:** https://github.com/m3trik/blendertk/issues
 

@@ -97,6 +97,11 @@ try:
         "get_non_orthogonal flags the sheared child",
         TransformDiagnostics.get_non_orthogonal([child, parent]) == [child],
     )
+    check(
+        "get_non_orthogonal takes names and a None tolerance (its default)",
+        TransformDiagnostics.get_non_orthogonal([child.name, parent.name], tolerance=None)
+        == [child],
+    )
     detail = TransformDiagnostics.get_non_orthogonal([child], detailed=True)
     check(
         "detailed reports skew + inherited cause",

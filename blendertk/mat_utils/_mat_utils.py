@@ -16,7 +16,7 @@ import logging
 import os
 import random
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pythontk as ptk
 
@@ -1866,9 +1866,9 @@ class MatUtils(_MatUtilsInternal):
 
     @staticmethod
     def get_mats(objects):
-        """Unique materials assigned to the given object(s), in slot order."""
+        """Unique materials assigned to the given object(s) (or their names), in slot order."""
         seen = []
-        for o in ptk.make_iterable(objects):
+        for o in CoreUtils.get_objects(objects):
             for slot in getattr(o, "material_slots", []):
                 if slot.material is not None and slot.material not in seen:
                     seen.append(slot.material)
@@ -1996,7 +1996,7 @@ class MatUtils(_MatUtilsInternal):
         ]
 
     @staticmethod
-    def find_unassigned(objects=None):
+    def find_unassigned(objects: Optional[List[str]] = None):
         """Objects carrying no material — the complement of :meth:`find_by_mat_id`.
 
         Mirror of ``mtk.find_unassigned``. Blender has a real "no material" state
@@ -2006,12 +2006,14 @@ class MatUtils(_MatUtilsInternal):
         hold materials (empties, lights, cameras) are not reported — they aren't
         unshaded geometry.
 
-        ``objects=None`` scans the whole file; otherwise restricts to the given
-        objects. Object-level by design, matching ``find_by_mat_id``.
+        Object-level by design, matching ``find_by_mat_id``.
+
+        Parameters:
+            objects: Objects (or their names) to test; ``None`` scans the whole file.
         """
         import bpy
 
-        pool = ptk.make_iterable(objects) if objects is not None else bpy.data.objects
+        pool = CoreUtils.get_objects(objects) if objects is not None else bpy.data.objects
         return [
             o
             for o in pool
@@ -2161,19 +2163,27 @@ class MatUtils(_MatUtilsInternal):
 
     @staticmethod
     @CoreUtils.undoable
-    def rename_mat(material, name):
+    def rename_mat(material: str, name: str, ctx=None) -> str:
         """Rename *material* (a Material or its name) to *name*, one undo step --
         mirror of ``mtk.MatUtils.rename_mat``.
 
+        Parameters:
+            material: The material's current name (or the Material).
+            name: Its new name.
+            ctx: An operation context (``ptk.OpContext``); in a dry run the
+                rename is listed, not made.
+
         Returns:
-            str: The name Blender gave it (``.001`` on a clash).
+            str: The name Blender gave it (``.001`` on a clash); in a dry run, *name*.
 
         Raises:
             ValueError: No material of that name.
         """
         mat = _MatUtilsInternal._material_named(material)
-        mat.name = name
-        return mat.name
+        if ctx is None or ctx.should_change(mat.name, f"rename to {name}"):
+            mat.name = name
+            return mat.name
+        return name
 
     @staticmethod
     @CoreUtils.undoable
@@ -2290,13 +2300,24 @@ class MatUtils(_MatUtilsInternal):
             return None
 
     @staticmethod
-    def get_texture_paths(objects=None, materials=None, absolute=True, exclude_bundled=False):
+    def get_texture_paths(
+        objects: Optional[List] = None,
+        materials: Optional[List] = None,
+        absolute: bool = True,
+        exclude_bundled: bool = False,
+    ) -> List[str]:
         """Unique texture file paths in scope — mirror of ``mtk.MatUtils.get_texture_paths``.
 
         Scope resolves to materials (from ``objects`` if given, else ``materials``, else the whole
-        scene); reads the ``filepath`` of each material's image-texture nodes. ``absolute`` resolves
-        against the .blend (Blender ``//`` relative paths). ``exclude_bundled`` drops images inside
-        Blender's own installation (read-only: a tool that writes can only fail on them)."""
+        scene); reads the ``filepath`` of each material's image-texture nodes.
+
+        Parameters:
+            objects: Objects (or their names) whose materials are read.
+            materials: Materials (or their names) to read directly.
+            absolute: Resolve against the .blend (Blender ``//`` relative paths).
+            exclude_bundled: Drop images inside Blender's own installation (read-only: a
+                tool that writes can only fail on them).
+        """
         mats = _MatUtilsInternal._resolve_materials(objects, materials)
         paths = []
         for mat in mats:
@@ -2359,21 +2380,33 @@ class MatUtils(_MatUtilsInternal):
 
     @staticmethod
     def get_mat_info(
-        materials=None,
-        objects=None,
-        optimize_check=False,
-        progress_callback=None,
-        exclude_defaults=False,
-        exclude_unassigned=False,
-        include_textures=True,
-        include_image_metadata=True,
+        materials: Optional[List] = None,
+        objects: Optional[List] = None,
+        optimize_check: bool = False,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        exclude_defaults: bool = False,
+        exclude_unassigned: bool = False,
+        include_textures: bool = True,
+        include_image_metadata: bool = True,
         **optimize_kwargs,
-    ):
+    ) -> List[Dict[str, Any]]:
         """Aggregate per-material info (name, type, textures + image metadata) — mirror of
         ``mtk.MatUtils.get_mat_info``; produces the same record schema consumed by
-        ``pythontk.MatReport``. ``exclude_defaults`` is a no-op in Blender (no built-in defaults).
-        ``optimize_check`` runs ``ptk.MapOptimizer.assess`` per texture (best-effort — degrades to an
-        ``optimization`` error entry when the image stack is unavailable in Blender's Python)."""
+        ``pythontk.MatReport``.
+
+        Parameters:
+            materials: Materials (or their names) to scope by; ``None`` falls back to the
+                materials of *objects*, else every scene material.
+            objects: Objects (or their names) whose materials are scoped.
+            optimize_check: Run ``ptk.MapOptimizer.assess`` per texture (best-effort:
+                an ``optimization`` error entry when the image stack is unavailable in
+                Blender's Python).
+            progress_callback: Called ``(index, total, message)`` per material.
+            exclude_defaults: A no-op in Blender (no built-in default materials).
+            exclude_unassigned: Drop materials no object uses.
+            include_textures: Read each material's image textures.
+            include_image_metadata: Add width/height/mode/format/bit_depth per texture.
+        """
         mats = _MatUtilsInternal._resolve_materials(objects, materials)
         if optimize_check:  # the analysis reads images with Pillow: provision it
             CoreUtils.ensure_image_deps()
@@ -2438,7 +2471,7 @@ class MatUtils(_MatUtilsInternal):
 
     @staticmethod
     def find_materials_with_duplicate_textures(
-        materials=None, strict=False, verify=True
+        materials: Optional[List[str]] = None, strict: bool = False, verify: bool = True
     ):
         """Groups of materials that are texture-level duplicates — mirror of
         ``mtk.MatUtils.find_materials_with_duplicate_textures`` (two-phase).
@@ -2461,11 +2494,21 @@ class MatUtils(_MatUtilsInternal):
         unverifiable is NOT a duplicate — the verification is what makes the result
         safe to feed :meth:`reassign_duplicate_materials`' destructive merge.
 
-        ``materials=None`` scans every scene material (the default); pass an explicit
-        list to scope the scan (e.g. scene_exporter's export-object set via
-        ``get_mats(objects)``). Materials with no textures are skipped. Returns a list
-        of duplicate groups (each 2+ materials, keeper first — shortest name wins)."""
-        mats = materials if materials is not None else MatUtils.get_scene_mats()
+        Materials with no textures are skipped. Returns a list of duplicate groups (each
+        2+ materials, keeper first — shortest name wins).
+
+        Parameters:
+            materials: Materials (or their names) to scan, e.g. scene_exporter's
+                export-object set via ``get_mats(objects)``; ``None`` scans every scene
+                material.
+            strict: Fingerprint on the full lowercased path instead of the basename stem.
+            verify: Run phase 2; False returns the candidates unverified.
+        """
+        mats = (
+            _MatUtilsInternal._resolve_materials(materials=materials)
+            if materials is not None
+            else MatUtils.get_scene_mats()
+        )
         fingerprints = {}
         surface_by_mat = {}
         slots_by_mat = {}

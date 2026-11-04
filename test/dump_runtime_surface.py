@@ -1,9 +1,9 @@
 """Dump blendertk's live HelpMixin surface for the runtime-vs-static drift gate.
 
 Runs under a FRESH headless Blender (session-safe) - never an attached session.
-This is the Blender half of the drift gate: the static registry walker cannot
-import bpy, so the live surface (which sees dynamically-composed members) is
-dumped here and diffed against the committed registry from a normal shell.
+This is the Blender half of the drift gate: the static read (``ApiSurface.read``)
+cannot import bpy, so the live surface (which sees dynamically-composed members)
+is dumped here and diffed against the static read from a normal shell.
 
     blender --background --factory-startup --python blendertk/test/dump_runtime_surface.py
     python m3trik/scripts/verify_runtime_surface.py verify blendertk --runtime blendertk/API_RUNTIME.json

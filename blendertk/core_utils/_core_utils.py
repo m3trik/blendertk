@@ -1012,6 +1012,26 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         return _CoreUtilsInternal._active_view_layer()
 
     @staticmethod
+    def get_objects(objects) -> list:
+        """The objects *objects* holds, each an Object or its name, in order: a name no
+        object has is left out, and anything that is not a name (an Object, an fcurve)
+        comes back as given. What a function that takes names resolves them through --
+        an operation's arguments arrive as JSON, so as names.
+
+        Parameters:
+            objects: An object, a name, or an iterable of them; ``None`` is none.
+        """
+        import bpy
+
+        found = []
+        for item in ptk.make_iterable(objects):
+            if isinstance(item, str):
+                item = bpy.data.objects.get(item)
+            if item is not None:
+                found.append(item)
+        return found
+
+    @staticmethod
     def leaf_name(node) -> str:
         """*node*'s name as shown (mirror of mayatk's ``CoreUtils.leaf_name``, a DAG path's
         leaf there): Blender's names are flat, so an object, bone or datablock gives its

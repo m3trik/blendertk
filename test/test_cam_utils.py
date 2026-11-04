@@ -363,6 +363,47 @@ try:
         btk.CamUtils.align_view_to_selection() == [],
     )
 
+    # capture_view: a PNG of the size asked, in the temp root, the scene left as it was
+    import struct
+    import pythontk as ptk
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    cube = bpy.context.active_object
+    scene = bpy.context.scene
+
+    def state():
+        render = scene.render
+        return (scene.camera, render.engine, render.resolution_x, render.resolution_y,
+                render.filepath, len(bpy.data.objects), len(bpy.data.cameras))
+
+    def png_size(path):
+        with open(path, "rb") as handle:
+            head = handle.read(24)
+        return struct.unpack(">II", head[16:24]) if head[:8] == b"\x89PNG\r\n\x1a\n" else None
+
+    before = state()
+    path = btk.CamUtils.capture_view(objects=[cube.name], width=320, height=180)
+    check("capture_view: a PNG of the size asked", png_size(path) == (320, 180), png_size(path))
+    check("capture_view: in the temp root", ptk.TempArtifacts.contains(path), path)
+    check("capture_view: the scene as it was", state() == before, (before, state()))
+    check("capture_view: the whole scene by default", png_size(btk.CamUtils.capture_view(width=64, height=48)) == (64, 48))
+    bpy.ops.object.camera_add(location=(0, -20, 2))
+    shot = bpy.context.active_object
+    check("capture_view: through a camera", png_size(btk.CamUtils.capture_view(camera=shot.name, width=64, height=64)) == (64, 64))
+    error = None
+    try:
+        btk.CamUtils.capture_view(camera="no_such_camera")
+    except ValueError as exc:
+        error = exc
+    check("capture_view: an unknown camera raises", error is not None)
+    error = None
+    try:
+        btk.CamUtils.capture_view(objects=[cube.name, "no_such_object"])
+    except ValueError as exc:
+        error = exc
+    check("capture_view: an unknown object raises (as Maya's select does)", error is not None, error)
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

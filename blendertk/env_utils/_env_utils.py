@@ -51,6 +51,25 @@ class _EnvUtilsInternal(object):
     """Internal helpers for EnvUtils."""
 
     @staticmethod
+    def _scene(scene=None):
+        """*scene* as a datablock: a Scene passes through, a name resolves against
+        ``bpy.data.scenes``, ``None`` is the active one.
+
+        Raises:
+            ValueError: No scene of that name.
+        """
+        import bpy
+
+        if scene is None:
+            return bpy.context.scene
+        if not isinstance(scene, str):
+            return scene
+        found = bpy.data.scenes.get(scene)
+        if found is None:
+            raise ValueError(f"No scene named '{scene}'.")
+        return found
+
+    @staticmethod
     def _abspath(filepath):
         """Absolute, normalized path of a (possibly ``//`` project-relative) library path, or ''."""
         import bpy
@@ -1149,11 +1168,14 @@ class EnvUtils(_EnvUtilsInternal):
     DEFAULT_FPS = 24
 
     @staticmethod
-    def scene_status(scene=None):
+    def scene_status(scene: Optional[str] = None):
         """The scene's modelling and session state as plain values: what a
         status readout (tentacle's HUD) shows and warns on. Twin of mayatk's
         ``EnvUtils.scene_status``; a fact Blender has no answer for is ``None``
         (``xform_constraint``, ``time_unit``).
+
+        Parameters:
+            scene: The scene, by name (or a Scene); ``None`` is the active one.
 
         Returns:
             dict: ``symmetry`` (the active mesh's mirror axes, upper case, or
@@ -1171,7 +1193,7 @@ class EnvUtils(_EnvUtilsInternal):
 
         from blendertk.core_utils._core_utils import CoreUtils
 
-        scene = scene or bpy.context.scene
+        scene = EnvUtils._scene(scene)
         active = CoreUtils.active_object()
         symmetry = None
         if active is not None and active.type == "MESH":
@@ -1205,14 +1227,16 @@ class EnvUtils(_EnvUtilsInternal):
         }
 
     @staticmethod
-    def scene_settings(scene=None):
+    def scene_settings(scene: Optional[str] = None):
         """The live scene's time setup as the bridges' ``scene`` record (see
         :attr:`SCENE_SETTINGS_KEYS`). Blender's preview range is Maya's inner playback
         range: when it is on, it is the ``frame_*`` pair and the scene range the ``anim_*``
-        pair; off, both pairs are the scene range. Twin of ``mtk.scene_settings``."""
-        import bpy
+        pair; off, both pairs are the scene range. Twin of ``mtk.scene_settings``.
 
-        scene = scene or bpy.context.scene
+        Parameters:
+            scene: The scene, by name (or a Scene); ``None`` is the active one.
+        """
+        scene = EnvUtils._scene(scene)
         render = scene.render
         anim = (scene.frame_start, scene.frame_end)
         playback = (
@@ -1240,9 +1264,7 @@ class EnvUtils(_EnvUtilsInternal):
         a Maya scene with ast/aet ⊋ min/max shows the same two-range time slider here and
         round-trips back losslessly; identical ranges leave the preview range off.
         """
-        import bpy
-
-        scene = scene or bpy.context.scene
+        scene = EnvUtils._scene(scene)
         settings = settings or {}
         applied = []
         fps = settings.get("fps")

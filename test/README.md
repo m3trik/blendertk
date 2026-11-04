@@ -2,7 +2,7 @@
 
 Suites need the real Blender runtime (`bpy`) — **except** the Qt-only ones,
 which run under the workspace `.venv` (see below). Hard rule from
-[`CLAUDE.md`](../CLAUDE.md): NEVER attach to or test against a **running**
+[`AGENTS.md`](../AGENTS.md): NEVER attach to or test against a **running**
 Blender — `run_tests.py` launches a fresh
 `blender --background --factory-startup --python <suite>` process per suite.
 No exceptions for speed.

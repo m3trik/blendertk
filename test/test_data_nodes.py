@@ -363,6 +363,55 @@ try:
     )
     check("...and a migrated file has nothing left to move", DataNodes.migrate() == [])
     DataNodes.remove(DELIVERABLE, ptk.SceneRecords.LIGHTMAPS.key)
+    # A carrier a plain append numbered beside the file's own
+    # (``data_export.001``) is refreshed by nothing: holding no record a
+    # reader takes (an old key) it goes at the migration; holding a value
+    # beside its records, it stays. REGRESSION (2026-10-28, mayatk's
+    # ``data_export1`` failed a production deliverable). Added: 2026-10-28
+    def _appended_copy(**props):
+        obj = bpy.data.objects.new("data_export.001", None)
+        bpy.context.scene.collection.objects.link(obj)
+        for key, value in props.items():
+            obj[key] = value
+        return obj
+
+    _appended_copy(
+        lightmap_metadata='{"version": 1, "objects": []}', handoff='{"version": 1}'
+    )
+    DataNodes.migrate()
+    check(
+        "migrate removes a copy an append left holding nothing a reader takes",
+        bpy.data.objects.get("data_export.001") is None
+        and DataNodes.get_export_node(create=False) is not None,
+    )
+    _kept = _appended_copy(handoff='{"version": 1}', emissive_glow=0.5)
+    DataNodes.migrate()
+    check(
+        "...and keeps one holding a value beside its records",
+        bpy.data.objects.get("data_export.001") is not None,
+    )
+    bpy.data.objects.remove(_kept, do_unlink=True)
+    # A copy is a carrier by its shape, not its name alone: a user's mesh
+    # named as a numbered copy survives, while the real copy (an Empty) beside
+    # it goes. REGRESSION (review, 2026-11-03): ``_leftover_carriers`` took
+    # every local object named ``data_export.<N>``, and holding no record, a
+    # MESH ``data_export.001`` was deleted at load and at every export commit.
+    # Added: 2026-11-03
+    _mesh_obj = bpy.data.objects.new(
+        "data_export.001", bpy.data.meshes.new("data_export_mesh")
+    )
+    bpy.context.scene.collection.objects.link(_mesh_obj)
+    _copy = _appended_copy(lightmap_metadata='{"version": 1, "objects": []}')
+    _copy_name = _copy.name
+    DataNodes.migrate()
+    check(
+        "migrate keeps a mesh named like a copy and removes the real copy beside it",
+        bpy.data.objects.get("data_export.001") is not None
+        and bpy.data.objects.get("data_export.001").type == "MESH"
+        and bpy.data.objects.get(_copy_name) is None,
+        (_copy_name, [o.name for o in bpy.data.objects]),
+    )
+    bpy.data.objects.remove(_mesh_obj, do_unlink=True)
 
     # --- the record layer over the store --------------------------------------------
     reset()
