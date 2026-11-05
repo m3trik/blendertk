@@ -57,7 +57,8 @@ class RenderEffects(ptk.LoggingMixin):
     #: (``ptk.MeshConvert.CURVE_PROXY_MARKER``): the GLB conversion strips
     #: nodes carrying it and the Unity importer rebinds and deletes them.
     PROXY_MARKER = ptk.MeshConvert.CURVE_PROXY_MARKER
-    PROXY_SEPARATOR = "__"
+    #: ``<object>__<channel>`` (``ptk.SceneRecords.TRANSPORT``).
+    PROXY_SEPARATOR = ptk.SceneRecords.TRANSPORT.separator
     # The render-visibility channel mirrored from opacity (Blender's m_Enabled analogue).
     VIS_PATH = "hide_render"
 
