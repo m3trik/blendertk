@@ -144,7 +144,6 @@ try:
         # while Pillow is installed.
         UNLISTED = (
             "pythontk.core_utils.engines.textures.map_optimizer",
-            "pythontk.core_utils.engines.textures.region_masks",
             "pythontk.img_utils.mask_generator",
             "pythontk.img_utils.ktx2_encoder",
         )

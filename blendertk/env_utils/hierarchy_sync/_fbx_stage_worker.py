@@ -16,7 +16,7 @@ explosion). Importing in a brand-new empty Blender guarantees CLEAN names and ne
 user's scene. Exit code is non-zero on any failure so the caller can fall back / report cleanly.
 
 The import is :meth:`FbxUtils.import_fbx`, so a file whose animation is split across takes (a
-Shots Only export) stages ALL of it -- a Pull appends the staged object WITH its action. The
+per-shot export) stages ALL of it -- a Pull appends the staged object WITH its action. The
 staged ``.blend`` is a throwaway, so it runs with ``stash=False``: nothing is parked in Key
 Stash, and the warning naming the takes left out is printed as a ``STAGE_FBX_WARNING:`` line the
 caller relays. Blender ignores ``PYTHONPATH``, so the caller passes the roots that make blendertk

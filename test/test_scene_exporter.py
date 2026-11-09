@@ -1310,20 +1310,34 @@ try:
         )
 
     # ---- keyed-weight curve proxies: staged through the write, gone after --------------------
-    # The Blender transport for Emissive Groups' keyable weights: export_data_node
-    # stages one transient Empty per keyed group (scale.x carries the weight
-    # curve — Blender's FBX exporter can't ship custom-property animation), the
-    # proxy rides the write, and perform_export's finally removes it. Prove the
-    # full pipeline: FBX carries the animated proxy AND the scene is left clean.
-    from blendertk.mat_utils.emissive_groups import EmissiveGroups
+    # An emissive group is materials (2026-11-07): its copy's keyed weight rides
+    # one transient Empty, <material>__emission, under the carrier (scale.x
+    # carries the weight -- Blender's FBX exporter ships no material animation),
+    # staged with render_effects' proxies and removed in perform_export's finally.
+    # Prove the full pipeline: FBX carries the animated proxy AND the record's
+    # material entry, and the scene is left clean.
+    from blendertk.mat_utils.emissive_groups import BlenderEmissiveGroups, EmissiveGroups
+
+    def _glowing(obj, name):
+        """Give *obj* a material that glows (a group's base needs one)."""
+        from blendertk.mat_utils._mat_utils import MatUtils as _GlowMatUtils
+
+        mat = bpy.data.materials.new(name)
+        tree = _GlowMatUtils.get_node_tree(mat, create=True)
+        next(n for n in tree.nodes if n.type == "BSDF_PRINCIPLED").inputs[
+            "Emission Strength"
+        ].default_value = 1.0
+        obj.data.materials.append(mat)
+        return mat
+
     from blendertk.anim_utils._anim_utils import AnimUtils
 
     reset_scene()
     bpy.ops.mesh.primitive_cube_add()
     kw = bpy.context.active_object
     kw.name = "KeyedWeightCube"
+    _glowing(kw, "WeightMat")
     EmissiveGroups.add_group("glow", {"KeyedWeightCube": [0]})
-    EmissiveGroups.make_weights_keyable(["glow"])
     EmissiveGroups.key_weight("glow", value=1.0, frame=1)
     EmissiveGroups.key_weight("glow", value=0.0, frame=10)
 
@@ -1343,14 +1357,14 @@ try:
     )
     check(
         "no curve proxy survives in the scene after the export",
-        not any(o.get(EmissiveGroups.PROXY_MARKER) for o in bpy.data.objects),
-        f"{[o.name for o in bpy.data.objects if o.get(EmissiveGroups.PROXY_MARKER)]}",
+        not any(o.get(BlenderEmissiveGroups.PROXY_MARKER) for o in bpy.data.objects),
+        f"{[o.name for o in bpy.data.objects if o.get(BlenderEmissiveGroups.PROXY_MARKER)]}",
     )
 
     reset_scene()
     imported = FbxUtils.import_fbx(keyed_file, use_custom_props=True)
     iproxy = next(
-        (o for o in imported if o.name.startswith("emissiveGroup_glow")), None
+        (o for o in imported if o.name.startswith("WeightMat_glow__emission")), None
     )
     ifc = next(
         (
@@ -1373,11 +1387,11 @@ try:
         f"proxy={iproxy and iproxy.name} first={ivals[:1]} min={min(ivals) if ivals else None}",
     )
     icarrier = next((o for o in imported if o.name.startswith(DataNodes.EXPORT)), None)
-    manifest_raw = icarrier.get("emissive_groups") if icarrier else None
+    effects_raw = icarrier.get("render_effects") if icarrier else None
     check(
-        "manifest attr record rides beside the proxy (what Unity joins on)",
-        bool(manifest_raw) and '"attr": "emissiveGroup_glow"' in manifest_raw,
-        f"{manifest_raw!r}",
+        "the render_effects record names the copy beside its proxy (what a reader joins on)",
+        bool(effects_raw) and '"material": "WeightMat_glow"' in effects_raw,
+        f"{effects_raw!r}",
     )
 
     # ---- weight curves keyed OUTSIDE the scene range still ship --------------------------
@@ -1391,10 +1405,10 @@ try:
     bpy.ops.mesh.primitive_cube_add()
     kw2 = bpy.context.active_object
     kw2.name = "LateKeyedCube"
+    _glowing(kw2, "LateMat")
     scene = bpy.context.scene
     scene.frame_start, scene.frame_end = 1, 250
     EmissiveGroups.add_group("late", {"LateKeyedCube": [0]})
-    EmissiveGroups.make_weights_keyable(["late"])
     EmissiveGroups.key_weight("late", value=1.0, frame=300)
     EmissiveGroups.key_weight("late", value=0.0, frame=320)
 
@@ -1421,7 +1435,7 @@ try:
     reset_scene()
     imported = FbxUtils.import_fbx(late_file, use_custom_props=True)
     lproxy = next(
-        (o for o in imported if o.name.startswith("emissiveGroup_late")), None
+        (o for o in imported if o.name.startswith("LateMat_late__emission")), None
     )
     lfc = next(
         (
@@ -2768,30 +2782,36 @@ try:
     for _o in (_rh_mesh, _rh_arm):
         bpy.data.objects.remove(_o, do_unlink=True)
 
-    # ---- Animation Clips: the takes row is the three-mode combo (mirror of mayatk) ----
+    # ---- Animation Clips retired: one take per shot (2026-11-05, mirror of mayatk) ----
     _clips_tm = SceneExporter().task_manager
-    _clips_tm.begin_run(ptk.ExportRun())
-    _clips_tm.apply_declared_takes("full")
+    _clips_defs = _clips_tm.task_definitions
     check(
-        "apply_declared_takes records the Animation Clips choice for create_glb",
-        _clips_tm._clip_mode == "full"
-        and ptk.ExportRun.clip_mode(True) == "both"
-        and ptk.ExportRun.clip_mode(None) == "full"
-        and ptk.ExportRun.clip_mode("Shots") == "shots",
+        "the Animation Clips row is retired: no row, no stashed mode, and its "
+        "saved key is a retired row the panel drops",
+        "apply_declared_takes" not in _clips_defs
+        and not hasattr(_clips_tm, "_clip_mode")
+        and ptk.ExportProfile.RETIRED_CLIPS_ROW
+        in ptk.ExportProfile.retired_row_keys(
+            _clips_defs, _clips_tm.check_definitions
+        ),
     )
-    _clips_tm.objects = list(_clips_tm.objects or [])
-    check(
-        "assigning objects mid-run keeps the choice; begin_run resets it",
-        _clips_tm._clip_mode == "full"
-        and (_clips_tm.begin_run(ptk.ExportRun()) or _clips_tm._clip_mode == "both"),
+    _clips_run, _clips_tasks, _clips_notes = ptk.ExportRun.from_tasks(
+        {"apply_declared_takes": "full"}
     )
-    _clips_row = _clips_tm.task_definitions["apply_declared_takes"]
     check(
-        "the Animation Clips row is a combo keyed by a fresh objectName",
-        _clips_row["widget_type"] == "ComboBox"
-        and _clips_row["object_name"] == "animation_clips"
-        and _clips_row["add"] is ptk.ExportProfile.ANIMATION_CLIPS_OPTIONS
-        and _clips_row["setCurrentIndex"] == 2,
+        "a headless or preset mode still loads: ignored, said, and the split runs",
+        _clips_tasks.get("apply_declared_takes") is True
+        and _clips_run.splits_takes
+        and any("Animation Clips" in message for _level, message in _clips_notes),
+        f"{_clips_tasks} {_clips_notes}",
+    )
+    _clips_saved = ptk.ExportProfile.retired_row_notes(
+        {"animation_clips": "Shots Only"}, _clips_defs, _clips_tm.check_definitions
+    )
+    check(
+        "a saved panel state carrying animation_clips loads, the key said and ignored",
+        any("Animation Clips" in message for _level, message in _clips_saved),
+        f"{_clips_saved}",
     )
 
     # ---- smart_bake stages its own restore (was a block in perform_export's finally) --
@@ -2876,7 +2896,7 @@ try:
     _note_log = _NoteLog()
     _note_tm.logger.addHandler(_note_log)
     try:
-        _note_tm.apply_declared_takes("both")
+        _note_tm.apply_declared_takes()
     finally:
         _note_tm.logger.removeHandler(_note_log)
         _note_tm.run_deferred_restores()
@@ -4229,21 +4249,23 @@ try:
         f"{[e['path'] for e in word_default.values()]}",
     )
 
-    # The default is part of the parity: off, a scene with shots exports
-    # the shot record naming clips the file does not contain (mayatk pins the
-    # same, test_scene_exporter.test_takes_are_default_on_beside_the_carrier).
-    _takes_row = SceneExporter().task_manager.task_definitions["apply_declared_takes"]
+    # One form: every FBX write splits its shots, with no row to turn it off
+    # (mirror of mayatk's); a USD layer carries no take.
+    _armed_tasks = ptk.ExportRun.from_tasks({})[1]
+    _usd_tasks = ptk.ExportRun.from_tasks({"output_format": "usd"})[1]
     check(
-        "apply_declared_takes defaults to Shots + Full Sequence, like the carrier it describes",
-        list(_takes_row["add"].values())[_takes_row["setCurrentIndex"]] == "both",
-        "off, the deliverable describes shots it cannot play",
+        "every FBX export arms the take split; a USD export does not",
+        _armed_tasks.get("apply_declared_takes") is True
+        and "apply_declared_takes" not in _usd_tasks,
+        f"{_armed_tasks} {_usd_tasks}",
     )
 
     # ---- apply_declared_takes: shots -> named engine clips, end to end -------
-    # The Maya-parity pipeline (shot_export_unity.md): the Shots store publishes
-    # the shot record (each clip carrying its range) onto the carrier; the takes
-    # task refreshes, folds the carrier in, arms FbxUtils, and the write ships
-    # one AnimStack per shot with the metadata as user properties — with every staged
+    # The Maya-parity pipeline (shot_export_unity.md): the takes task arms the
+    # shot store's shots (ShotStore.declared_takes), folds the carrier in, and
+    # the write ships one AnimStack per shot, named after it and spanning its
+    # range, and no whole-timeline take, with the shot record (per shot its
+    # clip, description and metadata) as user properties -- with every staged
     # mutation (armed takes, widened frame range) undone after the write.
     from blendertk.anim_utils.shots._shots import ShotStore
 
@@ -4264,7 +4286,9 @@ try:
 
     takes_store = ShotStore.active()
     takes_store.define_shot("open", 1, 10, objects=["ShotCube"])
-    takes_store.define_shot("close", 20, 30, objects=["ShotCube"])
+    takes_store.define_shot(
+        "close", 20, 30, objects=["ShotCube"], description="The door shuts."
+    )
     # Saving publishes at authoring time; the export refreshes again through
     # the producer registry, so a stale channel could never ship anyway.
     takes_store.publish_export_view()
@@ -4299,16 +4323,21 @@ try:
         bpy.data.actions.remove(a)
     imported = FbxUtils.import_fbx(takes_file, use_custom_props=True)
     take_actions = sorted(a.name for a in bpy.data.actions)
-    # True is "both": the shots AND the whole-timeline stack they were cut
-    # from, as Maya's Take 001 ships beside its takes (2026-10-05). Read from
-    # the file: import_fbx plays the covering whole-timeline take alone, its
-    # slices adding nothing (2026-10-11).
-    shipped = ptk.FbxFile.load(takes_file).take_names()
+    # Read from the file: one take per shot, in timeline order, each
+    # declaring its shot's range, and no whole-timeline take (2026-11-05).
+    # import_fbx merges the per-shot takes into one action.
+    shipped_file = ptk.FbxFile.load(takes_file)
+    shipped = shipped_file.take_names()
+    shipped_windows = {
+        name: tuple(round(t * scene.render.fps) for t in span)
+        for name, span in shipped_file.take_windows().items()
+    }
     check(
-        "Shots + Full Sequence ships one AnimStack per shot beside the whole timeline",
-        sorted(shipped) == ["Scene", "close", "open"]
-        and take_actions == ["ShotCube|Scene"],
-        f"{shipped} {take_actions}",
+        "a scene with shots ships exactly one take per shot, named after it, "
+        "spanning its range, and no whole-timeline take",
+        shipped == ["open", "close"]
+        and shipped_windows == {"open": (1, 10), "close": (20, 30)},
+        f"{shipped} {shipped_windows} {take_actions}",
     )
     icarrier2 = next((o for o in imported if o.name.startswith(DataNodes.EXPORT)), None)
     meta_raw = icarrier2.get("animation") if icarrier2 else None
@@ -4319,18 +4348,25 @@ try:
         f"{meta_raw!r}",
     )
     check(
-        "each shipped clip carries its own range, and no retired fbx_takes ships",
+        "the record (v3) carries per shot its clip and description and nothing "
+        "else, the scene's rate (for a GLB), and no retired fbx_takes ships",
         bool(meta_raw)
-        and [(s["clip"], s["start"], s["end"]) for s in json.loads(meta_raw)["shots"]]
-        == [("open", 1, 10), ("close", 20, 30)]
+        and json.loads(meta_raw)
+        == {
+            "version": ptk.SceneRecords.SHOTS.version,
+            "shots": [
+                {"clip": "open"},
+                {"clip": "close", "description": "The door shuts."},
+            ],
+            "fps": bpy.context.scene.render.fps / bpy.context.scene.render.fps_base,
+        }
         and "fbx_takes" not in icarrier2.keys(),
         f"{meta_raw!r} {sorted(icarrier2.keys()) if icarrier2 else None}",
     )
 
-    # A Full Sequence Only export DECLARES its mode on the shot record's envelope
-    # (mirror of mayatk's): its clips still carry every shot's range, so the
-    # deliverable gate reads the declared mode instead of calling the shots missing.
-    # Added: 2026-09-15
+    # A retired Animation Clips mode (a preset's "full") is ignored: the export
+    # still ships one take per shot, and the record states no mode. Added:
+    # 2026-11-05 (was: a Full Sequence Only export declared its mode).
     reset_scene()
     for a in list(bpy.data.actions):
         bpy.data.actions.remove(a)
@@ -4350,11 +4386,15 @@ try:
     )
     full_data = SceneDataSidecar.read_data(os.path.join(out_dir, "takes_full_test.fbx"))
     full_meta = (full_data or {}).get("animation") or {}
+    full_takes = ptk.FbxFile.load(
+        os.path.join(out_dir, "takes_full_test.fbx"), raw_payloads=False
+    ).take_names()
     check(
-        "a Full Sequence Only export declares its mode on the shot record's envelope",
+        "a retired 'full' mode still ships one take per shot, and no mode is declared",
         full_result is True
-        and full_meta.get(ptk.MeshConvert.SHOT_CLIP_MODE_KEY) == "full",
-        f"result={full_result} meta={full_meta!r}",
+        and full_takes == ["open", "close"]
+        and "clip_mode" not in full_meta,
+        f"result={full_result} takes={full_takes} meta={full_meta!r}",
     )
 
     # An empty store publishes a CLEAR; the takes task then finds no channel
@@ -4377,14 +4417,109 @@ try:
         objects=[plain_cube],
         output_name="takes_none_test",
         export_visible=True,
-        tasks={"apply_declared_takes": True},
+        tasks={"apply_declared_takes": True, "export_data_node": True},
+    )
+    none_file = os.path.join(out_dir, "takes_none_test.fbx")
+    none_takes = (
+        ptk.FbxFile.load(none_file, raw_payloads=False).take_names()
+        if os.path.isfile(none_file)
+        else None
     )
     check(
-        "no declared takes -> the task no-ops and the export still succeeds",
-        result is True
-        and os.path.isfile(os.path.join(out_dir, "takes_none_test.fbx"))
-        and FbxUtils._pending_takes is None,
-        f"result={result}",
+        "a scene with no shots ships one whole-timeline take (the task no-ops)",
+        result is True and FbxUtils._pending_takes is None and len(none_takes) == 1,
+        f"result={result} takes={none_takes}",
+    )
+
+    # The rate is the scene's animation's, not its shots': an animated scene
+    # with no shots ships the record, no shots and its rate -- the FBX's time
+    # mode -- and its GLB carries it as it stands; a scene that animates
+    # nothing ships none. Added: 2026-11-05.
+    def _carried_record(path):
+        values = [
+            v
+            for v in ptk.FbxFile.load(path, raw_payloads=False).user_properties(
+                ptk.SceneRecords.SHOTS.key
+            )
+            if isinstance(v, (bytes, bytearray)) and v.strip()
+        ]
+        return json.loads(bytes(values[0]).decode("utf-8")) if values else None
+
+    _none_rate = bpy.context.scene.render.fps / bpy.context.scene.render.fps_base
+    _none_record = _carried_record(none_file) if os.path.isfile(none_file) else None
+    check(
+        "an animated scene with no shots ships the record: no shots, the scene's "
+        "rate, the FBX's own time mode",
+        _none_record
+        == {"version": ptk.SceneRecords.SHOTS.version, "shots": [], "fps": _none_rate}
+        and abs(
+            (ptk.FbxFile.load(none_file, raw_payloads=False)._fps() or 0) - _none_rate
+        )
+        < 1e-3,
+        f"{_none_record}",
+    )
+    if ptk.MeshConvert.resolve_binary(required=False, auto_install=False):
+        SceneExporter().perform_export(
+            export_dir=out_dir,
+            objects=[plain_cube],
+            output_name="takes_none_glb",
+            export_visible=True,
+            tasks={"apply_declared_takes": True, "export_data_node": True, "output_format": "fbx_glb"},
+        )
+        _none_glb = os.path.join(out_dir, "takes_none_glb.glb")
+        _none_carried = None
+        if os.path.isfile(_none_glb):
+            with ptk.MeshConvert.open_glb(_none_glb) as _edit:
+                _none_carried = ptk.SceneRecords.glb_block(
+                    _edit.gltf, ptk.SceneRecords.SHOTS
+                )
+        check(
+            "its GLB carries that record as it stands: the rate, no shots",
+            _none_carried
+            == {"version": ptk.SceneRecords.SHOTS.version, "shots": [], "fps": _none_rate},
+            f"{_none_carried}",
+        )
+    bpy.ops.mesh.primitive_cube_add()
+    static_cube = bpy.context.active_object
+    static_cube.name = "StaticCube"
+    plain_cube.animation_data_clear()
+    SceneExporter().perform_export(
+        export_dir=out_dir,
+        objects=[static_cube],
+        output_name="takes_static",
+        export_visible=True,
+        tasks={"apply_declared_takes": True, "export_data_node": True},
+    )
+    # What the write carries decides, not the scene: the same animated,
+    # shotless cube exported through a preset with animation off
+    # (bake_anim=False) ships no record. Added: 2026-11-05.
+    for _o in list(bpy.context.selected_objects):
+        _o.select_set(False)
+    plain_cube.location.x = 0.0
+    plain_cube.keyframe_insert("location", frame=1)
+    plain_cube.location.x = 2.0
+    plain_cube.keyframe_insert("location", frame=10)
+    SceneExporter.save_fbx_preset("no_anim_record", {"bake_anim": False})
+    SceneExporter().perform_export(
+        export_dir=out_dir,
+        objects=[plain_cube],
+        output_name="takes_anim_off",
+        export_visible=True,
+        preset_file="no_anim_record",
+        tasks={"apply_declared_takes": True, "export_data_node": True},
+    )
+    _off_file = os.path.join(out_dir, "takes_anim_off.fbx")
+    check(
+        "an animated scene exported with animation off ships no animation record",
+        os.path.isfile(_off_file) and _carried_record(_off_file) is None,
+        f"{_carried_record(_off_file) if os.path.isfile(_off_file) else 'no file'}",
+    )
+    plain_cube.animation_data_clear()
+    _static_file = os.path.join(out_dir, "takes_static.fbx")
+    check(
+        "a scene that animates nothing ships no animation record",
+        os.path.isfile(_static_file) and _carried_record(_static_file) is None,
+        f"{_carried_record(_static_file) if os.path.isfile(_static_file) else 'no file'}",
     )
     ShotStore.clear_active()
     ShotStore._prefs_dir_override = None
@@ -4866,8 +5001,10 @@ try:
         _presult is True
         and bool(_events)
         and _currents == sorted(_currents)
-        and {t for _, t, _ in _events} == {2}
-        and _events[-1][:2] == (2, 2)
+        # Two phases and the one task every FBX write runs (the take split,
+        # armed by ExportRun.from_tasks since 2026-11-05).
+        and {t for _, t, _ in _events} == {3}
+        and _events[-1][:2] == (3, 3)
         and any(m.startswith("Writing FBX") for m in _pmsgs)
         and any(m.startswith("Writing scene sidecar") for m in _pmsgs),
         f"result={_presult} events={_events}",
@@ -5204,7 +5341,7 @@ try:
     # Blender's split bakes every frame of a take's window, so the converter opens
     # each clip at the window's start; the gate was placed against the take's first
     # AUTHORED key and lost ShotB's visible run (hidden from 21, not from 30). The
-    # conversion measures each take's span from the FBX it reads.
+    # conversion notes each clip with its take, measured off the FBX it reads.
     bpy.ops.wm.read_factory_settings(use_empty=True)
     reset_scene()
     from blendertk import ShotStore
@@ -5244,7 +5381,6 @@ try:
         export_visible=True,
         tasks={
             "export_data_node": True,
-            "apply_declared_takes": "both",
             "output_format": "fbx_glb",
         },
     )
@@ -5271,55 +5407,57 @@ try:
         f"ShotB hides at frame {_g_switch}",
     )
 
-    # ---- Shots + Full Sequence ships the whole timeline in both files (2026-10-05)
-    # Blender's split REPLACED the scene-range take, so "both" and "shots"
-    # shipped the same files while the shot record declared clip_mode both;
-    # Maya ships ['ShotA', 'ShotB', 'FULL_SEQUENCE']. Shots Only drops the
-    # whole-timeline take from the FBX after the GLB was cut from it.
+    # ---- one take per shot, in both files (2026-11-05) ---------------------------
+    # The FBX ships one take per shot and no whole-timeline take, and the GLB
+    # built from it converts each take as one animation, named after its shot:
+    # no clip is cut from a whole-timeline stack. Mirror of mayatk's.
     def _clip_lists(stem):
-        takes = ptk.FbxFile.load(
-            os.path.join(_g_dir, f"{stem}.fbx"), raw_payloads=False
-        ).take_names()
+        _fbx = ptk.FbxFile.load(os.path.join(_g_dir, f"{stem}.fbx"), raw_payloads=False)
+        takes = _fbx.take_names()
         with ptk.MeshConvert.open_glb(os.path.join(_g_dir, f"{stem}.glb")) as edit:
             clips = [a.get("name") for a in edit.gltf.get("animations") or []]
-        return sorted(takes), sorted(clips)
+            block = ptk.SceneRecords.glb_block(edit.gltf, ptk.SceneRecords.SHOTS)
+        return takes, clips, block, _fbx._fps()
 
-    _g_scene = bpy.context.scene.name
-    _g_takes, _g_clips = _clip_lists("gate")
+    _g_takes, _g_clips, _g_block, _g_fbx_rate = _clip_lists("gate")
     check(
-        "Shots + Full Sequence: the FBX keeps the whole-timeline take beside the shots",
-        _g_takes == sorted(["ShotA", "ShotB", _g_scene]),
+        "the FBX ships one take per shot and no whole-timeline take",
+        _g_takes == ["ShotA", "ShotB"],
         f"{_g_takes}",
     )
+    _g_scene_rate = _gs.render.fps / _gs.render.fps_base
     check(
-        "Shots + Full Sequence: the GLB ships the sequence clip beside the shots",
-        _g_clips == ["FULL_SEQUENCE", "ShotA", "ShotB"],
-        f"{_g_clips}",
+        "the GLB built from the per-shot FBX has one animation per shot, named "
+        "after it, and carries the animation record itself (v2): its shots by "
+        "clip name and the scene's rate, the FBX's time mode",
+        _g_clips == ["ShotA", "ShotB"]
+        and (_g_block or {}).get("version") == ptk.SceneRecords.SHOTS.version
+        and set(_g_block or {}) == {"version", "shots", "fps"}
+        and [s["clip"] for s in (_g_block or {}).get("shots") or []]
+        == ["ShotA", "ShotB"]
+        and abs((_g_block or {}).get("fps", 0) - _g_scene_rate) < 1e-3
+        and abs((_g_fbx_rate or 0) - _g_scene_rate) < 1e-3,
+        f"glb={_g_clips} record={_g_block} fbx rate={_g_fbx_rate}",
     )
-    SceneExporter().perform_export(
-        export_dir=_g_dir,
-        objects=[_g_mover, _g_blink],
-        output_name="gate_shots",
-        export_visible=True,
-        tasks={
-            "export_data_node": True,
-            "apply_declared_takes": "shots",
-            "output_format": "fbx_glb",
-        },
+    _g_verdict = ptk.ExportVerifier(
+        glb=os.path.join(_g_dir, "gate.glb"), fbx=os.path.join(_g_dir, "gate.fbx")
+    ).run(
+        [
+            "check_fbx_takes",
+            "check_clips_vs_takes",
+            "check_fbx_take_channels",
+            "check_glb_shot_clips",
+            "check_animation_rate",
+        ]
     )
-    _g_takes, _g_clips = _clip_lists("gate_shots")
     check(
-        "Shots Only ships the shots alone in both files",
-        _g_takes == ["ShotA", "ShotB"] and _g_clips == ["ShotA", "ShotB"],
-        f"fbx={_g_takes} glb={_g_clips}",
+        "the deliverable gates pass the per-shot files (takes, clips, channels, "
+        "the record's clips and rate)",
+        [row.status for row in _g_verdict.rows] == ["PASS"] * 5,
+        _g_verdict.summary(),
     )
 
-    # ---- the published clip origin is the span the stack carries (2026-10-05) ----------
-    # Bake Range Auto narrows the scene range to the shot union AFTER the records
-    # publish, so the whole-timeline span the producer published was its seed -- the
-    # scene range, 1-250 -- for a stack the FBX holds as 1-40. The GLB was still cut
-    # right (the conversion measures the FBX), and clip_origin WARNed that the
-    # published span was off. Report what the FBX has.
+    # ---- Bake Range Auto over a wider scene range: each take keeps its shot ------------
     _gs.frame_start, _gs.frame_end = 1, 250
     SceneExporter().perform_export(
         export_dir=_g_dir,
@@ -5328,19 +5466,19 @@ try:
         export_visible=True,
         tasks={
             "export_data_node": True,
-            "apply_declared_takes": "both",
             "set_bake_animation_range": "auto",
             "output_format": "fbx_glb",
         },
     )
-    _g_origin = ptk.ExportVerifier(
-        glb=os.path.join(_g_dir, "gate_auto.glb"),
-        fbx=os.path.join(_g_dir, "gate_auto.fbx"),
-    ).run(["check_clip_origin"])
+    _g_auto = ptk.FbxFile.load(os.path.join(_g_dir, "gate_auto.fbx"), raw_payloads=False)
+    _g_auto_windows = {
+        name: tuple(round(t * 24) for t in span)
+        for name, span in _g_auto.take_windows().items()
+    }
     check(
-        "Bake Range Auto over a wider scene range: the published span is the stack's",
-        [row.status for row in _g_origin.rows] == ["PASS"],
-        _g_origin.summary(),
+        "Bake Range Auto over a wider scene range: each take spans its shot alone",
+        _g_auto_windows == {"ShotA": (1, 20), "ShotB": (21, 40)},
+        f"{_g_auto_windows}",
     )
     ShotStore.clear_active()
     ShotStore._prefs_dir_override = None
@@ -5427,6 +5565,187 @@ try:
         and _lc_carrier in _lc_set
         and _lc_cube in _lc_set,
         f"result={_lc_result} error={_lc_error!r}",
+    )
+
+    # ---- the write ships each object's hierarchy (mirror of mayatk's, whose
+    # FBX writer takes a node's descendants along). Measured 2026-11-08: a
+    # shadow rig's group handed in shipped without its plane and contact. A
+    # child handed in without its parent ships with its own children and the
+    # parent stays out; a collection ships its objects and theirs; an object
+    # handed in twice ships once. ----------------------------------------------
+    reset_scene()
+
+    def _h_obj(name, parent=None, mesh=True, collection=None):
+        data = None
+        if mesh:
+            data = bpy.data.meshes.new(name)
+            data.from_pydata([(0, 0, 0), (1, 0, 0), (0, 1, 0)], [], [(0, 1, 2)])
+        obj = bpy.data.objects.new(name, data)
+        (collection or bpy.context.scene.collection).objects.link(obj)
+        obj.parent = parent
+        return obj
+
+    _h_grp = _h_obj("Hier_grp", mesh=False)
+    _h_plane = _h_obj("Hier_plane", _h_grp)
+    _h_obj("Hier_contact", _h_plane, mesh=False)
+    _h_parent = _h_obj("Hier_parent")
+    _h_child = _h_obj("Hier_child", _h_parent)
+    _h_obj("Hier_leaf", _h_child, mesh=False)
+    _h_coll = bpy.data.collections.new("Hier_props")
+    bpy.context.scene.collection.children.link(_h_coll)
+    _h_prop = _h_obj("Hier_prop", collection=_h_coll)
+    _h_obj("Hier_prop_kid", _h_prop)
+    # Children the write cannot ship stay out, as before: one in an excluded
+    # collection, one in no scene.
+    _h_off = bpy.data.collections.new("Hier_off")
+    bpy.context.scene.collection.children.link(_h_off)
+    _h_obj("Hier_off_kid", _h_plane, collection=_h_off)
+    bpy.context.view_layer.layer_collection.children["Hier_off"].exclude = True
+    _h_lost = bpy.data.objects.new("Hier_lost_kid", None)
+    _h_lost.parent = _h_plane
+    _h_dir = os.path.join(tmp, "hierarchy")
+    os.makedirs(_h_dir, exist_ok=True)
+    _h_exp = SceneExporter()
+    _h_ok = _h_exp.perform_export(
+        export_dir=_h_dir,
+        objects=[_h_grp, _h_child, _h_child, _h_coll],
+        output_name="hierarchy",
+        export_visible=True,
+    )
+    _h_path = os.path.join(_h_dir, "hierarchy.fbx")
+    _h_names = (
+        sorted(ptk.FbxFile.load(_h_path).object_names("Model"))
+        if os.path.isfile(_h_path)
+        else []
+    )
+    _h_want = [
+        "Hier_child",
+        "Hier_contact",
+        "Hier_grp",
+        "Hier_leaf",
+        "Hier_plane",
+        "Hier_prop",
+        "Hier_prop_kid",
+    ]
+    check(
+        "the write ships each object's hierarchy, a child without its parent, "
+        "and a collection's objects (mirror of mayatk's), and no child outside "
+        "the view layer",
+        _h_ok is True and _h_names == _h_want,
+        f"ok={_h_ok} shipped={_h_names}",
+    )
+    _h_init = sorted(o.name for o in SceneExporter()._initialize_objects([_h_grp]))
+    check(
+        "the export set the checks see holds no child outside the view layer",
+        _h_init == ["Hier_contact", "Hier_grp", "Hier_plane"],
+        f"{_h_init}",
+    )
+    _h_set = [o.name for o in _h_exp.task_manager.objects or []]
+    check(
+        "an object handed in twice is in the export set once",
+        len(_h_set) == len(set(_h_set)) and sorted(_h_set) == _h_want,
+        f"{_h_set}",
+    )
+
+    # ---- an added child or collection member enters the export set only when
+    # the write can ship it (``_filter_exportable``'s rule), so the default-on
+    # hidden-geometry check never fails over one the caller never handed in:
+    # a visible mesh's hidden collision proxy (hide_set, hide_viewport), a
+    # selection-locked child, and a collection's member in an excluded
+    # sub-collection (whose ``visible_get`` raises). Measured 2026-11-08: the
+    # check failed the export over the hidden proxy. --------------------------
+    reset_scene()
+    _v_body = _h_obj("Vis_body")
+    _h_obj("Vis_proxy", _v_body).hide_set(True)
+    _h_obj("Vis_proxy_vp", _v_body).hide_viewport = True
+    _h_obj("Vis_locked", _v_body).hide_select = True
+    _h_obj("Vis_kid", _v_body)
+    _v_coll = bpy.data.collections.new("Vis_props")
+    bpy.context.scene.collection.children.link(_v_coll)
+    _h_obj("Vis_prop", collection=_v_coll)
+    _v_sub = bpy.data.collections.new("Vis_props_off")
+    _v_coll.children.link(_v_sub)
+    _h_obj("Vis_prop_off", collection=_v_sub)
+    bpy.context.view_layer.layer_collection.children["Vis_props"].children[
+        "Vis_props_off"
+    ].exclude = True
+    _v_dir = os.path.join(tmp, "hidden_children")
+    os.makedirs(_v_dir, exist_ok=True)
+    _v_exp = SceneExporter()
+    _v_error = None
+    try:
+        _v_ok = _v_exp.perform_export(
+            export_dir=_v_dir,
+            objects=[_v_body, _v_coll],
+            output_name="hidden_children",
+            export_visible=True,
+            tasks={"check_hidden_geometry": True},
+        )
+    except Exception as e:  # the check reading an excluded member raised
+        _v_ok, _v_error = None, e
+    _v_path = os.path.join(_v_dir, "hidden_children.fbx")
+    _v_names = (
+        sorted(ptk.FbxFile.load(_v_path).object_names("Model"))
+        if os.path.isfile(_v_path)
+        else []
+    )
+    check(
+        "with the hidden-geometry check on, a hidden child, a locked child and "
+        "an excluded sub-collection's member stay out and the export ships",
+        _v_ok is True and _v_names == ["Vis_body", "Vis_kid", "Vis_prop"],
+        f"ok={_v_ok} error={_v_error!r} shipped={_v_names}",
+    )
+    _v_set = sorted(o.name for o in _v_exp.task_manager.objects or [])
+    check(
+        "the export set the checks see holds only the children and members "
+        "the write can ship",
+        _v_set == ["Vis_body", "Vis_kid", "Vis_prop"],
+        f"{_v_set}",
+    )
+    # A hidden mesh the caller hands in itself still fails the check.
+    _v_proxy = bpy.data.objects["Vis_proxy"]
+    _v_tm = SceneExporter().task_manager
+    _v_tm.objects = [_v_proxy, bpy.data.objects["Vis_prop_off"]]
+    _v_result = None
+    try:
+        _v_result = _v_tm.check_hidden_geometry(True)
+    except Exception as e:
+        _v_result = e
+    check(
+        "a hidden mesh handed in fails the check, and one outside the view "
+        "layer is named with it, never raising",
+        isinstance(_v_result, tuple)
+        and _v_result[0] is False
+        and "Vis_proxy" in _v_result[1][0]
+        and "Vis_prop_off" in _v_result[1][0],
+        f"{_v_result!r}",
+    )
+
+    # ---- the records' context reads the options the write will use, its
+    # repairs included (``_resolved_fbx_options``), never a re-merge of the
+    # preset that misses them. ------------------------------------------------
+    _wo_exp = SceneExporter()
+
+    def _wo_load(name, verify=False):
+        _wo_exp._fbx_preset_options = {
+            "bake_anim_use_all_actions": True,
+            "path_mode": "AUTO",
+        }
+
+    _wo_exp.load_fbx_export_preset = _wo_load
+    _wo_exp.perform_export(
+        export_dir=_v_dir,
+        objects=[_v_body],
+        output_name="write_options",
+        export_visible=True,
+    )
+    _wo_seen = _wo_exp.task_manager.write_options or {}
+    check(
+        "the records' write options are the resolved ones the write uses",
+        _wo_seen == _wo_exp._resolved_fbx_options()
+        and _wo_seen.get("bake_anim_use_all_actions") is False
+        and _wo_seen.get("path_mode") == "COPY",
+        f"{_wo_seen}",
     )
 
     shutil.rmtree(tmp, ignore_errors=True)

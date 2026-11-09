@@ -1001,9 +1001,13 @@ try:
             _write(folder, map_name, b"EXR")
             obj = bpy.data.objects.new(name, bpy.data.meshes.new(name))
             bpy.context.scene.collection.objects.link(obj)
+            # The layer its marker names, at the second UV map: one an object
+            # lacks, or holds elsewhere, is refused (lightmaps v3, 2026-11-07).
+            obj.data.uv_layers.new(name="UVMap")
+            obj.data.uv_layers.new(name="Lightmap")
             LightmapRecords._write_marker(
                 obj,
-                {"map": map_name, "uv_set": "UVMap", "intensity": 1.0, "mode": "separated"},
+                {"map": map_name, "uv_set": "Lightmap", "intensity": 1.0, "mode": "separated"},
             )
         LightmapRecords._save_folder_hints({n.lower(): folder for n in maps.values()})
 

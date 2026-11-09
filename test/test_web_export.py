@@ -2,8 +2,8 @@
 
 Run: blender --background --factory-startup --python blendertk/test/test_web_export.py
 
-Covers LightmapWebExport (encode / carrier wiring / manifest / GLB) and the fixture-light
-builder on LightUtils. Tiny resolution + samples so the real bake stays fast; the GLB is
+Covers LightmapWebExport (encode / the record and its media in a native GLB) and the
+fixture-light builder on LightUtils. Tiny resolution + samples so the real bake stays fast; the GLB is
 parsed with the stdlib so the assertions are about the actual deliverable, not about what
 the exporter was asked to do.
 
@@ -11,8 +11,9 @@ Regression anchors (each cost a debugging session to find, all measured on Blend
   * an image's colorspace must be set BEFORE its pixels are written, or the buffer is
     discarded and the map saves pure black
   * leaving it unset instead double-applies sRGB
-  * a lightmap only reaches the browser if its UV layer is referenced by a real texture
-    slot — otherwise the exporter emits no TEXCOORD_1 at all
+  * Blender's glTF exporter writes every UV layer as a TEXCOORD_n, so a lightmap's second
+    UV map ships as TEXCOORD_1 with no texture reading it (5.1.2; the wiring that once made
+    sure of it retired with the GLB's lightmaps block, 2026-11-07)
   * Cycles does NOT denoise bakes (`use_denoising` is a render setting, already True by
     default), so denoising has to be a post-pass over the saved EXR
 """
@@ -352,10 +353,10 @@ try:
         f"mean={codes.mean():.3f} min={codes.min()} max={codes.max()}",
     )
 
-    # --- web texture budget exempts the lightmaps --------------------------
-    # The lightmaps are loaded from disk like any other image, so a filepath check alone
-    # would shrink them: a 4096 bake would silently ship at 2048 with nothing to show for
-    # it. They are marked instead.
+    # --- web texture budget -------------------------------------------------
+    # A source texture past the ceiling is downsized for the export and reloaded
+    # after. The lightmaps are never among the export's images: they ride the
+    # GLB as the record's media, at the size the bake wrote them.
     def write_png(name, size):
         img = bpy.data.images.new(name, width=size, height=size)
         path = os.path.join(tmp_dir, f"{name}.png")
@@ -366,22 +367,13 @@ try:
         return bpy.data.images.load(path)
 
     source_img = write_png("budget_source", 128)
-    lightmap_img = write_png("budget_lightmap", 128)
-    lightmap_img[LightmapWebExport.LIGHTMAP_IMAGE_MARKER] = True
-
     LightmapWebExport(resolution=64, samples=1, device=None)._downsize_images(64)
     check(
         "web budget downsizes a source texture",
         tuple(source_img.size) == (64, 64),
         str(tuple(source_img.size)),
     )
-    check(
-        "...and exempts a marked lightmap",
-        tuple(lightmap_img.size) == (128, 128),
-        str(tuple(lightmap_img.size)),
-    )
-    for img in (source_img, lightmap_img):
-        bpy.data.images.remove(img)
+    bpy.data.images.remove(source_img)
 
     # --- denoise post-pass -------------------------------------------------
     from blendertk.mat_utils.texture_baker import TextureBaker
@@ -433,9 +425,46 @@ try:
     # --- commit -> wired_for_export -> GLB ---------------------------------
     # The canonical flow: the BAKE commits scene state (markers incl. the map's
     # ``dir`` locate hint); the EXPORT self-feeds from that state with no
-    # knowledge of how or whether the scene was baked.
+    # knowledge of how or whether the scene was baked. One layout, two
+    # containers (2026-11-07): the native GLB carries the ``lightmaps`` record
+    # as it stands and each file it names as the bufferView of its name, as
+    # the FBX route's build does -- nothing is wired into a material.
     LightUtils.lights_from_geometry([plate], power=300.0)
     web = LightmapWebExport(resolution=64, samples=4, denoise=False, device=None)
+    MEDIA = ptk.SceneRecords.GLB_MEDIA
+    KEY = ptk.SceneRecords.LIGHTMAPS.key
+
+    def media_view(parsed, name):
+        """``(view, bytes)`` of the bufferView the file *name* rides, or ``(None, b"")``."""
+        index = MEDIA.view(parsed, name)
+        if index is None:
+            return None, b""
+        return parsed["bufferViews"][index], b""
+
+    def media_bytes(path, name):
+        """The bytes the bufferView named *name* holds in the GLB at *path*."""
+        with ptk.MeshConvert.open_glb(path) as edit:
+            index = MEDIA.view(edit.gltf, name)
+            if index is None:
+                return b""
+            view = edit.gltf["bufferViews"][index]
+            start = int(view.get("byteOffset", 0))
+            return bytes(edit.bin_data[start : start + int(view["byteLength"])])
+
+    def scene_left_as_found(materials=None):
+        """What the export left in the scene: lightmap nodes, material copies,
+        the record stamped on the scene, a lightmap image loaded."""
+        left = [
+            f"{m.name}:{n.name}"
+            for m in (materials or bpy.data.materials)
+            if btk.MatUtils.get_node_tree(m) is not None
+            for n in m.node_tree.nodes
+            if n.label == "Lightmap"
+        ]
+        left += [m.name for m in bpy.data.materials if "~lm" in m.name]
+        if KEY in bpy.context.scene:
+            left.append(f"scene[{KEY}]")
+        return left
 
     # An uncommitted scene must be a clean no-op (what makes wrapping every
     # export unconditional safe).
@@ -455,6 +484,11 @@ try:
             bool(manifest_token),
             str(manifest_token)[:120],
         )
+        check(
+            "...and stamps the record on the scene for the export, as JSON text",
+            isinstance(bpy.context.scene.get(KEY), str)
+            and json.loads(bpy.context.scene[KEY]) == manifest_token,
+        )
         web.export_glb(
             glb_path, objects=[floor], manifest=manifest_token, texture_max_size=None
         )
@@ -463,99 +497,102 @@ try:
     gltf = glb_json(glb_path)
     prims = [p for m in gltf.get("meshes", []) for p in m.get("primitives", [])]
     check(
-        "every primitive carries TEXCOORD_1",
+        "every primitive carries TEXCOORD_1, with no texture reading it",
         bool(prims) and all("TEXCOORD_1" in p.get("attributes", {}) for p in prims),
         f"{len(prims)} primitive(s)",
     )
-    occl = [m for m in gltf.get("materials", []) if m.get("occlusionTexture")]
-    check("the carrier slot is populated", bool(occl))
     check(
-        "...on texCoord 1",
-        bool(occl) and all(m["occlusionTexture"].get("texCoord") == 1 for m in occl),
+        "no material carries the lightmap: no slot is wired",
+        not any(m.get("occlusionTexture") for m in gltf.get("materials", [])),
+        [m.get("name") for m in gltf.get("materials", []) if m.get("occlusionTexture")],
     )
-    # The file is stated as every deliverable states itself (finish_glb, since
-    # 2026-10-20): the block the native exporter wrote into the first scene's
-    # extras, as JSON text, now rides the ROOT's as an object.
-    manifest = (gltf.get("extras") or {}).get(ptk.SceneRecords.LIGHTMAPS.key)
+    # The file is stated as every deliverable states itself (finish_glb): the
+    # record the native exporter wrote into the first scene's extras, as JSON
+    # text, rides the ROOT's as an object -- the FBX route's record, entry for
+    # entry, its lengths in the native writer's unit.
+    manifest = (gltf.get("extras") or {}).get(KEY)
     check(
-        "the viewer's block rides in the file's ROOT extras, as an object",
+        "the record rides in the file's ROOT extras, as an object",
         isinstance(manifest, dict)
-        and manifest.get("version") == ptk.SceneRecords.LIGHTMAPS.glb.version,
+        and manifest.get("version") == ptk.SceneRecords.LIGHTMAPS.version,
         manifest,
     )
     check(
         "...not in the scene's, where the native exporter wrote it",
-        ptk.SceneRecords.LIGHTMAPS.key
-        not in ((gltf.get("scenes") or [{}])[0].get("extras") or {}),
+        KEY not in ((gltf.get("scenes") or [{}])[0].get("extras") or {}),
     )
+    from blendertk.light_utils.lightmap_baker.lightmap_records import LightmapRecords
+
+    fbx_route = LightmapRecords._record().payload
     check(
-        "...naming each baked material with its intensity alone (its map is the "
-        "texture its carrier slot binds)",
+        "...as it stands: the FBX route's record, entry for entry, labelled in the "
+        "native writer's unit",
         isinstance(manifest, dict)
-        and bool(manifest.get("materials"))
-        and all(set(v) == {"intensity"} for v in manifest["materials"].values()),
-        json.dumps((manifest or {}).get("materials", {}))[:120],
+        and manifest.get("objects") == fbx_route.get("objects")
+        and manifest == manifest_token
+        and ptk.SceneRecords.problems(ptk.SceneRecords.LIGHTMAPS, manifest) == [],
+        (manifest, fbx_route),
     )
-    check(
-        "...in the one shape its builder states: no uv, no lighting",
-        isinstance(manifest, dict)
-        and manifest
-        == ptk.MeshConvert.lightmaps_block(
-            {k: v["intensity"] for k, v in manifest["materials"].items()},
-            manifest.get("carrier"),
-            manifest.get("probe"),
-        ),
-        manifest,
-    )
-    # Retired 2026-10-20 (removed in 0.21.0): the block's version is the
-    # registry's, its key the record's, and it states no lighting -- the
-    # handoff does.
+    # Retired 2026-10-20 (removed in 0.21.0): the key is the record's.
     import warnings as _warnings
 
     with _warnings.catch_warnings(record=True) as _caught:
         _warnings.simplefilter("always")
-        _version = LightmapWebExport.MANIFEST_VERSION
         _extras_key = LightmapWebExport.EXTRAS_KEY
-        _bare = web.build_manifest({}, "occlusion", lighting={"keyLight": {}})
+        with web.wired_for_export(carrier="occlusion") as _carried:
+            pass
     _notes = [str(w.message) for w in _caught if w.category is DeprecationWarning]
     check(
-        "MANIFEST_VERSION still answers -- the registry's -- and warns",
-        _version == ptk.SceneRecords.LIGHTMAPS.glb.version
-        and any("MANIFEST_VERSION" in n for n in _notes),
+        "EXTRAS_KEY still answers the record's key, with a warning",
+        _extras_key == KEY and any("EXTRAS_KEY" in n for n in _notes),
         _notes,
     )
     check(
-        "...and EXTRAS_KEY the record's key, with a warning",
-        _extras_key == ptk.SceneRecords.LIGHTMAPS.key
-        and any("EXTRAS_KEY" in n for n in _notes),
+        "...and wired_for_export's carrier is dropped, with a warning (2026-11-07)",
+        _carried == manifest_token and any("'carrier'" in n for n in _notes),
         _notes,
     )
+    # Held until 0.25.0 (noticed for 0.21.0 on 2026-10-24, the window closing
+    # 2026-11-23): the retired block's version and builder still answer, with
+    # a warning. Restored: 2026-11-08
+    with _warnings.catch_warnings(record=True) as _caught:
+        _warnings.simplefilter("always")
+        _held_version = getattr(LightmapWebExport, "MANIFEST_VERSION", None)
+        try:
+            _held_block = web.build_manifest(
+                {"floor": ("floor_lm.png", 1.5)}, "occlusion", lighting={"x": 1}
+            )
+        except Exception as _e:  # noqa: BLE001 -- the check reports it
+            _held_block = repr(_e)
+    _notes = [str(w.message) for w in _caught if w.category is DeprecationWarning]
     check(
-        "...and build_manifest's lighting is dropped, with a warning",
-        "lighting" not in _bare and any("'lighting'" in n for n in _notes),
-        (_bare, _notes),
+        "MANIFEST_VERSION and build_manifest(lighting=) still answer, with warnings",
+        _held_version == 2
+        and isinstance(_held_block, dict)
+        and _held_block.get("version") == 2
+        and _held_block.get("carrier") == "occlusion"
+        and _held_block.get("materials")
+        and all(m == {"intensity": 1.5} for m in _held_block["materials"].values())
+        and any("MANIFEST_VERSION" in n for n in _notes)
+        and any("'lighting'" in n for n in _notes),
+        (_held_version, _held_block, _notes),
     )
 
-    # The GLB states its lightmaps once, in its ``lightmaps`` block. The bake
-    # writes each object's marker (and the data_export manifest) before the web
-    # encode exists -- the EXR at 1.0 beside its authoring folder (measured
-    # 2026-09-15) -- so the written file drops those copies
-    # (ptk.MeshConvert.finish_glb strips every record and marker off the
-    # nodes, since 2026-10-20; the copies were corrected before).
+    # The GLB states its lightmaps once, in its ``lightmaps`` record: each
+    # object's marker (and the data_export record) leave the nodes
+    # (ptk.MeshConvert.finish_glb strips every record and marker off them).
     RECORD_KEYS = {spec.key for spec in ptk.SceneRecords.deliverable()} | {
         "lightmapInfo"
     }
 
-    def floor_map(parsed, web_manifest):
-        """The floor material's entry in *web_manifest*."""
-        node = next(
-            (n for n in parsed.get("nodes", []) if n.get("name") == "floor"), {}
+    def floor_map(parsed):
+        """The floor's entry in *parsed*'s record and the view its map rides."""
+        record = (parsed.get("extras") or {}).get(KEY) or {}
+        entry = next(
+            (e for e in record.get("objects") or [] if e.get("name") == "floor"), {}
         )
-        if "mesh" not in node:
-            return {}
-        prim = parsed["meshes"][node["mesh"]]["primitives"][0]
-        material = parsed["materials"][prim["material"]]["name"]
-        return (web_manifest or {}).get("materials", {}).get(material, {})
+        view, _ = media_view(parsed, entry.get("map"))
+        return entry, view
 
     def node_copies(parsed):
         """The nodes still carrying a record or a lightmap marker."""
@@ -565,11 +602,52 @@ try:
             if RECORD_KEYS & set(n.get("extras") or {})
         ]
 
-    worn = floor_map(gltf, manifest)
+    # A native export with include_lights writes the scene's lights as
+    # KHR_lights_punctual; over a bake they leave the file, as they leave an
+    # FBX-built one (strip_glb_baked_lights): a reader would light it twice.
+    lit_path = os.path.join(tmp_dir, "scene_with_lights.glb")
+    shutil.copyfile(glb_path, lit_path)
+    with ptk.MeshConvert.open_glb(lit_path) as edit:
+        edit.gltf["nodes"].append(
+            {"name": "plate_light", "extensions": {"KHR_lights_punctual": {"light": 0}}}
+        )
+        edit.gltf.setdefault("extensions", {})["KHR_lights_punctual"] = {
+            "lights": [{"type": "point", "intensity": 300.0}]
+        }
+        edit.gltf.setdefault("extensionsUsed", []).append("KHR_lights_punctual")
+        edit.dirty = True
+    web.embed_media(lit_path, [floor])
+    lit_gltf = glb_json(lit_path)
     check(
-        "the floor's lightmap is stated in the block, at its scalar",
-        "intensity" in worn,
-        f"lightmaps={worn}",
+        "a baked native GLB ships no KHR_lights_punctual over its bake (2026-11-07)",
+        "KHR_lights_punctual" not in (lit_gltf.get("extensions") or {})
+        and "KHR_lights_punctual" not in (lit_gltf.get("extensionsUsed") or [])
+        and not any(
+            "KHR_lights_punctual" in (n.get("extensions") or {})
+            for n in lit_gltf.get("nodes", [])
+        ),
+        lit_gltf.get("extensionsUsed"),
+    )
+
+    floor_entry, floor_view = floor_map(gltf)
+    check(
+        "the floor's map rides as the bufferView named by its file: 8-bit sRGB "
+        "PNG, its range as extras.scale",
+        bool(floor_entry)
+        and floor_view is not None
+        and floor_view.get("extras", {}).get(MEDIA.mime_type) == "image/png"
+        and (floor_view.get("extras", {}).get(MEDIA.scale) or 0) > 0
+        and media_bytes(glb_path, floor_entry["map"]).startswith(b"\x89PNG"),
+        (floor_entry, floor_view),
+    )
+    check(
+        "...and is no image of the file's",
+        not any(
+            os.path.splitext(i.get("name") or "")[0]
+            == os.path.splitext(floor_entry.get("map") or "")[0]
+            for i in gltf.get("images", [])
+        ),
+        [i.get("name") for i in gltf.get("images", [])],
     )
     check(
         "...and once: no record or marker rides on any node, no authoring folder",
@@ -582,6 +660,12 @@ try:
         "handoff" not in (gltf.get("extras") or {}),
         sorted(gltf.get("extras") or {}),
     )
+    check(
+        "the scene is left as found: no lightmap node, no material copy, no "
+        "record stamped on it",
+        not scene_left_as_found(),
+        scene_left_as_found(),
+    )
 
     # The route a caller composes itself (tentacle's scene slot): a direct export
     # inside wired_for_export, which finishes the file it is given on exit.
@@ -590,24 +674,27 @@ try:
         bpy.ops.export_scene.gltf(
             filepath=direct_glb, export_format="GLB", export_extras=True
         )
-        _pngs = [
-            bpy.path.abspath(i.filepath)
-            for i in bpy.data.images
-            if i.filepath and i.filepath.lower().endswith(".png")
-        ]
-    check(
-        "the bracket's web PNGs are released once the export is done",
-        bool(_pngs) and not any(os.path.exists(p) for p in _pngs),
-        _pngs,
-    )
     dgltf = glb_json(direct_glb)
-    dblock = (dgltf.get("extras") or {}).get(ptk.SceneRecords.LIGHTMAPS.key)
-    dworn = floor_map(dgltf, dblock if isinstance(dblock, dict) else None)
+    dblock = (dgltf.get("extras") or {}).get(KEY)
+    dentry, dview = floor_map(dgltf)
     check(
         "a direct export inside wired_for_export(glb_path=) states it once too: "
-        "the block an object in ROOT extras, no record or marker on any node",
-        isinstance(dblock, dict) and "intensity" in dworn and not node_copies(dgltf),
-        f"lightmaps={dworn} copies={node_copies(dgltf)}",
+        "the record an object in ROOT extras, the map riding, no record or marker "
+        "on any node",
+        isinstance(dblock, dict)
+        and bool(dentry)
+        and dview is not None
+        and not node_copies(dgltf),
+        f"lightmaps={dentry} view={dview} copies={node_copies(dgltf)}",
+    )
+    check(
+        "...loading no lightmap image into the scene",
+        not any(
+            os.path.basename(bpy.path.abspath(i.filepath or "")).lower()
+            == os.path.splitext(dentry.get("map") or "")[0].lower() + ".png"
+            for i in bpy.data.images
+        ),
+        [i.name for i in bpy.data.images],
     )
     # The whole scene ships the data_export carrier, whose handoff record the
     # bake's publish stamped: the file states the handoff it implies, and the
@@ -618,8 +705,7 @@ try:
         isinstance(dhandoff, dict)
         and dhandoff.get("version") == ptk.SceneRecords.HANDOFF.version
         and any(
-            row.get("part") == "lightmaps"
-            and row.get("data") == ["extras." + ptk.SceneRecords.LIGHTMAPS.key]
+            row.get("part") == "lightmaps" and row.get("data") == ["extras." + KEY]
             for row in dhandoff.get("assembly") or []
         ),
         dhandoff and [(r.get("part"), r.get("data")) for r in dhandoff.get("assembly", [])],
@@ -629,25 +715,21 @@ try:
         not any(n.get("name") == "data_export" for n in dgltf.get("nodes", [])),
         [n.get("name") for n in dgltf.get("nodes", [])],
     )
-
-    # The wiring is transport-only: the source materials must come back untouched.
-    leftover = [
-        n.name
-        for m in bpy.data.materials
-        if btk.MatUtils.get_node_tree(m) is not None
-        for n in m.node_tree.nodes
-        if n.label == "Lightmap"
-    ]
-    check("wiring is reverted after export", not leftover, str(leftover))
+    check(
+        "...and the record it carries is the native one (the writer's unit), not "
+        "the carrier's",
+        isinstance(dblock, dict) and dblock == web.native_record(),
+        (dblock, web.native_record()),
+    )
+    check("...and the scene is left as found", not scene_left_as_found())
 
     # --- atlas packing: the rect is PER-INSTANCE ---------------------------
     # A material-atlased bake gives every object a different rect into ONE shared
     # map, so the binding cannot be a material-level property: bound without it,
     # each object samples the WHOLE atlas through its own [0,1] unwrap and wears
     # every other object's lighting -- which reads as blocky patches, not as a
-    # missing map. The single-object flow above can never catch it (a solo group
-    # keeps the identity rect). Twin of ptk.MeshConvert.apply_glb_lightmaps,
-    # which ships the same rect as KHR_texture_transform.
+    # missing map. The record states each object's rect; the viewer binds it
+    # on a material of the object's own at load.
     shared = bpy.data.materials.new("M_Atlas")
     btk.MatUtils.get_node_tree(shared, create=True)
     pair = []
@@ -678,125 +760,61 @@ try:
             atlas_glb, objects=pair, manifest=atlas_manifest, texture_max_size=None
         )
     agltf = glb_json(atlas_glb)
-
-    # One transform per object, each matching that object's own committed rect.
-    import pythontk as ptk
-
-    shipped = []
-    for m in agltf.get("materials", []):
-        occ = m.get("occlusionTexture") or {}
-        tf = (occ.get("extensions") or {}).get("KHR_texture_transform")
-        if tf:
-            shipped.append((tf.get("scale"), tf.get("offset")))
-
-    def as_gltf(rect):
-        sx, sy, ox, oy = ptk.ImgUtils.flip_rect_v(rect)
-        return ([round(sx, 4), round(sy, 4)], [round(ox, 4), round(oy, 4)])
-
-    expected = sorted(as_gltf(r) for r in rects.values())
-    got = sorted(
-        ([round(v, 4) for v in sc], [round(v, 4) for v in off]) for sc, off in shipped
-    )
-    check(
-        "each atlased object ships its own rect as KHR_texture_transform",
-        got == expected,
-        f"got {json.dumps(got)} want {json.dumps(expected)}",
-    )
-
-    # The viewer rebinds by MATERIAL NAME, so the per-instance clones have to be
-    # the names the manifest carries -- otherwise every clone falls through the
-    # lookup and ships as plain glTF occlusion.
-    named = {
-        m.get("name") for m in agltf.get("materials", []) if m.get("occlusionTexture")
+    arecord = (agltf.get("extras") or {}).get(KEY) or {}
+    shipped = {
+        e.get("name"): [round(float(v), 4) for v in e.get("scaleOffset") or ()]
+        for e in arecord.get("objects") or []
     }
+    expected = {n: [round(float(v), 4) for v in r] for n, r in rects.items()}
     check(
-        "the manifest names the per-instance materials the GLB actually holds",
-        bool(named) and named <= set((atlas_manifest or {}).get("materials", {})),
-        f"glb {sorted(named)} vs manifest {sorted((atlas_manifest or {}).get('materials', {}))}",
+        "each atlased object rides the record with its own committed rect",
+        shipped == expected,
+        f"got {json.dumps(shipped)} want {json.dumps(expected)}",
     )
-
-    # Texture bytes are the file size, so the per-instance clones must share ONE
-    # image: the rect rides the texture REFERENCE (KHR_texture_transform sits on
-    # the textureInfo), never a copy of the atlas per object.
+    atlas_names = {e.get("map") for e in arecord.get("objects") or []}
     check(
-        "the clones share a single embedded atlas image",
-        len(agltf.get("images", [])) == 1,
-        f"{len(agltf.get('images', []))} image(s), {len(agltf.get('materials', []))} material(s)",
+        "...the atlas riding ONE bufferView, no image of the file's",
+        len(atlas_names) == 1
+        and media_view(agltf, next(iter(atlas_names)))[0] is not None
+        and not agltf.get("images"),
+        (atlas_names, len(agltf.get("images", []))),
     )
-
-    # A material can span BOTH modes (two bakes into one scene: per-object, then
-    # atlased), and then the clone must still be taken from a PRISTINE material --
-    # cloning one already wired in place gives it two lightmap textures and two
-    # carrier groups, of which the exporter picks one, so the atlased object ships
-    # the UNTRANSFORMED binding: the exact bug the rect exists to prevent.
-    mixed_png = os.path.join(tmp_dir, "mixed.png")
-    mixed_img = bpy.data.images.new("mixed", 8, 8)
-    mixed_img.filepath_raw = mixed_png
-    mixed_img.file_format = "PNG"
-    mixed_img.save()
-    bpy.data.images.remove(mixed_img)
-
-    # A slot carries a data-level AND an object-level material; the link only says
-    # which is live. Overriding the slot must not cost the object the hidden one.
-    spare = bpy.data.materials.new("SPARE")
-    hidden_slot = pair[1].material_slots[0]
-    hidden_slot.link = "OBJECT"
-    hidden_slot.material = spare
-    hidden_slot.link = "DATA"
-
-    mixed_token = web.wire_lightmaps(
-        {o.name: (mixed_png, 1.0) for o in pair},
-        rects={
-            pair[0].name: [1.0, 1.0, 0.0, 0.0],
-            pair[1].name: [0.5, 0.5, 0.25, 0.25],
-        },
+    check(
+        "...and both pieces wear the one material, uncopied",
+        sorted(m.get("name") for m in agltf.get("materials", [])) == ["M_Atlas"],
+        [m.get("name") for m in agltf.get("materials", [])],
     )
-    per_clone = [
-        (
-            sum(
-                1
-                for n in bpy.data.materials[c].node_tree.nodes
-                if n.label == "Lightmap"
-            ),
-            sum(1 for n in bpy.data.materials[c].node_tree.nodes if n.type == "GROUP"),
+    check(
+        "...and every lit piece is the record's, by the readers' rule",
+        sorted(
+            agltf["nodes"][i]["name"] for i in ptk.MeshConvert.lit_nodes(agltf)
         )
-        for c in mixed_token["copies"]
-    ]
-    check(
-        "an atlased clone is taken from a pristine material, not a wired one",
-        bool(per_clone) and all(t == (1, 1) for t in per_clone),
-        f"(lightmap_tex, carrier_group) per clone: {per_clone}",
+        == sorted(o.name for o in pair),
+        sorted(agltf["nodes"][i]["name"] for i in ptk.MeshConvert.lit_nodes(agltf)),
     )
-    web.unwire_lightmaps(mixed_token)
-    hidden_slot.link = "OBJECT"
-    recovered = hidden_slot.material.name if hidden_slot.material else None
-    hidden_slot.link = "DATA"
-    check(
-        "a material hidden behind a DATA link survives the override",
-        recovered == "SPARE",
-        f"object-level material came back as {recovered!r}",
-    )
-
-    # The per-object binding needs per-object materials; they must not leak.
-    overrides = [
-        f"{o.name}[{i}]"
-        for o in pair
-        for i, sl in enumerate(o.material_slots)
-        if sl.link == "OBJECT"
-        or (sl.material is not None and sl.material is not shared)
-    ]
-    check("per-instance material overrides are reverted", not overrides, str(overrides))
+    check("...and the scene is left as found", not scene_left_as_found([shared]))
 
     # --- one material, DIFFERENT maps, no atlas ----------------------------
     # A secondary material several baked objects share (one GLASS on two machine
     # bodies) or a Per-Object bake of linked duplicates (one mesh, one material
     # behind every instance): each object has a map of its own and no rect, and a
-    # glTF material carries ONE lightmap. Wired in place, the first object's map
-    # rode the material and every later object sampled it through its own UV2 --
-    # build_manifest could only warn "cannot be published". The twin of
-    # ptk.MeshConvert.apply_glb_lightmaps' 2026-09-21 fix: the first object keeps
-    # the material, each later one with a different map binds a per-object clone.
+    # glTF material carries ONE lightmap. The record names each object with its
+    # own map, every map rides the file, and nothing is copied: the viewer gives
+    # each object its own binding at load.
     from blendertk.uv_utils._uv_utils import LIGHTMAP_UV_SET
+
+    def float_map(path, value, w=8, h=8):
+        """A constant linear EXR at *path*."""
+        img = bpy.data.images.new(os.path.basename(path), w, h, float_buffer=True)
+        img.colorspace_settings.name = "Non-Color"  # BEFORE the pixels
+        px = np.ones((h, w, 4), dtype=np.float32)
+        px[..., :3] = value
+        img.pixels.foreach_set(px.reshape(-1))
+        img.filepath_raw = path
+        img.file_format = "OPEN_EXR"
+        img.save()
+        bpy.data.images.remove(img)
+        return path
 
     glass = bpy.data.materials.new("M_Glass")
     btk.MatUtils.get_node_tree(glass, create=True)
@@ -814,114 +832,61 @@ try:
     bpy.context.scene.collection.objects.link(twin)
     bodies.append(twin)
 
-    split_maps = {}
-    for ob in bodies:
-        path = os.path.join(tmp_dir, f"{ob.name}_lm.png")
-        img = bpy.data.images.new(f"{ob.name}_lm", 8, 8)
-        img.filepath_raw = path
-        img.file_format = "PNG"
-        img.save()
-        bpy.data.images.remove(img)
-        split_maps[ob.name] = (path, 1.0)
-
-    def reached(ob):
-        """Basenames of the lightmaps the object's LIVE slot material samples."""
-        mat = ob.material_slots[0].material
-        return sorted(
-            os.path.basename(bpy.path.abspath(n.image.filepath))
-            for n in mat.node_tree.nodes
-            if n.label == "Lightmap" and n.image is not None
-        )
-
-    split_token = web.wire_lightmaps(split_maps)
-    got_maps = {ob.name: reached(ob) for ob in bodies}
-    want_maps = {n: [os.path.basename(p)] for n, (p, _s) in split_maps.items()}
-    check(
-        "objects sharing a material but baked into different maps each reach their own",
-        got_maps == want_maps,
-        f"got {json.dumps(got_maps)} want {json.dumps(want_maps)}",
-    )
-    split_manifest = web.build_manifest(split_maps, split_token["carrier"])
-    # The block names each material that carries a map, once; WHICH map is the
-    # texture that material's carrier slot binds (checked in the GLB below).
-    published = sorted(split_manifest.get("materials", {}))
-    wearing = sorted({ob.material_slots[0].material.name for ob in bodies})
-    check(
-        "...and the block names every material that carries one, one per map",
-        published == wearing and len(published) == len(want_maps),
-        json.dumps(split_manifest.get("materials", {})),
-    )
+    split_maps = {
+        ob.name: float_map(os.path.join(tmp_dir, f"{ob.name}_lm.exr"), 0.2 + 0.2 * i)
+        for i, ob in enumerate(bodies)
+    }
+    web.baker.commit_lightmap(split_maps)
     split_glb = os.path.join(tmp_dir, "split.glb")
     # The export selects what it ships (use_selection); the artist's selection and
     # active object come back after, as FbxUtils.export / UsdUtils.export restore
     # theirs. It left *bodies* selected. Added: 2026-09-27
     bpy.ops.object.select_all(action="DESELECT")
     bpy.context.view_layer.objects.active = twin
-    web.export_glb(
-        split_glb, objects=bodies, manifest=split_manifest, texture_max_size=None
-    )
+    with web.wired_for_export(objects=bodies) as split_manifest:
+        web.export_glb(
+            split_glb, objects=bodies, manifest=split_manifest, texture_max_size=None
+        )
     check(
         "a GLB export of objects puts the selection and active object back",
         not [o.name for o in bpy.context.view_layer.objects if o.select_get()]
         and bpy.context.view_layer.objects.active == twin,
         str([o.name for o in bpy.context.view_layer.objects if o.select_get()]),
     )
-    web.unwire_lightmaps(split_token)
     sgltf = glb_json(split_glb)
-
-    def shipped_map(node_name):
-        """The image name each exported node's material samples as its lightmap."""
-        node = next(
-            (n for n in sgltf.get("nodes", []) if n.get("name") == node_name), None
-        )
-        if node is None or "mesh" not in node:
-            return None
-        prim = sgltf["meshes"][node["mesh"]]["primitives"][0]
-        occ = sgltf["materials"][prim["material"]].get("occlusionTexture")
-        if not occ:
-            return None
-        texture = sgltf["textures"][occ["index"]]
-        # A WEBP export names its image under the extension, not `source`.
-        source = texture.get("source")
-        if source is None:
-            source = (texture.get("extensions") or {}).get("EXT_texture_webp", {})
-            source = source.get("source")
-        image = sgltf["images"][source] if source is not None else {}
-        return image.get("name") or image.get("uri")
-
-    got_glb = {ob.name: shipped_map(ob.name) for ob in bodies}
+    srecord = (sgltf.get("extras") or {}).get(KEY) or {}
+    got_maps = {e.get("name"): e.get("map") for e in srecord.get("objects") or []}
+    want_maps = {n: os.path.basename(p) for n, p in split_maps.items()}
     check(
-        "...and the GLB ships each object with its OWN lightmap",
-        all(
-            (got_glb[n] or "").startswith(os.path.splitext(want_maps[n][0])[0])
-            for n in got_glb
-        ),
-        json.dumps(got_glb),
+        "objects sharing a material but baked into different maps each ride the "
+        "record with their own",
+        got_maps == want_maps,
+        f"got {json.dumps(got_maps)} want {json.dumps(want_maps)}",
     )
-
-    def split_leftovers():
-        """What is left of the split wiring: re-linked or foreign slots, lightmap
-        nodes in the glass, and clones of it."""
-        return (
-            [
-                f"{o.name}[{i}]"
-                for o in bodies
-                for i, sl in enumerate(o.material_slots)
-                if sl.link == "OBJECT" or sl.material is not glass
-            ]
-            + [n.name for n in glass.node_tree.nodes if n.label == "Lightmap"]
-            + [m.name for m in bpy.data.materials if m.name.startswith("M_Glass~")]
+    check(
+        "...every map riding the file, each at its own scale",
+        all(media_view(sgltf, m)[0] is not None for m in want_maps.values())
+        and len(
+            {
+                round(media_view(sgltf, m)[0]["extras"][MEDIA.scale], 4)
+                for m in want_maps.values()
+            }
         )
-
-    split_left = split_leftovers()
-    check("...and the split wiring is fully reverted", not split_left, str(split_left))
+        == len(want_maps),
+        [media_view(sgltf, m)[0] for m in want_maps.values()],
+    )
+    check(
+        "...and nothing copied: one material in the file",
+        sorted(m.get("name") for m in sgltf.get("materials", [])) == ["M_Glass"],
+        [m.get("name") for m in sgltf.get("materials", [])],
+    )
+    check("...and the scene is left as found", not scene_left_as_found([glass]))
 
     # --- one material, a BAKED object and one the bake never saw ------------
-    # Wired in place, the material carried the wall's lightmap to everything
-    # wearing it, so the unbaked prop exported lit by the wall's bake (through
-    # its own UV2) and the viewer counted the material as lightmapped. The twin
-    # of ptk.MeshConvert.apply_glb_lightmaps' 2026-09-24 fix: the baked object
-    # binds a clone, and the material stays as authored for the prop.
+    # The record names the baked object alone: the prop wearing the same
+    # material is in no entry, so no reader lights it with the wall's bake (the
+    # viewer binds the wall on a material of its own and leaves the prop's as
+    # authored).
     paint = bpy.data.materials.new("M_Paint")
     btk.MatUtils.get_node_tree(paint, create=True)
     painted = {}
@@ -932,141 +897,78 @@ try:
         ob.data.materials.append(paint)
         ob.data.uv_layers.new(name=LIGHTMAP_UV_SET)
         painted[role] = ob
-    wall_png = os.path.join(tmp_dir, "paint_wall_lm.png")
-    wall_img = bpy.data.images.new("paint_wall_lm", 8, 8)
-    wall_img.filepath_raw = wall_png
-    wall_img.file_format = "PNG"
-    wall_img.save()
-    bpy.data.images.remove(wall_img)
-
-    paint_token = web.wire_lightmaps({painted["wall"].name: (wall_png, 1.0)})
-    got_paint = {role: reached(ob) for role, ob in painted.items()}
+    wall_exr = float_map(os.path.join(tmp_dir, "paint_wall_lm.exr"), 0.5)
+    web.baker.commit_lightmap({painted["wall"].name: wall_exr})
+    paint_glb = os.path.join(tmp_dir, "paint.glb")
+    paint_objects = list(painted.values())
+    with web.wired_for_export(objects=paint_objects) as paint_manifest:
+        web.export_glb(
+            paint_glb, objects=paint_objects, manifest=paint_manifest, texture_max_size=None
+        )
+    pgltf = glb_json(paint_glb)
+    lit = sorted(pgltf["nodes"][i]["name"] for i in ptk.MeshConvert.lit_nodes(pgltf))
     check(
-        "an unbaked object sharing a baked one's material is not lit by its bake",
-        got_paint == {"wall": ["paint_wall_lm.png"], "prop": []},
-        json.dumps(got_paint),
-    )
-    web.unwire_lightmaps(paint_token)
-    paint_left = [n.name for n in paint.node_tree.nodes if n.label == "Lightmap"] + [
-        m.name for m in bpy.data.materials if m.name.startswith("M_Paint~")
-    ]
-    check("...and that wiring is fully reverted", not paint_left, str(paint_left))
-
-    # --- a wiring that fails part-way takes back what it did ---------------
-    # wire_lightmaps edits the LIVE scene (tentacle's GLB export wraps the
-    # artist's own .blend in wired_for_export), and it takes every clone and
-    # re-links its slot before the in-place pass. An error the per-material
-    # guard does not catch -- a slot that refuses the re-link, an interrupt --
-    # left those clones and overrides in the scene, to be saved with it.
-    class _Escape(BaseException):
-        """Raised past wire_lightmaps' per-material ``except Exception``."""
-
-    real_wire = LightmapWebExport._wire_material
-
-    def wire_then_escape(self, material, *args, **kwargs):
-        if material.name == glass.name:  # the in-place pass: every clone is made
-            raise _Escape()
-        return real_wire(self, material, *args, **kwargs)
-
-    escaped = False
-    try:
-        with mock.patch.object(LightmapWebExport, "_wire_material", wire_then_escape):
-            web.wire_lightmaps(split_maps)
-    except _Escape:
-        escaped = True
-    escape_left = split_leftovers()
-    check(
-        "a wiring that fails part-way takes back what it had done",
-        escaped and not escape_left,
-        f"escaped={escaped} left={escape_left}",
+        "an unbaked object sharing a baked one's material is in no entry: the "
+        "record lights the wall alone",
+        lit == ["paint_wall"]
+        and any(n.get("name") == "paint_prop" for n in pgltf.get("nodes", [])),
+        lit,
     )
 
-    # ...and so does the export bracket, when its manifest cannot be built.
-    def no_manifest(*_args, **_kwargs):
-        raise RuntimeError("no manifest")
-
+    # --- the bracket takes back what it stamped ------------------------------
+    # wired_for_export runs on the LIVE scene (tentacle's GLB export wraps the
+    # artist's own .blend in it): an export that raises inside it leaves the
+    # scene's record property as it found it.
     bracket_raised = False
     try:
-        with mock.patch.object(LightmapWebExport, "build_manifest", no_manifest):
-            with web.wired_for_export(objects=[floor]):
-                pass
+        with web.wired_for_export(objects=[floor]):
+            raise RuntimeError("the export failed")
     except RuntimeError:
         bracket_raised = True
-    floor_left = [
-        n.name
-        for sl in floor.material_slots
-        if sl.material is not None and sl.material.node_tree is not None
-        for n in sl.material.node_tree.nodes
-        if n.label == "Lightmap"
-    ]
     check(
-        "wired_for_export takes its wiring back when the manifest fails",
-        bracket_raised and not floor_left,
-        f"raised={bracket_raised} left={floor_left}",
+        "wired_for_export takes back the record it stamped when the export raises",
+        bracket_raised and KEY not in bpy.context.scene,
+        sorted(bpy.context.scene.keys()),
     )
 
     # --- the viewer's side of the contract ---------------------------------
-    # The exporter and pythontk's WebXR viewer agree by convention, not by an interface,
-    # so nothing but this catches a drift: edit the carrier here or the binder there and
-    # the lightmap silently stops being applied (or is applied twice, or linear).
+    # The exporter and pythontk's WebXR viewer agree through the record and the
+    # media transport (ptk.SceneRecords.GLB_MEDIA, generated into the viewer's
+    # records.js), so nothing but this catches a drift: read the record or the
+    # media differently there and the lightmap silently stops being applied (or
+    # is applied twice, or linear).
     preview_dir = os.path.join(MONO, "pythontk", "pythontk", "net_utils", "preview")
     viewer_path = os.path.join(preview_dir, "viewer.html")
     if os.path.isfile(viewer_path) and manifest:
         # The viewer is viewer.html PLUS the modules it loads (``kernel/``,
-        # ``features/`` since the 2026-10-03 split): the binder lives in
-        # ``kernel/lightmaps.js`` now, and the contract is wherever it is.
+        # ``features/``): the binder lives in ``kernel/lightmaps.js``.
         import glob
 
         sources = [viewer_path] + sorted(
             glob.glob(os.path.join(preview_dir, "**", "*.js"), recursive=True)
         )
         viewer = "\n".join(open(p, encoding="utf-8").read() for p in sources)
-        slot = {"occlusion": "aoMap", "emissive": "emissiveMap"}.get(
-            manifest["carrier"]
-        )
         for label, cond in (
+            ("viewer reads the key the exporter writes", KEY in viewer),
             (
-                "viewer reads the key the exporter writes",
-                ptk.SceneRecords.LIGHTMAPS.key in viewer,
+                "viewer reads each map from the bufferView of its name (GLB_MEDIA)",
+                "GLB_MEDIA" in viewer and f"'{MEDIA.mime_type}'" in viewer,
             ),
-            (
-                f"viewer knows the {manifest['carrier']!r} carrier's three.js slot",
-                bool(slot) and slot in viewer,
-            ),
-            ("viewer rebinds it as a lightMap", "material.lightMap" in viewer),
-            ("viewer applies the recorded intensity", "lightMapIntensity" in viewer),
-            # The block names no encoding (since 2026-10-20): a carrier holds
-            # 8-bit sRGB alone, which the viewer sets outright.
+            ("viewer binds it as a lightMap", ".lightMap = " in viewer),
+            ("viewer applies the view's scale", "lightMapIntensity" in viewer),
             (
                 "viewer overrides colorSpace for the sRGB map",
                 "colorSpace = THREE.SRGBColorSpace" in viewer,
             ),
-            # The block names no UV set (since 2026-10-20): the carrier
-            # slot's own texCoord does, which the loader applies -- so the
-            # viewer must not override it.
             (
-                "viewer keeps the UV set the carrier slot binds",
-                "texture.channel = uv" not in viewer and "manifest.uv" not in viewer,
-            ),
-            (
-                "viewer clears the carrier so it is not applied twice",
-                "material[slot] = null" in viewer,
+                "viewer reads the map through the record's UV set",
+                "LIGHTMAP_UV_SET" in viewer,
             ),
             # The key light goes off for a pre-lit model; the ENVIRONMENT does
             # not, it is confined to its specular term on the baked materials
-            # instead. Killing it outright (what this asserted until
-            # 2026-08-10) takes normal maps and specular with it, because
-            # three.js adds lightmap irradiance through a Lambert term with no
-            # normal dependence — leaving nothing in the render that samples
-            # the normal at all.
-            # Asserted as the BEHAVIOUR -- zero when lightmapped, the standing
-            # key intensity otherwise -- not as one literal right-hand side.
-            # Pinning the spelling broke the moment the viewer routed its numbers
-            # through a published rendering policy (DEFAULT_KEY_INTENSITY ->
-            # policy.keyIntensity, the same value via POLICY_FALLBACK) -- a refactor
-            # this cross-package check has no business failing on, which is exactly
-            # the reasoning its environment sibling below already carries. The
-            # default is still named separately so it cannot quietly disappear.
+            # instead. Asserted as the BEHAVIOUR -- zero when lightmapped, the
+            # standing key intensity otherwise -- not as one literal right-hand
+            # side.
             (
                 "viewer drops its key light for a pre-lit model",
                 bool(
@@ -1076,13 +978,6 @@ try:
                 )
                 and "DEFAULT_KEY_INTENSITY" in viewer,
             ),
-            # Asserted as "the environment level is still spent, and the line
-            # that would add its diffuse to a bake is the one named for
-            # removal" rather than as one literal assignment: where the shader
-            # edit is installed is an implementation detail this cross-package
-            # check has no business pinning. (Until 2026-09-21 the viewer
-            # dimmed the environment per baked material instead -- diffuse and
-            # specular together -- and a lightmapped room rendered washed out.)
             (
                 "viewer keeps the environment for a pre-lit model, specular only",
                 "scene.environmentIntensity" in viewer
@@ -1092,28 +987,6 @@ try:
             check(label, cond)
     else:
         check("viewer contract checked", False, "preview/viewer.html not found")
-
-    # The budget exemption above is only real if the production path actually marks the
-    # image — the unit test set the marker by hand. The PNGs are the committed maps
-    # encoded (encode_for_web: each map's stem); the block names no map any more.
-    from blendertk.light_utils.lightmap_baker.lightmap_records import LightmapRecords
-
-    baked_names = {
-        os.path.splitext(os.path.basename(info["map"]))[0] + ".png"
-        for _obj, info in LightmapRecords._marker_records()
-        if info.get("map")
-    }
-    marked = [
-        img.name
-        for img in bpy.data.images
-        if os.path.basename(bpy.path.abspath(img.filepath or "")) in baked_names
-        and img.get(LightmapWebExport.LIGHTMAP_IMAGE_MARKER)
-    ]
-    check(
-        "wire_lightmaps marks the lightmap image for the budget",
-        bool(marked),
-        str(marked),
-    )
 
     # --- the reflection probe rides the native GLB ---------------------------
     # The bake captures the room it lit as an HDR (LightmapBaker.bake_probe);
@@ -1193,19 +1066,21 @@ try:
     )
 
     def pr_probe_of(path):
-        """The GLB's ``lightmaps`` probe entry and its bytes -- the block in its
-        root ``extras``, as a finished file holds it."""
+        """The GLB's ``lightmaps`` record, its probe entry and the bytes of the
+        bufferView named by the probe's file -- the record in its root
+        ``extras``, as a finished file holds it."""
         with ptk.MeshConvert.open_glb(path) as edit:
-            web_manifest = (edit.gltf.get("extras") or {}).get(
-                ptk.SceneRecords.LIGHTMAPS.key
-            )
-            entry = (web_manifest or {}).get("probe")
-            if not entry:
-                return None, b"", web_manifest
-            view = edit.gltf["bufferViews"][entry["bufferView"]]
+            record = (edit.gltf.get("extras") or {}).get(ptk.SceneRecords.LIGHTMAPS.key)
+            entry = (record or {}).get("probe")
+            index = ptk.SceneRecords.GLB_MEDIA.view(edit.gltf, (entry or {}).get("map"))
+            if not entry or index is None:
+                return entry, b"", record
+            view = edit.gltf["bufferViews"][index]
+            if (view.get("extras") or {}).get("mimeType") != ptk.SceneRecords.GLB_MEDIA.radiance:
+                return entry, b"", record
             start = int(view.get("byteOffset", 0))
             data = bytes(edit.bin_data[start : start + int(view["byteLength"])])
-        return entry, data, web_manifest
+        return entry, data, record
 
     pr_web = LightmapWebExport()
     pr_glb = os.path.join(tmp_dir, "probe_room.glb")
@@ -1213,20 +1088,29 @@ try:
         pr_web.export_glb(pr_glb, manifest=pr_manifest, texture_max_size=None)
     pr_entry, pr_bytes, pr_web_manifest = pr_probe_of(pr_glb)
     check(
-        "a native GLB carries lightmaps.probe beside its lightmaps",
+        "a native GLB's record carries the probe, its file riding as Radiance "
+        "under its name beside the maps",
         bool(pr_entry)
-        and bool((pr_web_manifest or {}).get("materials"))
+        and bool((pr_web_manifest or {}).get("objects"))
         and pr_bytes.startswith(b"#?RADIANCE"),
         (pr_entry, pr_bytes[:40]),
     )
+    pr_unit = float((pr_web_manifest or {}).get("unit_scale") or 0.0)
+    pr_place = [c * pr_unit for c in (pr_entry or {}).get("position") or ()]
+    pr_box = (pr_entry or {}).get("box") or {}
     check(
-        "...its capture point and box in metres, in the GLB's own Y-up axes",
+        "...its capture point and box in the record's units, metres at its "
+        "unit_scale (the native writer's: 1), in the GLB's own Y-up axes",
         bool(pr_entry)
-        and pr_entry.get("position") == [round(c, 6) for c in pr_record["position"]]
-        and abs(pr_entry["position"][1] - 1.5) < 0.05  # eye level, half of 3 m
-        and pr_entry.get("box") is not None
-        and abs(pr_entry["box"]["min"][1]) < 0.05  # the floor, Blender's z = 0
-        and abs(pr_entry["box"]["max"][1] - 3.0) < 0.05,  # the ceiling
+        and pr_unit == 1.0
+        and all(
+            abs(a - b) < 1e-6
+            for a, b in zip(pr_entry.get("position") or (), pr_record["position"])
+        )
+        and abs(pr_place[1] - 1.5) < 0.05  # eye level, half of 3 m
+        and bool(pr_box)
+        and abs(pr_box["min"][1]) < 0.05  # the floor, Blender's z = 0
+        and abs(pr_box["max"][1] - 3.0) < 0.05,  # the ceiling
         pr_entry,
     )
     _pr_glb_hdr = os.path.join(tmp_dir, "probe_from_glb.hdr")
@@ -1267,14 +1151,32 @@ try:
         bool(pr_direct_entry) and _bytes.startswith(b"#?RADIANCE"),
         pr_direct_entry,
     )
+    _views_before = len(glb_json(pr_direct).get("bufferViews") or [])
     check(
-        "a GLB that is not there takes no probe, and nothing raises",
-        pr_web.embed_probe(os.path.join(tmp_dir, "missing.glb")) is None,
+        "...and a second embed adds nothing",
+        bool(pr_web.embed_media(pr_direct))
+        and len(glb_json(pr_direct).get("bufferViews") or []) == _views_before,
+        _views_before,
+    )
+    check(
+        "a GLB that is not there takes nothing, and nothing raises",
+        pr_web.embed_media(os.path.join(tmp_dir, "missing.glb")) == [],
     )
     LightmapRecords.revert()
+    pr_reverted = os.path.join(tmp_dir, "probe_reverted.glb")
+    with pr_web.wired_for_export(glb_path=pr_reverted) as pr_none:
+        with btk.window_context_override():
+            bpy.ops.export_scene.gltf(
+                filepath=pr_reverted, export_format="GLB", export_extras=True
+            )
+    pr_rev_entry, pr_rev_bytes, pr_rev_record = pr_probe_of(pr_reverted)
     check(
-        "a scene with no probe (its bake reverted) embeds none",
-        LightmapRecords.probe() is None and pr_web.embed_probe(pr_direct) is None,
+        "a scene with no probe (its bake reverted) carries no record and no probe",
+        LightmapRecords.probe() is None
+        and pr_none is None
+        and pr_rev_record is None
+        and not pr_rev_bytes,
+        (pr_none, pr_rev_record),
     )
 
     # --- the FBX -> GLB route, built inside Blender ---------------------------
@@ -1288,23 +1190,33 @@ try:
     from blendertk.env_utils.scene_exporter._scene_exporter import SceneExporter
 
     def gr_web_of(path):
-        """``(lightmaps, materials wired on TEXCOORD_1, probe bytes)`` of a GLB."""
+        """``(record, the objects it lights with their maps riding, probe bytes)``
+        of a GLB -- the record in its root extras, each file it names read from
+        the bufferView of its name."""
+        media = ptk.SceneRecords.GLB_MEDIA
         with ptk.MeshConvert.open_glb(path) as edit:
-            web = (
+            record = (
                 ptk.SceneRecords.glb_block(edit.gltf, ptk.SceneRecords.LIGHTMAPS) or {}
             )
-            wired = sorted(
-                m.get("name")
-                for m in edit.gltf.get("materials", [])
-                if (m.get("occlusionTexture") or {}).get("texCoord") == 1
+            lit = sorted(
+                edit.gltf["nodes"][i]["name"]
+                for i, entry in ptk.MeshConvert.lit_nodes(edit.gltf).items()
+                if (
+                    edit.gltf["bufferViews"][media.view(edit.gltf, entry["map"])].get(
+                        "extras"
+                    )
+                    or {}
+                ).get(media.mime_type)
+                in media.hdr_web
             )
-            probe = web.get("probe") or {}
+            probe = record.get("probe") or {}
             data = b""
-            if isinstance(probe.get("bufferView"), int):
-                view = edit.gltf["bufferViews"][probe["bufferView"]]
+            index = media.view(edit.gltf, probe.get("map"))
+            if index is not None:
+                view = edit.gltf["bufferViews"][index]
                 start = int(view.get("byteOffset", 0))
                 data = bytes(edit.bin_data[start : start + int(view["byteLength"])])
-        return web, wired, data
+        return record, lit, data
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     gr_dir = os.path.join(tmp_dir, "glb_route")
@@ -1355,14 +1267,17 @@ try:
         ("the Scene Exporter's GLB", os.path.join(gr_out, "room.glb")),
         ("the WebXR preview push", gr_published.get("glb")),
     ):
-        gr_web, gr_wired, gr_probe = (
+        gr_web, gr_lit, gr_probe = (
             gr_web_of(gr_glb) if gr_glb and os.path.isfile(gr_glb) else ({}, [], b"")
         )
         check(
-            f"{gr_label}, built in a Blender with no cv2, carries its lightmaps",
-            sorted(gr_web.get("materials") or {}) == ["grCrate_mat", "grRoom_mat"]
-            and gr_wired == ["grCrate_mat", "grRoom_mat"],
-            (gr_glb, sorted(gr_web.get("materials") or {}), gr_wired),
+            f"{gr_label}, built in a Blender with no cv2, carries its lightmaps: the "
+            "record lights both objects, each map riding in an 8-bit web encoding "
+            "(a WebP delivery's lossless WebP, 2026-11-07)",
+            sorted(e.get("name") for e in gr_web.get("objects") or [])
+            == ["grCrate", "grRoom"]
+            and gr_lit == ["grCrate", "grRoom"],
+            (gr_glb, gr_web.get("objects"), gr_lit),
         )
         check(
             f"...and the bake's reflection probe ({gr_label})",
@@ -1401,14 +1316,17 @@ try:
         us_node = next(n for n in edit.gltf["nodes"] if n.get("name") == "usCube")
         us_block = ptk.SceneRecords.glb_block(edit.gltf, ptk.SceneRecords.LIGHTMAPS)
         us_entry = (us_block or {}).get("probe") or {}
+        us_unit = float((us_block or {}).get("unit_scale") or 0.0)
     check(
-        "a native GLB's probe stands where the GLB puts the scene (its own units)",
+        "a native GLB's probe stands where the GLB puts the scene: its record's "
+        "lengths times its unit_scale (the native writer's) are the node's",
         bool(us_entry)
+        and us_unit == 1.0
         and all(
-            abs(a - b) < 1e-4
+            abs(a * us_unit - b) < 1e-4
             for a, b in zip(us_entry.get("position") or (), us_node["translation"])
         ),
-        (us_entry.get("position"), us_node.get("translation")),
+        (us_entry.get("position"), us_unit, us_node.get("translation")),
     )
     us_fbx = LightmapRecords._record().payload
     check(

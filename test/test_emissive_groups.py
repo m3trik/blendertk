@@ -1,15 +1,16 @@
 """Headless suite for blendertk's Emissive Groups (``mat_utils/emissive_groups.py``):
-pythontk's model over the Blender half -- the same registry schema, slot
-stability, manifest wire format and bake behaviors as mayatk's
-(``test_emissive_groups.py`` there, in a fresh Maya), plus Blender's own
-curve-proxy transport and its FBX round trip.
+pythontk's model over the Blender half, the mirror of mayatk's
+``test_emissive_groups.py``. A group is materials: its faces wear a copy of
+their material made for the group (its images shared), its emission strength
+keyed by the group's weight; an export stages each animated copy's weight on
+its ``<material>__emission`` proxy, read back with ``ptk.FbxFile`` and the GLB.
 
 Run: blender --background --factory-startup --python blendertk/test/test_emissive_groups.py
 """
 
+import json
 import os
 import sys
-import json
 import tempfile
 import traceback
 
@@ -34,452 +35,524 @@ try:
 
     import pythontk as ptk
     import blendertk as btk
-    from blendertk.mat_utils.emissive_groups import (
-        BlenderEmissiveGroups,
-        EmissiveGroups,
-    )
+    from blendertk.mat_utils._mat_utils import MatUtils
+    from blendertk.mat_utils.emissive_groups import EmissiveGroups
 
     DataNodes = btk.DataNodes
+    HOST = EmissiveGroups.HOST
 
-    # Fresh scene with one cube (factory startup ships one; make it explicit).
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-    bpy.ops.mesh.primitive_cube_add()
-    cube = bpy.context.active_object
-    cube.name = "eg_cube"
+    def material(name, color=None, image=None, strength=1.0):
+        mat = bpy.data.materials.new(name)
+        bsdf = next(n for n in MatUtils.get_node_tree(mat, create=True).nodes if n.type == "BSDF_PRINCIPLED")
+        bsdf.inputs["Emission Strength"].default_value = strength
+        if image:
+            tex = mat.node_tree.nodes.new("ShaderNodeTexImage")
+            tex.name = "glow"
+            tex.image = bpy.data.images.new(image, 8, 8)
+            mat.node_tree.links.new(tex.outputs["Color"], bsdf.inputs["Emission Color"])
+        elif color:
+            bsdf.inputs["Emission Color"].default_value = (*color, 1.0)
+        return mat
 
-    # --- authoring -------------------------------------------------------
-    attr = EmissiveGroups.add_group("front", {"eg_cube": [0]})
-    check("add_group returns attr name", attr == "emissiveGroup_front", attr)
+    def reset():
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        scene = bpy.context.scene
+        scene.render.fps, scene.render.fps_base = 24, 1.0
+        scene.frame_start, scene.frame_end = 1, 48
+        bpy.ops.mesh.primitive_cube_add()
+        hull = bpy.context.active_object
+        hull.name = "hull"
+        bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+        panel = bpy.context.active_object
+        panel.name = "panel"
+        hull.data.materials.append(material("hullMat", image="hullGlow", strength=2.0))
+        panel.data.materials.append(material("panelMat", color=(0.2, 0.6, 1.0)))
+        return hull, panel
+
+    def wears(obj, index):
+        return obj.material_slots[obj.data.polygons[index].material_index].material.name
+
+    # --- a group is materials ---------------------------------------------
+    hull, panel = reset()
+    copies = EmissiveGroups.add_group("signal", {"hull": [0, 1], "panel": [0]}, weight=0.5)
+    check("one copy per material and group", copies == ["hullMat_signal", "panelMat_signal"], copies)
     check(
-        "boolean FACE attribute created",
-        cube.data.attributes["emissiveGroup_front"].domain == "FACE",
+        "the faces wear the copies, the rest their base",
+        (wears(hull, 0), wears(hull, 2), wears(panel, 0)) == ("hullMat_signal", "hullMat", "panelMat_signal"),
+        (wears(hull, 0), wears(hull, 2), wears(panel, 0)),
     )
-    EmissiveGroups.add_group("top", {"eg_cube": [1, 3]})
-    groups = EmissiveGroups.list_groups()
+    _copy = bpy.data.materials["hullMat_signal"]
     check(
-        "slots 0,1", (groups["front"]["slot"], groups["top"]["slot"]) == (0, 1), groups
-    )
-    check("face counts", (groups["front"]["faces"], groups["top"]["faces"]) == (1, 2))
-
-    EmissiveGroups.add_group("front", {"eg_cube": [2]})  # extend
-    check("extend keeps slot", EmissiveGroups.list_groups()["front"]["slot"] == 0)
-    check("extend adds faces", EmissiveGroups.list_groups()["front"]["faces"] == 2)
-
-    # Whole-mesh entry resolves to all faces.
-    EmissiveGroups.add_group("shell", {"eg_cube": []})
-    check("whole-mesh membership", EmissiveGroups.list_groups()["shell"]["faces"] == 6)
-    EmissiveGroups.remove_group("shell")
-
-    # --- registry hygiene + slot stability -------------------------------
-    check(
-        "registry on data_internal",
-        ptk.SceneRecords.EMISSIVE_REGISTRY.is_present(DataNodes),
-    )
-    EmissiveGroups.remove_group("front")
-    EmissiveGroups.add_group("new", {"eg_cube": [4]})
-    slots = EmissiveGroups.list_groups()
-    check(
-        "removed slot retired (shell=2 retired, front=0 retired -> new=3)",
-        slots["new"]["slot"] == 3,
-        slots,
-    )
-    reclaimed = EmissiveGroups.compact_slots()
-    check("compact reclaims", sorted(reclaimed) == [0, 2], reclaimed)
-
-    # --- validate ---------------------------------------------------------
-    EmissiveGroups.add_group("overlap", {"eg_cube": [1]})  # overlaps 'top'
-    warnings = EmissiveGroups.validate()
-    check("overlap warned", any("overlaps" in w for w in warnings), warnings)
-    EmissiveGroups.remove_group("overlap")
-    EmissiveGroups.compact_slots()
-
-    # --- context safety: no screen-context reads ---------------------------
-    # The slots run from tentacle's Qt event-pump timer, where
-    # `bpy.context.window` is None: `selected_objects` is then absent
-    # entirely (AttributeError) and `context.scene` unreliable. Simulate it
-    # by driving the selection path with the window context stripped.
-    import ast
-    import blendertk.mat_utils.emissive_groups as eg_mod
-
-    def _chain(node):
-        parts = []
-        while isinstance(node, ast.Attribute):
-            parts.append(node.attr)
-            node = node.value
-        if isinstance(node, ast.Name):
-            parts.append(node.id)
-        return ".".join(reversed(parts))
-
-    # AST, not text: docstrings legitimately NAME these members while
-    # explaining why they aren't used.
-    tree = ast.parse(open(eg_mod.__file__, encoding="utf-8").read())
-    screen_ctx = (
-        "bpy.context.selected_objects",
-        "bpy.context.scene",
-        "bpy.context.active_object",
-        "bpy.context.view_layer",
-    )
-    offenders = sorted(
-        {
-            c
-            for c in (_chain(n) for n in ast.walk(tree) if isinstance(n, ast.Attribute))
-            if c.startswith(screen_ctx)
-        }
-    )
-    check("no screen-context reads in the Blender half", not offenders, offenders)
-
-    for obj in bpy.data.objects:
-        obj.select_set(obj.name == "eg_cube")
-    check(
-        "selection resolves via the view layer",
-        list(EmissiveGroups.HOST.faces()) == ["eg_cube"],
-        list(EmissiveGroups.HOST.faces()),
-    )
-
-    # --- scene hygiene: authoring must not create the export carrier -------
-    check(
-        "authoring left no data_export carrier",
-        bpy.data.objects.get("data_export") is None,
-        [o.name for o in bpy.data.objects if o.name.startswith("data_")],
-    )
-    EmissiveGroups.refresh_export_metadata()  # explicit publish
-    EmissiveGroups.add_group("hygiene", {"eg_cube": [5]})
-    published = ptk.SceneRecords.EMISSIVE_GROUPS.read_text(DataNodes)
-    check(
-        "published manifest kept current by authoring",
-        published is not None and "hygiene" in published,
-        published,
-    )
-    EmissiveGroups.remove_group("hygiene")
-    EmissiveGroups.compact_slots()
-
-    # --- keyable weights (opt-in) -----------------------------------------
-    plugs = EmissiveGroups.make_weights_keyable(["top"])
-    check(
-        "keyable prop created",
-        plugs.get("top", "").endswith('["emissiveGroup_top"]'),
-        plugs,
-    )
-    carrier = DataNodes.get_export_node(create=False)
-    check(
-        "keyable prop on carrier",
-        carrier is not None and "emissiveGroup_top" in carrier,
-    )
-    payload = ptk.SceneRecords.EMISSIVE_GROUPS.load(DataNodes)
-    by_name = {g["name"]: g for g in payload["groups"]}
-    check("manifest records attr", by_name["top"].get("attr") == "emissiveGroup_top")
-    check("non-keyable group has no attr", "attr" not in by_name["new"], by_name)
-
-    EmissiveGroups.key_weight("top", value=1.0, frame=1)
-    EmissiveGroups.key_weight("top", value=0.0, frame=10)
-    fc = BlenderEmissiveGroups._weight_fcurve("emissiveGroup_top")
-    check("keyed 2 frames", fc is not None and len(fc.keyframe_points) == 2)
-    check(
-        "key values",
-        fc is not None
-        and [kp.co[1] for kp in sorted(fc.keyframe_points, key=lambda k: k.co[0])]
-        == [1.0, 0.0],
-    )
-
-    EmissiveGroups.set_default("new", 0.25)
-    EmissiveGroups.make_weights_keyable(["new"])
-    check(
-        "keyable seeds from default",
-        abs(carrier["emissiveGroup_new"] - 0.25) < 1e-6,
-        carrier.get("emissiveGroup_new"),
-    )
-    EmissiveGroups.set_default("new", 0.75)
-    check(
-        "unkeyed prop follows default",
-        abs(carrier["emissiveGroup_new"] - 0.75) < 1e-6,
-    )
-    EmissiveGroups.set_default("top", 0.5)  # keyed: animation owns the value
-    check(
-        "keyed prop keeps its fcurve", BlenderEmissiveGroups._weight_fcurve("emissiveGroup_top") is not None
-    )
-
-    removed = EmissiveGroups.remove_keyable_weights()
-    check("remove strips props", sorted(removed) == ["new", "top"], removed)
-    check(
-        "props gone from carrier",
-        "emissiveGroup_top" not in carrier and "emissiveGroup_new" not in carrier,
+        "the copy shares its base's image",
+        _copy.node_tree.nodes["glow"].image == bpy.data.materials["hullMat"].node_tree.nodes["glow"].image,
     )
     check(
-        "groups intact after strip",
-        sorted(EmissiveGroups.list_groups()) == ["new", "top"],
+        "emission = the base's strength times the weight",
+        (round(HOST.emission("hullMat_signal"), 6), round(HOST.emission("panelMat_signal"), 6)) == (1.0, 0.5),
+        (HOST.emission("hullMat_signal"), HOST.emission("panelMat_signal")),
     )
-    payload = ptk.SceneRecords.EMISSIVE_GROUPS.load(DataNodes)
     check(
-        "manifest attr records cleared",
-        all("attr" not in g for g in payload["groups"]),
+        "the copy is tagged with its group, base and strength",
+        HOST.copies()["hullMat_signal"] == {"group": "signal", "base": "hullMat", "strength": 2.0},
+        HOST.copies().get("hullMat_signal"),
     )
-
-    # Orphan carrier prop: a reimport restores keyable props, not the registry.
-    carrier["emissiveGroup_ghost"] = 1.0
-    warnings = EmissiveGroups.validate()
     check(
-        "orphan carrier prop warned",
-        any("emissiveGroup_ghost" in w and "no registry entry" in w for w in warnings),
-        warnings,
+        "the tags sit on the copy's node tree, which the FBX exporter never writes",
+        not [k for k in _copy.keys() if k.startswith("emissiveGroup")]
+        and _copy.node_tree.get("emissiveGroupBase") == bpy.data.materials["hullMat"],
+        list(_copy.keys()),
     )
-    del carrier["emissiveGroup_ghost"]
 
-    # --- vertex-color bake ------------------------------------------------
-    manifest = EmissiveGroups.bake_vertex_colors()
-    check("bake manifest encoding", manifest["encoding"] == "vertex-color")
-    check("color_set name", manifest["color_set"] == "emissiveGroups")
-    cattr = cube.data.color_attributes.get("emissiveGroups")
-    check("color attribute exists", cattr is not None)
-    check("corner domain", cattr is not None and cattr.domain == "CORNER")
-    if cattr is not None:
-        # top = slot 1 -> G on faces 1,3; new = slot 3 -> A on face 4.
-        poly = cube.data.polygons[1]
-        cols = [tuple(cattr.data[lo].color) for lo in poly.loop_indices]
-        check("top face G=1", all(abs(c[1] - 1.0) < 0.02 for c in cols), cols[0])
-        check("top face R=0", all(abs(c[0]) < 0.02 for c in cols))
-        poly4 = cube.data.polygons[4]
-        cols4 = [tuple(cattr.data[lo].color) for lo in poly4.loop_indices]
-        check("new face A=1", all(abs(c[3] - 1.0) < 0.02 for c in cols4), cols4[0])
-        poly5 = cube.data.polygons[5]
-        cols5 = [tuple(cattr.data[lo].color) for lo in poly5.loop_indices]
-        check(
-            "unmember face zeroed",
-            all(all(abs(v) < 0.02 for v in c[:3]) and abs(c[3]) < 0.02 for c in cols5),
-        )
+    # --- the viewport plays the keyed weight -------------------------------
+    EmissiveGroups.key_weight("signal", 0.0, frame=1)
+    EmissiveGroups.key_weight("signal", 1.0, frame=24)
+    _fc = HOST._fcurve("hullMat_signal")
+    check(
+        "the copy's emission is keyed by the weight times its strength",
+        _fc is not None and (round(_fc.evaluate(1), 4), round(_fc.evaluate(24), 4)) == (0.0, 2.0),
+        _fc and [tuple(k.co) for k in _fc.keyframe_points],
+    )
+    check("the base is not keyed", HOST._fcurve("hullMat") is None and HOST.emission_keys("hullMat") == [])
+    check("listed as keyed", EmissiveGroups.list_groups()["signal"]["keyed"], EmissiveGroups.list_groups())
 
-    payload = ptk.SceneRecords.EMISSIVE_GROUPS.read_text(DataNodes)
-    check("manifest published to data_export", payload is not None)
-    if payload:
-        data = json.loads(payload)
-        check(
-            "manifest version is the record's, no schema",
-            data.get("version") == ptk.SceneRecords.EMISSIVE_GROUPS.version
-            and "schema" not in data,
-            data,
-        )
-        check(
-            "manifest groups sorted by slot",
-            [g["slot"] for g in data["groups"]]
-            == sorted(g["slot"] for g in data["groups"]),
-        )
+    # --- in step with the base ---------------------------------------------
+    hull, panel = reset()
+    EmissiveGroups.add_group("signal", {"hull": [0]}, weight=0.5)
+    _base = bpy.data.materials["hullMat"]
+    _bsdf = next(n for n in _base.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+    _bsdf.inputs["Roughness"].default_value = 0.9
+    _base.node_tree.nodes["glow"].image = bpy.data.images.new("newGlow", 8, 8)
+    _found = EmissiveGroups.sync(check_only=True)
+    check("a check names the drift and changes nothing", len(_found) == 1 and "Roughness" in _found[0], _found)
+    EmissiveGroups.sync()
+    _copy = bpy.data.materials["hullMat_signal"]
+    _cb = next(n for n in _copy.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+    check(
+        "a changed base value and map reach the copy on sync",
+        round(_cb.inputs["Roughness"].default_value, 4) == 0.9 and _copy.node_tree.nodes["glow"].image.name == "newGlow",
+    )
+    check("the synced copy keeps its faces and weight", wears(hull, 0) == "hullMat_signal" and round(HOST.emission("hullMat_signal"), 6) == 1.0)
+    check("in step after", EmissiveGroups.sync(check_only=True) == [], EmissiveGroups.sync(check_only=True))
+    _bsdf.inputs["Emission Strength"].default_value = 4.0
+    EmissiveGroups.sync()
+    check(
+        "a changed base strength rescales the copy, the weight kept",
+        round(HOST.emission("hullMat_signal"), 6) == 2.0 and HOST.copies()["hullMat_signal"]["strength"] == 4.0,
+    )
 
-    # Foreign color attribute guard.
-    cube.data.color_attributes.new(name="paintjob", type="BYTE_COLOR", domain="CORNER")
+    # --- remove restores the base; slots re-index ---------------------------
+    hull, panel = reset()
+    EmissiveGroups.add_group("a", {"hull": [0]})
+    EmissiveGroups.add_group("b", {"hull": [1, 2]})
+    EmissiveGroups.remove_group("a")
+    check(
+        "removing restores the base, and the faces of the slot above keep theirs",
+        [wears(hull, i) for i in range(4)] == ["hullMat", "hullMat_b", "hullMat_b", "hullMat"],
+        [wears(hull, i) for i in range(4)],
+    )
+    check("the copy is gone with its slot", "hullMat_a" not in bpy.data.materials and len(hull.material_slots) == 2)
+    EmissiveGroups.add_group("b", {"hull": [3]})
+    EmissiveGroups.add_group("c", {"hull": [3]})
+    check("a face moves between groups", wears(hull, 3) == "hullMat_c")
+
+    # --- refusals ------------------------------------------------------------
+    _plain = bpy.data.materials.new("plain")
+    for _n in [n for n in MatUtils.get_node_tree(_plain, create=True).nodes if n.type == "BSDF_PRINCIPLED"]:
+        _plain.node_tree.nodes.remove(_n)
+    panel.data.materials.append(_plain)
+    panel.data.polygons[5].material_index = len(panel.material_slots) - 1
+    _refused = ""
     try:
-        EmissiveGroups.bake_vertex_colors()
-        check("foreign color attr refused", False)
-    except ValueError:
-        check("foreign color attr refused", True)
-    manifest = EmissiveGroups.bake_vertex_colors(force=True)
-    check("force overrides foreign guard", manifest["encoding"] == "vertex-color")
-
-    # --- mask bake (channels) --------------------------------------------
-    tmp = tempfile.mkdtemp()
-    mask_path = os.path.join(tmp, "eg_EMask.png")
-    manifest = EmissiveGroups.bake_mask(output_path=mask_path, resolution=64)
-    check("mask written", os.path.isfile(mask_path))
-    check("mask manifest encoding", manifest["encoding"] == "channels", manifest)
-    check(
-        "no mask manifest sidecar (published via the scene records)",
-        not os.path.exists(os.path.join(tmp, "eg_EMask.json")),
-    )
-    payload = ptk.SceneRecords.EMISSIVE_GROUPS.load(DataNodes)
-    check("export carrier switched to channels", payload["encoding"] == "channels")
-
-    # No path: the file's project texture folder (mayatk's folder for a scene
-    # in that project), never temp -- an unsaved file uses the workspace set.
-    EnvUtils = btk.EnvUtils
-
-    _prev_pin = EnvUtils.workspace_root() or None
-    ws = tempfile.mkdtemp()
-    EnvUtils.set_current_workspace(ws)
-    try:
-        EmissiveGroups.bake_mask(resolution=32)
-        default_mask = os.path.join(ws, "sourceimages", "untitled_EMask.png")
-        check(
-            "default mask lands in the workspace's texture folder, not temp",
-            os.path.isfile(default_mask),
-            os.listdir(ws),
-        )
-        EnvUtils.set_current_workspace(None)
-        try:
-            EmissiveGroups.bake_mask(resolution=32)
-            check("an unsaved file with no workspace refuses a default mask", False)
-        except ValueError:
-            check("an unsaved file with no workspace refuses a default mask", True)
-    finally:
-        EnvUtils.set_current_workspace(_prev_pin)
-
-    # --- teardown hygiene -------------------------------------------------
-    for name in list(EmissiveGroups.list_groups()):
-        EmissiveGroups.remove_group(name)
-    EmissiveGroups.compact_slots()
-    check(
-        "registry cleared when empty",
-        ptk.SceneRecords.EMISSIVE_REGISTRY.read_text(DataNodes) is None,
-    )
-    check(
-        "export carrier cleared when empty",
-        ptk.SceneRecords.EMISSIVE_GROUPS.read_text(DataNodes) is None,
-    )
-
-    # --- keyed-weight curve transport (export proxies) ---------------------
-    # Fresh scene: the FBX round-trip below imports objects, which must not
-    # bleed into the sections above.
-    AnimUtils = btk.AnimUtils
-    FbxUtils = btk.FbxUtils
-
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-    bpy.ops.mesh.primitive_cube_add()
-    kcube = bpy.context.active_object
-    kcube.name = "kw_cube"
-    EmissiveGroups.add_group("glow", {"kw_cube": [0]})
-    EmissiveGroups.make_weights_keyable(["glow"])
-    EmissiveGroups.key_weight("glow", value=1.0, frame=1)
-    EmissiveGroups.key_weight("glow", value=0.0, frame=10)
-
-    proxies = EmissiveGroups.create_export_curve_proxies()
-    check("one proxy per keyed group", len(proxies) == 1, [o.name for o in proxies])
-    proxy = proxies[0] if proxies else None
-    check(
-        "proxy named the manifest attr",
-        proxy is not None and proxy.name == "emissiveGroup_glow",
-    )
-    check(
-        "proxy marked + parented under the carrier",
-        proxy is not None
-        and proxy.get(EmissiveGroups.PROXY_MARKER)
-        and proxy.parent is DataNodes.get_export_node(create=False),
-    )
-    pfc = next(
-        (
-            f
-            for f in AnimUtils.get_fcurves([proxy] if proxy else [])
-            if f.data_path == "scale" and f.array_index == 0
-        ),
-        None,
-    )
-    check(
-        "proxy scale.x carries the weight keys",
-        pfc is not None
-        and [kp.co[1] for kp in sorted(pfc.keyframe_points, key=lambda k: k.co[0])]
-        == [1.0, 0.0],
-        None if pfc is None else [tuple(kp.co) for kp in pfc.keyframe_points],
-    )
-
-    # Round-trip: the proxy's curve must survive a real FBX export→import —
-    # the exact transport Unity's importer reads (m_LocalScale.x on the
-    # proxy node). Empty-inclusive object_types + bake_anim mirror the scene
-    # exporter's defaults (fbx_utils' bridge defaults pin mesh-only).
-    fbx_path = os.path.join(tmp, "kw_proxy.fbx")
-    FbxUtils.export_selection_fbx(
-        filepath=fbx_path,
-        objects=[kcube, DataNodes.get_export_node(create=False)] + proxies,
-        object_types={"EMPTY", "MESH"},
-        use_custom_props=True,
-        bake_anim=True,
-    )
-    check("proxy FBX written", os.path.isfile(fbx_path))
-
-    removed = EmissiveGroups.remove_export_curve_proxies()
-    check("proxies removed after the write", removed == ["emissiveGroup_glow"], removed)
-    check(
-        "no proxy object survives in the scene",
-        not any(o.get(EmissiveGroups.PROXY_MARKER) for o in bpy.data.objects),
-    )
-
-    # anim_offset=0: Blender's importer shifts every key +1 frame by default,
-    # so the round trip is only an identity without it. Until 2026-09-19 the
-    # write cancelled that shift by accident -- with no takes armed it emitted
-    # one start-ZEROED take per action, and an action starting at frame 1 came
-    # back at 1. An action starting anywhere else did not (the 81-frame clip
-    # miss), which is why every animated write is one scene-range take now.
-    imported = FbxUtils.import_fbx(fbx_path, use_custom_props=True, anim_offset=0.0)
-    iproxy = next(
-        (o for o in imported if o.name.startswith("emissiveGroup_glow")), None
-    )
-    check(
-        "proxy node rides the FBX",
-        iproxy is not None,
-        [o.name for o in imported],
-    )
-    ifc = next(
-        (
-            f
-            for f in AnimUtils.get_fcurves([iproxy] if iproxy else [])
-            if f.data_path == "scale" and f.array_index == 0
-        ),
-        None,
-    )
-    check(
-        "imported scale.x curve reproduces the weight animation",
-        ifc is not None
-        and abs(ifc.evaluate(1) - 1.0) < 0.01
-        and abs(ifc.evaluate(10) - 0.0) < 0.01,
-        None if ifc is None else (ifc.evaluate(1), ifc.evaluate(10)),
-    )
-
-    # Name-collision guard: an unrelated object squatting the attr name means
-    # that group's animation is skipped (warned), never clobbered. Sweep the
-    # imported transport artifacts first — the imported proxy still carries
-    # the marker prop (user props ride the FBX), so the pre-clean would
-    # otherwise delete it and hand its name to the blocker's .001 twin.
-    EmissiveGroups.remove_export_curve_proxies()
-    blocker = bpy.data.objects.new("emissiveGroup_glow", None)
-    check("blocker owns the exact attr name", blocker.name == "emissiveGroup_glow")
-    check(
-        "proxy creation skips a squatted name",
-        EmissiveGroups.create_export_curve_proxies() == [],
-    )
-    bpy.data.objects.remove(blocker)
-
-    # Leftover sweep: a proxy outside an export is an interrupted run.
-    EmissiveGroups.create_export_curve_proxies()
-    check(
-        "validate flags a leftover proxy",
-        any("Leftover export curve proxy" in w for w in EmissiveGroups.validate()),
-    )
-    EmissiveGroups.remove_export_curve_proxies()
-
-    # --- the stager reads the registry alone; the engine's meanings kept ----
-    check(
-        "weight_attrs names the keyable groups from the registry",
-        all(a.startswith("emissiveGroup_") for a in EmissiveGroups.weight_attrs().values())
-        and set(EmissiveGroups.weight_attrs()) <= set(EmissiveGroups.list_groups()),
-        EmissiveGroups.weight_attrs(),
-    )
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-    bpy.ops.mesh.primitive_cube_add()
-    gone = bpy.context.active_object
-    gone.name = "eg_gone"
-    EmissiveGroups.add_group("cleared", {"eg_gone": [2]})
-    attr = gone.data.attributes["emissiveGroup_cleared"]
-    for item in attr.data:
-        item.value = False  # every member face deleted from the group
-    check(
-        "a group with no member face reads missing",
-        EmissiveGroups.list_groups()["cleared"]["missing"] is True,
-        EmissiveGroups.list_groups()["cleared"],
-    )
-    for obj in bpy.data.objects:
-        obj.select_set(obj.name == "eg_gone")
-    # An EMPTY face map is no faces, as in Maya -- never the selection: it
-    # raised there and authored a group from whatever was selected here.
-    refused = ""
+        EmissiveGroups.add_group("x", {"panel": [4, 5]})
+    except ValueError as exc:
+        _refused = str(exc)
+    check("a material with no emission to key is refused by name", "plain" in _refused and wears(panel, 4) == "panelMat", _refused)
+    _refused = ""
     try:
         EmissiveGroups.add_group("unpicked", {})
     except ValueError as exc:
-        refused = str(exc)
-    check(
-        "an empty face map is no faces, not the selection (as in Maya)",
-        "No faces" in refused and "unpicked" not in EmissiveGroups.list_groups(),
-        refused or EmissiveGroups.list_groups().get("unpicked"),
+        _refused = str(exc)
+    check("an empty face map is no faces, not the selection (as in Maya)", "No faces" in _refused, _refused)
+    for _label, _setup in (
+        ("a black emission colour", lambda bsdf, tree: setattr(bsdf.inputs["Emission Color"], "default_value", (0.0, 0.0, 0.0, 1.0))),
+        ("a strength a link drives", lambda bsdf, tree: tree.links.new(tree.nodes.new("ShaderNodeValue").outputs[0], bsdf.inputs["Emission Strength"])),
+    ):
+        _odd = material(f"odd_{len(_label)}", color=(1.0, 1.0, 1.0))
+        _tree = _odd.node_tree
+        _setup(next(n for n in _tree.nodes if n.type == "BSDF_PRINCIPLED"), _tree)
+        panel.data.materials.append(_odd)
+        panel.data.polygons[2].material_index = len(panel.material_slots) - 1
+        _refused = ""
+        try:
+            EmissiveGroups.add_group("y", {"panel": [2]})
+        except ValueError as exc:
+            _refused = str(exc)
+        check(f"{_label} is refused by name", _odd.name in _refused, _refused)
+
+    # --- an old scene converts in one action --------------------------------
+    hull, panel = reset()
+    for _store, _faces in (("emissiveGroup_headlights", {"hull": [0, 1, 2]}), ("emissiveGroup_signal", {"hull": [2, 3], "panel": [0, 1]})):
+        for _name, _idx in _faces.items():
+            _mesh = bpy.data.objects[_name].data
+            _attr = _mesh.attributes.new(_store, "BOOLEAN", "FACE")
+            for _i in _idx:
+                _attr.data[_i].value = True
+    hull.data.color_attributes.new(name="emissiveGroups", type="BYTE_COLOR", domain="CORNER")
+    DataNodes.write(
+        ptk.Scope.PRIVATE,
+        "emissive_registry",
+        json.dumps({"schema": 1, "encoding": "vertex-color", "groups": {"headlights": {"slot": 0, "default": 1.0}, "signal": {"slot": 1, "default": 0.5, "attr": "emissiveGroup_signal"}}, "retired_slots": []}),
     )
-    EmissiveGroups.add_group("picked")
+    DataNodes.write(ptk.Scope.DELIVERABLE, "emissive_groups", json.dumps({"version": 2, "groups": []}))
+    _carrier = DataNodes.ensure_export()
+    for _frame, _value in ((1, 0.0), (24, 1.0)):
+        _carrier["emissiveGroup_signal"] = _value
+        _carrier.keyframe_insert(data_path='["emissiveGroup_signal"]', frame=_frame)
+    _report = EmissiveGroups.convert_legacy()
+    check("face-level groups convert exactly", _report["converted"] == {"headlights": 3, "signal": 3}, _report)
     check(
-        "no face map takes the selection",
-        EmissiveGroups.list_groups()["picked"]["faces"] == 6,
-        EmissiveGroups.list_groups()["picked"],
+        "the faces wear the groups' copies",
+        [wears(hull, i) for i in range(4)] == ["hullMat_headlights"] * 3 + ["hullMat_signal"] and wears(panel, 1) == "panelMat_signal",
+        [wears(hull, i) for i in range(4)],
+    )
+    _fc = HOST._fcurve("hullMat_signal")
+    check("the old keyed weight keys the copies", _fc is not None and round(_fc.evaluate(24), 4) == 2.0, _fc and [tuple(k.co) for k in _fc.keyframe_points])
+    check("the overlap is reported by name", any("headlights" in r and "signal" in r for r in _report["reported"]), _report["reported"])
+    check(
+        "the old data is gone",
+        not [a for a in hull.data.attributes if a.name.startswith("emissiveGroup_")]
+        and "emissiveGroups" not in hull.data.color_attributes
+        and "emissiveGroup_signal" not in DataNodes.ensure_export()
+        and DataNodes.read(ptk.Scope.PRIVATE, "emissive_registry") is None
+        and DataNodes.read(ptk.Scope.DELIVERABLE, "emissive_groups") is None,
+        _report["removed"],
+    )
+    check("a second run converts nothing", EmissiveGroups.convert_legacy()["converted"] == {})
+
+    # --- a real export, read back --------------------------------------------
+    from blendertk.env_utils.fbx_utils import FbxUtils
+
+    hull, panel = reset()
+    EmissiveGroups.add_group("signal", {"hull": [0, 1], "panel": [0]})
+    for _frame, _value in ((1, 0.0), (24, 1.0), (25, 1.0), (48, 0.0)):
+        EmissiveGroups.key_weight("signal", _value, frame=_frame)
+    _out = tempfile.mkdtemp(prefix="btk_emissive_groups_")
+    _fbx = os.path.join(_out, "groups.fbx")
+    with FbxUtils.export_prepared(FbxUtils.export_context(), stagers=("render_effects",)):
+        check(
+            "the render_effects stager stages each animated copy's proxy",
+            sorted(o.name for o in bpy.data.objects if o.get("emissiveGroupProxy")) == ["hullMat_signal__emission", "panelMat_signal__emission"],
+            sorted(o.name for o in bpy.data.objects if o.get("emissiveGroupProxy")),
+        )
+        FbxUtils.apply_takes([("ShotA", 1, 24), ("ShotB", 25, 48)])
+        FbxUtils.export(
+            filepath=_fbx,
+            objects=[hull, panel, DataNodes.EXPORT],
+            selection_only=True,
+            bake_anim=True,
+            object_types={"MESH", "EMPTY"},
+        )
+    check("the proxies leave with the write", not [o for o in bpy.data.objects if o.get("emissiveGroupProxy")])
+    _file = ptk.FbxFile.load(_fbx, decode_arrays=ptk.FbxFile.CURVE_ARRAYS)
+    _raw = [v for _o, k, v in _file.user_property_items() if k == ptk.SceneRecords.VISIBILITY.key]
+    _record = json.loads(bytes(_raw[0]).decode("utf-8")) if _raw else {}
+    check(
+        "the FBX record names each animated copy",
+        _record.get("materials")
+        == [
+            {"material": "hullMat_signal", "channels": ["emission"], "emission_color": [1.0, 1.0, 1.0], "emission_strength": 2.0},
+            {"material": "panelMat_signal", "channels": ["emission"], "emission_color": [0.2, 0.6, 1.0], "emission_strength": 1.0},
+        ],
+        _record,
+    )
+    _curves = ptk.MeshConvert.render_effect_curves(_file)
+    check(
+        "each copy's weight rides its proxy in each take",
+        all({("hullMat_signal", "emission"), ("panelMat_signal", "emission")} <= set(_curves.get(t, {})) for t in ("ShotA", "ShotB")),
+        {t: sorted(c) for t, c in _curves.items()},
+    )
+    _peak = max((v for _t, v, _i in _curves.get("ShotA", {}).get(("hullMat_signal", "emission"), [])), default=None)
+    check("the proxy carries the weight, 0..1", _peak is not None and abs(_peak - 1.0) < 1e-3, _peak)
+    _verdict = ptk.ExportVerifier(fbx=_fbx, sidecar=None).run(["check_fbx_render_effects", "check_fbx_records"])
+    check("the record and the proxies agree", _verdict.ok, _verdict.summary())
+    _glb = os.path.join(_out, "groups.glb")
+    ptk.MeshConvert.fbx_to_glb(_fbx, dst=_glb, overwrite=True, prompt=False, lightmaps=False)
+    with ptk.MeshConvert.open_glb(_glb) as _edit:
+        _gltf = _edit.gltf
+    _names = [m.get("name") for m in _gltf.get("materials", [])]
+    _index = _names.index("hullMat_signal") if "hullMat_signal" in _names else -1
+    _pointers = {
+        a["name"]: [c["target"]["extensions"]["KHR_animation_pointer"]["pointer"] for c in a["channels"] if c["target"].get("path") == "pointer"]
+        for a in _gltf.get("animations", [])
+    }
+    check(
+        "the GLB animates the copy's emissiveFactor per clip",
+        _index >= 0 and all(f"/materials/{_index}/emissiveFactor" in _pointers.get(c, []) for c in ("ShotA", "ShotB")),
+        (_names, _pointers),
+    )
+    check(
+        "a peak above 1 rides KHR_materials_emissive_strength",
+        _index >= 0 and _gltf["materials"][_index].get("extensions", {}).get("KHR_materials_emissive_strength", {}).get("emissiveStrength") == 2.0,
+        _index >= 0 and _gltf["materials"][_index],
+    )
+    check(
+        "no vertex-colour mask reaches the GLB (the old encoding's COLOR_0)",
+        "COLOR_0" not in {a for _m in _gltf["meshes"] for _p in _m["primitives"] for a in _p["attributes"]},
+    )
+
+    # --- a namespaced copy plays (2026-11-07) ---------------------------------
+    # A copy whose name carries a namespace (an FBX import of a namespaced Maya
+    # scene names it so): the record names it as the delivery does, its proxy
+    # and curve go by the transport's name (the leaf), and the GLB plays it.
+    # Measured before (mayatk's twin, a real export): no channel was written.
+    hull, panel = reset()
+    (_copy,) = EmissiveGroups.add_group("signal", {"panel": [0]})
+    bpy.data.materials[_copy].name = "ns:panelMat_signal"
+    for _frame, _value in ((1, 0.0), (24, 1.0)):
+        EmissiveGroups.key_weight("signal", _value, frame=_frame)
+    _fbx = os.path.join(_out, "namespaced.fbx")
+    with FbxUtils.export_prepared(FbxUtils.export_context(), stagers=("render_effects",)):
+        check(
+            "the namespaced copy's proxy goes by the transport's name",
+            sorted(o.name for o in bpy.data.objects if o.get("emissiveGroupProxy")) == ["panelMat_signal__emission"],
+            sorted(o.name for o in bpy.data.objects if o.get("emissiveGroupProxy")),
+        )
+        FbxUtils.export(
+            filepath=_fbx,
+            objects=[panel, DataNodes.EXPORT],
+            selection_only=True,
+            bake_anim=True,
+            object_types={"MESH", "EMPTY"},
+        )
+    _file = ptk.FbxFile.load(_fbx, decode_arrays=ptk.FbxFile.CURVE_ARRAYS)
+    _raw = [v for _o, k, v in _file.user_property_items() if k == ptk.SceneRecords.VISIBILITY.key]
+    _record = json.loads(bytes(_raw[0]).decode("utf-8")) if _raw else {}
+    check(
+        "the record names the copy as the delivery does",
+        [e["material"] for e in _record.get("materials", [])] == ["ns:panelMat_signal"],
+        _record,
+    )
+    _verdict = ptk.ExportVerifier(fbx=_fbx, sidecar=None).run(["check_fbx_render_effects"])
+    check("the record and the proxy join", _verdict.ok, _verdict.summary())
+    _glb = os.path.join(_out, "namespaced.glb")
+    ptk.MeshConvert.fbx_to_glb(_fbx, dst=_glb, overwrite=True, prompt=False, lightmaps=False)
+    with ptk.MeshConvert.open_glb(_glb) as _edit:
+        _gltf = _edit.gltf
+    _played = {
+        (c.get("extras") or {}).get("render_effects", {}).get("material")
+        for a in _gltf.get("animations", [])
+        for c in a["channels"]
+    }
+    check(
+        "the GLB plays the namespaced copy's weight",
+        "ns:panelMat_signal" in _played and "ns:panelMat_signal" in [m.get("name") for m in _gltf["materials"]],
+        (_played, [m.get("name") for m in _gltf["materials"]]),
+    )
+
+    # --- a scoped push carries only the copies its faces wear (2026-11-07) ------
+    # Two props, a group on each: a push of one prop names and stages its own
+    # copy and no other, through both shapes a Blender writer takes -- the
+    # hand-off (stages in the bracket, then publishes its scoped records) and
+    # the Scene Exporter (stages in a task, then publishes).
+    from blendertk.env_utils.scene_exporter._scene_exporter import SceneExporter
+
+    def scoped_scene():
+        hull, panel = reset()
+        EmissiveGroups.add_group("a", {"hull": [0, 1]})
+        EmissiveGroups.add_group("b", {"panel": [0]})
+        for name in ("a", "b"):
+            for frame, value in ((1, 0.0), (24, 1.0), (25, 1.0), (48, 0.0)):
+                EmissiveGroups.key_weight(name, value, frame=frame)
+        return hull, panel
+
+    def read_scoped(fbx):
+        file = ptk.FbxFile.load(fbx, decode_arrays=ptk.FbxFile.CURVE_ARRAYS)
+        raw = [v for _o, k, v in file.user_property_items() if k == ptk.SceneRecords.VISIBILITY.key]
+        record = json.loads(bytes(raw[0]).decode("utf-8")) if raw else {}
+        curves = ptk.MeshConvert.render_effect_curves(file)
+        targets = {t for by_take in curves.values() for t, _c in by_take}
+        glb = fbx[:-4] + ".glb"
+        if not os.path.isfile(glb):
+            ptk.MeshConvert.fbx_to_glb(fbx, dst=glb, overwrite=True, prompt=False, lightmaps=False)
+        with ptk.MeshConvert.open_glb(glb) as edit:
+            gltf = edit.gltf
+        played = {
+            (c.get("extras") or {}).get("render_effects", {}).get("material")
+            for a in gltf.get("animations", [])
+            for c in a["channels"]
+        } - {None}
+        verdict = ptk.ExportVerifier(fbx=fbx, sidecar=None).run(["check_fbx_render_effects"])
+        return {
+            "materials": [e["material"] for e in record.get("materials") or ()],
+            "targets": sorted(targets),
+            "glb_materials": sorted(m.get("name") for m in gltf.get("materials", [])),
+            "played": sorted(played),
+            "ok": verdict.ok,
+        }
+
+    def only_the_panels_copy(label, found):
+        check(
+            f"{label}: only the shipped prop's copy, in the record, the proxies and the GLB",
+            found["materials"] == ["panelMat_b"]
+            and "hullMat_a" not in found["targets"]
+            and "panelMat_b" in found["targets"]
+            and "hullMat_a" not in found["glb_materials"]
+            and found["played"] == ["panelMat_b"]
+            and found["ok"],
+            found,
+        )
+
+    hull, panel = scoped_scene()
+    _scoped_fbx = os.path.join(_out, "scoped_handoff.fbx")
+    FbxUtils.begin_export(stagers=("render_effects",))
+    try:
+        FbxUtils.publish(
+            FbxUtils.export_context(mode=ptk.ExportContext.HANDOFF, scope=("panel",))
+        )
+        FbxUtils.apply_takes([("ShotA", 1, 24), ("ShotB", 25, 48)])
+        FbxUtils.export(
+            filepath=_scoped_fbx,
+            objects=[panel, DataNodes.EXPORT],
+            selection_only=True,
+            bake_anim=True,
+            object_types={"MESH", "EMPTY"},
+        )
+    finally:
+        FbxUtils.end_export()
+    only_the_panels_copy("a hand-off that stages before it publishes", read_scoped(_scoped_fbx))
+
+    hull, panel = scoped_scene()
+    from blendertk.anim_utils.shots._shots import ShotStore as _ScopedShots
+
+    _ScopedShots.clear_active()
+    _ScopedShots.active().define_shot("ShotA", 1, 24, objects=["hull", "panel"])
+    _ScopedShots.active().define_shot("ShotB", 25, 48, objects=["hull", "panel"])
+    _written = SceneExporter().perform_export(
+        export_dir=_out,
+        objects=[panel],
+        output_name="scoped_exporter",
+        export_visible=True,
+        tasks={"output_format": "fbx_glb", "export_data_node": True},
+    )
+    _ScopedShots.clear_active()
+    check("the scoped Scene Exporter run writes", _written is True, _written)
+    only_the_panels_copy(
+        "the Scene Exporter, which stages before it publishes",
+        read_scoped(os.path.join(_out, "scoped_exporter.fbx")),
+    )
+
+    # --- weight 1 is the base's glow as the delivery states it (2026-11-07) ---
+    # mayatk's openPBR copy stated its luminance (nits) as its strength, 1000x
+    # its base. Blender's twin: the emission scalar here scales (Principled's
+    # Emission Strength), so the published strength is the scalar itself (the
+    # Pure default) -- pinned, per surface, against the materials record's
+    # statement of the base. An Emission shader delivers unlit (its glow is
+    # its base colour, which glTF's unlit model shades alone), so a weight on
+    # it plays nowhere: it is refused by name, as Maya refuses a
+    # surfaceShader (2026-11-08; measured before: its entry animated an
+    # emissive factor the unlit delivery never shows).
+    from blendertk.env_utils.material_records import MaterialRecords
+
+    hull, panel = reset()
+    glow = bpy.data.materials.new("emitMat")
+    tree = MatUtils.get_node_tree(glow, create=True)
+    for node in list(tree.nodes):
+        if node.type == "BSDF_PRINCIPLED":
+            tree.nodes.remove(node)
+    emit = tree.nodes.new("ShaderNodeEmission")
+    emit.inputs["Color"].default_value = (1.0, 0.5, 0.25, 1.0)
+    emit.inputs["Strength"].default_value = 3.0
+    out = next(n for n in tree.nodes if n.type == "OUTPUT_MATERIAL")
+    tree.links.new(emit.outputs["Emission"], out.inputs["Surface"])
+    bpy.ops.mesh.primitive_cube_add(location=(6, 0, 0))
+    lamp = bpy.context.active_object
+    lamp.name = "lamp"
+    lamp.data.materials.append(glow)
+    panel.data.materials[0].node_tree.nodes["Principled BSDF"].inputs["Emission Strength"].default_value = 3.0
+    _img = bpy.data.images["hullGlow"]  # a map the record reads is a file
+    _img.filepath_raw = os.path.join(_out, "hullGlow.png")
+    _img.file_format = "PNG"
+    _img.save()
+    _refused = ""
+    try:
+        EmissiveGroups.add_group("e", {lamp.name: [0]})
+    except ValueError as exc:
+        _refused = str(exc)
+    check(
+        "an Emission surface (delivered unlit) is refused by name, as Maya's surfaceShader",
+        "emitMat" in _refused
+        and not [m for m in bpy.data.materials if m.name.startswith("emitMat") and m.name != "emitMat"],
+        _refused,
+    )
+    # The delivery's own rule decides (_MatUtilsInternal._is_unlit): a Principled
+    # BSDF left in the tree beside an Emission output is unlit too.
+    _mixed = bpy.data.materials.new("emitBesideBsdf")
+    _mtree = MatUtils.get_node_tree(_mixed, create=True)
+    _memit = _mtree.nodes.new("ShaderNodeEmission")
+    _memit.inputs["Strength"].default_value = 2.0
+    _mtree.links.new(
+        _memit.outputs["Emission"],
+        next(n for n in _mtree.nodes if n.type == "OUTPUT_MATERIAL").inputs["Surface"],
+    )
+    lamp.data.materials.append(_mixed)
+    lamp.data.polygons[1].material_index = len(lamp.material_slots) - 1
+    _refused = ""
+    try:
+        EmissiveGroups.add_group("e2", {lamp.name: [1]})
+    except ValueError as exc:
+        _refused = str(exc)
+    check(
+        "...and so is a Principled BSDF left beside an Emission output",
+        "emitBesideBsdf" in _refused
+        and any(n.type == "BSDF_PRINCIPLED" for n in _mtree.nodes),
+        _refused,
+    )
+    for obj, base, group in ((panel, "panelMat", "p"), (hull, "hullMat", "h")):
+        (copy,) = EmissiveGroups.add_group(group, {obj.name: [0]})
+        EmissiveGroups.key_weight(group, 0.0, frame=1)
+        EmissiveGroups.key_weight(group, 1.0, frame=24)
+        (entry,) = [e for e in EmissiveGroups.render_effect_materials() if e["material"] == copy]
+        stated = next(e for e in MaterialRecords.entries([obj]) if e["name"] == base)
+        delivered = [c * entry["emission_strength"] for c in entry["emission_color"]]
+        check(
+            f"{base}: weight 1 is its base's glow as the record states it",
+            all(abs(a - b) < 1e-4 for a, b in zip(delivered, stated["emissiveFactor"])),
+            (delivered, stated["emissiveFactor"], entry["emission_strength"]),
+        )
+
+    # --- the emission curve is read through the package's slot-aware,
+    # legacy-safe AnimUtils, never Blender 4.4+'s bpy_extras channelbag helper
+    # (absent before 4.4): with it gone, a keyed copy's keys read, its copy
+    # keys nothing of its base's and its keys clear. --------------------------
+    hull, panel = reset()
+    (_lc_copy,) = EmissiveGroups.add_group("legacy", {"hull": [0]}, weight=0.5)
+    EmissiveGroups.key_weight("legacy", 0.0, frame=1)
+    EmissiveGroups.key_weight("legacy", 1.0, frame=24)
+    import bpy_extras.anim_utils as _bx_anim
+
+    _bx_saved = _bx_anim.__dict__.pop("action_get_channelbag_for_slot", None)
+    _lc_seen = {}
+    try:
+        _lc_seen["keys"] = len(HOST.emission_keys(_lc_copy))
+        _lc_seen["channel"] = HOST.emission_channel(_lc_copy) is not None
+        _lc_fresh = HOST.make_copy(_lc_copy, "hullMat_fresh")
+        _lc_seen["fresh"] = HOST.emission_keys(_lc_fresh)
+        HOST.clear_emission_keys(_lc_copy)
+        _lc_seen["cleared"] = HOST.emission_keys(_lc_copy)
+    except Exception as e:
+        _lc_seen["error"] = repr(e)
+    finally:
+        if _bx_saved is not None:
+            _bx_anim.action_get_channelbag_for_slot = _bx_saved
+    check(
+        "the emission curve reads, copies clean and clears without the 4.4+ "
+        "channelbag helper",
+        _lc_seen.get("keys") == 2
+        and _lc_seen.get("channel") is True
+        and _lc_seen.get("fresh") == []
+        and _lc_seen.get("cleared") == []
+        and "error" not in _lc_seen,
+        _lc_seen,
     )
 
 except Exception:

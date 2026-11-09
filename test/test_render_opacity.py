@@ -194,9 +194,9 @@ try:
     c = cube("Hand")
     c.data.materials.append(mat("Hm"))
     RenderEffects.create([c])
-    # Hand-key ONLY opacity (no visibility). Presence is derived from the ramp
-    # downstream (ptk.MeshConvert._presence_keys), so the export writes no
-    # mirror -- mirror of mayatk (2026-09-14).
+    # Hand-key ONLY opacity (no visibility). An opacity at 0 is presence by the
+    # render_effects contract, so the export writes no mirror -- mirror of
+    # mayatk (2026-09-14).
     RenderEffects.set_key(c, '["opacity"]', 1, 1.0, "LINEAR")
     RenderEffects.set_key(c, '["opacity"]', 10, 0.0, "LINEAR")
     check(
@@ -314,82 +314,65 @@ try:
     check("visibility_tracks finds the keyed object", track is not None)
     # hide_render is INVERTED on the way out: the published contract is glTF's
     # (1 == visible), not Blender's (1 == hidden).
+    # Version 2: the track names its channels; the fade's hide_render keys are
+    # the opacity's mirror, so the record names the opacity alone.
     check(
-        "the published track is visible-true, not hide-true",
-        track is not None and track["visibility"] == [[8.0, 0.0], [23.0, 1.0]],
-        detail=repr(track and track["visibility"]),
+        "the track names the opacity and not its mirror",
+        track == {"node": c.name, "channels": ["opacity"]},
+        detail=repr(track),
     )
+    # A keyed hide_render with no opacity is its own channel, and its proxy
+    # carries it visible-at-1 (the contract's, not Blender's hidden-at-1).
+    bl = cube("Blink")
+    RenderEffects.set_key(bl, "hide_render", 1, 0.0, "CONSTANT")
+    RenderEffects.set_key(bl, "hide_render", 10, 1.0, "CONSTANT")
+    blink = next((t for t in RenderEffects.visibility_tracks() if t["node"] == bl.name), None)
     check(
-        "the authored opacity ramp rides along",
-        track is not None and track.get("opacity") == [[8.0, 0.0], [23.0, 1.0]],
-        detail=repr(track and track.get("opacity")),
+        "a keyed hide_render alone publishes visibility",
+        blink == {"node": bl.name, "channels": ["visibility"]},
+        detail=repr(blink),
     )
+    staged = {p.name: p for p in RenderEffects.stage_export_proxies()}
+    vis_proxy = staged.get("Blink__visibility")
+    vis_keys = (
+        [
+            (k.co[0], k.co[1], k.interpolation)
+            for k in next(
+                f for f in vis_proxy.animation_data.action.fcurves if f.data_path == "scale"
+            ).keyframe_points
+        ]
+        if vis_proxy is not None
+        and vis_proxy.animation_data
+        and getattr(vis_proxy.animation_data.action, "fcurves", None)
+        else None
+    )
+    RenderEffects.remove_export_proxies()
+    check(
+        "the visibility proxy is stepped and visible at 1",
+        vis_proxy is not None
+        and "Gate__visibility" not in staged
+        and (vis_keys is None or vis_keys == [(1.0, 1.0, "CONSTANT"), (10.0, 0.0, "CONSTANT")]),
+        detail=repr((sorted(staged), vis_keys)),
+    )
+    bpy.data.objects.remove(bl, do_unlink=True)
 
-    # A CONSTANT key HOLDS to the next one and then jumps, so publishing the
-    # keys alone makes every consumer -- all of which read the ramp linearly --
-    # invent a ramp across a segment the artist authored as a cut. Mirror of
-    # mayatk's `_linear_ramp`, where the equivalent tangent turned a hold into a
-    # fifteen-frame fade-out that then played in the deliverable.
-    curve = fcurve(c, '["opacity"]')
-    for point in curve.keyframe_points:
-        point.interpolation = "CONSTANT"
-    ramp = RenderEffects._linear_ramp(curve)
-    check(
-        "a CONSTANT segment is published as a hold, not a ramp",
-        ramp == [[8.0, 0.0], [22.99, 0.0], [23.0, 1.0]],
-        detail=repr(ramp),
-    )
-    for point in curve.keyframe_points:
-        point.interpolation = "LINEAR"
-    check(
-        "a LINEAR segment is published unchanged",
-        RenderEffects._linear_ramp(curve) == [[8.0, 0.0], [23.0, 1.0]],
-        detail=repr(RenderEffects._linear_ramp(curve)),
-    )
-
-    # The take as a publish declares it: a shot-record clip carrying its range.
-    ptk.SceneRecords.SHOTS.save(
-        DataNodes,
-        {
-            "fps": 30.0,
-            "shots": [{"clip": "Shot_1", "start": 7, "end": 100, "objects": []}],
-        },
-    )
+    # The record states no frame and no rate: the curves ride the takes.
+    ptk.SceneRecords.SHOTS.save(DataNodes, {"shots": [{"clip": "Shot_1"}]})
     RenderEffects.refresh_export_metadata()
     published = ptk.SceneRecords.VISIBILITY.load(DataNodes) or {}
     check(
         "refresh_export_metadata publishes the channel",
-        published.get("version") == RenderEffects.SCHEMA_VERSION,
+        published.get("version") == RenderEffects.SCHEMA_VERSION == 2,
+    )
+    check(
+        "the record holds no frame and no rate",
+        set(published) == {"version", "tracks"},
+        detail=repr(sorted(published)),
     )
     ptk.SceneRecords.SHOTS.clear(DataNodes)
-    RenderEffects.refresh_export_metadata()
-    republished = ptk.SceneRecords.VISIBILITY.load(DataNodes) or {}
-    scene_fps = bpy.context.scene.render.fps / bpy.context.scene.render.fps_base
-    check(
-        "with no shots producer the channel carries the scene's own rate",
-        republished.get("fps") == scene_fps,
-        detail=repr(republished.get("fps")),
-    )
-    ptk.SceneRecords.SHOTS.save(DataNodes, {"fps": 30.0, "shots": []})
-    check(
-        "the rate is carried from the shots producer",
-        published.get("fps") == 30.0,
-        detail=repr(published.get("fps")),
-    )
-    # The take's window opens at 7 and its first authored key is at 8, but
-    # Blender's split bakes every frame of the window, so the converter places
-    # frame 7 at the clip's zero (measured 2026-10-04: ShotB 21-40 opened at
-    # 21, not at its first key 30, and a gate placed against 30 lost the
-    # shot's visible run). mayatk's split keeps a take to its authored keys.
-    check(
-        "clip_span reports the take's window: Blender bakes every frame of it",
-        published.get("clip_span", {}).get("Shot_1") == [7.0, 100.0],
-        detail=repr(published.get("clip_span")),
-    )
 
-    # A scoped write states the tracks and the keys of what it ships (mirror of
-    # mayatk's): another object's track warned "not in this GLB" and its keys
-    # sized the take. Added: 2026-10-31
+    # A scoped write states the tracks of what it ships (mirror of mayatk's):
+    # another object's track warned "not in this GLB". Added: 2026-10-31
     sc_other = cube("Other")
     sc_other.data.materials.append(mat("OtherM"))
     RenderEffects.create([sc_other])
@@ -402,12 +385,6 @@ try:
         and [t["node"] for t in sc_record.payload["tracks"]] == [c.name],
         detail=repr(sc_record and sc_record.payload.get("tracks")),
     )
-    sc_keys = sorted(set(RenderEffects._scene_key_frames(sc_ctx)))
-    check(
-        "...and counts those objects' keys alone",
-        sc_keys == [8.0, 23.0],
-        detail=repr(sc_keys),
-    )
     sc_whole = RenderEffects.export_record(ptk.ExportContext())
     check(
         "an unscoped write names every keyed object",
@@ -418,74 +395,52 @@ try:
     RenderEffects.remove([sc_other])
     bpy.data.objects.remove(sc_other)
 
-    # The exported stack carries the range the write BAKES, and the converter
-    # rebases every stack onto its FIRST key -- so publishing the scene's
-    # earliest key slides every clip cut from it (measured on the Maya side of
-    # this pipeline as a 33-frame slide, up to 90 cm of apparent distortion).
-    # That range is the scene's extent WIDENED by the declared takes, which is
-    # what apply_declared_takes computes -- and it runs AFTER the producers, so
-    # bake_range has to reproduce the widening rather than read it off scene.
+    # The range the write BAKES: the scene's extent WIDENED by the takes the
+    # shot store declares (ShotStore.declared_takes), which apply_declared_takes
+    # arms AFTER the producers, so bake_range reproduces the widening rather
+    # than read it off the scene. The record's clips state no range and widen
+    # nothing.
+    from blendertk import ShotStore
     from blendertk.env_utils.fbx_utils import FbxUtils as _Fbx
 
     _scene = bpy.context.scene
     _scene.frame_start, _scene.frame_end = 0, 100
+    ShotStore._prefs_dir_override = ptk.TempArtifacts(
+        "btk_render_opacity_prefs"
+    ).dir_path()
+    ShotStore.clear_active()
     check(
-        "with no takes the bake range is the scene range",
+        "with no shots the bake range is the scene range",
         _Fbx.bake_range() == (0.0, 100.0),
         detail=repr(_Fbx.bake_range()),
     )
-
-    _takes = [("a", 33, 60), ("b", 61, 140)]
     ptk.SceneRecords.SHOTS.save(
-        DataNodes,
-        {
-            "fps": 30.0,
-            "shots": [
-                {"clip": n, "start": s, "end": e, "objects": []} for n, s, e in _takes
-            ],
-        },
+        DataNodes, {"shots": [{"clip": "a"}, {"clip": "b"}]}
     )
+    check(
+        "the record's clips widen nothing: they state no range",
+        _Fbx.bake_range() == (0.0, 100.0),
+        detail=repr(_Fbx.bake_range()),
+    )
+    ptk.SceneRecords.SHOTS.clear(DataNodes)
+    _arm_store = ShotStore.active()
+    _arm_store.define_shot("a", 33, 60)
+    _arm_store.define_shot("b", 61, 140)
     # 0 stays (the scene starts before the first take -- the exact case that
     # made a takes-union answer wrong); 140 widens past the scene's end.
     check(
-        "takes widen the bake range, never narrow it",
+        "the store's shots widen the bake range, never narrow it",
         _Fbx.bake_range() == (0.0, 140.0),
         detail=repr(_Fbx.bake_range()),
     )
-    # Clips without their ranges declare no take, and a retired fbx_takes list
-    # beside them is never read (2026-10-20: no legacy branch).
-    import json as _takes_json
+    for _sid in [s.shot_id for s in list(_arm_store.shots)]:
+        _arm_store.remove_shot(_sid)
+    ShotStore.clear_active()
 
-    ptk.SceneRecords.SHOTS.save(
-        DataNodes,
-        {"fps": 30.0, "shots": [{"clip": n, "objects": []} for n, _s, _e in _takes]},
-    )
-    DataNodes.write(
-        ptk.Scope.DELIVERABLE,
-        "fbx_takes",
-        _takes_json.dumps([{"name": n, "start": s, "end": e} for n, s, e in _takes]),
-    )
-    check(
-        "clips without ranges widen nothing; a retired fbx_takes is not read",
-        _Fbx.bake_range() == (0.0, 100.0),
-        detail=repr(_Fbx.bake_range()),
-    )
-    DataNodes.remove(ptk.Scope.DELIVERABLE, "fbx_takes")
-    ptk.SceneRecords.SHOTS.save(DataNodes, {"fps": 30.0, "shots": []})
-
-    # What the bake-range seed for clip_span["*"] actually describes, through
-    # FbxUtils.export rather than raw bpy.ops. Blender's global take CLIPS to
-    # the range: a curve keyed 0-100 is written as 60 frames under a 20-80
-    # range, so the seed is TRUE -- in BOTH modes since 2026-09-19. Until then
-    # a write with no takes armed took Blender's operator defaults, emitted
-    # per-action start-zeroed takes over each action's OWN range, and wrote the
-    # curve whole (100 frames against a seed of 60). FbxUtils now makes every
-    # animated write one scene-range take (``FbxUtils.scene_range_take``), which
-    # is what the seed describes.
-    #
-    # Maya writes the curve whole under ANY range, which is why its fix
-    # measures the key extent instead; publishing a measured extent here would
-    # OVERSTATE the write, so these checks pin the Blender answer itself.
+    # What a take carries, through FbxUtils.export rather than raw bpy.ops:
+    # Blender's take CLIPS to the range it is baked over, so a curve keyed
+    # 0-100 is written as 60 frames under a 20-80 range -- and an armed take
+    # REPLACES the scene-range stack, so the file's one take is that window.
     _cube = bpy.data.objects.new("ClipSpanProbe", bpy.data.meshes.new("ClipSpanProbe"))
     bpy.context.collection.objects.link(_cube)
     for _f, _x in ((0, 0.0), (100, 10.0)):
@@ -498,15 +453,17 @@ try:
     _prior_takes = _Fbx._pending_takes
 
     def _written_span(takes):
-        """Frames the real export path writes for the probe, under *takes*."""
+        """Frames the real export path writes for the probe, under *takes*,
+        and the file's take names."""
         _scene.frame_start, _scene.frame_end = 20, 80
         _Fbx._pending_takes = takes
         seen = {a.name for a in bpy.data.actions}
         try:
             _Fbx.export(filepath=_fbx, objects=[_cube], bake_anim=True)
+            names = ptk.FbxFile.load(_fbx, raw_payloads=False).take_names()
             bpy.ops.import_scene.fbx(filepath=_fbx)
         except Exception as exc:  # noqa: BLE001
-            return f"export/import failed: {exc}"
+            return f"export/import failed: {exc}", None
         spans = [
             round(a.frame_range[1] - a.frame_range[0])
             for a in bpy.data.actions
@@ -520,20 +477,20 @@ try:
             if o.name.startswith("ClipSpanProbe") and o is not _cube
         ]:
             bpy.data.objects.remove(o, do_unlink=True)
-        return max(spans) if spans else None
+        return (max(spans) if spans else None), names
 
-    _armed = _written_span([("probe", 20, 80)])
+    _armed, _armed_names = _written_span([("probe", 20, 80)])
     check(
-        "takes armed: the write is one scene-range stack, so the bake-range seed is TRUE",
-        _armed == 60,
-        detail=f"authored 100 frames, wrote {_armed} under a 20-80 range",
+        "takes armed: the file's one take is the armed window, no scene-range take",
+        _armed == 60 and _armed_names == ["probe"],
+        detail=f"authored 100 frames, wrote {_armed} under a 20-80 range; takes {_armed_names}",
     )
 
-    _bare = _written_span(None)
+    _bare, _bare_names = _written_span(None)
     check(
-        "no takes: still one scene-range take, so the bake-range seed is TRUE",
-        _bare == 60,
-        detail=f"authored 100 frames, wrote {_bare} against a 60-frame seed",
+        "no takes: one scene-range take over the range it is baked over",
+        _bare == 60 and len(_bare_names or ()) == 1,
+        detail=f"authored 100 frames, wrote {_bare}; takes {_bare_names}",
     )
 
     _Fbx._pending_takes = _prior_takes
@@ -544,49 +501,6 @@ try:
     for _o in [o for o in bpy.data.objects if o.name.startswith("ClipSpanProbe")]:
         bpy.data.objects.remove(_o, do_unlink=True)
     _scene.frame_start, _scene.frame_end = 0, 100
-
-    # A hand-edited or truncated clip -- one without its range -- declares
-    # no take, so it cannot decide the range.
-    ptk.SceneRecords.SHOTS.save(
-        DataNodes,
-        {
-            "fps": 30.0,
-            "shots": [
-                {"clip": "x", "objects": []},
-                {"clip": "y", "start": 2, "end": 4, "objects": []},
-            ],
-        },
-    )
-    check(
-        "a malformed take entry cannot decide the range",
-        _Fbx.bake_range() == (0.0, 100.0),
-        detail=repr(_Fbx.bake_range()),
-    )
-    ptk.SceneRecords.SHOTS.save(DataNodes, {"fps": 30.0, "shots": []})
-
-    # REGRESSION (2026-09-18): the FIRST export after a shot is added cut the
-    # clip origin against the PREVIOUS export's takes -- bake_range read the
-    # STORED shot record, and an assembly commits only after every producer
-    # has run, so the takes the shots producer had just built were invisible
-    # to the visibility producer that runs after it.
-    from blendertk import ShotStore
-
-    ptk.SceneRecords.SHOTS.clear(DataNodes)
-    ShotStore._prefs_dir_override = ptk.TempArtifacts(
-        "btk_render_opacity_prefs"
-    ).dir_path()
-    ShotStore.clear_active()
-    ShotStore.active().define_shot("Late", 90, 140, objects=[c.name])
-    _fresh = _Fbx.publish(
-        _Fbx.export_context(),
-        only=[ptk.SceneRecords.SHOTS, ptk.SceneRecords.VISIBILITY],
-    ).record(ptk.SceneRecords.VISIBILITY, {})
-    check(
-        "the first export after adding a shot cuts the origin against ITS takes",
-        (_fresh.get("clip_span") or {}).get("*") == [0.0, 140.0],
-        detail=repr(_fresh.get("clip_span")),
-    )
-    ShotStore.clear_active()
     ShotStore._prefs_dir_override = None
     for _spec in (
         ptk.SceneRecords.SHOTS,
@@ -675,10 +589,9 @@ try:
     tracks = RenderEffects.visibility_tracks()
     t = next((x for x in tracks if x["node"] == "Glow"), None)
     check(
-        "a highlight-only object publishes its ramp and colour",
+        "a highlight-only object publishes its channel and colour",
         t is not None
-        and "visibility" not in t
-        and t["highlight"][0] == [0.0, 0.0]  # bracketed dim, not bright
+        and t["channels"] == ["highlight"]
         and t["highlight_color"] == [1.0, 0.0, 0.0],
         detail=repr(t),
     )
@@ -1071,32 +984,457 @@ try:
         ["PreviewPulsed"], channel="opacity", keys=expected, fps=_fps
     )
     tracks = (overlay.get(_ptk.SceneRecords.VISIBILITY.key) or {}).get("tracks") or [{}]
-    # At the channel's published precision: build_visibility_tracks rounds every
-    # float (0.6 s * 24 fps is 14.399999999999999 raw and ships as 14.4).
-    _digits = _ptk.MeshConvert.VISIBILITY_TRACK_DIGITS
+    curves = (overlay.get(_ptk.MeshConvert.EFFECT_PREVIEW_KEY) or {}).get("curves") or [{}]
     check(
         "preview_channels overlays the planned fade on the named object",
-        tracks[0].get("node") == "PreviewPulsed"
-        and tracks[0].get("opacity")
-        == [[round(f, _digits), round(v, _digits)] for f, v in expected],
-        detail=f"{tracks}",
+        tracks[0] == {"node": "PreviewPulsed", "channels": ["opacity"]}
+        and curves[0].get("target") == "PreviewPulsed"
+        and [[round(t * _fps, 4), v] for t, v in curves[0].get("keys")]
+        == [[round(f, 4), v] for f, v in expected],
+        detail=f"{tracks} {curves}",
     )
     check(
         "the overlay writes nothing and leaves the object's own pulse out",
         RenderEffects.ATTR_NAME not in p
         and len(RenderEffects._fcurve(p, '["highlight"]').keyframe_points) == pulse_keys
-        and "highlight" not in tracks[0],
+        and tracks[0]["channels"] == ["opacity"],
         detail=f"{list(p.keys())} {tracks[0]}",
     )
 
     # The fade's preview runs the EXPORTER's own function, so it cannot drift
     # from the deliverable: alpha on the fourth lane of baseColorFactor.
     _fade_spec = _GLTF["opacity"]
-    _faded = _fade_spec.values([0.78, 0.80, 0.84], 0.4, ())
+    _faded = _fade_spec.values([0.78, 0.80, 0.84, 1.0], 0.4, (), {})
     check(
         "the fade's published value is the albedo with alpha on lane four",
         len(_faded) == 4 and approx(_faded[3], 0.4) and approx(_faded[0], 0.78),
         detail=f"{_faded}",
+    )
+
+    # ---- render_effects v2 on a real export (mirror of mayatk's) -------------
+    # Two shots, one take each; a box fading out in the first and in again in
+    # the second, a sphere pulsing, a cube switched off and on by hide_render.
+    # Read back with ptk.FbxFile and in the GLB built from it. Added: 2026-11-05
+    import json as _json
+    import tempfile as _tempfile
+
+    from blendertk.anim_utils.shots._shots import ShotStore as _ShotStore
+    from blendertk.env_utils.fbx_utils import FbxUtils as _FbxUtils
+
+    reset()
+    _scene = bpy.context.scene
+    _scene.render.fps, _scene.render.fps_base = 24, 1.0
+    _scene.frame_start, _scene.frame_end = 1, 48
+    fader = cube("fader")
+    fader.data.materials.append(bpy.data.materials.new("faderMat"))
+    RenderEffects.key_fade([fader], start=5, end=15, direction="out")
+    RenderEffects.key_fade([fader], start=30, end=40, direction="in")
+    glower = cube("glower")
+    glower.data.materials.append(bpy.data.materials.new("glowerMat"))
+    RenderEffects.key_pulse([glower], start=1, end=48, period=24, color=(1.0, 0.5, 0.0))
+    blinker = cube("blinker")
+    blinker.data.materials.append(bpy.data.materials.new("blinkerMat"))
+    for _frame, _hidden in ((1, 0.0), (10, 1.0), (30, 0.0)):
+        RenderEffects.set_key(blinker, "hide_render", _frame, _hidden, "CONSTANT")
+    _store = _ShotStore()
+    _ShotStore.set_active(_store)
+    _store.define_shot("ShotA", 1, 24, objects=[o.name for o in (fader, glower, blinker)])
+    _store.define_shot("ShotB", 25, 48, objects=[o.name for o in (fader, glower, blinker)])
+    _out = _tempfile.mkdtemp(prefix="btk_render_effects_v2_")
+    _fbx = os.path.join(_out, "effects.fbx")
+    try:
+        # The Scene Exporter's shape: one bracket publishes the records and
+        # stages the curve proxies, and the write ships them with the carrier.
+        with _FbxUtils.export_prepared(_FbxUtils.export_context(), stagers=("render_effects",)):
+            _FbxUtils.apply_takes_from_node()
+            _FbxUtils.export(
+                filepath=_fbx,
+                objects=[fader, glower, blinker, DataNodes.EXPORT],
+                selection_only=True,
+                bake_anim=True,
+                object_types={"MESH", "EMPTY"},
+            )
+    finally:
+        _ShotStore.clear_active()
+    _file = ptk.FbxFile.load(_fbx, decode_arrays=ptk.FbxFile.CURVE_ARRAYS)
+    _raw = [
+        v for _o, k, v in _file.user_property_items() if k == ptk.SceneRecords.VISIBILITY.key
+    ]
+    _record = _json.loads(bytes(_raw[0]).decode("utf-8")) if _raw else {}
+    check(
+        "the FBX takes are the shots",
+        sorted(_file.take_names()) == ["ShotA", "ShotB"],
+        detail=repr(_file.take_names()),
+    )
+    check(
+        "the FBX record is v2 and names each node's channels",
+        _record.get("version") == 2
+        and set(_record) == {"version", "tracks"}
+        and {t["node"]: t["channels"] for t in _record.get("tracks") or ()}
+        == {"blinker": ["visibility"], "fader": ["opacity"], "glower": ["highlight"]},
+        detail=repr(_record),
+    )
+    _curves = ptk.MeshConvert.render_effect_curves(_file)
+    check(
+        "every channel's proxy curve is read off the FBX in each take",
+        all(
+            {("fader", "opacity"), ("glower", "highlight"), ("blinker", "visibility")}
+            <= set(_curves.get(_take, {}))
+            for _take in ("ShotA", "ShotB")
+        ),
+        detail=repr({k: sorted(v) for k, v in _curves.items()}),
+    )
+    _zero = 1 / 30.0  # ShotA opens on frame 1, floored to the 1/30 s grid
+    _at = {
+        round((t + _zero) * 24, 2): v
+        for t, v, _i in _curves.get("ShotA", {}).get(("fader", "opacity"), ())
+    }
+    check(
+        "the fade-out reaches 0 at frame 15 of the timeline",
+        approx(_at.get(5.0, -1), 1.0) and approx(_at.get(15.0, -1), 0.0),
+        detail=repr(sorted(_at.items())[:20]),
+    )
+    _steps = {
+        round((t + _zero) * 24): round(v)
+        for t, v, _i in _curves.get("ShotA", {}).get(("blinker", "visibility"), ())
+    }
+    check(
+        "the visibility proxy is visible at 1 and off from frame 10",
+        _steps.get(1) == 1 and _steps.get(10) == 0,
+        detail=repr(sorted(_steps.items())),
+    )
+    _verdict = ptk.ExportVerifier(fbx=_fbx, sidecar=None).run(["check_fbx_render_effects"])
+    check("the record names exactly the proxies", _verdict.ok, _verdict.summary())
+    _glb = os.path.join(_out, "effects.glb")
+    ptk.MeshConvert.fbx_to_glb(_fbx, dst=_glb, overwrite=True, prompt=False, lightmaps=False)
+    with ptk.MeshConvert.open_glb(_glb) as _edit:
+        _gltf = _edit.gltf
+    _names = {i: n.get("name") for i, n in enumerate(_gltf["nodes"])}
+    _played = {}
+    for _anim in _gltf.get("animations") or []:
+        for _ch in _anim["channels"]:
+            _target = _ch["target"]
+            _note = (_ch.get("extras") or {}).get("render_effects")
+            if _target.get("path") == "pointer" and _note:
+                _played.setdefault(_anim["name"], set()).add((_note["node"], _note["channel"]))
+            elif _target.get("path") == "scale" and _names.get(_target.get("node")) in ("fader", "blinker"):
+                _played.setdefault(_anim["name"], set()).add((_names[_target["node"]], "gate"))
+    check(
+        "the GLB plays each channel in each clip from the file's curves",
+        all(
+            {("fader", "opacity"), ("glower", "highlight"), ("fader", "gate"), ("blinker", "gate")}
+            <= _played.get(_clip, set())
+            for _clip in ("ShotA", "ShotB")
+        ),
+        detail=repr({k: sorted(v) for k, v in _played.items()}),
+    )
+    check(
+        "no GLB material is written BLEND (opaque at rest)",
+        {m.get("alphaMode", "OPAQUE") for m in _gltf["materials"]} == {"OPAQUE"},
+        detail=repr([m.get("alphaMode") for m in _gltf["materials"]]),
+    )
+    check(
+        "the GLB carries the record verbatim and no proxy",
+        (_gltf.get("extras") or {}).get(ptk.SceneRecords.VISIBILITY.key) == _record
+        and not [n for n in _names.values() if n and "__" in n],
+        detail=repr(sorted(n for n in _names.values() if n)),
+    )
+
+    # ---- the same scene pushed with Include Animation off (the default) -----
+    # Bug: such a push played the scene's effects until the curves moved into
+    # the takes (render_effects v2); its FBX has no take, so nothing played.
+    # Fixed: 2026-11-05 -- the push states the scene's curves in its build's
+    # preview overlay, in seconds from the bake range's start (where an
+    # animated write opens its clip), and the GLB plays them on its one clip.
+    # A real push; its build fed exactly what the push handed its deliverer.
+    import struct as _struct
+
+    from blendertk.env_utils.webxr_preview import WebXrPreview as _WebXrPreview
+
+    class _Build(ptk.Deliverer):
+        seen = {}
+
+        def preflight(self, bridge, request):
+            return True
+
+        def deliver(self, bridge, payload, request):
+            glb = os.path.join(_out, "pushed.glb")
+            overlay = request.get("data_export")
+            type(self).seen.update(
+                takes=ptk.FbxFile.load(payload.primary).take_names(), overlay=overlay
+            )
+            ptk.MeshConvert.fbx_to_glb(
+                payload.primary, dst=glb, overwrite=True, prompt=False,
+                lightmaps=False, data_export=overlay,
+            )
+            return {"glb": glb}
+
+    # With shots declared, one clip per take an animated push splits (fixed
+    # 2026-11-07: the first fix gave them one Take 001, where HEAD gave one
+    # clip per declared take -- the page's shots and their sequence), each
+    # from its shot's start and spanning it, the record's descriptions beside.
+    _FbxUtils.reset_takes()  # the takes the export above armed
+    _ShotStore.set_active(_store)
+    for _shot, _text in zip(_store.sorted_shots(), ("the fade out", "the fade in")):
+        _shot.description = _text
+    _store.publish_export_view()
+    _bridge = _WebXrPreview()
+    _bridge.deliverer = _Build()
+    try:
+        _pushed = _bridge.push(objects=[fader, glower, blinker], open_browser=False)
+    finally:
+        _ShotStore.clear_active()
+    _seen = _Build.seen
+    _overlay = _seen.get("overlay") or {}
+    _stated = (_overlay.get(ptk.MeshConvert.EFFECT_PREVIEW_KEY) or {}).get("clips") or []
+    check(
+        "an animation-off push writes no take and states one clip per shot",
+        _pushed is not None
+        and not _seen.get("takes")
+        and list(_overlay) == [ptk.MeshConvert.EFFECT_PREVIEW_KEY]
+        and [c["name"] for c in _stated] == ["ShotA", "ShotB"]
+        and all(
+            {(c["target"], c["channel"]) for c in _clip["curves"]}
+            == {("fader", "opacity"), ("glower", "highlight"), ("blinker", "visibility")}
+            for _clip in _stated
+        ),
+        detail=f"{_pushed} {_seen.get('takes')} {list(_overlay)} {[c.get('name') for c in _stated]}",
+    )
+    _clips = {}
+    if _pushed is not None:
+        with ptk.MeshConvert.open_glb(_pushed["glb"]) as _edit:
+            _pg, _blob = _edit.gltf, _edit.bin_data
+
+        def _read(index):
+            acc = _pg["accessors"][index]
+            per = {"SCALAR": 1, "VEC3": 3, "VEC4": 4}[acc["type"]]
+            view = _pg["bufferViews"][acc["bufferView"]]
+            off = view.get("byteOffset", 0) + acc.get("byteOffset", 0)
+            flat = _struct.unpack_from(f"<{acc['count'] * per}f", _blob, off)
+            return [flat[i : i + per] for i in range(0, len(flat), per)]
+
+        _pnames = {i: n.get("name") for i, n in enumerate(_pg["nodes"])}
+        for _anim in _pg.get("animations") or []:
+            _clip = _clips.setdefault(_anim["name"], {})
+            for _ch in _anim["channels"]:
+                _target, _sampler = _ch["target"], _anim["samplers"][_ch["sampler"]]
+                if _target.get("path") == "pointer":
+                    _note = (_ch.get("extras") or {}).get("render_effects") or {}
+                    _key = (_note.get("node"), _note.get("channel"))
+                elif _target.get("path") == "scale":
+                    _key = (_pnames.get(_target.get("node")), "gate")
+                else:
+                    continue
+                _clip.setdefault(
+                    _key, ([t[0] for t in _read(_sampler["input"])], _read(_sampler["output"]))
+                )
+    _record = {}
+    if _pushed is not None:
+        _record = (_pg.get("extras") or {}).get(ptk.SceneRecords.SHOTS.key) or {}
+    check(
+        "the GLB's record names, describes and orders the shots, at the scene's rate",
+        [(x.get("clip"), x.get("description")) for x in _record.get("shots") or ()]
+        == [("ShotA", "the fade out"), ("ShotB", "the fade in")]
+        and _record.get("fps") == 24.0,
+        detail=repr(_record),
+    )
+    _a, _b = _clips.get("ShotA", {}), _clips.get("ShotB", {})
+    check(
+        "the GLB plays every effect on each shot's clip, in order",
+        list(_clips) == ["ShotA", "ShotB"]
+        and all(
+            {("fader", "opacity"), ("glower", "highlight"), ("fader", "gate"), ("blinker", "gate")}
+            <= set(_c)
+            for _c in (_a, _b)
+        ),
+        detail=repr({k: sorted(v) for k, v in _clips.items()}),
+    )
+    check(
+        "each clip spans its shot (23 frames, first to last)",
+        all(
+            _c and approx(max(t[-1] for t, _v in _c.values()), 23 / 24.0, 1e-3)
+            for _c in (_a, _b)
+        ),
+        detail=repr([max((t[-1] for t, _v in _c.values()), default=None) for _c in (_a, _b)]),
+    )
+    _zero_a = [t for t, v in zip(*_a.get(("fader", "opacity"), ([], []))) if v[3] <= 1e-6]
+    _zero_b = [t for t, v in zip(*_b.get(("fader", "opacity"), ([], []))) if v[3] <= 1e-6]
+    check(
+        "from each shot's start: 0 at frame 15 in ShotA; ShotB opens at 0 until frame 30",
+        bool(_zero_a) and approx(_zero_a[0], 14 / 24.0, 1e-3)
+        and bool(_zero_b) and approx(_zero_b[0], 0.0, 1e-3) and approx(_zero_b[-1], 5 / 24.0, 1e-3),
+        detail=repr((_zero_a, _zero_b)),
+    )
+    _gate_a = [
+        (round(t * 24, 2), int(v[0] > 0.0)) for t, v in zip(*_a.get(("blinker", "gate"), ([], [])))
+    ]
+    _gate_b = [
+        (round(t * 24, 2), int(v[0] > 0.0)) for t, v in zip(*_b.get(("blinker", "gate"), ([], [])))
+    ]
+    check(
+        "blinker steps off at frame 10 (ShotA) and on at frame 30 (ShotB)",
+        (9.0, 0) in _gate_a and _gate_b[:1] == [(0.0, 0)] and (5.0, 1) in _gate_b,
+        detail=repr((_gate_a, _gate_b)),
+    )
+    _glow = _a.get(("glower", "highlight"), ([], []))[1]
+    _peak = tuple(round(c, 3) for c in max(_glow, key=sum)) if _glow else None
+    check(
+        "the pulse peaks in the colour it was keyed with",
+        _peak == (1.0, 0.5, 0.0),
+        detail=repr(_peak),
+    )
+
+    # ---- a still shot is a clip, on an animated push and an animation-off one
+    # Bug: a shot in which nothing moves had no glTF animation (glTF forbids
+    # an empty one; FBX2glTF drops the take), so the page lost it from its
+    # picker and sequence; at HEAD it was a window in the whole-timeline take.
+    # Fixed: 2026-11-07 -- every declared take, and every clip an overlay
+    # states, is a clip spanning its shot, a still one by a hold. ShotC
+    # (frames 49-72) holds still. Mirror of mayatk's.
+    import math as _math
+
+    class _BuildTo(ptk.Deliverer):
+        path = None
+
+        def preflight(self, bridge, request):
+            return True
+
+        def deliver(self, bridge, payload, request):
+            ptk.MeshConvert.fbx_to_glb(
+                payload.primary, dst=type(self).path, overwrite=True, prompt=False,
+                lightmaps=False, data_export=request.get("data_export"),
+            )
+            return {"glb": type(self).path}
+
+    _ShotStore.set_active(_store)
+    _store.define_shot("ShotC", 49, 72, objects=[o.name for o in (fader, glower, blinker)], description="the title")
+    _store.publish_export_view()
+    try:
+        for _animated in (True, False):
+            _FbxUtils.reset_takes()
+            _BuildTo.path = os.path.join(_out, f"still_{_animated}.glb")
+            _bridge = _WebXrPreview()
+            _bridge.deliverer = _BuildTo()
+            _done = _bridge.push(
+                objects=[fader, glower, blinker], open_browser=False, INCLUDE_ANIMATION=_animated
+            )
+            _spans, _shots, _effects = {}, [], {}
+            if _done is not None:
+                with ptk.MeshConvert.open_glb(_done["glb"]) as _edit:
+                    _spans = {
+                        a["name"]: ptk.MeshConvert._animation_time_span(_edit, a)[1]
+                        for a in _edit.gltf.get("animations") or []
+                    }
+                    _effects = {
+                        a["name"]: {
+                            ((c.get("extras") or {}).get("render_effects") or {}).get("channel")
+                            for c in a["channels"]
+                            if c["target"].get("path") == "pointer"
+                        }
+                        for a in _edit.gltf.get("animations") or []
+                    }
+                    _shots = ((_edit.gltf.get("extras") or {}).get(ptk.SceneRecords.SHOTS.key) or {}).get("shots") or []
+            # From the clip's t=0 to the shot's end: an animated take's t=0 is
+            # its first key floored to the converter's 1/30 s grid (frame 49 at
+            # 24 fps -> 61/30 s); an overlay's clip opens on the shot's first.
+            _zero = _math.floor(49 / 24.0 * 30.0) / 30.0 if _animated else 49 / 24.0
+            check(
+                f"a still shot is a clip spanning its shot (animation {'on' if _animated else 'off'})",
+                list(_spans) == ["ShotA", "ShotB", "ShotC"]
+                and approx(_spans.get("ShotC") or 0.0, 72 / 24.0 - _zero, 1e-4)
+                and len(_shots) == 3
+                and _shots[2] == {"clip": "ShotC", "description": "the title"},
+                detail=f"{_spans} {_shots[2:] if _shots else _shots}",
+            )
+            # The effects play in the shots that key them, whichever way the
+            # push carries them (Bug: an animated push staged no curve proxy,
+            # so its effects played nowhere. Fixed: 2026-11-07, the render
+            # effects stager, as mayatk's WebXrPreview names it).
+            check(
+                f"the shots' effects play (animation {'on' if _animated else 'off'})",
+                all(
+                    {"opacity", "highlight"} <= _effects.get(_shot, set())
+                    for _shot in ("ShotA", "ShotB")
+                ),
+                detail=repr(_effects),
+            )
+    finally:
+        _FbxUtils.reset_takes()
+        _ShotStore.clear_active()
+
+    # ---- an emissive group's weight on an animation-off push ---------------
+    # Bug: a group's weight rides its copy's <material>__emission proxy, in the
+    # takes, so an animation-off push played no group's glow. Fixed: 2026-11-07
+    # -- effect_curves states each animated copy's weight
+    # (EmissiveGroups.weight_curves) and the overlay plays it on each shot's
+    # clip, starting, ending and peaking where the animated push's does.
+    # Mirror of mayatk's.
+    import struct as _eg_struct
+
+    from blendertk.mat_utils._mat_utils import MatUtils as _MatUtils
+    from blendertk.mat_utils.emissive_groups import EmissiveGroups as _EmissiveGroups
+
+    _glow_obj = cube("glowPanel")
+    _glow_mat = bpy.data.materials.new("glowPanelMat")
+    _bsdf = next(
+        n for n in _MatUtils.get_node_tree(_glow_mat, create=True).nodes if n.type == "BSDF_PRINCIPLED"
+    )
+    _bsdf.inputs["Emission Strength"].default_value = 2.0
+    _bsdf.inputs["Emission Color"].default_value = (0.2, 0.6, 1.0, 1.0)
+    _glow_obj.data.materials.append(_glow_mat)
+    _EmissiveGroups.add_group("signal", {_glow_obj.name: [0, 1]})
+    for _frame, _value in ((1, 0.0), (20, 1.0), (21, 1.0), (40, 0.0)):
+        _EmissiveGroups.key_weight("signal", _value, frame=_frame)
+    _glow_store = _ShotStore()
+    _ShotStore.set_active(_glow_store)
+    _glow_store.define_shot("ShotA", 1, 20, objects=[_glow_obj.name])
+    _glow_store.define_shot("ShotB", 21, 40, objects=[_glow_obj.name])
+    _glow_store.publish_export_view()
+
+    def _emission_by_clip(path):
+        with ptk.MeshConvert.open_glb(path) as edit:
+            gltf, blob = edit.gltf, edit.bin_data
+        out = {}
+        for animation in gltf.get("animations") or []:
+            for channel in animation["channels"]:
+                target = channel["target"]
+                pointer = (target.get("extensions") or {}).get("KHR_animation_pointer", {}).get("pointer", "")
+                if target.get("path") != "pointer" or not pointer.endswith("/emissiveFactor"):
+                    continue
+                acc = gltf["accessors"][animation["samplers"][channel["sampler"]]["output"]]
+                view = gltf["bufferViews"][acc["bufferView"]]
+                offset = view.get("byteOffset", 0) + acc.get("byteOffset", 0)
+                flat = _eg_struct.unpack_from(f"<{acc['count'] * 3}f", blob, offset)
+                out[animation["name"]] = [
+                    tuple(round(c, 3) for c in flat[i : i + 3]) for i in range(0, len(flat), 3)
+                ]
+        return out
+
+    _glow = {}
+    try:
+        for _animated in (True, False):
+            _FbxUtils.reset_takes()
+            _BuildTo.path = os.path.join(_out, f"glow_{_animated}.glb")
+            _bridge = _WebXrPreview()
+            _bridge.deliverer = _BuildTo()
+            _done = _bridge.push(objects=[_glow_obj], open_browser=False, INCLUDE_ANIMATION=_animated)
+            _glow[_animated] = _emission_by_clip(_done["glb"]) if _done else {}
+    finally:
+        _FbxUtils.reset_takes()
+        _ShotStore.clear_active()
+    check(
+        "an emissive group's weight plays on an animation-off push as on an animated one",
+        sorted(_glow.get(True, {})) == ["ShotA", "ShotB"]
+        and sorted(_glow.get(False, {})) == ["ShotA", "ShotB"]
+        and all(
+            _glow[False][_c][0] == _glow[True][_c][0]
+            and _glow[False][_c][-1] == _glow[True][_c][-1]
+            and max(_glow[False][_c], key=sum) == max(_glow[True][_c], key=sum)
+            for _c in ("ShotA", "ShotB")
+        ),
+        detail=repr(
+            {k: {c: (v[0], v[-1], max(v, key=sum)) for c, v in d.items()} for k, d in _glow.items()}
+        ),
     )
 
     # ---- the Render Effects panel's reads (mirror of mayatk's) ---------------

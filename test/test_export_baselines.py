@@ -66,6 +66,10 @@ try:
                 collection.remove(block)
         ShotStore.clear_active()
         scene = bpy.context.scene
+        # The shot store lives in the scene's private record, which outlives
+        # the objects: a fixture with no shots must not inherit the last one's.
+        if "data_internal" in scene:
+            del scene["data_internal"]
         scene.frame_start, scene.frame_end = 1, 40
 
     def export(name, objects, **tasks):
@@ -132,8 +136,30 @@ try:
     store.define_shot("ShotB", 21, 40, objects=["mover"])
     store.publish_export_view()
     matches_baseline(
-        export("shots", [mover], export_data_node=True, apply_declared_takes="both")
+        export("shots", [mover], export_data_node=True)
     )
+
+    # ---- an emissive group keyed over shots (groups are materials, 2026-11-07) -------------
+    from blendertk.mat_utils.emissive_groups import EmissiveGroups
+
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    panel = bpy.context.active_object
+    panel.name = "panel"
+    _glow = material("panel_mat", (0.8, 0.8, 0.8))
+    _bsdf = _glow.node_tree.nodes.get("Principled BSDF")
+    _bsdf.inputs["Emission Color"].default_value = (0.2, 0.6, 1.0, 1.0)
+    _bsdf.inputs["Emission Strength"].default_value = 2.0
+    panel.data.materials.append(_glow)
+    EmissiveGroups.add_group("signal", {"panel": [0, 1, 2]})
+    for frame, value in ((1, 0.0), (20, 1.0), (21, 1.0), (40, 0.0)):
+        EmissiveGroups.key_weight("signal", value, frame=frame)
+    store = ShotStore()
+    ShotStore.set_active(store)
+    store.define_shot("ShotA", 1, 20, objects=["panel"])
+    store.define_shot("ShotB", 21, 40, objects=["panel"])
+    store.publish_export_view()
+    matches_baseline(export("emissive_groups", [panel], export_data_node=True))
 
     # ---- a skinned joint chain ------------------------------------------------------------
     reset_scene()

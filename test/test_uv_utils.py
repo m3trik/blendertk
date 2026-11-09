@@ -1072,6 +1072,51 @@ try:
         UvDiagnostics.is_bakeable_lightmap(cube, lm),
     )
 
+    # ---- lightmaps v3 (2026-11-07): every map is read through the second UV
+    # map, so a lightmap layer elsewhere was refused at publish by a fix naming
+    # create_lightmap_uvs (mirror of mayatk's). Blender offers no move -- the
+    # UV Maps panel has add and remove alone, and the API no method (measured
+    # 5.1.2) -- so reorder_uv_sets rebuilds the layers behind the slot, each
+    # one's UVs, name and render flag kept.
+    me = cube.data
+    first = me.uv_layers[0].name
+    me.uv_layers.new(name="filler")
+    _UvUtils.reorder_uv_sets(cube, [first, "filler", lm])
+    check(
+        "lightmap: reorder_uv_sets puts the layers in the order given",
+        [layer.name for layer in me.uv_layers] == [first, "filler", lm],
+        [layer.name for layer in me.uv_layers],
+    )
+    before = [0.0] * (loops * 2)
+    me.uv_layers[lm].data.foreach_get("uv", before)
+    render = next(layer.name for layer in me.uv_layers if layer.active_render)
+    _UvUtils.create_lightmap_uvs([cube], quiet=True)
+    after = [0.0] * (loops * 2)
+    me.uv_layers[lm].data.foreach_get("uv", after)
+    check(
+        "lightmap: a reused layer moves to the second UV map, its UVs kept",
+        [layer.name for layer in me.uv_layers] == [first, lm, "filler"]
+        and all(abs(a - b) < 1e-6 for a, b in zip(after, before))
+        and me.uv_layers.active.name == lm
+        and next(layer.name for layer in me.uv_layers if layer.active_render) == render,
+        [layer.name for layer in me.uv_layers],
+    )
+    try:
+        _UvUtils.reorder_uv_sets(cube, [first, lm])
+        refused = False
+    except ValueError:
+        refused = True
+    check("lightmap: an order naming other layers is refused, as mayatk's", refused)
+    bpy.ops.mesh.primitive_cube_add()
+    detailed = bpy.context.object
+    detailed.data.uv_layers.new(name="Detail")
+    _UvUtils.create_lightmap_uvs([detailed], quiet=True)
+    check(
+        "lightmap: a new layer lands on the second UV map, the others after it",
+        [layer.name for layer in detailed.data.uv_layers] == ["UVMap", "Lightmap", "Detail"],
+        [layer.name for layer in detailed.data.uv_layers],
+    )
+
     # ---- the UV reads behind every lightmap bake take bpy's float32 path. A
     # float64 buffer makes foreach_get convert per element -- measured 3-4x
     # slower on 'uv' / 'co' (Blender 5.1), three passes per bake over every mesh.

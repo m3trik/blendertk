@@ -3,18 +3,19 @@
 Run: blender --background --factory-startup --python blendertk/test/test_unity_bridge.py
 
 Mirror of mayatk's ``test_unity_bridge.py``. ``UnityBridge`` is the Blender half of the
-Unity Workflow app (extapps' ``unity_workflow``, opened by tentacle with this class as its
-engine): it resolves the app's Scope, exports the FBX with the scene records and hands the
-payload to the delivery the app attaches (``deliverer=``, unitytk's
-``CopyToAssetsDeliverer``). Covered here: the host half names no unitytk, its delivery is
-the caller's, the Scope it resolves for the app, what it hands back, and a real end-to-end
-hand-off through the real deliverer into a temp Unity project's ``Assets/`` (a folder, no
-Unity install).
+Unity Scripts app (extapps' ``unity_scripts``, opened by tentacle with this class as its
+engine): it resolves the app's Scope, exports it with the Scene Exporter and hands the
+payload to the delivery the app attaches (``deliverer=``: the app's
+``ptk.FolderDeliverer``, a copy into the project's ``Assets/``). Covered here: the host
+half names no unitytk, its delivery is the caller's, the Scope it resolves for the app,
+what it hands back, and a real end-to-end hand-off through a ``ptk.FolderDeliverer``
+shaped as the app shapes it into a temp Unity project's ``Assets/`` (a folder, no Unity
+install).
 
 Two things stay module-level-Qt-bound and are therefore covered elsewhere, matching how
 the Maya/Rizom bridge slots split their coverage:
 
-* The panel is extapps' Unity Workflow app, which imports ``uitk`` -- never imported here.
+* The panel is extapps' Unity Scripts app, which imports ``uitk`` -- never imported here.
   What it asks of blendertk is Qt-free and exercised directly below: the engine's
   ``scope_objects`` (and ``btk.BridgeHost``'s reads beneath it) and the hand-off.
 * ``UnityBridge.params_defaults()`` (and therefore the public ``send()``, which calls it via
@@ -37,7 +38,7 @@ from pathlib import Path
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 MONO = os.path.dirname(REPO)
-for p in (REPO, os.path.join(MONO, "pythontk"), os.path.join(MONO, "unitytk")):
+for p in (REPO, os.path.join(MONO, "pythontk")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
@@ -72,13 +73,15 @@ try:
         """What the app receives from the host half: the payload, as produced."""
 
         def __init__(self, ok=True):
-            self.ok, self.payloads = ok, []
+            self.ok, self.payloads, self.fbx = ok, [], []
 
         def preflight(self, bridge, request):
             return self.ok
 
         def deliver(self, bridge, payload, request):
+            # Read here: the run's staging folder is gone once the send returns.
             self.payloads.append(payload)
+            self.fbx.append(ptk.FbxFile.is_fbx(payload.primary))
             return {"fbx": payload.primary, "project": bridge.project_path}
 
     # ---- pure (no Blender geometry) -- composition, and what is the app's ----
@@ -102,29 +105,22 @@ try:
         "an attached delivery is the one it sends through",
         UnityBridge(project_path="C:/proj", deliverer=attached).deliverer is attached,
     )
+    # The delivery, its modes and what it needs installed are the app's (a Unity
+    # project installs its packages through Unity's Package Manager).
     gone = [
         name
-        for name in ("list_delivery_modes", "list_template_modes", "_deliverer_cls")
+        for name in (
+            "list_delivery_modes",
+            "list_template_modes",
+            "_deliverer_cls",
+            "install_package",
+        )
         if hasattr(UnityBridge, name)
     ]
-    check("the delivery modes are the app's, not the engine's", not gone, f"{gone}")
+    check("the delivery is the app's, not the engine's", not gone, f"{gone}")
     check(
         "a send with no delivery refuses before its export",
         not UnityBridge()._preflight(["x"], copy_req()),
-    )
-    from blendertk.env_utils.handoff_export import BridgeHost
-
-    installed = []
-    real_install = BridgeHost.install_package
-    BridgeHost.install_package = staticmethod(installed.append)
-    try:
-        UnityBridge.install_package("unitytk>=0.1.0")
-    finally:
-        BridgeHost.install_package = real_install
-    check(
-        "the app installs an optional package where Blender imports it",
-        installed == ["unitytk>=0.1.0"],
-        f"{installed}",
     )
 
     # ---- scope resolution: BridgeHost and the primitives it reads ------------
@@ -252,13 +248,19 @@ try:
         # asset name reach the delivery the app attached, checked first.
         back = HandBack()
         handed = run_handoff(
-            UnityBridge(project_path=str(tmp), deliverer=back), [hero], {}
+            UnityBridge(
+                project_path=str(tmp),
+                deliverer=back,
+                decide_check_failure=lambda *a: "override_all",
+            ),
+            [hero],
+            {},
         )
         check(
             "the app receives the FBX and the asset name",
             handed is not None
             and len(back.payloads) == 1
-            and ptk.FbxFile.is_fbx(back.payloads[0].primary)
+            and back.fbx == [True]
             and back.payloads[0].extras.get("default_asset_name") == "UnityHero",
             f"{handed} {[p.extras for p in back.payloads]}",
         )
@@ -269,11 +271,28 @@ try:
             and not refused.payloads,
         )
 
-        # The app's delivery: unitytk's copy into Assets/ (on the monorepo path).
-        from unitytk import CopyToAssetsDeliverer
+        # The app's delivery as the app shapes pythontk's: a copy into the
+        # project's Assets/ by the panel's keys, the FBX carrying the files its
+        # records name (the Editor launch is the app's own).
+        class AssetsDeliverer(ptk.FolderDeliverer):
+            DEFAULT_SUBDIR = "Imported"
+            SUBDIR_PARAM = "ASSETS_SUBDIR"
+            NAME_PARAM = "ASSET_NAME"
 
+            def __init__(self):
+                super().__init__(embed=ptk.FbxMedia.embed_dependencies)
+
+            def target(self, bridge):
+                root = bridge.project_path
+                assets = os.path.join(root, "Assets") if root else None
+                return assets if assets and os.path.isdir(assets) else None
+
+        # Headless, nobody answers a failed check: these sends carry on past
+        # them, as a panel's Override All would.
         bridge = UnityBridge(
-            project_path=str(project), deliverer=CopyToAssetsDeliverer()
+            project_path=str(project),
+            deliverer=AssetsDeliverer(),
+            decide_check_failure=lambda *args: "override_all",
         )
 
         result = run_handoff(
@@ -281,7 +300,7 @@ try:
         )
         check("hand-off returns a result (delivery succeeded)", result is not None)
         if result is not None:
-            dest = Path(result["asset"])
+            dest = Path(result["file"])
             check(
                 "asset named after the selected object, under Assets/Models",
                 dest == project / "Assets" / "Models" / "UnityHero.fbx",
@@ -289,10 +308,6 @@ try:
             )
             check("copied FBX exists on disk", dest.is_file())
             check("copied FBX is non-empty", dest.is_file() and dest.stat().st_size > 0)
-            check(
-                "launched is False (no LAUNCH_MODE requested)",
-                result.get("launched") is False,
-            )
 
         # explicit asset name + default subdir
         bpy.ops.mesh.primitive_cube_add(location=(5, 0, 0))
@@ -302,7 +317,7 @@ try:
         cube2.select_set(True)
         result2 = run_handoff(bridge, [cube2], {"ASSET_NAME": "Custom/Name"})
         if result2 is not None:
-            dest2 = Path(result2["asset"])
+            dest2 = Path(result2["file"])
             check(
                 "default subdir 'Imported'; name sanitized",
                 dest2 == project / "Assets" / "Imported" / "Custom_Name.fbx",
@@ -336,9 +351,10 @@ try:
         from blendertk.node_utils.data_nodes import DataNodes
 
         check(
-            "the Unity bridge stages the render-effect and emissive-weight transport",
-            {"render_effects", "emissive_groups"} <= set(UnityBridge.export_stagers),
-            f"{UnityBridge.export_stagers}",
+            "the Unity bridge sends the Scene Exporter's deliverable (its stagers, records, takes)",
+            issubclass(UnityBridge, ptk.SceneExportHandoff)
+            and UnityBridge.SCENE_EXPORT_OVERRIDES == {},  # no Blender workspace row
+            f"{UnityBridge.__mro__}",
         )
         reset()
         for action in list(bpy.data.actions):
@@ -350,8 +366,14 @@ try:
         for frame, alpha in ((1, 1.0), (10, 0.0)):
             fader["opacity"] = alpha
             fader.keyframe_insert('["opacity"]', frame=frame)
+        from blendertk.mat_utils._mat_utils import MatUtils as _GlowMatUtils
+
+        _glow = bpy.data.materials.new("BridgeMat")
+        next(n for n in _GlowMatUtils.get_node_tree(_glow, create=True).nodes if n.type == "BSDF_PRINCIPLED").inputs[
+            "Emission Strength"
+        ].default_value = 1.0
+        fader.data.materials.append(_glow)
         EmissiveGroups.add_group("glow", {"BridgeFader": [0]})
-        EmissiveGroups.make_weights_keyable(["glow"])
         EmissiveGroups.key_weight("glow", value=1.0, frame=1)
         EmissiveGroups.key_weight("glow", value=0.0, frame=10)
         bpy.ops.object.select_all(action="DESELECT")
@@ -359,7 +381,7 @@ try:
         faded = run_handoff(
             bridge,
             [fader],
-            {"ASSET_NAME": "faded", "INCLUDE_ANIMATION": True},
+            {"ASSET_NAME": "faded"},
         )
         marked = [
             o.name
@@ -369,7 +391,7 @@ try:
         if faded is None:
             check("the animated hand-off returns a result", False)
         else:
-            shipped = ptk.FbxFile.load(faded["asset"], raw_payloads=False)
+            shipped = ptk.FbxFile.load(faded["file"], raw_payloads=False)
             models = shipped.object_names("Model")
             check(
                 "the bridge's FBX carries the opacity proxy beside its object",
@@ -378,7 +400,7 @@ try:
             )
             check(
                 "the bridge's FBX carries the keyed emissive weight's proxy",
-                "emissiveGroup_glow" in models and DataNodes.EXPORT in models,
+                "BridgeMat_glow__emission" in models and DataNodes.EXPORT in models,
                 f"{sorted(models)}",
             )
             check(
@@ -394,8 +416,8 @@ try:
         # it bakes, shipped none: measured in Unity, the staged proxies arrived as
         # static nodes. Mirror of mayatk's bridge, whose takes never split either.
         check(
-            "the Unity bridge bakes animation unless a request says otherwise",
-            getattr(UnityBridge, "include_animation", None) is True,
+            "the Unity bridge's export rows are the Scope alone",
+            set(UnityBridge().params_defaults()) == {"SCOPE"},
         )
         panel_params = {"ASSETS_SUBDIR": "Bridge", "ASSET_NAME": "panel_send"}
         sent = run_handoff(bridge, [fader], panel_params)
@@ -403,7 +425,7 @@ try:
             check("the panel-params hand-off returns a result", False)
         else:
             sent_fbx = ptk.FbxFile.load(
-                sent["asset"], raw_payloads=False, span_arrays=("KeyTime",)
+                sent["file"], raw_payloads=False, span_arrays=("KeyTime",)
             )
             animated = {
                 target
@@ -415,66 +437,46 @@ try:
                 sent_fbx.take_names() and "BridgeFader__opacity" in animated,
                 f"takes={sent_fbx.take_names()} animated={sorted(animated)}",
             )
-        still = run_handoff(
-            bridge,
-            [fader],
-            dict(panel_params, ASSET_NAME="still", INCLUDE_ANIMATION=False),
-        )
-        check(
-            "an explicit INCLUDE_ANIMATION=False still ships no take",
-            still is not None
-            and not ptk.FbxFile.load(still["asset"], raw_payloads=False).take_names(),
-        )
+        # ---- a send of a scene with shots ships exactly their takes (2026-11-05) ----
+        # Every writer of the per-shot takes ships them and no other: Maya's
+        # File > Export through its opt-in hook shipped Take 001 beside them.
+        # Blender's split REPLACES the scene-range stack; this pins it on the
+        # hand-off path, read back from the file.
+        from blendertk.anim_utils.shots._shots import ShotStore
 
-        # ---- Include Materials off: the proxy rides the stripped copy ----
-        # The strip path exports shader-less copies; the staged proxy hung under
-        # the original, which stays out of the file, so the fade never shipped.
-        # Maya's strip copy carries its children. Unity binds a proxy by its
-        # parent's path, so it has to sit under the copy that ships.
-        def model_parents(path):
-            """``{Model name: parent Model name}`` of an FBX's hierarchy."""
-            from io_scene_fbx import parse_fbx
-
-            root, _version = parse_fbx.parse(path)
-            objects = next(e for e in root.elems if e.id == b"Objects")
-            conns = next(e for e in root.elems if e.id == b"Connections")
-            names = {
-                e.props[0]: e.props[1].split(b"\x00")[0].decode()
-                for e in objects.elems
-                if e.id == b"Model"
-            }
-            return {
-                names[c.props[1]]: names[c.props[2]]
-                for c in conns.elems
-                if c.props[0] == b"OO" and c.props[1] in names and c.props[2] in names
-            }
-
-        stripped = run_handoff(
-            bridge,
-            [fader],
-            dict(panel_params, ASSET_NAME="stripped", INCLUDE_MATERIALS=False),
-        )
-        left = sorted(
-            o.name
-            for o in bpy.data.objects
-            if o.get(ptk.MeshConvert.CURVE_PROXY_MARKER)
-            or o.name.startswith("BridgeFader.")
-        )
-        if stripped is None:
-            check("the stripped hand-off returns a result", False)
-        else:
-            stripped_parents = model_parents(stripped["asset"])
-            proxy_parent = stripped_parents.get("BridgeFader__opacity", "")
-            check(
-                "with materials stripped, the opacity proxy ships under the copy",
-                proxy_parent.startswith("BridgeFader."),
-                f"{stripped_parents}",
+        ShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_bridge_takes_")
+        ShotStore.clear_active()
+        try:
+            store = ShotStore.active()
+            store.define_shot("FadeHalfA", 1, 5, objects=["BridgeFader"])
+            store.define_shot("FadeHalfB", 6, 10, objects=["BridgeFader"])
+            shot_send = run_handoff(
+                bridge, [fader], dict(panel_params, ASSET_NAME="shot_send")
             )
-        check(
-            "the stripped send leaves no copy and no proxy in the scene",
-            not left,
-            f"{left}",
-        )
+            shot_fbx = (
+                ptk.FbxFile.load(shot_send["file"], raw_payloads=False)
+                if shot_send is not None
+                else None
+            )
+            shot_windows = (
+                {
+                    name: tuple(round(t * bpy.context.scene.render.fps) for t in span)
+                    for name, span in shot_fbx.take_windows().items()
+                }
+                if shot_fbx is not None
+                else None
+            )
+            check(
+                "a send of a scene with shots ships one take per shot and no other",
+                shot_fbx is not None
+                and shot_fbx.take_names() == ["FadeHalfA", "FadeHalfB"]
+                and shot_windows == {"FadeHalfA": (1, 5), "FadeHalfB": (6, 10)},
+                f"takes={shot_fbx.take_names() if shot_fbx else None} "
+                f"windows={shot_windows}",
+            )
+        finally:
+            ShotStore.clear_active()
+            ShotStore._prefs_dir_override = None
 
         # ---- the audio the scene plays NOW rides inside the bridge's FBX ----
         # A hand-off refreshed only derived records and the audio record was
@@ -509,15 +511,15 @@ try:
         if heard is None:
             check("the audio hand-off returns a result", False)
         else:
-            events = ptk.FbxMedia.audio_events(heard["asset"])
+            sounds = ptk.FbxMedia.audio_sounds(heard["file"])
             check(
                 "the bridge's FBX names every strip the scene plays now",
-                sorted(events) == ["footstep", "punch"],
-                f"{events}",
+                sorted(sounds) == ["footstep.wav", "punch.wav"],
+                f"{sounds}",
             )
             embedded = {
                 row["name"]: row["bytes"]
-                for row in ptk.FbxMedia.embedded(heard["asset"])
+                for row in ptk.FbxMedia.embedded(heard["file"])
             }
             check(
                 "each strip's file is inside the bridge's FBX, whole, under its "

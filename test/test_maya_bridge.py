@@ -472,7 +472,7 @@ try:
         os.makedirs(tk_dir, exist_ok=True)
         try:
 
-            def tk_write(name, takes, drop=()):
+            def tk_write(name, takes):
                 reset()
                 for a in list(bpy.data.actions):
                     bpy.data.actions.remove(a)
@@ -492,17 +492,16 @@ try:
                     )
                 finally:
                     btk.FbxUtils.reset_takes()
-                if drop:
-                    ptk.FbxMedia.drop_takes(path, names=list(drop))
                 return path
 
+            # An armed split REPLACES the scene-range take (one take per shot,
+            # 2026-11-05), so a file whose cover sits beside its slices -- an
+            # older push -- is written with the cover as a take of its own.
             shots = [("early", 1, 30), ("late", 50, 70)]
             tk_files = {
-                "push": tk_write("push.fbx", shots),
-                "shots": tk_write("shots.fbx", shots, drop=("Scene",)),
-                "cover_last": tk_write(
-                    "cover_last.fbx", shots + [("Whole", 1, 100)], drop=("Scene",)
-                ),
+                "push": tk_write("push.fbx", [("Whole", 1, 100)] + shots),
+                "shots": tk_write("shots.fbx", shots),
+                "cover_last": tk_write("cover_last.fbx", shots + [("Whole", 1, 100)]),
                 "static": tk_write("static.fbx", []),
             }
             tk_out = os.path.join(tk_dir, "result.json")
@@ -1365,6 +1364,27 @@ try:
         check(
             "hand-off: no take stays armed after the write",
             btk.FbxUtils._pending_takes is None,
+        )
+        # The twin of mayatk's TestStaticHandoffShipsNoAnimation: a send with
+        # INCLUDE_ANIMATION off carries no animation -- no take, no curve.
+        _static = _tmp.path(extension=".fbx")
+        MayaBridge(maya_path="C:/fake/maya.exe")._export_fbx(
+            [_whole], _static, {"INCLUDE_ANIMATION": False}
+        )
+        _sfbx = ptk.FbxFile.load(_static, raw_payloads=False)
+        _anim_objects = {
+            kind: _sfbx.object_names(kind)
+            for kind in (
+                "AnimationStack",
+                "AnimationLayer",
+                "AnimationCurveNode",
+                "AnimationCurve",
+            )
+        }
+        check(
+            "hand-off: a static send of a keyed object ships no take and no curve",
+            _sfbx.take_names() == [] and not any(_anim_objects.values()),
+            f"takes={_sfbx.take_names()} objects={_anim_objects}",
         )
     finally:
         _tmp.cleanup()

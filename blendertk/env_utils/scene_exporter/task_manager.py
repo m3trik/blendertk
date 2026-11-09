@@ -87,6 +87,10 @@ class TaskManager(
         super().__init__(logger)
         self._objects = None
         self._cached_materials = None
+        #: The FBX writer options this run writes with, set by the exporter
+        #: once its preset is loaded: what the records' context states of the
+        #: write (``FbxUtils.export_context``'s ``writer_options``).
+        self.write_options = None
 
     def run_tasks(self, tasks: Dict[str, Any]) -> bool:
         """Run *tasks*, first adopting the two modes derived from them.
@@ -161,11 +165,11 @@ class TaskManager(
         record must never break the export it records.
 
         With a GLB written, its ``lightmaps`` is recorded as the GLB
-        ships it (mirror of mayatk's): the GLB build corrects the manifest to
-        the encoded map and the scalar restoring the bake range (its report's
-        ``lightmap_manifest``), while the scene's still names the pre-encode
-        ``.exr`` at 1.0. The GLB states its lightmaps once, in
-        ``extras.lightmaps``.
+        ships it (mirror of mayatk's): the record as it stands, in the GLB's
+        root ``extras`` (its report's ``lightmap_manifest``), its probe
+        drawn where the record has lights. The GLB states its lightmaps once,
+        in ``extras.lightmaps``, each file the record names riding it as the
+        bufferView of its name.
 
         Parameters:
             glb_path: The GLB this export wrote, if any.
@@ -249,8 +253,8 @@ class TaskManager(
         preview publishes through -- handed this run's dials: where the maps
         live NOW (:meth:`_lightmap_search_dirs`), the GLB's half of the panel's
         texture rows (:meth:`pythontk.ExportRun.glb_texture_params`, the method
-        the preview resolves the same rows with) and the Animation Clips choice
-        ``apply_declared_takes`` recorded. Everything else the GLB states --
+        the preview resolves the same rows with). Its clips are the FBX's
+        takes, one per shot (``apply_declared_takes``). Everything else the GLB states --
         every material, the handoff, the lighting choices -- it reads off the
         FBX's own records, so it says what its FBX says. A failed conversion or
         texture pass fails it (the deliverable must not lie).
@@ -287,9 +291,6 @@ class TaskManager(
                 # GLB Key Tolerance: the deviation bound, or None for the
                 # converter's per-frame keys.
                 key_tolerance=self.run.glb_key_tolerance,
-                # Which clips survive the rebuild: decided by the Animation
-                # Clips row, "both" when that task never ran.
-                clip_mode=self._clip_mode,
                 progress=lambda message: self._report_progress(None, None, message),
                 logger=self.logger,
             )

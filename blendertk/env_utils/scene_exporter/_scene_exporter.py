@@ -102,8 +102,8 @@ from blendertk.env_utils.usd import UsdUtils
 # weight-curve proxies) landed in SEPARATE takes, each rebased to frame 1 —
 # i.e. silently time-misaligned with each other in the engine. One scene-range
 # take is also what mayatk's FBX path produces (FBXExportBakeComplexStart/End),
-# so this is the parity-correct setting; per-shot takes are the opt-in job of
-# the ``apply_declared_takes`` task, not an accident of the defaults.
+# so this is the parity-correct setting; per-shot takes, replacing it, are the
+# job of the ``apply_declared_takes`` task, not an accident of the defaults.
 _DEFAULT_FBX_OPTIONS: Dict[str, Any] = {
     "mesh_smooth_type": "FACE",
     "use_tspace": True,
@@ -122,6 +122,10 @@ class SceneExporter(ptk.SceneExporterBase):
     presets over ``ptk.SceneExporterBase`` (progress, consent, run config
     and the log file, shared with mayatk). It configures the shell and adds
     to it; it overrides none of it."""
+
+    #: How a row's spec reads at rest (``ptk.SceneExporterBase.panel_defaults``):
+    #: uitk's Qt-free reader, imported on use.
+    ROW_DEFAULT = "uitk.managers.widget_spec:WidgetSpec.default"
 
     TASK_MANAGER_CLASS = TaskManager
     #: The scene store the shell reads the saved .blend's path from
@@ -152,8 +156,23 @@ class SceneExporter(ptk.SceneExporterBase):
     _legacy_fbx_presets_migrated = False
 
     def _initialize_objects(self, objects: Optional[Union[List, Callable]]) -> List:
-        """Initialize objects for the scene."""
+        """Initialize objects for the scene, including all descendants that will be
+        exported (mirror of mayatk's, whose FBX writer ships each node's hierarchy).
+
+        Each object (or its name) brings its children with it, and a collection
+        every object in it and theirs -- each one the write can ship
+        (:meth:`_shippable`: visible in the active view layer and selectable), as
+        mayatk's set holds only what it was handed and its writer takes the rest.
+        A hidden child (a collision proxy), a locked one, or one in an excluded
+        collection, another scene or no scene stays out, so the hidden-geometry
+        check fails only over what the caller handed in. A child handed in without
+        its parent ships without it; an object reached twice is in the set once, at
+        its first place.
+        """
+        import bpy
+
         import blendertk as btk
+        from blendertk.core_utils._core_utils import CoreUtils
 
         if objects is None:
             self.logger.debug(
@@ -168,7 +187,21 @@ class SceneExporter(ptk.SceneExporterBase):
         else:
             self.logger.debug("Static list of objects provided.")
 
-        objs = list(objects) if objects else []
+        vl = CoreUtils.active_view_layer()
+        shipped = []
+        for item in CoreUtils.get_objects(objects) if objects else []:
+            if isinstance(item, bpy.types.Collection):
+                members = [o for o in item.all_objects if self._shippable(o, vl)]
+            else:
+                members = [item]  # handed in: the checks judge it
+            for obj in members:
+                shipped.append(obj)
+                shipped.extend(
+                    child
+                    for child in getattr(obj, "children_recursive", ())
+                    if self._shippable(child, vl)
+                )
+        objs = list(dict.fromkeys(shipped))
 
         if hasattr(self, "task_manager"):
             self.task_manager.objects = objs
@@ -353,9 +386,12 @@ class SceneExporter(ptk.SceneExporterBase):
         # A transient edit until the restores are done (``ShotStore.
         # transient_edit``, mirror of mayatk's run scope): the run's bake,
         # snap and tie are put back, so the Shot Sequencer credits none of
-        # their keys to the active shot.
+        # their keys to the active shot. Blender's own bracket evaluates the
+        # scene before it closes, so the restores' edits are heard inside it.
+        from blendertk.anim_utils.shots.shot_sequencer.sequencer_host import SequencerHost
+
         transient = contextlib.ExitStack()
-        transient.enter_context(ptk.ShotStore.transient_edit())
+        transient.enter_context(SequencerHost.transient_edit())
         succeeded = False
         try:
             # Inside the try (mirror of mayatk), so the finally below closes the
@@ -388,6 +424,9 @@ class SceneExporter(ptk.SceneExporterBase):
             if not initialized_objs:
                 self.logger.error("Export aborted: No objects available for export.")
                 return False
+            # The options the write will use, its repairs applied: the
+            # records' context states what the write carries (its animation).
+            self.task_manager.write_options = self._resolved_fbx_options()
 
             self._progress_note("Preparing export…")
             # Each failed check is decided where it fails (mirror of mayatk:
@@ -463,21 +502,13 @@ class SceneExporter(ptk.SceneExporterBase):
         ``data_export`` carrier always stays: the write shows it for itself and
         hides it again after (``FbxUtils._carriers_shippable``)."""
         from blendertk.core_utils._core_utils import CoreUtils
-        from blendertk.node_utils.data_nodes import DataNodes
 
         # the window's layer -- the one FbxUtils.export selects in (windowless, a
         # bare visible_get reads the scene's default layer)
-        vl = CoreUtils._active_view_layer()
+        vl = CoreUtils.active_view_layer()
         exportable, dropped = [], []
         for o in objects:
-            try:
-                ok = DataNodes.is_carrier(getattr(o, "name", None)) or (
-                    (not getattr(o, "hide_select", False))
-                    and o.visible_get(view_layer=vl)
-                )
-            except RuntimeError:  # not in the active view layer
-                ok = False
-            (exportable if ok else dropped).append(o)
+            (exportable if self._shippable(o, vl) else dropped).append(o)
         if dropped:
             shown = ", ".join(o.name for o in dropped[:10]) + (
                 " …" if len(dropped) > 10 else ""
@@ -487,6 +518,25 @@ class SceneExporter(ptk.SceneExporterBase):
                 f"selection-based FBX funnel cannot ship: {shown}"
             )
         return exportable
+
+    @staticmethod
+    def _shippable(obj, view_layer) -> bool:
+        """Whether the selection-based FBX funnel can ship *obj*: visible in
+        *view_layer* and selectable (``hide_select`` off), or the ``data_export``
+        carrier, which the write shows for itself. An object outside the layer
+        (an excluded collection, no scene) is not: ``select_set`` raises there."""
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        try:
+            return bool(
+                DataNodes.is_carrier(getattr(obj, "name", None))
+                or (
+                    not getattr(obj, "hide_select", False)
+                    and obj.visible_get(view_layer=view_layer)
+                )
+            )
+        except RuntimeError:  # not in the view layer
+            return False
 
     def _write_export(self, export_objects: List, start_time: float) -> bool:
         """Write the FBX (and any GLB deliverable) for an already-prepared export
@@ -527,8 +577,7 @@ class SceneExporter(ptk.SceneExporterBase):
 
             # A run with the carrier tasks off still publishes the scene
             # records exactly once before the write (mirror of mayatk's
-            # bracket fallback); a run with them on published in the task,
-            # with the Animation Clips mode as the producers' input.
+            # bracket fallback); a run with them on published in the task.
             self.task_manager.ensure_scene_records_published()
             self._progress_step("Writing USD…" if run.usd else "Writing FBX…")
             # From here the deliverable is finished regardless of a stop
@@ -556,6 +605,10 @@ class SceneExporter(ptk.SceneExporterBase):
                     objects=export_objects,
                     **fbx_options,
                 )
+                # One take per shot, held right after the write and BEFORE any
+                # GLB conversion, which converts this file's takes as its
+                # clips -- a GLB-only run's intermediate too (mirror of mayatk).
+                self.task_manager.ship_declared_takes(fbx_write_path)
             export_succeeded = True
 
             deliverable_path = self.export_path
@@ -612,12 +665,8 @@ class SceneExporter(ptk.SceneExporterBase):
                     fbx_path=fbx_write_path, announce=False
                 )
 
-            # The FBX deliverable's clips, per the Animation Clips mode --
-            # after the GLB, whose clips are cut from the whole-timeline take
-            # Shots Only drops (mirror of mayatk). A GLB-only run's FBX is not
-            # shipped.
+            # A GLB-only run's FBX is not shipped.
             if not run.glb_only and not run.usd:
-                self.task_manager.ship_declared_takes(fbx_write_path)
                 # The FBX made to read as its GLB twin does -- each pivot set
                 # its own mesh, the probe's highlight copies (the GLB's) in,
                 # and every file the scene records name by file name (the
@@ -1233,8 +1282,9 @@ class SceneExporter(ptk.SceneExporterBase):
         the file and independently-authored curves (a mesh's action vs.
         EmissiveGroups' staged weight proxies) land in separate takes, silently
         time-misaligned in the engine. One scene-range take is also what mayatk's
-        FBX path produces, so it is the parity-correct shape; per-shot takes are the
-        opt-in job of ``apply_declared_takes``, never an accident of the defaults.
+        FBX path produces, so it is the parity-correct shape; per-shot takes,
+        replacing it, are the job of ``apply_declared_takes``, never an accident
+        of the defaults.
 
         Same rule as :meth:`_force_carrier_readability`: this is a pipeline-owned
         property, so no preset may separate "export animation" from "export it in

@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.23.1"
+__version__ = "0.24.0"
 
 """blendertk — the Blender host library: each tool's API half (its operations and record
 rows), as mayatk is Maya's. tentacle holds the panels and their Slots, shared by both
@@ -138,7 +138,7 @@ DEFAULT_INCLUDE = {
         "WebXrPreview",
     ],
     # The Unity hand-off's Blender half — mirror of mayatk's
-    # ``env_utils.unity_bridge._unity_bridge`` (its panel is extapps' Unity Workflow
+    # ``env_utils.unity_bridge._unity_bridge`` (its panel is extapps' Unity Scripts
     # app, opened by tentacle with this engine injected).
     "env_utils.unity_bridge._unity_bridge": [
         "UnityBridge",
@@ -464,6 +464,21 @@ DEFAULT_INCLUDE = {
 #: read raises MovedNameError naming the new home. ``{name: (new home, version)}``;
 #: a move adds its names here in the same change set.
 MOVED_NAMES = {
+    # The Substance bridge runs scripts in Painter and finds a Painter by its
+    # instance record (2026-11-05): the Painter row's values, no fixed port, no
+    # code-evaluating op, no render template.
+    "TARGET_AUTO": ("blendertk.mat_utils.substance_bridge.PAINTER_AUTO", "0.24.0"),
+    "TARGET_NEW": ("blendertk.mat_utils.substance_bridge.PAINTER_NEW", "0.24.0"),
+    "TARGET_CURRENT": ("blendertk.mat_utils.substance_bridge.PAINTER_AUTO (a script on a project runs where it is open)", "0.24.0"),
+    "SubstanceEngine.ensure_rpc_plugin": ("blendertk.mat_utils.substance_bridge.SubstanceBridge.refresh_rpc_plugin", "0.24.0"),
+    "SubstanceEngine.find_live_managed": ("blendertk.mat_utils.substance_bridge.SubstanceBridge.pick_painter", "0.24.0"),
+    "Parameters.render_cli_context": ("blendertk.mat_utils.substance_bridge.SubstanceBridge.script_args", "0.24.0"),
+    "Parameters.render_js_context": ("blendertk.mat_utils.substance_bridge.SubstanceBridge.script_args", "0.24.0"),
+    "DEFAULT_RPC_PORT": ("blendertk.mat_utils.substance_bridge.substance_rpc.PainterRpcClient.painters", "0.24.0"),
+    "PainterRpcClient.eval_js": ("blendertk.mat_utils.substance_bridge.substance_rpc.PainterRpcClient.run_script", "0.24.0"),
+    "PainterRpcClient.eval_py": ("blendertk.mat_utils.substance_bridge.substance_rpc.PainterRpcClient.run_script", "0.24.0"),
+    "eval_python": ("blendertk.mat_utils.substance_bridge.substance_rpc.PainterRpcClient.run_script", "0.24.0"),
+    "js_evaluate": ("blendertk.mat_utils.substance_bridge.substance_rpc.PainterRpcClient.run_script", "0.24.0"),
     # The lightmap tier alias and the Get Scene Info section key, their
     # deprecation windows closed (2026-11-01): a tier name is looked up as
     # given, and the removed key's table is the Materials section (mirror of mayatk).
@@ -773,17 +788,21 @@ MOVED_NAMES = {
     ),
     # The Unity panel: tentacle's for a while, now the one Unity app, extapps' Unity
     # Workflow, which tentacle opens with ``UnityBridge`` as its engine.
-    "UnityBridgeSlots": ("extapps.UnityWorkflowSlots", "0.23.0"),
-    "UnityPanelMixin": ("extapps.UnityWorkflowSlots", "0.23.0"),
-    # The delivery is the app's, over unitytk's file bridge and its modes.
+    "UnityBridgeSlots": ("extapps.UnityScriptsSlots", "0.23.0"),
+    "UnityPanelMixin": ("extapps.UnityScriptsSlots", "0.23.0"),
+    # The delivery is the app's, over pythontk's file bridge and its modes.
     "UnityBridge.list_template_modes": (
-        "unitytk.FileToUnityBridge.list_template_modes",
+        "pythontk.FileDeliveryBridge.list_template_modes",
         "0.23.0",
     ),
     "UnityBridge.list_delivery_modes": (
-        "unitytk.CopyToAssetsDeliverer.DELIVERY_MODES",
+        "pythontk.FolderDeliverer.DELIVERY_MODES",
         "0.23.0",
     ),
+    # Removed with no caller left: the Unity Scripts app installs nothing into
+    # the host; a Unity project installs its packages with Unity's Package Manager
+    # (mirror of mayatk).
+    "UnityBridge.install_package": ("Unity's Package Manager", "0.24.0"),
     "ShotsSlots": (
         "tentacle.slots.tools.shots.ShotsSlots",
         "0.23.0",
@@ -983,6 +1002,61 @@ MOVED_NAMES = {
         "blendertk.TexturePathEditor.find_and_copy_textures",
         "0.23.0",
     ),
+    # Emissive groups become materials (2026-11-07): the masks, slots and
+    # emissive_groups record retire (pythontk's rows name the model's).
+    "EmissiveGroups.set_default": ("blendertk.EmissiveGroups.set_weight", "0.24.0"),
+    "EmissiveGroups.make_weights_keyable": ("blendertk.EmissiveGroups.key_weight", "0.24.0"),
+    "EmissiveGroups.remove_keyable_weights": ("blendertk.EmissiveGroups.remove_keys", "0.24.0"),
+    "EmissiveGroups.weight_attrs": ("blendertk.EmissiveGroups.list_groups", "0.24.0"),
+    "EmissiveGroups.compact_slots": ("blendertk.EmissiveGroups.convert_legacy", "0.24.0"),
+    "EmissiveGroups.bake_vertex_colors": ("blendertk.EmissiveGroups.convert_legacy", "0.24.0"),
+    "EmissiveGroups.bake_mask": ("blendertk.EmissiveGroups.convert_legacy", "0.24.0"),
+    "EmissiveGroups.export_record": ("blendertk.EmissiveGroups.render_effect_materials", "0.24.0"),
+    "EmissiveGroups.refresh_export_metadata": ("blendertk.EmissiveGroups.render_effect_materials", "0.24.0"),
+    "EmissiveGroups.merge_carrier": ("blendertk.EmissiveGroups.transfer_in", "0.24.0"),
+    "EmissiveGroups.discard_carrier": ("blendertk.EmissiveGroups.transfer_in", "0.24.0"),
+    "EmissiveGroups.create_export_curve_proxies": ("blendertk.EmissiveGroups.stage_export_proxies", "0.24.0"),
+    "EmissiveGroups.remove_export_curve_proxies": ("blendertk.EmissiveGroups.remove_export_proxies", "0.24.0"),
+    "EmissiveGroups.PROXY_MARKER": ("blendertk.BlenderEmissiveGroups.PROXY_MARKER", "0.24.0"),
+    # The Blender half of the old host seam (pythontk's EmissiveGroupsHost rows).
+    "BlenderEmissiveGroups.add_members": ("blendertk.BlenderEmissiveGroups.assign", "0.24.0"),
+    "BlenderEmissiveGroups.remove_members": ("blendertk.BlenderEmissiveGroups.delete_material", "0.24.0"),
+    "BlenderEmissiveGroups.members": ("blendertk.BlenderEmissiveGroups.material_faces", "0.24.0"),
+    "BlenderEmissiveGroups.membership_stores": ("blendertk.BlenderEmissiveGroups.legacy_store_names", "0.24.0"),
+    "BlenderEmissiveGroups.carrier_weights": ("blendertk.BlenderEmissiveGroups.copies", "0.24.0"),
+    "BlenderEmissiveGroups.weight_exists": ("blendertk.BlenderEmissiveGroups.copies", "0.24.0"),
+    "BlenderEmissiveGroups.ensure_weight": ("blendertk.BlenderEmissiveGroups.set_emission", "0.24.0"),
+    "BlenderEmissiveGroups.delete_weight": ("blendertk.BlenderEmissiveGroups.clear_emission_keys", "0.24.0"),
+    "BlenderEmissiveGroups.sync_weight": ("blendertk.BlenderEmissiveGroups.set_emission", "0.24.0"),
+    "BlenderEmissiveGroups.key_weight": ("blendertk.BlenderEmissiveGroups.key_emission", "0.24.0"),
+    "BlenderEmissiveGroups.foreign_color_sets": ("blendertk.BlenderEmissiveGroups.remove_legacy", "0.24.0"),
+    "BlenderEmissiveGroups.write_colors": ("blendertk.BlenderEmissiveGroups.remove_legacy", "0.24.0"),
+    "BlenderEmissiveGroups.uv_triangles": ("blendertk.BlenderEmissiveGroups.remove_legacy", "0.24.0"),
+    "BlenderEmissiveGroups.mask_path": ("blendertk.BlenderEmissiveGroups.remove_legacy", "0.24.0"),
+    "BlenderEmissiveGroups.object_names": ("blendertk.BlenderEmissiveGroups.faces", "0.24.0"),
+    "BlenderEmissiveGroups.face_count": ("blendertk.BlenderEmissiveGroups.material_faces", "0.24.0"),
+    "BlenderEmissiveGroups.mesh": ("blendertk.BlenderEmissiveGroups.material", "0.24.0"),
+    "BlenderEmissiveGroups.merge_stores": ("blendertk.BlenderEmissiveGroups.copies", "0.24.0"),
+    "BlenderEmissiveGroups.discard_stores": ("blendertk.BlenderEmissiveGroups.remove_legacy", "0.24.0"),
+    "BlenderEmissiveGroups.publish": ("blendertk.BlenderEmissiveGroups.stage_emission_proxy", "0.24.0"),
+    # The native GLB carries the lightmaps record and its files (2026-11-07):
+    # one layout with the FBX route's, so nothing is wired into a material slot,
+    # cloned, or stated in the retired block.
+    "LightmapWebExport.CARRIERS": ("blendertk.LightmapWebExport.native_record", "0.24.0"),
+    "LightmapWebExport.LIGHTMAP_IMAGE_MARKER": ("blendertk.LightmapWebExport.embed_media", "0.24.0"),
+    "LightmapWebExport.wire_lightmaps": ("blendertk.LightmapWebExport.wired_for_export", "0.24.0"),
+    "LightmapWebExport.unwire_lightmaps": ("blendertk.LightmapWebExport.wired_for_export", "0.24.0"),
+    "LightmapWebExport.embed_probe": ("blendertk.LightmapWebExport.embed_media", "0.24.0"),
+}
+
+#: Held until 0.25.0: names v0.23.1 noticed for removal in 0.21.0 on
+#: 2026-10-24, whose window closes 2026-11-23 -- restored as working deprecated
+#: aliases (``LightmapWebExport.MANIFEST_VERSION``, ``build_manifest`` for its
+#: ``lighting`` notice; ``test_web_export.py``'s "still answer" check). At 0.25.0
+#: delete them and move these rows into MOVED_NAMES.
+HELD_UNTIL_0_25 = {
+    "LightmapWebExport.MANIFEST_VERSION": ("pythontk.SceneRecords.LIGHTMAPS", "0.25.0"),
+    "LightmapWebExport.build_manifest": ("blendertk.LightmapWebExport.native_record", "0.25.0"),
 }
 
 bootstrap_package(

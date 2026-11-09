@@ -7,8 +7,11 @@ its material's texture (``embed_textures``, pinned over any preset), the
 lightmap, the silhouette and the horizon map -- ``FbxUtils.embed_dependencies``
 (``pythontk.FbxMedia.embed_dependencies``), the same post-write step as mayatk's
 -- and nothing may land beside it: processed maps stage in scratch, and the
-exporter's own ``.scene_data.json`` record lives in the per-user store. The Unity half of the contract (only the FBX
-copied in, every map resolved) is unitytk's ``test_embedded_dependencies_integration``.
+exporter's own ``.scene_data.json`` record lives in the per-user store. The
+Unity half of the contract (only the FBX copied in, every map resolved) is
+the Unity package's samples' Edit Mode tests (``<F>SampleTests``) and their
+twins' (``m3trik/test/unity_e2e/``: each sample delivered again, this
+exporter's among them, and held to the same tests).
 
 Run: blender --background --factory-startup --python blendertk/test/test_scene_exporter_dependencies.py
 """
@@ -82,6 +85,9 @@ try:
     image.file_format = "OPEN_EXR"
     image.save()
     check("the lightmap EXR is on disk", os.path.isfile(lightmap), lightmap)
+    # The lightmap UVs on the second UV map, where the record reads every map
+    # (a set the mesh lacks is refused).
+    cube.data.uv_layers.new(name="Lightmap")
     LightmapBaker().commit_lightmap({cube.name: lightmap})
 
     rig = ShadowRig.create(
@@ -160,12 +166,13 @@ try:
         )
     ]
     check(
-        "the FBX's audio record names the strip's event",
-        [e.get("name") for m in manifests for e in m.get("events", [])] == [track],
+        "the FBX's audio record names the strip's sound by its delivered file",
+        [c.get("sound") for m in manifests for c in m.get("cues", [])]
+        == [f"{track}.wav"],
         f"{manifests}",
     )
     check(
-        "the strip's file is inside the FBX, whole, under its event's name",
+        "the strip's file is inside the FBX, whole, under its sound's name",
         embedded.get(f"{track}.wav") == os.path.getsize(wav),
         f"embedded={sorted(embedded)}",
     )
@@ -183,11 +190,24 @@ try:
     check(
         "the audio record's digest of the strip is the SHA-256 of the bytes inside",
         f"{track}.wav" in written
-        and [m.get("media") for m in manifests] == [{track: inside_digest}],
+        and [m.get("media") for m in manifests] == [{f"{track}.wav": inside_digest}],
         f"{[m.get('media') for m in manifests]} vs {inside_digest}",
     )
     beside = sorted(os.listdir(out))
     check("nothing ships beside the FBX", beside == ["embedded_deps.fbx"], f"{beside}")
+    # Bug: the FBX carried the producer's user name and folders -- the source
+    # .blend, each map's path in the staging folder under the user's temp
+    # folder -- to whoever opened it; the deliverable names none (pythontk
+    # ``FbxMedia.strip_machine_paths``, mirror of mayatk's). Fixed: 2026-11-08
+    with open(fbx, "rb") as fh:
+        data = fh.read().lower()
+    leaked = [
+        spelling
+        for folder in (os.path.expanduser("~"), root, images)
+        for spelling in (folder.replace("\\", "/"), folder.replace("/", "\\"))
+        if spelling.lower().encode("utf-8") in data
+    ] + ([b"appdata"] if b"appdata" in data else [])
+    check("the FBX names no folder of this machine", not leaked, f"{leaked}")
     from blendertk.env_utils.hierarchy_sync.scene_data_sidecar import (
         SceneDataSidecar,
     )
@@ -256,6 +276,34 @@ try:
         "a second pass finds every file already inside",
         again["embedded"] == [] and sorted(again["present"]) == recorded,
         f"{again}",
+    )
+
+    # The embedded map still resolves with nothing beside the file: imported
+    # from a copy elsewhere, its source gone, the material's image has pixels.
+    elsewhere = os.path.join(root, "client")
+    os.makedirs(elsewhere, exist_ok=True)
+    copy = os.path.join(elsewhere, "embedded_deps.fbx")
+    with open(fbx, "rb") as src, open(copy, "wb") as dst:
+        dst.write(src.read())
+    os.remove(base_color)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.import_scene.fbx(filepath=copy)
+    read = [
+        node.image
+        for mat in bpy.data.materials
+        if mat.node_tree
+        for node in mat.node_tree.nodes
+        if node.type == "TEX_IMAGE" and node.image
+    ]
+    check(
+        "the re-imported material's map resolves from inside the FBX",
+        any(
+            ptk.FileDependencies.file_name(image.filepath) == "Crate_Base_color.png"
+            and image.has_data
+            and image.size[0] == 4
+            for image in read
+        ),
+        f"{[(i.name, i.filepath, i.has_data, tuple(i.size)) for i in read]}",
     )
 
     bpy.ops.wm.read_factory_settings(use_empty=True)

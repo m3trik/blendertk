@@ -18,8 +18,8 @@ natively in Cycles** — so this is a much thinner adapter over ``bpy.ops.object
   :meth:`_heal_dead_texels` and the atlas assembly fill the rest.
 * ``ptk.SceneRecords.LIGHTMAPS`` -- the export manifest record (a custom prop on the
   ``data_export`` Empty through ``DataNodes``, rides the FBX; no sidecar file). Informational
-  -- the mesh's UV2 samples the map in any engine; unitytk's optional editor helper reads it
-  to auto-bind Unity's native slots.
+  -- the mesh's UV2 samples the map in any engine; the unitytk package's Lightmaps importer
+  reads it and binds Unity's native slots.
 
 **One bake level, and it is real lightmapping**, non-destructive and exposed in the panel:
 :meth:`LightmapBaker.bake` bakes lighting-only irradiance onto the lightmap UV (channel 1)
@@ -630,8 +630,11 @@ class LightmapBaker(ptk.LoggingMixin):
             prefix / suffix: Name affix around each map's texture-set stem.
             on_progress: ``(done, total, name) -> bool`` per object; return
                 ``False`` to cancel the rest (and the probe).
-            intensity: A multiplier baked into the texels; recorded in the
-                markers, informationally.
+            intensity: A multiplier baked into the texels. 1.0 matches the
+                render in every reader: a texel is a white card's radiance,
+                and Unity's Lit, the WebXR viewer and Arnold all draw it as
+                stored, ``texel x albedo`` (``HandoffRecord``'s probe clause).
+                Recorded in the markers, informationally.
             kwargs: Forwarded to the bake mechanism.
 
         Returns:
@@ -1546,8 +1549,8 @@ class LightmapBaker(ptk.LoggingMixin):
 
         Written beside the bake's maps as ``<file>_Probe.exr`` and recorded
         (:meth:`LightmapRecords.commit_probe`); the lightmap manifest carries
-        it into a GLB (``ptk.MeshConvert.apply_glb_lightmaps``, and the native
-        exporter's :meth:`LightmapWebExport.embed_probe`) and Unity.
+        it into a GLB (``ptk.MeshConvert.apply_glb_lightmaps``, which the native
+        exporter's :meth:`LightmapWebExport.embed_media` runs too) and Unity.
 
         Parameters:
             maps: ``{object: map path}`` this bake wrote; the probe lands in the

@@ -620,6 +620,20 @@ A03.),Fuselage fades out,fuselage_geo,
         and not rt_store.edit_ledger.authored(behavior="highlight"),
         f"{door_keys(hl_path)}",
     )
+    # Assess's "Nf unused" is what Trim Trailing Space would cut
+    # (``ShotSequencer.content_end``), as mayatk's: the faded door also slides
+    # until 130 frames in and holds to a key past the shot. Measured before
+    # (mayatk): all but the fade read as unused. Fixed: 2026-11-08
+    _d01 = next(s for s in rt_store.sorted_shots() if s.name == "D01")
+    for _frame, _value in ((_d01.start, 0.0), (_d01.start + 130, 5.0), (_d01.end + 800, 5.0)):
+        door.location.x = _value
+        door.keyframe_insert(data_path="location", index=0, frame=_frame)
+    [_tail] = rt.assess(rt_steps("fade_in"))
+    check(
+        "assess: the unused tail ends at a faded member's own keys",
+        _tail.shrinkable_frames == _d01.end - (_d01.start + 130),
+        f"{_tail.shrinkable_frames} in [{_d01.start}, {_d01.end}]",
+    )
 
     _insert_in_sheet_order_checks(check, _BS, _BO)
 

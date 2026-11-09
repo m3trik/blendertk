@@ -19,8 +19,7 @@ scene["data_internal"]     ID property group, on each Scene     PRIVATE -- never
 
 data_export                plain Empty                          DELIVERABLE -- rides every export
 ├─ <record key>            string custom property: JSON         one per deliverable record
-└─ emissiveGroup_<name>    float custom property 0-1,           each emissive group's weight
-                           keyed on the Empty's own action
+└─ <material>__emission    child Empty, curveProxy, one write   an animated material's emission weight
 ```
 
 A record is stored as on Maya: one string per key, enveloped or bare, a clear
@@ -37,25 +36,27 @@ state.
 | Private scope | one scene per file | **per scene**: each scene of a multi-scene `.blend` keeps its own group, and the store reads and writes the active scene's |
 | Deliverable carrier | a locked, hidden `transform` + zero-scale locator | a plain Empty, whose custom properties Blender's FBX exporter writes as user properties |
 | Carrier visibility | stays hidden; Maya exports hidden nodes in a selection | may be hidden: the write shows it for its `use_selection` funnel (linking it to the scene root while its collection is hidden or excluded) and hides it again after |
-| Duplicate carrier | duplicate short names resolve to the shallowest DAG path | names are unique per library; an FBX re-import lands as `data_export.001`, which the store ignores. Only the file's own `data_export` is written; a library-linked one is listed by `get_export_nodes` (Maya's `NS:data_export`). An unlinked carrier is relinked on the next write |
+| Duplicate carrier | the scene's is the root-level `data_export`; one under a group is its module's, never adopted | names are unique per library; an FBX re-import lands as `data_export.001`, which the store ignores. Only the file's own `data_export` is written; a library-linked one is listed by `get_export_nodes` (Maya's `NS:data_export`). An unlinked carrier is relinked on the next write |
 | Carrier lifetime | a `keepAlive` input stops Maya deleting the node | a property group has no inputs |
 | Legacy layout | -- | a file saved before 2026-09-18 kept private records on a `data_internal` **Empty** and the shot store / key stash as top-level `scene["shot_store"]` / `scene["key_stash"]`. Reads find them without migrating; the first private write **folds** them: each scene's top-level pair into its own group, the Empty's properties into every local scene's group, then the Empty goes (a legacy value found beside the group wins: an older blendertk wrote it). Until then the export sets drop the Empty by name. A library-linked `data_internal` is never read or folded |
 | Record migration (`migrate`) | in every commit, and when a scene opens (`kAfterOpen`) | in every commit, and when a file loads (`load_post`: an open, a revert, File ▸ New); the move leaves the file unmodified |
 | Writer stamp | the scene file spelled from its own project | the same, except a UNC path keeps its leading `\\`: a forward-slash `//` reads as Blender's file-relative prefix |
 | Files written since the last save (`ptk.PendingFiles`: a bake's lightmaps wait in a session folder until the save) | committed at `kBeforeSave` of the open scene; an autosave or a `.ma` export is a copy and commits nothing; dropped at `kAfterOpen` / `kAfterNew` | committed in `save_pre`, after the records are re-spelled (the target does not exist yet, so a stamp naming it would read as a gone file's). `save_pre` cannot tell a Save As from a Save Copy (both hand it the new path while `bpy.data.filepath` is still the old one), so both commit as a fork: nothing over a file the open one reads, a taken name moved to the next free one. After a copy, the open file keeps the records the commit wrote (its maps are home, no longer in the session): a copy can cost the open file a name, never a map. Dropped at `load_post`: an open, a revert, or File ▸ New |
 | Before-export hook | `kBeforeExport` republishes opted-in records for any FBX export | **none** -- `bpy.app.handlers` has no FBX-export event, so a plain File ▸ Export ships whatever the carrier holds; producers also publish at authoring time (`FbxUtils.publish_authored`), and `enable_export_producer` records the opt-in for parity |
-| Stagers (`FbxUtils.STAGERS`) | `render_effects`, `lightmap_folder_hints` | those two plus `emissive_groups` (below). The Scene Exporter stages them all; a hand-off bridge runs only the rows it names (`export_stagers`; `UnityBridge`: `render_effects`, `emissive_groups`). Session stagers (the shadow preview) `prepare` in every bracket and before a publish outside one, but `finish` only when a bracket closes |
+| Stagers (`FbxUtils.STAGERS`) | `render_effects`, `lightmap_folder_hints` | the same two (the `render_effects` stager stages the emissive groups' weight proxies too). The Scene Exporter stages them all; a hand-off bridge runs only the rows it names (`export_stagers`). Session stagers (the shadow preview) `prepare` in every bracket and before a publish outside one, but `finish` only when a bracket closes |
 | Crossing a carrier's non-record properties | value and curve move | the value moves; the curve does not |
 
 ## What the export carries
 
-As on Maya (mayatk's *What an export carries*), with one transport difference:
-Blender's FBX exporter cannot animate a custom property, so each keyed
-`emissiveGroup_<name>` weight ships on a transient child Empty of
-`data_export` named for it, its `scale.x` keyed (marked
-`emissiveGroupCurveProxy` and `curveProxy`; the `emissive_groups` stager adds
-it for the write and removes it after). The render-effects curves ride
-`<object>__opacity` / `<object>__highlight` children, as on Maya.
+As on Maya (mayatk's *What an export carries*): Blender's FBX exporter ships no
+material animation, so each animated material's emission weight (an emissive
+group's copy, keyed by the group's weight) ships on a transient child Empty of
+`data_export` named `<material>__emission` by the material's leaf
+(`ptk.SceneRecords.TRANSPORT`), its `scale.x` keyed (marked
+`emissiveGroupProxy` and `curveProxy`; the `render_effects` stager adds it for
+the write and removes it after). The render-effects curves ride
+`<object>__opacity` / `<object>__highlight` / `<object>__visibility`
+children, as on Maya.
 
 ### Getting the carrier into the FBX
 
@@ -76,8 +77,8 @@ writes) repairs them the same way. Pinned by `test/test_scene_exporter.py`.
 
 The Scene Exporter's default-on *Export Scene Data Node* task
 (`export_data_node`) is the one publish of an export -- `FbxUtils.publish` with
-the run's Animation Clips mode -- and adds the carrier in every export mode; a
-run with the task off still publishes once before the write.
+the run's context -- and adds the carrier in every export mode; a run with the
+task off still publishes once before the write.
 
 **Hand-off bridges**: `BlenderExportMixin.include_data_export` (on for
 `WebXrPreview` and `UnityBridge`, off by default) refreshes the carrier's
@@ -93,14 +94,13 @@ same payload schemas -- one Unity reader and one GLB build serve both DCCs:
 
 | Record | Producer | Blender notes |
 |---|---|---|
-| `animation` | `ShotStore.produce_export_records` | the write splits its baked scene-range AnimStack into one windowed stack per take (`fbx_utils.py`'s module docstring) |
-| `audio` | `AudioUtils.export_record` | one event per playing sound strip, named for the strip, at its visible start, scoped to the takes by `ptk.AudioUtils.scope_events`; a strip trimmed at its head plays from its file's start (the export notes it) |
+| `animation` | `ShotStore.produce_export_records` | per shot its clip, description and metadata, and the scene's `fps` (a shotless animated scene's record states the rate alone); the write replaces its baked scene-range AnimStack with one windowed stack per shot, named after it (`ShotStore.declared_takes`; `fbx_utils.py`'s module docstring), and a scene with no shots keeps its one scene-range take |
+| `audio` | `AudioUtils.export_record` | each playing sound strip cut into cues per clip by `ptk.AudioUtils.clip_cues` (mayatk's rule): per shot take, in seconds from its start, the strip's visible span, its head trim the offset into its file; with no shots the one take holds exactly the range the write bakes (the Scene Exporter's predicted Bake Range, `FbxUtils._planning`) |
 | `render_effects` | `RenderEffects.export_record` | -- |
 | `shadows` | `ShadowRig.export_record` | -- |
 | `articulation` | `ArticulatedRig.export_record` | -- |
-| `emissive_groups` | `EmissiveGroups.export_record` | weights ship on the proxy Empties above |
 | `lightmaps` | `LightmapRecords.export_record` | map file names, no folder; a GLB build is handed `LightmapRecords.search_dirs()` |
-| `materials` | `MaterialRecords.export_record` | a Principled BSDF read into glTF's metallic-roughness terms |
+| `materials` | `MaterialRecords.export_record` | a Principled BSDF read into a literal glTF 2.0 material (metal and roughness packed into one delivery image, never beside the maps; emission strength, unlit, a Mapping node's UV transform) |
 
 The Scene Exporter and the Unity bridge finish the written FBX through
 `FbxUtils.finish_deliverable`, as on Maya: each record's files embedded (each
@@ -130,6 +130,6 @@ through Blender's own routes:
 
 `DataNodes.OWNERS` names the Blender owners (`ShotStore`, `KeyStash`,
 `EmissiveGroups`); there is no bake-session owner -- a Blender bake parks
-nothing beside its record. An emissive group's membership rides the mesh data
-through a make-local (boolean face attributes), and the hand-off payload
-(registry, face indices, each member's face count) through a bridge.
+nothing beside its record. An emissive group's faces wear its copies, plain
+materials a make-local carries with the mesh; its hand-off payload (per copy
+its group, base material, strength and emission keys) crosses a bridge.

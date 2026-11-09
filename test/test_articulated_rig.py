@@ -1138,6 +1138,45 @@ try:
     )
     model = ptk.ArticulationModel(entry)
     check("record: the model's channels", len(model.channels) == 2 + 1 + 1 + 1 + 3)
+    check(
+        "record: every joint on the identity anchor (a bone nests on its pivot)",
+        all(ptk.ArticulationModel.is_identity(j.get("anchor")) for j in entry["joints"]),
+        [j.get("anchor") for j in entry["joints"]],
+    )
+    # Articulation v2 is in metres as the file frames each joint: the FBX writer
+    # puts the scene's unit on the export's root and writes every frame below it in
+    # Blender units read as centimetres, so a joint's rest is 0.01 m per Blender
+    # unit whatever the scene's unit or the writer's (ArticulatedRig._FRAME_METRES).
+    units = bpy.context.scene.unit_settings
+    saved_units = (units.system, units.scale_length)
+    try:
+        plan = rig.record()  # the plan's Blender units, as the drivers pose
+        gaps = []
+        for system, scale, ctx in (
+            ("METRIC", 1.0, None),
+            ("METRIC", 0.01, None),
+            ("NONE", 0.01, None),
+            ("METRIC", 0.01, ptk.ExportContext(unit_scale=0.01)),
+        ):
+            units.system, units.scale_length = system, scale
+            got = ArticulatedRig.export_record(ctx).payload["rigs"][0]
+            for a, b in zip(plan["joints"], got["joints"]):
+                gaps += [abs(y - x * 0.01) for x, y in zip(a["t"], b["t"])]
+                for ca, cb in zip(a["channels"], b["channels"]):
+                    k = 0.01 if ca["channel"].startswith("t") else 1.0
+                    gaps += [
+                        abs(cb[key] - ca[key] * k)
+                        for key in ("min", "max")
+                        if ca[key] is not None
+                    ]
+            gaps.append(abs(ArticulatedRig.unit_scale(ctx) - 0.01))
+    finally:
+        units.system, units.scale_length = saved_units
+    check(
+        "record: in metres as the file frames each joint, whatever the unit",
+        gaps and max(gaps) < 1e-12,
+        max(gaps) if gaps else None,
+    )
     stored = ptk.SceneRecords.ARTICULATION.load(DataNodes)
     check(
         "record: published at build for any export to carry",
@@ -2615,7 +2654,9 @@ try:
         for (t, q), (_wt, w) in zip(locals_, want)
     ]
     turn = max(min(a, abs(2 * math.pi - a)) for a in angles)  # q and -q: one turn
-    k = model.scale_of(locals_) if locals_ else 0.0
+    # The record here is the plan's (rig.record(), Blender units); the GLB's frames
+    # are the record's metres, as the producer states them (no unit is measured).
+    k = ArticulatedRig.unit_scale()
     stretch = max(
         (Vector(t) - Vector(wt) * k).length / max(Vector(wt).length * k, 1e-9)
         for (t, q), (wt, _w) in zip(locals_, want)

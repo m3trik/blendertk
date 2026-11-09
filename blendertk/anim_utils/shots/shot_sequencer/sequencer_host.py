@@ -519,6 +519,32 @@ class SequencerHost:
         return _SceneWatch(busy, on_keys_edited, on_time_changed, on_scene_changed, cap)
 
     @staticmethod
+    @contextlib.contextmanager
+    def transient_edit():
+        """``ptk.ShotStore.transient_edit`` the scene watcher hears whole: the view
+        layer is evaluated before the bracket closes.
+
+        Blender reports an edit at the scene's NEXT evaluation, so a producer's
+        put-back keys (an export's deferred restores, a send's bake) reached
+        :meth:`watch_scene`'s handler after the bracket had closed and were
+        credited to the active shot (measured 2026-11-05: a Scene Exporter run
+        with the panel's tasks banked every animated object and the record
+        node). Evaluated inside, they arrive while it is deaf. mayatk's twin is
+        the shared bracket as it stands: Maya's keyframe callbacks fire as the
+        edit happens.
+        """
+        with ptk.ShotStore.transient_edit():
+            try:
+                yield
+            finally:
+                view_layer = CoreUtils.active_view_layer()
+                if view_layer is not None:
+                    try:
+                        view_layer.update()
+                    except Exception:  # noqa: BLE001 -- never mask the run's own exit
+                        _LOG.debug("transient_edit: view layer not evaluated", exc_info=True)
+
+    @staticmethod
     def _is_animation_update(depsgraph) -> bool:
         """True when an ``Action`` datablock is among the depsgraph updates.
 

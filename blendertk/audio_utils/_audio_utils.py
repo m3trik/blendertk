@@ -539,73 +539,73 @@ class AudioUtils(ptk.LoggingMixin):
         ``AudioClips.export_record``). Pure: it reads the strips and the takes
         and never writes.
 
-        Each playing strip is an event (:meth:`bake_events`), scoped by
-        ``ptk.AudioUtils.scope_events`` to the takes the shot record declares
-        (``ptk.SceneRecords.declared_takes`` over ``ctx.record``: produced
-        earlier in the same assembly -- the record declares
-        ``after=("animation",)`` -- else as stored). With no take (none
-        declared, or a ``full`` Animation Clips mode, which realizes none)
-        events ship unscoped, counted from the first frame the file's
-        animation holds: ``ctx.clip_span`` when the pipeline measured it, else
-        the range the write bakes (``FbxUtils.bake_range``), else the scene's
-        ``frame_start`` -- mayatk's chain too. Noted on *ctx*: an event that
-        can never fire -- outside every take, or before that first frame --
-        and a strip trimmed at its head: the record carries no source offset,
-        so the consumer plays the file from its start.
+        Each playing strip (:meth:`_timeline_sounds`) is cut into cues per
+        clip by ``ptk.AudioUtils.clip_cues`` -- mayatk's producer cuts by it
+        too -- in seconds from the clip's start, a strip trimmed at its head
+        starting that far into its file. The clips are the takes the export
+        splits, one per shot (``ptk.ShotStore.declared_takes``: the same takes
+        the write realizes, so the cut is correct by construction). With no
+        shot the file ships one take over the window it declares
+        (``FbxUtils._take_window``): the range the write bakes, which Blender
+        samples every frame of and none outside, so what it declares is what
+        it holds. A strip no clip plays is noted on *ctx*.
 
         Parameters:
             ctx: The export's decisions and the records produced before this
                 one.
 
         Returns:
-            The record (``{"version", "events": [...], "fps"}``: the frames
-            count at the scene's rate, which travels with them; its ``media``
-            is the FBX dependency pass's, from the clips it embeds), or
-            ``None`` when no strip plays.
+            The record (``{"version", "cues": [...]}``; its ``media`` is the
+            FBX dependency pass's, from the files it embeds), or ``None`` when
+            no clip plays a strip.
         """
         import bpy
 
         from blendertk.env_utils.fbx_utils import FbxUtils
-        from blendertk.node_utils.data_nodes import DataNodes
 
         scene = bpy.context.scene
-        events = cls.bake_events(scene)
-        if not events:
+        fps = cls.get_fps(scene)
+        sounds = cls._timeline_sounds(scene, fps)
+        if not sounds:
             return None
-        declared = ptk.SceneRecords.declared_takes(
-            lambda key: ctx.record(key, DataNodes)
-        )
-        takes = [] if ctx.clip_mode == "full" else declared
-        stack = ctx.clip_span or FbxUtils.bake_range(declared)
-        origin = stack[0] if stack else scene.frame_start
-        scoped, dropped = ptk.AudioUtils.scope_events(events, takes, origin)
+        takes = FbxUtils.declared_takes()
+        window = None if takes else FbxUtils._take_window(ctx)
+        cues, dropped = ptk.AudioUtils.clip_cues(sounds, takes, fps, window=window)
         if dropped:
-            where = (
-                "outside every shot take"
-                if takes
-                else f"before the clip's first frame ({origin:g})"
-            )
+            where = "in no shot's take" if takes else "outside the file's one take"
             ctx.note(
-                f"Audio: {len(dropped)} event(s) {where} were left out (they "
-                f"can never fire in a clip): {', '.join(dropped)}."
+                f"Audio: {len(dropped)} sound(s) {where} were left out (no clip "
+                f"plays them): {', '.join(dropped)}."
             )
-        playing = {name for _, name in events}
-        trimmed = [
-            clip["name"]
-            for clip in cls.list_clips(scene)
-            if clip["name"] in playing and clip["trim_start"] > 0
-        ]
-        if trimmed:
-            ctx.note(
-                f"Audio: {', '.join(trimmed)} trimmed at the head; the "
-                "deliverable plays each from its file's start, at the strip's "
-                "visible start."
-            )
-        if not scoped:
+        if not cues:
             return None
-        # No ``media``: the FBX dependency pass digests the clips it embeds
+        # No ``media``: the FBX dependency pass digests the files it embeds
         # (``ptk.FbxMedia.embed_dependencies``), so a write without it -- a raw
         # export -- never names audio it does not carry. mayatk's producer too.
-        return ptk.SceneRecords.AUDIO.make(
-            {"events": scoped, "fps": cls.get_fps(scene)}
-        )
+        return ptk.SceneRecords.AUDIO.make({"cues": cues})
+
+    @classmethod
+    def _timeline_sounds(cls, scene, fps: float) -> List[Dict]:
+        """Each playing strip as a ``clip_cues`` sound: ``{"sound", "start",
+        "stop", "offset"}`` -- the file name the delivery embeds it under (the
+        strip's name with its file's extension, :meth:`track_files`' name),
+        its visible span in timeline frames (the right handle exclusive), and
+        how far into its file it is heard from, its head trim in seconds.
+        Mirror of mayatk's ``AudioClips._timeline_sounds``; a muted strip, or
+        one on a muted channel, plays nothing (:meth:`bake_events`)."""
+        playing = {name for _frame, name in cls.bake_events(scene)}
+        sounds: List[Dict] = []
+        for clip in cls.list_clips(scene):
+            if clip["name"] not in playing:
+                continue
+            ext = os.path.splitext(clip["filepath"])[1] if clip["filepath"] else ""
+            sounds.append(
+                {
+                    "sound": f"{clip['name']}{ext}",
+                    "start": float(clip["frame_start"]),
+                    "stop": float(clip["frame_end"]),
+                    "offset": max(float(clip["trim_start"]), 0.0) / float(fps),
+                }
+            )
+        sounds.sort(key=lambda sound: (sound["start"], sound["sound"]))
+        return sounds

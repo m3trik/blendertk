@@ -152,7 +152,7 @@ try:
     maya_out = btk.FbxUtils.export_selection_fbx(
         filepath=os.path.join(tmp, "maya_opt.fbx"),
         objects=[cube],
-        FBXExportEmbeddedTextures=True,  # the exact key from templates/import.py
+        FBXExportEmbeddedTextures=True,  # the exact key from Substance's templates/new_project.py
     )
     check(
         "export_selection_fbx accepts a Maya MEL FBX name (no 'unrecognized keyword')",
@@ -194,7 +194,7 @@ try:
     for _mod, _cls, _templates in (
         (_maya_mod, "MayaBridge", ("import",)),
         (_mar_mod, "MarmosetBridge", ("bake", "import", "lookdev")),
-        (_sub_mod, "SubstanceBridge", ("import", "bake_lighting")),
+        (_sub_mod, "SubstanceBridge", ("new_project", "update_mesh")),
     ):
         check(
             f"{_cls} offers fbx then usd",
@@ -211,7 +211,7 @@ try:
     # (template, mode) list the combo opens on. Mirror of mayatk's.
     for _mod, _cls, _initial in (
         (_mar_mod, "MarmosetBridge", ("bake", _mar_mod.ROUND_TRIP)),
-        (_sub_mod, "SubstanceBridge", ("import", _sub_mod.SEND_TO)),
+        (_sub_mod, "SubstanceBridge", ("new_project", _sub_mod.SEND_TO)),
     ):
         _bridge_cls = getattr(_mod, _cls)
         _modes = _bridge_cls.list_template_modes()
@@ -243,7 +243,7 @@ try:
             "substance",
             _SUB_FBX,
             {"FBXExportEmbeddedTextures": True},
-        ),  # templates/import.py
+        ),  # templates/new_project.py
         ("marmoset", _MAR_FBX, {}),
     ):
         bpy.ops.object.select_all(action="DESELECT")
@@ -508,7 +508,7 @@ try:
         _sub._mesh_cache_dir(),
     )
     check(
-        "a substance render falls back to <file project>/images",
+        "a script's own output falls back to <file project>/images",
         os.path.normcase(os.path.normpath(_sub._project_dir("images") or ""))
         == os.path.normcase(os.path.join(tmp, "images")),
         _sub._project_dir("images"),
@@ -1295,7 +1295,7 @@ try:
         _sub_bridge.logger.setLevel("CRITICAL")
         _dir = os.path.join(tmp, "gs_sub")
         _req = _hp_ptk.HandoffRequest(
-            template="import",
+            template="new_project",
             mode="send_to",
             params={},
             extras={"output_dir": _dir, "output_name": "scene", "target": "new"},

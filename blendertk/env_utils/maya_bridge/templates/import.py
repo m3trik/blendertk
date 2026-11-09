@@ -97,7 +97,7 @@ def covering_take(mel, path):
 def fallback_take(mel, path, warn):
     """The take the bare import plays (``FBXImportSetTake -ti``): :func:`covering_take`'s,
     warning when the file's takes cannot be read or none covers the rest. The fallback
-    cannot merge takes, so a file whose animation is split across them (a Shots Only
+    cannot merge takes, so a file whose animation is split across them (a per-shot
     export) needs mayatk for all of it. Held token-identical in ``import.py`` and
     ``_save_scene.py`` by blendertk's ``test_maya_bridge``.
     """
@@ -122,7 +122,7 @@ def import_fbx():
     Through the paired engine when mayatk imports here, as ``_save_scene.py``
     does: ``mayatk.BlenderSceneImport._import_fbx`` imports EVERY take's
     animation -- the push writes one whole-timeline take, but a multi-take
-    file (an older push, a Shots Only export) plays its last take alone in a
+    file (an older push, a per-shot export) plays its last take alone in a
     plain import.
 
     The dependency-free fallback: the FBX plugin's import options are global and

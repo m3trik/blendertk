@@ -45,7 +45,6 @@ class _TaskDefinitionsMixin:
     )
     _export_mode_options: Dict[str, Any] = ptk.ExportProfile.EXPORT_MODE_OPTIONS
     _bake_range_options: Dict[str, Any] = ptk.ExportProfile.BAKE_RANGE_OPTIONS
-    _animation_clips_options: Dict[str, Any] = ptk.ExportProfile.ANIMATION_CLIPS_OPTIONS
     _optimize_keys_options: Dict[str, Any] = ptk.ExportProfile.OPTIMIZE_KEYS_OPTIONS
     _secondary_max_size_options: Dict[str, Any] = (
         ptk.ExportProfile.SECONDARY_MAX_SIZE_OPTIONS
@@ -646,10 +645,9 @@ class _TaskDefinitionsMixin:
                     ],
                     notes=[
                         "Runs last, so it measures the final state of the "
-                        "curves — and every mode is widened to cover the clips "
-                        "<b>Animation Clips</b> declares, so no "
-                        "choice here can ship metadata describing animation the "
-                        "file does not contain.",
+                        "curves — and every mode is widened to cover the "
+                        "shots, one take each, so no choice here can ship a "
+                        "take the file does not contain.",
                         "The original frame range is restored after the write.",
                     ],
                 ),
@@ -661,62 +659,6 @@ class _TaskDefinitionsMixin:
                 # WITH shots and the split switched off — which now clamps to
                 # them instead of shipping everything.
                 "setCurrentIndex": 1,
-            },
-            "apply_declared_takes": {
-                "widget_type": "ComboBox",
-                "group": "Animation",
-                # Mirror of mayatk's row (2026-09-13; a checkbox here before).
-                # NOT the checkbox's objectName: a template saved when this row
-                # was a checkbox carries apply_declared_takes as a BOOL, and
-                # combos persist by INDEX -- restoring `true` would select
-                # index 1 (Shots Only) and silently stop shipping the sequence.
-                # A fresh name trips the PresetManager's uncovered-keys warning
-                # instead, so the user re-saves deliberately. (The TASK key
-                # stays apply_declared_takes: the method takes the mode, and a
-                # headless caller's legacy True still means what it did.)
-                "object_name": "animation_clips",
-                "set_row_label": "Animation Clips",
-                "setToolTip": TooltipFormat.fmt(
-                    title="Animation Clips",
-                    body="Which animation the deliverable ships: the declared "
-                    "shots as separate clips, the whole timeline as one "
-                    "continuous clip, or both.",
-                    bullets=[
-                        "<b>Shots + Full Sequence</b> — both, the historical "
-                        "shape. Nothing to choose between if the consumer is "
-                        "unknown.",
-                        "<b>Shots Only</b> — the shots, without the stack they "
-                        "were cut from. For a player that switches clips.",
-                        "<b>Full Sequence Only</b> — one continuous clip. For a "
-                        "player that seeks a window inside it; each shot's frame "
-                        "range still rides in <b>extras.animation</b>.",
-                    ],
-                    notes=[
-                        "The two halves hold the SAME performance — the shots are "
-                        "cut from the sequence — so a player that reads one never "
-                        "reads the other. Measured on a production assembly: the "
-                        "sequence alone was 66.5 MB, the shots 43.8 MB.",
-                        "Requires shots defined in the Shots panel; with none "
-                        "declared every mode ships the one continuous clip.",
-                        "This is <b>not</b> what ships the shot metadata — "
-                        "<b>Export Scene Data Node</b> already does that, and the "
-                        "two share one refresh.",
-                        "The <b>FBX</b> leg splits takes for Unity on the two "
-                        "shot-bearing modes and keeps the whole-timeline take "
-                        "beside them, as Maya's does; the <b>GLB</b> cuts its "
-                        "clips from that take, and <b>Shots Only</b> drops it "
-                        "from both files after.",
-                        "Forces Bake Animation on, and widens the scene frame "
-                        "range to cover the takes it arms; <b>Bake Range</b> "
-                        "then widens to cover them in turn, so the two cannot "
-                        "disagree. Both are restored after the write.",
-                    ],
-                ),
-                "add": self._animation_clips_options,
-                # Index 2 = "Shots + Full Sequence", what the checkbox this
-                # replaced did when ticked -- and it was default-on, so a
-                # panel opened without a preset ships exactly what it used to.
-                "setCurrentIndex": 2,
             },
             "ignore_groups": {
                 "widget_type": "QLineEdit",

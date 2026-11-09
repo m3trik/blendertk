@@ -33,7 +33,8 @@ parts meet, and how, is what the rig is about. One plan builds one ARMATURE,
   (``_solver_handler.py``) and baked into the file at every save, so a file opened
   without blendertk plays its keyed IK.
 - **the ``articulation`` record** (``ptk.SceneRecords.ARTICULATION``, produced at export
-  by :meth:`ArticulatedRig.export_record`).
+  by :meth:`ArticulatedRig.export_record`): in metres, every joint on the identity anchor
+  (its bone nests on its pivot).
 
 The plan comes from the parts' geometry (:meth:`ArticulatedRig.analyze` over
 ``ptk.ArticulationAnalysis``) or from the caller, and is stamped on the armature
@@ -2340,6 +2341,9 @@ class ArticulatedRig(ptk.LoggingMixin, _ArticulatedRigInternal):
         )
         context = cls._contexts.get(key)
         if context is None:
+            # The drivers' solve turns each bone about its own origin: a Blender rig
+            # nests each bone on its pivot, so its anchors are the identity
+            # (joint_records refuses a plan joint that states another).
             model = ptk.ArticulationModel(
                 {
                     "name": spec["name"],
@@ -2841,15 +2845,22 @@ class ArticulatedRig(ptk.LoggingMixin, _ArticulatedRigInternal):
             self._solve_now()
 
     # ================================================================ record
-    def record(self) -> Dict[str, Any]:
+    def record(self, unit_scale: float = 1.0) -> Dict[str, Any]:
         """This rig's entry in the ``articulation`` record: its joints
-        (``ptk.ArticulationPlan.joint_records``) and the parts a hand grabs."""
+        (``ptk.ArticulationPlan.joint_records``, each on the identity anchor) and the
+        parts a hand grabs.
+
+        Parameters:
+            unit_scale: Metres per plan unit (the plan is in Blender units); 1 keeps
+                the plan's own, the units this rig's solver poses in.
+        """
         nodes = self._nodes()
         # The part's name NOW (a runtime binds by it): a rename after the build must
         # not leave the record naming an object that is gone.
         return ptk.ArticulationPlan.record(
             self.spec,
             lambda m: nodes[m["uuid"]].name if m["uuid"] in nodes else m["name"],
+            unit_scale,
         )
 
     def model(self) -> "ptk.ArticulationModel":
@@ -2862,19 +2873,44 @@ class ArticulatedRig(ptk.LoggingMixin, _ArticulatedRigInternal):
         the ``ptk.SceneRecords.ARTICULATION`` producer (``FbxUtils.PRODUCERS``). Pure:
         reads the rigs' plans, never writes.
 
-        ``{"version": 1, "rigs": [...]}``, one :meth:`record` per rig. No
-        ``unit_scale``: a runtime measures its own units against the rest pose
-        (``ptk.ArticulationModel.scale_of``), which covers a scaled prop and an FBX
-        unit conversion alike.
+        ``{"version": 2, "rigs": [...]}``, one :meth:`record` per rig in glTF's frame
+        (``ptk.SceneRecords.FRAME``): its lengths in metres as the file's frames hold
+        them (:meth:`unit_scale`), every
+        joint on the identity anchor -- a Blender rig nests each bone on its pivot, and
+        its driver solve turns it there (``ptk.ArticulationPlan.joint_records`` refuses
+        a plan joint that states another).
 
         Parameters:
-            ctx (ptk.ExportContext): The export's decisions (unused: the record is a
-                function of the rigs alone).
+            ctx (ptk.ExportContext): The export's decisions (unused: a joint's frame
+                is the same whatever the write's unit, :meth:`unit_scale`).
         """
-        rigs = [rig.record() for rig in cls.scene_rigs()]
+        unit = cls.unit_scale(ctx)
+        rigs = [rig.record(unit) for rig in cls.scene_rigs()]
         if not rigs:
             return None
         return ptk.SceneRecords.ARTICULATION.make({"rigs": rigs})
+
+    #: Metres per Blender unit in a bone's frame as the record states it: the FBX's
+    #: own value read as centimetres. The writer writes every bone in Blender units
+    #: and puts the scene's unit on the export's ROOT object's scale
+    #: (``FBX_SCALE_NONE``) or in the file's UnitScaleFactor (``FBX_SCALE_UNITS`` /
+    #: ``ALL``), and FBX2glTF reads a local as the file value x 0.01 whatever the
+    #: UnitScaleFactor, so a joint's rest, in its parent's frame, is 0.01 m per
+    #: Blender unit whatever the unit (measured 2026-11-08, Blender 5.1: a 21 BU bone
+    #: at 21 in every file and 0.21 in every GLB, scale_length 1 and 0.01 under every
+    #: apply_scale_options). An FBX importer that converts the file's unit into the
+    #: locals instead (21 m from a UnitScaleFactor 100 file) scales the record by
+    #: that conversion. Mirror of mayatk's.
+    _FRAME_METRES = 0.01
+
+    @classmethod
+    def unit_scale(cls, ctx=None) -> float:
+        """Metres per plan unit -- the plan's Blender units -- in the joints' frames
+        as the file holds them (:attr:`_FRAME_METRES`): a record in glTF's frame
+        states each joint in its parent's frame, below the root that carries the
+        write's unit, so *ctx*'s unit (``ptk.ExportContext.unit_scale``, the scene's
+        world size) does not reach it. Mirror of mayatk's (signature included)."""
+        return cls._FRAME_METRES
 
     @classmethod
     def refresh_export_metadata(cls) -> Optional[str]:

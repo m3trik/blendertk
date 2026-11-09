@@ -595,7 +595,9 @@ class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin):
             src = [0.0, 0.0, -1.0, 0.0]  # no source: noon
         rect = horizon.get("rect") or [1.0, 1.0, 0.0, 0.0]
         bounds = horizon.get("bounds") or [-1.0, 1.0, -1.0, 1.0]
-        fade = float(plane.get(ShadowRig.OPACITY_ATTR, 1.0))  # carries shadowIntensity
+        # The material's drawn fade: the plane's authored opacity times the preview
+        # fade, which carries the intensity dial (mirror of mayatk's).
+        fade = ShadowRig.viewport_fade(plane)
         map_size = int(horizon.get("size", ptk.ShadowHorizon.DEFAULT_SIZE))
         params = [
             *origin,

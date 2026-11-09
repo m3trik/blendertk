@@ -6,7 +6,6 @@ carrier with its staged curve proxies, and the declared takes.
 """
 
 import math
-import os
 from typing import Optional, Tuple, Union
 
 import pythontk as ptk
@@ -155,8 +154,9 @@ class _AnimationTasksMixin(_TaskDataMixin):
         is a projection, and refreshing it to answer a question about RANGE would
         stamp a metadata node as a side effect of computing a number -- on scenes
         where the user deliberately switched that off. ``declared_range`` rounds
-        through the same ``resolve_clip_specs`` the export view uses, so this range
-        and the published clip ranges cannot disagree about a fractional boundary.
+        through the same ``resolve_clip_specs`` the export's takes do
+        (``ShotStore.declared_takes``), so this range and the takes cannot
+        disagree about a fractional boundary.
         """
         from blendertk.anim_utils.shots._shots import BlenderShotStore
 
@@ -265,8 +265,8 @@ class _AnimationTasksMixin(_TaskDataMixin):
 
     def _bake_range_for_mode(self, mode: str) -> Tuple[Optional[Tuple], str]:
         """What Bake Range *mode* (a token) measures, and what it measured --
-        the one reading :meth:`set_bake_animation_range` sets and the clip
-        origin predicts (:meth:`_predicted_bake_range`). Mirror of mayatk's."""
+        the one reading :meth:`set_bake_animation_range` sets. Mirror of
+        mayatk's."""
         if mode == "auto":
             resolved = self._bake_range_from_shots()
             if resolved is not None:
@@ -276,61 +276,13 @@ class _AnimationTasksMixin(_TaskDataMixin):
             return self._bake_range_from_keys(), "animated extent"
         return self._bake_range_from_scene(), "scene frame range"
 
-    def _predicted_bake_range(self) -> Optional[Tuple[float, float]]:
-        """The scene range this run's write will bake over, before anything sets it.
-
-        What the Bake Range row's mode measures (:meth:`_bake_range_for_mode`,
-        the reading :meth:`set_bake_animation_range` sets LAST), widened as
-        that task widens it: to the frames claimed so far (the staged curve
-        proxies, :meth:`_cover_frame_range`) and, for a split, to the declared
-        shots :meth:`apply_declared_takes` claims next. With the row OFF, the
-        scene's own range widened the same way -- what those two tasks leave it
-        at. Mirror of mayatk's.
-        """
-        try:
-            mode = self._bake_range_token(self.run.bake_range_mode)
-        except ValueError:  # the range task raises it, naming the mode
-            mode = None
-        shots = self._bake_range_from_shots() if self.run.splits_takes else None
-        spans = [span for span in (self._required_range_coverage, shots) if span]
-        measured = self._bake_range_for_mode(mode)[0] if mode is not None else None
-        if measured:
-            spans.append(measured)
-        elif mode is None or not spans:
-            # The row is OFF, or it measured nothing and nothing is claimed:
-            # the range the scene holds now is the one the write bakes.
-            scene = self._scene()
-            spans.append((scene.frame_start, scene.frame_end))
-        return min(span[0] for span in spans), max(span[1] for span in spans)
-
-    def _clip_origin_span(self) -> Optional[Tuple[int, int]]:
-        """The frames the whole-timeline take will carry -- the span every GLB
-        clip is cut against (the export context's ``clip_span``).
-
-        Blender bakes every frame of the scene range at the write, so the
-        stack carries exactly the range the tasks leave the scene at, which
-        :meth:`set_bake_animation_range` sets after this publishes: predicted
-        (:meth:`_predicted_bake_range`). Published as the FBX will have it --
-        the producer's own seed was the scene range as it stood, and a Bake
-        Range that then narrowed it to the shots published a span the stack
-        never held (measured: 1-250 for a 1-40 stack). Mirror of mayatk's,
-        where only a write that resamples bakes the range; here every
-        animated write does. A USD layer carries no stack: ``None``.
-        """
-        if self.run.usd:
-            return None
-        span = self._predicted_bake_range()
-        if span is None:
-            return None
-        return int(math.floor(span[0])), int(math.ceil(span[1]))
-
     def export_data_node(self):
         """Publish the scene records and ship the carrier (default on).
 
         The ONE publish of an export (mirror of mayatk's ``export_data_node``):
         every producer in ``FbxUtils.PRODUCERS`` runs here, in dependency
-        order, with the run's decisions as INPUT -- the Animation Clips mode
-        from the run -- and the ``data_export`` Empty is committed once.
+        order, with the run's decisions as INPUT -- the export set, the
+        writer's options -- and the ``data_export`` Empty is committed once.
         Blender has no before-export event, so this task is the only refresh
         point (producers also publish at authoring time, which is what a
         non-exporter write ships).  Then the carrier joins the export set so
@@ -359,7 +311,7 @@ class _AnimationTasksMixin(_TaskDataMixin):
         # A carrier that already exists joins the export set before the
         # proxies are read (the keyed emissive weights' proxies hang under
         # it), and the proxies join before the publish: the frames they claim
-        # are part of the range the published clip origin predicts. A carrier
+        # are part of the range the write bakes. A carrier
         # the publish creates joins after it.
         self._include_data_export_node()
 
@@ -420,10 +372,8 @@ class _AnimationTasksMixin(_TaskDataMixin):
     def _publish_scene_records(self, only=None):
         """``FbxUtils.publish`` with THIS run's context (mirror of mayatk's).
 
-        The clip span is the span the written stack will carry
-        (:meth:`_clip_origin_span`): the producer publishes what the FBX has,
-        not the scene range it would seed from.  Never raises -- a record that
-        cannot be produced is logged and left as stored.
+        Never raises -- a record that cannot be produced is logged and left as
+        stored.
 
         Outside the write's bracket the publish PREPARES the session stagers
         (the shadow preview stands down so no producer reads it), and a run
@@ -446,12 +396,15 @@ class _AnimationTasksMixin(_TaskDataMixin):
 
         try:
             ctx = FbxUtils.export_context(
-                clip_mode=ptk.ExportRun.clip_mode(self.run.animation_clips_mode),
-                clip_span=self._clip_origin_span(),
                 # The FBX's handoff record publishes the same lighting recipe
                 # the GLB's envelope does, with this run's choices.
                 rendering=self.run.rendering,
                 scope=tuple(o.name for o in self._live_objects()) or None,
+                # Whether the write carries animation is its options' (the
+                # preset's bake_anim), never the scene's.
+                animated=FbxUtils._writer_animates(
+                    "fbx", getattr(self, "write_options", None)
+                ),
             )
             if not FbxUtils._export_depth:
                 staged = dict(FbxUtils._session_stagers)
@@ -459,7 +412,14 @@ class _AnimationTasksMixin(_TaskDataMixin):
                     "export_stagers",
                     lambda: FbxUtils._run_stagers("finish", staged),
                 )
-            snapshot = FbxUtils.publish(ctx, only=only)
+            # The range this run's write bakes is set LAST
+            # (set_bake_animation_range), after this publish: the producers
+            # read the one predicted (FbxUtils._planning) -- an
+            # audio cue in a shotless file counts from where its one take
+            # starts (2026-11-05: a "keys" Bake Range baked 0-100 and the
+            # cues counted from the scene range's 20).
+            with FbxUtils._planning(self._predicted_bake_range()):
+                snapshot = FbxUtils.publish(ctx, only=only)
             if snapshot is not None and snapshot.scene_wide:
                 self.stage_deferred_restore(
                     "scene_wide_records",
@@ -482,6 +442,30 @@ class _AnimationTasksMixin(_TaskDataMixin):
                 exc_info=True,
             )
             return None
+
+    def _predicted_bake_range(self) -> Optional[Tuple[int, int]]:
+        """The range this run's write will bake over, before anything sets it:
+        what :meth:`set_bake_animation_range` sets last
+        -- the Bake Range row's reading, widened over the coverage claimed so
+        far -- or None with the row OFF, when the scene's range stands. What
+        the producers publish against (``FbxUtils.bake_range``)."""
+        try:
+            mode = self._bake_range_token(self.run.bake_range_mode)
+        except ValueError:  # the range task raises it, naming the mode
+            return None
+        if mode is None:
+            return None
+        resolved, _source = self._bake_range_for_mode(mode)
+        required = self._required_range_coverage
+        if required:
+            resolved = (
+                required
+                if resolved is None
+                else (min(resolved[0], required[0]), max(resolved[1], required[1]))
+            )
+        if resolved is None:
+            return None
+        return int(math.floor(resolved[0])), int(math.ceil(resolved[1]))
 
     def _set_frame_range(self, start, end) -> None:
         """Set the scene's frame range for the export, staging its restore.
@@ -541,60 +525,37 @@ class _AnimationTasksMixin(_TaskDataMixin):
             "staged keyed-weight curves bake in full."
         )
 
-    def apply_declared_takes(self, mode: Union[bool, str, None] = "both"):
-        """Ship the declared shots, the whole sequence, or both.
+    def apply_declared_takes(self, enabled: bool = True):
+        """Split the write into one take per shot (mirror of mayatk's).
 
-        Producer-agnostic mirror of mayatk's task: refreshes every producer's
-        ``data_export`` channel (skipped when ``export_data_node`` already did
-        so this run — the two tasks are default-on neighbors, and one refresh
-        per export is enough), then arms ``FbxUtils`` with whatever takes
-        the scene declares, folding the carrier into the export
-        selection with them (a scene declaring none is a true no-op);
-        the write realizes them by cloning its baked scene-range AnimStack into
-        one stack per take (see ``fbx_utils``' module docstring for the
-        divergence from Maya's exporter-state mechanism), and keeps the
-        scene-range stack beside them, as Maya's split keeps ``Take 001``.
-        Which clips survive is decided on the deliverables, since the sequence
-        has to be CUT before it can be dropped: :meth:`create_glb` carries
-        *mode* to the conversion as ``clip_mode``, and
-        :meth:`ship_declared_takes` drops the whole-timeline take from a Shots
-        Only FBX after it.
-
-        Parameters:
-            mode: ``"both"`` (shots + the whole-timeline sequence),
-                ``"shots"``, or ``"full"``. A legacy ``True``/``False`` from a
-                preset written when this row was a checkbox maps onto
-                ``"both"``/``"full"`` respectively.
+        One form: every FBX export of a scene with shots ships one take per
+        shot, named after it and spanning its range, and no whole-timeline
+        take; a scene with none ships its one scene-range take
+        (``ExportRun.from_tasks`` arms this task on every FBX write, so
+        *enabled* is the dispatcher's ``True``). Publishes the scene records
+        once when no task has this run, then arms ``FbxUtils`` with the takes
+        the shot store declares (``ptk.ShotStore.declared_takes``), folding the
+        carrier into the export selection with them (a scene declaring none is
+        a true no-op). The write realizes them by replacing its baked
+        scene-range AnimStack with one stack per take (see ``fbx_utils``'
+        module docstring for the divergence from Maya's exporter-state
+        mechanism), and the GLB is converted from that file: its clips are
+        the takes.
 
         Widens the scene range to cover the takes it arms, so every window lies
         inside the baked span whatever else runs — the same self-guarantee Maya's
-        ``FbxUtils.apply_takes`` makes internally. It no longer DECIDES the range:
+        ``FbxUtils.apply_takes`` makes internally. It does not DECIDE the range:
         ``set_bake_animation_range`` owns that and runs after this (TASK_ORDER),
-        widening in turn to cover what this task stamped. Splitting is all this
-        task means now; clamping an export to its shots is <b>Bake Range: Auto</b>.
+        widening in turn to cover what this task stamped. Clamping an export to
+        its shots is <b>Bake Range: Auto</b>.
         """
         from blendertk.env_utils.fbx_utils import FbxUtils
 
-        mode = ptk.ExportRun.clip_mode(mode)
-        # Read by create_glb, after the FBX is written. Set even on the paths
-        # that return early: the GLB is converted whether or not a take was
-        # ever realized, and it still has to know which clips to keep.
-        self._clip_mode = mode
-
-        # The carrier task is off: publish here, once, so the takes armed
-        # below are the ones the carrier declares.
-        self.ensure_scene_records_published()
-
-        if mode == "full":
-            # No split: the FBX ships its scene-range take, and the converter
-            # is told to keep only that. The declared shots still ride on the
-            # carrier as METADATA (extras.animation inherits every one, so a
-            # player plays each as its window of the clip).
-            self.logger.info(
-                "Animation clips: shipping the full sequence only; the "
-                "declared shots are published as metadata, not as clips."
-            )
+        if not enabled:
             return
+        # The carrier task is off: publish here, once, so the record ships
+        # beside the takes armed below.
+        self.ensure_scene_records_published()
 
         count = FbxUtils.apply_takes_from_node()
         if count:
@@ -627,55 +588,39 @@ class _AnimationTasksMixin(_TaskDataMixin):
                 max(e for _n, _s, e in takes),
             )
             self.logger.info(
-                f"Animation takes: {count} clip(s) armed from the declared "
-                "takes; shot metadata embedded on data_export."
+                f"Animation takes: {count} take(s) armed, one per shot; shot "
+                "metadata embedded on data_export."
             )
         else:
-            self.logger.debug("No takes declared. Skipping animation takes.")
+            self.logger.debug("No shots declared: one scene-range take ships.")
 
     def ship_declared_takes(self, fbx_path: str) -> Optional[dict]:
-        """Give the written FBX the clips its Animation Clips mode names.
+        """Hold the written FBX to one take per shot (mirror of mayatk's).
 
-        Mirror of mayatk's. The split keeps the whole-timeline take beside the
-        takes it was asked for, so Shots Only would ship the same FBX as Shots
-        + Full Sequence and Unity would import a whole-timeline clip nobody
-        asked for. In Shots Only the takes the scene does not declare are
-        dropped from the deliverable (``ptk.FbxMedia.drop_takes``), as the GLB
-        drops its stack. Runs after the write and after any GLB conversion --
-        the GLB's clips are cut FROM that take -- and never raises: the FBX
-        already ships, and a take left in it is the old file, not a broken one.
+        Every take the shot store does not declare is dropped from the file
+        (``ptk.FbxMedia.keep_takes``, the rule both hosts share) whenever the
+        scene has shots -- a whole-timeline take a writer wrote beside them,
+        which Blender's split already replaces, so on this host it is a guard
+        that normally finds nothing. Runs right after the write and BEFORE any
+        GLB conversion, which converts this file's takes as its clips. Never
+        raises: the FBX already ships, and a take left in it is a warning, not
+        a broken file.
 
         Parameters:
-            fbx_path: The FBX deliverable just written.
+            fbx_path: The FBX just written (the deliverable, or a GLB-only
+                run's intermediate).
 
         Returns:
             The ``drop_takes`` report, or ``None`` when nothing was dropped.
         """
         from blendertk.env_utils.fbx_utils import FbxUtils
 
-        if self._clip_mode != "shots" or not os.path.isfile(fbx_path or ""):
-            return None
         try:
-            declared = {take["name"] for take in FbxUtils._stored_takes()}
-            present = ptk.FbxFile.load(fbx_path, raw_payloads=False).take_names()
-            drop = [name for name in present if name not in declared]
-            # Only beside a declared take: a file the split never reached keeps
-            # the one take it has.
-            if not drop or len(drop) == len(present):
-                return None
-            report = ptk.FbxMedia.drop_takes(fbx_path, names=drop)
+            declared = [take["name"] for take in FbxUtils.declared_takes()]
         except Exception:  # noqa: BLE001 - the deliverable already shipped
-            self.logger.warning(
-                "Shots Only: the whole-timeline take could not be dropped; the "
-                "FBX ships it beside the shots.",
-                exc_info=True,
-            )
+            self.logger.warning("The declared takes could not be read.", exc_info=True)
             return None
-        self.logger.info(
-            f"Shots Only: dropped {', '.join(report['takes'])} from the FBX; it "
-            f"ships the {len(present) - len(report['takes'])} shot take(s)."
-        )
-        return report
+        return ptk.FbxMedia.keep_takes(fbx_path, declared, logger=self.logger)
 
     #: The panel that acts on a record's export notes (mirror of mayatk's):
     #: record key -> (link label, panel name), opened by ``action://show``.
