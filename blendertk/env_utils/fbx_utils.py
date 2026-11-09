@@ -16,9 +16,10 @@ AnimationClip per declared take). Two intentional divergences from mayatk:
   strip/action*, so they cannot express a multi-object scene-time window (see
   ``export_fbx_bin.fbx_animations``). ``apply_takes`` therefore arms a pending-takes list
   (the Blender analogue of Maya's armed exporter state), and :meth:`FbxUtils.export`
-  consumes it right after the ``bpy.ops`` write by cloning the file's single scene-range
-  AnimStack into one windowed AnimStack per take, kept beside the whole timeline as Maya's
-  ``Take 001`` is (``_split_animation_takes``, built on the FBX addon's own ``parse_fbx`` /
+  consumes it right after the ``bpy.ops`` write by replacing the file's single scene-range
+  AnimStack with one windowed AnimStack per take -- one take per shot and no whole-timeline
+  take, the form Maya's write takes once its ``Take 001`` is dropped
+  (``_split_animation_takes``, built on the FBX addon's own ``parse_fbx`` /
   ``encode_bin``; the same pass writes the keyed visibility the exporter cannot -- see
   ``_add_visibility_curves``). Like Maya's, the armed state applies to
   every export until ``reset_takes`` — the Scene Exporter's ``apply_declared_takes`` task
@@ -266,7 +267,7 @@ class _FbxUtilsInternal(object):
         that is not enough, it is linked to the scene's root collection for the
         block. Lifted from the Scene Exporter's carrier task (2026-10-05), so
         every writer ships the carrier the same way. A curve proxy staged under
-        the carrier (the keyed emissive weights) is linked into the carrier's
+        the carrier (an emissive group copy's weight) is linked into the carrier's
         collections, so it is hidden or excluded with it and revealed with it;
         any other hidden object stays the caller's to decide
         (:meth:`FbxUtils.export` drops it, and says so).
@@ -375,9 +376,8 @@ class _FbxUtilsInternal(object):
         """Let the shadow sources among *objects* through a type filter that
         excludes ``LIGHT``; return the other lights, which stay out.
 
-        The shadow record names the source each plane follows, and the engine
-        finds it by name (unitytk's ``ShadowPlaneController``; the GLB binds
-        it by node) -- but the exporter drops every object whose type the
+        The shadow record names the source each plane follows, and a reader
+        finds it by that name -- but the exporter drops every object whose type the
         filter excludes, so a SUN source never shipped and follow-source fell
         back to the baked keys. ``LIGHT`` joins the filter for the sources the
         record names; any other light in the set is left unselected, out as
@@ -1199,31 +1199,24 @@ class _FbxUtilsInternal(object):
 
     # ---- the take split ------------------------------------------------------
 
-    #: What the scene-range stack is renamed to when a declared take already
-    #: uses its name -- the name the GLB gives the same stack (pythontk's
-    #: ``GlbClips.SEQUENCE_CLIP``).
-    _SEQUENCE_STACK = b"FULL_SEQUENCE"
-
     @staticmethod
     def _split_animation_takes(parse_mod, root, version, takes, label="") -> int:
-        """Clone the scene-range AnimStack into one windowed stack per take.
+        """Replace the scene-range AnimStack with one windowed stack per take.
 
         The parsed file carries the exporter's single baked scene-range
         AnimStack (the ``_force_scene_range_take`` invariant). For each
         ``(name, start, end)`` take the stack graph — stack, layer(s), curve
         nodes, curves — is cloned with fresh uids, the curves' keys windowed to
         the take's span (kept in absolute scene time, as Maya's split takes
-        are), and a ``Takes`` entry added.
+        are, so a take keeps its shot's place on the timeline), and a
+        ``Takes`` entry added.
 
-        The scene-range stack STAYS, beside the takes cut from it, as Maya's
-        whole-timeline ``Take 001`` stays beside the takes its splitter writes
-        (2026-10-05; until then it was removed, so a Shots + Full Sequence
-        export shipped no whole timeline in either file): the GLB conversion
-        cuts every clip from it and keeps it as ``FULL_SEQUENCE``, Unity plays
-        the shots as windows of it, and Shots Only drops it from the FBX once
-        the GLB was cut (the Scene Exporter's ``ship_declared_takes``). A take
-        named like the stack would leave no take that no shot names, so the
-        stack is renamed :attr:`_SEQUENCE_STACK` then.
+        The scene-range stack then GOES, with its graph and its ``Takes``
+        entry: a file of shots carries one take per shot and no whole-timeline
+        take (2026-11-05, the one form both DCCs write -- Maya drops its
+        ``Take 001`` after the write, ``ship_declared_takes``). The GLB built
+        from the file converts each take as one clip, and Unity imports one
+        clip per take.
 
         Take windows are clamped to the baked span — content beyond
         it cannot exist in the source curves; the Scene Exporter's
@@ -1376,48 +1369,48 @@ class _FbxUtilsInternal(object):
                 f"animation span and were clamped to it: {', '.join(clamped)}"
             )
 
-        # ---- the whole timeline keeps a name no take uses ----
+        # ---- the scene-range stack graph goes, the take clones take its place ----
         stack_name = stack.props[1].split(b"\x00\x01")[0]
-        names = {name.encode("utf-8") for name, _s, _e in takes}
-        if stack_name in names:
-            renamed, suffix = _FbxUtilsInternal._SEQUENCE_STACK, 0
-            while renamed in names:
-                suffix += 1
-                renamed = b"%s_%d" % (_FbxUtilsInternal._SEQUENCE_STACK, suffix)
-            stack.props[1] = renamed + b"\x00\x01AnimStack"
-            for luid in layer_uids:
-                by_uid[luid].props[1] = renamed + b"\x00\x01AnimLayer"
-            for take in finds(takes_el, b"Take") if takes_el is not None else ():
-                if take.props and take.props[0] == stack_name:
-                    take.props[0] = renamed
-                    file_el = find(take, b"FileName")
-                    if file_el is not None:
-                        file_el.props[0] = renamed + b".tak"
-            logger.warning(
-                f"A declared take is named {stack_name.decode('utf-8', 'replace')!r}, "
-                "like the scene-range stack: the whole timeline ships as "
-                f"{renamed.decode()!r}."
+        gone = {stack_uid, *layer_uids, *cn_uids, *curve_uids}
+        objects_el.elems[:] = [
+            e for e in objects_el.elems if not (e.props and e.props[0] in gone)
+        ]
+        conns_el.elems[:] = [
+            c
+            for c in conns_el.elems
+            if not (
+                c.id == b"C"
+                and len(c.props) >= 3
+                and (c.props[1] in gone or c.props[2] in gone)
             )
-
-        # ---- the take clones join the scene-range stack graph ----
+        ]
         objects_el.elems.extend(new_objects)
         conns_el.elems.extend(new_conns)
         if takes_el is not None:
+            takes_el.elems[:] = [
+                take
+                for take in takes_el.elems
+                if not (take.id == b"Take" and take.props and take.props[0] == stack_name)
+            ]
             takes_el.elems.extend(new_takes)
+            current = find(takes_el, b"Current")
+            if current is not None and current.props and new_takes:
+                if current.props[0] == stack_name:
+                    current.props[0] = new_takes[0].props[0]
         n = len(takes)
         _FbxUtilsInternal._count_definitions(
             parse_mod,
             root,
             {
-                b"AnimationStack": n,
-                b"AnimationLayer": n * len(layer_uids),
-                b"AnimationCurveNode": n * len(cn_uids),
-                b"AnimationCurve": n * len(curve_uids),
+                b"AnimationStack": n - 1,
+                b"AnimationLayer": (n - 1) * len(layer_uids),
+                b"AnimationCurveNode": (n - 1) * len(cn_uids),
+                b"AnimationCurve": (n - 1) * len(curve_uids),
             },
         )
         logger.info(
-            f"Split animation into {n} take(s) beside the whole timeline: "
-            + ", ".join(name for name, _s, _e in takes)
+            f"Split animation into {n} take(s), one per shot, in place of the "
+            "whole timeline: " + ", ".join(name for name, _s, _e in takes)
         )
         return n
 
@@ -2014,6 +2007,8 @@ class FbxUtils(_FbxUtilsInternal):
     HOOKS: Dict[str, Tuple[str, str, str]] = {
         "take_stash": ("blendertk.anim_utils.key_stash._key_stash", "KeyStash", "active"),
         "dependency_dirs": ("blendertk.light_utils.lightmap_baker.lightmap_records", "LightmapRecords", "search_dirs"),
+        "staging_scope": ("blendertk.mat_utils.render_opacity.render_effects", "RenderEffects", "scope_export"),
+        "withheld_records": ("blendertk.light_utils.lightmap_baker.lightmap_records", "LightmapRecords", "withheld"),
     }
 
     @classmethod
@@ -2055,11 +2050,6 @@ class FbxUtils(_FbxUtilsInternal):
             "ShadowRig",
             "export_record",
         ),
-        ptk.SceneRecords.EMISSIVE_GROUPS: (
-            "blendertk.mat_utils.emissive_groups",
-            "EmissiveGroups",
-            "export_record",
-        ),
         ptk.SceneRecords.LIGHTMAPS: (
             "blendertk.light_utils.lightmap_baker.lightmap_records",
             "LightmapRecords",
@@ -2086,6 +2076,27 @@ class FbxUtils(_FbxUtilsInternal):
     #: would otherwise stay behind (mayatk's exporter carries a child with its
     #: parent).
     STAGERS: Dict[str, Tuple[str, str, str, Optional[str]]] = {
+        # One-way, and before render_effects stages the keys it reads (mirror
+        # of mayatk's row): a shadow plane baked under shadows v2 keyed its
+        # fade, which every v3 reader evaluates from the shadows record --
+        # stripped, so an old file ships it once. On the planes the write
+        # ships alone: a plane it leaves out is not touched.
+        "shadow_v2_fade": (
+            "blendertk.rig_utils.shadow_rig._shadow_rig",
+            "ShadowRig",
+            "stage_v2_fade",
+            None,
+        ),
+        # One-way too (mirror of mayatk's row): a live shadow plane built before
+        # its fade moved onto its material mirrored the preview into its own
+        # opacity, which the write ships -- moved onto the material (on the
+        # planes the write ships alone, as the row above).
+        "shadow_preview_fade": (
+            "blendertk.rig_utils.shadow_rig._shadow_rig",
+            "ShadowRig",
+            "stage_preview_fade",
+            None,
+        ),
         # The curve-proxy transport (mirror of mayatk's row): one child Empty
         # per keyed render-effect channel, ``<object>__<channel>``, whose
         # scale.x carries the curve Unity's RenderEffectsImporter rebinds.
@@ -2094,15 +2105,6 @@ class FbxUtils(_FbxUtilsInternal):
             "RenderEffects",
             "stage_export_proxies",
             "finish_export",
-        ),
-        # The same transport for keyed emissive weights (Blender only: Maya's
-        # FBX carries the carrier's custom-attribute curves itself), one Empty
-        # per keyed group under the data_export carrier.
-        "emissive_groups": (
-            "blendertk.mat_utils.emissive_groups",
-            "EmissiveGroups",
-            "create_export_curve_proxies",
-            "remove_export_curve_proxies",
         ),
         # One-way: a marker baked before 2026-09-23 still carries its map's
         # folder, and markers ride every FBX -- lifted into the private record
@@ -2133,6 +2135,8 @@ class FbxUtils(_FbxUtilsInternal):
     #: transient record, a narrowed one), put back when it closes -- the hand-off
     #: bridges publish from inside it (``_data_export_carrier``).
     _bracket_snapshots: List[ptk.ExportSnapshot] = []
+    #: The context of the write in progress (:meth:`write_context`).
+    _write_context: Optional[ptk.ExportContext] = None
     #: Stager name -> the transport nodes its ``prepare`` returned, until its
     #: ``finish`` runs.  While they stand, preparing that stager again is a
     #: no-op: a Blender object is a reference, so re-staging (which pre-cleans
@@ -2176,7 +2180,7 @@ class FbxUtils(_FbxUtilsInternal):
         **decisions,
     ) -> ptk.ExportContext:
         """A context for this file: provenance filled in, *decisions*
-        (``clip_mode``, ``clip_span``, ``rendering``, ``scope``) as given.
+        (``rendering``, ``scope``) as given.
 
         A *scope* names the objects the write ships as well (``nodes``: each
         object it names and all its descendants, :meth:`_shipped_nodes`),
@@ -2185,7 +2189,12 @@ class FbxUtils(_FbxUtilsInternal):
         *writer_options* (the exporter's keyword arguments:
         ``apply_unit_scale``, ``global_scale``) state the unit every record
         is labelled with (``unit_scale``: ``ptk.ExportContext.WRITER_UNITS``);
-        ``writer=None`` states none, and each record keeps the scene's."""
+        ``writer=None`` states none, and each record keeps the scene's. The
+        FBX writer's options also say whether it carries animation at all
+        (``animated``: ``bake_anim``, which Blender's writer defaults on);
+        ``None`` when no options are given. A write that ships a record as
+        stored (a hand-off) is told which stored copies it must ship none of
+        (``withheld``: the ``"withheld_records"`` hook; mirror of mayatk's)."""
         try:
             import bpy
 
@@ -2200,7 +2209,24 @@ class FbxUtils(_FbxUtilsInternal):
             decisions["nodes"] = cls._shipped_nodes(decisions["scope"])
         if "unit_scale" not in decisions:
             decisions["unit_scale"] = cls._writer_unit(writer, writer_options)
-        return ptk.ExportContext(mode=mode, source=source, **decisions)
+        if "animated" not in decisions:
+            decisions["animated"] = cls._writer_animates(writer, writer_options)
+        ctx = ptk.ExportContext(mode=mode, source=source, **decisions)
+        if "withheld" not in decisions and ctx.ships_stored():
+            ctx.withhold(cls.hook("withheld_records"))
+        return ctx
+
+    @staticmethod
+    def _writer_animates(
+        writer: Optional[str], options: Optional[Dict[str, Any]] = None
+    ) -> Optional[bool]:
+        """Whether Blender's *writer* writes animation with *options*
+        (``ptk.ExportContext.animated``): the FBX writer's ``bake_anim``, on
+        unless the options turn it off; ``None`` for another writer, or no
+        options."""
+        if writer != "fbx" or options is None:
+            return None
+        return bool(options.get("bake_anim", True))
 
     @classmethod
     def _writer_unit(
@@ -2261,6 +2287,8 @@ class FbxUtils(_FbxUtilsInternal):
         from blendertk.node_utils.data_nodes import DataNodes
 
         ctx = ctx or cls.export_context()
+        if ctx.mode != ptk.ExportContext.AUTHORING:
+            cls._write_context = ctx
         if not cls._export_depth:
             cls._run_stagers("prepare", dict(cls._session_stagers))
         snapshot = ptk.ExportSnapshot.assemble(cls.producers(only), ctx)
@@ -2269,7 +2297,37 @@ class FbxUtils(_FbxUtilsInternal):
             # Written for the bracket's write alone (a transient record, a
             # narrowed one): the bracket puts the file's own copy back.
             cls._bracket_snapshots.append(snapshot)
+        # Staging made before the write knew its scope narrows to it now: the
+        # emissive-group copies' proxies ride the carrier, which every write
+        # ships (the ``staging_scope`` hook; a bracket re-staging after reads
+        # the same context through :meth:`write_context`).
+        if ctx.mode != ptk.ExportContext.AUTHORING:
+            scope = cls.hook("staging_scope")
+            if scope is not None:
+                try:
+                    scope(ctx)
+                except Exception:  # noqa: BLE001 - a scope never costs the publish
+                    logger.warning("The staging was not narrowed to the write.", exc_info=True)
         return snapshot
+
+    @classmethod
+    def write_context(cls) -> Optional[ptk.ExportContext]:
+        """The context of the write in progress: the one its bracket opened
+        with, else the one its publish ran under (a writer that stages
+        before it publishes, as the Scene Exporter does, stages again after);
+        ``None`` outside an export. A stager whose nodes every write ships
+        -- the emissive-group copies' proxies under the carrier -- stages
+        only what the write ships by it."""
+        return cls._write_context
+
+    @staticmethod
+    def unstage(nodes) -> None:
+        """Forget *nodes* among what the stagers staged (:attr:`_staged`),
+        before they are removed: a stager one of whose nodes is gone is
+        forgotten whole, and its other nodes would no longer ride."""
+        gone = {n.as_pointer() for n in nodes}  # fresh wrappers: never ``is``
+        for name, staged in list(FbxUtils._staged.items()):
+            FbxUtils._staged[name] = [n for n in staged if n.as_pointer() not in gone]
 
     @classmethod
     def publish_authored(cls, records) -> ptk.ExportSnapshot:
@@ -2345,9 +2403,17 @@ class FbxUtils(_FbxUtilsInternal):
             if phase == "finish":
                 FbxUtils._staged.pop(name, None)
                 continue
+            if finish is None:
+                # A one-way stage stages no transport node: what it returns
+                # (the planes a fade retirement changed) is the scene's own
+                # and ships as the caller chose -- recorded, each would ship
+                # only beside a selected parent and block the next prepare.
+                continue
             nodes = FbxUtils._as_staged(result)
             if nodes:
                 FbxUtils._staged[name] = nodes
+        if phase == "finish" and not FbxUtils._export_depth:
+            FbxUtils._write_context = None  # the write is over
 
     @staticmethod
     def _as_staged(result) -> List[Any]:
@@ -2396,6 +2462,8 @@ class FbxUtils(_FbxUtilsInternal):
         if cls._export_depth != 1:
             return None
         try:
+            if ctx is not None:  # the stagers stage what this write ships
+                cls._write_context = ctx
             cls._bracket_stagers = cls.stage(stagers)
             return cls.publish(ctx, only) if ctx is not None else None
         except BaseException:
@@ -2552,9 +2620,8 @@ class FbxUtils(_FbxUtilsInternal):
         animation.
 
         The toolkit's FBX contract: armed takes are split out of that one take
-        after the write, :meth:`bake_range` is the span it carries (so the
-        scene records' clip span is true by construction), and it is what
-        mayatk's FBX writes.
+        after the write, replacing it (one take per shot), and :meth:`bake_range`
+        is the span it carries.
 
         Returns:
             The keys *options* turned ON -- an explicit request a caller
@@ -2587,59 +2654,104 @@ class FbxUtils(_FbxUtilsInternal):
         in ``TASK_ORDER``), which is exactly why the widening has to be
         reproduced here rather than read off the scene: at publish time the
         scene does not yet carry it.  What the range source will then set is
-        not known here either; the scene range stands in for it -- the seed
-        for a publish outside the Scene Exporter, whose own publish predicts
-        the range its Bake Range row will set (``_clip_origin_span``).
+        not known here either, unless the exporter states it for the publish
+        (:meth:`_planning`: the Scene Exporter's predicted range, mayatk's
+        write plan); else the scene range stands in for it.
 
-        Anyone describing the exported stack's ORIGIN needs this: a glTF
-        converter rebases every stack onto its first key, so publishing the
-        scene's earliest key instead slides every clip cut from that stack.
+        What a shotless file's one take holds, which its audio cues count
+        from (``AudioUtils.export_record``).
 
         Parameters:
             takes: The take list to widen by (``{"name","start","end"}``
                 entries or ``(name, start, end)`` tuples); ``None`` reads the
-                one the carrier declares.  A producer passes the takes its OWN
-                assembly resolved (``ptk.SceneRecords.declared_takes`` over
-                ``ctx.record``): the snapshot commits only after every producer
-                has run, so the carrier still holds the PREVIOUS export's takes.
+                one the shot store declares (``ptk.ShotStore.declared_takes``).
 
         Returns:
             The range, or None outside Blender / with no scene to read.
         """
-        try:
-            import bpy
+        planned = FbxUtils._planned_bake_range
+        if planned is not None:
+            start, end = float(planned[0]), float(planned[1])
+        else:
+            try:
+                import bpy
 
-            scene = bpy.context.scene
-            start, end = float(scene.frame_start), float(scene.frame_end)
-        except Exception as error:  # noqa: BLE001 -- a probe must not fail a write
-            logger.debug(f"Could not read the scene frame range: {error}")
-            return None
+                scene = bpy.context.scene
+                start, end = float(scene.frame_start), float(scene.frame_end)
+            except Exception as error:  # noqa: BLE001 -- a probe must not fail a write
+                logger.debug(f"Could not read the scene frame range: {error}")
+                return None
 
         for _name, take_start, take_end in FbxUtils._declared_take_bounds(takes):
             start, end = min(start, take_start), max(end, take_end)
         return (start, end)
 
     @staticmethod
-    def _stored_takes():
-        """The take list the carrier declares (``ptk.SceneRecords.declared_takes``
-        over the stored records), empty when none is."""
-        from blendertk.node_utils.data_nodes import DataNodes
+    def _take_window(ctx) -> Optional[Tuple[float, float]]:
+        """The window a shotless file's one take declares, in scene frames --
+        what its audio cues count from (``AudioUtils.export_record``; mirror
+        of mayatk's): measured off the written file when a host's post-write
+        step states it (``ctx.take_window``), else the range Blender's writer
+        bakes (:meth:`bake_range`), which is exactly what it declares and
+        holds -- every frame of it, a key at each end, none outside (measured
+        through :meth:`export` and the Scene Exporter, 2026-11-05: keys 10-100
+        under a 1-120 range shipped a 1-120 take declaring 1-120). So no
+        Blender write needs its window fitted. A write that carries no
+        animation has none."""
+        if ctx.animated is False:
+            return None
+        if getattr(ctx, "take_window", None):
+            return (float(ctx.take_window[0]), float(ctx.take_window[1]))
+        return FbxUtils.bake_range()
 
-        return ptk.SceneRecords.declared_takes(
-            lambda key: ptk.SceneRecords.resolve(key).load(DataNodes)
-        )
+    #: The range the write in progress will set before it bakes, stated by its
+    #: exporter for a publish (:meth:`_planning`); None reads the scene's.
+    _planned_bake_range = None
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _planning(span):
+        """For the block -- a publish -- :meth:`bake_range` starts from *span*,
+        the range the exporter will set before its write, rather than the
+        scene's as it stands; None changes nothing. Blender's writer declares
+        the range it bakes as its take's window (:meth:`_take_window`), so a
+        producer publishing before the range is set reads it here; Maya's
+        writer declares its playback range, which mayatk reads directly."""
+        previous = FbxUtils._planned_bake_range
+        if span is not None:
+            FbxUtils._planned_bake_range = (float(span[0]), float(span[1]))
+        try:
+            yield
+        finally:
+            FbxUtils._planned_bake_range = previous
+
+    @staticmethod
+    def declared_takes():
+        """The takes the scene declares: one per shot the shot store's export
+        declares, ``{"name", "start", "end"}`` in timeline order
+        (``ptk.ShotStore.declared_takes`` -- the record publishes no frames, so
+        the store is where a take's range lives at export time); empty when
+        none is. Read only: a preview push arms these with no scene side
+        effect."""
+        from blendertk.anim_utils.shots._shots import ShotStore
+
+        try:
+            return ShotStore.declared_takes()
+        except Exception as error:  # noqa: BLE001 -- a probe must not fail a write
+            logger.warning(f"The shot store's takes could not be read: {error}")
+            return []
 
     @staticmethod
     def _declared_take_bounds(takes=None):
-        """``(name, start, end)`` for each of *takes* -- by default the ones on
-        the carrier -- malformed ones skipped.
+        """``(name, start, end)`` for each of *takes* -- by default the ones the
+        shot store declares -- malformed ones skipped.
 
-        The carrier rather than ``_pending_takes``: the producers run before
+        The store rather than ``_pending_takes``: the producers run before
         ``apply_declared_takes`` has armed anything, so the pending list is
         still empty when :meth:`bake_range` needs the answer.
         """
         if takes is None:
-            takes = FbxUtils._stored_takes()
+            takes = FbxUtils.declared_takes()
         for take in takes or ():
             try:
                 if isinstance(take, dict):
@@ -2665,16 +2777,16 @@ class FbxUtils(_FbxUtilsInternal):
 
         EVERY subsequent :meth:`export` write consumes the armed state — it is
         sticky until :meth:`reset_takes`, mirroring Maya's global exporter
-        state — by cloning the file's single baked scene-range AnimStack into
-        windowed per-take stacks, kept beside it as Maya's ``Take 001`` is
-        (see ``_split_animation_takes``).  The write
+        state — by replacing the file's single baked scene-range AnimStack with
+        windowed per-take stacks, one per shot (see
+        ``_split_animation_takes``).  The write
         must go out with
         ``bake_anim`` enabled and a scene frame range covering every take —
         the Scene Exporter's ``apply_declared_takes`` task guarantees both.
 
         Parameters:
             takes: Sequence of ``{"name","start","end"}`` mappings (what
-                ``ptk.SceneRecords.declared_takes`` returns) or
+                ``ptk.ShotStore.declared_takes`` returns) or
                 ``(name, start, end)`` tuples.
 
         Returns:
@@ -2700,7 +2812,7 @@ class FbxUtils(_FbxUtilsInternal):
         return len(norm)
 
     @staticmethod
-    def stage_curve_proxy(name: str, parent, fcurve, *markers: str):
+    def stage_curve_proxy(name: str, parent, fcurve, *markers: str, value=None, interpolation=None):
         """Stage one transient Empty whose ``scale.x`` carries *fcurve*, for an FBX write.
 
         The curve-proxy transport shared by every producer that has to ship a
@@ -2713,7 +2825,9 @@ class FbxUtils(_FbxUtilsInternal):
         keyframe of *fcurve* (interpolation copied per key) and stamped with
         every *markers* custom property -- always including
         ``ptk.MeshConvert.CURVE_PROXY_MARKER``, which the GLB conversion strips
-        on and the Unity importer recognises.
+        on and the Unity importer recognises. *value* maps each key's value
+        (``hide_render`` -> the transport's visible-at-1); *interpolation*
+        gives every key one (``"CONSTANT"`` for a stepped channel).
 
         Returns:
             The created proxy object, or ``None`` when *name* is already taken
@@ -2740,7 +2854,7 @@ class FbxUtils(_FbxUtilsInternal):
         # frame rounded to 1e-4, not to a whole number: sub-frame keys
         # (0.4 / 0.6) would otherwise collide onto one entry.
         for kp in sorted(fcurve.keyframe_points, key=lambda k: k.co[0]):
-            proxy.scale[0] = kp.co[1]
+            proxy.scale[0] = value(kp.co[1]) if value is not None else kp.co[1]
             proxy.keyframe_insert(data_path="scale", index=0, frame=kp.co[0])
         dst = next(
             (
@@ -2755,16 +2869,17 @@ class FbxUtils(_FbxUtilsInternal):
                 round(k.co[0], 4): k.interpolation for k in fcurve.keyframe_points
             }
             for k in dst.keyframe_points:
-                k.interpolation = interp.get(round(k.co[0], 4), k.interpolation)
+                k.interpolation = interpolation or interp.get(round(k.co[0], 4), k.interpolation)
         return proxy
 
     @staticmethod
     def apply_takes_from_node(node=None, attr=None) -> int:
         """Arm the takes the scene declares for the next write.
 
-        Defaults to the shot record on the shared carrier -- each clip's
-        range -- so this is shot-agnostic (mirror of
-        ``mtk.FbxUtils.apply_takes_from_node``; *node* is an object name here).
+        Defaults to the takes the shot store declares -- one per shot,
+        spanning its range (``ptk.ShotStore.declared_takes``) -- so this is
+        shot-agnostic (mirror of ``mtk.FbxUtils.apply_takes_from_node``; *node*
+        is an object name here).
         An explicit *attr* reads a JSON take list off *node* (the carrier when
         ``None``) instead; a *node* alone names no list: it arms nothing, and
         warns why.
@@ -2777,7 +2892,7 @@ class FbxUtils(_FbxUtilsInternal):
         from blendertk.node_utils.data_nodes import DataNodes
 
         if node is None and attr is None:
-            defs = FbxUtils._stored_takes()
+            defs = FbxUtils.declared_takes()
         else:
             if not attr:
                 # Until 0.20.0 a node alone read the retired ``fbx_takes``
@@ -3072,7 +3187,7 @@ class FbxUtils(_FbxUtilsInternal):
         * no animation / one take -- the file as it is;
         * covered (a whole-timeline take beside its slices) -- the covering take alone,
           the slices dropped from a scratch copy;
-        * merged (Shots Only windows, per-object takes, gap-0 seams) -- the takes merged
+        * merged (one take per shot, per-object takes, gap-0 seams) -- the takes merged
           into one (``ptk.FbxMedia.merge_takes``) in a scratch copy;
         * conflicted (a clip library: takes keying the same channels differently) -- the
           file's current take, plus every take agreeing with it, plays; each other take
@@ -3344,13 +3459,15 @@ class FbxUtils(_FbxUtilsInternal):
         """The passes a written FBX deliverable takes, in place.
 
         What the Scene Exporter and the Unity bridge run on the FBX they ship,
-        after the GLB built from it (*glb*, whose highlight copies it then
-        shares; ``None`` builds them, through Blender's own image I/O): an
+        after the GLB built from it (*glb*, whose geometry the highlight copies
+        are drawn on; ``None`` builds that geometry, no lightmap encoded): an
         instance whose pivots differ from its siblings' gets a mesh of its
-        own, the reflection probe's highlight copies go in, and every file
+        own, the reflection probe's highlight copies go in, every file
         the records name is embedded (:meth:`embed_dependencies`'s folders
-        and audio). ``ptk.MeshConvert.finish_fbx_deliverable`` is the
-        sequence. Mirror of mayatk's.
+        and audio), and the folders of the machine that wrote it leave the
+        file (``ptk.FbxMedia.strip_machine_paths``: the source ``.blend``,
+        each embedded map's staged path). ``ptk.MeshConvert.finish_fbx_deliverable``
+        is the sequence. Mirror of mayatk's.
 
         Never raises -- a pass that fails is a warning and the next still runs.
 
@@ -3370,37 +3487,16 @@ class FbxUtils(_FbxUtilsInternal):
             its files are is warned about, and the passes run on what was
             given: the split, the copies and the drop need none of it.
         """
-        log = logger or logging.getLogger(__name__)
-        if not ptk.FbxFile.is_fbx(file_path):
-            return None
-        try:
-            search_dirs, walk_root, files = FbxUtils._dependency_inputs(
-                file_path, search_dirs, walk_root, files, log
-            )
-        except Exception as error:  # noqa: BLE001 -- the deliverable already shipped
-            log.warning(
-                f"FBX deliverable: the scene's files not resolved ({error}); "
-                "finishing with the folders and files given."
-            )
-            log.debug("Deliverable inputs failed.", exc_info=True)
-            search_dirs, walk_root, files = list(search_dirs or ()), walk_root or "", files or ()
-        try:
-            # Blender's Python ships no cv2: its own image I/O encodes a build.
-            from blendertk.light_utils.lightmap_baker.web_export import (
-                LightmapWebExport as hdr_codec,
-            )
-        except Exception:  # noqa: BLE001 -- only a highlight build needs it
-            log.debug("No Blender HDR codec for a highlight build.", exc_info=True)
-            hdr_codec = None
-        return ptk.MeshConvert.finish_fbx_deliverable(
+        report = ptk.MeshConvert.finish_fbx_deliverable(
             file_path,
             glb,
             search_dirs=search_dirs,
             walk_root=walk_root,
             files=files,
-            hdr_codec=hdr_codec,
-            logger=log,
+            logger=logger or logging.getLogger(__name__),
+            inputs=FbxUtils._dependency_inputs,
         )
+        return report or None
 
     @staticmethod
     def _dependency_inputs(
@@ -3429,21 +3525,10 @@ class FbxUtils(_FbxUtilsInternal):
 
     @staticmethod
     def _shipped_audio(file_path: str, log) -> List[Tuple[str, str]]:
-        """``(file name, path)`` of the audio the FBX's events play.
-
-        Read off the ``audio`` the file itself carries (each event
-        names its strip: ``ptk.FbxMedia.audio_events``), resolved through the
-        scene's strips; a strip whose file is missing is said once and left
-        out. Mirror of mayatk's.
+        """``(file name, path)`` of the audio the FBX's cues play: the sounds
+        its ``audio`` record names (each a strip's file under the strip id),
+        resolved through this scene's strips (``ptk.FbxMedia.audio_files``). Mirror of mayatk's.
         """
         from blendertk.audio_utils._audio_utils import AudioUtils
 
-        names = ptk.FbxMedia.audio_events(file_path)
-        found = AudioUtils.track_files(names)
-        missing = sorted(set(names) - {os.path.splitext(n)[0] for n, _ in found})
-        if missing:
-            log.warning(
-                "FBX dependencies: no audio file for event(s) "
-                f"{', '.join(missing)}; the deliverable ships without them."
-            )
-        return found
+        return ptk.FbxMedia.audio_files(file_path, AudioUtils.track_files, log)

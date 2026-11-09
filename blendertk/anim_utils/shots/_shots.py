@@ -41,7 +41,8 @@ Divergence from mayatk (by design):
       data_nodes.DataNodes`) instead of string attrs on a Maya transform.
       Take realization diverges too: no before-export hook exists in bpy, so
       the Scene Exporter's ``apply_declared_takes`` task is what arms
-      ``FbxUtils`` with the declared takes (see that module's docstring).
+      ``FbxUtils`` with the declared takes, one per shot
+      (``ShotStore.declared_takes``; see that module's docstring).
     * **Cross-scene prefs** use the engine's zero-dep JSON store (pythontk user
       config), not QSettings — inherited unchanged from the base.  The Maya
       twin's one-time QSettings → JSON migration is N/A (Blender never had

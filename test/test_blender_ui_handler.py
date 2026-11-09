@@ -56,8 +56,8 @@ def check(name, cond, detail=""):
     )
 
 
-# This suite is a .venv target: it needs Qt, a real mayapy for the reference-manager
-# interop check, and the optional unitytk. Gate on "am I inside Blender?", NOT on
+# This suite is a .venv target: it needs Qt and a real mayapy for the reference-manager
+# interop check. Gate on "am I inside Blender?", NOT on
 # "is Qt missing?" — Blender headless normally ships no binding, but tentacle/blendertk
 # PROVISION PySide6 into Blender's addons/modules on demand, and once that has happened
 # the old qtpy probe stops skipping and the suite half-runs under the Blender harness
@@ -362,17 +362,15 @@ try:
 
     # unity_bridge: params_defaults() (Qt path via uitk.bridge.AttributeSpec; needs no bpy, so it
     # belongs here rather than in the headless test_unity_bridge harness which lacks Qt). The
-    # engine's rows are the export rows the Unity Workflow app shows for its Current Scene
-    # source; the delivery's rows (Assets subfolder, launch, version, scripts) are the app's.
+    # engine's row is the Scope the Unity Scripts app shows for its Current Scene source (the
+    # export is the Scene Exporter's own, so it brings no rows of its own); the delivery's rows
+    # (Assets subfolder, asset name, the scripts') are the app's.
     from blendertk.env_utils.unity_bridge._unity_bridge import UnityBridge
 
     _ub_defaults = UnityBridge().params_defaults()
     check(
-        "unity_bridge params_defaults: the export rows only (scope / materials / ...)",
-        set(_ub_defaults)
-        == {"SCOPE", "INCLUDE_MATERIALS", "EMBED_TEXTURES", "TRIANGULATE"}
-        and _ub_defaults.get("INCLUDE_MATERIALS") is True
-        and _ub_defaults.get("SCOPE") == "selected",
+        "unity_bridge params_defaults: the Scope row only",
+        set(_ub_defaults) == {"SCOPE"} and _ub_defaults.get("SCOPE") == "selected",
         f"{_ub_defaults}",
     )
 

@@ -341,7 +341,7 @@ class _TaskChecksMixin(_TaskDataMixin):
             return True, []
 
         foreign = ptk.MapFactory.foreign_packings(
-            ptk.MaterialFamilies.texture_files(ptk.MaterialFamilies.payload(entries)),
+            ptk.MaterialFamilies.source_files(entries),  # the authored maps, not the record's packed ORM
             workflow=template,
         )
         if not foreign:

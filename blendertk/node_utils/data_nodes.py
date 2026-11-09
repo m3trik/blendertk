@@ -24,7 +24,12 @@ the primitive that makes its guarantee structural:
   properties (``use_custom_props`` on) -- the same in-band surface unitytk
   reads via ``OnPostprocessGameObjectWithUserProperties``.  The Empty stays
   visible and selectable: a ``use_selection`` export can only ship what it
-  can select.
+  can select.  Only a ROOT-level ``data_export`` is the scene's
+  (``ptk.SceneStoreBase.is_scene_carrier``, mayatk's ``DataNodes._resolve``):
+  one parented under a group is a module's own and is never adopted, written
+  over or deleted.  Blender's names are unique, so while a module's holds the
+  name the scene's cannot be made: a write is refused, saying the fix
+  (``ptk.SceneStoreBase.WriteRefused``).
 
 ``import bpy`` is deferred into the call bodies (no import side effects).
 """
@@ -215,17 +220,34 @@ class DataNodes(ptk.SceneStoreBase):
 
     @classmethod
     def _export_object(cls, create: bool = False):
-        """The ``data_export`` Empty (created + linked to the scene when
-        *create*), else ``None``.
+        """The scene's ``data_export`` Empty (created + linked to the scene
+        when *create*), else ``None``.
+
+        The scene's is the ROOT-level one (``ptk.SceneStoreBase.is_scene_carrier``,
+        mirror of mayatk's ``_resolve``): a ``data_export`` parented under a
+        group is a module's own, and is never returned. Its name is taken,
+        and Blender's names are unique, so with *create* the scene's cannot be
+        made beside it: the write is refused (:attr:`WriteRefused`), saying
+        the fix, and the module's node is left as it is.
 
         Heals an *unlinked* carrier on the create path: ``bpy.data.objects``
         can hold an Empty no collection references (its collection was
         deleted) -- writes to it would succeed while the exporter never ships
         it, so a carrier about to be written is relinked into the scene.
+
+        Raises:
+            WriteRefused: With *create*, when a module's parented carrier
+                holds the name.
         """
         import bpy
 
         obj = cls._local_object(cls.EXPORT)
+        if obj is not None and not cls.is_scene_carrier(
+            obj.name, root_level=obj.parent is None
+        ):
+            if create:
+                raise cls.WriteRefused(cls._taken_message(obj))
+            return None
         if obj is None:
             if create:
                 obj = bpy.data.objects.new(cls.EXPORT, None)  # None data -> Empty
@@ -234,6 +256,19 @@ class DataNodes(ptk.SceneStoreBase):
             # By identity, not name: a linked module's carrier shares the name.
             bpy.context.scene.collection.objects.link(obj)
         return obj
+
+    @classmethod
+    def _taken_message(cls, obj) -> str:
+        """Why a deliverable write is refused while *obj* -- a module's own
+        ``data_export``, parented -- holds the name, and what fixes it."""
+        return (
+            f"The scene's records were not written: this file has no root-level "
+            f"'{cls.EXPORT}', and the name is taken by the one parented under "
+            f"'{obj.parent.name}', a module's own carrier, which is never "
+            f"written over. Rename or unparent that module's '{cls.EXPORT}', or "
+            f"bring the module in through an import that renames its carrier, "
+            f"then publish again."
+        )
 
     @classmethod
     def get_internal_node(cls, create: bool = True):
@@ -254,7 +289,10 @@ class DataNodes(ptk.SceneStoreBase):
 
     @classmethod
     def get_export_node(cls, create: bool = True):
-        """The ``data_export`` Empty (created + linked to the scene when *create*)."""
+        """The scene's ``data_export`` Empty, the root-level one (created +
+        linked to the scene when *create*); ``None`` when the scene has none.
+        A module's parented ``data_export`` is never it: with *create*, while
+        one holds the name, :attr:`WriteRefused` is raised (:meth:`_export_object`)."""
         return cls._export_object(create=create)
 
     @classmethod
@@ -286,6 +324,10 @@ class DataNodes(ptk.SceneStoreBase):
         Mirror of ``mtk.DataNodes.ensure_export`` (there a locked, hidden
         transform; here a plain Empty -- Blender's FBX exporter can only ship a
         selectable, visible object, so the carrier is deliberately not hidden).
+
+        Raises:
+            WriteRefused: A module's parented ``data_export`` holds the name
+                (:meth:`_export_object`).
         """
         return cls._export_object(create=True)
 
@@ -364,6 +406,11 @@ class DataNodes(ptk.SceneStoreBase):
         Returns:
             str | None: The carrier's name, or ``None`` when a clear had
             nothing to clear.
+
+        Raises:
+            WriteRefused: A deliverable write while a module's parented
+                ``data_export`` holds the name (:meth:`_export_object`);
+                nothing is written.
         """
         if not text and _Scope(scope) is _Scope.PRIVATE and cls._scene() is not None:
             # A private clear migrates an unfolded file first, as a write does
@@ -610,13 +657,36 @@ class DataNodes(ptk.SceneStoreBase):
     @classmethod
     def _foreign_carriers(cls, carriers) -> Dict[ptk.Scope, "_Carrier"]:
         """:meth:`_live_carriers` less a ``data_export`` the move made this
-        file's own (it had none): adopted, not merged.  A private carrier is
-        never this file's -- that is the scene group, which no library
-        brings."""
+        file's own (it had none, and the library's sat at its root): adopted,
+        not merged.  A private carrier is never this file's -- that is the
+        scene group, which no library brings.
+
+        A made-local carrier parented under a group is a module's own, never
+        this file's (``ptk.SceneStoreBase.is_scene_carrier``, as
+        :meth:`_export_object` takes it): it is merged like any other, so it
+        gives up the name the scene's root-level carrier is written under
+        (Blender's names are unique) and is removed after, said in the log --
+        the import that renames a module's carrier which a refused write
+        names as the fix."""
+        live = cls._live_carriers(carriers)
         own = cls._local_object(cls.EXPORT)
+        if own is not None and not cls.is_scene_carrier(
+            own.name, root_level=own.parent is None
+        ):
+            if any(o == own for carrier in live.values() for o in carrier.objects):
+                parent = own.parent.name
+                own.name = f"{cls.EXPORT}_merging"
+                logger.warning(
+                    "The %s under %r is a module's own carrier: its records merge "
+                    "into this file's root-level %s, and it is removed.",
+                    cls.EXPORT,
+                    parent,
+                    cls.EXPORT,
+                )
+            own = None
         return {
             scope: carrier
-            for scope, carrier in cls._live_carriers(carriers).items()
+            for scope, carrier in live.items()
             if not (own is not None and any(o == own for o in carrier.objects))
         }
 

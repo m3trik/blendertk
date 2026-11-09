@@ -299,8 +299,8 @@ class _CoreUtilsInternal(object):
         Two passes, because there are two un-provisioned states:
 
         * **``None``** — the guard created the name. Repaired across *every* loaded ``pythontk``
-          module, not a hand-listed few: seven modules carry such a guard today (``_img_utils``,
-          ``_map_factory``, ``processor``, ``map_optimizer``, ``region_masks``, ``mask_generator``,
+          module, not a hand-listed few: six modules carry such a guard today (``_img_utils``,
+          ``_map_factory``, ``processor``, ``map_optimizer``, ``mask_generator``,
           ``ktx2_encoder``) and a list would go stale the next time one is added. Only a name the
           module itself set to ``None`` is touched, so this can't reach anything it shouldn't.
         * **absent** — the guard imported the name but never bound it (a pre-2026-08-21 pythontk

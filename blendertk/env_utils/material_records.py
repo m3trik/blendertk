@@ -5,8 +5,13 @@
 
 Every material an export ships, read from the file as staged for the write
 into the host-free model that states it (``ptk.MaterialFamilies``): the
-statement the FBX carries (``ptk.SceneRecords.MATERIALS``), the GLB built
-from that FBX applies, and unitytk shades from. Read here rather than from
+record the FBX carries (``ptk.SceneRecords.MATERIALS``, literal glTF 2.0),
+which the GLB built from that FBX copies as its own materials and unitytk
+shades from. Its one write is glTF's own cost: each material's metal and
+roughness maps packed into one image, a delivery file written into the pack
+store and never into a source folder
+(``ptk.MaterialFamilies.pack_metallic_roughness``), which the delivery embeds
+with the other maps (``ptk.FbxMedia.embed_dependencies``). Read here rather than from
 the written file: Blender's FBX writer turns a Principled BSDF into a Phong
 (metallic in ``ReflectionFactor``, roughness as ``((1 - r) * 10)^2``
 shininess), which no reader of the file can tell from an authored one.
@@ -36,10 +41,6 @@ class MaterialRecords(ptk.HelpMixin):
     #: Math node thresholding the alpha, whose second input is the cutoff.
     MASK_NODE_LABEL = "Mask Threshold"
 
-    #: Shader nodes an unlit surface may route through between its Emission
-    #: and the output: the shader inputs of a mix / add, or a reroute.
-    _UNLIT_ROUTES = ("MIX_SHADER", "ADD_SHADER", "REROUTE")
-
     #: What else shades a material unlit whatever it wears, as ``(module,
     #: class, method)`` rows resolved on use (``FbxUtils._resolve_row``), as
     #: ``FbxUtils.PRODUCERS`` rows are: the method returns the materials, and a
@@ -54,27 +55,48 @@ class MaterialRecords(ptk.HelpMixin):
     def export_record(cls, ctx: "ptk.ExportContext") -> Optional["ptk.Record"]:
         """The ``materials`` record for this write, or ``None`` when no object
         wears a material -- the ``ptk.SceneRecords.MATERIALS`` producer
-        (``FbxUtils.PRODUCERS``, mirror of mayatk's). Pure: it reads the
-        staged file and never writes.
+        (``FbxUtils.PRODUCERS``, mirror of mayatk's). It reads the staged
+        file and changes nothing in it; its one write is each material's
+        metal and roughness maps packed into one image, glTF's layout -- a
+        delivery file in the pack store, never beside the maps
+        (``ptk.MaterialFamilies.pack_metallic_roughness``: a re-export of the
+        same maps reuses it, a changed map packs anew).
 
         Parameters:
             ctx: The export's decisions; ``ctx.scope`` (object names, each with
                 its descendants) narrows the materials to those the write
                 ships -- the whole file's when ``None`` -- and what a material
                 carries that the record cannot state is noted on it.
+
+        Raises:
+            OSError: A material's metal and roughness maps could not be packed
+                (a map missing or unreadable, the pack store not writable): the
+                record is not produced, and the message says what to fix --
+                never a material read dielectric and matte unsaid.
+
+        A material only lightmapped objects wear states no occlusion map --
+        the bake holds their occlusion -- and one that lightmapped and
+        unbaked objects share keeps it, noted with the fix: decided against
+        the ``lightmaps`` record this write ships, by mesh
+        (``ptk.MaterialFamilies.export_record``, the producer both hosts
+        share; this reads which meshes wear which materials, :meth:`_worn`;
+        mirror of mayatk's).
         """
         objects = cls._export_objects(ctx.scope)
         if not objects:
             return None
+        try:
+            from blendertk.node_utils.data_nodes import DataNodes
+        except ImportError:  # outside Blender: no stored record to read
+            DataNodes = None
         notes: List[str] = []
-        entries = cls.entries(objects, notes=notes)
-        for note in dict.fromkeys(notes):
-            ctx.note(note)
-        if not entries:
-            return None
-        # ``payload`` is the declaration's made payload already.
-        return ptk.Record(
-            ptk.SceneRecords.MATERIALS, ptk.MaterialFamilies.payload(entries)
+        return ptk.MaterialFamilies.export_record(
+            ctx,
+            cls.entries(objects, notes=notes),
+            lambda: cls._worn(objects),
+            store=DataNodes,
+            pack=ptk.MaterialFamilies.pack_metallic_roughness,
+            notes=notes,
         )
 
     @classmethod
@@ -100,6 +122,7 @@ class MaterialRecords(ptk.HelpMixin):
             node = cls._principled(material)
             if node is not None:
                 family, values = "pbr", cls._principled_values(material, node)
+                values.update(cls._uv_values(material, notes))
             elif cls._is_unlit(material):
                 family, values = "unlit", cls._emission_values(material)
             else:
@@ -125,6 +148,59 @@ class MaterialRecords(ptk.HelpMixin):
         return found
 
     # ---------------------------------------------------------------- values
+    @classmethod
+    def _uv_values(
+        cls, material: Any, notes: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """The UV transform *material*'s maps share, in the family's
+        vocabulary (``uv_offset``, ``uv_scale``: Blender's UV space, which the
+        model turns into glTF's): the Mapping node (Point) feeding its Image
+        Texture nodes' Vector, its Location and Scale. Empty with none, or one
+        that changes nothing. Maps placed differently state the first one's,
+        and a rotation, another mapping type or a driven input -- which the
+        record has no term for -- is said in *notes*. Mirror of mayatk's
+        ``place2dTexture`` reader."""
+        from blendertk.mat_utils.mat_manifest import MatManifest
+
+        def said(sentence: str) -> None:
+            if notes is not None:
+                notes.append(f"Material {material.name}: {sentence}")
+
+        found = None
+        for image in MatManifest._channel_image_nodes(material).values():
+            socket = image.inputs.get("Vector")
+            if socket is None or not socket.is_linked:
+                continue
+            mapping = socket.links[0].from_node
+            if mapping.type != "MAPPING":
+                continue
+            sockets = [mapping.inputs.get(n) for n in ("Location", "Rotation", "Scale")]
+            if mapping.vector_type != "POINT" or any(
+                s is None or s.is_linked for s in sockets
+            ):
+                said(
+                    f"its {mapping.name} mapping is not stated (the record carries "
+                    "a Point mapping's location and scale alone)."
+                )
+                continue
+            location, rotation, scale = (tuple(s.default_value) for s in sockets)
+            value = (
+                (round(location[0], 6), round(location[1], 6)),
+                (round(scale[0], 6), round(scale[1], 6)),
+            )
+            if any(abs(r) > 1e-6 for r in rotation):
+                said(f"its {mapping.name} rotation is not stated.")
+            if found is None:
+                found = value
+            elif value != found:
+                said(
+                    "its maps are placed differently; the record states the "
+                    "first map's placement for all of them."
+                )
+        if found is None or found == ((0.0, 0.0), (1.0, 1.0)):
+            return {}
+        return {"uv_offset": found[0], "uv_scale": found[1]}
+
     @classmethod
     def _principled_values(cls, material: Any, node: Any) -> Dict[str, Any]:
         """A Principled BSDF in the ``pbr`` vocabulary: each socket's own
@@ -420,7 +496,7 @@ class MaterialRecords(ptk.HelpMixin):
         either: FBX2glTF makes each one lit PBR, and a shadow plane in WebXR
         took the environment's specular and read BRIGHTER than the floor it
         lay on (measured on the Maya side 2026-10-15). Stated as the record's
-        ``unlit``, which a GLB applies as ``KHR_materials_unlit``
+        ``KHR_materials_unlit``, which a GLB copies
         (``MeshConvert.apply_glb_materials``).
         """
         from blendertk.env_utils.fbx_utils import FbxUtils
@@ -441,40 +517,11 @@ class MaterialRecords(ptk.HelpMixin):
     @classmethod
     def _is_unlit(cls, material: Any, limit: int = 64) -> bool:
         """Is *material* Blender's unlit model: Emission, with no other BSDF?
+        The rule is ``MatUtils``' (``_MatUtilsInternal._is_unlit``), which an
+        emissive group refuses an unlit surface by too."""
+        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
 
-        Walked from the ACTIVE output's Surface back through mix / add shaders
-        (their SHADER inputs only -- a mix factor is data, a texture's alpha):
-        an Emission shader must be reached, and nothing but a Transparent BSDF
-        beside it -- what the shadow rigs and a detached shadow plane build.
-        Any other shader (a Principled BSDF, a group) is lit, or unknown, and
-        leaves the material out. Bounded, as :meth:`_surface_mixes_transparency`.
-        """
-        from blendertk.mat_utils._mat_utils import MatUtils
-
-        tree = MatUtils.get_node_tree(material)
-        if tree is None:
-            return False
-        first = cls._surface_shader(tree)
-        if first is None:
-            return False
-        emits = False
-        seen, queue = set(), [first]
-        while queue:
-            node = queue.pop()
-            if node is None or node.name in seen:
-                continue
-            seen.add(node.name)
-            if len(seen) > limit:
-                return False
-            if node.type == "EMISSION":
-                emits = True
-            elif node.type in cls._UNLIT_ROUTES:
-                for socket in node.inputs:
-                    if node.type == "REROUTE" or socket.type == "SHADER":
-                        queue.extend(link.from_node for link in socket.links)
-            elif node.type != "BSDF_TRANSPARENT":
-                return False
-        return emits
+        return _MatUtilsInternal._is_unlit(material, limit)
 
     @staticmethod
     def _principled(material):
@@ -493,6 +540,39 @@ class MaterialRecords(ptk.HelpMixin):
         from blendertk.mat_utils._mat_utils import _MatUtilsInternal
 
         return _MatUtilsInternal._tree_surface_node(tree)
+
+    @staticmethod
+    def _worn(objects: Iterable[Any]) -> List[Tuple[List[List[str]], List[str]]]:
+        """Per mesh *objects* ship: the hierarchy of every object wearing it
+        -- each name from the scene root down, its own last, as a
+        ``lightmaps`` entry's ``hierarchy`` -- and the names of the materials
+        it wears (mirror of mayatk's ``_worn``, where linked duplicates are
+        a shape's instances): what ``ptk.MaterialFamilies.export_record``
+        splits by the lightmaps the write ships."""
+        import bpy
+        from blendertk.mat_utils._mat_utils import MatUtils
+
+        meshes = {
+            obj.data.name_full
+            for obj in objects
+            if getattr(obj, "type", None) == "MESH" and obj.data is not None
+        }
+        users: Dict[str, List[Any]] = {}
+        for obj in bpy.data.objects:
+            data = obj.data if obj.type == "MESH" else None
+            if data is not None and data.name_full in meshes:
+                users.setdefault(data.name_full, []).append(obj)
+        worn: List[Tuple[List[List[str]], List[str]]] = []
+        for wearers in users.values():
+            paths = []
+            for obj in wearers:
+                chain, node = [], obj
+                while node is not None:
+                    chain.append(node.name)
+                    node = node.parent
+                paths.append(chain[::-1])
+            worn.append((paths, sorted({m.name for m in MatUtils.get_mats(wearers)})))
+        return worn
 
     @staticmethod
     def _export_objects(scope: Optional[Iterable[str]]) -> List[Any]:

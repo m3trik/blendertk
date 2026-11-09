@@ -38,9 +38,12 @@ depsgraph cycle). Expressions are **branchless arithmetic** (``min``/``max``/``s
 ``pow``) so they stay on Blender's fast driver parser — a Python ternary would force the slow
 full-Python parser (and a security gate). A sun's direction is read straight off its
 ``matrix_world`` column (a ``SINGLE_PROP`` path), written as a point a very long way back along
-the ray so the one model body serves both source kinds. The opacity math lives on the
-material's ``opacity`` Value node (a different ID) and the plane's ``opacity`` prop mirrors it;
-a bake keys the prop and turns the material's driver into a follower of it.
+the ray so the one model body serves both source kinds. The fade (pythontk
+``ShadowProjection.fade``, from the stamps the record publishes: ``shadowIntensity``,
+``falloffPower``, ``fadeHeight``) lives on the material's ``opacity`` Value node (a different
+ID) and the plane's ``opacity`` prop mirrors it: the viewport's preview of the fade every reader
+evaluates from the record. Nothing keys it -- a bake holds it at the plane's intensity and
+turns the material's driver into a follower of the prop.
 
 Material: unlit **black Emission** mixed against a **Transparent BSDF** by ``tex.alpha ×
 opacity`` — a node graph, so it renders the silhouette and the fade per pixel. The PNG is
@@ -63,10 +66,9 @@ left to export.
 onto the shared ``data_export`` carrier (``btk.DataNodes``) at authoring time
 (create/bake/delete), and is registered in ``FbxUtils.PRODUCERS`` so the Scene Exporter
 re-refreshes it at export time. unitytk's ``ShadowPlaneImporter`` joins records to the
-imported planes by GameObject name and finishes the Unity setup automatically. The baked
-``opacity`` prop reaches Unity through the same custom-property route as Maya's; the
-visibility-pair mirror and the GLB fade channel are produced by mayatk's RenderOpacity tool,
-which has no Blender port yet.
+imported planes by GameObject name and finishes the Unity setup automatically. Every plane
+carries its horizon map (baked at export where it has none) and its fade's terms; no plane's
+fade is keyed, so the planes take no part in the ``render_effects`` record.
 
 ``import bpy`` / ``numpy`` are deferred into the call bodies and the Qt-only ``uitk`` helper into
 its method, so the module resolves headless and loads under the workspace ``.venv``.
@@ -102,6 +104,8 @@ class ShadowRig(ptk.LoggingMixin):
     _TARGETS_PROP = "shadowRigTargets"  # JSON list of target object names
     _SOURCE_PROP = "shadowRigSource"  # ID pointer to the source object
     _CONTACT_PROP = "shadowContact"  # ID pointer to the contact empty
+    # The contact's name after its base, mayatk's (a saved name: the record states it).
+    _CONTACT_SUFFIX = "_contact_loc"
     # The unit 3D direction (source -> contact; a sun's own direction) the
     # silhouette was rasterized from.
     _BEARING_PROPS = ("silhouetteBearingX", "silhouetteBearingY", "silhouetteBearingZ")
@@ -326,7 +330,9 @@ class ShadowRig(ptk.LoggingMixin):
         return common
 
     def create_contact_locator(self):
-        """Empty at the footprint's lowest point (min-Z), hung on :meth:`_contact_parent`."""
+        """Empty at the footprint's lowest point (min-Z), hung on :meth:`_contact_parent`,
+        named ``<base>_contact_loc`` as mayatk's locator is: the ``shadows`` record
+        names it, and one scene's record names one contact from either DCC."""
         lo, hi = self._world_bounds()
         loc = (
             (lo[0] + hi[0]) * 0.5,
@@ -334,7 +340,10 @@ class ShadowRig(ptk.LoggingMixin):
             lo[2],
         )  # center XY, min Z (ground-up)
         self.contact = RigUtils.create_locator(
-            f"{self._base}_contact", location=loc, display_type="PLAIN_AXES", size=0.2
+            f"{self._base}{self._CONTACT_SUFFIX}",
+            location=loc,
+            display_type="PLAIN_AXES",
+            size=0.2,
         )
         parent = self._contact_parent()
         if parent is not None:
@@ -1033,8 +1042,16 @@ class ShadowRig(ptk.LoggingMixin):
         arr = np.asarray(arr)
         h, w = int(arr.shape[0]), int(arr.shape[1])
         img = bpy.data.images.get(name)
-        if img is not None and tuple(img.size) != (w, h):
-            # Resolution changed -- no in-place resize: the new datablock takes
+        if img is not None and (
+            tuple(img.size) != (w, h)
+            or (
+                img.source == "FILE"
+                and not os.path.exists(bpy.path.abspath(img.filepath_raw))
+            )
+        ):
+            # Resolution changed, or the datablock's file is gone (the
+            # colour-space write below reloads a file-backed image, which then
+            # holds no pixels) -- no in-place resize: the new datablock takes
             # every user first, then the old name.
             old, img = img, bpy.data.images.new(name, w, h, alpha=True)
             old.user_remap(img)
@@ -1183,14 +1200,18 @@ class ShadowRig(ptk.LoggingMixin):
 
     # ------------------------------------------------------------------ drivers
     def setup_drivers(self):
-        """Build the model's driver chain (group -> contact -> plane), the material's opacity
-        driver and the plane's opacity mirror, then force one recompile."""
+        """Build the model's driver chain (group -> contact -> plane) and the material's
+        fade driver (the preview, composed over the plane's authored ``opacity``), then
+        force one recompile. A rig built before the move has its ``opacity`` mirror
+        retired here (:meth:`_retire_mirror`)."""
         if self.group is None or self.contact is None or self.material is None:
             raise ValueError(
                 "The rig's group, contact and material must exist before its drivers."
             )
+        self._retire_mirror(self.shadow_plane)
+        # The fade driver reads it: a rig built before the prop would draw nothing.
+        RigUtils.ensure_custom_prop(self.shadow_plane, self.OPACITY_ATTR, 1.0, 0.0, 1.0)
         self._drivers_model()
-        self._prop_mirror_driver()
         # Script-built drivers cache a stale compile until the depsgraph settles + each expression is
         # re-assigned (the shared RigUtils gotcha).
         RigUtils.refresh_drivers(
@@ -1208,13 +1229,18 @@ class ShadowRig(ptk.LoggingMixin):
         from primitives only (the source's transform or a sun's ``matrix_world``
         column, the contact's transform, the plane's stamps).
 
-        A positional source is the model verbatim. A sun gets the parallel-projection
-        closed forms instead of the far-point trick: with the intermediates stored as
-        single-precision properties, ``dist x (k_top - k_base)`` at a far point
-        multiplies a cancelling difference and lands 10-20% off; ``k = 1``,
-        ``reach = height x |d_h| / |d_z|`` and ``anchor = C + d_h x (C_z - G) / |d_z|``
-        are exact and short. ``m0..m2`` are the sun's world Z axis (its direction is
-        ``-Z``), so ``d_h = (-m0, -m1)`` and ``|d_z| = m2``. Read as
+        A positional source is the model verbatim. A sun is the model's far point
+        (``ShadowProjection.far_point``: ``D = 1e6 x max(height, 2 x radius, 1e-3)`` back
+        along the ray), written in closed forms: with the intermediates stored as
+        single-precision properties, ``L_z - C_z`` at a far point and ``dist x (k_top -
+        k_base)`` cancel and land 10-20% off, so each term is spelled from ``A = D x m2``
+        (the far point's height over the contact) instead -- ``k = (A + e) / A`` and
+        ``(A + e) / (A - height)`` (``e = C_z - G``), ``reach = height x |d_h| x (A + e) /
+        (m2 x (A - height))`` capped at ``maxStretch`` heights, and ``anchor = C + d_h x e /
+        |d_z|``. Exact, so the fade and the placement are the record's own (the
+        parallel-projection forms ``k = 1`` this replaced were off by ``height / (D x m2)``,
+        3.4e-6 of a grazing sun's fade). ``m0..m2`` are the sun's world Z axis (its
+        direction is ``-Z``), so ``d_h = (-m0, -m1)`` and ``|d_z| = m2``. Read as
         ``matrix_world[2][i]``: an RNA path indexes Blender's column-major matrix
         storage (``[column][row]``), the transpose of ``mathutils.Matrix``'s
         ``[row][col]`` — ``[i][2]`` would read each axis's Z component instead.
@@ -1225,12 +1251,30 @@ class ShadowRig(ptk.LoggingMixin):
         if self.source_is_directional(L):
             mv = [(f"m{i}", L, f"matrix_world[2][{i}]") for i in range(3)]
             H = "sqrt(m0**2+m1**2)"  # |d_h|
+            # The far point's distance (``1e6``: FAR_FACTOR, spelled short for
+            # the 255-character cap) and its height over the contact.
+            far = "{:.0e}".format(ptk.ShadowProjection.FAR_FACTOR).replace("e+0", "e")
+            D = f"{far}*max(objH,2*r,1e-3)"
+            A = f"m2*{D}"
+            KB = f"min(max(({A}+Cz-gh)/max({A},1e-4),0),1+lim)"
+            dist = f"{D}*{H}"
+            sv = mv + self._plane_vars("gh", "lim", "objH", "r")
             return {
-                # Above the horizon (m2 > 0) the height fade saturates at 1.
-                "sr_Lz": ("Cz+m2*1e4", cv, mv),
-                "sr_kb": ("1", cv, []),
-                "sr_kt": ("1", cv, []),
-                "sr_reach": (f"min(lim*objH,objH*{H}/max(m2,1e-6))", [], mv + pv),
+                # The far point's height over the contact: the fade's source term.
+                "sr_Lz": (f"Cz+{A}", cv, sv),
+                "sr_kb": (KB, cv, sv),
+                "sr_kt": (
+                    f"min(max(({A}+Cz-gh)/max({A}-objH,1e-4),0),"
+                    f"min(1+lim,{KB}+lim*objH/max({dist},1e-6)))",
+                    cv,
+                    sv,
+                ),
+                "sr_reach": (
+                    f"max(0,min(lim*objH,objH*{H}*({A}+Cz-gh)"
+                    f"/(max(m2,1e-6)*max({A}-objH,1e-4))))",
+                    cv,
+                    sv,
+                ),
                 "sr_ux": (f"-m0/max({H},1e-6)", [], mv),
                 "sr_uy": (f"-m1/max({H},1e-6)+max(0,1-{H}*1e6)", [], mv),
                 "sr_Sx": ("Cx-m0*(Cz-gh)/max(m2,1e-6)", cv, mv + pv),
@@ -1326,16 +1370,23 @@ class ShadowRig(ptk.LoggingMixin):
             canvas_vars + self._plane_vars("size"),
         )
         self.shadow_plane.scale[2] = 1.0
-        # Opacity = elongation falloff x source-height fade x rise fade. Lives on the
-        # material's Value node (a different ID), reading the contact's driven length.
+        # The preview fade = elongation falloff x source-height fade x rise fade,
+        # times the plane's authored ``opacity`` (mirror of mayatk's fade node). It
+        # lives on the material's Value node (a different ID), reading the contact's
+        # driven length; the plane's ``opacity``, which the exporter reads, is the
+        # authored value, never written here.
         self._scripted_driver(
             self.material.node_tree,
             self._MATERIAL_OPACITY_PATH,
             None,
-            "min(max(i/max(0.001,pow(max(1,len/max(1e-4,2*r)),pw))"
+            "op*min(max(i/max(0.001,pow(max(1,len/max(1e-4,2*r)),pw))"
             "*min(max(Lz-Cz,0),1)*min(max(1-max(Cz-gh,0)/max(0.001,fh),0),1),0),1)",
             [("Cz", C, "LOC_Z")],
-            [("Lz", g, '["sr_Lz"]'), ("len", C, '["sr_len"]')]
+            [
+                ("Lz", g, '["sr_Lz"]'),
+                ("len", C, '["sr_len"]'),
+                ("op", p, f'["{self.OPACITY_ATTR}"]'),
+            ]
             + self._plane_vars("i", "pw", "fh", "gh", "r"),
         )
 
@@ -1354,44 +1405,217 @@ class ShadowRig(ptk.LoggingMixin):
         fc.driver.expression = expression
         return fc
 
-    def _prop_mirror_driver(self):
-        """The plane's ``opacity`` prop follows the material's driven value — the keyable,
-        exportable mirror of Maya's expression-written attr."""
-        p = self.shadow_plane
-        RigUtils.remove_driver(p, f'["{self.OPACITY_ATTR}"]', None)
-        fc = p.driver_add(f'["{self.OPACITY_ATTR}"]')
-        fc.driver.type = "SCRIPTED"
-        RigUtils.add_prop_var(
-            fc,
-            "op",
-            self.material,
-            f"node_tree.{self._MATERIAL_OPACITY_PATH}",
-            id_type="MATERIAL",
-        )
-        fc.driver.expression = "op"
-        return fc
+    @classmethod
+    def _fade_materials(cls, plane):
+        """*plane*'s materials that draw its fade (a Value node named ``opacity``)."""
+        return [
+            m
+            for m in dict.fromkeys(plane.data.materials)
+            if m and m.node_tree and m.node_tree.nodes.get("opacity") is not None
+        ]
 
     @classmethod
-    def _material_follow_driver(cls, plane, material):
-        """After a bake the roles swap: the material's Value node FOLLOWS the plane's keyed
-        ``opacity`` prop, so the viewport shows the baked fade."""
-        nt = material.node_tree
-        RigUtils.remove_driver(nt, cls._MATERIAL_OPACITY_PATH, None)
-        fc = nt.driver_add(cls._MATERIAL_OPACITY_PATH)
-        fc.driver.type = "SCRIPTED"
-        RigUtils.add_prop_var(fc, "op", plane, f'["{cls.OPACITY_ATTR}"]')
-        fc.driver.expression = "op"
-        RigUtils.refresh_drivers([nt])
-        return fc
+    def _fade_driver(cls, material):
+        """The driver on *material*'s fade Value node, or None."""
+        ad = material.node_tree.animation_data
+        return next(
+            (
+                d
+                for d in (ad.drivers if ad else ())
+                if d.data_path == cls._MATERIAL_OPACITY_PATH
+            ),
+            None,
+        )
+
+    #: A version 2 bake's material fade driver: it follows the plane's
+    #: ``opacity`` as is (the bake keyed the fade there); every driver since
+    #: composes over it (``op*...``).
+    _V2_FOLLOW = "op"
+
+    @classmethod
+    def _follows_opacity(cls, plane):
+        """Does *plane*'s material draw its ``opacity`` as the fade -- a version 2
+        bake's (:attr:`_V2_FOLLOW`; mirror of mayatk's "no fade node")? Then the
+        plane's ``opacity`` keys are that bake's fade; on any other plane they
+        are the artist's."""
+        mat = next(iter(cls._fade_materials(plane)), None)
+        driver = cls._fade_driver(mat) if mat is not None else None
+        return driver is not None and driver.driver.expression.strip() == cls._V2_FOLLOW
+
+    @classmethod
+    def _fade_plug(cls, plane):
+        """``(owner, data path)`` the plane's viewport fade lives on: its material's
+        fade Value node, which composes the preview over the plane's authored
+        ``opacity`` (mirror of mayatk's ``_fade_plug``) -- else the plane's
+        ``opacity``: a v2 bake's keyed fade (:meth:`_follows_opacity`), or a
+        plane whose material draws no fade."""
+        mat = next(iter(cls._fade_materials(plane)), None)
+        if mat is None or cls._follows_opacity(plane):
+            return (plane, f'["{cls.OPACITY_ATTR}"]')
+        return (mat.node_tree, cls._MATERIAL_OPACITY_PATH)
+
+    @staticmethod
+    def _set_plug(owner, data_path, value):
+        """Write *value* to *owner*'s *data_path* (a custom prop ``["name"]`` or a
+        nested RNA path)."""
+        head, _, attr = data_path.rpartition(".")
+        if not head:
+            owner[data_path[2:-2]] = value
+        else:
+            setattr(owner.path_resolve(head), attr, value)
+
+    @classmethod
+    def viewport_fade(cls, plane):
+        """The fade the plane's material draws now: its authored ``opacity`` times
+        the preview fade (mirror of mayatk's); the plane's ``opacity`` for a plane
+        whose material draws none."""
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        materials = cls._fade_materials(plane)
+        if not materials:
+            return float(plane.get(cls.OPACITY_ATTR, 1.0))
+        mat = materials[0]
+        try:
+            mat = mat.evaluated_get(CoreUtils._evaluated_depsgraph())
+        except (AttributeError, RuntimeError, ReferenceError):
+            pass  # no depsgraph to evaluate in: the original holds the last value
+        return float(mat.node_tree.nodes["opacity"].outputs[0].default_value)
+
+    @classmethod
+    def _retire_mirror(cls, plane):
+        """Drop the driver a rig built before the move put on *plane*'s ``opacity``
+        (the preview's mirror, which shipped as its value): the ``opacity`` is the
+        authored value again, 1. True when there was one."""
+        path = f'["{cls.OPACITY_ATTR}"]'
+        ad = plane.animation_data
+        if not (ad and any(d.data_path == path for d in ad.drivers)):
+            return False
+        RigUtils.remove_driver(plane, path, None)
+        plane[cls.OPACITY_ATTR] = 1.0
+        return True
+
+    @classmethod
+    def _hold_fade(cls, plane):
+        """The viewport fade of a plane no driver chain drives: its intensity, the
+        fade's ceiling (:meth:`bake_planes`), held on the material's Value node and
+        composed over the plane's authored ``opacity`` (mirror of mayatk's); a rig
+        built before the ``opacity`` prop holds the value on the node itself."""
+        held = min(1.0, max(0.0, float(cls._plane_prop(plane, "shadowIntensity", 1.0))))
+        path = f'["{cls.OPACITY_ATTR}"]'
+        for mat in cls._fade_materials(plane):
+            nt = mat.node_tree
+            RigUtils.remove_driver(nt, cls._MATERIAL_OPACITY_PATH, None)
+            if plane.get(cls.OPACITY_ATTR) is None:
+                nt.nodes["opacity"].outputs[0].default_value = held
+                continue
+            fc = nt.driver_add(cls._MATERIAL_OPACITY_PATH)
+            fc.driver.type = "SCRIPTED"
+            RigUtils.add_prop_var(fc, "op", plane, path)
+            RigUtils.add_prop_var(fc, "i", plane, '["shadowIntensity"]')
+            fc.driver.expression = "op*min(max(i,0),1)"
+            RigUtils.refresh_drivers([nt])
+
+    @classmethod
+    def _write_planes(cls):
+        """The shadow planes the write in progress ships: its scope's
+        (``FbxUtils.write_context``), every plane for a write of the whole file
+        (mirror of mayatk's). None outside a write, or before it knows its
+        scope: its publish (:meth:`export_record`) and the bracket's re-stage
+        reach them then. What the export stages and the record's producer
+        change, so a plane the write leaves out is never touched."""
+        from blendertk.env_utils.fbx_utils import FbxUtils
+
+        ctx = FbxUtils.write_context()
+        if ctx is None:
+            return []
+        if ctx.scope is None:
+            return cls.find_shadow_planes()
+        return cls.find_shadow_planes(ctx.scope) if ctx.scope else []
+
+    @classmethod
+    def stage_preview_fade(cls):
+        """The ``shadow_preview_fade`` export stage (``FbxUtils.STAGERS``):
+        :meth:`retire_preview_fade` on the planes the write ships
+        (:meth:`_write_planes`), never on one it leaves out (mirror of mayatk's).
+
+        Returns:
+            The planes moved over.
+        """
+        planes = cls._write_planes()
+        return cls.retire_preview_fade(planes) if planes else []
+
+    @classmethod
+    def stage_v2_fade(cls):
+        """The ``shadow_v2_fade`` export stage (``FbxUtils.STAGERS``):
+        :meth:`retire_v2_fade` on the planes the write ships
+        (:meth:`_write_planes`), never on one it leaves out (mirror of mayatk's).
+
+        Returns:
+            The planes stripped.
+        """
+        planes = cls._write_planes()
+        return cls.retire_v2_fade(planes) if planes else []
+
+    @classmethod
+    def retire_preview_fade(cls, planes=None, *, ctx=None):
+        """Move a live plane whose ``opacity`` still mirrors the preview fade (a rig
+        built before the move) onto its material: the mirror driver dropped, the
+        plane's ``opacity`` the authored value again, the material's fade composed
+        over it -- so no write ships the preview as the plane's opacity (mirror of
+        mayatk's). One undo step; idempotent, so every export stages it on the
+        planes it ships (:meth:`stage_preview_fade`) and the record's producer
+        runs it again and says it once (*ctx*).
+
+        Parameters:
+            planes: Shadow plane object(s)/name(s); None = every plane.
+            ctx (ptk.ExportContext): The report the move is told in; ``None``
+                keeps it for the next export's.
+
+        Returns:
+            The planes moved over.
+        """
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        path = f'["{cls.OPACITY_ATTR}"]'
+        moved = []
+        for plane in cls.find_shadow_planes(planes):
+            if not cls.plane_is_live(plane) or plane.library or plane.override_library:
+                continue
+            ad = plane.animation_data
+            if not any(d.data_path == path for d in ad.drivers):
+                continue
+            with CoreUtils.undo_chunk("Move Shadow Preview Fade"):
+                cls._retire_mirror(plane)
+                for mat in cls._fade_materials(plane):
+                    driver = cls._fade_driver(mat)
+                    if driver is None or "op" in driver.driver.variables:
+                        continue
+                    RigUtils.add_prop_var(driver, "op", plane, path)
+                    driver.driver.expression = f"op*({driver.driver.expression})"
+                    RigUtils.refresh_drivers([mat.node_tree])
+            cls._RETIRED[cls._uid(plane)] = (
+                f"{plane.name}: its preview fade moved off the plane's opacity onto "
+                "its material, so no write ships it -- every reader evaluates the "
+                "fade from the shadows record."
+            )
+            moved.append(plane)
+        if ctx is not None:
+            for plane in cls.find_shadow_planes(planes):
+                text = cls._RETIRED.pop(cls._uid(plane), None)
+                if text:
+                    cls._note_once(ctx, "preview_fade", plane, text)
+        return moved
 
     @classmethod
     def _strip_drivers(cls, plane):
-        """Remove the whole driver chain of *plane*'s rig: the plane's channels and opacity
-        mirror, the material's opacity driver, the group's and contact's intermediates."""
+        """Remove the whole driver chain of *plane*'s rig: the plane's channels (and the
+        ``opacity`` mirror of a rig built before the move, its ``opacity`` the authored
+        1 again: :meth:`_retire_mirror`), the material's fade driver, the group's and
+        contact's intermediates."""
         for path in ("location", "rotation_euler", "scale"):
             for i in range(3):
                 RigUtils.remove_driver(plane, path, i)
-        RigUtils.remove_driver(plane, f'["{cls.OPACITY_ATTR}"]', None)
+        cls._retire_mirror(plane)
         for mat in (m for m in plane.data.materials if m and m.node_tree):
             RigUtils.remove_driver(mat.node_tree, cls._MATERIAL_OPACITY_PATH, None)
         group = plane.parent
@@ -1507,10 +1731,15 @@ class ShadowRig(ptk.LoggingMixin):
 
     @classmethod
     def bake_planes(cls, planes=None, start=None, end=None):
-        """Bake shadow planes' driven channels — transform AND the ``opacity`` fade — to
-        keyframes and remove the drivers so the result exports cleanly to FBX (mirror of
-        mayatk's ``bake_planes``). The baked Z rotation is unrolled into a continuous curve
-        (``atan2`` wraps at ±180° when the light crosses behind the target).
+        """Bake shadow planes' driven transform channels to keyframes and remove the drivers
+        so the result exports cleanly to FBX (mirror of mayatk's ``bake_planes``). The baked
+        Z rotation is unrolled into a continuous curve (``atan2`` wraps at ±180° when the
+        light crosses behind the target).
+
+        The fade is not keyed: every reader evaluates it from the record
+        (``ptk.ShadowProjection.fade``), so the plane takes no part in the
+        ``render_effects`` record. The baked plane's viewport fade holds at its
+        intensity (the fade's ceiling); Unbake restores the live preview.
 
         Args:
             planes: Shadow plane object(s)/name(s); None bakes every shadow plane in the
@@ -1539,8 +1768,9 @@ class ShadowRig(ptk.LoggingMixin):
 
     @classmethod
     def _bake_plane(cls, plane, start=None, end=None):
-        """Sample the evaluated (driver-driven) transform + fade per frame, strip the drivers,
-        then key the samples — a context-free visual bake (no ``bpy.ops.nla.bake``)."""
+        """Sample the evaluated (driver-driven) transform per frame, strip the drivers, then
+        key the samples — a context-free visual bake (no ``bpy.ops.nla.bake``). The fade is
+        held at the plane's intensity, never keyed (:meth:`bake_planes`)."""
         import bpy
 
         from blendertk.core_utils._core_utils import CoreUtils
@@ -1549,15 +1779,6 @@ class ShadowRig(ptk.LoggingMixin):
         start = int(scene.frame_start if start is None else start)
         end = int(scene.frame_end if end is None else end)
         cur = scene.frame_current
-        materials = [m for m in plane.data.materials if m and m.node_tree]
-        opacity_node = next(
-            (
-                m.node_tree.nodes.get("opacity")
-                for m in materials
-                if m.node_tree.nodes.get("opacity")
-            ),
-            None,
-        )
 
         samples = []
         prev_rz = None
@@ -1573,53 +1794,129 @@ class ShadowRig(ptk.LoggingMixin):
                 while rot[2] - prev_rz < -math.pi:
                     rot[2] += 2.0 * math.pi
             prev_rz = rot[2]
-            opacity = (
-                float(opacity_node.outputs[0].default_value)
-                if opacity_node is not None
-                else float(ev.get(cls.OPACITY_ATTR, 1.0))
-            )
-            samples.append(
-                (f, tuple(ev.location), tuple(rot), tuple(ev.scale), opacity)
-            )
+            samples.append((f, tuple(ev.location), tuple(rot), tuple(ev.scale)))
         scene.frame_set(cur)
 
         cls._strip_drivers(plane)
-        has_opacity = plane.get(cls.OPACITY_ATTR) is not None
 
-        for f, loc, rot, scl, opacity in samples:
+        for f, loc, rot, scl in samples:
             plane.location = loc
             plane.rotation_euler = rot
             plane.scale = scl
             plane.keyframe_insert("location", frame=f)
             plane.keyframe_insert("rotation_euler", frame=f)
             plane.keyframe_insert("scale", frame=f)
-            if has_opacity:
-                plane[cls.OPACITY_ATTR] = opacity
-                plane.keyframe_insert(f'["{cls.OPACITY_ATTR}"]', frame=f)
-        # The material now FOLLOWS the keyed prop (the viewport shows the baked fade); a
-        # rig built before the prop existed keeps its frozen last value instead.
-        for mat in materials:
-            if has_opacity and mat.node_tree.nodes.get("opacity") is not None:
-                cls._material_follow_driver(plane, mat)
-            elif opacity_node is not None:
-                opacity_node.outputs[0].default_value = (
-                    samples[-1][4] if samples else 1.0
-                )
+        # The material holds the fade at the intensity, over the plane's authored
+        # opacity, which the bake leaves as it was (Set Intensity retunes the hold).
+        cls._hold_fade(plane)
         return plane
+
+    #: What this session already said of a plane, ``(kind, session uid)``:
+    #: an authoring publish runs on every dial change, so a lasting condition
+    #: is told once (:meth:`_note_once`; mirror of mayatk's).
+    _NOTED = set()
+    #: Planes whose version 2 fade keys an export stage stripped, by session
+    #: uid, to the sentence that says so: told by the record's producer,
+    #: whose report the write keeps (a stage runs before the report starts).
+    _RETIRED = {}
+
+    @staticmethod
+    def _uid(plane):
+        """*plane*'s identity this session (its name for a dead pointer)."""
+        return getattr(plane, "session_uid", None) or getattr(plane, "name", str(plane))
+
+    @classmethod
+    def _note_once(cls, ctx, kind, plane, text):
+        """Say *text* once a session for *plane* and *kind*: in *ctx*'s
+        report, or as a warning outside an export."""
+        key = (kind, cls._uid(plane))
+        if key in cls._NOTED:
+            return
+        cls._NOTED.add(key)
+        if ctx is not None:
+            ctx.note(text)
+        else:
+            cls.logger.warning(text)
+
+    @classmethod
+    def retire_v2_fade(cls, planes=None, *, ctx=None):
+        """Strip a version 2 bake's fade from baked shadow planes (no
+        drivers left): its keyed ``["opacity"]`` curves (mirror of mayatk's).
+        Under v3 every reader evaluates the fade from the record, so those
+        keys would ship it twice (a ``render_effects`` track beside it); the
+        plane's ``opacity`` is the authored value again and its viewport
+        fade holds at its intensity, as a v3 bake's does (:meth:`_hold_fade`).
+        Only a plane whose material follows its ``opacity`` holds such keys
+        (:meth:`_follows_opacity`): an ``opacity`` keyed on any other is the
+        artist's and stays. One undo step; idempotent, so every export stages
+        it on the planes it ships (:meth:`stage_v2_fade`) before any record
+        is produced, and the record's producer says it once (*ctx*).
+
+        Parameters:
+            planes: Shadow plane object(s)/name(s); None = every plane.
+            ctx (ptk.ExportContext): The report the strip is told in;
+                ``None`` keeps it for the next export's.
+
+        Returns:
+            The planes stripped.
+        """
+        import blendertk as btk  # bound late: anim_utils ranks above rig_utils
+
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        path = f'["{cls.OPACITY_ATTR}"]'
+        retired = []
+        for plane in cls.find_shadow_planes(planes):
+            if cls.plane_is_live(plane) or plane.library or plane.override_library:
+                continue  # a bake strips the drivers; a live fade is its own
+            if not cls._follows_opacity(plane) or not any(
+                f.data_path == path for f in btk.AnimUtils.get_fcurves([plane])
+            ):
+                continue  # none, or the artist's keys on a v3 plane
+            with CoreUtils.undo_chunk("Retire Shadow Fade Keys"):
+                cls._remove_fcurves(plane, path)
+                plane[cls.OPACITY_ATTR] = 1.0  # its keys were the fade: authored again
+                cls._hold_fade(plane)
+            cls._RETIRED[cls._uid(plane)] = (
+                f"{plane.name}: its fade keys (a version 2 bake's opacity keys) "
+                "were removed -- every reader evaluates the fade from the "
+                "shadows record."
+            )
+            retired.append(plane)
+        if ctx is not None:  # what this or an earlier stage stripped, told once
+            for plane in cls.find_shadow_planes(planes):
+                text = cls._RETIRED.pop(cls._uid(plane), None)
+                if text:
+                    cls._note_once(ctx, "v2_fade", plane, text)
+        return retired
+
+    #: The channels a bake keys (:meth:`_bake_plane`), what Unbake clears.
+    _BAKE_PATHS = ("location", "rotation_euler", "scale")
 
     @classmethod
     def _clear_baked_keys(cls, plane):
-        """Drop the baked action (the plane carries nothing but the bake's keys) so the
-        drivers can drive the channels again."""
+        """Delete the bake's curves (:attr:`_BAKE_PATHS`) so the drivers can drive the
+        channels again, and a version 2 bake's fade keys (:meth:`_follows_opacity`);
+        every other curve is the artist's and stays -- an ``opacity`` or visibility
+        they animated (mirror of mayatk's). An action left empty is dropped."""
         import bpy
+
+        import blendertk as btk  # bound late: anim_utils ranks above rig_utils
 
         ad = plane.animation_data
         if ad is None or ad.action is None:
             return
-        action = ad.action
-        ad.action = None
-        if action.users == 0:
-            bpy.data.actions.remove(action)
+        path = f'["{cls.OPACITY_ATTR}"]'
+        v2 = cls._follows_opacity(plane)
+        for data_path in cls._BAKE_PATHS + ((path,) if v2 else ()):
+            cls._remove_fcurves(plane, data_path)
+        if v2 and plane.get(cls.OPACITY_ATTR) is not None:
+            plane[cls.OPACITY_ATTR] = 1.0  # its keys were a v2 bake's fade: authored again
+        if not btk.AnimUtils.get_fcurves([plane]):
+            action = ad.action
+            ad.action = None
+            if action.users == 0:
+                bpy.data.actions.remove(action)
 
     @classmethod
     def unbake_planes(cls, planes=None):
@@ -1703,10 +2000,9 @@ class ShadowRig(ptk.LoggingMixin):
             # otherwise appear twice, and the second pass through the removal
             # loop below would dereference a freed datablock (ReferenceError).
             mats = list(dict.fromkeys(m for m in p.data.materials if m))
+            horizon_path = cls._plane_horizon_path(p)
             tex_paths = (
-                [cls._plane_texture_path(p), cls._plane_horizon_path(p)]
-                if delete_textures
-                else []
+                [cls._plane_texture_path(p), horizon_path] if delete_textures else []
             )
             # The plane's own tile datablock, which packing displaced out of
             # the material's image node (so the loop below can free it too).
@@ -1741,6 +2037,18 @@ class ShadowRig(ptk.LoggingMixin):
                     images.append(img)
                 if mat.users == 0:
                     bpy.data.materials.remove(mat)
+            # The horizon map's datablock (every rig bakes one): no material
+            # holds it, so a rig rebuilt under the same name would write into
+            # a datablock whose file is gone.
+            if horizon_path:
+                wanted = os.path.normcase(os.path.normpath(horizon_path))
+                images += [
+                    img
+                    for img in bpy.data.images
+                    if img.filepath_raw
+                    and os.path.normcase(os.path.normpath(bpy.path.abspath(img.filepath_raw)))
+                    == wanted
+                ]
             # De-dup by name: two materials can share an image, and the second
             # remove() would dereference a freed datablock (ReferenceError).
             for block in {b.name: b for b in images}.values():
@@ -1781,12 +2089,13 @@ class ShadowRig(ptk.LoggingMixin):
         """Overall darkness of *planes*' shadows, 0-1: the ``shadowIntensity``
         dial (the record's ``intensity``). Mirror of mayatk's.
 
-        A live rig's material driver multiplies it into the fade. A plane the
-        drivers no longer drive -- baked to keys, or its links broken on
-        purpose -- carries its fade (the ``opacity`` prop) itself, already
-        holding the old intensity, so that fade is rescaled by new / old: its
-        shape kept, the dial meaning the same everywhere (Unity and the viewer
-        take the exported opacity as the intensity already applied).
+        A live rig's material driver multiplies it into the fade, and a baked
+        one's hold reads it. A plane whose fade holds a value of its own -- its
+        links broken on purpose, or a bake from before the fade moved onto the
+        material -- already holds the old intensity, so that fade
+        (:meth:`_fade_plug`) is rescaled by new / old (a v2 bake's fade keys
+        keep their shape). Every reader caps the fade it evaluates by the
+        published intensity.
 
         Parameters:
             planes: Shadow plane object(s)/name(s), or anything that resolves
@@ -1807,16 +2116,19 @@ class ShadowRig(ptk.LoggingMixin):
                         fc, (lambda v: v * ratio) if ratio is not None else None, value
                     )
             elif how is None:
-                current = float(plane.get(cls.OPACITY_ATTR, 1.0))
-                plane[cls.OPACITY_ATTR] = (
-                    min(1.0, current * value / old) if old > 1e-6 else value
+                owner, data_path = cls._fade_plug(plane)
+                current = float(owner.path_resolve(data_path))
+                cls._set_plug(
+                    owner,
+                    data_path,
+                    min(1.0, current * value / old) if old > 1e-6 else value,
                 )
 
         return cls._retune(
             planes,
             "shadowIntensity",
             value,
-            (f'["{cls.OPACITY_ATTR}"]', 0),
+            cls._fade_plug,
             rescale,
             "Shadow Intensity",
         )
@@ -1865,14 +2177,14 @@ class ShadowRig(ptk.LoggingMixin):
         """Set *stamp* to *value* on every shadow plane in *planes*, and hand
         what a live driver would have done with it to ``carry(plane, old, how,
         curves)`` -- *how* is ``"driven"`` (a driver owns *channel*, a
-        ``(data_path, index)``, and reads the stamp itself; it outranks any
+        ``(data_path, index)`` on the plane or a callable giving ``(owner,
+        data_path)`` for a plane, and reads the stamp itself; it outranks any
         keys), ``"keys"`` (fcurves of the plane's action do: *curves*) or None
         (it holds a value of its own). One undo step; republishes the export
         record."""
         import blendertk as btk
         from blendertk.core_utils._core_utils import CoreUtils
 
-        data_path, index = channel
         changed = []
         with CoreUtils.undo_chunk(label):
             for plane in cls.find_shadow_planes(planes):
@@ -1880,7 +2192,11 @@ class ShadowRig(ptk.LoggingMixin):
                     continue
                 old = float(plane[stamp])
                 plane[stamp] = value
-                ad = plane.animation_data
+                if callable(channel):
+                    (owner, data_path), index = channel(plane), 0
+                else:
+                    owner, (data_path, index) = plane, channel
+                ad = owner.animation_data
                 curves = []
                 if ad is not None and any(
                     d.data_path == data_path and d.array_index == index
@@ -1891,7 +2207,9 @@ class ShadowRig(ptk.LoggingMixin):
                     curves = [
                         fc
                         for fc in btk.AnimUtils.get_fcurves([plane])
-                        if fc.data_path == data_path and fc.array_index == index
+                        if owner == plane
+                        and fc.data_path == data_path
+                        and fc.array_index == index
                     ]
                     how = "keys" if curves else None
                 carry(plane, old, how, curves)
@@ -1960,8 +2278,10 @@ class ShadowRig(ptk.LoggingMixin):
         Mirror of mayatk's. Per plane --
 
         * the silhouette is written to ``<silhouette><suffix>.png`` beside it
-          with the plane's CURRENT fade (``opacity``) multiplied into its
-          alpha -- the one value the rig's material computed per frame;
+          with the plane's CURRENT fade multiplied into its alpha -- its live
+          one (:meth:`viewport_fade`), the value the rig's material computed
+          per frame, or for a baked plane (its fade held at its intensity) the
+          fade every reader evaluates there (:meth:`plane_fade`);
         * the material becomes Blender's unlit model (:meth:`_assign_unlit_texture`:
           an Emission shader mixed with a Transparent BSDF by that PNG's
           alpha), which the GLB writes ``KHR_materials_unlit``
@@ -2020,7 +2340,11 @@ class ShadowRig(ptk.LoggingMixin):
                     )
                     continue
                 evaluated = plane.evaluated_get(depsgraph)
-                fade = float(evaluated.get(cls.OPACITY_ATTR, 1.0))
+                fade = (
+                    cls.viewport_fade(plane)
+                    if cls.plane_is_live(plane)
+                    else cls.plane_fade(plane)
+                )
                 world = evaluated.matrix_world.copy()
                 rgba = np.array(pixels, dtype=np.float32)
                 rgba[..., 3] = np.rint(rgba[..., 3] * max(0.0, min(1.0, fade)))
@@ -2172,7 +2496,9 @@ class ShadowRig(ptk.LoggingMixin):
 
     @classmethod
     def _plane_contact(cls, plane):
-        """The plane's contact empty (the ID-pointer stamp, else the naming convention)."""
+        """The plane's contact empty (the ID-pointer stamp, else the naming convention:
+        ``<base>_contact_loc``, or ``<base>_contact`` in a file saved before the
+        name mirrored mayatk's)."""
         import bpy
 
         contact = plane.get(cls._CONTACT_PROP)
@@ -2183,7 +2509,11 @@ class ShadowRig(ptk.LoggingMixin):
         except ReferenceError:
             pass
         if plane.name.endswith("_shadow"):
-            return bpy.data.objects.get(f"{plane.name[: -len('_shadow')]}_contact")
+            base = plane.name[: -len("_shadow")]
+            for suffix in (cls._CONTACT_SUFFIX, "_contact"):
+                found = bpy.data.objects.get(f"{base}{suffix}")
+                if found is not None:
+                    return found
         return None
 
     def _stamp_rig_links(self):
@@ -2555,9 +2885,9 @@ class ShadowRig(ptk.LoggingMixin):
                 # The tile is rewritten in place; the plane keeps sampling the
                 # atlas, so nothing else repacks.
                 cls._write_atlas_tile(plane, "projected")
-            if rig.rig_type == "horizon":
-                # The map depends on the geometry, not the source: re-bake only
-                # when the target changed since the last bake.
+            if cls._horizon_params(plane):
+                # Every rig's map depends on the geometry, not the source: re-bake
+                # only when the target changed since the last bake.
                 params = cls._horizon_params(plane)
                 rig.bake_horizon(
                     size=params.get("size"),
@@ -2579,23 +2909,32 @@ class ShadowRig(ptk.LoggingMixin):
     def export_record(cls, ctx):
         """The ``shadows`` record for this file, or ``None`` when it
         has no shadow planes -- the ``ptk.SceneRecords.SHADOWS`` producer
-        (``FbxUtils.PRODUCERS``, mirror of mayatk's).  Pure: it reads the
-        planes' stamps and never writes.  The payload joins Unity-side by
-        GameObject name (unitytk's ``ShadowPlaneImporter``):
+        (``FbxUtils.PRODUCERS``, mirror of mayatk's).  It reads the planes'
+        stamps, and writes one kind of file: every plane carries its horizon
+        map (v3), so a plane with none has it baked here, and an export
+        re-bakes one whose targets' geometry changed (:meth:`bake_horizon_maps`).
+        A plane that still has none (its targets gone) is left out, and one
+        whose map could not be re-baked ships the map it has: each said once
+        a session in the export's report (``ctx.note``).  A live plane's
+        preview fade is moved off its ``opacity`` and a version 2 bake's fade
+        keys are stripped first, each said once in the report
+        (:meth:`retire_preview_fade`, :meth:`retire_v2_fade`).  The payload
+        joins Unity-side by GameObject name (unitytk's ``ShadowPlaneImporter``):
 
-        ``{"version": 2, "unit_scale": <m per unit>, "planes": [...]}``
+        ``{"version": 3, "unit_scale": <m per unit>, "planes": [...]}``
 
         with one :meth:`plane_record` per plane (the ``version`` is stamped by
         the declaration).  Warns about planes whose silhouette was rasterized
-        from a bearing the source has since left (Recalculate fixes it;
-        nothing is rewritten here -- an export must not write the project's
-        textures behind the user).
+        from a bearing the source has since left (Recalculate fixes it; a
+        silhouette is never rewritten here -- an export must not redraw the
+        project's textures behind the user).
 
         Parameters:
-            ctx (ptk.ExportContext): The export's decisions; only its
-                ``scope`` is read. A scoped export names the export set's
-                planes alone (the record is ``export_scoped``): a plane it
-                leaves out ships its silhouette with nothing to bind it to.
+            ctx (ptk.ExportContext): The export's decisions: its ``scope``
+                (a scoped export names the export set's planes alone -- the
+                record is ``export_scoped``: a plane it leaves out ships its
+                silhouette with nothing to bind it to) and ``mode``; its
+                report takes the notes.
                 For one plane's payload call :meth:`plane_record` instead.
 
         Returns:
@@ -2607,12 +2946,44 @@ class ShadowRig(ptk.LoggingMixin):
         planes = cls.find_shadow_planes(ctx.scope)
         if not planes:
             return None
+        # The retirements change the file: on the planes this write ships alone
+        # (:meth:`_write_planes`) -- never in an authoring publish, nor in the
+        # snapshot's whole-file pass, which must leave the file as the scoped
+        # run did.
+        shipped = (
+            {cls._uid(p) for p in cls._write_planes()}
+            if ctx.mode != ctx.AUTHORING
+            else set()
+        )
+        staged = [p for p in planes if cls._uid(p) in shipped]
+        if staged:
+            cls.retire_preview_fade(staged, ctx=ctx)
+            cls.retire_v2_fade(staged, ctx=ctx)
+        cls.bake_horizon_maps(planes, missing_only=ctx.mode == ctx.AUTHORING, ctx=ctx)
         records = []
         stale = []
         for plane in planes:
-            records.append(cls.plane_record(plane))
+            record = cls.plane_record(plane)
+            if "horizon" not in record:
+                cls._note_once(
+                    ctx,
+                    "left_out",
+                    plane,
+                    f"Left out of the shadows record, with no horizon map: {plane.name} "
+                    + (
+                        "(it is linked, and none can be baked here). Bake its map "
+                        "in its library file."
+                        if plane.library or plane.override_library
+                        else "(its targets are gone, so none could be baked). "
+                        "Rebuild the rig, or Detach it into a plain plane."
+                    ),
+                )
+                continue
+            records.append(record)
             if cls.silhouette_is_stale(plane):
                 stale.append(plane.name)
+        if not records:
+            return None
         if stale:
             cls.logger.warning(
                 "Shadow silhouette rasterized from a bearing the source has since "
@@ -2639,7 +3010,10 @@ class ShadowRig(ptk.LoggingMixin):
         """
         from blendertk.env_utils.fbx_utils import FbxUtils
 
-        record = cls.export_record(ptk.ExportContext(mode=ptk.ExportContext.AUTHORING))
+        ctx = ptk.ExportContext(mode=ptk.ExportContext.AUTHORING)
+        record = cls.export_record(ctx)
+        for note in ctx.notes:  # an authoring publish's report is the log
+            cls.logger.warning(note)
         FbxUtils.publish_authored({ptk.SceneRecords.SHADOWS: record})
         return record.text if record is not None else None
 
@@ -2666,23 +3040,25 @@ class ShadowRig(ptk.LoggingMixin):
 
     @classmethod
     def plane_record(cls, plane):
-        """One plane's ``shadows`` v2 record (the engine contract in
-        ``mayatk/docs/shadow_rig_morphing.md``): the join key, the type, the
-        textures, the source and contact objects the engine reads at runtime,
-        the projection model's inputs, and the atlas / horizon blocks when the
-        rig carries them. Works off the stamps, so it needs no Python instance
-        and survives a rig built in an earlier session.  One entry of the
-        scene record :meth:`export_record` produces."""
+        """One plane's ``shadows`` v3 record (the engine contract in
+        ``mayatk/docs/shadow_rig_morphing.md``): the join key, the source and
+        contact objects the engine reads at runtime, the projection model's
+        inputs and the canvas it places, the fade's terms (the source's ramp
+        the preview's: one Blender unit), the horizon map, and the silhouette
+        (its image, atlas tile and whether a reader draws it: the rig's
+        type). Works off the stamps, so it needs no Python instance and
+        survives a rig built in an earlier session.  One entry of the scene
+        record :meth:`export_record` produces; a plane not yet baked has no
+        ``horizon``, which :meth:`export_record` bakes first."""
         prop = cls._plane_prop
         tex = cls._plane_texture_path(plane)
         _, source = cls._rig_links(plane)
         contact = cls._plane_contact(plane)
         directional = source is not None and cls.source_is_directional(source)
         size = float(prop(plane, "sourceSize", 0.0) or 0.0)
+        height = float(prop(plane, "objectHeight", 0.0))
         record = {
             "name": plane.name,
-            "type": cls.plane_type(plane),
-            "texture": os.path.basename(tex) if tex else "",
             "intensity": round(float(prop(plane, "shadowIntensity", 1.0)), 4),
             "source": source.name if source is not None else "",
             "source_type": "directional" if directional else "point",
@@ -2692,34 +3068,70 @@ class ShadowRig(ptk.LoggingMixin):
             "contact": contact.name if contact is not None else "",
             "ground": round(float(prop(plane, "groundHeight", 0.0)), 6),
             "radius": round(float(prop(plane, "footprintRadius", 0.0)), 6),
-            "height": round(float(prop(plane, "objectHeight", 0.0)), 6),
+            "height": round(height, 6),
             "max_stretch": round(
                 float(
                     prop(plane, "maxStretch", ptk.ShadowProjection.DEFAULT_MAX_STRETCH)
                 ),
                 6,
             ),
+            "falloff_power": round(
+                float(
+                    prop(
+                        plane, "falloffPower", ptk.ShadowProjection.DEFAULT_FALLOFF_POWER
+                    )
+                ),
+                6,
+            ),
+            "fade_height": round(float(prop(plane, "fadeHeight", 2.0 * height)), 6),
+            # The preview ramps the source in over one Blender unit, the record's.
+            "source_ramp": 1.0,
             "canvas": [
                 round(float(prop(plane, p, d)), 6)
-                for p, d in zip(cls._CANVAS_PROPS, (-1.0, 1.0, -0.5, 0.5))
+                for p, d in zip(cls._CANVAS_PROPS, ptk.ShadowConformance.CANVAS)
             ],
         }
-        atlas = prop(plane, cls._ATLAS_TEX_PROP, "")
-        if atlas:
-            record["atlas"] = {
-                "texture": atlas,
-                "rect": cls._read_rect(plane, cls._ATLAS_RECT_PROPS),
-            }
         horizon = cls._horizon_params(plane)
         if horizon:
             record["horizon"] = horizon
+        silhouette = ptk.ShadowRecord.silhouette(
+            tex,
+            cls.plane_type(plane) == "projected",
+            atlas=prop(plane, cls._ATLAS_TEX_PROP, ""),
+            atlas_rect=cls._read_rect(plane, cls._ATLAS_RECT_PROPS),
+        )
+        if silhouette:
+            record["silhouette"] = silhouette
         return record
+
+    @classmethod
+    def plane_fade(cls, plane):
+        """The fade *plane* draws at the current frame, as every reader
+        evaluates it (``ptk.ShadowRecord.fade`` over :meth:`plane_record`,
+        Z-up): its source and contact where they stand now; its intensity
+        when either is gone (mirror of mayatk's)."""
+        _, source = cls._rig_links(plane)
+        contact = cls._plane_contact(plane)
+        record = cls.plane_record(plane)
+        if source is None or contact is None:
+            return ptk.ShadowRecord.fade(record, cls.unit_scale())
+        light = direction = None
+        world = source.matrix_world
+        if record["source_type"] == "directional":
+            direction = tuple(-world.col[2].xyz)  # a sun's -Z
+        else:
+            light = tuple(world.translation)
+        where = tuple(contact.matrix_world.translation)
+        return ptk.ShadowRecord.fade(
+            record, cls.unit_scale(), where, light, direction=direction, up=2
+        )
 
     # ------------------------------------------------------------------ rig type
     @classmethod
     def plane_type(cls, plane):
         """The rig type stamped on *plane* (``projected`` for a rig built
-        before the stamp existed)."""
+        before the stamp existed): an authoring choice, which the record
+        states as its silhouette's ``draw``."""
         value = cls._plane_prop(plane, cls._TYPE_PROP, "") or cls.RIG_TYPES[0]
         return value if value in cls.RIG_TYPES else cls.RIG_TYPES[0]
 
@@ -2804,10 +3216,11 @@ class ShadowRig(ptk.LoggingMixin):
         """Bake the targets' height-field shadow map
         (``pythontk.ShadowHorizon``) in the contact empty's frame and write it
         beside the silhouette as ``<base>_horizon.png``; stamps the record's
-        ``horizon`` block and turns the rig into the ``horizon`` type. The
-        engine marches the map per frame from the source object, so the
-        outline follows a runtime light; the silhouette stays as the fallback
-        and the DCC preview.
+        ``horizon`` block. Every rig type carries one (shadows v3): the engine
+        marches the map per frame from the source object, so the outline
+        follows a runtime light; the rig's type only says whether a reader
+        draws the silhouette instead (``projected``) or keeps it as the
+        fallback (``horizon``).
 
         Parameters:
             size, spans: Footprint pixels per side and solid spans per
@@ -2865,8 +3278,6 @@ class ShadowRig(ptk.LoggingMixin):
         self._save_image(
             f"{self._base}_horizon", hmap.to_rgba(), self.horizon_path, flip=True
         )
-        self.rig_type = "horizon"
-        plane[self._TYPE_PROP] = "horizon"
         plane[self._HORIZON_TEX_PROP] = os.path.basename(self.horizon_path)
         for name, value in zip(
             self._HORIZON_INT_PROPS, (hmap.size, hmap.spans, hmap.levels)
@@ -2886,6 +3297,65 @@ class ShadowRig(ptk.LoggingMixin):
         return self.horizon_path
 
     @classmethod
+    def bake_horizon_maps(cls, planes=None, *, missing_only=False, ctx=None):
+        """Bake the horizon map of each of *planes* that has none -- and,
+        unless *missing_only*, re-bake one whose targets' geometry changed
+        since (the stamped hash: ``bake_horizon(only_if_changed=True)``).
+        Mirror of mayatk's. A packed plane's atlas tile is rewritten in place.
+
+        Every plane carries its map (shadows v3), so :meth:`export_record`
+        runs this first; a bake is ~0.05 s. A plane whose map cannot be
+        re-baked (its targets gone) keeps the map it has, said once a session
+        in *ctx*'s report; one with none is named in a warning outside an
+        export (an export names it as left out).
+
+        Parameters:
+            planes: Shadow plane object(s)/name(s); None = every plane.
+            missing_only: Bake only the planes with no map on disk (an
+                authoring-time publish), skipping the geometry hash.
+            ctx (ptk.ExportContext): The export whose report takes the
+                notes; ``None`` warns instead.
+
+        Returns:
+            The planes whose map was (re)written.
+        """
+        baked = []
+        for plane in cls.find_shadow_planes(planes):
+            params = cls._horizon_params(plane)
+            path = cls._plane_horizon_path(plane)
+            has_map = bool(params) and bool(path) and os.path.exists(path)
+            if missing_only and has_map:
+                continue
+            rig = cls.from_plane(plane)
+            before = cls._plane_prop(plane, cls._HORIZON_HASH_PROP, "")
+            try:
+                if rig is None:
+                    raise ValueError("its target/source stamps predate the rig links")
+                rig.bake_horizon(
+                    size=params.get("size"),
+                    spans=params.get("spans"),
+                    only_if_changed=has_map,
+                )
+            except (ValueError, RuntimeError, OSError) as error:
+                if has_map:
+                    cls._note_once(
+                        ctx,
+                        "rebake",
+                        plane,
+                        f"{plane.name}: its horizon map could not be re-baked "
+                        f"({error}); it ships the map of its last bake, which may "
+                        "not match its targets.",
+                    )
+                elif ctx is None:
+                    cls.logger.warning(f"{plane.name}: no horizon map baked: {error}")
+                continue
+            if not has_map or cls._plane_prop(plane, cls._HORIZON_HASH_PROP, "") != before:
+                if cls._packed_in(plane, "horizon"):
+                    cls._write_atlas_tile(plane, "horizon")
+                baked.append(plane)
+        return baked
+
+    @classmethod
     def _plane_horizon_path(cls, plane):
         """The plane's own horizon PNG (beside its silhouette), or None."""
         name = cls._plane_prop(plane, cls._HORIZON_TEX_PROP, "")
@@ -2897,10 +3367,8 @@ class ShadowRig(ptk.LoggingMixin):
 
     @classmethod
     def _horizon_params(cls, plane):
-        """The record's ``horizon`` block from the stamps; ``{}`` for a rig
-        without a map."""
-        if cls.plane_type(plane) != "horizon":
-            return {}
+        """The record's ``horizon`` block from the stamps, whatever the rig's
+        type; ``{}`` for a rig not baked yet."""
         if not cls._plane_prop(plane, cls._HORIZON_TEX_PROP, ""):
             return {}
         ints = [int(cls._plane_prop(plane, p, 0) or 0) for p in cls._HORIZON_INT_PROPS]
@@ -3220,9 +3688,10 @@ class ShadowRig(ptk.LoggingMixin):
         always the projection through the source. ``mode`` has one value,
         ``"orbit"``; any other builds as orbit.
 
-        ``rig_type`` is ``"projected"`` (default) or ``"horizon"`` — the latter also bakes the
-        targets' horizon map (:meth:`bake_horizon`) so the engine can follow a runtime light;
-        the silhouette stays as the fallback and the DCC preview. ``horizon_size`` /
+        ``rig_type`` is ``"projected"`` (default: a reader draws the silhouette) or
+        ``"horizon"`` (it marches the horizon map, the silhouette its fallback and the DCC
+        preview). Either bakes the targets' horizon map (:meth:`bake_horizon`), which every
+        plane carries so the engine can follow a runtime light. ``horizon_size`` /
         ``horizon_spans`` are that map's footprint pixels per side and solid spans per column
         (``pythontk.ShadowHorizon``'s measured defaults when None).
 
@@ -3268,8 +3737,23 @@ class ShadowRig(ptk.LoggingMixin):
                 raise ValueError(
                     f"rig_type {rig_type!r} is not one of {cls.RIG_TYPES}."
                 )
-            if rig_type == "horizon":
+            # Every rig carries its horizon map (shadows v3); the type is the
+            # silhouette's draw choice.
+            rig.rig_type = rig_type
+            rig.shadow_plane[cls._TYPE_PROP] = rig_type
+            # A Horizon rig draws its map, so its failed bake fails the build; a
+            # Projected one draws its silhouette and is built without it, warned
+            # (mirror of mayatk's: an export bakes it, or names the plane it
+            # leaves out).
+            try:
                 rig.bake_horizon(size=horizon_size, spans=horizon_spans)
+            except (ValueError, RuntimeError, OSError) as error:
+                if rig_type == "horizon":
+                    raise
+                rig.logger.warning(
+                    f"{rig.shadow_plane.name}: no horizon map baked ({error}); an "
+                    "export bakes one, or leaves the plane out of the shadows record."
+                )
         except Exception:
             # Roll back the partial build — a failed create() must not leave
             # orphan datablocks (or a half-written texture) behind. Objects

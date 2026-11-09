@@ -14,7 +14,8 @@ write ``prepare_for_export`` stages one transient curve proxy per keyed channel 
 ``<object>__<channel>`` whose ``scale.x`` carries the curve; ``finish_export`` removes them), which
 Unity's ``RenderEffectsImporter`` rebinds -- it reconstructs a fade from the visibility mirror only
 for a file exported before that transport existed -- and the GLB derives presence from the authored
-channels (``ptk.MeshConvert.apply_glb_visibility``). ``prepare_for_export`` writes no visibility mirror.
+channels (an opacity at 0 is presence, by the ``render_effects`` contract). ``prepare_for_export``
+writes no visibility mirror.
 
 **Divergences from Maya (documented, not reductions):**
   - **No attribute-vs-material split** -- in either DCC now: the viewport material binding (Maya's
@@ -841,8 +842,13 @@ class RenderEffects(ptk.LoggingMixin):
         Blender's FBX exporter cannot ship custom-property animation, so each
         keyed channel gets a child Empty named ``<object>__<channel>`` whose
         ``scale.x`` carries the curve -- the same idiom EmissiveGroups uses for
-        its weights and the transport mayatk stages for the same channels, so
-        Unity's ``RenderEffectsImporter`` rebinds both DCCs' files identically.
+        its weights and the transport mayatk stages for the same channels
+        (``ptk.SceneRecords.TRANSPORT``), so every reader rebinds both DCCs'
+        files identically. The channels are the ones :meth:`visibility_tracks`
+        publishes, ``visibility`` among them: Blender's exporter writes no
+        visibility animation (``FbxUtils`` adds the native channel for Unity's
+        own reader), and FBX2glTF carries none in any form (measured
+        2026-11-05).
         Marked with :attr:`PROXY_MARKER`; :meth:`remove_export_proxies` deletes
         them -- the ``render_effects`` row of ``FbxUtils.STAGERS`` stages and
         finishes both around every bracketed write. Stale proxies from
@@ -856,15 +862,11 @@ class RenderEffects(ptk.LoggingMixin):
 
         cls.remove_export_proxies()
         proxies = []
+        transport = ptk.SceneRecords.TRANSPORT
         for obj in list(bpy.data.objects):
-            if not getattr(obj, "animation_data", None) or obj.get(cls.PROXY_MARKER):
-                continue
-            for attr in cls.CHANNELS:
-                fc = cls._fcurve(obj, f'["{attr}"]')
-                if fc is None or not len(fc.keyframe_points):
-                    continue
-                name = f"{obj.name}{cls.PROXY_SEPARATOR}{attr}"
-                proxy = FbxUtils.stage_curve_proxy(name, obj, fc)
+            for attr, fc, options in cls._staged_channels(obj):
+                name = transport.proxy_name(obj.name, attr)
+                proxy = FbxUtils.stage_curve_proxy(name, obj, fc, **options)
                 if proxy is None:
                     cls.logger.warning(
                         "Curve-proxy name %r is taken by an existing object -- %s's %s "
@@ -882,7 +884,125 @@ class RenderEffects(ptk.LoggingMixin):
                 "y" if len(proxies) == 1 else "ies",
                 ", ".join(p.name for p in proxies),
             )
-        return proxies
+        # The emissive-group copies' weights ride the same transport (material
+        # targets under the carrier): this record's stager stages all of it.
+        from blendertk.mat_utils.emissive_groups import EmissiveGroups
+
+        return proxies + EmissiveGroups.stage_export_proxies(FbxUtils.write_context())
+
+    @classmethod
+    def _staged_channels(cls, obj) -> list:
+        """``(channel, fcurve, options)`` for every channel of *obj* a curve
+        proxy carries (:meth:`stage_export_proxies`, :meth:`effect_curves`):
+        each keyed render-effect property, and a keyed ``hide_render`` no
+        ``opacity`` mirrors onto -- *options* map its values to the
+        contract's (shown at 1) and step it (``FbxUtils.stage_curve_proxy``).
+        Empty for an un-animated object or a proxy itself."""
+        if not getattr(obj, "animation_data", None) or obj.get(cls.PROXY_MARKER):
+            return []
+        staged = []
+        for attr in cls.CHANNELS:
+            fc = cls._fcurve(obj, f'["{attr}"]')
+            if fc is not None and len(fc.keyframe_points):
+                staged.append((attr, fc, {}))
+        vis = cls._fcurve(obj, cls.VIS_PATH)
+        if (
+            vis is not None
+            and len(vis.keyframe_points)
+            and cls.ATTR_NAME not in {attr for attr, _fc, _o in staged}
+        ):
+            # ``hide_render`` is hidden at 1: the contract's channel is
+            # shown at 1, stepped.
+            staged.append(
+                (
+                    "visibility",
+                    vis,
+                    {"value": lambda v: 0.0 if v >= 0.5 else 1.0, "interpolation": "CONSTANT"},
+                )
+            )
+        return staged
+
+    @classmethod
+    def effect_curves(cls, ctx: Optional[ptk.ExportContext] = None) -> dict:
+        """The scene's render-effect curves as a write's curve proxies carry
+        them, in the scene's frames -- for a write that carries no take to
+        hold them: the WebXR push with animation off states them for its build
+        (``ptk.MeshConvert.effect_preview_curves``). Mirror of mayatk's.
+
+        Each curve is one :meth:`stage_export_proxies` would stage, each key
+        ``[frame, value, interpolation]`` -- its segment's: ``"step"``
+        (``CONSTANT``) or ``"linear"``, and any other segment as the curve's
+        own values at each frame inside it, linear between. ``visibility`` is
+        ``hide_render`` inverted (the contract's 1 is shown), stepped. Each
+        animated emissive-group copy's weight rides as its material's
+        ``emission`` (``EmissiveGroups.weight_curves``).
+
+        ``start`` is the frame an animated write puts at its clip's t=0: the
+        start of the range Blender's writer bakes (``FbxUtils.bake_range``:
+        every frame of it, a key at each end), so a push places an effect
+        where it would with animation on.
+
+        Parameters:
+            ctx: The write's decisions (``nodes``): only the curves of the
+                objects it ships.
+
+        Returns:
+            ``{"curves": [{"target", "channel", "keys"}], "start": frame,
+            "fps": rate}``, or ``{}`` when no effect is keyed.
+        """
+        import bpy
+        from blendertk.env_utils.fbx_utils import FbxUtils
+
+        curves = []
+        for obj in bpy.data.objects:
+            if ctx is not None and not ctx.ships(obj.name):
+                continue
+            for channel, fc, options in cls._staged_channels(obj):
+                keys = cls._segment_keys(fc, **options)
+                if keys:
+                    curves.append({"target": obj.name, "channel": channel, "keys": keys})
+        # Each animated emissive-group copy's weight, as its
+        # ``<material>__emission`` proxy carries it (that tool's stager).
+        from blendertk.mat_utils.emissive_groups import EmissiveGroups
+
+        def copy_keys(copy):
+            fc = EmissiveGroups.HOST.emission_channel(copy)
+            return cls._segment_keys(fc) if fc is not None else []
+
+        curves += EmissiveGroups.weight_curves(copy_keys, ctx)
+        if not curves:
+            return {}
+        span = FbxUtils.bake_range()
+        start = span[0] if span else min(c["keys"][0][0] for c in curves)
+        return {"curves": curves, "start": float(start), "fps": cls._scene_fps()}
+
+    @staticmethod
+    def _segment_keys(fc, value=None, interpolation=None) -> list:
+        """*fc*'s keys as ``[frame, value, interpolation]``, each segment's
+        interpolation stated (:meth:`effect_curves`); *value* and
+        *interpolation* as :meth:`_staged_channels`' options give them."""
+        import math
+
+        points = sorted(fc.keyframe_points, key=lambda k: k.co[0])
+        mapped = value or float
+        out = []
+        for index, point in enumerate(points):
+            time, own = float(point.co[0]), float(mapped(point.co[1]))
+            kind = interpolation or getattr(point, "interpolation", "BEZIER")
+            if index + 1 >= len(points):
+                out.append([time, own, "step" if kind == "CONSTANT" else "linear"])
+                break
+            if kind == "CONSTANT":
+                out.append([time, own, "step"])
+                continue
+            out.append([time, own, "linear"])
+            if kind == "LINEAR":
+                continue
+            following = float(points[index + 1].co[0])
+            for frame in range(int(math.floor(time)) + 1, int(math.ceil(following))):
+                if time < frame < following:
+                    out.append([float(frame), float(mapped(fc.evaluate(frame))), "linear"])
+        return out
 
     @classmethod
     def remove_export_proxies(cls):
@@ -906,7 +1026,25 @@ class RenderEffects(ptk.LoggingMixin):
     @classmethod
     def finish_export(cls):
         """Undo :meth:`prepare_for_export`'s staging (mirror of mayatk's)."""
+        from blendertk.mat_utils.emissive_groups import EmissiveGroups
+
+        EmissiveGroups.remove_export_proxies()
         cls.remove_export_proxies()
+
+    @classmethod
+    def scope_export(cls, ctx) -> list:
+        """Narrow this record's staging to the write's scope once a publish
+        knows it (``FbxUtils.HOOKS["staging_scope"]``): an emissive-group
+        copy's proxy rides the carrier, which every write ships, so a writer
+        that staged before its scoped publish drops the proxies of copies it
+        does not ship. A node's proxy needs nothing: it rides its node.
+
+        Returns:
+            The proxies removed.
+        """
+        from blendertk.mat_utils.emissive_groups import EmissiveGroups
+
+        return EmissiveGroups.scope_export_proxies(ctx)
 
     @classmethod
     def remove(cls, objects=None, mode=None, channel=None):
@@ -1199,9 +1337,9 @@ class RenderEffects(ptk.LoggingMixin):
         Mirror of mayatk's: one transient child per keyed channel carries the
         per-object curve (:meth:`stage_export_proxies`), and :meth:`finish_export`
         removes them after the write. No ``hide_render`` mirror is written for an
-        opacity keyed by hand -- the GLB derives presence from the authored
-        channels itself (``ptk.MeshConvert.apply_glb_visibility``). The staging
-        covers every keyed channel in the file.
+        opacity keyed by hand -- an opacity at 0 is presence by the
+        ``render_effects`` contract. The staging covers every keyed channel in
+        the file.
 
         The return is always empty (it named the objects whose visibility was
         re-synced).
@@ -1210,50 +1348,49 @@ class RenderEffects(ptk.LoggingMixin):
         return []
 
     # ------------------------------------------------------------------ in-band export metadata
-    #: ``data_export`` channel read by ``ptk.MeshConvert.apply_glb_visibility``
-    #: -- the key of the ``ptk.SceneRecords.VISIBILITY`` record (mirror of
-    #: mayatk's ``RenderEffects.DATA_CHANNEL``).
+    #: ``data_export`` channel of the ``ptk.SceneRecords.VISIBILITY`` record
+    #: (``render_effects``; mirror of mayatk's ``RenderEffects.DATA_CHANNEL``).
     DATA_CHANNEL = ptk.SceneRecords.VISIBILITY.key
     #: Schema this producer writes (stamped by the declaration).
     SCHEMA_VERSION = ptk.SceneRecords.VISIBILITY.version
 
     @classmethod
     def visibility_tracks(cls) -> list:
-        """Every visibility-keyed object in the file, as stepped on/off tracks.
+        """Every object carrying a keyed render effect, as ``render_effects`` v2
+        tracks: ``{"node", "channels", "highlight_color"?, "highlight_color_dim"?}``.
 
-        Mirror of mayatk's ``RenderOpacity.visibility_tracks``, and the values
-        are INVERTED on the way out: Blender's channel is ``hide_render``, so a
-        keyframe value of 1 means *hidden* where the published contract — which
-        is glTF's, not either DCC's — means *visible*. Doing that flip here is
-        the point of the split; a consumer must not have to know which DCC
-        wrote the file.
+        Mirror of mayatk's ``RenderEffects.visibility_tracks``: a track names
+        the channels its object carries -- ``visibility`` (``hide_render``,
+        published inverted by its proxy: the contract's 1 is visible),
+        ``opacity``, ``highlight`` -- and the curves ride the transport
+        (:meth:`stage_export_proxies`), never the record. An object with a
+        keyed ``opacity`` publishes no ``visibility``: its ``hide_render`` keys
+        are that channel's mirror (``key_fade`` writes it), and opacity at 0 is
+        presence by the record's contract.
         """
         import bpy
 
         tracks = []
         for obj in bpy.data.objects:
             # ``_fcurve`` resolves an action slot per call, so it is not free;
-            # an un-animated object cannot carry a visibility curve and most of
-            # a scene's objects are un-animated.
+            # an un-animated object cannot carry a curve and most of a scene's
+            # objects are un-animated.
             if not getattr(obj, "animation_data", None):
                 continue
             if obj.get(cls.PROXY_MARKER):
                 continue  # a transport node, never a track of its own
+            keyed = [
+                attr
+                for attr in cls.CHANNELS
+                if (fc := cls._fcurve(obj, f'["{attr}"]')) is not None
+                and len(fc.keyframe_points)
+            ]
             vis = cls._fcurve(obj, cls.VIS_PATH)
-            track = {"node": obj.name}
-            if vis is not None and vis.keyframe_points:
-                keys = [
-                    [float(k.co[0]), 0.0 if k.co[1] >= 0.5 else 1.0]
-                    for k in vis.keyframe_points
-                ]
-                track["visibility"] = sorted(keys)
-            for attr in cls.CHANNELS:
-                fc = cls._fcurve(obj, f'["{attr}"]')
-                if fc is None or not fc.keyframe_points:
-                    continue
-                track[attr] = cls._linear_ramp(fc)
-                if attr != cls.HIGHLIGHT_ATTR:
-                    continue
+            track = {"node": obj.name, "channels": []}
+            if vis is not None and len(vis.keyframe_points) and cls.ATTR_NAME not in keyed:
+                track["channels"].append("visibility")
+            track["channels"].extend(keyed)
+            if cls.HIGHLIGHT_ATTR in keyed:
                 # One published key per end the object actually carries. An
                 # object stating no dim end states nothing for it, so the
                 # reader falls back to THAT end's default (black) rather than
@@ -1267,132 +1404,39 @@ class RenderEffects(ptk.LoggingMixin):
                         track[key] = [float(c) for c in list(obj[prop])[:3]]
                     except (TypeError, ValueError):
                         pass
-            if len(track) > 1:
+            if track["channels"]:
                 tracks.append(track)
         return tracks
-
-    #: How much of a frame a CONSTANT key's jump is given when it is
-    #: linearized. Mirror of mayatk's ``RenderOpacity._STEP_JUMP``.
-    _STEP_JUMP = 0.01
-
-    @classmethod
-    def _linear_ramp(cls, fcurve) -> list:
-        """*fcurve*'s keys, shaped so a LINEAR consumer reproduces it exactly.
-
-        Mirror of mayatk's ``RenderOpacity._linear_ramp``, for the same reason
-        and against the same contract: the ramp is published as
-        ``[frame, alpha]`` pairs and every consumer interpolates them linearly,
-        which is only faithful while the DCC's own curve does too. Blender's
-        ``CONSTANT`` interpolation holds a key's value to the next one and then
-        jumps -- so publishing the keys alone invents a ramp across a segment
-        the artist authored as a cut. (Measured on the Maya side, where the
-        equivalent tangent made a hold read as a fifteen-frame fade-out.)
-
-        ``BEZIER`` is left as-is: it is Blender's default and it is a CURVE, so
-        no finite set of endpoints reproduces it -- publishing its keys is the
-        same approximation every consumer has always made, and eased alpha is
-        visually close to linear. Only the case that is plainly WRONG is fixed.
-        """
-        # Sorted ONCE, carrying each key's interpolation with it, so a frame is
-        # never used as a lookup key: two keys can share a frame, and a dict
-        # would silently drop one of them along with its interpolation.
-        keys = sorted(
-            (float(k.co[0]), float(k.co[1]), getattr(k, "interpolation", "BEZIER"))
-            for k in fcurve.keyframe_points
-        )
-        out: list = []
-        for index, (frame, value, interpolation) in enumerate(keys):
-            out.append([frame, value])
-            if index + 1 >= len(keys):
-                continue
-            gap = keys[index + 1][0] - frame
-            if interpolation == "CONSTANT" and gap > cls._STEP_JUMP:
-                out.append([frame + gap - cls._STEP_JUMP, value])
-        return out
 
     @classmethod
     def export_record(cls, ctx: ptk.ExportContext) -> Optional[ptk.Record]:
         """The ``render_effects`` record for this file, or ``None`` when it
-        has no keyed visibility -- the ``ptk.SceneRecords.VISIBILITY`` producer
+        keys no effect -- the ``ptk.SceneRecords.VISIBILITY`` producer
         (``FbxUtils.PRODUCERS``, mirror of mayatk's).  Pure: it reads the
-        curves and the shot record and never writes.
+        curves and never writes.
 
-        glTF animates translation, rotation, scale and morph weights and
-        nothing else, so keyed visibility does not survive the conversion from
-        either DCC; ``MeshConvert.apply_glb_visibility`` rebuilds it from this
-        channel as stepped scale.  The authored *fade* rides along on the same
-        channel and ``MeshConvert.apply_glb_fades`` writes it as
-        ``KHR_animation_pointer`` alpha, which is why :meth:`_linear_ramp`
-        matters: that consumer reads the ramp linearly.
-
-        Also publishes ``clip_span`` -- per take, its window (the take's own
-        zero: Blender's split bakes every frame of it, and the converter
-        rebases a clip onto its first key).  The whole-timeline entry is the
-        exporter's ``ctx.clip_span`` when the pipeline measured one (the first
-        and last frame the stack CARRIES), else the bake range as a seed.
+        Version 2: which objects carry which channels (:meth:`visibility_tracks`)
+        and their colours. The curves are the file's own, each on its proxy in
+        each take the write bakes (:meth:`stage_export_proxies`), so no frame
+        and no rate is published: a curve scopes to its clip by construction.
 
         Parameters:
-            ctx: The export's decisions (``clip_span``, ``nodes``) and the
-                records produced before this one -- the shot record's ``fps``
-                and its clips' ranges (the takes); the stored records are read
-                when this assembly did not produce them (an authoring-time
-                republish). A scoped write keeps the tracks of the objects it
-                ships, and its spans count their fcurves alone (mirror of
-                mayatk's; the record is ``export_scoped``).
+            ctx: The export's decisions (``nodes``). A scoped write keeps the
+                tracks of the objects it ships (mirror of mayatk's; the record
+                is ``export_scoped``).
 
         Returns:
-            The record, or ``None`` when there is no keyed visibility (the
-            publisher then clears the channel).
+            The record, or ``None`` when no effect is keyed (the publisher then
+            clears the channel).
         """
-        from blendertk.env_utils.fbx_utils import FbxUtils
-        from blendertk.node_utils.data_nodes import DataNodes
-
-        # Bail BEFORE the span walk: that reads every fcurve in the file, and a
-        # scene with no keyed visibility has nothing to spend it on.
         tracks = [track for track in cls.visibility_tracks() if ctx.ships(track["node"])]
-        if not tracks:
-            return None
+        # Each animated emissive-group copy is a material entry: its weight
+        # rides its ``<material>__emission`` proxy (staged with this record's).
+        from blendertk.mat_utils.emissive_groups import EmissiveGroups
 
-        # The shot record the shots producer has just built (it runs first:
-        # the record declares ``after=("animation",)``), else the stored
-        # one -- it keeps the frame rate defined in ONE place for the export.
-        metadata = ctx.record(ptk.SceneRecords.SHOTS, DataNodes)
-        if not isinstance(metadata, dict):
-            metadata = {}
-        # The scene's own rate when the shots producer published none (a
-        # shot-less scene, or a hand-off that refreshes only this producer):
-        # without a rate the GLB appliers cannot place the frames in time and
-        # drop every track and ramp -- measured 2026-09-05 on the WebXR preview
-        # ("carry no frame rate ... not applied"; mayatk has done this since
-        # 2026-09-02).
-        fps = metadata.get("fps") or cls._scene_fps()
-        takes = ptk.SceneRecords.declared_takes(lambda key: ctx.record(key, DataNodes))
-        # The stack's origin: measured by the pipeline (``ctx.clip_span``)
-        # once it has seen the final curves; until then the range the write
-        # BAKES is a seed, since the converter rebases every stack onto its
-        # first key and the scene's own earliest key is not that range.
-        # Mirror of mayatk, which reads the same answer off its exporter state.
-        # Widened by THIS assembly's takes: the carrier still holds the last
-        # export's until the snapshot commits.
-        stack_range = ctx.clip_span or FbxUtils.bake_range(takes)
-        spans = ptk.MeshConvert.clip_spans(
-            cls._scene_key_frames(ctx), (), stack_range=stack_range
-        )
-        # Each take's span is its WINDOW: Blender's split bakes every frame of
-        # it, so the converter opens the clip at the window's start, not at the
-        # take's first authored key (measured 2026-10-04: ShotB 21-40 opened at
-        # 21 with its first key at 30, and a gate placed against 30 lost the
-        # shot's visible run). mayatk's split keeps a take to its authored
-        # keys, and publishes those.
-        spans.update(
-            {take["name"]: [float(take["start"]), float(take["end"])] for take in takes}
-        )
-        payload = ptk.MeshConvert.build_visibility_tracks(
-            tracks, fps=fps, clip_spans=spans
-        )
-        if payload is None:
-            return None
-        return ptk.SceneRecords.VISIBILITY.make(payload)
+        materials = EmissiveGroups.render_effect_materials(ctx)
+        payload = ptk.MeshConvert.build_visibility_tracks(tracks, materials)
+        return ptk.SceneRecords.VISIBILITY.make(payload) if payload is not None else None
 
     @classmethod
     def refresh_export_metadata(cls) -> Optional[str]:
@@ -1400,8 +1444,8 @@ class RenderEffects(ptk.LoggingMixin):
 
         The authoring-time publish of :meth:`export_record`, committed through
         ``FbxUtils.publish_authored`` (an export pipeline runs the producer
-        itself: ``FbxUtils.PRODUCERS``).  Clears the channel when the file has
-        no keyed visibility, leaving no empty carrier behind.
+        itself: ``FbxUtils.PRODUCERS``).  Clears the channel when the file
+        keys no effect, leaving no empty carrier behind.
 
         Returns:
             The published JSON string, or ``None`` when cleared.
@@ -1413,8 +1457,8 @@ class RenderEffects(ptk.LoggingMixin):
         if record is None:
             return None
         cls.logger.info(
-            "Visibility: published %d keyed-visibility track(s) for the GLB "
-            "route (glTF drops the FBX's own visibility curves).",
+            "Render effects: published %d track(s); their curves ride each "
+            "export's curve proxies.",
             len(record.payload.get("tracks") or []),
         )
         return record.text
@@ -1426,28 +1470,3 @@ class RenderEffects(ptk.LoggingMixin):
 
         render = bpy.context.scene.render
         return float(render.fps) / float(render.fps_base or 1.0)
-
-    @staticmethod
-    def _scene_key_frames(ctx: Optional[ptk.ExportContext] = None) -> list:
-        """Every authored key time in the file, in frames -- of the objects a
-        scoped *ctx* ships alone (``ctx.ships``).
-
-        The scene-reaching half of ``ptk.MeshConvert.clip_spans``, which owns
-        the rest (mayatk answers the same through ``key_spans``, per window
-        off its curves, because a Maya bake is millions of keys). Every
-        animated channel counts, because the converter sizes a take from all
-        of them while emitting a channel for only some -- and only the
-        objects' own fcurves are channels, so an action assigned to nothing
-        does not count.
-        """
-        from blendertk.anim_utils._anim_utils import AnimUtils
-
-        import bpy
-
-        return [
-            float(k.co[0])
-            for fc in AnimUtils.get_fcurves(
-                [o for o in bpy.data.objects if ctx is None or ctx.ships(o.name)]
-            )
-            for k in fc.keyframe_points
-        ]

@@ -434,8 +434,8 @@ try:
     )
     ptk.SceneRecords.EMISSIVE_REGISTRY.save(DataNodes, {"slots": {"a": 0}})
     check(
-        "the emissive registry (private) and manifest (deliverable) stay apart",
-        ptk.SceneRecords.EMISSIVE_GROUPS.load(DataNodes) is None
+        "a private record stays on the private carrier",
+        DataNodes.read(ptk.Scope.DELIVERABLE, ptk.SceneRecords.EMISSIVE_REGISTRY.key) is None
         and ptk.SceneRecords.EMISSIVE_REGISTRY.load(DataNodes)["slots"] == {"a": 0},
     )
     ptk.SceneRecords.LIGHTMAPS.save(
@@ -590,9 +590,9 @@ try:
     )
     _groups = (_SR.EMISSIVE_REGISTRY.load(DataNodes) or {}).get("groups") or {}
     check(
-        "merge: the library's pre-group Empty never replaces this file's registry",
-        _groups.get("rim", {}).get("slot") == 0
-        and _groups.get("glow", {}).get("slot") == 1,
+        "merge: the library's pre-group Empty never replaces this file's registry "
+        "(the old tool's, merged by key: this file's wins)",
+        _groups.get("rim", {}).get("slot") == 0,
         str(_groups),
     )
     check(
@@ -628,6 +628,59 @@ try:
         str(_SR.AUDIO_FILE_MAP.load(DataNodes)),
     )
 
+    # A library whose own ``data_export`` sits under a group, made local into a
+    # file with none: the made-local carrier is the module's (parented), never
+    # this file's (``is_scene_carrier``), so its records MERGE into a root-level
+    # carrier and the module's goes, said in the log. Measured before: it was
+    # taken for this file's own (by name alone) and left as it was, its records
+    # on a node no reader takes -- silently. Added: 2026-11-08
+    import logging as _logging
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _nested_geo = bpy.data.objects.new("geo", bpy.data.meshes.new("m"))
+    bpy.context.scene.collection.objects.link(_nested_geo)
+    ptk.ExportSnapshot.publish(
+        DataNodes, {_SR.LIGHTMAPS: {"objects": [{"name": "geo", "map": "l.exr"}]}}
+    )
+    _group = bpy.data.objects.new("Module", None)
+    bpy.context.scene.collection.objects.link(_group)
+    bpy.data.objects[DataNodes.EXPORT].parent = _group
+    bpy.data.objects[DataNodes.EXPORT]["emissive_glow"] = 0.5  # beside its records
+    bpy.ops.wm.save_as_mainfile(filepath=_lib_path)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    EnvUtils.link_blend_file(_lib_path)
+    _said = []
+
+    class _Said(_logging.Handler):
+        def emit(self, record):
+            _said.append(record.getMessage())
+
+    _handler = _Said(level=_logging.INFO)
+    _logging.getLogger("blendertk").addHandler(_handler)
+    _logging.getLogger("pythontk").addHandler(_handler)
+    try:
+        EnvUtils.make_library_local(next(iter(bpy.data.libraries)))
+    finally:
+        _logging.getLogger("blendertk").removeHandler(_handler)
+        _logging.getLogger("pythontk").removeHandler(_handler)
+    _scene_carrier = DataNodes.get_export_node(create=False)
+    check(
+        "make local: a module's parented carrier merges into a root-level one",
+        _scene_carrier is not None
+        and _scene_carrier.parent is None
+        and _scene_carrier.get("emissive_glow") == 0.5
+        and not any(
+            o.name.startswith(DataNodes.EXPORT) and o.parent is not None
+            for o in bpy.data.objects
+        ),
+        [(o.name, getattr(o.parent, "name", None), dict(o.items())) for o in bpy.data.objects],
+    )
+    check(
+        "...and the merge says what it did",
+        any("Module" in line and DataNodes.EXPORT in line for line in _said),
+        _said,
+    )
+
     # A GUI session writes the shot store on a timer, so a script that adds a
     # shot and makes a library local in one go still holds it unwritten: the
     # move stores it first, and the merge keeps it beside the library's.
@@ -656,21 +709,38 @@ try:
     bpy.ops.wm.read_factory_settings(use_empty=True)
     from blendertk.mat_utils.emissive_groups import EmissiveGroups
 
-    bpy.ops.mesh.primitive_cube_add()
-    _cube = bpy.context.active_object
+    def _glowing_cube(copy=None):
+        bpy.ops.mesh.primitive_cube_add()
+        cube = bpy.context.active_object
+        base = bpy.data.materials.new("glowMat")
+        from blendertk.mat_utils._mat_utils import MatUtils as _GlowMatUtils
+
+        next(n for n in _GlowMatUtils.get_node_tree(base, create=True).nodes if n.type == "BSDF_PRINCIPLED").inputs[
+            "Emission Strength"
+        ].default_value = 1.0
+        cube.data.materials.append(base)
+        if copy:  # what an FBX brings: the copy as a plain material on its faces
+            cube.data.materials.append(base.copy())
+            cube.data.materials[1].name = copy
+            for _i in (1, 3):
+                cube.data.polygons[_i].material_index = 1
+        return cube
+
+    _cube = _glowing_cube()
     EmissiveGroups.add_group("glow", {_cube.name: [1, 3]})
+    EmissiveGroups.key_weight("glow", 0.5, frame=4)
     _sections = _json.loads(
         _json.dumps(DataNodes.transfer_sections(objects=[_cube.name]))
     )
     _cube_name = _cube.name
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    bpy.ops.mesh.primitive_cube_add()
-    _cube = bpy.context.active_object
+    _cube = _glowing_cube(copy="glowMat_glow")
     _ctx = DataNodes.receive_sections(_sections, resolve={_cube_name: _cube.name}.get)
+    _landed = EmissiveGroups.list_groups().get("glow", {})
     check(
-        "hand-off: an emissive group lands with its membership",
-        EmissiveGroups.list_groups().get("glow", {}).get("faces") == 2,
-        str(_ctx.notes),
+        "hand-off: an emissive group lands as its copies, tagged and keyed",
+        _landed.get("faces") == 2 and _landed.get("keyed") is True,
+        str((_landed, _ctx.notes)),
     )
 
     class _Named:
@@ -914,6 +984,63 @@ try:
             "DataNodes" in getattr(f, "__qualname__", "")
             for f in bpy.app.handlers.load_post
         ),
+    )
+    # A module's own-named ``data_export`` parented under its group is the
+    # module's, never the scene's (``ptk.SceneStoreBase.is_scene_carrier``,
+    # mayatk's ``DataNodes._resolve``). Blender's names are unique, so with no
+    # root-level carrier the scene's cannot be made beside it: the write is
+    # REFUSED, said with its fix, and the module's node is never written.
+    # Measured before (Blender 5.1): ``write(DELIVERABLE, "probe", "scene")``
+    # wrote onto the module's carrier, its probe then "scene".
+    # Added: 2026-11-08
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _module = bpy.data.objects.new("Module", None)
+    _modules_carrier = bpy.data.objects.new(DataNodes.EXPORT, None)
+    for _o in (_module, _modules_carrier):
+        bpy.context.scene.collection.objects.link(_o)
+    _modules_carrier.parent = _module
+    _modules_carrier["probe"] = "module"
+    check(
+        "a module's parented data_export is not the scene's carrier",
+        DataNodes.get_export_node(create=False) is None
+        and DataNodes.read(DELIVERABLE, "probe") is None,
+    )
+    _refusal = None
+    try:
+        DataNodes.write(DELIVERABLE, "probe", "scene")
+    except DataNodes.WriteRefused as _e:
+        _refusal = str(_e)
+    except Exception as _e:  # noqa: BLE001 -- any other raise is the failure
+        _refusal = f"wrong error: {_e!r}"
+    check(
+        "...a write is refused, saying the fix",
+        bool(_refusal)
+        and "Module" in _refusal
+        and "rename or unparent" in _refusal.lower(),
+        _refusal,
+    )
+    check(
+        "...and the module's carrier is never written",
+        _modules_carrier.get("probe") == "module"
+        and len([o for o in bpy.data.objects if o.name.startswith(DataNodes.EXPORT)]) == 1,
+        _modules_carrier.get("probe"),
+    )
+    _snap = ptk.ExportSnapshot.publish(
+        DataNodes,
+        {ptk.SceneRecords.SHOTS: {"fps": 24.0, "shots": []}},
+        ptk.ExportContext(mode=ptk.ExportContext.AUTHORING),
+    )
+    check(
+        "...a publish says it as a note, never raises, writes nothing",
+        ptk.SceneRecords.SHOTS.key in _snap.failed
+        and any("rename or unparent" in n.lower() for ns in _snap.noted.values() for n in ns)
+        and set(_modules_carrier.keys()) == {"probe"},
+        f"failed={_snap.failed} noted={_snap.noted} keys={list(_modules_carrier.keys())}",
+    )
+    check(
+        "...and nothing discards the module's carrier",
+        DataNodes.discard_if_empty(DELIVERABLE) is False
+        and bpy.data.objects.get(DataNodes.EXPORT) is _modules_carrier,
     )
     bpy.ops.wm.read_factory_settings(use_empty=True)
     _paths.cleanup()

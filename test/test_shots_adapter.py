@@ -280,9 +280,10 @@ def _run_shots_adapter_checks():
 
     # ---- publish_export_view: the shot record on the carrier ---------------
     # Mirror of the Maya store's projection (shot_export_unity.md contract):
-    # ONE record whose clips carry their own ranges -- those ranges ARE the take
-    # list (ptk.SceneRecords.declared_takes), so no second take list is written
-    # to disagree with it. Cleared by an empty store.
+    # ONE record, version 3, per shot only what a clip cannot hold -- its clip
+    # name (the take's), description and metadata; the take ranges are the
+    # store's at export time (ShotStore.declared_takes) and the file's own
+    # takes after it. Cleared by an empty store.
     import json
 
     if DataNodes.get_export_node(create=False) is not None:
@@ -294,7 +295,16 @@ def _run_shots_adapter_checks():
 
     pub_store = ShotStore()
     pub_store.define_shot("shotA", 1, 10, objects=["CubeA"])
-    pub_store.define_shot("shotB", 20, 30, objects=["CubeA"])
+    pub_store.define_shot(
+        "shotB",
+        20,
+        30,
+        objects=["CubeA"],
+        description="The door swings open.",
+        metadata={"section": "A", "weights": (1, 2), "object_status": {}},
+    )
+    # The keys its author ships (a manifest Build sets them); the rest stays.
+    pub_store.set_shipped_metadata(["section", "weights"])
     carrier_name = pub_store.publish_export_view()
     check(
         "publish_export_view creates + returns the data_export carrier",
@@ -306,43 +316,49 @@ def _run_shots_adapter_checks():
     meta = json.loads(meta_raw) if meta_raw else {}
     clips = meta.get("shots") or []
     check(
-        "the shot record carries one clip per shot, each with its own range",
-        [(s.get("clip"), s.get("start"), s.get("end")) for s in clips]
-        == [("shotA", 1, 10), ("shotB", 20, 30)],
+        "the shot record (v3) carries per shot its clip, description and "
+        "metadata, and nothing else",
+        clips
+        == [
+            {"clip": "shotA"},
+            {
+                "clip": "shotB",
+                "description": "The door swings open.",
+                "metadata": {"section": "A", "weights": [1, 2]},
+            },
+        ],
         f"{meta}",
     )
     check(
-        "the envelope carries version + fps and no second take list",
-        meta.get("version") == ptk.SceneRecords.SHOTS.version
-        and "fps" in meta
-        and "takes" not in meta,
+        "the envelope is version 3 and states no range or clip mode -- and the "
+        "scene's rate, the one thing of the timing a GLB cannot hold",
+        meta.get("version") == 3 == ptk.SceneRecords.SHOTS.version
+        and sorted(meta) == ["fps", "shots", "version"]
+        and abs(
+            meta["fps"]
+            - bpy.context.scene.render.fps / bpy.context.scene.render.fps_base
+        )
+        < 1e-6,
         f"{sorted(meta)}",
-    )
-    check(
-        "a clip omits an empty description, and carries no objects or section "
-        "(its shape declares neither: no reader used them)",
-        len(clips) == 2
-        and all(
-            "description" not in s and "section" not in s and "objects" not in s
-            for s in clips
-        ),
-        f"{clips}",
     )
     check(
         "no take list of its own is written (fbx_takes is retired)",
         "fbx_takes" not in DataNodes.get_export_node(create=False).keys(),
         f"{list(DataNodes.get_export_node(create=False).keys())}",
     )
-    declared = ptk.SceneRecords.declared_takes(
-        lambda key: ptk.SceneRecords.resolve(key).load(DataNodes)
-    )
+    from blendertk.env_utils.fbx_utils import FbxUtils
+
+    ShotStore.set_active(pub_store)
+    declared = FbxUtils.declared_takes()
     check(
-        "declared_takes reads the take list off the clips",
+        "the export's takes are the store's: one per shot, named after it, "
+        "spanning its range (ShotStore.declared_takes)",
         declared
         == [
             {"name": "shotA", "start": 1, "end": 10},
             {"name": "shotB", "start": 20, "end": 30},
-        ],
+        ]
+        == ShotStore.declared_takes(),
         f"{declared}",
     )
     # A retired take list an old file still holds goes with the next commit
@@ -366,6 +382,12 @@ def _run_shots_adapter_checks():
         DataNodes.read(ptk.Scope.DELIVERABLE, ptk.SceneRecords.SHOTS.key) is None
         and DataNodes.read(ptk.Scope.DELIVERABLE, "fbx_takes") is None,
     )
+    check(
+        "an empty store declares no take: the one whole-timeline take ships",
+        FbxUtils.declared_takes() == [],
+        f"{FbxUtils.declared_takes()}",
+    )
+    ShotStore.clear_active()
 
     # ---- stale shots: every member gone, nothing keyed in the window ------
     # A file saved from another keeps its shots; with their objects deleted

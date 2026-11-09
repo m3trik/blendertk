@@ -13,8 +13,8 @@ Toolbag.
 Everything Marmoset-specific but DCC-agnostic (Toolbag discovery/launch, log handling, template
 rendering, the in-Toolbag helpers, the RPC client) is vendored alongside this module in the
 ``marmoset_bridge`` subpackage -- an identical copy to mayatk's, per the established pattern
-(extapps' ``marmoset_workflow`` keeps its own copy too, for its standalone Marmoset
-Workflow panel, since none of the three can import each other). This module owns only what genuinely needs Blender.
+(extapps' ``marmoset_scripts`` keeps its own copy too, for its standalone Marmoset
+Scripts panel, since none of the three can import each other). This module owns only what genuinely needs Blender.
 
 ``import bpy`` is deferred so the engine surface resolves headlessly.
 """
@@ -24,10 +24,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import pythontk as ptk
 
+from blendertk.mat_utils.marmoset_bridge.marmoset_rpc.installer import PLUGIN_SPEC as _RPC_PLUGIN
 from blendertk.mat_utils.marmoset_bridge._marmoset_engine import (
     MarmosetEngine,
     ROUND_TRIP,
@@ -219,6 +221,10 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
         MarmosetBridge().send(template="lookdev")  # mode defaults to send_to
     """
 
+    #: The plugin in Toolbag (``pythontk.RpcPluginSpec``): a panel over this
+    #: bridge offers *Install in Toolbag* / *Uninstall from Toolbag* for it.
+    RPC_PLUGIN = _RPC_PLUGIN
+
     #: Executable discovery for this bridge's target app (:class:`pythontk.AppSpec`),
     #: re-exposed from the engine module so callers reach it through the class
     #: namespace: a panel's ``*_init`` gates its launch button on
@@ -277,6 +283,12 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
         """``[(template, mode), ...]`` for every bundled template, off the class
         as a panel reads it (:meth:`MarmosetEngine.list_template_modes`)."""
         return MarmosetEngine.list_template_modes()
+
+    @staticmethod
+    def template_dirs() -> Tuple[Path, ...]:
+        """Where a template name resolves, the person's own scripts first
+        (:meth:`MarmosetEngine.template_dirs`): the folders a panel reads."""
+        return MarmosetEngine.template_dirs()
 
     def params_defaults(self) -> Dict[str, Any]:
         return self.params_registry().defaults()

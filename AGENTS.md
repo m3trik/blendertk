@@ -76,7 +76,7 @@ Headless smoke / unit tests require the Blender runtime (`bpy`):
 
 ```powershell
 & "C:\Program Files\Blender Foundation\Blender 5.1\blender.exe" --background --factory-startup `
-  --python o:\Cloud\Code\_scripts\blendertk\test\blender_smoke_test.py
+  --python blendertk\test\blender_smoke_test.py
 ```
 
 Pointed: `python blendertk/test/run_tests.py test_smart_bake` (a typo exits 2); no names = all

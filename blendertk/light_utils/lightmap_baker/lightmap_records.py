@@ -75,7 +75,8 @@ class LightmapRecords(ptk.LoggingMixin):
 
     # ``data_export`` channel: a scene-wide JSON manifest of every lighting-only
     # lightmap, regenerated from the per-object markers and ridden into the FBX
-    # (informational; consumed by unitytk's optional Unity-native binder): the
+    # (informational; the unitytk package's Lightmaps importer reads it and binds
+    # Unity's native slots): the
     # ``ptk.SceneRecords.LIGHTMAPS`` record. Its key under its old name, retired
     # here: read the declaration's (``ptk.SceneRecords.LIGHTMAPS.key``).
     LIGHTMAP_METADATA = ptk.Deprecation.class_attribute(
@@ -1434,11 +1435,38 @@ class LightmapRecords(ptk.LoggingMixin):
                 its map with nothing to bind it to. The record's
                 ``unit_scale`` is the writer's (``ctx.unit``), the scene's
                 without one (mirror of mayatk's).
+
+        A record refused -- some object's lightmap layer off the second UV
+        map (:meth:`_record`) -- is said on *ctx* with its fix and none ships:
+        the snapshot clears the delivered record (mirror of mayatk's).
         """
         from blendertk.core_utils.units import Units
 
-        return cls._record(
-            ctx.scope, unit_scale=ctx.unit(lambda: Units.metres_per("internal"))
+        return ptk.LightmapRecord.unless_refused(
+            lambda: cls._record(
+                ctx.scope, unit_scale=ctx.unit(lambda: Units.metres_per("internal"))
+            ),
+            cls.logger,
+            note=ctx.note,
+        )
+
+    @classmethod
+    def withheld(cls, ctx: ptk.ExportContext) -> Dict[str, str]:
+        """``{"lightmaps": why}`` when the write of *ctx* ships the stored
+        record as it stands and its producer would refuse it now, else
+        ``{}`` (``ptk.LightmapRecord.withheld``, vetted as :meth:`_record`
+        vets one) -- what ``FbxUtils.export_context`` states on a hand-off
+        (``ptk.ExportContext.withheld``, its ``"withheld_records"`` hook;
+        mirror of mayatk's)."""
+        try:
+            from blendertk.node_utils.data_nodes import DataNodes
+        except ImportError:  # outside Blender: no file to vet
+            return {}
+        return ptk.LightmapRecord.withheld(
+            ctx,
+            DataNodes,
+            lambda: cls._uv_placements(cls._marker_records(ctx.scope)),
+            cls.UV_SET_FIX,
         )
 
     @classmethod
@@ -1467,9 +1495,44 @@ class LightmapRecords(ptk.LoggingMixin):
         from blendertk.env_utils.fbx_utils import FbxUtils
 
         cls._prune_folder_hints()
-        record = cls._record()
+        # A refused record (a lightmap layer off the second slot) clears the
+        # channel, said with its fix, and the bake or revert goes on.
+        record = ptk.LightmapRecord.unless_refused(cls._record, cls.logger)
         FbxUtils.publish_authored({ptk.SceneRecords.LIGHTMAPS: record})
         return record.text if record is not None else None
+
+    #: What a refused record's message tells its user to do with a lightmap
+    #: layer off the second slot (``ptk.LightmapRecord.check_uv_sets``; mirror
+    #: of mayatk's): ``UvUtils.create_lightmap_uvs`` moves the layer it reuses
+    #: to the second UV map, its UVs kept -- Blender's UV Maps panel cannot
+    #: move one (measured 5.1.2) -- a layer renamed since the bake is found
+    #: again under its old name alone, and one removed took the UVs the map
+    #: was baked on.
+    UV_SET_FIX = (
+        "Re-run create_lightmap_uvs on them: it moves each lightmap layer to "
+        "the second UV map, keeping its UVs and so the bake (rename a layer "
+        "renamed since the bake back first; bake again an object whose layer "
+        "was removed), then export again."
+    )
+
+    @staticmethod
+    def _uv_placements(markers) -> List[Tuple[str, str, Optional[int]]]:
+        """``(name, committed lightmap layer, its UV index)`` for each marked
+        object of *markers* (:meth:`_marker_records`) whose marker names a
+        layer -- the index ``None`` where its mesh no longer has it, renamed
+        or removed since the bake -- what ``ptk.LightmapRecord.check_uv_sets``
+        refuses a record by (mirror of mayatk's). The record reads every map
+        through the second UV map and names none, so each layer's REAL place
+        is read, never assumed."""
+        placed: List[Tuple[str, str, Optional[int]]] = []
+        for obj, info in markers:
+            uv_set = info.get("uv_set")
+            layers = getattr(getattr(obj, "data", None), "uv_layers", None)
+            if layers is None or not uv_set:
+                continue
+            found = layers.find(uv_set)
+            placed.append((obj.name, uv_set, found if found >= 0 else None))
+        return placed
 
     @staticmethod
     def _hierarchy(obj) -> List[str]:
@@ -1498,42 +1561,22 @@ class LightmapRecords(ptk.LoggingMixin):
         renames tells same-named objects apart by it. Its shape -- one
         ``unit_scale`` for every length, the version stamped -- is the
         record's model's (``ptk.LightmapRecord.payload``).
+
+        Raises:
+            ptk.LightmapRecord.UvSetRefused: Some object's lightmap layer is
+                not its second UV map, through which the record reads every
+                map (:attr:`UV_SET_FIX` says what to do; mirror of mayatk's).
         """
+        markers = list(cls._marker_records(objects))
+        ptk.LightmapRecord.check_uv_sets(
+            cls._uv_placements(markers), fix=cls.UV_SET_FIX
+        )
         entries: List[Dict[str, Any]] = []
-        for obj, info in cls._marker_records(objects):
-            # Publish the lightmap layer's REAL channel index (mirrors mayatk):
-            # Unity's native lightmaps only sample uv2 (index 1), so anything
-            # else is warned about instead of hidden behind a hardcoded 1.
-            uv_set = info.get("uv_set")
-            uv_index = 1
-            layers = getattr(getattr(obj, "data", None), "uv_layers", None)
-            if layers is not None and uv_set:
-                found = layers.find(uv_set)
-                if found >= 0:
-                    uv_index = found
-                else:
-                    cls.logger.warning(
-                        "%s: committed lightmap layer %r no longer exists; "
-                        "publishing uvIndex 1 on faith. Re-run "
-                        "create_lightmap_uvs if the layer was renamed or "
-                        "removed.",
-                        obj.name,
-                        uv_set,
-                    )
-            if uv_index != 1:
-                cls.logger.warning(
-                    "%s: lightmap layer %r sits at UV index %d, but Unity "
-                    "samples uv2 (index 1). Re-run create_lightmap_uvs before "
-                    "exporting.",
-                    obj.name,
-                    uv_set,
-                    uv_index,
-                )
+        for obj, info in markers:
             entries.append(
                 {
                     "name": obj.name,  # the Unity GameObject join key
                     "map": info.get("map"),
-                    "uvIndex": uv_index,
                     "scaleOffset": info.get(
                         "scaleOffset", list(cls.IDENTITY_SCALE_OFFSET)
                     ),

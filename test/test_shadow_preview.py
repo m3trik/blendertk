@@ -245,8 +245,8 @@ class TestLifecycleHeadless(unittest.TestCase):
         attach.assert_called_once_with(self.plane)
         self.assertEqual(ShadowPreview._detached_for_export, [])
         (record,) = [p for p in payload["planes"] if p["name"] == self.plane.name]
-        self.assertTrue(record["texture"])
-        self.assertEqual(record["type"], "horizon")
+        self.assertTrue(record["silhouette"]["texture"])
+        self.assertFalse(record["silhouette"]["draw"], "a horizon rig's fallback")
 
     def _simulate_attach(self):
         """What ``attach`` does past the refusal: the plane hidden and the

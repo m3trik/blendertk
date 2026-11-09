@@ -56,9 +56,9 @@ class BlenderExportMixin:
     #: ``export_stagers``).  A stager mutates the scene for the write and undoes
     #: it after; it produces no record.  A bridge whose consumer READS the
     #: curve-proxy transport (the Unity importers rebind it) names
-    #: ``"render_effects"`` and ``"emissive_groups"``: each keyed channel or
-    #: weight is staged as one proxy Empty, which the write ships beside the
-    #: object it hangs under.  Not the default: a bake or DCC hand-off has no
+    #: ``"render_effects"``: each keyed channel, and each emissive-group
+    #: copy's weight, is staged as one proxy Empty, which the write ships
+    #: beside the object it hangs under.  Not the default: a bake or DCC hand-off has no
     #: consumer for a ``<node>__opacity`` child and would ship it as a stray
     #: Empty.  Which RECORDS a hand-off refreshes is
     #: not a bridge decision: the write runs with a HANDOFF context, which
@@ -80,16 +80,15 @@ class BlenderExportMixin:
     #: Bake the scene's animation (and split its declared takes) when the
     #: request does not say: the ``INCLUDE_ANIMATION`` param wins whenever it is
     #: given. A bridge whose consumer plays the FBX's animation and whose panel
-    #: offers no animation knob opts in -- the Unity bridge, whose importer
-    #: builds the clips from the FBX's takes (Blender's exporter writes no take
-    #: at all unless it bakes). Mirror of mayatk's flag of the same name.
+    #: offers no animation knob opts in (Blender's exporter writes no take at
+    #: all unless it bakes). Mirror of mayatk's flag of the same name.
     include_animation: bool = False
 
     #: Whether an animated write splits the scene's declared shots into one
     #: FBX take each (:meth:`FbxUtils.apply_takes_from_node`). On where the far
-    #: side plays the FBX's takes: the Unity bridge builds its clips from them,
-    #: and the WebXR preview's GLB carries one clip per take. A DCC hand-off
-    #: turns it OFF (``MayaBridge``): every importer plays ONE take (Maya's the
+    #: side plays the FBX's takes: the WebXR preview's GLB carries one clip per
+    #: take (Unity's sends write through the Scene Exporter, which splits its
+    #: own). A DCC hand-off turns it OFF (``MayaBridge``): every importer plays ONE take (Maya's the
     #: last, Blender's the first stack per object), the receiver lands the
     #: shots from the manifest's ``shots`` section, and the split is nothing it
     #: reads. Unsplit, the write is the one scene-range take. Mirror of
@@ -101,6 +100,28 @@ class BlenderExportMixin:
         write runs under (which RECORDS refresh is the context's call, not a
         bridge's; see :attr:`export_stagers`)."""
         return tuple(self.export_stagers)
+
+    def _handoff_context(
+        self, objects=None, writer: Optional[str] = "fbx", writer_options=None
+    ) -> "ptk.ExportContext":
+        """The export context of a send of *objects*: a HANDOFF context (only
+        the DERIVED records refresh) scoped to what it ships, as the Scene
+        Exporter's is -- so its export-scoped records state what it ships, not
+        the whole scene. ``None`` scopes nothing out. *writer* is the carrier
+        the send writes, which states the records' unit. Mirror of mayatk's."""
+        from blendertk.env_utils.fbx_utils import FbxUtils
+
+        scope = (
+            None
+            if objects is None
+            else tuple(o if isinstance(o, str) else o.name for o in objects)
+        )
+        return FbxUtils.export_context(
+            mode=ptk.ExportContext.HANDOFF,
+            writer=writer,
+            writer_options=writer_options,
+            scope=scope,
+        )
 
     def _includes_animation(self, params: Dict[str, Any]) -> bool:
         """Whether this send carries animation: ``INCLUDE_ANIMATION`` when
@@ -176,20 +197,8 @@ class BlenderExportMixin:
         # is (mirror of mayatk's ``_handoff_context``): its export-scoped
         # records state what it ships, and the bracket around the write puts
         # the scene's own copy back after it.
-        scope = (
-            None
-            if objects is None
-            else tuple(o if isinstance(o, str) else o.name for o in objects)
-        )
         try:
-            FbxUtils.publish(
-                FbxUtils.export_context(
-                    mode=ptk.ExportContext.HANDOFF,
-                    writer=writer,
-                    writer_options=writer_options,
-                    scope=scope,
-                )
-            )
+            FbxUtils.publish(self._handoff_context(objects, writer, writer_options))
         except Exception:  # noqa: BLE001
             self.logger.debug("data_export refresh skipped.", exc_info=True)
 
@@ -365,8 +374,12 @@ class BlenderExportMixin:
         A transient edit (``ShotStore.transient_edit``): the write stages,
         bakes and puts the scene back, so the Shot Sequencer credits none of
         its key edits to a shot -- a Unity send added a non-member keyed in
-        the active shot's frames to its members (2026-10-05)."""
-        with ptk.ShotStore.transient_edit():
+        the active shot's frames to its members (2026-10-05). Blender's bracket
+        (``SequencerHost.transient_edit``) evaluates the scene before it closes:
+        Blender reports an edit at the next evaluation, after the bracket."""
+        from blendertk.anim_utils.shots.shot_sequencer.sequencer_host import SequencerHost
+
+        with SequencerHost.transient_edit():
             self._payload_writers()[self.carrier_of(path)](objects, path, params)
 
     def _fbx_options(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -785,12 +798,12 @@ class BridgeHost:
         ``pip install --user`` would succeed and stay unimportable. This installs
         into Blender's per-version user modules (on ``sys.path``) through the
         bundled interpreter (:meth:`CoreUtils.ensure_packages`). Keyed by the whole
-        requirement: a floor (``unitytk>=0.1.0``) never imports under that key, so
+        requirement: a floor (``somepackage>=1.0``) never imports under that key, so
         pip runs for it and an older release is upgraded (the floor check itself is
         the caller's).
 
         Parameters:
-            spec: A requirement, e.g. ``unitytk>=0.1.0``.
+            spec: A requirement, e.g. ``somepackage>=1.0``.
         """
         from blendertk.core_utils._core_utils import CoreUtils
 

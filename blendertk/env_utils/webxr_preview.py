@@ -29,7 +29,7 @@ Example:
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import pythontk as ptk
 
@@ -51,11 +51,17 @@ class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge):
     #:
     #: This is what makes the button self-feeding after a lightmap bake: the bake
     #: commits ``lightmaps`` to ``data_export``, this export carries that
-    #: object, and ``MeshConvert.fbx_to_glb`` -> ``apply_glb_lightmaps`` binds the maps
-    #: during the GLB conversion. Without it a *selection* push exports the meshes
+    #: object, and ``MeshConvert.fbx_to_glb`` -> ``apply_glb_lightmaps`` carries the
+    #: record and its maps into the GLB during the conversion. Without it a *selection* push exports the meshes
     #: alone, the manifest never reaches the GLB, and the preview renders unlit with no
     #: error to explain why. Mirror of mayatk's ``WebXrPreview``.
     include_data_export = True
+    #: The GLB route READS the render-effects transport: the export bracket
+    #: stages one curve proxy per keyed channel, which the conversion turns
+    #: into the pointer channels the page plays -- exactly what the Scene
+    #: Exporter's FBX carries. Without it an animated push shipped no curve
+    #: and played no effect. Mirror of mayatk's ``WebXrPreview``.
+    export_stagers = ("render_effects",)
     #: The page plays only the baked motion, so the payload leaves out the rig
     #: bones the Scene Exporter's Exclude Rig Helpers row leaves out (on by
     #: default there): the preview shows what the deliverable ships. Mirror of
@@ -77,6 +83,25 @@ class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge):
             options.get("object_types") or {"MESH"}
         ) | {"CAMERA"}
         return options
+
+    def _effect_curves(self, objects) -> Dict[str, Any]:
+        """The render-effect curves a push of *objects* ships, in frames
+        (``RenderEffects.effect_curves`` under this send's scope) -- what a
+        push with animation off states for its build
+        (:meth:`pythontk.PreviewBridge._with_scene_effects`). Mirror of
+        mayatk's."""
+        from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
+
+        return RenderEffects.effect_curves(self._handoff_context(objects))
+
+    def _declared_takes(self) -> List[Dict[str, Any]]:
+        """The takes an animated push of this scene splits -- the shot
+        store's, named by each shot's clip, as ``apply_takes_from_node`` arms
+        them -- or ``[]`` for a bridge that ships one take
+        (:attr:`split_takes`): what a push with animation off states one clip
+        each for (:meth:`pythontk.PreviewBridge._with_scene_effects`). Mirror
+        of mayatk's."""
+        return FbxUtils.declared_takes() if self.split_takes else []
 
     def _start_node(self, name: str) -> Optional[Any]:
         """The current scene's object named *name*, or ``None``.

@@ -214,9 +214,9 @@ class _EnvUtilsInternal(object):
         """Export Scene's GLB: Blender's own glTF exporter, no FBX hop.
 
         The scene's COMMITTED lightmaps ride the GLB (``LightmapWebExport.
-        wired_for_export``: wired for the export's lifetime, restored after, a no-op
-        on an unbaked scene), and the written file is finished as mayatk's FBX2glTF
-        route's is. Under ``window_context_override``: the bundled exporter calls
+        wired_for_export``: the record stamped for the export's lifetime and its
+        files carried into the written file, a no-op on an unbaked scene), and the
+        written file is finished as mayatk's FBX2glTF route's is. Under ``window_context_override``: the bundled exporter calls
         ``context.window.cursor_set``, an AttributeError windowless.
         """
         import bpy
@@ -232,7 +232,7 @@ class _EnvUtilsInternal(object):
                     use_selection=options["selection_only"],
                     export_cameras=options["include_cameras"],
                     export_lights=options["include_lights"],
-                    export_extras=True,  # carries the lightmaps block
+                    export_extras=True,  # carries the lightmaps record
                 )
 
 

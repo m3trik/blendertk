@@ -8,13 +8,19 @@ import wave
 import struct
 import tempfile
 import traceback
+import shutil
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 MONO = os.path.dirname(REPO)
-for p in (REPO, os.path.join(MONO, "pythontk")):
+for p in (REPO, os.path.join(MONO, "pythontk"), os.path.join(MONO, "uitk")):
     if p not in sys.path:
         sys.path.insert(0, p)
+
+# The real exports below run the Scene Exporter: isolate its preset store and
+# the per-user cache, as test_export_baselines does.
+os.environ.setdefault("UITK_PRESETS_ROOT", tempfile.mkdtemp(prefix="btk_audio_presets_"))
+os.environ.setdefault("PYTHONTK_CACHE_ROOT", tempfile.mkdtemp(prefix="btk_audio_cache_"))
 
 lines = []
 
@@ -289,26 +295,48 @@ try:
         str(files),
     )
 
-    ctx = ptk.ExportContext(clip_span=(1, 60))
+    # The record v3 (2026-11-05): each strip cut into cues per clip, in
+    # seconds from the clip's start, with its offset into the sound and its
+    # stop -- read back here in frames at the scene's rate. The takes are the
+    # shot store's (ptk.ShotStore.declared_takes); with none, the file's one
+    # take holds exactly the range the write bakes -- the scene's.
+    from blendertk import ShotStore
+
+    fps = AudioUtils.get_fps(scene)
+
+    def cues(record):
+        """``[(clip, sound, time, offset, stop)]`` in frames."""
+        return [
+            (
+                c["clip"],
+                c["sound"],
+                round(c["time"] * fps, 3),
+                round(c["offset"] * fps, 3),
+                round(c["stop"] * fps, 3),
+            )
+            for c in (record.payload["cues"] if record is not None else [])
+        ]
+
+    ShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_audio_prefs_")
+    ShotStore.clear_active()
+    scene.frame_start, scene.frame_end = 1, 60
+    ctx = ptk.ExportContext()
     record = AudioUtils.export_record(ctx)
     check(
-        "export_record: no takes -> unscoped, counted from the whole-timeline take's start",
+        "export_record: no shots -> the one take's cues, counted from the range it bakes, stopped at its end",
         record is not None
         and record.spec is ptk.SceneRecords.AUDIO
-        and record.payload["events"]
-        == [
-            {"clip": "", "frame": 4, "name": "steps"},
-            {"clip": "", "frame": 29, "name": "punch"},
-        ],
+        and cues(record)
+        == [("", "steps.wav", 4, 0, 28), ("", "punch.wav", 29, 0, 59)],
         str(record and record.payload),
     )
     check(
-        "export_record: the frames travel with the scene's fps (mayatk's AudioClips)",
-        record is not None and record.payload.get("fps") == AudioUtils.get_fps(scene),
+        "export_record: no frame and no rate leave the DCC",
+        record is not None and set(record.payload) == {"version", "cues"},
         str(record and record.payload),
     )
-    # ``media`` -- each embedded clip's SHA-256, what Unity compares a
-    # same-named clip against before it reuses one -- is the FBX dependency
+    # ``media`` -- each embedded file's SHA-256, what Unity compares a
+    # same-named sound against before it reuses one -- is the FBX dependency
     # pass's to write, from the bytes it embedded (ptk.FbxMedia
     # .embed_dependencies; mayatk's producer too). Written here from the
     # source files, it named audio a raw export never embedded, and Unity
@@ -320,67 +348,237 @@ try:
         and not ptk.SceneRecords.problems(ptk.SceneRecords.AUDIO, record.payload),
         str(record and record.payload),
     )
-    shots = ptk.SceneRecords.SHOTS.make(
-        {
-            "shots": [
-                {"clip": "Intro", "start": 1, "end": 20},
-                {"clip": "Fight", "start": 21, "end": 25},
-            ]
-        }
-    )
-    ctx = ptk.ExportContext(clip_mode="shots", clip_span=(1, 25))
-    ctx.records[ptk.SceneRecords.SHOTS.key] = shots
+    _au_store = ShotStore.active()
+    _au_store.define_shot("Intro", 1, 20)
+    _au_store.define_shot("Fight", 21, 25)
+    ctx = ptk.ExportContext()
     record = AudioUtils.export_record(ctx)
     check(
-        "export_record: each event in the take this assembly declared, counted from its start",
-        record is not None
-        and record.payload["events"]
-        == [{"clip": "Intro", "frame": 4, "name": "steps"}],
+        "export_record: a strip across a cut is a cue per shot, each stopped at the cut",
+        cues(record)
+        == [("Intro", "steps.wav", 4, 0, 19), ("Fight", "steps.wav", 0, 16, 4)],
         str(record and record.payload),
     )
     check(
-        "export_record: an event outside every take is dropped, and said",
-        any("punch@30" in note for note in ctx.notes),
+        "export_record: a strip in no shot's take is dropped, and said",
+        any("punch.wav@30" in note for note in ctx.notes),
         str(ctx.notes),
     )
-    ctx = ptk.ExportContext(clip_mode="full", clip_span=(1, 60))
-    ctx.records[ptk.SceneRecords.SHOTS.key] = shots
+    for _sid in [s.shot_id for s in list(_au_store.shots)]:
+        _au_store.remove_shot(_sid)
+    ShotStore.clear_active()
+    # A strip that starts before the one take does plays from its offset.
+    scene.frame_start = 10
+    ctx = ptk.ExportContext()
     record = AudioUtils.export_record(ctx)
+    scene.frame_start = 1
     check(
-        "export_record: a full-timeline export ships its events unscoped (it has no takes)",
-        record is not None and {e["clip"] for e in record.payload["events"]} == {""},
-        str(record and record.payload),
-    )
-    # An unscoped event before the first frame the file's animation holds can
-    # never fire: dropped, and said where it fell -- before the clip's first
-    # frame, not "outside every shot take" when no take ships. Added: 2026-10-20
-    ctx = ptk.ExportContext(clip_span=(10, 60))
-    record = AudioUtils.export_record(ctx)
-    check(
-        "export_record: an unscoped event before the first frame is dropped, and said where",
-        record is not None
-        and [e["name"] for e in record.payload["events"]] == ["punch"]
-        and any(
-            "steps@5" in note and "before" in note and "shot take" not in note
-            for note in ctx.notes
-        ),
+        "export_record: a strip starting before its clip starts at its offset into the sound",
+        cues(record)
+        == [("", "steps.wav", 0, 5, 19), ("", "punch.wav", 20, 0, 50)],
         f"{record and record.payload} {ctx.notes}",
     )
     AudioUtils.trim_clip("punch", offset_start=3, offset_end=0)
-    ctx = ptk.ExportContext(clip_span=(1, 60))
+    ctx = ptk.ExportContext()
     record = AudioUtils.export_record(ctx)
     check(
-        "export_record: a head-trimmed strip ships at its visible start, and says it plays from the file's start",
-        record is not None
-        and {"clip": "", "frame": 32, "name": "punch"} in record.payload["events"]
-        and any("punch" in note and "start" in note for note in ctx.notes),
+        "export_record: a head-trimmed strip starts its trim into its file",
+        ("", "punch.wav", 32, 3, 59) in cues(record),
         f"{record and record.payload} {ctx.notes}",
+    )
+    check(
+        "export_record: a write that carries no animation has no clip to cue",
+        AudioUtils.export_record(ptk.ExportContext(animated=False)) is None,
     )
     AudioUtils.remove_all_clips()
     check(
         "export_record: no strip -> no record",
         AudioUtils.export_record(ptk.ExportContext()) is None,
     )
+
+    # ---- real exports: the cues as a Scene Exporter write ships them -------
+    # The FBX's own take windows and key extents (ptk.FbxFile) against its
+    # ``audio`` record, and the GLB carrying that record as it stands (less
+    # ``media``: a GLB embeds no sound file). Each cue's time, added to where
+    # its clip's take starts in the file, lands on the frame the sound
+    # starts on in the scene -- mayatk's TestAudioClipsRealExport, the same
+    # scenes. Added: 2026-11-05
+    from blendertk.env_utils.scene_exporter._scene_exporter import SceneExporter
+
+    export_dir = tempfile.mkdtemp(prefix="btk_audio_export_")
+
+    def reset_scene():
+        bpy.ops.object.select_all(action="DESELECT")
+        for o in list(bpy.data.objects):
+            bpy.data.objects.remove(o, do_unlink=True)
+        for block in list(bpy.data.actions):
+            bpy.data.actions.remove(block)
+        AudioUtils.remove_all_clips()
+        ShotStore.clear_active()
+        if "data_internal" in scene:
+            del scene["data_internal"]
+
+    def real_export(name, objects, **tasks):
+        written = SceneExporter().perform_export(
+            export_dir=export_dir,
+            objects=objects,
+            output_name=name,
+            export_visible=True,
+            tasks={"output_format": "fbx_glb", "export_data_node": True, **tasks},
+        )
+        check(f"real export: the {name} export writes its deliverable", written is True, written)
+        fbx = os.path.join(export_dir, f"{name}.fbx")
+        glb = os.path.join(export_dir, f"{name}.glb")
+        rec = ptk.FbxMedia.record(fbx, ptk.SceneRecords.AUDIO.key)
+        check(
+            f"real export: the {name} FBX carries the audio record, v3",
+            not ptk.SceneRecords.problems(ptk.SceneRecords.AUDIO, rec),
+            rec,
+        )
+        with ptk.MeshConvert.open_glb(glb) as edit:
+            carried = (edit.gltf.get("extras") or {}).get(ptk.SceneRecords.AUDIO.key)
+        check(
+            f"real export: the {name} GLB carries the record as it stands",
+            carried == {k: v for k, v in (rec or {}).items() if k != "media"},
+            f"{carried} vs {rec}",
+        )
+        return ptk.FbxFile.load(fbx, span_arrays=("KeyTime",)), rec or {"cues": []}
+
+    def strip_wav(name, start, stop):
+        path = os.path.join(export_dir, f"{name}_src.wav")
+        make_wav(path, seconds=(stop - start) / fps)
+        AudioUtils.add_clip(path, frame_start=start, name=name)
+        return path
+
+    # The S2 case: keys 0-100, the scene range 20-80, Bake Range "Scene
+    # Animation Range", a sound at 50-60. Blender samples exactly the range it
+    # bakes, so the file's one take is 20-80 and the cue is 30 frames in --
+    # the same scene frame Maya's take (its keys, 0-100) puts it at, 50 in.
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    box = bpy.context.active_object
+    box.name = "box"
+    for frame, x in ((0, 0.0), (100, 10.0)):
+        box.location.x = x
+        box.keyframe_insert("location", index=0, frame=frame)
+    scene.frame_start, scene.frame_end = 20, 80
+    strip_wav("hit", 50, 60)
+    fbx, rec = real_export("s2", [box], set_bake_animation_range="scene")
+    spans = fbx.take_spans()
+    first = min((v[0] for v in spans.values()), default=None)
+    check(
+        "real export S2: the one take holds exactly the baked range, 20-80",
+        len(spans) == 1 and round(first * fps, 3) == 20,
+        {k: (round(a * fps, 3), round(b * fps, 3)) for k, (a, b) in spans.items()},
+    )
+    check(
+        "real export S2: the take declares what it holds (no fit needed)",
+        fbx.take_windows() == spans,
+        f"{fbx.take_windows()} vs {spans}",
+    )
+    got = [
+        (c["clip"], c["sound"], round((first + c["time"]) * fps, 3),
+         round(c["offset"] * fps, 3), round((first + c["stop"]) * fps, 3))
+        for c in rec["cues"]
+    ] if first is not None else rec["cues"]
+    check(
+        "real export S2: the cue lands on the sound's scene frame, counted from where the take starts",
+        got == [("", "hit.wav", 50, 0, 60)],
+        got,
+    )
+
+    # The same scene under Bake Range "keys": the range task runs LAST, after
+    # the records publish, and sets 0-100; the producer reads the range the
+    # run predicts (TaskManager._predicted_bake_range). Measured before that
+    # (2026-11-05): the take 0-100, the cue counted from the scene's 20, so it
+    # landed on frame 30.
+    fbx, rec = real_export("s2_keys", [box], set_bake_animation_range="keys")
+    spans = fbx.take_spans()
+    first = min((v[0] for v in spans.values()), default=None)
+    got = [
+        (c["clip"], round((first + c["time"]) * fps, 3), round((first + c["stop"]) * fps, 3))
+        for c in rec["cues"]
+    ] if first is not None else rec["cues"]
+    check(
+        "real export S2, Bake Range keys: the take is the keys, 0-100, and the cue still lands on frame 50",
+        round(first * fps, 3) == 0 and got == [("", 50, 60)],
+        f"{spans} {got}",
+    )
+    check(
+        "real export S2, Bake Range keys: the take declares what it holds",
+        fbx.take_windows() == spans,
+        f"{fbx.take_windows()} vs {spans}",
+    )
+
+    # FbxUtils.export, no Scene Exporter (the hand-offs' write): keys 10-100
+    # under a 1-120 range -- Maya's writer declares 1-120 over keys 10-100;
+    # Blender's bakes 1-120, a key at each end, and declares that. The cue
+    # the producer cuts before the write counts from the same start.
+    from blendertk.env_utils.fbx_utils import FbxUtils as _FbxUtils
+
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    lone = bpy.context.active_object
+    lone.name = "lone"
+    for frame, x in ((10, 0.0), (100, 10.0)):
+        lone.location.x = x
+        lone.keyframe_insert("location", index=0, frame=frame)
+    scene.frame_start, scene.frame_end = 1, 120
+    strip_wav("tick", 50, 60)
+    direct = _FbxUtils.export(os.path.join(export_dir, "direct.fbx"), [lone], bake_anim=True)
+    loaded = ptk.FbxFile.load(direct, span_arrays=("KeyTime",))
+    def frames(d):
+        return {k: (round(a * fps, 3), round(b * fps, 3)) for k, (a, b) in d.items()}
+
+    check(
+        "FbxUtils.export: the shotless take declares exactly what it holds, the baked 1-120",
+        frames(loaded.take_windows()) == frames(loaded.take_spans()) == {"Scene": (1.0, 120.0)},
+        f"{frames(loaded.take_windows())} vs {frames(loaded.take_spans())}",
+    )
+    record = AudioUtils.export_record(_FbxUtils.export_context())
+    start = loaded.take_windows().get("Scene", (0.0, 0.0))[0]
+    cues = [
+        (round((start + c["time"]) * fps, 3), round((start + c["stop"]) * fps, 3))
+        for c in (record.payload["cues"] if record else [])
+    ]
+    check(
+        "FbxUtils.export: the cue counts from the window the file declares",
+        cues == [(50.0, 60.0)],
+        cues,
+    )
+
+    # One take per shot: a sound across the cut is a cue in each, stopped at
+    # the cut, the next playing it on from its offset.
+    reset_scene()
+    scene.frame_start, scene.frame_end = 1, 40
+    bpy.ops.mesh.primitive_cube_add()
+    mover = bpy.context.active_object
+    mover.name = "mover"
+    for frame, x in ((1, 0.0), (40, 10.0)):
+        mover.location.x = x
+        mover.keyframe_insert("location", index=0, frame=frame)
+    store = ShotStore.active()
+    store.define_shot("ShotA", 1, 20, objects=["mover"])
+    store.define_shot("ShotB", 21, 40, objects=["mover"])
+    store.publish_export_view()
+    strip_wav("hum", 15, 30)
+    fbx, rec = real_export("cut", [mover])
+    windows = fbx.take_windows()
+    got = [
+        (c["clip"], round((windows[c["clip"]][0] + c["time"]) * fps, 3),
+         round(c["offset"] * fps, 3), round((windows[c["clip"]][0] + c["stop"]) * fps, 3))
+        for c in rec["cues"]
+        if c["clip"] in windows
+    ]
+    check(
+        "real export shots: one take per shot, the sound cut at the shots' cut",
+        sorted(windows) == ["ShotA", "ShotB"]
+        and got == [("ShotA", 15, 0, 20), ("ShotB", 21, 6, 30)],
+        f"{windows} {got}",
+    )
+    reset_scene()
+    shutil.rmtree(export_dir, ignore_errors=True)
+    ShotStore._prefs_dir_override = None
 
     scene.frame_start, scene.frame_end = 1, 250
     rng3 = AudioUtils.sync_scene_range()

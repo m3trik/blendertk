@@ -14,6 +14,13 @@ It is the one reader of the file's materials: the graph readers the retired
 ``SceneState`` sections shared -- the alpha mode, Blender's unlit model, the
 opacity's scalar part -- are its own, and their checks moved here with them
 (2026-10-20).
+
+Record v2 (2026-11-05): the record is literal glTF -- metal and roughness
+packed into one image of the pack store (never beside the maps),
+emission above 1 as the strength, Blender's unlit model as
+KHR_materials_unlit, a Mapping node's location and scale as
+KHR_texture_transform -- and a real export's FBX record and the GLB built
+from that FBX state the same materials (the "record v2" checks).
 """
 
 import os
@@ -464,15 +471,252 @@ try:
     names = [e["name"] for e in carried.get("materials") or []]
     check("the written FBX carries it", "Body" in names, names)
     stated = next((e for e in carried.get("materials") or [] if e["name"] == "Body"), {})
+    pbr = stated.get("pbrMetallicRoughness") or {}
     check(
         "as the sockets state it, not as Blender's FBX writer folds it",
         (
-            round(stated.get("metallicFactor", -1), 4),
-            round(stated.get("roughnessFactor", -1), 4),
+            round(pbr.get("metallicFactor", -1), 4),
+            round(pbr.get("roughnessFactor", -1), 4),
         )
         == (0.3, 0.7),
         stated,
     )
+
+    # --- record v2: literal glTF (2026-11-05) --------------------------------
+    import copy
+
+    def png(name, value, mode="L"):
+        path = os.path.join(folder, name)
+        image = bpy.data.images.new(name, 4, 4, alpha=False)
+        grey = value / 255.0
+        image.pixels[:] = [grey, grey, grey, 1.0] * 16
+        image.filepath_raw = path
+        image.file_format = "PNG"
+        image.save()
+        return image
+
+    def textured(name, image, socket, non_color=True):
+        mat = bpy.data.materials.get(name) or fresh(name)
+        node = mat.node_tree.nodes.new("ShaderNodeTexImage")
+        node.image = image
+        if non_color:
+            image.colorspace_settings.name = "Non-Color"
+        mat.node_tree.links.new(principled(mat).inputs[socket], node.outputs["Color"])
+        return mat, node
+
+    metal_rough, _ = textured("Packed", png("Packed_Metallic.png", 200), "Metallic")
+    textured("Packed", png("Packed_Roughness.png", 50), "Roughness")
+    record = MaterialRecords.export_record(
+        ptk.ExportContext(scope=(worn(metal_rough, "PackedCube").name,))
+    ).payload
+    check(
+        "record v2: the record is one a reader reads",
+        ptk.SceneRecords.problems(ptk.SceneRecords.MATERIALS, record) == [],
+        ptk.SceneRecords.problems(ptk.SceneRecords.MATERIALS, record),
+    )
+    (packed_mat,) = record["materials"]
+    files = ptk.MaterialFamilies.material_files(record, packed_mat)
+    check(
+        "record v2: metal and roughness pack into one image, a delivery file "
+        "of the pack store, never beside the maps",
+        files.get("metallicRoughnessTexture") == "Packed_ORM.png"
+        and ptk.MaterialFamilies.packed_file("Packed_ORM.png") is not None
+        and not os.path.exists(os.path.join(folder, "Packed_ORM.png")),
+        (files, sorted(os.listdir(folder))),
+    )
+
+    hot = fresh("Hot")
+    bsdf = principled(hot)
+    bsdf.inputs["Emission Color"].default_value = (1.0, 0.5, 0.0, 1.0)
+    bsdf.inputs["Emission Strength"].default_value = 4.0
+    emits = fresh("Glows")
+    tree = emits.node_tree
+    tree.nodes.clear()
+    emission = tree.nodes.new("ShaderNodeEmission")
+    out = tree.nodes.new("ShaderNodeOutputMaterial")
+    tree.links.new(emission.outputs[0], out.inputs["Surface"])
+    by_name = ptk.MaterialFamilies.materials_by_name(
+        MaterialRecords.export_record(
+            ptk.ExportContext(scope=(worn(hot, "HotCube").name, worn(emits, "GlowCube").name))
+        ).payload
+    )
+    check(
+        "record v2: emission above one is the strength, never the factor",
+        (by_name.get("Hot") or {}).get("emissiveFactor") == [1.0, 0.5, 0.0]
+        and (by_name.get("Hot") or {}).get("extensions")
+        == {"KHR_materials_emissive_strength": {"emissiveStrength": 4.0}},
+        by_name.get("Hot"),
+    )
+    check(
+        "record v2: an Emission surface is KHR_materials_unlit",
+        ((by_name.get("Glows") or {}).get("extensions") or {}).get("KHR_materials_unlit")
+        == {},
+        by_name.get("Glows"),
+    )
+
+    tiled, tile_node = textured(
+        "Tiled", png("Tiled_BaseColor.png", 120), "Base Color", non_color=False
+    )
+    mapping = tiled.node_tree.nodes.new("ShaderNodeMapping")
+    mapping.inputs["Scale"].default_value = (2.0, 3.0, 1.0)
+    mapping.inputs["Location"].default_value = (0.25, 0.5, 0.0)
+    tiled.node_tree.links.new(tile_node.inputs["Vector"], mapping.outputs["Vector"])
+    (tiled_mat,) = MaterialRecords.export_record(
+        ptk.ExportContext(scope=(worn(tiled, "TiledCube").name,))
+    ).payload["materials"]
+    transform = (
+        (tiled_mat["pbrMetallicRoughness"].get("baseColorTexture") or {}).get("extensions")
+        or {}
+    ).get("KHR_texture_transform")
+    check(
+        "record v2: a Mapping node's location and scale are the texture transform",
+        transform == {"offset": [0.25, 1.0 - 3.0 - 0.5], "scale": [2.0, 3.0]},
+        transform,
+    )
+
+    # A real export: the FBX's record read back, and the GLB built from that
+    # FBX alone, whose materials are the record's.
+    real = os.path.join(folder, "real.fbx")
+    shipped = ("PackedCube", "HotCube", "GlowCube", "TiledCube")
+    objects = [bpy.data.objects[n] for n in shipped]
+    scoped = FbxUtils.export_context(mode=ptk.ExportContext.HANDOFF, scope=shipped)
+    with FbxUtils.export_prepared(scoped, only=[ptk.SceneRecords.MATERIALS]):
+        FbxUtils.export(real, objects=objects + [DataNodes.get_export_node(create=False)])
+    ptk.FbxMedia.embed_dependencies(real, search_dirs=[folder])
+    record = ptk.FbxMedia.record(real, "materials") or {}
+    check(
+        "record v2: the written FBX carries the record a reader reads",
+        ptk.SceneRecords.problems(ptk.SceneRecords.MATERIALS, record) == []
+        and {"Packed", "Hot", "Glows", "Tiled"}
+        == {m["name"] for m in record.get("materials") or []},
+        [m.get("name") for m in record.get("materials") or []],
+    )
+    built = ptk.GlbPipeline.build(real, os.path.join(folder, "real.glb"), downsize=False)
+
+    def resolved(material, image_of):
+        found = copy.deepcopy(material)
+        found.pop("extras", None)
+        for container, slot in ptk.MaterialFamilies.TEXTURE_SLOTS:
+            holder = found.get(container) if container else found
+            if isinstance(holder, dict) and isinstance(holder.get(slot), dict):
+                holder[slot]["index"] = image_of(holder[slot]["index"])
+        return found
+
+    with ptk.MeshConvert.open_glb(built["glb"]) as edit:
+
+        def glb_image(index):
+            label = edit.image_label(edit.image_for_texture(index))
+            return os.path.splitext(os.path.basename(label))[0].casefold()
+
+        def record_image(index):
+            name = ptk.MaterialFamilies.texture_file(record, index)
+            return os.path.splitext(name)[0].casefold()
+
+        glb_by_name = {m.get("name"): m for m in edit.materials}
+        for material in record.get("materials") or []:
+            mine = resolved(material, record_image)
+            theirs = resolved(glb_by_name.get(material["name"]) or {}, glb_image)
+            check(
+                f"record v2: the GLB's {material['name']} is the record's",
+                mine == theirs,
+                (mine, theirs),
+            )
+
+    # --- lightmaps v3 (2026-11-07): the bake holds an object's occlusion, so a
+    # material only lightmapped objects wear states none; one lightmapped and
+    # unbaked objects share keeps it, said once with the fix -- decided against
+    # the lightmaps record the write ships, by mesh, never the baker's markers
+    # (mirror of mayatk's; ptk.MaterialFamilies.export_record). A Principled
+    # BSDF has no occlusion socket, so the manifest is handed one. ----------
+    from unittest import mock as _mock
+    from blendertk.light_utils.lightmap_baker.lightmap_records import LightmapRecords
+    from blendertk.mat_utils.mat_manifest import MatManifest
+
+    for leftover in [o for o in bpy.data.objects if LightmapRecords.LIGHTMAP_INFO_PROP in o]:
+        del leftover[LightmapRecords.LIGHTMAP_INFO_PROP]
+    wall_mat, shared_mat = fresh("BakedWall"), fresh("BakedShared")
+    wall = worn(wall_mat, "BakedWallCube")
+    shared_baked = worn(shared_mat, "BakedSharedCube")
+    shared_unbaked = worn(shared_mat, "UnbakedSharedCube")
+    # A linked duplicate of the wall, unbaked: its mesh is lightmapped
+    # through the wall, so the wall's material still ships no occlusion.
+    twin = wall.copy()
+    twin.name = "BakedWallTwin"
+    bpy.context.scene.collection.objects.link(twin)
+
+    def baked(obj, slot_name="Lightmap"):
+        if obj.data.uv_layers.get(slot_name) is None:
+            obj.data.uv_layers.new(name=slot_name)
+        LightmapRecords._write_marker(
+            obj, {"map": f"{obj.name}_Lightmap.exr", "uv_set": slot_name}
+        )
+
+    for baked_obj in (wall, shared_baked):
+        baked(baked_obj)
+    check(
+        "each mesh names every object it is worn under, and what it wears",
+        sorted(
+            (sorted(map(tuple, paths)), sorted(mats))
+            for paths, mats in MaterialRecords._worn([wall, twin])
+        )
+        == [([("BakedWallCube",), ("BakedWallTwin",)], ["BakedWall"])],
+        MaterialRecords._worn([wall, twin]),
+    )
+    check(
+        "the baker is named by no row (the record the write ships is read)",
+        not hasattr(MaterialRecords, "LIGHTMAPPED")
+        and ptk.SceneRecords.MATERIALS.after == ("lightmaps",),
+    )
+    real_maps = MatManifest._process_material
+
+    def with_occlusion(material):
+        found = dict(real_maps(material))
+        found["ambientOcclusion"] = os.path.join(folder, f"{material.name}_AO.png")
+        return found
+
+    def shipped_materials(ctx):
+        with _mock.patch.object(MatManifest, "_process_material", side_effect=with_occlusion):
+            snapshot = ptk.ExportSnapshot.assemble(
+                {
+                    ptk.SceneRecords.LIGHTMAPS: LightmapRecords.export_record,
+                    ptk.SceneRecords.MATERIALS: MaterialRecords.export_record,
+                },
+                ctx,
+            )
+        record = snapshot.record(ptk.SceneRecords.MATERIALS) or {}
+        return {m["name"]: m for m in record.get("materials") or []}
+
+    names = (wall.name, twin.name, shared_baked.name, shared_unbaked.name)
+    ao_ctx = ptk.ExportContext(scope=names)
+    ao_materials = shipped_materials(ao_ctx)
+    check(
+        "a material only lightmapped objects wear ships no occlusion",
+        "occlusionTexture" not in ao_materials["BakedWall"],
+        ao_materials["BakedWall"],
+    )
+    check(
+        "a material unbaked objects share keeps it, said once with the fix",
+        "occlusionTexture" in ao_materials["BakedShared"]
+        and len([n for n in ao_ctx.notes if "BakedShared" in n]) == 1
+        and any("their own material" in n for n in ao_ctx.notes),
+        (ao_materials["BakedShared"], ao_ctx.notes),
+    )
+    # A refused lightmaps record ships no lightmap: every occlusion stays.
+    first = wall.data.uv_layers[0].name
+    baked(wall, first)
+    refused_ctx = ptk.ExportContext(scope=names)
+    refused = shipped_materials(refused_ctx)
+    check(
+        "a refused lightmaps record leaves every occlusion",
+        "occlusionTexture" in refused["BakedWall"]
+        and "occlusionTexture" in refused["BakedShared"]
+        and any("Lightmaps not published" in n for n in refused_ctx.notes)
+        and not any("their own material" in n for n in refused_ctx.notes),
+        refused_ctx.notes,
+    )
+    for baked_obj in (wall, shared_baked):
+        del baked_obj[LightmapRecords.LIGHTMAP_INFO_PROP]
+    bpy.data.objects.remove(twin)
 
     # The one reader stands alone: every family read and a bracketed write
     # published, and the retired SceneState -- which delegates to this reader

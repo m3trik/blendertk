@@ -199,6 +199,46 @@ class _MatUtilsInternal:
             return surf.links[0].from_node
         return None
 
+    #: Shader nodes an unlit surface may route through between its Emission
+    #: and the output: the shader inputs of a mix / add, or a reroute.
+    _UNLIT_ROUTES = ("MIX_SHADER", "ADD_SHADER", "REROUTE")
+
+    @staticmethod
+    def _is_unlit(material, limit: int = 64) -> bool:
+        """Is *material* Blender's unlit model: Emission, with no other BSDF?
+
+        Walked from the ACTIVE output's Surface back through mix / add shaders
+        (their SHADER inputs only -- a mix factor is data, a texture's alpha):
+        an Emission shader must be reached, and nothing but a Transparent BSDF
+        beside it -- what the shadow rigs and a detached shadow plane build.
+        Any other shader (a Principled BSDF, a group) is lit, or unknown, and
+        leaves the material out. Bounded. The one rule the ``materials``
+        record states a surface unlit by (``MaterialRecords``) and an
+        emissive group refuses one by (``EmissiveGroups``).
+        """
+        tree = MatUtils.get_node_tree(material)
+        first = _MatUtilsInternal._tree_surface_node(tree)
+        if first is None:
+            return False
+        emits = False
+        seen, queue = set(), [first]
+        while queue:
+            node = queue.pop()
+            if node is None or node.name in seen:
+                continue
+            seen.add(node.name)
+            if len(seen) > limit:
+                return False
+            if node.type == "EMISSION":
+                emits = True
+            elif node.type in _MatUtilsInternal._UNLIT_ROUTES:
+                for socket in node.inputs:
+                    if node.type == "REROUTE" or socket.type == "SHADER":
+                        queue.extend(link.from_node for link in socket.links)
+            elif node.type != "BSDF_TRANSPARENT":
+                return False
+        return emits
+
     @staticmethod
     def _mat_surface_type(mat):
         """A human-readable material 'type' for the report — the surface shader node's label

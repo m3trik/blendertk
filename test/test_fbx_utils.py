@@ -615,28 +615,32 @@ try:
                 for cb in strip.channelbags:
                     yield from cb.fcurves
 
-    # The whole-timeline stack stays beside the takes it was split into, as
-    # Maya's Take 001 does (2026-10-05): the GLB's clips are cut from it and
-    # a Shots + Full Sequence deliverable ships it.
+    # One take per shot REPLACES the whole-timeline stack (2026-11-05): a
+    # file of shots carries no take no shot names, in Blender's split as in
+    # Maya's once its Take 001 is dropped.
     take_actions = sorted(a.name for a in bpy.data.actions)
     check(
-        "the FBX ships one AnimStack per declared take beside the whole timeline",
+        "the FBX ships one AnimStack per declared take and no whole timeline",
         take_actions
         == [
-            "TakesBall|Scene",
             "TakesBall|shotA",
             "TakesBall|shotB",
-            "TakesCube|Scene",
             "TakesCube|shotA",
             "TakesCube|shotB",
         ],
         f"{take_actions}",
     )
-    whole = bpy.data.actions.get("TakesCube|Scene")
+    _takes_file = ptk.FbxFile.load(takes_out, raw_payloads=False)
+    _windows = {
+        name: tuple(round(t * scene.render.fps) for t in span)
+        for name, span in _takes_file.take_windows().items()
+    }
     check(
-        "the whole-timeline stack keeps the scene range it was baked over",
-        whole is not None and tuple(round(f) for f in whole.frame_range) == (1, 30),
-        f"{whole and tuple(whole.frame_range)}",
+        "each take is named after its shot and declares its range "
+        "(FbxFile.take_names / take_windows)",
+        _takes_file.take_names() == ["shotA", "shotB"]
+        and _windows == {"shotA": (1, 10), "shotB": (20, 30)},
+        f"{_takes_file.take_names()} {_windows}",
     )
 
     def x_extent(action_name):
@@ -736,37 +740,40 @@ try:
     )
     reset_anim()
 
-    # ---- apply_takes_from_node reads the takes the carrier declares ----------
-    # The shot record's clip ranges (what a publish writes;
-    # ptk.SceneRecords.declared_takes) -- the current standard only.
+    # ---- apply_takes_from_node arms the takes the shot store declares --------
+    # One per shot, spanning its range (ptk.ShotStore.declared_takes): the
+    # record publishes no frames, so neither its clips nor a retired
+    # fbx_takes list arms anything (2026-11-05).
+    from blendertk.anim_utils.shots._shots import ShotStore as _ArmStore
+
     reset()
+    _ArmStore.clear_active()
+    _ArmStore.active().shots = []
     check(
-        "apply_takes_from_node -> 0 with no carrier in the scene",
+        "apply_takes_from_node -> 0 with no shot in the store",
         FbxUtils.apply_takes_from_node() == 0,
     )
-    _ranged = {"shots": [{"clip": "intro", "start": 1, "end": 12, "objects": []}]}
-    ptk.SceneRecords.SHOTS.save(DataNodes, _ranged)
+    _ArmStore.active().define_shot("intro", 1, 12)
     n_node = FbxUtils.apply_takes_from_node()
     check(
-        "apply_takes_from_node arms the shot record's clip ranges",
+        "apply_takes_from_node arms the store's shots, one take each",
         n_node == 1 and FbxUtils._pending_takes == [("intro", 1, 12)],
         f"{FbxUtils._pending_takes}",
     )
     FbxUtils.reset_takes()
-    # A clip without its range declares no take, and a retired fbx_takes list
-    # beside it is never read (2026-10-20: no legacy branch).
     import json as _takes_json
 
-    ptk.SceneRecords.SHOTS.save(
-        DataNodes, {"shots": [{"clip": "intro", "objects": []}]}
-    )
+    for _sid in [s.shot_id for s in list(_ArmStore.active().shots)]:
+        _ArmStore.active().remove_shot(_sid)
+    ptk.SceneRecords.SHOTS.save(DataNodes, {"shots": [{"clip": "intro"}]})
     _list = _takes_json.dumps([{"name": "intro", "start": 2, "end": 14}])
     DataNodes.write(ptk.Scope.DELIVERABLE, "fbx_takes", _list)
     check(
-        "a clip without its range arms nothing; a retired fbx_takes is not read",
+        "the record's clips arm nothing, and a retired fbx_takes is not read",
         FbxUtils.apply_takes_from_node() == 0 and not FbxUtils._pending_takes,
         f"{FbxUtils._pending_takes}",
     )
+    _ArmStore.clear_active()
     # An explicit attr reads the JSON take list it names; a node alone names none.
     DataNodes.write(ptk.Scope.DELIVERABLE, "btk_takes", _list)
     check(
@@ -834,10 +841,9 @@ try:
         f"raised={raised} ran={ran} depth={FbxUtils._export_depth}",
     )
 
-    # ---- a whole-timeline stack named like a take keeps a name of its own ----
-    # The kept stack is named after the scene; a shot named the same would make
-    # two stacks one name, and every consumer that picks the sequence as "the
-    # take no shot names" would find none.
+    # ---- a take named like the scene's stack: the one take of that name -------
+    # The scene-range stack is named after the scene and is replaced by the
+    # takes, so a shot named the same is simply the file's one take.
     reset_anim()
     scene.frame_start, scene.frame_end = 1, 20
     bpy.ops.mesh.primitive_cube_add()
@@ -854,8 +860,8 @@ try:
         FbxUtils.reset_takes()
     twin_takes = ptk.FbxFile.load(twin_out, raw_payloads=False).take_names()
     check(
-        "a take named like the scene leaves the whole timeline a distinct name",
-        len(twin_takes) == 2 and scene.name in twin_takes and len(set(twin_takes)) == 2,
+        "a take named like the scene is the file's one take",
+        twin_takes == [scene.name],
         f"{twin_takes}",
     )
     scene.frame_start, scene.frame_end = 1, 30
@@ -1009,8 +1015,9 @@ try:
     proxy_out = os.path.join(tmp, "proxies.fbx")
     alone_out = os.path.join(tmp, "proxies_alone.fbx")
     check(
-        "render_effects and emissive_groups are export stagers",
-        {"render_effects", "emissive_groups"} <= set(FbxUtils.STAGERS),
+        "render_effects is an export stager, and stages the emissive-group "
+        "copies' weights too (no stager of their own)",
+        "render_effects" in FbxUtils.STAGERS and "emissive_groups" not in FbxUtils.STAGERS,
         f"{sorted(FbxUtils.STAGERS)}",
     )
     with FbxUtils.export_prepared(stagers=("render_effects",)):
@@ -1061,17 +1068,24 @@ try:
 
     reset_anim()
     glow_cube = keyed_fader("GlowCube")
+    glow_mat = bpy.data.materials.new("GlowMat")
+    from blendertk.mat_utils._mat_utils import MatUtils as _GlowMatUtils
+
+    next(n for n in _GlowMatUtils.get_node_tree(glow_mat, create=True).nodes if n.type == "BSDF_PRINCIPLED").inputs[
+        "Emission Strength"
+    ].default_value = 1.0
+    glow_cube.data.materials.append(glow_mat)
     EmissiveGroups.add_group("glow", {"GlowCube": [0]})
-    EmissiveGroups.make_weights_keyable(["glow"])
     EmissiveGroups.key_weight("glow", value=1.0, frame=1)
     EmissiveGroups.key_weight("glow", value=0.0, frame=10)
+    DataNodes.ensure_export()
     glow_carrier = DataNodes.get_export_node(create=False)
     if glow_carrier is None:
         check("the keyed emissive group made a carrier", False)
     else:
         exclude_carrier(glow_carrier)
         glow_out = os.path.join(tmp, "emissive_excluded.fbx")
-        with FbxUtils.export_prepared(stagers=("emissive_groups",)):
+        with FbxUtils.export_prepared(stagers=("render_effects",)):
             FbxUtils.export(
                 filepath=glow_out, objects=[glow_cube, glow_carrier], bake_anim=True
             )
@@ -1080,7 +1094,7 @@ try:
         )
         check(
             "a carrier in an excluded collection ships its keyed weights' proxies",
-            DataNodes.EXPORT in glow_models and "emissiveGroup_glow" in glow_models,
+            DataNodes.EXPORT in glow_models and "GlowMat_glow__emission" in glow_models,
             f"{sorted(glow_models)}",
         )
         check(
@@ -1299,15 +1313,44 @@ try:
         .items()
     }
     check(
-        "an armed take past the scene range ships its whole window",
-        outrun_spans.get("late") == (25, 40)
-        and outrun_spans.get(scene.name) == (1, 40),
+        "an armed take past the scene range ships its whole window, alone",
+        outrun_spans == {"late": (25, 40)},
         f"{outrun_spans}",
     )
     check(
         "the write gives the scene its own range back",
         (scene.frame_start, scene.frame_end) == (1, 20),
         f"{(scene.frame_start, scene.frame_end)}",
+    )
+    scene.frame_start, scene.frame_end = 1, 30
+
+    # ---- a shotless take declares exactly what it holds (2026-11-05) --------
+    # Unity's model importer cuts a file's default clip by its take's declared
+    # window (LocalTime), a GLB by what the take holds: Maya declared the
+    # playback range over a take holding its keys (keys 0-100, range 20-80:
+    # a 20-80 Unity clip beside a 0-100 GLB). Blender bakes exactly its range,
+    # so its one take declares the span it holds -- mayatk's twin test holds
+    # Maya's write to the same (TestAShotlessTakeDeclaresWhatItHolds).
+    reset_anim()
+    scene.frame_start, scene.frame_end = 20, 80
+    bpy.ops.mesh.primitive_cube_add()
+    held = bpy.context.active_object
+    held.name = "HeldCube"
+    for frame, x in ((0, 0.0), (100, 10.0)):
+        held.location.x = x
+        held.keyframe_insert("location", frame=frame)
+    held_out = os.path.join(tmp, "shotless_held.fbx")
+    FbxUtils.export(filepath=held_out, objects=[held], bake_anim=True)
+    held_file = ptk.FbxFile.load(held_out, raw_payloads=False, span_arrays=("KeyTime",))
+    def held_frames(spans):
+        return {k: tuple(round(t * scene.render.fps) for t in v) for k, v in spans.items()}
+
+    held_windows, held_spans = held_frames(held_file.take_windows()), held_frames(held_file.take_spans())
+    check(
+        "a shotless take declares the span it holds (FbxFile.take_windows == take_spans)",
+        len(held_spans) == 1 and held_windows == held_spans
+        and list(held_spans.values())[0] == (20, 80),
+        f"windows {held_windows} spans {held_spans}",
     )
     scene.frame_start, scene.frame_end = 1, 30
 
@@ -2330,9 +2373,10 @@ try:
     # geometry. Each measured producer's fixture is authored under each scale
     # and produced under each setting, whatever scale the tool ran under (the
     # probe kept the bake's: a centimetre bake exported in metres labelled its
-    # probe 100x too near). The articulation record carries no unit_scale: its
-    # runtime measures its scale against the rest pose
-    # (``ptk.ArticulationModel.scale_of``), so it ships the same BU always.
+    # probe 100x too near). The articulation record carries no unit_scale: it
+    # is in glTF's frame, each length the FBX's own value (BU, whatever the
+    # unit) x 0.01 (``ArticulatedRig.unit_scale``), so it ships the same
+    # numbers under every setting.
     import json as _ru_json
 
     from blendertk.env_utils._env_utils import EnvUtils
@@ -2346,8 +2390,7 @@ try:
     RU_UNITLESS = {
         ptk.SceneRecords.SHOTS.key: "frames, with their fps",
         ptk.SceneRecords.VISIBILITY.key: "frames with their fps, and colours",
-        ptk.SceneRecords.AUDIO.key: "frames, with their fps",
-        ptk.SceneRecords.EMISSIVE_GROUPS.key: "weights",
+        ptk.SceneRecords.AUDIO.key: "seconds and file names",
         ptk.SceneRecords.MATERIALS.key: "factors and file names",
     }
     #: The scale each fixture is authored under.
@@ -2410,7 +2453,7 @@ try:
     def ru_shadow_metres(payload, factor=None):
         s = payload["unit_scale"] if factor is None else factor
         for plane in payload["planes"]:
-            for key in ("source_size", "ground", "radius", "height"):
+            for key in ("source_size", "ground", "radius", "height", "fade_height"):
                 plane[key] *= s
             horizon = plane.get("horizon")
             if horizon:
@@ -2450,7 +2493,9 @@ try:
         rig.set_limit_from_pose(slide, "tx", "max")
 
     #: key -> (fixture, to-metres of a labelled record, or None for a record
-    #: that ships BU unlabelled -- the same numbers under every setting).
+    #: that ships the same numbers unlabelled under every setting: articulation
+    #: v2, in metres as the file frames each joint -- 0.01 per BU whatever the
+    #: unit, ArticulatedRig.unit_scale).
     ru_fixtures = {
         ptk.SceneRecords.LIGHTMAPS.key: (ru_lightmaps, ru_lightmap_metres),
         ptk.SceneRecords.SHADOWS.key: (ru_shadows, ru_shadow_metres),
@@ -2552,7 +2597,7 @@ try:
             ]
         if ru_metres is None:
             check(
-                f"record units: {ru_key} ships the same BU whatever the units, unlabelled",
+                f"record units: {ru_key} ships the same numbers whatever the units, unlabelled",
                 not wrong and not labels,
                 "; ".join(wrong[:6]) or labels[:4],
             )
@@ -2599,8 +2644,11 @@ try:
         for c in j["channels"]
     }
     check(
-        "record units: a limit typed and one taken from a pose ship as set (degrees, BU)",
-        not ru_differences({"rz": [-30.0, 20.0], "tx": [-1.0, 1.5]}, ru_limits, "limits", []),
+        "record units: a limit typed and one taken from a pose ship as set (degrees, "
+        "metres as the file frames a joint: 0.01 per BU)",
+        not ru_differences(
+            {"rz": [-30.0, 20.0], "tx": [-0.01, 0.015]}, ru_limits, "limits", []
+        ),
         ru_limits,
     )
 
@@ -2629,12 +2677,17 @@ try:
     ev_cube = ru_cube("EvCube", (0.0, 6.0, 1.0))
     ev_mat = bpy.data.materials.new("EvMat")
     _EvMatUtils.get_node_tree(ev_mat, create=True)
+    next(n for n in ev_mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED").inputs[
+        "Emission Strength"
+    ].default_value = 1.0
     ev_cube.data.materials.append(ev_mat)
     ShotStore.clear_active()
     ShotStore.active().define_shot("Intro", 1, 20, objects=[ev_cube.name])
     RenderEffects.create([ev_cube])
     RenderEffects.key_fade([ev_cube], start=1, end=11, direction="out")
     EmissiveGroups.add_group("glow", {ev_cube.name: [0]})
+    EmissiveGroups.key_weight("glow", value=0.0, frame=1)
+    EmissiveGroups.key_weight("glow", value=1.0, frame=10)
     ev_wav = os.path.join(ru_dir, "ev_tone.wav")
     with _ev_wave.open(ev_wav, "wb") as ev_file:
         ev_file.setnchannels(1)
@@ -2831,10 +2884,16 @@ try:
             and un_got["usd"] == 1.0,
             un_got,
         )
+        # shadows v3: a plane rides with its horizon map, which the producer
+        # bakes first where one is missing (nothing to bake here).
         with _un_mock.patch.object(
             _UnRig, "find_shadow_planes", return_value=["plane"]
         ), _un_mock.patch.object(
-            _UnRig, "plane_record", return_value={"name": "plane"}
+            _UnRig, "bake_horizon_maps", return_value=[]
+        ), _un_mock.patch.object(
+            _UnRig, "retire_v2_fade", return_value=[]
+        ), _un_mock.patch.object(
+            _UnRig, "plane_record", return_value={"name": "plane", "horizon": {}}
         ), _un_mock.patch.object(_UnRig, "silhouette_is_stale", return_value=False):
             un_stated = _UnRig.export_record(
                 FbxUtils.export_context(writer_options={"apply_unit_scale": False})
@@ -2859,22 +2918,24 @@ try:
         fh.write(b"Kaydara FBX Binary  \x00\x1a\x00")
     fd_seen = {}
 
-    def _fd_finish(fbx, glb=None, **kwargs):
-        fd_seen.update(kwargs, fbx=fbx)
-        return {}
+    def _fd_embed(fbx, search_dirs=(), walk_root="", files=(), logger=None):
+        fd_seen.update(fbx=fbx, search_dirs=search_dirs, walk_root=walk_root, files=list(files))
+        return {"embedded": []}
 
+    # The guard is pythontk's (``finish_fbx_deliverable(inputs=)``), run with
+    # this host's resolver (mirror of mayatk).
     with _fd_mock.patch.object(
         FbxUtils, "_dependency_inputs", side_effect=RuntimeError("no scene")
     ), _fd_mock.patch.object(
-        ptk.MeshConvert, "finish_fbx_deliverable", side_effect=_fd_finish
+        ptk.FbxMedia, "embed_dependencies", side_effect=_fd_embed
     ):
         fd_report = FbxUtils.finish_deliverable(fd_path, search_dirs=["D:/maps"])
     check(
         "finish_deliverable: a scene whose files are not resolved still finishes",
-        fd_report == {}
+        "dependencies" in (fd_report or {})
         and fd_seen.get("fbx") == fd_path
         and (fd_seen.get("search_dirs"), fd_seen.get("walk_root"), fd_seen.get("files"))
-        == (["D:/maps"], "", ()),
+        == (["D:/maps"], "", []),
         fd_seen,
     )
 

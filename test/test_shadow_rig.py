@@ -174,6 +174,49 @@ try:
     def opacity_value(rig):
         return rig.material.node_tree.nodes["opacity"].outputs[0].default_value
 
+    def cut_fade(plane, value):
+        """Break the drive on the plane's preview fade, as by hand, and hold
+        *value* there (mirror of mayatk's ``_cut_fade``)."""
+        from blendertk.rig_utils._rig_utils import RigUtils
+
+        for mat in plane.data.materials:
+            RigUtils.remove_driver(mat.node_tree, ShadowRig._MATERIAL_OPACITY_PATH, None)
+            mat.node_tree.nodes["opacity"].outputs[0].default_value = value
+        bpy.context.view_layer.update()
+
+    def as_v2_bake(rig):
+        """Turn *rig*'s material into a shadows v2 bake's: it follows the
+        plane's ``opacity`` (``op``), which the bake keyed with the fade."""
+        from blendertk.rig_utils._rig_utils import RigUtils
+
+        nt = rig.material.node_tree
+        RigUtils.remove_driver(nt, ShadowRig._MATERIAL_OPACITY_PATH, None)
+        fc = nt.driver_add(ShadowRig._MATERIAL_OPACITY_PATH)
+        fc.driver.type = "SCRIPTED"
+        RigUtils.add_prop_var(fc, "op", rig.shadow_plane, f'["{ShadowRig.OPACITY_ATTR}"]')
+        fc.driver.expression = "op"
+        RigUtils.refresh_drivers([nt])
+
+    def as_pre_move(rig):
+        """Turn *rig* (live) into one built before its fade moved onto the
+        material: the material's driver is the bare fade, the plane's
+        ``opacity`` mirrors it."""
+        from blendertk.rig_utils._rig_utils import RigUtils
+
+        plane, nt = rig.shadow_plane, rig.material.node_tree
+        fc = drv(nt, ShadowRig._MATERIAL_OPACITY_PATH, None)
+        fc.driver.variables.remove(fc.driver.variables["op"])
+        fc.driver.expression = fc.driver.expression[len("op*"):]
+        mirror = plane.driver_add(f'["{ShadowRig.OPACITY_ATTR}"]')
+        mirror.driver.type = "SCRIPTED"
+        RigUtils.add_prop_var(
+            mirror, "op", rig.material,
+            f"node_tree.{ShadowRig._MATERIAL_OPACITY_PATH}", id_type="MATERIAL",
+        )
+        mirror.driver.expression = "op"
+        RigUtils.refresh_drivers([plane, nt])
+        bpy.context.view_layer.update()
+
     def angle_close(a, b, tol=1e-3):
         d = (a - b + math.pi) % (2 * math.pi) - math.pi
         return abs(d) <= tol
@@ -309,6 +352,28 @@ try:
         f"{[t.name for t in targets]} / {getattr(source, 'name', None)}",
     )
     check("plane links its contact", ShadowRig._plane_contact(p) is rig.contact)
+    # The contact is named as mayatk's (<base>_contact_loc): one scene's
+    # shadows record names one contact from either DCC, and a Unity project
+    # keyed to the names finds it (measured 2026-11-08: Box_contact).
+    check(
+        "the contact is named <base>_contact_loc (mirror of mayatk's)",
+        rig.contact.name == "Box_contact_loc",
+        rig.contact.name,
+    )
+    # A rig stamped before the ID pointer finds its contact by name: a .blend
+    # saved before the rename names it <base>_contact.
+    _pointer = p.pop(ShadowRig._CONTACT_PROP)
+    rig.contact.name = "Box_contact"
+    check(
+        "a rig saved before the rename finds its <base>_contact by name",
+        ShadowRig._plane_contact(p) is rig.contact,
+    )
+    rig.contact.name = "Box_contact_loc"
+    check(
+        "a rig with no pointer finds its <base>_contact_loc by name",
+        ShadowRig._plane_contact(p) is rig.contact,
+    )
+    p[ShadowRig._CONTACT_PROP] = _pointer
 
     check(
         "silhouette PNG written",
@@ -386,10 +451,27 @@ try:
         "opacity math driver on the material node tree",
         drv(nt, ShadowRig._MATERIAL_OPACITY_PATH, None) is not None,
     )
+    # The preview fade lives on the material, composed over the plane's
+    # authored opacity, which no driver writes (mirror of mayatk's fade node):
+    # measured 2026-11-08, a mirror driver shipped the export frame's fade as
+    # the plane's static opacity (0.379).
     check(
-        "plane opacity prop mirrors the material (driver)",
-        drv(p, '["opacity"]', None) is not None,
+        "the plane's opacity is authored: no driver writes it",
+        drv(p, '["opacity"]', None) is None and approx(float(p["opacity"]), 1.0, 1e-6),
+        f"{p.get('opacity')}",
     )
+    _drawn = ShadowRig.viewport_fade(p)
+    p["opacity"] = 0.5
+    p.update_tag()
+    bpy.context.view_layer.update()
+    check(
+        "the material draws the plane's opacity times the preview fade",
+        _drawn > 0.05 and approx(ShadowRig.viewport_fade(p), _drawn * 0.5, 1e-4),
+        f"{_drawn:.4f} -> {ShadowRig.viewport_fade(p):.4f}",
+    )
+    p["opacity"] = 1.0
+    p.update_tag()
+    bpy.context.view_layer.update()
     exprs = [d.driver.expression for d in all_drivers(rig)]
     check(
         "driver expressions are branchless (no ' if '/comparison)",
@@ -828,7 +910,7 @@ try:
         ShadowRig.plane_is_baked(p) and not ShadowRig.plane_is_live(p),
     )
     check(
-        "bake strips the chain on group + contact + material",
+        "bake strips the chain on group + contact; the material holds the fade",
         drv(rig.group, '["sr_kb"]', None) is None
         and drv(rig.contact, '["sr_len"]', None) is None
         and drv(rig.material.node_tree, ShadowRig._MATERIAL_OPACITY_PATH, None)
@@ -836,7 +918,7 @@ try:
         and drv(
             rig.material.node_tree, ShadowRig._MATERIAL_OPACITY_PATH, None
         ).driver.expression
-        == "op",
+        == "op*min(max(i,0),1)",
     )
     check("unbake restores the drivers", ShadowRig.unbake_planes([p]) == [p])
     check(
@@ -885,6 +967,8 @@ try:
     bpy.context.view_layer.update()
     rig = ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=32)
     p = rig.shadow_plane
+    p["shadowIntensity"] = 0.7
+    p.update_tag()
     bpy.context.view_layer.update()
     driven = (tuple(ev(p).matrix_world.translation), float(opacity_value(rig)))
     baked = rig.bake(1, 3)
@@ -896,9 +980,16 @@ try:
     fcs = action_fcurves(p.animation_data.action)
     paths = {(f.data_path, f.array_index) for f in fcs}
     check(
-        "bake keys location/rotation/scale + the fade",
-        {("location", 0), ("rotation_euler", 2), ("scale", 1), ('["opacity"]', 0)}
-        <= paths,
+        "bake keys location/rotation/scale",
+        {("location", 0), ("rotation_euler", 2), ("scale", 1)} <= paths,
+        f"{sorted(paths)}",
+    )
+    # shadows v3 (2026-11-07): every reader evaluates the fade from the record
+    # (ptk.ShadowProjection.fade), so a bake keys none -- the plane takes no part
+    # in the render_effects record -- and holds the viewport fade at its intensity.
+    check(
+        "bake keys no fade",
+        not any(path == '["opacity"]' for path, _ in paths),
         f"{sorted(paths)}",
     )
     loc_fc = next(f for f in fcs if f.data_path == "location" and f.array_index == 0)
@@ -906,25 +997,190 @@ try:
     bpy.context.scene.frame_set(2)
     bpy.context.view_layer.update()
     check(
-        "baked values match the driven ones",
+        "baked values match the driven ones; the fade holds at the intensity",
         approx(ev(p).matrix_world.translation.x, driven[0][0], 1e-3)
-        and approx(float(p["opacity"]), driven[1], 1e-3),
-        f"{ev(p).matrix_world.translation.x:.4f} vs {driven[0][0]:.4f}; {float(p['opacity']):.4f} vs {driven[1]:.4f}",
+        and approx(ShadowRig.viewport_fade(p), 0.7, 1e-6)
+        and approx(float(p["opacity"]), 1.0, 1e-6),
+        f"{ev(p).matrix_world.translation.x:.4f} vs {driven[0][0]:.4f}; "
+        f"{ShadowRig.viewport_fade(p):.4f} vs 0.7; opacity {float(p['opacity']):.4f}",
     )
+    p["opacity"] = 0.5
+    p.update_tag()
+    bpy.context.view_layer.update()
     check(
-        "material follows the keyed fade after the bake",
-        (
-            drv(rig.material.node_tree, ShadowRig._MATERIAL_OPACITY_PATH, None)
-            or drv(p, "x", 0)
-        )
-        is not None
-        and drv(
-            rig.material.node_tree, ShadowRig._MATERIAL_OPACITY_PATH, None
-        ).driver.expression
-        == "op",
+        "a baked plane's held fade still composes over its authored opacity",
+        approx(ShadowRig.viewport_fade(p), 0.35, 1e-6),
+        f"{ShadowRig.viewport_fade(p):.4f}",
+    )
+    p["opacity"] = 1.0
+    p.update_tag()
+    bpy.context.view_layer.update()
+    check("second bake is a no-op", ShadowRig.bake_planes([p]) == [])
+    bpy.context.scene.frame_set(1)
+
+    # ---- a v2 bake's fade keys are retired at export ----
+    # Bug: a plane baked under shadows v2 kept its keyed ["opacity"] -- a bake
+    # skips a baked plane, and only Set Source and Unbake cleared it -- so its
+    # export still shipped a render_effects track for it, and every v3 reader,
+    # which evaluates the fade itself, faded it twice. An export strips the
+    # keys before any record is produced, holds the fade at the intensity, and
+    # says so once. Added: 2026-11-07.
+    from blendertk.env_utils.fbx_utils import FbxUtils
+    from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
+
+    as_v2_bake(rig)
+    for f, v in ((1, 0.6), (2, 0.0), (3, 0.4)):
+        p[ShadowRig.OPACITY_ATTR] = v
+        p.keyframe_insert(f'["{ShadowRig.OPACITY_ATTR}"]', frame=f)
+    _v2_tracked = p.name in [t["node"] for t in RenderEffects.visibility_tracks()]
+    with FbxUtils.export_prepared(FbxUtils.export_context()) as _v2_snap:
+        _v2_fx = _v2_snap.produced.get("render_effects")
+    _v2_nodes = [t["node"] for t in (_v2_fx.payload.get("tracks", []) if _v2_fx else [])]
+    _v2_left = [
+        f for f in action_fcurves(p.animation_data.action) if f.data_path == '["opacity"]'
+    ]
+    _v2_told = [n for n in _v2_snap.noted.get("shadows", []) if p.name in n]
+    check(
+        "an export retires a v2 bake's fade keys: no render_effects track, held, told once",
+        _v2_tracked
+        and p.name not in _v2_nodes
+        and not _v2_left
+        and approx(float(p[ShadowRig.OPACITY_ATTR]), 1.0, 1e-6)
+        and approx(ShadowRig.viewport_fade(p), 0.7, 1e-6)
+        and len(_v2_told) == 1,
+        f"tracked {_v2_tracked}, {_v2_nodes}, {len(_v2_left)} curve(s), "
+        f"{float(p[ShadowRig.OPACITY_ATTR]):.3f}, {ShadowRig.viewport_fade(p):.3f}, "
+        f"{_v2_snap.noted}",
+    )
+    with FbxUtils.export_prepared(FbxUtils.export_context()) as _v2_again:
+        pass
+    check(
+        "...and the next export says nothing of it",
+        not [n for n in _v2_again.noted.get("shadows", []) if p.name in n],
+        f"{_v2_again.noted}",
+    )
+
+    # ---- a failed re-bake and a left-out plane are told once ----
+    # Bug: an export that could not re-bake a plane's existing map shipped the
+    # old one in silence, and a plane left out with no map was only logged, on
+    # every authoring publish. Both go through the export's report, once a
+    # session per plane. Added: 2026-11-07.
+    bpy.data.objects.remove(c, do_unlink=True)  # no target to re-bake from
+    _n1, _n2 = ptk.ExportContext(), ptk.ExportContext()
+    _kept = ShadowRig.export_record(_n1)
+    ShadowRig.export_record(_n2)
+    _told = [n for n in _n1.notes if "re-baked" in n]
+    check(
+        "a failed re-bake of a plane's map is told once",
+        _kept is not None
+        and len(_told) == 1
+        and p.name in _told[0]
+        and not [n for n in _n2.notes if "re-baked" in n],
+        f"{_n1.notes} / {_n2.notes}",
+    )
+    os.remove(ShadowRig._plane_horizon_path(p))
+    p[ShadowRig._HORIZON_TEX_PROP] = ""
+    _n1, _n2 = ptk.ExportContext(), ptk.ExportContext()
+    _gone = ShadowRig.export_record(_n1) is None and ShadowRig.export_record(_n2) is None
+    check(
+        "a plane left out with no map is told once",
+        _gone
+        and len([n for n in _n1.notes if "no horizon map" in n]) == 1
+        and not [n for n in _n2.notes if "no horizon map" in n],
+        f"{_n1.notes} / {_n2.notes}",
+    )
+
+    # ---- detach bakes a baked plane's fade where it stands ----
+    # Bug: a bake holds the plane's opacity at its intensity, so detaching a
+    # baked plane multiplied the intensity into its PNG, not the fade it
+    # draws. Added: 2026-11-07.
+    bpy.context.view_layer.update()
+    _want = ptk.ShadowRecord.fade(
+        ShadowRig.plane_record(p),
+        ShadowRig.unit_scale(),
+        tuple(rig.contact.matrix_world.translation),
+        tuple(rig.light.matrix_world.translation),
+        up=2,
+    )
+    _peak = int(ShadowRig._read_png(ShadowRig._plane_texture_path(p))[..., 3].max())
+    _path = ShadowRig.detach_planes([p]).get(p.name, "")
+    _got = int(ShadowRig._read_png(_path)[..., 3].max()) if os.path.isfile(_path) else -1
+    check(
+        "detach bakes a baked plane's fade, not its held intensity",
+        _want < 0.65 and abs(_got - round(_peak * _want)) <= 1,
+        f"fade {_want:.3f}: peak {_peak} -> {_got}",
     )
     check("second bake is a no-op", ShadowRig.bake_planes([p]) == [])
     bpy.context.scene.frame_set(1)
+
+    # ---- the live fade is the shared model's (shadows v3) ----
+    # The material's driven fade (the viewport preview) equals
+    # ptk.ShadowProjection.fade, evaluated from the record's terms, at every frame
+    # within 1e-6 -- a point source dropping under the contact (the one-unit
+    # ramp) over a rising target, and a sun crossing the horizon. Bug: the sun's
+    # drivers used the parallel-projection forms (k = 1) where the record states
+    # the far point, 3.4e-6 off at a grazing sun. Fixed: 2026-11-07.
+    for kind in ("point", "sun"):
+        reset()
+        c = cube("Box", loc=(0, 0, 1))
+        bpy.context.view_layer.update()
+        if kind == "point":
+            rig = ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=32)
+            for f, pos in ((1, (5, 5, 10)), (40, (2, 5, 0.0)), (60, (-2, -3, 6))):
+                rig.light.location = pos
+                rig.light.keyframe_insert("location", frame=f)
+        else:
+            s = sun("FadeSun", rot=(math.radians(45), 0.0, math.radians(20)))
+            for f, r in ((1, (45, 0, 20)), (30, (87, 0, 90)), (40, (95, 0, 120))):
+                s.rotation_euler = tuple(math.radians(v) for v in r)
+                s.keyframe_insert("rotation_euler", frame=f)
+            rig = ShadowRig.create([c], source_name=s.name, texture_res=32)
+        for f, z in ((1, 1), (30, 1), (45, 3.5), (60, 1)):
+            c.location[2] = z
+            c.keyframe_insert("location", index=2, frame=f)
+        p = rig.shadow_plane
+        p["shadowIntensity"], p["falloffPower"], p["fadeHeight"] = 0.8, 1.7, 3.0
+        p.update_tag()
+        rec = ShadowRig.plane_record(p)
+        unit = ShadowRig.unit_scale()
+        worst, branches = 0.0, set()
+        for f in range(1, 61):
+            bpy.context.scene.frame_set(f - 1)
+            bpy.context.scene.frame_set(f)
+            dg = bpy.context.evaluated_depsgraph_get()
+            C = np.array(rig.contact.evaluated_get(dg).matrix_world.translation)
+            Lm = rig.light.evaluated_get(dg).matrix_world
+            terms = dict(
+                up=2,
+                max_stretch=rec["max_stretch"],
+                intensity=rec["intensity"],
+                falloff_power=rec["falloff_power"],
+                fade_height=rec["fade_height"] * unit,
+                source_ramp=rec["source_ramp"] * unit,
+            )
+            shape = (rec["ground"] * unit, rec["radius"] * unit, rec["height"] * unit)
+            if kind == "sun":
+                d = -np.array([Lm[0][2], Lm[1][2], Lm[2][2]])
+                model = ptk.ShadowProjection.fade(
+                    C * unit, None, *shape, direction=d / np.linalg.norm(d), **terms
+                )
+            else:
+                L = np.array(Lm.translation)
+                model = ptk.ShadowProjection.fade(C * unit, L * unit, *shape, **terms)
+                if 0.0 < L[2] - C[2] < 1.0:
+                    branches.add("ramp")
+            if C[2] > 0.0:
+                branches.add("rising")
+            live = float(
+                rig.material.evaluated_get(dg).node_tree.nodes["opacity"].outputs[0].default_value
+            )
+            worst = max(worst, abs(live - model))
+        check(
+            f"the live fade is ShadowProjection.fade's at every frame ({kind})",
+            worst < 1e-6 and "rising" in branches and (kind == "sun" or "ramp" in branches),
+            f"worst {worst:.2e}, {sorted(branches)}",
+        )
+        bpy.context.scene.frame_set(1)
 
     # ---- rotation unroll: source crossing behind the target ----
     reset()
@@ -977,19 +1233,19 @@ try:
     recs = {r["name"]: r for r in payload.get("planes", [])}
     check(
         "the shadows record published on the data_export carrier",
-        payload.get("version") == 2 and p.name in recs,
+        payload.get("version") == 3 and p.name in recs,
         f"{raw}",
     )
     check(
         "record carries the silhouette filename",
-        recs.get(p.name, {}).get("texture") == "Box_shadow.png",
+        recs.get(p.name, {}).get("silhouette", {}).get("texture") == "Box_shadow.png",
         f"{recs.get(p.name)}",
     )
     check(
         "record carries the authored intensity",
         approx(recs.get(p.name, {}).get("intensity", -1), 1.0),
     )
-    # v2: the engine's runtime inputs ride the record (the contract in
+    # v3: the engine's runtime inputs ride the record (the contract in
     # mayatk/docs/shadow_rig_morphing.md) — the same keys and rounding mayatk writes.
     check(
         "payload carries unit_scale (metres per Blender unit, read at export)",
@@ -998,9 +1254,39 @@ try:
     )
     rec = recs.get(p.name, {})
     check(
-        "record: type is projected",
-        rec.get("type") == "projected",
-        f"{rec.get('type')}",
+        "record: a projected rig draws its silhouette (no type field)",
+        "type" not in rec and rec.get("silhouette", {}).get("draw") is True,
+        f"{rec.get('silhouette')}",
+    )
+    check(
+        "record: the fade's terms",
+        approx(rec.get("falloff_power", -1), 1.2, 1e-9)
+        and approx(rec.get("fade_height", -1), 4.0, 1e-3),
+        f"{rec.get('falloff_power')} / {rec.get('fade_height')}",
+    )
+    check(
+        "record: a projected rig carries its horizon map",
+        rec.get("horizon", {}).get("texture") == "Box_horizon.png",
+        f"{rec.get('horizon')}",
+    )
+    check(
+        "record: the declared shape",
+        ptk.ShadowRecord.validate(payload).errors == [],
+        f"{ptk.ShadowRecord.validate(payload).errors}",
+    )
+    # Every plane carries its map: one with none (a rig built before every rig
+    # baked one) has it baked by the producer. Added: 2026-11-07.
+    _hz = ShadowRig._plane_horizon_path(p)
+    os.remove(_hz)
+    p[ShadowRig._HORIZON_TEX_PROP] = ""
+    _missing = "horizon" not in ShadowRig.plane_record(p)
+    _rebaked = ShadowRig.export_record(ptk.ExportContext()).payload["planes"][0]
+    check(
+        "an export bakes the horizon map a plane lacks",
+        _missing
+        and _rebaked.get("horizon", {}).get("texture") == "Box_horizon.png"
+        and os.path.exists(_hz),
+        f"{_rebaked.get('horizon')}",
     )
     check(
         "record: source + source_type",
@@ -1015,7 +1301,7 @@ try:
     )
     check(
         "record: contact leaf name",
-        rec.get("contact") == "Box_contact",
+        rec.get("contact") == "Box_contact_loc",
         f"{rec.get('contact')}",
     )
     check(
@@ -1024,22 +1310,22 @@ try:
         and approx(rec.get("height", -1), 2.0, 1e-3)
         and approx(rec.get("max_stretch", -1), 6.0, 1e-3)
         and approx(rec.get("ground", -1), 0.0, 1e-9)
-        and len(rec.get("canvas", [])) == 4,
+        and len(rec.get("canvas", [])) == 4
+        and "canvas" not in rec.get("silhouette", {})
+        and rec.get("source_ramp") == 1.0,
         f"{ {k: rec.get(k) for k in ('radius', 'height', 'max_stretch', 'ground')} }",
     )
     check(
-        "record: no atlas / horizon block on a plain projected rig",
-        "atlas" not in rec and "horizon" not in rec,
+        "record: no atlas on an unpacked rig",
+        "atlas" not in rec.get("silhouette", {}),
         f"{sorted(rec)}",
     )
     check(
-        "record key set matches mayatk's v2 schema",
+        "record key set matches mayatk's v3 schema",
         sorted(rec)
         == sorted(
             [
                 "name",
-                "type",
-                "texture",
                 "intensity",
                 "source",
                 "source_type",
@@ -1051,7 +1337,12 @@ try:
                 "radius",
                 "height",
                 "max_stretch",
+                "falloff_power",
+                "fade_height",
+                "source_ramp",
                 "canvas",
+                "horizon",
+                "silhouette",
             ]
         ),
         f"{sorted(rec)}",
@@ -1197,6 +1488,30 @@ try:
         f"{[o.name for o in ShadowRig.find_shadow_planes()]}",
     )
     check("bake_planes skips the linked plane", ShadowRig.bake_planes() == [])
+    # Its map gone: one that cannot be baked from here leaves it out, and the
+    # note says why -- it said its targets were gone (mirror of mayatk's
+    # locked reference).
+    from unittest import mock as _link_mock
+
+    _linked_map = ShadowRig._plane_horizon_path(linked)
+    if _linked_map and os.path.exists(_linked_map):
+        os.remove(_linked_map)
+    if ShadowRig._HORIZON_TEX_PROP in linked:  # a plane from before shadows v3
+        del linked[ShadowRig._HORIZON_TEX_PROP]
+    _linked_ctx = ptk.ExportContext()
+    with _link_mock.patch.object(
+        ShadowRig, "bake_horizon", side_effect=RuntimeError("read-only")
+    ):
+        _linked_rec = ShadowRig.export_record(_linked_ctx)
+    _linked_told = [n for n in _linked_ctx.notes if "Left out" in n]
+    check(
+        "a linked plane whose map cannot be baked is left out as linked",
+        _linked_rec is None
+        and len(_linked_told) == 1
+        and "linked" in _linked_told[0]
+        and "targets are gone" not in _linked_told[0],
+        f"{_linked_rec}, {_linked_ctx.notes}",
+    )
     check("delete_rigs skips the linked plane", ShadowRig.delete_rigs() == [])
     check(
         "linked plane survives the skipped teardown",
@@ -1219,7 +1534,7 @@ try:
         "delete removes plane/group/contact",
         not any(
             bpy.data.objects.get(n)
-            for n in ("Box_shadow", "Box_shadow_grp", "Box_contact")
+            for n in ("Box_shadow", "Box_shadow_grp", "Box_contact_loc")
         ),
         f"{[o.name for o in bpy.data.objects]}",
     )
@@ -1245,7 +1560,7 @@ try:
     check(
         "baked rig still tears down fully",
         bpy.data.objects.get("Box_shadow") is None
-        and bpy.data.objects.get("Box_contact") is None,
+        and bpy.data.objects.get("Box_contact_loc") is None,
     )
 
     rig = ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=32)
@@ -1325,8 +1640,10 @@ try:
     rec = record("Box_shadow")
     check(
         "record: type horizon, silhouette unchanged",
-        rec["type"] == "horizon" and rec["texture"] == "Box_shadow.png",
-        f"{rec['type']} {rec['texture']}",
+        "type" not in rec
+        and rec["silhouette"]["texture"] == "Box_shadow.png"
+        and rec["silhouette"]["draw"] is False,
+        f"{rec['silhouette']}",
     )
     hz = rec["horizon"]
     check(
@@ -1608,7 +1925,7 @@ try:
     check(
         "each per-object rig gets its own contact",
         sorted(record(n)["contact"] for n in ("Box_shadow", "Crate_shadow"))
-        == ["Box_contact", "Crate_contact"],
+        == ["Box_contact_loc", "Crate_contact_loc"],
         f"{[record(n)['contact'] for n in ('Box_shadow', 'Crate_shadow')]}",
     )
 
@@ -1641,13 +1958,13 @@ try:
     rec = record("Box_shadow")
     check(
         "record: texture stays the plane's own, atlas rides its own block",
-        rec["texture"] == "Box_shadow.png"
-        and rec["atlas"]["texture"] == "shadow_atlas_projected.png",
-        f"{rec.get('atlas')}",
+        rec["silhouette"]["texture"] == "Box_shadow.png"
+        and rec["silhouette"]["atlas"]["texture"] == "shadow_atlas_projected.png",
+        f"{rec['silhouette'].get('atlas')}",
     )
-    sx, sy, ox, oy = rec["atlas"]["rect"]
+    sx, sy, ox, oy = rec["silhouette"]["atlas"]["rect"]
     check(
-        "the published rect is a gutter-inset half", sx < 0.5, f"{rec['atlas']['rect']}"
+        "the published rect is a gutter-inset half", sx < 0.5, f"{rec['silhouette']['atlas']['rect']}"
     )
     uvs = [
         (float(lp.uv[0]), float(lp.uv[1])) for lp in box.data.uv_layers["UVMap"].data
@@ -1713,7 +2030,7 @@ try:
     )
     check(
         "unpack drops the atlas block from the record",
-        "atlas" not in record("Box_shadow"),
+        "atlas" not in record("Box_shadow")["silhouette"],
     )
 
     # ---- a packed plane whose tile PNG vanished leaves the atlas ----
@@ -1734,7 +2051,7 @@ try:
     )
     check(
         "the dropped plane's record loses its atlas block",
-        "atlas" not in record("Box_shadow"),
+        "atlas" not in record("Box_shadow")["silhouette"],
     )
     check(
         "the dropped plane is back on unit UVs",
@@ -1756,11 +2073,11 @@ try:
         "the survivor stays packed at the single-cell rect",
         ShadowRig.plane_is_atlased(crate)
         and approx(
-            record("Crate_shadow")["atlas"]["rect"][0],
+            record("Crate_shadow")["silhouette"]["atlas"]["rect"][0],
             (32 - 2 * ShadowAtlas.GUTTER) / 32,
             1e-6,
         ),
-        f"{record('Crate_shadow')['atlas']['rect']}",
+        f"{record('Crate_shadow')['silhouette']['atlas']['rect']}",
     )
     survivor = ShadowRig._read_png(ShadowRig._atlas_path("projected"))
     check(
@@ -2269,8 +2586,7 @@ try:
     peak = int(ShadowRig._read_png(source)[..., 3].max())
     # Its links broken by hand, as on the production plane: the fade holds a
     # value of its own.
-    RigUtils.remove_driver(plane, f'["{ShadowRig.OPACITY_ATTR}"]', None)
-    plane[ShadowRig.OPACITY_ATTR] = 0.5
+    cut_fade(plane, 0.5)
     bpy.context.view_layer.update()
     world = ev(plane).matrix_world.copy()
     contact_name, old_mat = rig.contact.name, rig.material.name
@@ -2442,15 +2758,16 @@ try:
 
     # ---- a live rig takes the dial through its drivers ----
     _box, rig, plane = dial_rig()
-    before = float(ev(plane)[ShadowRig.OPACITY_ATTR])
+    before = ShadowRig.viewport_fade(plane)
     changed = ShadowRig.set_intensity([plane], 0.5)
     bpy.context.view_layer.update()
     check("set_intensity returns the planes changed", changed == [plane], f"{changed}")
     check("...stamps shadowIntensity", approx(plane["shadowIntensity"], 0.5, 1e-6))
     check(
         "...and the live fade follows through the drivers",
-        approx(float(ev(plane)[ShadowRig.OPACITY_ATTR]), before * 0.5, 1e-4),
-        f"{float(ev(plane)[ShadowRig.OPACITY_ATTR]):.4f} vs {before * 0.5:.4f}",
+        approx(ShadowRig.viewport_fade(plane), before * 0.5, 1e-4)
+        and approx(float(plane[ShadowRig.OPACITY_ATTR]), 1.0, 1e-6),
+        f"{ShadowRig.viewport_fade(plane):.4f} vs {before * 0.5:.4f}",
     )
     check(
         "...and the record carries it",
@@ -2464,24 +2781,27 @@ try:
 
     # ---- a static fade is rescaled ----
     _box, rig, plane = dial_rig()
-    RigUtils.remove_driver(plane, OPACITY_PATH, None)
-    plane[ShadowRig.OPACITY_ATTR] = 0.8
+    cut_fade(plane, 0.8)
     ShadowRig.set_intensity([plane], 0.5)
     check(
-        "a static fade is rescaled by new / old",
-        approx(plane[ShadowRig.OPACITY_ATTR], 0.4, 1e-5),
-        f"{plane[ShadowRig.OPACITY_ATTR]}",
+        "a static fade is rescaled by new / old, the authored opacity untouched",
+        approx(ShadowRig.viewport_fade(plane), 0.4, 1e-5)
+        and approx(float(plane[ShadowRig.OPACITY_ATTR]), 1.0, 1e-6),
+        f"{ShadowRig.viewport_fade(plane)}, {plane[ShadowRig.OPACITY_ATTR]}",
     )
     ShadowRig.set_intensity([plane], 1.0)
     check(
         "...and back",
-        approx(plane[ShadowRig.OPACITY_ATTR], 0.8, 1e-5),
-        f"{plane[ShadowRig.OPACITY_ATTR]}",
+        approx(ShadowRig.viewport_fade(plane), 0.8, 1e-5),
+        f"{ShadowRig.viewport_fade(plane)}",
     )
 
     # ---- a keyed fade keeps its shape ----
+    # A version 2 bake's (its material follows the plane's opacity); keys on
+    # any other plane's opacity are the artist's (AUTHORED FADE KEYS).
     _box, rig, plane = dial_rig()
     RigUtils.remove_driver(plane, OPACITY_PATH, None)
+    as_v2_bake(rig)
     key(plane, OPACITY_PATH, ((1, 0.8), (10, 0.4)))
     ShadowRig.set_intensity([plane], 0.5)
     check(
@@ -2541,7 +2861,7 @@ try:
     _box, rig, plane = dial_rig()
     rig.bake(1, 3)
     heights = key_values(plane, "location", 2)
-    fades = key_values(plane, OPACITY_PATH)
+    held = ShadowRig.viewport_fade(plane)
     ShadowRig.set_ground_height([plane], 1.0)
     ShadowRig.set_intensity([plane], 0.5)
     check(
@@ -2553,30 +2873,29 @@ try:
         ),
         f"{heights} -> {key_values(plane, 'location', 2)}",
     )
+    # shadows v3: a bake keys no fade; it holds the viewport fade at the
+    # intensity, which the dial rescales.
     check(
-        "...and its fade keys rescale",
-        bool(fades)
-        and all(
-            approx(a, b * 0.5, 1e-4)
-            for a, b in zip(key_values(plane, OPACITY_PATH), fades)
-        ),
-        f"{fades} -> {key_values(plane, OPACITY_PATH)}",
+        "...and its held fade rescales",
+        not key_values(plane, OPACITY_PATH)
+        and approx(ShadowRig.viewport_fade(plane), held * 0.5, 1e-6)
+        and approx(float(plane[ShadowRig.OPACITY_ATTR]), 1.0, 1e-6),
+        f"{held} -> {ShadowRig.viewport_fade(plane)}",
     )
 
     # ---- one undo step ----
     _box, rig, plane = dial_rig()
     plane_name = plane.name
-    RigUtils.remove_driver(plane, OPACITY_PATH, None)
-    plane[ShadowRig.OPACITY_ATTR] = 0.8
+    cut_fade(plane, 0.8)
     bpy.ops.ed.undo_push(message="baseline")
     ShadowRig.set_intensity([plane], 0.25)
     bpy.ops.ed.undo()
     plane = bpy.data.objects[plane_name]
     check(
         "set_intensity is one undo step",
-        approx(plane[ShadowRig.OPACITY_ATTR], 0.8, 1e-5)
+        approx(ShadowRig.viewport_fade(plane), 0.8, 1e-5)
         and approx(plane["shadowIntensity"], 1.0, 1e-6),
-        f"{plane[ShadowRig.OPACITY_ATTR]}, {plane['shadowIntensity']}",
+        f"{ShadowRig.viewport_fade(plane)}, {plane['shadowIntensity']}",
     )
 
     # ---- a rig built on Ground Y and darkened: what the panel's two boxes build ----
@@ -2604,6 +2923,254 @@ try:
     check(
         "a target reaches its plane (what the boxes retune)",
         ShadowRig.planes_for_nodes([box]) == [plane],
+    )
+    ShadowRig.delete_rigs(None, delete_textures=True)
+
+    # ======================= THE FADE NEVER SHIPS =======================
+    # Mirror of mayatk's ``TestTheFadeNeverShips``. The plane's ``opacity`` is
+    # the authored value and the preview fade lives on its material; measured
+    # 2026-11-08 the mirror driver shipped the export frame's fade as the
+    # plane's static ``opacity`` user property (0.379 on a Scene Exporter write).
+    from blendertk.env_utils.fbx_utils import FbxUtils as _FadeFbx
+
+    def _shipped_opacity(plane, objects, name):
+        with ptk.TempArtifacts("btk_fade_ships", policy="scoped") as fade_tmp:
+            path = os.path.join(fade_tmp.dir_path(), f"{name}.fbx")
+            with _FadeFbx.export_prepared(_FadeFbx.export_context()) as snap:
+                _FadeFbx.export(filepath=path, objects=objects, use_custom_props=True)
+            values = dict(
+                ptk.FbxFile.load(path).user_properties("opacity", named=True)
+            )
+        return values.get(plane.name), snap
+
+    reset()
+    box = cube("FadeBox")
+    bpy.context.view_layer.update()
+    rig = ShadowRig.create([box], light_pos=(5, 5, 10), texture_res=32)
+    plane = rig.shadow_plane
+    plane["shadowIntensity"] = 0.6
+    plane.update_tag()
+    bpy.context.view_layer.update()
+    drawn = ShadowRig.viewport_fade(plane)
+    shipped, _snap = _shipped_opacity(plane, [box, plane], "live")
+    check(
+        "a live plane ships its authored opacity, never the preview fade",
+        shipped is not None and approx(float(shipped), 1.0, 1e-6) and drawn < 0.99,
+        f"shipped {shipped}, drawn {drawn:.4f}",
+    )
+
+    # A rig built before the move: its plane's opacity mirrored the preview.
+    nt = rig.material.node_tree
+    fc = next(
+        d for d in nt.animation_data.drivers
+        if d.data_path == ShadowRig._MATERIAL_OPACITY_PATH
+    )
+    fc.driver.variables.remove(fc.driver.variables["op"])
+    fc.driver.expression = fc.driver.expression[len("op*"):]
+    mirror = plane.driver_add(f'["{ShadowRig.OPACITY_ATTR}"]')
+    mirror.driver.type = "SCRIPTED"
+    RigUtils.add_prop_var(
+        mirror, "op", rig.material,
+        f"node_tree.{ShadowRig._MATERIAL_OPACITY_PATH}", id_type="MATERIAL",
+    )
+    mirror.driver.expression = "op"
+    RigUtils.refresh_drivers([plane, nt])
+    bpy.context.view_layer.update()
+    old = float(plane.evaluated_get(bpy.context.evaluated_depsgraph_get())[ShadowRig.OPACITY_ATTR])
+    shipped, snap = _shipped_opacity(plane, [box, plane], "old")
+    bpy.context.view_layer.update()
+    told = [n for n in snap.noted.get("shadows", []) if plane.name in n]
+    check(
+        "a rig built before the move is moved over at export: its authored "
+        "opacity ships, the preview stays on the material, told once",
+        old < 0.99
+        and drv(plane, f'["{ShadowRig.OPACITY_ATTR}"]', None) is None
+        and shipped is not None and approx(float(shipped), 1.0, 1e-6)
+        and approx(ShadowRig.viewport_fade(plane), drawn, 1e-4)
+        and len(told) == 1,
+        f"old {old:.4f}, shipped {shipped}, drawn {ShadowRig.viewport_fade(plane):.4f}, {snap.noted}",
+    )
+    check(
+        "...and moving it again does nothing",
+        ShadowRig.retire_preview_fade([plane]) == [],
+    )
+    # A rig built before the plane carried the prop: its drivers rebuilt read
+    # one at 1, never a missing one (which a driver reads as 0: no shadow).
+    del plane[ShadowRig.OPACITY_ATTR]
+    ShadowRig.from_plane(plane).setup_drivers()
+    bpy.context.view_layer.update()
+    check(
+        "a rig from before the opacity prop is given it at 1 and still draws",
+        approx(float(plane.get(ShadowRig.OPACITY_ATTR, -1.0)), 1.0, 1e-6)
+        and approx(ShadowRig.viewport_fade(plane), drawn, 1e-4),
+        f"{plane.get(ShadowRig.OPACITY_ATTR)}, {ShadowRig.viewport_fade(plane):.4f} vs {drawn:.4f}",
+    )
+    ShadowRig.delete_rigs(None, delete_textures=True)
+
+    # ======================= AUTHORED FADE KEYS =======================
+    # Mirror of mayatk's ``TestAuthoredFadeKeys``. Bug: an artist's keyed
+    # ``opacity`` or visibility on a shadow plane was taken for a bake's --
+    # Unbake and Set Source dropped the plane's whole action, every export
+    # deleted a baked plane's keyed opacity as a version 2 bake's fade, and
+    # Set Intensity rescaled it. A v2 bake is a plane whose material follows
+    # its opacity; keys on any other are authored and stay. Added: 2026-11-08.
+    import blendertk as _btk
+    from unittest import mock as _mock
+    from blendertk.env_utils.fbx_utils import FbxUtils as _KeyFbx
+
+    _OP = f'["{ShadowRig.OPACITY_ATTR}"]'
+    _AUTHORED = {
+        _OP: [1.0, 0.25, 0.75],
+        "hide_viewport": [0.0, 1.0, 0.0],
+        "hide_render": [0.0, 1.0, 0.0],
+    }
+
+    def key_authored(plane):
+        for (f, v), h in zip(((1, 1.0), (2, 0.25), (3, 0.75)), (False, True, False)):
+            plane[ShadowRig.OPACITY_ATTR] = v
+            plane.keyframe_insert(_OP, frame=f)
+            plane.hide_viewport = plane.hide_render = h
+            plane.keyframe_insert("hide_viewport", frame=f)
+            plane.keyframe_insert("hide_render", frame=f)
+
+    def authored(plane):
+        return {
+            f.data_path: [round(k.co[1], 5) for k in f.keyframe_points]
+            for f in _btk.AnimUtils.get_fcurves([plane])
+            if f.data_path in _AUTHORED
+        }
+
+    def key_rig(name, loc=(0, 0, 0)):
+        box = cube(name, loc)
+        bpy.context.view_layer.update()
+        return ShadowRig.create([box], light_pos=(5, 5, 10), texture_res=32)
+
+    reset()
+    rig = key_rig("KeyBox")
+    p = rig.shadow_plane
+    rig.bake(1, 3)
+    key_authored(p)
+    ShadowRig.unbake_planes([p])
+    check(
+        "unbake keeps an artist's opacity and visibility keys",
+        ShadowRig.plane_is_live(p) and authored(p) == _AUTHORED,
+        f"{authored(p)}",
+    )
+    rig.bake(1, 3)
+    rig.set_source("shadow_source", size=32)
+    check(
+        "set_source keeps them",
+        ShadowRig.plane_is_live(p) and authored(p) == _AUTHORED,
+        f"{authored(p)}",
+    )
+    rig.bake(1, 3)
+    with _KeyFbx.export_prepared(_KeyFbx.export_context()):
+        pass
+    check(
+        "an export keeps a baked plane's authored keys",
+        authored(p) == _AUTHORED and ShadowRig.retire_v2_fade([p]) == [],
+        f"{authored(p)}",
+    )
+    ShadowRig.unbake_planes([p])
+    ShadowRig.set_intensity([p], 0.5)
+    check("set_intensity leaves them", authored(p) == _AUTHORED, f"{authored(p)}")
+
+    reset()
+    rig = key_rig("V2Box")
+    p = rig.shadow_plane
+    rig.bake(1, 3)
+    as_v2_bake(rig)
+    for f, v in ((1, 0.6), (2, 0.0), (3, 0.4)):
+        p[ShadowRig.OPACITY_ATTR] = v
+        p.keyframe_insert(_OP, frame=f)
+    ShadowRig.unbake_planes([p])
+    check(
+        "unbake still clears a v2 bake's fade keys, its opacity authored again",
+        _OP not in authored(p) and approx(float(p[ShadowRig.OPACITY_ATTR]), 1.0, 1e-6),
+        f"{authored(p)}, {p[ShadowRig.OPACITY_ATTR]}",
+    )
+
+    # Bug: a rig built before the fade moved, baked: the bake dropped the
+    # mirror driver and left the plane's opacity at the preview's last value
+    # (shipped as authored), and Unbake composed the fade over it.
+    reset()
+    rig = key_rig("OldBox")
+    p = rig.shadow_plane
+    p["shadowIntensity"] = 0.6
+    p.update_tag()
+    as_pre_move(rig)
+    rig.bake(1, 3)
+    bpy.context.view_layer.update()
+    _baked_op = float(p[ShadowRig.OPACITY_ATTR])
+    _baked_fade = ShadowRig.viewport_fade(p)
+    ShadowRig.unbake_planes([p])
+    bpy.context.view_layer.update()
+    check(
+        "a rig built before the move bakes and unbakes over an authored opacity of 1",
+        approx(_baked_op, 1.0, 1e-6)
+        and approx(_baked_fade, 0.6, 1e-5)
+        and approx(float(p[ShadowRig.OPACITY_ATTR]), 1.0, 1e-6),
+        f"baked opacity {_baked_op}, fade {_baked_fade}, unbaked {p[ShadowRig.OPACITY_ATTR]}",
+    )
+
+    # Bug: the export stages ran on every plane in the file, so a selection
+    # export retired planes it did not ship.
+    reset()
+    near, far = key_rig("NearBox"), key_rig("FarBox", (6, 0, 0))
+    for r in (near, far):
+        r.bake(1, 3)
+        as_v2_bake(r)
+        for f, v in ((1, 0.6), (2, 0.0), (3, 0.4)):
+            r.shadow_plane[ShadowRig.OPACITY_ATTR] = v
+            r.shadow_plane.keyframe_insert(_OP, frame=f)
+    with _KeyFbx.export_prepared(_KeyFbx.export_context(scope=[near.group])):
+        pass
+    check(
+        "a scoped export retires only the v2 planes it ships",
+        _OP not in authored(near.shadow_plane) and _OP in authored(far.shadow_plane),
+        f"{authored(near.shadow_plane)} / {authored(far.shadow_plane)}",
+    )
+    reset()
+    near, far = key_rig("NearBox"), key_rig("FarBox", (6, 0, 0))
+    for r in (near, far):
+        as_pre_move(r)
+    with _KeyFbx.export_prepared(_KeyFbx.export_context(scope=[near.group])) as _snap:
+        pass
+    _told = [n for n in _snap.noted.get("shadows", []) if near.shadow_plane.name in n]
+    check(
+        "...and moves only the pre-move live planes it ships, told once",
+        drv(near.shadow_plane, _OP, None) is None
+        and drv(far.shadow_plane, _OP, None) is not None
+        and len(_told) == 1
+        and "preview fade" in _told[0],
+        f"{_snap.noted}",
+    )
+
+    # Regression: create() bakes every rig's horizon map inside its rollback,
+    # so a failed bake aborted a Projected rig. It warns and builds; a Horizon
+    # rig, which draws the map, still fails and rolls back.
+    reset()
+    _fail_box = cube("FailBox")
+    bpy.context.view_layer.update()
+    with _mock.patch.object(ShadowRig, "bake_horizon", side_effect=ValueError("no mesh")):
+        try:
+            _built = ShadowRig.create([_fail_box], source_name="fail_source", texture_res=32)
+        except ValueError as _err:
+            _built = _err
+        try:
+            ShadowRig.create(
+                [_fail_box], source_name="fail_source2", texture_res=32, rig_type="horizon"
+            )
+            _horizon_raised = False
+        except ValueError:
+            _horizon_raised = True
+    check(
+        "a failed horizon bake warns and builds a Projected rig; a Horizon rig fails",
+        isinstance(_built, ShadowRig)
+        and _horizon_raised
+        and len(ShadowRig.find_shadow_planes()) == 1,
+        f"{_built!r}, horizon raised {_horizon_raised}, "
+        f"{[o.name for o in ShadowRig.find_shadow_planes()]}",
     )
     ShadowRig.delete_rigs(None, delete_textures=True)
 

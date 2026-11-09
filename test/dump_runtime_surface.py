@@ -23,7 +23,6 @@ for _p in (
     REPO,
     os.path.join(MONO, "pythontk"),
     os.path.join(MONO, "uitk"),
-    os.path.join(MONO, "unitytk"),
     os.path.join(MONO, "m3trik", "scripts"),
 ):
     if _p not in sys.path:

@@ -1,0 +1,340 @@
+{
+ "census": {
+  "AnimationCurve": 2,
+  "AnimationCurveNode": 2,
+  "AnimationLayer": 2,
+  "AnimationStack": 2,
+  "Geometry": 1,
+  "Material": 2,
+  "Model": 3,
+  "NodeAttribute": 2
+ },
+ "format": "fbx",
+ "geometry": {
+  "Cube.003": {
+   "polygon_vertices": 24,
+   "vertices": 8
+  }
+ },
+ "materials": {
+  "panel_mat": {
+   "properties": {
+    "AmbientColor": [
+     0.0509,
+     0.0509,
+     0.0509
+    ],
+    "AmbientFactor": 0.0,
+    "BumpFactor": 0.0,
+    "DiffuseColor": [
+     0.8,
+     0.8,
+     0.8
+    ],
+    "DiffuseFactor": 1.0,
+    "EmissiveColor": [
+     0.4,
+     1.2,
+     2.0
+    ],
+    "EmissiveFactor": 1.0,
+    "Opacity": 1.0,
+    "ReflectionColor": [
+     0.8,
+     0.8,
+     0.8
+    ],
+    "ReflectionFactor": 0.0,
+    "Shininess": 25.0,
+    "ShininessExponent": 25.0,
+    "SpecularColor": [
+     0.8,
+     0.8,
+     0.8
+    ],
+    "SpecularFactor": 0.25,
+    "TransparencyFactor": 1.0,
+    "TransparentColor": [
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "shading_model": "phong",
+   "textures": {}
+  },
+  "panel_mat_signal": {
+   "properties": {
+    "AmbientColor": [
+     0.0509,
+     0.0509,
+     0.0509
+    ],
+    "AmbientFactor": 0.0,
+    "BumpFactor": 0.0,
+    "DiffuseColor": [
+     0.8,
+     0.8,
+     0.8
+    ],
+    "DiffuseFactor": 1.0,
+    "EmissiveColor": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "EmissiveFactor": 1.0,
+    "Opacity": 1.0,
+    "ReflectionColor": [
+     0.8,
+     0.8,
+     0.8
+    ],
+    "ReflectionFactor": 0.0,
+    "Shininess": 25.0,
+    "ShininessExponent": 25.0,
+    "SpecularColor": [
+     0.8,
+     0.8,
+     0.8
+    ],
+    "SpecularFactor": 0.25,
+    "TransparencyFactor": 1.0,
+    "TransparentColor": [
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "shading_model": "phong",
+   "textures": {}
+  }
+ },
+ "models": {
+  "data_export": {
+   "Lcl Rotation": [
+    -90.0,
+    0.0,
+    0.0
+   ],
+   "Lcl Scaling": [
+    100.0,
+    100.0,
+    100.0
+   ],
+   "type": "Null"
+  },
+  "panel": {
+   "Lcl Rotation": [
+    -90.0,
+    0.0,
+    0.0
+   ],
+   "Lcl Scaling": [
+    100.0,
+    100.0,
+    100.0
+   ],
+   "type": "Mesh"
+  },
+  "panel_mat_signal__emission": {
+   "Lcl Scaling": [
+    0.0,
+    1.0,
+    1.0
+   ],
+   "type": "Null"
+  }
+ },
+ "takes": {
+  "ShotA": {
+   "panel_mat_signal__emission|Lcl Scaling|d|X": [
+    0.0417,
+    0.8333,
+    20
+   ]
+  },
+  "ShotB": {
+   "panel_mat_signal__emission|Lcl Scaling|d|X": [
+    0.875,
+    1.6667,
+    20
+   ]
+  }
+ },
+ "user_properties": {
+  "data_export.animation": {
+   "fps": 24.0,
+   "shots": [
+    {
+     "clip": "text"
+    },
+    {
+     "clip": "text"
+    }
+   ],
+   "version": 3
+  },
+  "data_export.handoff": {
+   "assembly": [
+    {
+     "data": [],
+     "part": "text",
+     "spec": "text"
+    },
+    {
+     "data": [
+      "text"
+     ],
+     "part": "text",
+     "spec": "text"
+    },
+    {
+     "data": [
+      "text"
+     ],
+     "part": "text",
+     "spec": "text"
+    },
+    {
+     "data": [
+      "text"
+     ],
+     "part": "text",
+     "spec": "text"
+    },
+    {
+     "data": [
+      "text"
+     ],
+     "part": "text",
+     "spec": "text"
+    },
+    {
+     "data": [
+      "text"
+     ],
+     "part": "text",
+     "spec": "text"
+    },
+    {
+     "data": [
+      "text"
+     ],
+     "part": "text",
+     "spec": "text"
+    }
+   ],
+   "extras": {
+    "source": {
+     "application": "text",
+     "version": "text"
+    }
+   },
+   "instructions": "text",
+   "rendering": {
+    "environment": {
+     "fallback": "text",
+     "intensity": 1.0,
+     "prefilter": "text",
+     "prefilterBlur": 0.04
+    },
+    "keyLight": {
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "intensity": 0.9,
+     "position": [
+      3,
+      6,
+      4
+     ],
+     "type": "text"
+    },
+    "renderer": {
+     "toneMapping": "text",
+     "toneMappingExposure": 1.0
+    }
+   },
+   "version": 3
+  },
+  "data_export.materials": {
+   "asset": {
+    "version": "text"
+   },
+   "extensionsUsed": [
+    "text"
+   ],
+   "materials": [
+    {
+     "alphaMode": "text",
+     "doubleSided": false,
+     "emissiveFactor": [
+      0.2,
+      0.6,
+      1.0
+     ],
+     "extensions": {
+      "KHR_materials_emissive_strength": {
+       "emissiveStrength": 2.0
+      }
+     },
+     "name": "text",
+     "pbrMetallicRoughness": {
+      "baseColorFactor": [
+       0.8,
+       0.8,
+       0.8,
+       1.0
+      ],
+      "metallicFactor": 0.0,
+      "roughnessFactor": 0.5
+     }
+    },
+    {
+     "alphaMode": "text",
+     "doubleSided": false,
+     "emissiveFactor": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "name": "text",
+     "pbrMetallicRoughness": {
+      "baseColorFactor": [
+       0.8,
+       0.8,
+       0.8,
+       1.0
+      ],
+      "metallicFactor": 0.0,
+      "roughnessFactor": 0.5
+     }
+    }
+   ],
+   "version": 2
+  },
+  "data_export.render_effects": {
+   "materials": [
+    {
+     "channels": [
+      "text"
+     ],
+     "emission_color": [
+      0.2,
+      0.6,
+      1.0
+     ],
+     "emission_strength": 2.0,
+     "material": "text"
+    }
+   ],
+   "tracks": [],
+   "version": 2
+  },
+  "panel_mat_signal__emission.curveProxy": 1,
+  "panel_mat_signal__emission.emissiveGroupProxy": 1
+ }
+}

@@ -4437,7 +4437,10 @@ def _run_sequencer_checks():
     from blendertk.env_utils.scene_exporter._scene_exporter import SceneExporter
     from blendertk.env_utils.unity_bridge._unity_bridge import UnityBridge
 
-    for tr_via in ("export", "send"):
+    # "panel": a run with a fresh panel's tasks (its bake and restores), which the
+    # bare export runs none of -- their put-back keys were heard after the bracket
+    # (measured 2026-11-05, red before ``SequencerHost.transient_edit``).
+    for tr_via in ("export", "panel", "send"):
         tr_st, sq_tr, obs_tr = fresh({"trMem": {0: 0, 20: 5}, "trOther": {0: 1, 20: 3}})
         tr_shot = sq_tr.define_shot("TR", 0, 20, objects=["trMem"])
         tr_st.set_active_shot(tr_shot.shot_id)
@@ -4453,8 +4456,21 @@ def _run_sequencer_checks():
                         output_name="transient",
                         export_visible=False,
                     )
+                elif tr_via == "panel":
+                    tr_exporter = SceneExporter(decide_check_failure=lambda *a: "override_all")
+                    tr_ok = bool(
+                        tr_exporter.export_with_values(
+                            str(tr_tmp.dir_path()),
+                            [obs_tr["trMem"]],
+                            tr_exporter.panel_defaults(),
+                            output_name="transient",
+                        )
+                    )
                 else:
-                    tr_bridge = UnityBridge(project_path=str(tr_tmp.dir_path()))
+                    tr_bridge = UnityBridge(
+                        project_path=str(tr_tmp.dir_path()),
+                        decide_check_failure=lambda *a: "override_all",
+                    )
                     tr_payload = tr_bridge._produce(  # the defaults: it bakes
                         [obs_tr["trMem"]], ptk.HandoffRequest(mode="send_to")
                     )
@@ -4467,7 +4483,7 @@ def _run_sequencer_checks():
         tr_banked = sorted({name for batch in tr_rec["keys"] for name in batch})
         tr_now = sq_tr.shot_by_id(tr_shot.shot_id)
         check(
-            f"{'an export' if tr_via == 'export' else 'a send'}'s own key edits "
+            f"{ {'export': 'an export', 'panel': 'a panel export', 'send': 'a send'}[tr_via] }'s own key edits "
             "are reported to no one",
             tr_ok
             and tr_banked == []

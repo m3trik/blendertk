@@ -342,12 +342,105 @@ try:
     manifest = json.loads(raw) if raw else {}
     rec = (manifest.get("objects") or [{}])[0]
     check(
-        "manifest record has camelCase keys + uvIndex 1",
+        "manifest record has camelCase keys and names no UV set (v3: the second)",
         rec.get("name") == cube.name
-        and rec.get("uvIndex") == 1
+        and "uvIndex" not in rec
         and "scaleOffset" in rec
         and os.path.basename(path) == rec.get("map"),
         f"{rec}",
+    )
+
+    # --- lightmaps v3 (2026-11-07): a lightmap layer off the second slot is
+    # never published on faith (mirror of mayatk's) -- the export's producer
+    # refuses the record, naming the object, its layer and the fix, and the
+    # bake's own publish clears the channel with the same words. --------------
+    first_layer = cube.data.uv_layers[0].name
+    good_marker = cube[LightmapBaker.LIGHTMAP_INFO_PROP]
+    LightmapRecords._write_marker(cube, dict(json.loads(good_marker), uv_set=first_layer))
+    with _mock.patch.object(LightmapRecords.logger, "warning") as _uv_warn:
+        LightmapRecords._publish()
+    _uv_said = [str(c.args[0] % c.args[1:]) if len(c.args) > 1 else str(c.args[0]) for c in _uv_warn.call_args_list]
+    check(
+        "a layer off the second slot publishes nothing, saying the fix",
+        (ptk.SceneRecords.LIGHTMAPS.read_text(btk.DataNodes) or "") == ""
+        and any(f"{cube.name} ({first_layer!r} at index 0)" in m and LightmapRecords.UV_SET_FIX in m for m in _uv_said),
+        _uv_said,
+    )
+    # The export's producer notes it and ships none, so the delivered record
+    # is cleared (2026-11-07: a raise was a failed producer, and the stale
+    # stored record shipped).
+    _uv_ctx = ptk.ExportContext()
+    try:
+        _uv_record, _uv_raised = LightmapRecords.export_record(_uv_ctx), None
+    except ptk.LightmapRecord.UvSetRefused as e:
+        _uv_record, _uv_raised = None, str(e)
+    _uv_noted = " ".join(_uv_ctx.notes)
+    check(
+        "the export's producer notes the refusal with its fix and ships none",
+        _uv_raised is None
+        and _uv_record is None
+        and f"{cube.name} ({first_layer!r} at index 0)" in _uv_noted
+        and LightmapRecords.UV_SET_FIX in _uv_noted,
+        _uv_raised or _uv_ctx.notes,
+    )
+    # A committed layer gone since the bake (renamed or removed) is where the
+    # second slot may hold another layer: refused, never on faith.
+    LightmapRecords._write_marker(cube, dict(json.loads(good_marker), uv_set="GoneLayer"))
+    _gone_ctx = ptk.ExportContext()
+    check(
+        "a committed layer gone since the bake is refused",
+        LightmapRecords.export_record(_gone_ctx) is None
+        and f"{cube.name} ('GoneLayer', which it no longer has)" in " ".join(_gone_ctx.notes),
+        _gone_ctx.notes,
+    )
+    # A hand-off ships the authored record as stored, so it vets that copy
+    # first (LightmapRecords.withheld, on the context FbxUtils.export_context
+    # builds): the write ships no lightmaps, says why, and the file keeps it.
+    cube[LightmapBaker.LIGHTMAP_INFO_PROP] = good_marker
+    LightmapRecords._publish()
+    _stored = ptk.SceneRecords.LIGHTMAPS.read_text(btk.DataNodes)
+    LightmapRecords._write_marker(cube, dict(json.loads(good_marker), uv_set=first_layer))
+    _hctx = btk.FbxUtils.export_context(mode=ptk.ExportContext.HANDOFF, scope=(cube.name,))
+    _why = _hctx.withheld.get(ptk.SceneRecords.LIGHTMAPS.key, "")
+    with btk.FbxUtils.export_prepared(_hctx) as _hsnap:
+        _during = ptk.SceneRecords.LIGHTMAPS.read_text(btk.DataNodes)
+    check(
+        "a hand-off ships none of a refused stored record, says why, puts it back",
+        bool(_stored)
+        and f"{cube.name} ({first_layer!r} at index 0)" in _why
+        and not _during
+        and _why in _hsnap.ctx.notes
+        and ptk.SceneRecords.LIGHTMAPS.read_text(btk.DataNodes) == _stored,
+        (_why, _during),
+    )
+    cube[LightmapBaker.LIGHTMAP_INFO_PROP] = good_marker
+    LightmapRecords._publish()
+    # The fix the refusal names cures it: create_lightmap_uvs moves the layer
+    # it reuses to the second UV map, its UVs kept, so the next publish passes
+    # (Blender has no move, in the UV Maps panel or the API: measured 5.1.2).
+    _lm = json.loads(good_marker)["uv_set"]
+    _layers = cube.data.uv_layers
+    _before = [0.0] * (len(_layers[_lm].data) * 2)
+    _layers[_lm].data.foreach_get("uv", _before)
+    _layers.new(name="filler")
+    btk.UvUtils.reorder_uv_sets(cube, [_layers[0].name, "filler", _lm])
+    _moved_ctx = ptk.ExportContext()
+    _was_refused = LightmapRecords.export_record(_moved_ctx) is None and (
+        f"{cube.name} ({_lm!r} at index 2)" in " ".join(_moved_ctx.notes)
+    )
+    btk.UvUtils.create_lightmap_uvs([cube], quiet=True)
+    _cured_ctx = ptk.ExportContext()
+    _cured = LightmapRecords.export_record(_cured_ctx)
+    _after = [0.0] * (len(cube.data.uv_layers[_lm].data) * 2)
+    cube.data.uv_layers[_lm].data.foreach_get("uv", _after)
+    check(
+        "the refusal's fix cures it: the layer moves to the second UV map, its UVs kept",
+        _was_refused
+        and _cured is not None
+        and not _cured_ctx.notes
+        and [layer.name for layer in cube.data.uv_layers].index(_lm) == 1
+        and all(abs(a - b) < 1e-6 for a, b in zip(_after, _before)),
+        ([layer.name for layer in cube.data.uv_layers], _moved_ctx.notes, _cured_ctx.notes),
     )
 
     # --- revert (subtractive) ---------------------------------------------
@@ -376,6 +469,9 @@ try:
 
     bpy.ops.mesh.primitive_cube_add(location=(5, 0, 0))
     cube_b = bpy.context.active_object
+    # The layer its marker will name, at the second UV map: one it lacks
+    # is refused, never published on faith (2026-11-07).
+    cube_b.data.uv_layers.new(name="Lightmap")
     # What bake(intensity=) runs on the maps it wrote: one file named twice
     # (two objects on one atlas) scales once.
     baker._apply_intensity([ipath, ipath], 2.0)
@@ -1835,6 +1931,9 @@ try:
     bpy.ops.mesh.primitive_cube_add()
     dep_cube = bpy.context.active_object
     dep_cube.name = "dep_cube"
+    # The layer its marker will name, at the second UV map: one it lacks
+    # is refused, never published on faith (2026-11-07).
+    dep_cube.data.uv_layers.new(name="Lightmap")
     dep_dir = os.path.join(tmp_dir, "deps")
     os.makedirs(dep_dir, exist_ok=True)
     dep_map = os.path.join(dep_dir, "dep_cube_LightMap.exr")
@@ -3591,6 +3690,9 @@ try:
     bpy.ops.mesh.primitive_cube_add()
     hy_crate = bpy.context.active_object
     hy_crate.name = "hyCrate"
+    # The layer its marker will name, at the second UV map: one it lacks
+    # is refused, never published on faith (2026-11-07).
+    hy_crate.data.uv_layers.new(name="Lightmap")
     hy_crate.parent = hy_room
     hy_map = os.path.join(tmp_dir, "hyCrate_LightMap.exr")
     open(hy_map, "wb").close()
@@ -4068,6 +4170,10 @@ try:
     bpy.ops.mesh.primitive_cube_add()
     _stale = bpy.context.active_object
     _stale.name = "stale_leaf"
+    # The layer each marker will name, at the second UV map: one an object
+    # lacks is refused, never published on faith (2026-11-07).
+    for _obj in (_ship, _stale):
+        _obj.data.uv_layers.new(name="Lightmap")
     LightmapRecords.commit(
         {
             _ship.name: os.path.join(tmp_dir, "ship_LM.exr"),
@@ -5737,8 +5843,10 @@ try:
             (rc_report().lines(), rc_record_maps()),
         )
 
-        # The same partial re-bake shipped natively: one lightmap image for the
-        # material in the GLB (the per-object clones share it).
+        # The same partial re-bake shipped natively: the record names the three
+        # objects with their rects, and the atlas rides the GLB ONCE, as the
+        # bufferView named by its file (2026-11-07: no material is wired or
+        # copied; the viewer binds each object's rect at load).
         from blendertk.light_utils.lightmap_baker.web_export import LightmapWebExport
 
         def rc_glb_json(path):
@@ -5759,27 +5867,29 @@ try:
                 rc_glb, objects=rc_objs, manifest=rc_manifest, texture_max_size=None
             )
         rc_gltf = rc_glb_json(rc_glb)
-        rc_carried = [
-            m for m in rc_gltf.get("materials", []) if m.get("occlusionTexture")
-        ]
-
-        def rc_source(texture):
-            """An image index, plain or through an image-format extension."""
-            if "source" in texture:
-                return texture["source"]
-            for ext in (texture.get("extensions") or {}).values():
-                if isinstance(ext, dict) and "source" in ext:
-                    return ext["source"]
-            return None
-
-        rc_images = {
-            rc_source(rc_gltf["textures"][m["occlusionTexture"]["index"]])
-            for m in rc_carried
+        rc_shipped = (rc_gltf.get("extras") or {}).get(
+            ptk.SceneRecords.LIGHTMAPS.key
+        ) or {}
+        rc_entries = {e.get("name"): e for e in rc_shipped.get("objects") or []}
+        rc_committed = {
+            e["name"]: e for e in LightmapRecords._record(rc_objs).payload["objects"]
         }
+        rc_views = [
+            v for v in rc_gltf.get("bufferViews", []) if v.get("name") == RC_ATLAS
+        ]
         check(
-            "...and a native GLB export ships ONE lightmap image for the material",
-            len(rc_carried) == 3 and len(rc_images) == 1,
-            f"{len(rc_carried)} carrier material(s), {len(rc_images)} lightmap image(s)",
+            "...and a native GLB export names the three objects with their own "
+            "rects, the atlas riding ONCE as the view of its name",
+            sorted(rc_entries) == sorted((a, b, c))
+            and all(
+                rc_entries[n].get("map") == RC_ATLAS
+                and rc_entries[n].get("scaleOffset") == rc_committed[n]["scaleOffset"]
+                for n in (a, b, c)
+            )
+            and len({tuple(e["scaleOffset"]) for e in rc_entries.values()}) == 3
+            and len(rc_views) == 1
+            and not any(m.get("occlusionTexture") for m in rc_gltf.get("materials", [])),
+            (sorted(rc_entries), len(rc_views)),
         )
 
         rc_reset()
