@@ -14,7 +14,6 @@ import pythontk as ptk
 
 from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.env_utils.scene_exporter._task_data import (
-    _LOD_SUFFIX_RE,
     _TaskDataMixin,
 )
 
@@ -72,20 +71,6 @@ class _TaskChecksMixin(_TaskDataMixin):
             return False, [
                 f"Scene has {len(libs)} linked librar{'y' if len(libs) == 1 else 'ies'}: {names}"
             ]
-        return True, []
-
-    def check_geometry_lod_suffix(self, enabled) -> tuple:
-        """Informational only -- always succeeds (mirrors mayatk's contract)."""
-        if not enabled or not self.objects:
-            return True, []
-        found = [
-            o.name
-            for o in self.objects
-            if o.type == "MESH" and _LOD_SUFFIX_RE.search(o.name)
-        ]
-        if found:
-            shown = ", ".join(found[:10]) + (" …" if len(found) > 10 else "")
-            return True, [f"{len(found)} object(s) use an LOD suffix: {shown}"]
         return True, []
 
     #: Duplicate Names -- how wide the base-name scan casts, narrowest first;

@@ -2392,6 +2392,7 @@ try:
         ptk.SceneRecords.VISIBILITY.key: "frames with their fps, and colours",
         ptk.SceneRecords.AUDIO.key: "seconds and file names",
         ptk.SceneRecords.MATERIALS.key: "factors and file names",
+        ptk.SceneRecords.LODS.key: "node names and screen-height fractions",
     }
     #: The scale each fixture is authored under.
     RU_AUTHORED = (1.0, 0.01)
@@ -2695,6 +2696,11 @@ try:
         ev_file.setframerate(8000)
         ev_file.writeframes(b"\x00\x00" * 800)
     _EvAudio.add_clip(ev_wav, frame_start=5, name="tone")
+    from blendertk.edit_utils.lods import LodUtils as _EvLodUtils
+
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=32, location=(0.0, -6.0, 1.0))
+    bpy.context.active_object.name = "EvRock"
+    _EvLodUtils.generate([bpy.context.active_object])
 
     # A field a record's shape no longer declares is pruned as the record
     # is made, with a warning (``RecordSpec.make``): what a producer still

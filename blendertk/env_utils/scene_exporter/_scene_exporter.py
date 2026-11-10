@@ -449,7 +449,8 @@ class SceneExporter(ptk.SceneExporterBase):
                 extras = [
                     o for o in (self.task_manager.objects or []) if o not in current
                 ]
-                export_objects = list(current) + extras
+                # Most Detailed Only: the lower levels leave the selection too.
+                export_objects = self.task_manager.lod_write_selection(list(current) + extras)
 
             # The FBX funnel is selection-based (use_selection + select_set) and
             # can only ship selectable, visible objects — pre-filter here with a
@@ -609,6 +610,9 @@ class SceneExporter(ptk.SceneExporterBase):
                 # GLB conversion, which converts this file's takes as its
                 # clips -- a GLB-only run's intermediate too (mirror of mayatk).
                 self.task_manager.ship_declared_takes(fbx_write_path)
+                # Each LOD group's switch heights, which Blender's writer
+                # leaves out of its LodGroup -- before the GLB reads them.
+                self.task_manager._state_lod_thresholds(fbx_write_path)
             export_succeeded = True
 
             deliverable_path = self.export_path
@@ -745,14 +749,11 @@ class SceneExporter(ptk.SceneExporterBase):
         return placed
 
     #: ``wm.usd_export`` kwargs for the USD output format: the shared interchange
-    #: set (``btk.UsdUtils.INTERCHANGE_EXPORT_OPTIONS``; a MaterialX network is a
-    #: ``usd_options`` override), with the texture files referenced relative to
-    #: the layer -- a deliverable beside its scene, unlike a scratch payload.
-    #: Mirror of mayatk's ``USD_EXPORT_OPTIONS``.
-    USD_EXPORT_OPTIONS: Dict[str, Any] = dict(
-        UsdUtils.INTERCHANGE_EXPORT_OPTIONS,
-        relative_paths=True,
-    )
+    #: set for a deliverable (``btk.UsdUtils.DELIVERABLE_EXPORT_OPTIONS``; a
+    #: MaterialX network is a ``usd_options`` override), the texture files
+    #: referenced relative to the layer, unlike a scratch payload. Mirror of
+    #: mayatk's ``USD_EXPORT_OPTIONS``.
+    USD_EXPORT_OPTIONS: Dict[str, Any] = UsdUtils.DELIVERABLE_EXPORT_OPTIONS
 
     def _write_usd(self, usd_path: str, export_objects: List) -> str:
         """Write *export_objects* as a USD layer (the ``usd`` output format).
@@ -801,7 +802,26 @@ class SceneExporter(ptk.SceneExporterBase):
                 **options,
             )
         self.logger.info(f"USD written: {written}")
+        self._author_lod_variants(written, export_objects)
         return written
+
+    def _author_lod_variants(self, written: str, export_objects: List) -> None:
+        """State the written LOD groups as USD variant sets ``LOD`` -- mirror of
+        mayatk's (``UsdUtils.author_lod_variants``); a ``.usdz`` is said and
+        left as is."""
+        from blendertk.edit_utils.lods import LodUtils
+
+        shipped = set(export_objects)
+        roots = [o for o in export_objects if o.parent not in shipped]
+        # The levels the write ships: a root's children hold the ones Most
+        # Detailed Only (or a Selected scope) left out of the layer.
+        names = {o.name for o in export_objects}
+        groups = [
+            dict(g, levels=[p for p in g["levels"] if p and p.rsplit("|", 1)[-1] in names])
+            for g in LodUtils.groups(roots)
+        ]
+        plan = ptk.LodChain.variant_plan(groups)
+        self._state_lod_variants(written, plan, UsdUtils.author_lod_variants)
 
     #: Token -> meaning for every placeholder the Output Filename accepts, in
     #: tooltip order (meanings are tooltip markup). A subclass extends the

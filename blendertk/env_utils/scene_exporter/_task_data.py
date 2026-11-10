@@ -6,7 +6,6 @@ shares -- the base of the phase mixins (``_task_scene``, ``_task_textures``,
 """
 
 import os
-import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import pythontk as ptk
@@ -19,8 +18,6 @@ _NEEDS_HIERARCHY_MANAGER = (
     "snapshot) is written on export, but the exporter-side hierarchy diff "
     "check isn't wired yet. TODO(blender-parity)."
 )
-
-_LOD_SUFFIX_RE = re.compile(r"_lod\d*$", re.IGNORECASE)
 
 # Blender has no named-unit enum like Maya's currentUnit(linear=...) -- unit_settings is a
 # (system, scale_length) pair. Values chosen so 1 scene unit == 1 of the named unit.
@@ -73,6 +70,8 @@ class _TaskDataMixin:
     _unseen_anim_warned: bool = False
     #: Materials assigned to the export set; None = not computed this run.
     _cached_materials: Optional[List] = None
+    #: This run's LOD plan (``prepare_lods``: ``ptk.LodChain.plan``). Per-run.
+    _lod_plan: Optional[Dict[str, Any]] = None
 
     # -- report lines a plain logger can carry (mirror of mayatk's) ---------
     def _log_link(self, text: str, action: str, **params: str) -> str:
@@ -108,6 +107,7 @@ class _TaskDataMixin:
         self._bake_session_id = None
         self._unseen_anim_warned = False
         self._cached_materials = None
+        self._lod_plan = None
 
     def _live_objects(self) -> List:
         """``self.objects`` re-resolved to the objects that still exist.

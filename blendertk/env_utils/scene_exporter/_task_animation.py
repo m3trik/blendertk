@@ -400,6 +400,8 @@ class _AnimationTasksMixin(_TaskDataMixin):
                 # the GLB's envelope does, with this run's choices.
                 rendering=self.run.rendering,
                 scope=tuple(o.name for o in self._live_objects()) or None,
+                # Most Detailed Only: the levels the write leaves out ship no record.
+                omit=self.lod_omitted(),
                 # Whether the write carries animation is its options' (the
                 # preset's bake_anim), never the scene's.
                 animated=FbxUtils._writer_animates(

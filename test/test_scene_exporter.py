@@ -2704,6 +2704,398 @@ try:
     for _o in (_hdr_light, _plain_light, _dome, _prop):
         bpy.data.objects.remove(_o, do_unlink=True)
 
+    # ---- LODs: every export reads the LOD groups (mirror of mayatk's) ----------
+    # A group is an object whose children are named <base>_LOD0..n (Blender has no
+    # LOD node); As Authored ships each as one, Most Detailed Only leaves the
+    # lower levels out of the written file and never the scene. Added: 2026-11-10
+    import bmesh as _ld_bmesh
+
+    def _ld_mesh(name, segments, parent=None):
+        me = bpy.data.meshes.new(name + "Mesh")
+        bm = _ld_bmesh.new()
+        _ld_bmesh.ops.create_uvsphere(bm, u_segments=segments, v_segments=segments, radius=1.0)
+        bm.to_mesh(me)
+        bm.free()
+        ob = bpy.data.objects.new(name, me)
+        bpy.context.scene.collection.objects.link(ob)
+        ob.parent = parent
+        return ob
+
+    _ld_group = bpy.data.objects.new("chair", None)
+    bpy.context.scene.collection.objects.link(_ld_group)
+    _ld_levels = [_ld_mesh(f"chair_LOD{i}", 24 >> i, _ld_group) for i in range(3)]
+    _ld_lamp = _ld_mesh("lamp", 8)
+    _ld_spec = SceneExporter().task_manager.task_definitions.get("lods", {})
+    check(
+        "the LODs row is a settings combo over ExportProfile.LOD_OPTIONS; the retired check is gone",
+        _ld_spec.get("panel") == "settings"
+        and _ld_spec.get("add") == ptk.ExportProfile.LOD_OPTIONS
+        and "check_geometry_lod_suffix" not in SceneExporter().task_manager.check_definitions
+        and "prepare_lods" in SceneExporter().task_manager.TASK_ORDER,
+    )
+    _ld_tm = SceneExporter().task_manager
+    _ld_tm.objects = [_ld_group, *_ld_levels, _ld_lamp]
+    _ld_tm.prepare_lods("lod0")
+    check(
+        "Most Detailed Only takes the lower levels out of the export set",
+        sorted(o.name for o in _ld_tm.objects) == ["chair", "chair_LOD0", "lamp"]
+        and _ld_tm._lod_plan["drop"] == ["|chair|chair_LOD1", "|chair|chair_LOD2"],
+        f"{sorted(o.name for o in _ld_tm.objects)} plan={_ld_tm._lod_plan}",
+    )
+    _ld_plain = SceneExporter().task_manager
+    _ld_plain.objects = [_ld_lamp]
+    _ld_plain.prepare_lods("lod0")
+    check(
+        "a set with no level-named object plans nothing (the cheap gate)",
+        _ld_plain._lod_plan is None,
+    )
+    _ld_dir = os.path.join(tmp, "lods")
+    os.makedirs(_ld_dir, exist_ok=True)
+    _ld_models = {}
+    for _ld_label, _ld_tasks in (("authored", {}), ("lod0", {"lods": "lod0"})):
+        _ld_exp = SceneExporter()
+        _ld_ok = _ld_exp.perform_export(
+            export_dir=_ld_dir,
+            objects=[_ld_group, *_ld_levels, _ld_lamp],
+            output_name=f"lods_{_ld_label}",
+            tasks=_ld_tasks,
+        )
+        _ld_path = os.path.join(_ld_dir, f"lods_{_ld_label}.fbx")
+        _ld_models[_ld_label] = (
+            set(ptk.FbxFile.load(_ld_path, raw_payloads=False).object_names("Model"))
+            if _ld_ok and os.path.exists(_ld_path)
+            else None
+        )
+    _ld_authored_attrs = []
+    _ld_authored_path = os.path.join(_ld_dir, "lods_authored.fbx")
+    if os.path.exists(_ld_authored_path):
+        _ld_authored_attrs = [
+            r["props"][2]
+            for r in ptk.FbxFile.load(_ld_authored_path, raw_payloads=False).iter_objects()
+            if r["name"] == "NodeAttribute" and len(r["props"]) > 2
+        ]
+    check(
+        "As Authored states the group as an FbxLODGroup (Unreal, Maya) and the scene keeps no fbx_type",
+        any(a in (b"LodGroup", "LodGroup") for a in _ld_authored_attrs)
+        and "fbx_type" not in _ld_group.keys(),
+        f"attrs={_ld_authored_attrs} keys={list(_ld_group.keys())}",
+    )
+    check(
+        "As Authored ships every level; Most Detailed Only ships LOD0 and leaves the scene",
+        _ld_models["authored"] is not None
+        and {"chair", "chair_LOD0", "chair_LOD1", "chair_LOD2", "lamp"} <= _ld_models["authored"]
+        and _ld_models["lod0"] is not None
+        and {"chair", "chair_LOD0", "lamp"} <= _ld_models["lod0"]
+        and not ({"chair_LOD1", "chair_LOD2"} & _ld_models["lod0"])
+        and sorted(c.name for c in _ld_group.children) == ["chair_LOD0", "chair_LOD1", "chair_LOD2"],
+        f"{ {k: sorted(v) if v else v for k, v in _ld_models.items()} }",
+    )
+    _ld_usd_ok = SceneExporter().perform_export(
+        export_dir=_ld_dir,
+        objects=[_ld_group, *_ld_levels, _ld_lamp],
+        output_name="lods_usd",
+        tasks={"lods": "lod0", "output_format": "usd"},
+    )
+    _ld_usd = [
+        os.path.join(_ld_dir, f) for f in os.listdir(_ld_dir) if f.startswith("lods_usd.usd")
+    ]
+    _ld_usd_names = set()
+    if _ld_usd_ok and _ld_usd:
+        from pxr import Usd as _LdUsd
+
+        _ld_stage = _LdUsd.Stage.Open(_ld_usd[0])
+        _ld_usd_names = {p.GetName() for p in _ld_stage.Traverse()}
+    check(
+        "Most Detailed Only holds in a USD write too",
+        {"chair_LOD0", "lamp"} <= _ld_usd_names
+        and not ({"chair_LOD1", "chair_LOD2"} & _ld_usd_names),
+        f"ok={_ld_usd_ok} files={_ld_usd} names={sorted(_ld_usd_names)}",
+    )
+    # USD As Authored: a variant set LOD, one level per variant, LOD0 selected;
+    # expand_lod_variants gives a host import every level back.
+    from blendertk.env_utils.usd import UsdUtils as _LdUsdUtils
+
+    _ld_v_ok = SceneExporter().perform_export(
+        export_dir=_ld_dir,
+        objects=[_ld_group, *_ld_levels, _ld_lamp],
+        output_name="lods_variants",
+        tasks={"output_format": "usd"},
+    )
+    _ld_v_files = [os.path.join(_ld_dir, f) for f in os.listdir(_ld_dir) if f.startswith("lods_variants.usd")]
+    _ld_v = {}
+    if _ld_v_ok and _ld_v_files:
+        from pxr import Usd as _LdUsd2
+
+        _ld_vstage = _LdUsd2.Stage.Open(_ld_v_files[0])
+        _ld_chair = next((p for p in _ld_vstage.Traverse() if p.GetName() == "chair"), None)
+        if _ld_chair is not None:
+            _ld_vset = _ld_chair.GetVariantSets().GetVariantSet("LOD")
+            _ld_v["names"] = list(_ld_vset.GetVariantNames())
+            _ld_v["selected"] = _ld_vset.GetVariantSelection()
+            _ld_v["children"] = [c.GetName() for c in _ld_chair.GetChildren()]
+        _ld_flat_path = _LdUsdUtils.expand_lod_variants(_ld_v_files[0], os.path.join(_ld_dir, "lods_flat.usda"))
+        _ld_flat = _LdUsd2.Stage.Open(_ld_flat_path) if _ld_flat_path else None
+        _ld_fchair = next((p for p in _ld_flat.Traverse() if p.GetName() == "chair"), None) if _ld_flat else None
+        _ld_v["expanded"] = sorted(c.GetName() for c in _ld_fchair.GetChildren()) if _ld_fchair else None
+        _ld_before = set(bpy.data.objects)
+        _LdUsdUtils.import_scene(_ld_v_files[0])
+        _ld_new = [o for o in bpy.data.objects if o not in _ld_before]
+        _ld_v["imported"] = sorted(o.name.split(".")[0] for o in _ld_new if o.name.split(".")[0].startswith("chair_LOD"))
+        for _o in _ld_new:
+            bpy.data.objects.remove(_o, do_unlink=True)
+    check(
+        "USD As Authored states a LOD variant set (LOD0 selected) and expands back",
+        _ld_v.get("names") == ["LOD0", "LOD1", "LOD2"]
+        and _ld_v.get("selected") == "LOD0"
+        and _ld_v.get("children") == ["chair_LOD0"]
+        and _ld_v.get("expanded") == ["chair_LOD0", "chair_LOD1", "chair_LOD2"]
+        and _ld_v.get("imported") == ["chair_LOD0", "chair_LOD1", "chair_LOD2"],
+        f"ok={_ld_v_ok} files={_ld_v_files} found={_ld_v}",
+    )
+
+    # The lods record rides the FBX's carrier (Unity merges level-named meshes onto
+    # the root and drops thresholds), its heights the group Empty's lod_heights.
+    import json as _ld_json
+
+    _ld_group["lod_heights"] = [0.6, 0.3, 0.0]
+    _ld_rec_ok = SceneExporter().perform_export(
+        export_dir=_ld_dir,
+        objects=[_ld_group, *_ld_levels, _ld_lamp],
+        output_name="lods_record",
+        tasks={"export_data_node": True},
+    )
+    _ld_rec_path = os.path.join(_ld_dir, "lods_record.fbx")
+    _ld_stored = []
+    if _ld_rec_ok and os.path.exists(_ld_rec_path):
+        _ld_stored = [v for v in ptk.FbxFile.load(_ld_rec_path, raw_payloads=False).user_properties("lods") if v]
+    _ld_payload = _ld_json.loads(_ld_stored[0].decode() if isinstance(_ld_stored[0], bytes) else _ld_stored[0]) if _ld_stored else None
+    check(
+        "the FBX carries the lods record with the group's heights",
+        _ld_payload is not None
+        and _ld_payload.get("groups") == [
+            {"name": "chair", "levels": ["chair_LOD0", "chair_LOD1", "chair_LOD2"], "heights": [0.6, 0.3, 0.0]}
+        ],
+        f"{_ld_payload}",
+    )
+    # Blender's writer types the Empty a LodGroup and states no thresholds, so
+    # every reader of the attribute (Maya, Unreal, the FBX-to-GLB pass) used
+    # its own defaults; the write now states the group's heights (end-to-end
+    # run, 2026-11-10).
+    check(
+        "the FBX's LodGroup states the group's own switch heights",
+        _ld_rec_ok and ptk.FbxMedia.lod_heights(_ld_rec_path) == {"chair": [0.6, 0.3, 0.0]},
+        f"{ptk.FbxMedia.lod_heights(_ld_rec_path) if os.path.exists(_ld_rec_path) else None}",
+    )
+    # ...and an import reads them back: Blender's importer drops the LodGroup's
+    # thresholds, so a group from another DCC's FBX (no lod_heights property:
+    # dropped here) re-exported at the default ladder (2026-11-10 end-to-end run).
+    from blendertk.env_utils.fbx_utils import FbxUtils as _LdFbxUtils
+
+    _ld_foreign = os.path.join(_ld_dir, "lods_foreign.fbx")
+    if _ld_rec_ok:
+        shutil.copyfile(_ld_rec_path, _ld_foreign)
+        ptk.FbxMedia.drop_redundant_properties(_ld_foreign, markers=["lod_heights"])
+    _ld_back = _LdFbxUtils.import_fbx(_ld_foreign, stash=False) if _ld_rec_ok else []
+    _ld_back_group = next((o for o in _ld_back if o.type == "EMPTY" and o.name.startswith("chair")), None)
+    check(
+        "an FBX import gives each LOD group its file's switch heights",
+        _ld_back_group is not None
+        and [round(h, 6) for h in _ld_back_group.get("lod_heights", [])] == [0.6, 0.3, 0.0],
+        f"{[(o.name, dict(o.items())) for o in _ld_back if o.type == 'EMPTY']}",
+    )
+    for _o in _ld_back:
+        bpy.data.objects.remove(_o, do_unlink=True)
+    del _ld_group["lod_heights"]
+    # The panel's Visible scope lists meshes alone (objects_to_export), and
+    # Blender's writer parents a child whose parent it is not handed to the
+    # root: the group Empty joins the export set, or the file holds no group
+    # (2026-11-10 review).
+    _ld_group["lod_heights"] = [0.6, 0.3, 0.0]
+    _ld_vis_exp = SceneExporter()
+    _ld_vis_ok = _ld_vis_exp.perform_export(
+        export_dir=_ld_dir,
+        objects=lambda: _ld_vis_exp.objects_to_export("visible"),
+        output_name="lods_visible",
+    )
+    _ld_vis_path = os.path.join(_ld_dir, "lods_visible.fbx")
+    _ld_vis_fbx = ptk.FbxFile.load(_ld_vis_path, raw_payloads=False) if _ld_vis_ok and os.path.exists(_ld_vis_path) else None
+    _ld_vis_paths = sorted(_ld_vis_fbx.object_path(r) for r in _ld_vis_fbx.iter_objects() if r["name"] == "Model") if _ld_vis_fbx else []
+    check(
+        "the Visible scope ships the group node over its levels, its heights stated",
+        "chair|chair_LOD0" in _ld_vis_paths
+        and ptk.FbxMedia.lod_heights(_ld_vis_fbx) == {"chair": [0.6, 0.3, 0.0]},
+        f"{_ld_vis_paths} {ptk.FbxMedia.lod_heights(_ld_vis_fbx) if _ld_vis_fbx else None}",
+    )
+    del _ld_group["lod_heights"]
+    # Most Detailed Only in USD authors no variant set and warns of none: the
+    # group's dropped levels are not in the layer (2026-11-10 end-to-end run).
+    import logging as _ld_logmod
+
+    _ld_warnings = []
+
+    class _LdCatch(_ld_logmod.Handler):
+        def emit(self, record):
+            if record.levelno >= _ld_logmod.WARNING:
+                _ld_warnings.append(record.getMessage())
+
+    _ld_exp_usd = SceneExporter()
+    _ld_exp_usd.logger.addHandler(_LdCatch())
+    _ld_exp_usd.perform_export(
+        export_dir=_ld_dir,
+        objects=[_ld_group, *_ld_levels, _ld_lamp],
+        output_name="lods_usd_quiet",
+        tasks={"lods": "lod0", "output_format": "usd"},
+    )
+    check(
+        "Most Detailed Only in USD warns of no missing LOD group",
+        not any("LOD group" in w for w in _ld_warnings),
+        f"{_ld_warnings}",
+    )
+
+    # Generate Missing: a static prop gets a group for the write; an animated one
+    # is left alone, said; Export Copies puts the scene back, In Place keeps it.
+    _ld_rock = _ld_mesh("rock", 40)
+    _ld_spin = _ld_mesh("spinner", 40)
+    _ld_spin.keyframe_insert(data_path="rotation_euler", frame=1)
+    _ld_spin.rotation_euler[2] = 1.0
+    _ld_spin.keyframe_insert(data_path="rotation_euler", frame=10)
+    _ld_gen = {}
+    for _ld_label, _ld_tasks in (
+        ("copies", {"lods": "generate"}),
+        ("in_place", {"lods": "generate", "lod_write_back": True}),
+    ):
+        _ld_ok = SceneExporter().perform_export(
+            export_dir=_ld_dir,
+            objects=[_ld_rock, _ld_spin],
+            output_name=f"gen_{_ld_label}",
+            tasks=_ld_tasks,
+        )
+        _ld_path = os.path.join(_ld_dir, f"gen_{_ld_label}.fbx")
+        _ld_gen[_ld_label] = (
+            set(ptk.FbxFile.load(_ld_path, raw_payloads=False).object_names("Model"))
+            if _ld_ok and os.path.exists(_ld_path)
+            else None
+        )
+        if _ld_label == "copies":
+            check(
+                "Generate Missing ships rock's group and leaves the scene as it was",
+                _ld_gen["copies"] is not None
+                and {"rock", "rock_LOD0", "rock_LOD1", "spinner"} <= _ld_gen["copies"]
+                and "spinner_LOD0" not in _ld_gen["copies"]
+                and _ld_rock.name == "rock" and _ld_rock.parent is None
+                and "rock_LOD1" not in bpy.data.objects,
+                f"{sorted(_ld_gen['copies'] or [])} rock={_ld_rock.name} parent={_ld_rock.parent}",
+            )
+    _ld_kept = bpy.data.objects.get("rock")
+    check(
+        "Generate Missing In Place keeps the group",
+        _ld_kept is not None and _ld_kept.type == "EMPTY"
+        and sorted(o.name for o in _ld_kept.children) == ["rock_LOD0", "rock_LOD1", "rock_LOD2"],
+        f"{_ld_kept and _ld_kept.type} {sorted(o.name for o in (_ld_kept.children if _ld_kept else []))}",
+    )
+    for _o in list(bpy.data.objects):
+        if _o.name.startswith(("rock", "spinner")):
+            bpy.data.objects.remove(_o, do_unlink=True)
+
+    # The Selected scope: Most Detailed Only drops the lower levels from the
+    # selection too, and the lods record names none of them (2026-11-10 review).
+    _ld_sel_ok = SceneExporter().perform_export(
+        export_dir=_ld_dir,
+        objects=[_ld_group, *_ld_levels, _ld_lamp],
+        output_name="lods_selected",
+        export_visible=False,
+        tasks={"lods": "lod0", "export_data_node": True},
+    )
+    _ld_sel_path = os.path.join(_ld_dir, "lods_selected.fbx")
+    _ld_sel = ptk.FbxFile.load(_ld_sel_path, raw_payloads=False) if _ld_sel_ok and os.path.exists(_ld_sel_path) else None
+    _ld_sel_models = set(_ld_sel.object_names("Model")) if _ld_sel else set()
+    _ld_sel_lods = []
+    if _ld_sel:
+        for _v in _ld_sel.user_properties(ptk.SceneRecords.LODS.key):
+            if _v:
+                _ld_sel_lods.extend(json.loads(_v.decode() if isinstance(_v, bytes) else _v).get("groups") or [])
+    check(
+        "Most Detailed Only holds in the Selected scope, and the record names no dropped level",
+        {"chair_LOD0", "lamp"} <= _ld_sel_models
+        and not ({"chair_LOD1", "chair_LOD2"} & _ld_sel_models)
+        and _ld_sel_lods == [],
+        f"{sorted(_ld_sel_models)} lods={_ld_sel_lods}",
+    )
+
+    # Generate Missing states the authored groups as groups too (2026-11-10 review)
+    _ld_tm_gen = SceneExporter().task_manager
+    _ld_tm_gen.objects = [_ld_group, *_ld_levels]
+    _ld_marked = []
+    _ld_tm_gen.stage_deferred_restore = lambda name, fn: _ld_marked.append((name, fn))
+    _ld_tm_gen.prepare_lods("generate")
+    check(
+        "Generate Missing marks an authored group's Empty as a LodGroup for the write",
+        _ld_group.get("fbx_type") == "LodGroup" and any(n.startswith("lod_group_type:") for n, _ in _ld_marked),
+        dict(_ld_group.items()),
+    )
+    for _name, _fn in _ld_marked:
+        _fn()
+
+    # Export Copies puts a parented mesh back exactly: its parent, its parent
+    # inverse and its own transform (2026-11-10 review: it read a stale world).
+    from mathutils import Matrix as _LdMatrix
+
+    _ld_holder = bpy.data.objects.new("holder", None)
+    bpy.context.scene.collection.objects.link(_ld_holder)
+    _ld_holder.location = (3, 0, 0)
+    _ld_holder.rotation_euler = (0, 0, 0.5)
+    _ld_prop = _ld_mesh("prop", 40, _ld_holder)
+    _ld_prop.matrix_parent_inverse = _LdMatrix.Translation((0.25, 0, 0))
+    _ld_prop.location = (1, 2, 0)
+    _ld_follow = _ld_mesh("follower", 40)
+    _ld_follow.constraints.new("COPY_LOCATION").target = _ld_holder
+    bpy.context.view_layer.update()
+    _ld_before = (_ld_prop.parent, _ld_prop.matrix_parent_inverse.copy(), _ld_prop.matrix_basis.copy(), _ld_prop.matrix_world.copy())
+    import logging as _ld_logging
+
+    _ld_log = []
+    _ld_exporter = SceneExporter()
+    _ld_handler = _ld_logging.Handler()
+    _ld_handler.emit = lambda record: _ld_log.append(record.getMessage())
+    _ld_exporter.logger.addHandler(_ld_handler)
+    _ld_level = _ld_exporter.logger.level
+    _ld_exporter.logger.setLevel(_ld_logging.INFO)
+    _ld_ok = _ld_exporter.perform_export(
+        export_dir=_ld_dir,
+        objects=[_ld_holder, _ld_prop, _ld_follow],
+        output_name="gen_parented",
+        tasks={"lods": "generate"},
+    )
+    _ld_exporter.logger.removeHandler(_ld_handler)
+    _ld_exporter.logger.setLevel(_ld_level)
+    bpy.context.view_layer.update()
+    _ld_after = (_ld_prop.parent, _ld_prop.matrix_parent_inverse, _ld_prop.matrix_basis, _ld_prop.matrix_world)
+    _ld_models_p = (
+        set(ptk.FbxFile.load(os.path.join(_ld_dir, "gen_parented.fbx"), raw_payloads=False).object_names("Model"))
+        if _ld_ok
+        else set()
+    )
+    check(
+        "Generate Missing groups a parented prop for the write and puts it back exactly",
+        {"prop", "prop_LOD0", "prop_LOD1"} <= _ld_models_p
+        and _ld_after[0] is _ld_before[0]
+        and _ld_after[1] == _ld_before[1]
+        and _ld_after[2] == _ld_before[2]
+        and all(abs(a - b) < 1e-6 for ra, rb in zip(_ld_after[3], _ld_before[3]) for a, b in zip(ra, rb))
+        and _ld_prop.name == "prop"
+        and "prop_LOD1" not in bpy.data.objects,
+        f"{sorted(_ld_models_p)} {_ld_prop.name} parent={_ld_prop.parent}",
+    )
+    check(
+        "a constrained mesh is left alone as animated, said",
+        "follower_LOD0" not in _ld_models_p and any("animated" in m and "follower" in m for m in _ld_log),
+        [m for m in _ld_log if "Generate Missing" in m],
+    )
+    for _o in (_ld_prop, _ld_follow, _ld_holder):
+        bpy.data.objects.remove(_o, do_unlink=True)
+    for _o in (*_ld_levels, _ld_lamp, _ld_group):
+        bpy.data.objects.remove(_o, do_unlink=True)
+
     # ---- Exclude Rig Helpers: only the deforming bones are written --------------
     # Mirror of mayatk's census-based drop. A Blender rig's apparatus is its
     # control and mechanism BONES, and the exporter's own deform-only mode leaves
@@ -5001,10 +5393,11 @@ try:
         _presult is True
         and bool(_events)
         and _currents == sorted(_currents)
-        # Two phases and the one task every FBX write runs (the take split,
-        # armed by ExportRun.from_tasks since 2026-11-05).
-        and {t for _, t, _ in _events} == {3}
-        and _events[-1][:2] == (3, 3)
+        # Two phases and the two tasks every FBX write runs, both armed by
+        # ExportRun.from_tasks: the take split (since 2026-11-05) and the LOD
+        # read (since 2026-11-10).
+        and {t for _, t, _ in _events} == {4}
+        and _events[-1][:2] == (4, 4)
         and any(m.startswith("Writing FBX") for m in _pmsgs)
         and any(m.startswith("Writing scene sidecar") for m in _pmsgs),
         f"result={_presult} events={_events}",
