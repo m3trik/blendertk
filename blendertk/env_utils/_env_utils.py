@@ -185,10 +185,9 @@ class _EnvUtilsInternal(object):
         import bpy
 
         from blendertk.core_utils._core_utils import CoreUtils
-        from blendertk.env_utils.scene_exporter._scene_exporter import SceneExporter
         from blendertk.env_utils.usd import UsdUtils
 
-        usd_options = dict(SceneExporter.USD_EXPORT_OPTIONS)
+        usd_options = dict(UsdUtils.DELIVERABLE_EXPORT_OPTIONS)
         usd_options.update(
             export_cameras=options["include_cameras"],
             export_lights=options["include_lights"],

@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.24.0"
+__version__ = "0.25.0"
 
 """blendertk — the Blender host library: each tool's API half (its operations and record
 rows), as mayatk is Maya's. tentacle holds the panels and their Slots, shared by both
@@ -284,6 +284,8 @@ DEFAULT_INCLUDE = {
     # HDR Manager and Shader Templates -- mirrors of mayatk's engines (their panels are
     # tentacle's shared tools).
     "light_utils.hdr_manager": ["HdrManager"],
+    # The light rig engine is pythontk's; this binds Blender to it (mirror of mtk.LightRig).
+    "light_utils.light_rig": ["LightRig", "BlenderLightRigHost"],
     "mat_utils.shader_templates": ["ShaderTemplates"],
     # Marmoset Bridge — mirror of mayatk's ``mat_utils.marmoset_bridge._marmoset_bridge``
     # (its panel is tentacle's shared tool).
@@ -399,6 +401,7 @@ DEFAULT_INCLUDE = {
     "edit_utils.cut_on_axis": ["CutOnAxis"],
     # Snap -- mirror of mayatk's ``edit_utils.snap.Snap``, over the ``_edit_utils`` math above.
     "edit_utils.snap": ["Snap"],
+    "edit_utils.lods": ["LodUtils"],
     # Dynamic Pipe — mirror of mayatk's ``edit_utils.dynamic_pipe`` (Hook-driven beveled curve in
     # place of Maya's NURBS-circle loft — no native loft in Blender).
     "edit_utils.dynamic_pipe": [
@@ -464,6 +467,10 @@ DEFAULT_INCLUDE = {
 #: read raises MovedNameError naming the new home. ``{name: (new home, version)}``;
 #: a move adds its names here in the same change set.
 MOVED_NAMES = {
+    # The Scene Exporter's informational LOD listing retired with its row
+    # (2026-11-10): every export reads the LOD groups, and the LODs row
+    # decides what ships.
+    "TaskManager.check_geometry_lod_suffix": ("blendertk.TaskManager.prepare_lods", "0.25.0"),
     # The Substance bridge runs scripts in Painter and finds a Painter by its
     # instance record (2026-11-05): the Painter row's values, no fixed port, no
     # code-evaluating op, no render template.
@@ -819,8 +826,9 @@ MOVED_NAMES = {
         "tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots",
         "0.23.0",
     ),
+    # The panel went (2026-11-11): an Arnold render bridges what it needs itself.
     "ArnoldBridgeSlots": (
-        "tentacle.slots.tools.arnold_bridge.ArnoldBridgeSlots",
+        "removed: an Arnold render bridges the game shaders itself; Blender has no Arnold",
         "0.23.0",
     ),
     "WorkspaceEditorSlots": (

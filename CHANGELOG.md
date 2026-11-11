@@ -1,6 +1,53 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-11-10 -- LOD pipeline end to end, and its full review, mirror of mayatk's (`edit_utils/lods.py`, `env_utils/scene_exporter/{_task_scene.py, _scene_exporter.py}`, `env_utils/{fbx_utils.py, usd.py}`).**
+  - **A group ships in the Visible scope.** The scope lists meshes alone, and Blender's writer parents a child whose parent it is not handed to the root, so the FBX held no group and the GLB no `MSFT_lod`. Each group's Empty now joins the export set.
+  - **The FBX states each group's switch heights.** Blender's writer types the Empty a LodGroup with no thresholds, so Maya, Unreal and the GLB pass switched it at their defaults. Written after the export (`ptk.FbxMedia.set_lod_thresholds`), before the GLB reads the file.
+  - **An FBX import reads them back** (`FbxUtils.import_fbx`): a group from another DCC's file re-exported at the default ladder.
+  - **Most Detailed Only in USD** no longer warns of a group it never meant to state.
+  - **Export Copies pushes no undo step** (`LodUtils._generate`).
+  - **`LodUtils`:**
+    - New `ineligible`, as in mayatk, plus a mesh parented to a bone or vertices.
+    - New `nodes`, with each level's evaluated world bounds.
+    - `create_group` on the selection takes the most triangles first; Blender's selection has no order.
+    - `conform` keeps a name's own dots (`Wheel.L`).
+    - `generate`'s `heights` is keyword-only.
+  - **USD:** nested groups, mayatk's twin.
+  - Test(s):
+    - `test_lods.py`: bounds, a shape-keyed mesh, selection order, dotted names, nested USD groups.
+    - `test_scene_exporter.py`: the Visible scope (red), the heights in the FBX and back through an import (red), the quiet Most Detailed Only USD.
+- **2026-11-10 -- LOD review fixes, mirror of mayatk's (`edit_utils/lods.py`, `env_utils/scene_exporter/_task_scene.py`, `_task_animation.py`, `_scene_exporter.py`, `task_definitions.py`, `env_utils/fbx_utils.py`, `env_utils/usd.py`).** From the P6 review:
+  - **A generated level carries no modifier.** The copy used to keep the source's stack on top of the baked mesh, so the FBX applied Subsurf, Mirror and the rest twice.
+  - **Triangles are counted on the evaluated mesh,** which is what the FBX writes. New `LodUtils.triangles`.
+  - **A parented mesh keeps its world placement and its own transform.** The new group's `matrix_world` used to be read before any evaluation, which doubled the parent's transform. The Export Copies restore now resets parent and parent inverse exactly.
+  - **Generate Missing:**
+    - Leaves alone a mesh holding other objects, or one driven by NLA strips or constraints.
+    - Generates mesh by mesh and stages its restore first.
+    - Marks authored groups as LodGroups too.
+    - Records In Place as a kept edit.
+  - **The Selected scope honours Most Detailed Only.** New `TaskManager.lod_write_selection`.
+  - **The `lods` record names no dropped level.** New `lod_omitted`, and `FbxUtils.export_context(omit=)`.
+  - **`create_group`** names the group the first level's base.
+  - **`fbx_type`** is named once (`LodUtils.FBX_TYPE`).
+  - **USD:** the twins are mayatk's (above).
+  - **USD option table:** `UsdUtils.DELIVERABLE_EXPORT_OPTIONS`, mirror of mayatk's.
+  - Test(s):
+    - `test_lods.py` (17).
+    - `test_scene_exporter.py` (385 checks): the Selected scope and its record, the authored groups marked, the exact parented restore, a constrained mesh.
+    - Written after the fixes.
+- **2026-11-10 -- The `lods` record's producer, mirror of mayatk's (`edit_utils/lods.py` new `LodUtils.export_record`, `LodUtils.heights`; `env_utils/fbx_utils.py` its `PRODUCERS` row); `LodUtils` reads the selection and the depsgraph through the window override (`CoreUtils.selected_objects`, `_evaluated_depsgraph`).**
+  - Test(s): `test_scene_exporter.py` the FBX carries the record with the group Empty's `lod_heights`; `test_fbx_utils.py` `lods` declared unitless, a LOD group in the every-record scene (143 checks); `test_core_utils` view-layer gate.
+- **2026-11-10 -- USD states each LOD group as a variant set `LOD`, and a USD import brings every level -- mirror of mayatk's (`env_utils/usd.py` new `UsdUtils.author_lod_variants`, `expand_lod_variants`, `import_scene` expands first; `env_utils/scene_exporter/_scene_exporter.py` the USD write authors them).**
+  - Test(s): `test_scene_exporter.py` the LODs block's USD check (variants, selection, expansion, the import); 380 checks.
+- **2026-11-10 -- New `LodUtils`, mirror of mayatk's (`edit_utils/lods.py`, root export).** Blender has no LOD node: a group is an Empty carrying `fbx_type = "LodGroup"` (Blender's FBX exporter writes the Empty as a LodGroup NodeAttribute, measured) and `lod_heights`; `generate` reduces each level with a Decimate COLLAPSE applied off the evaluated mesh (the best-measured kernel of the LOD bake-off), `create_group`, `conform`, `groups`; each one undo step.
+  - Test(s): `test_lods.py` (new: 8 checks).
+- **2026-11-10 -- The Scene Exporter's As Authored states each LOD group as an FbxLODGroup, and Generate Missing / LOD Output mirror mayatk's (`env_utils/scene_exporter/_task_scene.py` `prepare_lods` marks each group Empty `fbx_type = "LodGroup"` for the write (staged, an authored type kept), new `generate_lods`; `task_definitions.py` the `lod_write_back` row).** Unreal and Maya read the LodGroup attribute, Unity the names.
+  - Test(s): `test_scene_exporter.py` the LODs block (As Authored writes a LodGroup attribute and the scene keeps no `fbx_type`; Generate Missing ships a group and restores the scene, In Place keeps it); 387 checks with `test_lods`.
+- **2026-11-10 -- The Scene Exporter's LODs row, mirror of mayatk's (`env_utils/scene_exporter/_task_scene.py` new `prepare_lods`; `task_definitions.py` the `lods` row, the Check Geometry LOD Suffix row removed; `_task_checks.py` / `_task_data.py` the check and its regex removed; `__init__.py` `MOVED_NAMES` row).** Blender has no LOD node: a group is an object (an Empty, usually) whose children are named `<base>_LOD0..n`. Every export lists the groups and warns about a malformed one (`ptk.LodChain.plan`, after a name scan); Most Detailed Only takes the lower levels, and what hangs under them, out of the export set, which Blender writes as handed, so they stay out of the FBX and the USD alike. The scene is never touched. Removed public name: `TaskManager.check_geometry_lod_suffix` (its `MOVED_NAMES` row names `prepare_lods`); a minor bump.
+  - Test(s): `test_scene_exporter.py` the LODs block (the row, the export-set drop, a set with no level names plans nothing, As Authored vs Most Detailed Only written to FBX and USD); the progress-stream count grew by the LOD task; 376 checks passed.
+- **2026-11-11 -- New: `LightRig`, Blender's Light Rigs: save, swap and restore named light rigs, the twin of `mtk.LightRig` over the one engine (`ptk.LightRig`) (`light_utils/light_rig.py` new `LightRig`, `BlenderLightRigHost`; `__init__.py` `DEFAULT_INCLUDE`, the `ArnoldBridgeSlots` row says the panel is gone).** A rig group is a collection. The payload's centimetres, degrees and Y-up meet Blender's units, radians and Z-up at the host, so a rig saved in either host lands in the other where it was; a capture writes the neutral light type. What Blender cannot carry is reported in Apply's `skipped`, never guessed: a Maya node type or attribute, a texture or filter on a light (a gobo), a neutral setting with no Blender twin, and a driven or animated plug (Blender cannot hand a driver back).
+  - Test(s): new `test_light_rig.py` (50: the binding, capture's units and axes, save / edited, apply's units / kelvin / cone / overrides and what it reports, compare, swap back, a round trip incl. rotate order, scale, a length attribute, an object attribute, hidden and the parent kept, a centimetre-unit scene, an unbuildable type and a gobo reported, aim, fixtures, a driven plug left alone, remove keeping a light linked elsewhere); `test_host_adapters.py` new `LightRigHost` row (red without it: the roster missed the seam).
 - **2026-11-08 -- Held until 0.25.0: `LightmapWebExport.MANIFEST_VERSION` and `LightmapWebExport.build_manifest` (for its `lighting` notice) work again, deprecated, until their window closes on 2026-11-23 (`light_utils/lightmap_baker/web_export.py`; `__init__.py` their `MOVED_NAMES` rows moved to the listed `HELD_UNTIL_0_25`).** v0.23.1 noticed both for 0.21.0 on 2026-10-24; the native-GLB rewrite removed them inside the window. Each keeps its original notice; `build_manifest` builds v0.23.1's retired block (`{"version": 2, "carrier", "materials"}`), at `MANIFEST_VERSION` 2. At 0.25.0, delete them and move the rows back.
   - Test(s): red first (`AttributeError`), then green: `test_web_export.py` new check "MANIFEST_VERSION and build_manifest(lighting=) still answer, with warnings".
 - **2026-11-08 -- Fix: a library made local whose `data_export` sits under a group merges it, never adopts it (`node_utils/data_nodes.py` `_foreign_carriers`).** Measured in a background Blender: with no carrier in the file, the made-local carrier under `Module` was taken for the file's own by its name and left as it was, its values on a node no reader takes. It is a module's (`ptk.SceneStoreBase.is_scene_carrier`), so it is merged like any other: it gives up the name for the file's root-level carrier, is removed after, and the log says so.

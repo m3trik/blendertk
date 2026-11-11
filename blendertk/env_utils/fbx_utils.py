@@ -2060,6 +2060,11 @@ class FbxUtils(_FbxUtilsInternal):
             "ArticulatedRig",
             "export_record",
         ),
+        ptk.SceneRecords.LODS: (
+            "blendertk.edit_utils.lods",
+            "LodUtils",
+            "export_record",
+        ),
         ptk.SceneRecords.MATERIALS: (
             "blendertk.env_utils.material_records",
             "MaterialRecords",
@@ -2205,8 +2210,13 @@ class FbxUtils(_FbxUtilsInternal):
             }
         except ImportError:
             source = {"application": "blender"}
+        # *omit*: objects under the scope the write leaves out (the Scene
+        # Exporter's Most Detailed Only levels) -- mirror of mayatk's.
+        omit = frozenset(decisions.pop("omit", None) or ())
         if decisions.get("scope") is not None and "nodes" not in decisions:
             decisions["nodes"] = cls._shipped_nodes(decisions["scope"])
+        if omit and decisions.get("nodes") is not None:
+            decisions["nodes"] = frozenset(decisions["nodes"]) - omit
         if "unit_scale" not in decisions:
             decisions["unit_scale"] = cls._writer_unit(writer, writer_options)
         if "animated" not in decisions:
@@ -3308,7 +3318,47 @@ class FbxUtils(_FbxUtilsInternal):
                 [] if stash else alternatives,
                 log,
             )
+        try:
+            FbxUtils._adopt_lod_heights(filepath, created, log)
+        except Exception as error:  # noqa: BLE001 - never refuse the import
+            log.warning(f"FBX {os.path.basename(filepath)}: its LOD switch heights were not read ({error}).")
         return created
+
+    @staticmethod
+    def _adopt_lod_heights(filepath: str, created: List, log) -> List[str]:
+        """Give each imported LOD group Empty the switch heights its FBX
+        LodGroup states (``ptk.FbxMedia.lod_heights``) as ``lod_heights``,
+        which the exporter writes back: Blender's importer reads the node type
+        and drops the thresholds, so a group from another DCC's file (or the
+        GLB-to-FBX conversion) re-exported at the default ladder. Read only
+        when an imported name is a LOD level; one already stating heights keeps
+        its own. Returns the groups given heights."""
+        import re
+
+        from blendertk.edit_utils.lods import LodUtils
+
+        # The file's names; an import beside a namesake takes Blender's ".001".
+        def unsuffixed(name: str) -> str:
+            return re.sub(r"\.\d{3,}$", "", name)
+
+        if not ptk.LodChain.names_levels(unsuffixed(o.name) for o in created):
+            return []
+        try:
+            stated = ptk.FbxMedia.lod_heights(filepath)
+        except (OSError, ValueError) as error:
+            log.debug(f"FBX {os.path.basename(filepath)}: LOD heights not read ({error}).")
+            return []
+        adopted = []
+        for obj in created:
+            if obj.type != "EMPTY" or LodUtils.HEIGHTS in obj.keys():
+                continue
+            heights = stated.get(obj.name) or stated.get(unsuffixed(obj.name))
+            if heights and len(heights) == len(obj.children):
+                obj[LodUtils.HEIGHTS] = [float(h) for h in heights]
+                adopted.append(obj.name)
+        if adopted:
+            log.info(f"FBX {os.path.basename(filepath)}: LOD switch heights read for {', '.join(adopted)}.")
+        return adopted
 
     @staticmethod
     def scene_settings(filepath):

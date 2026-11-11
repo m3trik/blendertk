@@ -47,6 +47,10 @@ ADAPTERS = (
         _adapter("blendertk.env_utils.workspace_map", "BlenderWorkspaceMapHost"),
     ),
     (
+        "LightRigHost",
+        _adapter("blendertk.light_utils.light_rig", "BlenderLightRigHost"),
+    ),
+    (
         "ProbeHost",
         _adapter("blendertk.light_utils.lightmap_baker._probe_placement", "BlenderProbeHost"),
     ),

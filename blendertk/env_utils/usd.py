@@ -206,6 +206,11 @@ class UsdUtils(_UsdUtilsInternal):
         **_Y_UP_EXPORT_OPTIONS,
     }
 
+    #: The interchange set for a deliverable beside its scene: texture files
+    #: referenced relative to the layer (the Scene Exporter's USD format and
+    #: Export Scene's). Mirror of mayatk's.
+    DELIVERABLE_EXPORT_OPTIONS = dict(INTERCHANGE_EXPORT_OPTIONS, relative_paths=True)
+
     #: ``wm.usd_import`` kwargs every hand-off importer starts from: EVERY prim
     #: (the importer's default skips invisible ones outright -- a Maya-hidden
     #: bake-source set vanished from a production pull, 2026-08-22; they arrive
@@ -1026,6 +1031,10 @@ class UsdUtils(_UsdUtilsInternal):
         ``UsdUtils.import_scene``; returns the objects created."""
         opts = dict(UsdUtils.INTERCHANGE_IMPORT_OPTIONS)
         opts.update(usd_opts)
+        # A layer stating LOD groups as variant sets (Unreal's, the Scene
+        # Exporter's) imports one variant alone; expand them so every level
+        # arrives (mirror of mayatk's).
+        filepath = UsdUtils.expand_lod_variants(filepath) or filepath
         imported = UsdUtils.import_usd(filepath, **opts)
         if not opts.get("import_visible_only"):
             UsdUtils.apply_visibility(filepath, imported)
@@ -1280,6 +1289,168 @@ class UsdUtils(_UsdUtilsInternal):
             obj.parent = None
             obj.matrix_world = world
         return len(plans)
+
+    @staticmethod
+    def author_lod_variants(usd_path: str, plan: List[Dict[str, Any]]) -> List[str]:
+        """State each LOD group of *plan* as a variant set ``LOD`` in the layer
+        at *usd_path*, in place: variants ``LOD0..n`` (the convention engines'
+        USD importers read), each holding its one level, LOD0 selected -- what
+        a reader without LOD support composes. *plan* is
+        ``ptk.LodChain.variant_plan``.
+
+        A group is found by name among the layer's prims, its levels among its
+        children (each host's writer re-roots or sanitizes its paths its own
+        way); a group found nowhere is left out of the return, for the caller
+        to say. A layer this session already holds is read again from disk
+        first (the writer just replaced it), and a group whose levels the
+        layer cannot move is left as written. Identical in mayatk and
+        blendertk (``check_dcc_twins.py``): pure pxr.
+
+        Returns:
+            The groups stated, by prim path.
+        """
+        from pxr import Sdf
+
+        layer = Sdf.Layer.Find(str(usd_path))
+        if layer is not None:
+            layer.Reload()
+        else:
+            layer = Sdf.Layer.FindOrOpen(str(usd_path))
+        if layer is None:
+            return []
+        prims: List[Any] = []
+        layer.Traverse(
+            Sdf.Path.absoluteRootPath,
+            lambda path: prims.append(path)
+            if path.IsPrimPath() and not path.ContainsPrimVariantSelection()
+            else None,
+        )
+        def children(p):
+            spec = layer.GetPrimAtPath(p)
+            return set(spec.nameChildren.keys()) if spec is not None else set()
+
+        # Every group found before any is edited, then the deepest first: an
+        # outer group's edit moves the inner one's prims into its variant, so
+        # read after it they were gone (2026-11-10 review: nested groups raised).
+        found = []
+        for entry in plan:
+            levels = list(entry["levels"])
+            path = next((p for p in prims if p.name == entry["group"] and set(levels) <= children(p)), None)
+            if path is not None:
+                found.append((path, entry, levels))
+        found.sort(key=lambda item: -item[0].pathElementCount)
+        stated = []
+        for path, entry, levels in found:
+            spec = layer.GetPrimAtPath(path)
+            if spec is None or "LOD" in spec.variantSets:
+                continue
+            edit = Sdf.BatchNamespaceEdit()
+            for level in levels:
+                edit.Add(path.AppendChild(level), Sdf.Path.emptyPath)
+            if not layer.CanApply(edit):
+                continue
+            variant_set = Sdf.VariantSetSpec(spec, "LOD")
+            for variant, level in zip(entry["variants"], levels):
+                Sdf.VariantSpec(variant_set, variant)
+                Sdf.CopySpec(
+                    layer,
+                    path.AppendChild(level),
+                    layer,
+                    path.AppendVariantSelection("LOD", variant).AppendChild(level),
+                )
+            spec.variantSetNameList.Prepend("LOD")
+            layer.Apply(edit)
+            spec.variantSelections["LOD"] = entry["variants"][0]
+            stated.append(str(path))
+        if stated:
+            layer.Save()
+        return stated
+
+    @staticmethod
+    def expand_lod_variants(usd_path: str, dst: Optional[str] = None) -> Optional[str]:
+        """A copy of the layer at *usd_path* with every ``LOD`` variant set
+        expanded into its levels as plain children, for a host import that
+        would otherwise read the selected variant alone.
+
+        A set is expanded only when every variant is named ``LOD<n>`` within
+        ``ptk.LodChain.MAX_LEVELS`` (any other set called ``LOD`` is no level
+        set, and stays). A variant holding one prim gives it the level's name,
+        ``<group>_LOD<n>``; one holding several keeps their names, each name
+        another variant already took getting ``_LOD<n>`` -- so no level
+        overwrites another. Read off the layer's own specs (no stage is
+        composed), written to *dst* (default a ``ptk.TempArtifacts`` file),
+        its asset paths made absolute so the copy reads the source's textures
+        and sublayers from anywhere. Identical in mayatk and blendertk
+        (``check_dcc_twins.py``): pure pxr.
+
+        Returns:
+            The expanded copy's path, or None when the layer states no LOD
+            variant set (import the source as it is).
+        """
+        import os
+        import re
+
+        from pxr import Sdf
+        from pxr import UsdUtils as PxrUsdUtils
+
+        layer = Sdf.Layer.FindOrOpen(str(usd_path))
+        if layer is None:
+            return None
+        named = re.compile(r"^LOD(\d+)$")
+
+        def levels_of(spec) -> Optional[List[Tuple[int, Any]]]:
+            if spec is None or "LOD" not in spec.variantSets:
+                return None
+            variants = spec.variantSets["LOD"].variants
+            indices = {name: named.match(name) for name in variants.keys()}
+            if not indices or not all(indices.values()):
+                return None
+            levels = sorted((int(m.group(1)), variants[name]) for name, m in indices.items())
+            return levels if levels[-1][0] < ptk.LodChain.MAX_LEVELS else None
+
+        found: List[Any] = []
+        layer.Traverse(
+            Sdf.Path.absoluteRootPath,
+            lambda path: found.append(path)
+            if path.IsPrimPath()
+            and not path.ContainsPrimVariantSelection()
+            and levels_of(layer.GetPrimAtPath(path))
+            else None,
+        )
+        if not found:
+            return None
+        copy = Sdf.Layer.CreateAnonymous(".usda")
+        copy.TransferContent(layer)
+        for path in found:
+            spec = copy.GetPrimAtPath(path)
+            taken = set(spec.nameChildren.keys())
+            for index, variant in levels_of(spec):
+                children = list(variant.primSpec.nameChildren.values())
+                for child in children:
+                    if len(children) == 1:
+                        target = ptk.LodChain.level_name(path.name, index)
+                    else:
+                        target = child.name if child.name not in taken else f"{child.name}_LOD{index}"
+                    if target in taken:
+                        continue  # a direct child of that name stays as authored
+                    taken.add(target)
+                    Sdf.CopySpec(copy, child.path, copy, path.AppendChild(target))
+            del spec.variantSets["LOD"]
+            if "LOD" in spec.variantSelections:
+                del spec.variantSelections["LOD"]
+            names = spec.variantSetNameList
+            for items in (names.explicitItems, names.prependedItems, names.appendedItems):
+                if "LOD" in items:
+                    items.remove("LOD")
+        PxrUsdUtils.ModifyAssetPaths(
+            copy,
+            lambda asset: layer.ComputeAbsolutePath(asset)
+            if asset and not os.path.isabs(asset)
+            else asset,
+        )
+        dst = dst or ptk.TempArtifacts("usd_lods").path(extension=".usda")
+        copy.Export(dst)
+        return dst
 
     @staticmethod
     def skinning_methods(usd_path: str) -> Dict[str, str]:
