@@ -284,6 +284,8 @@ DEFAULT_INCLUDE = {
     # HDR Manager and Shader Templates -- mirrors of mayatk's engines (their panels are
     # tentacle's shared tools).
     "light_utils.hdr_manager": ["HdrManager"],
+    # The light rig engine is pythontk's; this binds Blender to it (mirror of mtk.LightRig).
+    "light_utils.light_rig": ["LightRig", "BlenderLightRigHost"],
     "mat_utils.shader_templates": ["ShaderTemplates"],
     # Marmoset Bridge — mirror of mayatk's ``mat_utils.marmoset_bridge._marmoset_bridge``
     # (its panel is tentacle's shared tool).
@@ -819,8 +821,9 @@ MOVED_NAMES = {
         "tentacle.slots.tools.texture_path_editor.TexturePathEditorSlots",
         "0.23.0",
     ),
+    # The panel went (2026-11-11): an Arnold render bridges what it needs itself.
     "ArnoldBridgeSlots": (
-        "tentacle.slots.tools.arnold_bridge.ArnoldBridgeSlots",
+        "removed: an Arnold render bridges the game shaders itself; Blender has no Arnold",
         "0.23.0",
     ),
     "WorkspaceEditorSlots": (
