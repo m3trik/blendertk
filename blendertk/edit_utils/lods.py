@@ -153,7 +153,7 @@ class LodUtils(ptk.HelpMixin):
         if ctx.scope:
             roots = [bpy.data.objects.get(str(n).rsplit("|", 1)[-1]) for n in ctx.scope]
             roots = [o for o in roots if o is not None]
-        entries = ptk.LodChain.record_groups(cls.groups(roots), ctx.ships, cls._heights_at)
+        entries = ptk.LodChain.record_groups(cls.groups(roots), ctx.ships, cls._heights_at, note=ctx.note)
         if not entries:
             return None
         return ptk.SceneRecords.LODS.make({"groups": entries})
@@ -271,9 +271,10 @@ class LodUtils(ptk.HelpMixin):
         """Why :meth:`generate` leaves *obj* alone, or None -- twin of
         mayatk's: a level is a static copy of it, so a deforming mesh (an
         Armature modifier, shape keys), an instanced one (shared mesh data), a
-        moving one (an action, NLA strips, drivers or constraints, itself or
-        above), one parented to a bone or vertices (its place is not its
-        parent's matrix), one holding other objects, or one too light for a
+        moving one by its own animation (an action, NLA strips, drivers or
+        constraints: what moves above it moves every level, which sits under
+        the same parent), one parented to a bone or vertices (its place is not
+        its parent's matrix), one holding other objects, or one too light for a
         lower level needs authored LODs."""
         if obj is None or obj.type != "MESH" or obj.data is None:
             return "no mesh"
@@ -283,12 +284,9 @@ class LodUtils(ptk.HelpMixin):
             return "skinned or with blend shapes"
         if obj.data.users > 1:
             return "instanced"
-        node = obj
-        while node is not None:
-            data = node.animation_data
-            if (data and (data.action or data.drivers or data.nla_tracks)) or node.constraints:
-                return "animated"
-            node = node.parent
+        data = obj.animation_data
+        if (data and (data.action or data.drivers or data.nla_tracks)) or obj.constraints:
+            return "animated"
         if obj.parent is not None and obj.parent_type != "OBJECT":
             return "parented to a bone or vertices"
         if obj.children:

@@ -1,6 +1,8 @@
 # blendertk — Changelog
 
 ## 2026
+- **2026-11-11 -- Fixed: a moving parent no longer keeps Generate Missing and Create LODs off a mesh, mirror of mayatk's (`edit_utils/lods.py` `LodUtils.ineligible`; `export_record` passes `ctx.note`).** A level sits under the mesh's own parent and moves with it, so only the mesh's own animation (an action, NLA strips, drivers, constraints) needs authored LODs. Refusing an animated ancestor had left 330 of a production assembly's 331 meshes ungenerated in Maya. The record's name-clash note reaches the export's report.
+  - Test(s): red first, then green: `test_lods.py` new checks "a mesh under a moving parent is eligible", "its level follows the parent", "a mesh keyed itself stays animated" (`animated` before); the suite 25/25.
 - **2026-11-10 -- LOD pipeline end to end, and its full review, mirror of mayatk's (`edit_utils/lods.py`, `env_utils/scene_exporter/{_task_scene.py, _scene_exporter.py}`, `env_utils/{fbx_utils.py, usd.py}`).**
   - **A group ships in the Visible scope.** The scope lists meshes alone, and Blender's writer parents a child whose parent it is not handed to the root, so the FBX held no group and the GLB no `MSFT_lod`. Each group's Empty now joins the export set.
   - **The FBX states each group's switch heights.** Blender's writer types the Empty a LodGroup with no thresholds, so Maya, Unreal and the GLB pass switched it at their defaults. Written after the export (`ptk.FbxMedia.set_lod_thresholds`), before the GLB reads the file.
