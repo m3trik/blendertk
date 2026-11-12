@@ -142,8 +142,8 @@ class _SceneTasksMixin(_TaskDataMixin):
     def _lod_ineligible(obj, named) -> Optional[str]:
         """Why Generate Missing leaves *obj* alone, or None -- mirror of
         mayatk's: a mesh a scene record names, a deforming (an Armature
-        modifier, shape keys), instanced (shared mesh data) or moving one (an
-        action, NLA strips, drivers or constraints, itself or above), one
+        modifier, shape keys), instanced (shared mesh data) or moving one (its
+        own action, NLA strips, drivers or constraints), one
         holding other objects, or one too light for a lower level needs
         authored LODs."""
         from blendertk.edit_utils.lods import LodUtils

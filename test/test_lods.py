@@ -153,6 +153,33 @@ try:
     bolt.parent = plate
     check("a mesh holding another is skipped", btk.LodUtils.generate([plate]) == [])
 
+    # a mesh under a moving parent is generated and its levels follow; only its
+    # own animation needs authored LODs (production rigs key the _LOC above each
+    # mesh: refusing an animated ancestor left 330 of 331 ungenerated, 2026-11-11)
+    reset()
+    rig = bpy.data.objects.new("arm_LOC", None)
+    bpy.context.scene.collection.objects.link(rig)
+    rig.rotation_euler = (0, 0, 0)
+    rig.keyframe_insert("rotation_euler", index=2, frame=1)
+    rig.rotation_euler = (0, 0, 1.5)
+    rig.keyframe_insert("rotation_euler", index=2, frame=10)
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=40, ring_count=40)
+    ball = bpy.context.active_object
+    ball.name = "ball"
+    ball.parent = rig
+    ball.location = (2, 0, 0)
+    check("a mesh under a moving parent is eligible", btk.LodUtils.ineligible(ball) is None, btk.LodUtils.ineligible(ball))
+    made = btk.LodUtils.generate([ball])
+    check("and generated", len(made) == 1, made)
+    bpy.context.scene.frame_set(10)
+    lod1 = next(o for o in made[0].children if o.name == "ball_LOD1")
+    check("its level follows the parent",
+          all(abs(a - b) < 1e-4 for ra, rb in zip(world(lod1), world(ball)) for a, b in zip(ra, rb)), (world(lod1), world(ball)))
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=40, ring_count=40)
+    spinner = bpy.context.active_object
+    spinner.keyframe_insert("rotation_euler", index=2, frame=1)
+    check("a mesh keyed itself stays animated", btk.LodUtils.ineligible(spinner) == "animated", btk.LodUtils.ineligible(spinner))
+
     # a shape-keyed mesh is left alone: a level is a static copy (2026-11-10 review)
     reset()
     bpy.ops.mesh.primitive_uv_sphere_add(segments=40, ring_count=40)
