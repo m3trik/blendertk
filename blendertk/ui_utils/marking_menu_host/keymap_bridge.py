@@ -308,7 +308,7 @@ class KeymapBridge(ptk.LoggingMixin):
         ``mousePressEvent``, which re-resolves it as the ``F12|LeftButton`` chord (jumping the menu to
         ``cameras#startmenu``) instead of letting the click reach the button. Without the grab, hover
         opens submenus and a leaf click reaches the leaf — exactly Maya's behavior (proven by
-        ``test/blender/hover_nav_check.py`` and the deterministic ``grab_policy_check.py``). The chord
+        ``tests/blender/hover_nav_check.py`` and the deterministic ``grab_policy_check.py``). The chord
         gesture keeps its grab because the button-held branch still routes through
         ``_transfer_mouse_control``.
 
@@ -414,7 +414,7 @@ class KeymapBridge(ptk.LoggingMixin):
         The user keyconfig, deliberately — not the addon items in :attr:`keymaps`. Blender merges
         the addon keymap into the user one; the editor edits THAT copy and dispatch follows it,
         while our addon item goes on reporting the key we installed. Both halves were measured on
-        real injected keystrokes in ``test/blender/gui_keymap_editor_check.py``: after a rebind to
+        real injected keystrokes in ``tests/blender/gui_keymap_editor_check.py``: after a rebind to
         F12 the operator fires on F12 and no longer on Z, and the addon item still reads Z. So a
         bridge that watched its own item could never notice a user rebind."""
         try:
@@ -569,7 +569,7 @@ class KeymapBridge(ptk.LoggingMixin):
         ``Screen`` keymap, so it takes the key over the viewport and naturally wins over ``render.render``
         — *without* us disabling anyone's global F12 (it still renders everywhere else). No muting needed.
         Within the ``3D View`` keymap itself, an addon-keyconfig item also outranks factory/user items on
-        the same bare key (measured on a real injected keypress — ``test/blender/gui_key_rival_check.py``),
+        the same bare key (measured on a real injected keypress — ``tests/blender/gui_key_rival_check.py``),
         so a stock binding like the ``Z`` shading pie is shadowed while installed, not a conflict.
         """
         import bpy
@@ -852,7 +852,7 @@ class ActivationDiagnostics(ptk.LoggingMixin):
         # another ADD-ON binding the key is a genuine contest (ordering among addon items is
         # insertion order — undetermined), while factory/user items are merely SHADOWED — an
         # addon-keyconfig item outranks them within the same keymap, measured on a real injected
-        # keypress in a factory session (``test/blender/gui_key_rival_check.py``: the stock shading
+        # keypress in a factory session (``tests/blender/gui_key_rival_check.py``: the stock shading
         # pie on bare ``Z``, the default activation key, never fires while our item is installed).
         # Dedup by name, not id(): ``active`` often aliases ``user``/``default`` but Blender hands
         # back a fresh Python wrapper each access (distinct id), so id()-dedup would double-list.

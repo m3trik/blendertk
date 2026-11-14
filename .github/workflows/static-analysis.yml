@@ -64,7 +64,7 @@ jobs:
           # `ruff check blendertk` is CLEAN against the full declared set, so
           # the narrow selector was gating less than the tree already earns.
           # Scope stays the package dir: `ruff check .` still reports 326
-          # findings, all under test/.
+          # findings, all under tests/.
           # templates/ is F821-exempt via pyproject (__PLACEHOLDER__ tokens).
           ruff check blendertk
 

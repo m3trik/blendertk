@@ -2,7 +2,7 @@ name: Tests
 
 # blendertk's runtime suites need Blender, which no runner has. This workflow runs
 # the Qt-only suites that do NOT need bpy, on the workspace venv leg the local
-# runner already uses (test/run_tests.py: find_venv_python).
+# runner already uses (tests/run_tests.py: find_venv_python).
 #
 # Deliberately NOT `workflow_call`-able and deliberately NOT part of
 # static-analysis.yml: publish.yml does `uses: ./.github/workflows/static-analysis.yml`
@@ -19,7 +19,7 @@ jobs:
   qt-suites:
     # blendertk's suites are standalone Blender scripts, not pytest modules -
     # pyproject's norecursedirs keeps pytest away from them because IMPORTING a
-    # suite executes it. test/run_tests.py drives each one in a fresh headless
+    # suite executes it. tests/run_tests.py drives each one in a fresh headless
     # Blender and parses its `===RESULT: PASS=== (ok/total)` sentinel; its
     # find_venv_python() leg re-runs the Qt-only suites (the ones headless
     # Blender self-skips, for want of a Qt binding it does not ship) under a
@@ -45,11 +45,11 @@ jobs:
         with:
           path: blendertk
 
-      # Five suites below resolve uitk/test/conftest.py -- which owns the
+      # Five suites below resolve uitk/tests/conftest.py -- which owns the
       # QSettings sandbox -- as a SIBLING of this repo, and refuse to run
       # without it: loading real panels through Switchboard otherwise reads and
       # writes the developer's live uitk\shared store. A pip-installed uitk
-      # ships no test/ dir, so the wheel alone can never satisfy them; before
+      # ships no tests/ dir, so the wheel alone can never satisfy them; before
       # this checkout test_blender_ui_handler and test_naming_slots self-skipped
       # (243 + 37 checks) and three panel suites collected zero. uitk is public,
       # so no token is needed. `main` is the ref the published wheel is built
@@ -136,7 +136,7 @@ jobs:
           total_ok=0
           total_checks=0
           for name in $SUITES; do
-            out=$(python "test/${name}.py" 2>&1)
+            out=$(python "tests/${name}.py" 2>&1)
             line=$(printf '%s\n' "$out" | grep -E '^===RESULT: (PASS|FAIL)===' | head -1)
             if [ -z "$line" ]; then
               # No sentinel at all: the suite died before reporting (import

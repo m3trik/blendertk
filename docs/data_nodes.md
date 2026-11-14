@@ -73,7 +73,7 @@ and what an export with no preset uses):
 **No preset can defeat either**: the write repairs both, with a warning,
 whenever the carrier is in the export set, and the settings report is emitted
 after the repair. `FbxUtils.export_selection_fbx` (the Substance and Marmoset
-writes) repairs them the same way. Pinned by `test/test_scene_exporter.py`.
+writes) repairs them the same way. Pinned by `tests/test_scene_exporter.py`.
 
 The Scene Exporter's default-on *Export Scene Data Node* task
 (`export_data_node`) is the one publish of an export -- `FbxUtils.publish` with
@@ -85,7 +85,7 @@ task off still publishes once before the write.
 `derived` records under a HANDOFF context and **forces** both options where
 the carrier is appended, rather than in the overridable `_fbx_options`, so a
 subclass overriding that method cannot ship a carrier holding nothing. Never
-*creates* a carrier just to ship. Pinned by `test/test_fbx_utils.py`.
+*creates* a carrier just to ship. Pinned by `tests/test_fbx_utils.py`.
 
 ## Producers (Blender side)
 

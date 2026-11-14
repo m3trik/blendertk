@@ -133,7 +133,7 @@ class _CoreUtilsInternal(object):
         shadowing hazard the move exists to close.
 
         ``BLENDERTK_PACKAGES_DIR`` names *target* instead (created): a test run
-        (``test/run_tests.py``) points it into its temp root, so provisioning
+        (``tests/run_tests.py``) points it into its temp root, so provisioning
         under test never writes the user's profile -- what the profile already
         holds stays on ``sys.path``, read-only.
 
@@ -432,7 +432,7 @@ class _CoreUtilsInternal(object):
         Python-level RNA property read per polygon and was reimplemented at five call sites.
         ``polygons.foreach_get("loop_total", buf)`` pulls every per-face corner count in ONE
         call, so the arithmetic vectorises: measured 6-12x faster on 10k-100k-poly meshes
-        (see the fan-count parity test in ``test/test_core_utils.py``).
+        (see the fan-count parity test in ``tests/test_core_utils.py``).
 
         The counts are exactly those of the loop form: a polygon fan-triangulates into
         ``n - 2`` triangles, and a face with more than four corners is an ngon.

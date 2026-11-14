@@ -1,0 +1,1408 @@
+"""blendertk MayaBridge feature test (headless Blender — bpy present, NO Qt).
+
+Run: blender --background --factory-startup --python blendertk/tests/test_maya_bridge.py
+
+Covers the Qt-free engine surface (exe discovery, template discovery, MEL builder, raw template
+text) and the bpy-dependent FBX export (full + strip-materials), with ``btk.FbxUtils.export_selection_fbx``
+stubbed. ``render_template`` / ``send`` are NOT exercised here: they import ``parameters`` ->
+``uitk.bridge`` (Qt), which headless ``--factory-startup`` Blender lacks. Those (and the live panel
+that builds the param widgets) are covered under the workspace ``.venv`` by
+``test_blender_ui_handler.py``.
+"""
+
+import sys
+import os
+import shutil
+import tempfile
+import traceback
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(HERE)
+MONO = os.path.dirname(REPO)
+for p in (REPO, os.path.join(MONO, "pythontk")):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+lines = []
+
+
+def check(name, cond, detail=""):
+    lines.append(
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
+    )
+
+
+try:
+    import bpy
+    import blendertk as btk
+    from blendertk.env_utils.maya_bridge._maya_bridge import MayaBridge, _TEMPLATE_DIR
+
+    def reset():
+        bpy.ops.object.select_all(action="DESELECT")
+        for o in list(bpy.data.objects):
+            bpy.data.objects.remove(o, do_unlink=True)
+        for m in list(bpy.data.materials):
+            bpy.data.materials.remove(m)
+
+    # ---- discovery (Qt-free) -------------------------------------------------
+    resolved = MayaBridge().maya_path
+    check(
+        "maya_path returns None or a str (no raise)",
+        resolved is None or isinstance(resolved, str),
+        f"{resolved}",
+    )
+    check(
+        "explicit maya_path wins", MayaBridge("X:/maya.exe").maya_path == "X:/maya.exe"
+    )
+
+    # ---- template discovery (Qt-free) ---------------------------------------
+    pairs = MayaBridge.list_template_modes()
+    stems = {t for t, _ in pairs}
+    # The three near-identical recipes collapsed into one options-driven template.
+    check("templates discovered", stems == {"import"}, f"{sorted(stems)}")
+    check("all modes send_to", all(m == "send_to" for _, m in pairs))
+    check(
+        "template_modes parses BRIDGE_MODES",
+        MayaBridge.template_modes(_TEMPLATE_DIR / "import.py") == ("send_to",),
+    )
+    # tentacle's Maya Bridge lists, reads and opens the engine's folder.
+    check(
+        "TEMPLATE_DIR is the engine's template folder",
+        MayaBridge.TEMPLATE_DIR == _TEMPLATE_DIR,
+    )
+    # The allowed-list must cover every mode a spec actually serves: the helpers filter
+    # declarations against it and silently fall back to entry [0], so a `save_as`
+    # template left out of it reads as an interactive send -- which then routes through
+    # send(), never populates __OUT_FILE__, and fails minutes into a launched Maya.
+    # Derived from the specs so it cannot fall out of step; [0] stays the fallback.
+    check(
+        "allowed modes cover every registered spec mode",
+        set(MayaBridge.template_modes_allowed)
+        == set(MayaBridge.spec.modes) | set(MayaBridge.run_spec.modes),
+        f"{MayaBridge.template_modes_allowed}",
+    )
+    check(
+        "send_to is still the lenient fallback",
+        MayaBridge.template_modes_allowed[0] == "send_to",
+    )
+    check(
+        "the blocking template's own mode survives the strict read",
+        MayaBridge.template_modes(_TEMPLATE_DIR / "_save_scene.py") == ("save_as",),
+    )
+
+    # ---- raw template text (Qt-free; render_template itself needs Qt) -------
+    import_txt = (_TEMPLATE_DIR / "import.py").read_text()
+    check(
+        "import template: FBXImport + the carrier-neutral payload placeholder",
+        "FBXImport" in import_txt and "__PAYLOAD_PATH__" in import_txt,
+    )
+    check(
+        "import template: export-options placeholders present (panel visibility)",
+        "__INCLUDE_MATERIALS__" in import_txt and "__EMBED_TEXTURES__" in import_txt,
+    )
+    check(
+        "unified template exposes both scene-behavior options",
+        "__FRAME_VIEW__" in import_txt and "__CLEAR_SCENE__" in import_txt,
+    )
+    # Post-import repairs (regressions: sent hierarchies arrived as locators; real
+    # production materials arrived gray). The Maya-side execution is pinned by
+    # mayatk's suite + live probe; here we pin the template's wiring.
+    check(
+        "import template: parent Empties -> plain groups (locator strip)",
+        "restore_empty_groups" in import_txt and 'exactType="locator"' in import_txt,
+    )
+    check(
+        "import template: manifest rebuild through mayatk's paired applier",
+        "_apply_texture_manifest" in import_txt
+        and ".manifest.json" in import_txt
+        and "keeping the FBX-carried materials" in import_txt,
+    )
+    check(
+        "import template: deterministic import (reset + add mode, new-node diff)",
+        "FBXResetImport" in import_txt and "returnNewNodes=True" in import_txt,
+    )
+    # FBXResetImport restores Maya 2025's factory "No Animation" take selector, so a
+    # reset with no take re-select drops every animCurve (probed: 0 curves before,
+    # 1 after); a FIXED index aborts a takeless import and returns no nodes at all.
+    # `-ti -1` alone (the last take) played ONE shot of every animated push, which
+    # writes the whole timeline first and a take per shot after it (2026-10-11), so
+    # the engine imports every take, and the bare fallback the take covering the
+    # rest (else -1) -- pin the recipe, never a literal index.
+    check(
+        "import template: the FBX import runs through the paired engine first",
+        'BlenderSceneImport(log_level="WARNING")._import_fbx(FBX_PATH)' in import_txt,
+    )
+    check(
+        "import template: the fallback re-selects the covering take (else -1)",
+        "fallback_take(mel, FBX_PATH, cmds.warning)" in import_txt
+        and '"FBXImportSetTake -ti {}".format(take)' in import_txt
+        and "FBXGetTakeLocalTimeSpan" in import_txt
+        and "FBXImportSetTake -ti -1" not in import_txt,
+    )
+
+    # ---- MEL command builder (Qt-free) --------------------------------------
+    # maya.exe decodes its command line in the ANSI code page (measured on Maya 2025:
+    # Cyrillic arrived as "???"), and the script sits under %TEMP%, which holds the
+    # user's name -- so the MEL names no path: it reads the script from the env var
+    # the deliverer always sets. And Maya's open() decodes with the locale (cp1252),
+    # which turned a UTF-8 payload path INSIDE the script into another path.
+    import json
+    import subprocess
+    import glob
+    import pythontk as ptk
+
+    mel = MayaBridge._build_mel_command()
+    check(
+        "mel command names no path and is plain ASCII MEL",
+        mel.startswith('python("')
+        and mel.endswith('")')
+        and mel.isascii()
+        and ptk.AppLauncher.PYTHON_ARGV_VAR in mel
+        and '"' not in mel[len('python("') : -len('")')]
+        and "\\" not in mel,
+        mel,
+    )
+    mel_dir = os.path.join(HERE, "temp_tests", f"mel Zo\u00eb \u2605 {os.getpid()}")
+    os.makedirs(mel_dir, exist_ok=True)
+    mel_script = os.path.join(mel_dir, "btk_to_maya.py")
+    mel_out = os.path.join(mel_dir, "out.json")
+    with open(mel_script, "w", encoding="utf-8") as fh:
+        fh.write(
+            "import json\n"
+            "WORD = 'Zo\u00eb \u2605'\n"
+            "def _word():\n"
+            "    return WORD\n"
+            f"json.dump([_word(), __name__], open({mel_out!r}, 'w', encoding='utf-8'))\n"
+        )
+    mayapys = sorted(glob.glob(r"C:\Program Files\Autodesk\Maya20*\bin\mayapy.exe"))
+    if mayapys:
+        # Maya's python() runs code in __main__; ``mayapy -c`` is that same frame.
+        _, mel_env = ptk.AppLauncher.python_args_via_env([mel_script])
+        mel_run = subprocess.run(
+            [mayapys[-1], "-c", mel[len('python("') : -len('")')]],
+            env=mel_env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        mel_seen = None
+        if os.path.isfile(mel_out):
+            with open(mel_out, encoding="utf-8") as fh:
+                mel_seen = json.load(fh)
+        check(
+            "mel body runs a non-ASCII script, decoded as UTF-8, in __main__ (mayapy)",
+            mel_seen == ["Zo\u00eb \u2605", "__main__"],
+            ascii((mel_seen, mel_run.returncode, mel_run.stderr[-400:])),
+        )
+    shutil.rmtree(mel_dir, ignore_errors=True)
+
+    # ---- save_as: the blocking route to a native .ma (Qt-FREE by design) -----
+    # This is the whole point of the mode: a headless Blender must be able to write a
+    # Maya scene, and headless Blender has no Qt -- so params/rendering may not touch
+    # uitk here. The mayapy run itself is stubbed (it costs ~6s and needs Maya).
+    from pythontk import ScriptTemplate
+    from pythontk import ScriptRunDeliverer
+    from blendertk.env_utils.maya_bridge._maya_bridge import DEFAULTS
+
+    save_txt = (_TEMPLATE_DIR / "_save_scene.py").read_text()
+    check(
+        "save template hidden from the panel list (not a user-pickable recipe)",
+        "_save_scene" not in {p.stem for p in MayaBridge.list_templates()},
+    )
+    check(
+        "save template declares only save_as",
+        ScriptTemplate.declared_modes(_TEMPLATE_DIR / "_save_scene.py") == ("save_as",),
+    )
+    check(
+        "save template: renames + saves, and exits hard (artifact is the verdict)",
+        "cmds.file(rename=OUT_FILE)" in save_txt
+        and "save=True" in save_txt
+        # ProcessExit, never a bare os._exit: on Windows that still runs every DLL's
+        # detach, where Maya's destructors fault -- a crash dump plus a [Recovered]
+        # copy of the saved scene in the temp dir per save_as (the pulls' shape).
+        and "ProcessExit.hard_exit(code)" in save_txt
+        # ... on BOTH exits: the helper's own fallback is the only bare one.
+        and save_txt.count("os._exit(") == 1,
+    )
+    check(
+        "save template: same paired-engine repairs as the interactive import",
+        "_apply_texture_manifest" in save_txt and "restore_empty_groups" in save_txt,
+    )
+    check(
+        "save template: bare-mayapy fallback re-selects the covering take (see import twin)",
+        "fallback_take(mel, FBX_PATH, cmds.warning)" in save_txt
+        and '"FBXImportSetTake -ti {}".format(take)' in save_txt
+        and "FBXImportSetTake -ti -1" not in save_txt,
+    )
+    # One rule, two copies: the fallback cannot import mayatk (that is what makes it
+    # the fallback), so each template carries the covering-take rule -- held
+    # token-identical here, docstring aside (the precedent: mayatk's
+    # test_scene_import holds the locator / empty-group fallback loops the same way).
+    import ast as _take_ast
+
+    def _covering(text, name="covering_take"):
+        fn = next(
+            (
+                n
+                for n in _take_ast.walk(_take_ast.parse(text))
+                if isinstance(n, _take_ast.FunctionDef) and n.name == name
+            ),
+            None,
+        )
+        if fn is None:
+            return None
+        if isinstance(fn.body[0], _take_ast.Expr):  # the docstring
+            fn.body = fn.body[1:]
+        if name.endswith("covering_take"):  # mayatk's is a staticmethod
+            fn.name, fn.decorator_list = "covering_take", []
+        return _take_ast.dump(fn)
+
+    check(
+        "covering_take is one rule: token-identical in the import and save templates",
+        _covering(import_txt) is not None
+        and _covering(import_txt) == _covering(save_txt),
+    )
+    check(
+        "fallback_take is one rule: token-identical in the import and save templates",
+        _covering(import_txt, "fallback_take") is not None
+        and _covering(import_txt, "fallback_take")
+        == _covering(save_txt, "fallback_take"),
+    )
+    # mayatk is the reference: the vendored covering_take is its
+    # FbxUtils._covering_take, docstring aside (mayatk's own bake template is held
+    # to the same body by its test_scene_import). Read from the sibling checkout;
+    # an install without one has nothing to drift from.
+    _mtk_fbx = os.path.join(MONO, "mayatk", "mayatk", "env_utils", "fbx_utils.py")
+    if os.path.isfile(_mtk_fbx):
+        with open(_mtk_fbx, encoding="utf-8") as _fh:
+            _mtk_rule = _covering(_fh.read(), "_covering_take")
+        check(
+            "covering_take is mayatk's FbxUtils._covering_take, token for token",
+            _mtk_rule is not None and _covering(import_txt) == _mtk_rule,
+        )
+    # The two Maya-side scripts share ONE recipe -- the same repairs, in the same
+    # order -- and each says so in prose; this is what holds them to it. Only the
+    # calls to the scripts' own recipe steps are compared: the setup around them
+    # (a new scene, a save, a view fit) is each mode's own business.
+    import ast as _recipe_ast
+
+    _RECIPE = {
+        "import_payload",
+        "restore_usd_locators",
+        "restore_empty_groups",
+        "rebuild_materials",
+        "rebuild_scene_data",
+    }
+
+    def _recipe(text):
+        main = next(
+            n
+            for n in _recipe_ast.parse(text).body
+            if isinstance(n, _recipe_ast.FunctionDef) and n.name == "main"
+        )
+        calls = [
+            n
+            for n in _recipe_ast.walk(main)
+            if isinstance(n, _recipe_ast.Call)
+            and isinstance(n.func, _recipe_ast.Name)
+            and n.func.id in _RECIPE
+        ]
+        return [
+            c.func.id for c in sorted(calls, key=lambda c: (c.lineno, c.col_offset))
+        ]
+
+    check(
+        "import + save templates run one recipe: the same repairs, same order",
+        _recipe(import_txt) == _recipe(save_txt)
+        and _recipe(save_txt)
+        == [
+            "import_payload",
+            "restore_usd_locators",
+            "restore_empty_groups",
+            "rebuild_materials",
+            "rebuild_scene_data",
+        ],
+        f"import={_recipe(import_txt)} save={_recipe(save_txt)}",
+    )
+    check(
+        "save template: .mb only when asked for, else mayaAscii",
+        'mayaBinary" if OUT_FILE.lower().endswith(".mb")' in save_txt,
+    )
+
+    sa_hp = MayaBridge(maya_path="C:/fake/maya.exe").headless_app_path
+    check(
+        "headless route resolves a mayapy (or None where Maya is absent)",
+        sa_hp is None or os.path.basename(sa_hp).lower().startswith("mayapy"),
+        f"{sa_hp}",
+    )
+
+    # Qt-free params: the engine still knows its own defaults with no uitk import.
+    sa_bridge = MayaBridge(maya_path="C:/fake/bin/maya.exe")
+    check(
+        "params_defaults answers without Qt",
+        sa_bridge.params_defaults() == DEFAULTS,
+        f"{sa_bridge.params_defaults()}",
+    )
+    # These hand-offs feed a game engine: the rebuild targets Maya's game shader
+    # unless the user says otherwise. Stingray is also the only family that
+    # DECLARES its texture slots, so its maps survive the trip back out rather
+    # than being re-guessed from filenames. Paired with the Maya-side pull
+    # default (mayatk: BlenderSceneImport.import_scene) -- same rebuild, so the
+    # two must not disagree; each side pins its own.
+    check(
+        "default rebuild shader is the game shader",
+        DEFAULTS["SHADER_TYPE"] == "stingray",
+        DEFAULTS["SHADER_TYPE"],
+    )
+
+    sa_runs = []
+
+    def sa_fake_run(app_exe, script_text, *, artifact, launch_args, timeout, env=None):
+        import pythontk as ptk
+
+        sa_runs.append(
+            {
+                "app": app_exe,
+                "script": script_text,
+                "artifact": artifact,
+                "args": list(launch_args("S.py")) if launch_args else None,
+                "env": env,
+            }
+        )
+        with open(artifact, "w", encoding="utf-8") as fh:
+            fh.write("//Maya ASCII\n")
+        return ptk.ScriptRunResult(
+            artifact=artifact, returncode=0, output="", duration=0.1, script_path="S.py"
+        )
+
+    sa_dir = tempfile.mkdtemp(prefix="btk_save_as_")
+    # The run is faked, but the bridge resolves a mayapy before it: pin a stand-in so
+    # this never depends on a real Maya install (Linux and clean Windows boxes have none).
+    sa_mayapy = os.path.join(sa_dir, "mayapy.exe" if os.name == "nt" else "mayapy")
+    open(sa_mayapy, "w").close()
+    sa_orig_mayapy_env = os.environ.get("MAYAPY_EXE")
+    os.environ["MAYAPY_EXE"] = sa_mayapy
+    sa_orig_run = ScriptRunDeliverer.run
+    sa_orig_export = btk.FbxUtils.export_selection_fbx
+    ScriptRunDeliverer.run = staticmethod(sa_fake_run)
+    btk.FbxUtils.export_selection_fbx = lambda filepath=None, objects=None, **o: (
+        filepath
+    )
+    try:
+        reset()
+        bpy.ops.mesh.primitive_cube_add()
+        bpy.context.active_object.name = "SaveAsCube"
+        bpy.ops.object.select_all(action="DESELECT")  # nothing selected on purpose
+
+        sa_out = os.path.join(sa_dir, "asset.ma")
+        sa_result = sa_bridge.save_as(sa_out)
+        check("save_as returns the written artifact", bool(sa_result), f"{sa_result}")
+        # NOTE: never echo the run record itself -- it carries the child env.
+        # No launch_args: the runner's interpreter default, which carries the script
+        # path in the env -- mayapy decodes its command line in the ANSI code page.
+        check(
+            "save_as ran ONE headless mayapy, interpreter default (path off argv)",
+            len(sa_runs) == 1 and sa_runs[0]["args"] is None,
+            f"{len(sa_runs)} run(s), argv={sa_runs[0]['args'] if sa_runs else None}",
+        )
+        check(
+            "save_as env carries the fast-start vars",
+            (sa_runs[0]["env"] or {}).get("MAYA_SKIP_USERSETUP_PY") == "1",
+        )
+        import re
+
+        sa_script = sa_runs[0]["script"]
+        # mayapy writes a staging sibling; the caller's path is the promotion target,
+        # so a failed run can never destroy an existing scene file.
+        sa_staged = ScriptRunDeliverer._staging_path(sa_out)
+        check(
+            "rendered save script points at the staging sibling + the payload",
+            f'OUT_FILE = r"{sa_staged.replace(os.sep, "/")}"' in sa_script
+            and not re.findall(r"__[A-Z][A-Z0-9_]*__", sa_script),
+        )
+        check(
+            "the staged file is promoted to the caller's path",
+            os.path.isfile(sa_out) and not os.path.exists(sa_staged),
+        )
+        import ast
+
+        ast.parse(sa_script)  # raises -> caught by the outer handler
+        check("rendered save script is valid Python", True)
+
+        # "Save the scene as ..." means the SCENE -- nothing was selected above.
+        sa_runs.clear()
+        check(
+            "save_as defaults to the whole scene, not the selection",
+            [o.name for o in sa_bridge._scene_objects()] == ["SaveAsCube"],
+            f"{[o.name for o in sa_bridge._scene_objects()]}",
+        )
+
+        sa_bare = sa_bridge.save_as(os.path.join(sa_dir, "bare"))
+        check(
+            "a bare path gets .ma; .mb is honoured when asked for",
+            sa_bare
+            and sa_bare["output"].endswith(".ma")
+            and MayaBridge.resolve_save_path("x/y.mb").endswith(".mb"),
+        )
+
+        sa_runs.clear()
+        sa_bad = sa_bridge.save_as(sa_out, template="import")
+        check(
+            "the interactive import template is rejected for save_as (preflight)",
+            sa_bad is None and not sa_runs,
+        )
+    finally:
+        ScriptRunDeliverer.run = staticmethod(sa_orig_run)
+        btk.FbxUtils.export_selection_fbx = sa_orig_export
+        if sa_orig_mayapy_env is None:
+            os.environ.pop("MAYAPY_EXE", None)
+        else:
+            os.environ["MAYAPY_EXE"] = sa_orig_mayapy_env
+        shutil.rmtree(sa_dir, ignore_errors=True)
+
+    # ---- the take a Maya-side import plays (2026-10-11; real mayapy) --------------
+    # A multi-take FBX keeps ONE take in Maya (FBXImportSetTake). The bare fallback
+    # cannot merge, so it plays the take covering every other -- wherever it sits --
+    # else the last, and names what it left out. Executed from the template's own
+    # source in a fresh mayapy, then imported with the take it picked.
+    if mayapys:
+        import json as _json
+
+        tk_dir = os.path.join(HERE, "temp_tests", f"maya_takes_{os.getpid()}")
+        os.makedirs(tk_dir, exist_ok=True)
+        try:
+
+            def tk_write(name, takes):
+                reset()
+                for a in list(bpy.data.actions):
+                    bpy.data.actions.remove(a)
+                bpy.context.scene.frame_start, bpy.context.scene.frame_end = 1, 100
+                bpy.ops.mesh.primitive_cube_add()
+                cube = bpy.context.active_object
+                cube.name = "TkCube"
+                for f in range(1, 101):
+                    cube.location.x = f * 0.1
+                    cube.keyframe_insert("location", index=0, frame=f)
+                path = os.path.join(tk_dir, name)
+                if takes:
+                    btk.FbxUtils.apply_takes(takes)
+                try:
+                    btk.FbxUtils.export(
+                        filepath=path, objects=[cube], bake_anim=bool(takes)
+                    )
+                finally:
+                    btk.FbxUtils.reset_takes()
+                return path
+
+            # An armed split REPLACES the scene-range take (one take per shot,
+            # 2026-11-05), so a file whose cover sits beside its slices -- an
+            # older push -- is written with the cover as a take of its own.
+            shots = [("early", 1, 30), ("late", 50, 70)]
+            tk_files = {
+                "push": tk_write("push.fbx", [("Whole", 1, 100)] + shots),
+                "shots": tk_write("shots.fbx", shots),
+                "cover_last": tk_write("cover_last.fbx", shots + [("Whole", 1, 100)]),
+                "static": tk_write("static.fbx", []),
+            }
+            tk_out = os.path.join(tk_dir, "result.json")
+            tk_script = os.path.join(tk_dir, "probe.py")
+            with open(tk_script, "w", encoding="utf-8") as fh:
+                fh.write(
+                    "import ast, json, os, sys\n"
+                    "import maya.standalone\n"
+                    "maya.standalone.initialize(name='python')\n"
+                    "import maya.cmds as cmds, maya.mel as mel\n"
+                    "cmds.loadPlugin('fbxmaya', quiet=True)\n"
+                    f"sys.path.insert(0, {os.path.join(MONO, 'pythontk')!r})\n"
+                    f"TEMPLATE = {str(_TEMPLATE_DIR / 'import.py')!r}\n"
+                    f"FILES = {tk_files!r}\n"
+                    "tree = ast.parse(open(TEMPLATE, encoding='utf-8').read())\n"
+                    "fns = [n for n in tree.body if isinstance(n, ast.FunctionDef)"
+                    " and n.name in ('covering_take', 'fallback_take')]\n"
+                    "ns = {'os': os}\n"
+                    "exec(compile(ast.Module(body=fns, type_ignores=[]), TEMPLATE,"
+                    " 'exec'), ns)\n"
+                    "out = {}\n"
+                    "for key, path in FILES.items():\n"
+                    "    warned = []\n"
+                    "    take = ns['fallback_take'](mel, path, warned.append)\n"
+                    "    cmds.file(new=True, force=True)\n"
+                    "    for c in ('FBXResetImport', 'FBXImportMode -v add',"
+                    " 'FBXImportSetTake -ti {}'.format(take)):\n"
+                    "        mel.eval(c)\n"
+                    "    nodes = cmds.file(path.replace(chr(92), '/'), i=True,"
+                    " type='FBX', ignoreVersion=True, returnNewNodes=True) or []\n"
+                    "    times = cmds.keyframe('TkCube', attribute='translateX',"
+                    " query=True, timeChange=True) or []\n"
+                    "    out[key] = {'take': take, 'warned': warned,"
+                    " 'nodes': len(nodes), 'keys': [round(t) for t in times]}\n"
+                    f"json.dump(out, open({tk_out!r}, 'w'))\n"
+                    "sys.stdout.flush()\n"
+                    "from pythontk.core_utils.process_exit import ProcessExit\n"
+                    "ProcessExit.hard_exit(0)\n"
+                )
+            tk_run = subprocess.run(
+                [mayapys[-1], tk_script],
+                capture_output=True,
+                text=True,
+                timeout=600,
+            )
+            tk_seen = {}
+            if os.path.isfile(tk_out):
+                with open(tk_out, encoding="utf-8") as fh:
+                    tk_seen = _json.load(fh)
+            tk_detail = ascii(
+                {
+                    k: (v.get("take"), len(v.get("keys") or ()), v.get("warned"))
+                    for k, v in tk_seen.items()
+                }
+                or (tk_run.returncode, tk_run.stderr[-600:])
+            )
+            whole = list(range(1, 101))
+            push = tk_seen.get("push", {})
+            check(
+                "fallback (mayapy): the push's whole-timeline take plays -- every frame",
+                push.get("take") == 1
+                and push.get("keys") == whole
+                and not push.get("warned"),
+                tk_detail,
+            )
+            cover = tk_seen.get("cover_last", {})
+            check(
+                "fallback (mayapy): a cover listed LAST still plays",
+                cover.get("take") == 3 and cover.get("keys") == whole,
+                tk_detail,
+            )
+            split = tk_seen.get("shots", {})
+            check(
+                "fallback (mayapy): no cover -- the last take plays, the rest named",
+                split.get("take") == -1
+                and split.get("keys") == list(range(50, 71))
+                and len(split.get("warned") or ()) == 1
+                and "early" in split["warned"][0],
+                tk_detail,
+            )
+            static = tk_seen.get("static", {})
+            check(
+                "fallback (mayapy): a takeless file still imports (-1), silently",
+                static.get("take") == -1
+                and static.get("nodes", 0) > 0
+                and not static.get("warned"),
+                tk_detail,
+            )
+        finally:
+            shutil.rmtree(tk_dir, ignore_errors=True)
+
+    # ---- FBX export via _export_objects (bpy; plain params dict, no Qt) ------
+    captured = {}
+
+    def fake_export(filepath=None, objects=None, **opts):
+        captured["names"] = [o.name for o in (objects or [])]
+        captured["mat_counts"] = [
+            len(o.data.materials)
+            if getattr(o, "data", None) is not None and hasattr(o.data, "materials")
+            else -1
+            for o in (objects or [])
+        ]
+        captured["opts"] = dict(opts)
+        return filepath
+
+    orig_export = btk.FbxUtils.export_selection_fbx
+    btk.FbxUtils.export_selection_fbx = fake_export
+    try:
+        bridge = MayaBridge(maya_path="C:/fake/maya.exe")
+        tmp_fbx = os.path.join(tempfile.gettempdir(), "btk_maya_bridge_test.fbx")
+
+        # full materials
+        reset()
+        bpy.ops.mesh.primitive_cube_add()
+        cube = bpy.context.active_object
+        btk.assign_mat([cube], btk.create_mat("standard", name="MB"))
+        captured.clear()
+        bridge._export_fbx(
+            [cube],
+            tmp_fbx,
+            {
+                "INCLUDE_MATERIALS": True,
+                "EMBED_TEXTURES": True,
+                "TRIANGULATE": True,
+                "APPLY_UNIT_SCALE": True,
+            },
+        )
+        check(
+            "export(full): the original object is exported (materials kept)",
+            captured["names"] == [cube.name],
+        )
+        check(
+            "export(full): opts map params",
+            captured["opts"].get("use_triangles") is True
+            and captured["opts"].get("embed_textures") is True
+            and captured["opts"].get("path_mode") == "COPY"
+            and captured["opts"].get("apply_unit_scale") is True,
+        )
+
+        # strip materials
+        reset()
+        bpy.ops.mesh.primitive_cube_add()
+        cube = bpy.context.active_object
+        btk.assign_mat([cube], btk.create_mat("standard", name="MB2"))
+        orig_count = len(cube.data.materials)
+        captured.clear()
+        bridge._export_fbx([cube], tmp_fbx, {"INCLUDE_MATERIALS": False})
+        check(
+            "strip: exported copies, not the original",
+            cube.name not in captured["names"] and len(captured["names"]) == 1,
+        )
+        check("strip: exported copies have no materials", captured["mat_counts"] == [0])
+        check(
+            "strip: original keeps its materials",
+            len(cube.data.materials) == orig_count and orig_count > 0,
+        )
+        check(
+            "strip: temp copies removed from the scene",
+            all(n not in bpy.data.objects for n in captured["names"]),
+        )
+    finally:
+        btk.FbxUtils.export_selection_fbx = orig_export
+
+    # ---- USD carrier (bpy; ``btk.UsdUtils.export`` stubbed) ------------------
+    # The same send produced as a USD layer: opt-in beside FBX, native
+    # materials-off, animation sampled only where it moves, and LOUD where USD
+    # cannot carry what FBX carries -- linked duplicates are refused, since a
+    # flat layer would land in Maya as N independent shapes (the silent
+    # structural loss that reverted a USD default on 2026-08-02).
+    usd_captured = {}
+
+    def fake_usd_export(
+        filepath=None, objects=None, selection_only=True, frame_range=None, **opts
+    ):
+        usd_captured["names"] = [o.name for o in (objects or [])]
+        usd_captured["opts"] = dict(opts)
+        usd_captured["frame_range"] = frame_range
+        usd_captured["selection_only"] = selection_only
+        usd_captured["bracket_depth"] = btk.FbxUtils._export_depth
+        return filepath
+
+    orig_usd_export = btk.UsdUtils.export
+    btk.UsdUtils.export = staticmethod(fake_usd_export)
+    try:
+        from blendertk.env_utils.maya_bridge._maya_bridge import (
+            DEFAULTS as _MB_DEFAULTS,
+        )
+
+        bridge = MayaBridge(maya_path="C:/fake/maya.exe")
+        check(
+            "carrier: the bridge offers fbx then usd", bridge.carriers == ("fbx", "usd")
+        )
+        check("carrier: FBX is the default", _MB_DEFAULTS["CARRIER"] == "fbx")
+        check(
+            "carrier: the Maya-side templates route a USD payload to the USD importer",
+            all(
+                "USD Import"
+                in open(os.path.join(_TEMPLATE_DIR, t), encoding="utf-8").read()
+                and "__PAYLOAD_PATH__"
+                in open(os.path.join(_TEMPLATE_DIR, t), encoding="utf-8").read()
+                for t in ("import.py", "_save_scene.py")
+            ),
+        )
+        # Pinned to the literal mayatk's UsdUtils.INTERCHANGE_IMPORT_OPTIONS
+        # serializes to (its test pins the same literal): keys, and Blender's
+        # render-active ``st`` landing as Maya's ``map1``.
+        _USD_IMPORT_OPTIONS = "readAnimData=1;remapUVSetsTo=[[st,map1]]"
+        check(
+            "carrier: the Maya-side templates import with the interchange options",
+            all(
+                f'USD_IMPORT_OPTIONS = "{_USD_IMPORT_OPTIONS}"'
+                in open(os.path.join(_TEMPLATE_DIR, t), encoding="utf-8").read()
+                and "options=USD_IMPORT_OPTIONS,"
+                in open(os.path.join(_TEMPLATE_DIR, t), encoding="utf-8").read()
+                for t in ("import.py", "_save_scene.py")
+            ),
+        )
+
+        reset()
+        bpy.ops.mesh.primitive_cube_add()
+        cube = bpy.context.active_object
+        btk.assign_mat([cube], btk.create_mat("standard", name="MBU"))
+        tmp_usd = os.path.join(tempfile.gettempdir(), "btk_maya_bridge_test.usd")
+
+        # dispatch on the extension: .usd -> the USD writer, .fbx -> the FBX one
+        usd_captured.clear()
+        captured.clear()
+        btk.FbxUtils.export_selection_fbx = fake_export
+        try:
+            bridge._export_payload([cube], tmp_usd, {"INCLUDE_MATERIALS": True})
+            check(
+                "usd: a .usd payload path selects the USD writer",
+                usd_captured.get("names") == [cube.name] and not captured,
+            )
+            usd_captured.clear()
+            bridge._export_payload([cube], tmp_fbx, {"INCLUDE_MATERIALS": True})
+            check(
+                "usd: a .fbx payload path still selects the FBX writer",
+                captured.get("names") == [cube.name] and not usd_captured,
+            )
+        finally:
+            btk.FbxUtils.export_selection_fbx = orig_export
+
+        # the live-verified interchange option set, params mapped natively
+        usd_captured.clear()
+        bridge._export_usd(
+            [cube], tmp_usd, {"INCLUDE_MATERIALS": True, "TRIANGULATE": True}
+        )
+        o = usd_captured["opts"]
+        check(
+            "usd: interchange options (preview surface, KEEP textures, flat, one prim per object)",
+            o.get("export_materials") is True
+            and o.get("generate_preview_surface") is True
+            and o.get("export_textures_mode") == "KEEP"
+            and o.get("relative_paths") is False
+            and o.get("use_instancing") is False
+            and o.get("merge_parent_xform") is True
+            and o.get("root_prim_path") == ""
+            and o.get("triangulate_meshes") is True
+            and o.get("export_animation") is False,
+            str(o),
+        )
+        check(
+            "usd: selection-only, static send samples no frames",
+            usd_captured["selection_only"] is True
+            and usd_captured["frame_range"] is None,
+        )
+
+        # materials off is a native flag -- no strip copies, the scene is untouched
+        usd_captured.clear()
+        before_objects = set(bpy.data.objects)
+        bridge._export_usd([cube], tmp_usd, {"INCLUDE_MATERIALS": False})
+        check(
+            "usd: materials off exports the ORIGINAL with export_materials=False",
+            usd_captured["names"] == [cube.name]
+            and usd_captured["opts"].get("export_materials") is False
+            and set(bpy.data.objects) == before_objects,
+        )
+
+        # animation: only the frames that carry motion, clamped to the scene
+        scene = bpy.context.scene
+        scene.frame_start, scene.frame_end = 1, 250
+        cube.keyframe_insert("location", frame=10)
+        cube.location.x += 2
+        cube.keyframe_insert("location", frame=40)
+        usd_captured.clear()
+        bridge._export_usd([cube], tmp_usd, {"INCLUDE_ANIMATION": True})
+        check(
+            "usd: an animated send samples the keys' own span",
+            usd_captured["opts"].get("export_animation") is True
+            and tuple(usd_captured["frame_range"] or ()) == (10, 40),
+            str(usd_captured["frame_range"]),
+        )
+        check(
+            "usd: sampling_frame_range is None for a static object",
+            btk.UsdUtils.sampling_frame_range([]) is None,
+        )
+        cube.animation_data_clear()
+
+        # linked duplicates: refused by default, flattened-with-warning on opt-in
+        twin = cube.copy()  # shares cube.data -> a linked duplicate
+        bpy.context.scene.collection.objects.link(twin)
+        check(
+            "usd: linked duplicates are found within the export set",
+            bridge._linked_duplicates([cube, twin])
+            == {cube.data.name: [cube.name, twin.name]}
+            and bridge._linked_duplicates([cube]) == {},
+        )
+        usd_captured.clear()
+        refused = None
+        try:
+            bridge._export_usd([cube, twin], tmp_usd, {})
+        except RuntimeError as error:
+            refused = str(error)
+        check(
+            "usd: a linked-duplicate send is REFUSED, naming FBX as the route",
+            refused is not None
+            and "FBX" in refused
+            and cube.data.name in refused
+            and not usd_captured,
+            str(refused),
+        )
+        bridge.usd_flattens_instances = True
+        try:
+            usd_captured.clear()
+            bridge._export_usd([cube, twin], tmp_usd, {})
+            check(
+                "usd: a texturing bridge may flatten instead (opt-in flag)",
+                sorted(usd_captured.get("names", [])) == sorted([cube.name, twin.name]),
+            )
+        finally:
+            bridge.usd_flattens_instances = False
+
+        check(
+            "usd: sanitize_prim_name mirrors the exporter's rewrite",
+            btk.UsdUtils.sanitize_prim_name("Chair.001") == "Chair_001"
+            and btk.UsdUtils.sanitize_prim_name("1digit") == "_1digit"
+            and btk.UsdUtils.sanitize_prim_name("") == "_",
+        )
+
+        # REGRESSION (2026-09-18): the USD send ran no export bracket, so a
+        # session stager (the shadow preview stands down for a write) was
+        # never prepared for it -- or, when the carrier's publish prepared
+        # it, never finished. Same bracket as the FBX send.
+        _usd_stages = []
+        btk.FbxUtils.register_export_stager(
+            "probe_stager",
+            prepare=lambda: _usd_stages.append("prepare"),
+            finish=lambda: _usd_stages.append("finish"),
+        )
+        try:
+            usd_captured.clear()
+            bridge._export_usd([cube], tmp_usd, {})
+        finally:
+            btk.FbxUtils.unregister_export_stager("probe_stager")
+        check(
+            "usd: the write runs inside the export bracket, stagers finished after",
+            usd_captured.get("bracket_depth") == 1
+            and _usd_stages == ["prepare", "finish"]
+            and btk.FbxUtils._export_depth == 0,
+            f"depth={usd_captured.get('bracket_depth')} stages={_usd_stages}",
+        )
+    finally:
+        btk.UsdUtils.export = orig_usd_export
+
+    # ---- texture-manifest sidecar (bpy; the send half of the materials fix) --
+    reset()
+    tex_path = os.path.join(tempfile.gettempdir(), "btk_mb_BaseColor.png")
+    img = bpy.data.images.new("btk_mb_BaseColor", 8, 8)
+    img.filepath_raw = tex_path
+    img.file_format = "PNG"
+    img.save()
+
+    # Textured mat: image routed through a Mix node — the case Blender's FBX
+    # exporter carries NOTHING for (only near-direct socket wiring rides).
+    mat = bpy.data.materials.new("MB_textured")
+    btk.MatUtils.get_node_tree(mat, create=True)
+    bsdf = next(n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+    tex_node = mat.node_tree.nodes.new("ShaderNodeTexImage")
+    tex_node.image = bpy.data.images.load(tex_path)
+    mix = mat.node_tree.nodes.new("ShaderNodeMix")
+    mix.data_type = "RGBA"
+    mat.node_tree.links.new(tex_node.outputs["Color"], mix.inputs["A"])
+    mat.node_tree.links.new(mix.outputs["Result"], bsdf.inputs["Base Color"])
+    # Packed-only image (no file on disk) -> file-less entry, named warning Maya-side.
+    packed = bpy.data.materials.new("MB_packed")
+    btk.MatUtils.get_node_tree(packed, create=True)
+    packed_tex = packed.node_tree.nodes.new("ShaderNodeTexImage")
+    packed_tex.image = bpy.data.images.new("MB_generated", 4, 4)
+    # Untextured mat: flat colors ride the FBX fine -> no entry, but listed in
+    # scene_materials (the rename-on-clash guard).
+    flat = bpy.data.materials.new("MB_flat")
+
+    bpy.ops.mesh.primitive_cube_add()
+    cube_a = bpy.context.active_object
+    cube_a.data.materials.append(mat)
+    bpy.ops.mesh.primitive_cube_add()
+    cube_b = bpy.context.active_object
+    cube_b.data.materials.append(mat)  # shared datablock -> ONE entry, two objects
+    cube_b.data.materials.append(packed)
+    cube_b.data.materials.append(flat)
+
+    manifest_fbx = os.path.join(tempfile.gettempdir(), "btk_mb_manifest.fbx")
+    manifest_path = manifest_fbx + ".manifest.json"
+    if os.path.isfile(manifest_path):
+        os.remove(manifest_path)
+    MayaBridge(maya_path="C:/fake/maya.exe")._write_manifest(
+        [cube_a, cube_b], manifest_fbx
+    )
+    import json
+
+    with open(manifest_path, "r", encoding="utf-8") as fh:
+        manifest = json.load(fh)
+    entries = {e["name"]: e for e in manifest["materials"]}
+    check(
+        "manifest: one entry per textured material (flat skipped)",
+        set(entries) == {"MB_textured", "MB_packed"},
+        f"{sorted(entries)}",
+    )
+    check(
+        "manifest: shared material merges both user objects",
+        sorted(entries["MB_textured"]["objects"]) == sorted([cube_a.name, cube_b.name])
+        and entries["MB_textured"]["files"] == [os.path.abspath(tex_path)],
+        f"{entries['MB_textured']}",
+    )
+    check(
+        "manifest: packed-only image -> file-less entry (named warning, not silence)",
+        entries["MB_packed"]["files"] == [],
+    )
+    check(
+        "manifest: scene_materials lists the untextured sibling (clash guard)",
+        "MB_flat" in manifest["scene_materials"],
+        f"{manifest['scene_materials']}",
+    )
+    os.remove(manifest_path)
+
+    # Maya opens files through the SYSTEM ANSI code page: an image in a project
+    # folder it cannot hold (Cyrillic on cp1252) came back from the send as a file
+    # node reading "proj ???/..." with outSize 0 (measured, real mayapy). The
+    # manifest hands Maya its 8.3 form; names the code page holds are kept.
+    if os.name == "nt":
+        star_root = os.path.join(HERE, "temp_tests", f"mbtex {os.getpid()}")
+        star_dir = os.path.join(star_root, "proj \u2605")
+        os.makedirs(star_dir, exist_ok=True)
+        if (ptk.AppLauncher._short_name(star_dir) or "").isascii():
+            star_tex = os.path.join(star_dir, "crate_BaseColor.png")
+            shutil.copyfile(tex_path, star_tex)
+            star_mat = bpy.data.materials.new("MB_star")
+            btk.MatUtils.get_node_tree(star_mat, create=True)
+            star_bsdf = next(
+                n for n in star_mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"
+            )
+            star_node = star_mat.node_tree.nodes.new("ShaderNodeTexImage")
+            star_node.image = bpy.data.images.load(star_tex)
+            star_mat.node_tree.links.new(
+                star_node.outputs["Color"], star_bsdf.inputs["Base Color"]
+            )
+            bpy.ops.mesh.primitive_cube_add()
+            cube_c = bpy.context.active_object
+            cube_c.data.materials.append(star_mat)
+            MayaBridge(maya_path="C:/fake/maya.exe")._write_manifest(
+                [cube_c], manifest_fbx
+            )
+            with open(manifest_path, "r", encoding="utf-8") as fh:
+                star_entry = json.load(fh)["materials"][0]
+            star_paths = list(star_entry["files"]) + list(star_entry["slots"].values())
+            check(
+                "manifest: texture paths reach Maya in a form it can open",
+                len(star_paths) == 2
+                and all(
+                    p.isascii() and os.path.samefile(p, star_tex) for p in star_paths
+                )
+                and all(
+                    os.path.basename(p) == "crate_BaseColor.png" for p in star_paths
+                ),
+                ascii(star_paths),
+            )
+            os.remove(manifest_path)
+            bpy.data.objects.remove(cube_c)
+        shutil.rmtree(star_root, ignore_errors=True)
+
+    # ---- shots sidecar (the send half of the shot transfer) -------------------
+    from blendertk.anim_utils.shots._shots import ShotStore
+
+    ShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_mb_prefs_")
+    ShotStore.clear_active()
+    bpy.context.scene.pop("shot_store", None)
+    for f in (1, 24):
+        cube_a.location.x = float(f)
+        cube_a.keyframe_insert(data_path="location", index=0, frame=f)
+    _shot_store = ShotStore.active()
+    _shot = _shot_store.define_shot("Intro", 1, 24, objects=[cube_a.name, "stayed"])
+    _shot_store.edit_ledger.record_key(
+        f"{cube_a.name}|location|0", 24.0, _shot.shot_id, "end"
+    )
+    MayaBridge(maya_path="C:/fake/maya.exe")._write_manifest(
+        [cube_a, cube_b], manifest_fbx
+    )
+    with open(manifest_path, "r", encoding="utf-8") as fh:
+        manifest = json.load(fh)
+    _shots = manifest.get("shots") or {}
+    check(
+        "manifest: the shots section rides along, scoped to the sent objects",
+        _shots.get("store", {}).get("shots", [{}])[0].get("objects") == [cube_a.name]
+        and _shots.get("ledger", {}).get("keys")
+        == {cube_a.name: {"translateX": [[24.0, _shot.shot_id, "end"]]}},
+        str(_shots),
+    )
+    os.remove(manifest_path)
+    MayaBridge(maya_path="C:/fake/maya.exe")._write_manifest(
+        [cube_a, cube_b], manifest_fbx, include_scene_data=False
+    )
+    with open(manifest_path, "r", encoding="utf-8") as fh:
+        manifest = json.load(fh)
+    check(
+        "manifest: include_scene_data=False leaves the section out",
+        "shots" not in manifest,
+    )
+    # INCLUDE_SHOTS warned until blendertk 0.10.0, where it goes (drift guard).
+    _merged = MayaBridge(maya_path="C:/fake/maya.exe").merge_params(
+        {"INCLUDE_SHOTS": False}
+    )
+    check(
+        "params: the retired INCLUDE_SHOTS spelling no longer resolves",
+        MayaBridge.param_aliases is None
+        and _merged.get("INCLUDE_SCENE_DATA") is not False,
+        str(_merged.get("INCLUDE_SCENE_DATA")),
+    )
+    os.remove(manifest_path)
+    ShotStore.clear_active()
+    ShotStore._prefs_dir_override = None
+    bpy.context.scene.pop("shot_store", None)
+    os.remove(tex_path)
+
+    # ---- launch env: Blender-private OCIO stripped, foreign inherited --------
+    blender_root = os.path.dirname(bpy.app.binary_path)
+    bundled = os.path.join(blender_root, "dummy", "config.ocio")
+    prior = os.environ.pop("OCIO", None)
+    try:
+        os.environ["OCIO"] = bundled
+        env = MayaBridge._launch_env()
+        check(
+            "launch env: OCIO inside Blender's install is stripped",
+            env is not None and "OCIO" not in env,
+        )
+        os.environ["OCIO"] = os.path.join(tempfile.gettempdir(), "studio.ocio")
+        check(
+            "launch env: foreign OCIO -> inherit unchanged (None)",
+            MayaBridge._launch_env() is None,
+        )
+        del os.environ["OCIO"]
+        check(
+            "launch env: no OCIO -> inherit unchanged (None)",
+            MayaBridge._launch_env() is None,
+        )
+    finally:
+        os.environ.pop("OCIO", None)
+        if prior is not None:
+            os.environ["OCIO"] = prior
+
+    # ------------------------------------------------- slot derivation (link tracing)
+    # The Maya side rebuilds manifest materials by classifying FILENAMES, which
+    # cannot place a texture named after a product. Maya's own shaders declare
+    # their inputs; a Blender material has to be traced forward from each image
+    # node to a Principled socket. Only an UNAMBIGUOUS destination is recorded --
+    # a packed map reaches several channels and its identity lives in its
+    # filename, which the Maya side already reads correctly.
+    import bpy as _bpy
+    import struct as _struct
+    import zlib as _zlib
+
+    _slot_dir = tempfile.mkdtemp(prefix="btk_slots_")
+
+    def _png(path):
+        """A real 1x1 PNG -- _resolved_image_file skips generated/packed images.
+
+        Built from integer byte values rather than escapes: a \\x literal here is
+        one bad edit away from becoming real bytes and corrupting the file.
+        """
+
+        def chunk(tag, payload):
+            body = tag + payload
+            return (
+                _struct.pack(">I", len(payload))
+                + body
+                + _struct.pack(">I", _zlib.crc32(body))
+            )
+
+        signature = bytes([137, 80, 78, 71, 13, 10, 26, 10])
+        header = _struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+        with open(path, "wb") as fh:
+            fh.write(
+                signature
+                + chunk(b"IHDR", header)
+                + chunk(b"IDAT", _zlib.compress(bytes(4)))
+                + chunk(b"IEND", b"")
+            )
+        return path
+
+    def _img(nt, name):
+        node = nt.nodes.new("ShaderNodeTexImage")
+        node.image = _bpy.data.images.load(
+            _png(os.path.join(_slot_dir, name + ".png")), check_existing=True
+        )
+        return node
+
+    def _mat(name):
+        m = _bpy.data.materials.new(name)
+        btk.MatUtils.get_node_tree(m, create=True)
+        nt = m.node_tree
+        return m, nt, next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+
+    # 1. straight into Base Color -> baseColor
+    m, nt, bsdf = _mat("slotDirect")
+    nt.links.new(_img(nt, "prod_number").outputs["Color"], bsdf.inputs["Base Color"])
+    slots = MayaBridge._material_slots(m)
+    check(
+        "slot trace: direct link resolves baseColor",
+        list(slots) == ["baseColor"],
+        str(slots),
+    )
+
+    # 2. through a Normal Map node -> normal (NOT bump)
+    m, nt, bsdf = _mat("slotNormal")
+    nmap = nt.nodes.new("ShaderNodeNormalMap")
+    nt.links.new(_img(nt, "nrm").outputs["Color"], nmap.inputs["Color"])
+    nt.links.new(nmap.outputs["Normal"], bsdf.inputs["Normal"])
+    slots = MayaBridge._material_slots(m)
+    check(
+        "slot trace: Normal Map chain resolves normal",
+        list(slots) == ["normal"],
+        str(slots),
+    )
+
+    # 3. through a Bump node -> bump, distinguishable from a normal map
+    m, nt, bsdf = _mat("slotBump")
+    bump = nt.nodes.new("ShaderNodeBump")
+    nt.links.new(_img(nt, "hgt").outputs["Color"], bump.inputs["Height"])
+    nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+    slots = MayaBridge._material_slots(m)
+    check(
+        "slot trace: Bump chain resolves bump, not normal",
+        list(slots) == ["bump"],
+        str(slots),
+    )
+
+    # 3b. OpenPBR lobe sockets resolve to the shared lobe channels, and the
+    #     specular LEVEL is specularWeight -- it was filed under `specular`,
+    #     which the Maya side reads as the specular COLOUR (tint).
+    for socket, expected in (
+        ("Coat Roughness", "coatRoughness"),
+        ("Sheen Tint", "sheenColor"),
+        ("Transmission Weight", "transmission"),
+        ("Specular IOR Level", "specularWeight"),
+        ("Specular Tint", "specular"),
+    ):
+        m, nt, bsdf = _mat("slotLobe_" + socket.replace(" ", ""))
+        nt.links.new(_img(nt, "lobe_" + expected).outputs["Color"], bsdf.inputs[socket])
+        slots = MayaBridge._material_slots(m)
+        check(
+            f"slot trace: {socket} resolves {expected}",
+            list(slots) == [expected],
+            str(slots),
+        )
+
+    # 3c. the table is a literal (mayatk's pull templates copy it verbatim), so
+    #     pin it to the Game Shader's Principled lobe table it mirrors.
+    from blendertk.mat_utils._mat_utils import _PRINCIPLED_LOBES
+
+    drift = {
+        socket: channel
+        for channel, socket in _PRINCIPLED_LOBES.items()
+        if channel != "coatNormal"
+        and MayaBridge._PRINCIPLED_CHANNELS.get(socket) != channel
+    }
+    check(
+        "slot trace: the channel table mirrors the Principled lobe table",
+        not drift,
+        str(drift),
+    )
+
+    # 4. one image reaching SEVERAL channels (packed) records nothing
+    m, nt, bsdf = _mat("slotPacked")
+    packed = _img(nt, "orm")
+    sep = nt.nodes.new("ShaderNodeSeparateColor")
+    nt.links.new(packed.outputs["Color"], sep.inputs["Color"])
+    nt.links.new(sep.outputs[0], bsdf.inputs["Metallic"])
+    nt.links.new(sep.outputs[1], bsdf.inputs["Roughness"])
+    slots = MayaBridge._material_slots(m)
+    check(
+        "slot trace: a packed map records NO channel (filename owns it)",
+        slots == {},
+        str(slots),
+    )
+
+    # 5. a raw image straight into the Principled Normal input is ambiguous
+    m, nt, bsdf = _mat("slotRawNormal")
+    nt.links.new(_img(nt, "raw").outputs["Color"], bsdf.inputs["Normal"])
+    slots = MayaBridge._material_slots(m)
+    check(
+        "slot trace: raw image into Normal is ambiguous -> no channel",
+        slots == {},
+        str(slots),
+    )
+
+    # 6. an unconnected image records nothing
+    m, nt, bsdf = _mat("slotOrphan")
+    _img(nt, "orphan")
+    slots = MayaBridge._material_slots(m)
+    check(
+        "slot trace: an unconnected image records no channel", slots == {}, str(slots)
+    )
+
+    # 7. SEVERAL images reaching ONE channel is just as unresolvable as one image
+    #    reaching several. An AO multiply feeds the AO map and the color map into
+    #    the same Base Color input; picking by node order would hand Maya the AO
+    #    map as the base color.
+    m, nt, bsdf = _mat("slotAoMultiply")
+    mix = nt.nodes.new("ShaderNodeMix")
+    mix.data_type = "RGBA"
+    mix.blend_type = "MULTIPLY"
+    nt.links.new(_img(nt, "colr").outputs["Color"], mix.inputs[6])
+    nt.links.new(_img(nt, "occl").outputs["Color"], mix.inputs[7])
+    nt.links.new(mix.outputs[2], bsdf.inputs["Base Color"])
+    slots = MayaBridge._material_slots(m)
+    check(
+        "slot trace: two images into one channel record NOTHING",
+        slots == {},
+        str(slots),
+    )
+
+    # 7b. The canonical cutout material: ONE image whose Color feeds Base Color
+    #     and whose Alpha feeds Alpha. Read node-wide that is two channels --
+    #     indistinguishable from a packed map -- so both were dropped and the
+    #     material arrived with neither its color nor its cutout. The two
+    #     outputs are different DATA, so they must trace separately.
+    m, nt, bsdf = _mat("slotCutout")
+    cutout = _img(nt, "cutout_leaf")
+    nt.links.new(cutout.outputs["Color"], bsdf.inputs["Base Color"])
+    nt.links.new(cutout.outputs["Alpha"], bsdf.inputs["Alpha"])
+    slots = MayaBridge._material_slots(m)
+    check(
+        "slot trace: Color+Alpha off ONE image resolves BOTH channels",
+        sorted(slots) == ["baseColor", "opacity"]
+        and slots.get("baseColor") == slots.get("opacity"),
+        str(slots),
+    )
+
+    # 7c. A packed map is still rejected: one SOCKET reaching several channels
+    #     (an ORM's Color through a Separate Color) is the real ambiguity, and
+    #     socket-awareness must not weaken that.
+    m, nt, bsdf = _mat("slotPackedSocket")
+    sep = nt.nodes.new("ShaderNodeSeparateColor")
+    nt.links.new(_img(nt, "orm").outputs["Color"], sep.inputs["Color"])
+    nt.links.new(sep.outputs[1], bsdf.inputs["Roughness"])
+    nt.links.new(sep.outputs[2], bsdf.inputs["Metallic"])
+    slots = MayaBridge._material_slots(m)
+    check(
+        "slot trace: a packed map's Color socket still records NOTHING",
+        slots == {},
+        str(slots),
+    )
+
+    # 8. every derived channel must be resolvable by the SHARED registry
+    import pythontk as ptk
+
+    m, nt, bsdf = _mat("slotVocab")
+    nt.links.new(_img(nt, "c").outputs["Color"], bsdf.inputs["Base Color"])
+    nt.links.new(_img(nt, "r").outputs["Color"], bsdf.inputs["Roughness"])
+    nt.links.new(_img(nt, "a").outputs["Color"], bsdf.inputs["Alpha"])
+    derived = MayaBridge._material_slots(m)
+    check(
+        "slot trace: derived channels are all in the shared vocabulary",
+        derived
+        and all(
+            ptk.MapRegistry.resolve_type_from_channel(c) is not None for c in derived
+        ),
+        str({c: ptk.MapRegistry.resolve_type_from_channel(c) for c in derived}),
+    )
+
+    shutil.rmtree(_slot_dir, ignore_errors=True)  # artifacts are teardown's job
+
+    # ---- empties manifest: a locator rig goes to Maya as mayatk's GRP > LOC ---------------
+    # The locator parents its object, so the children heuristic alone sends it as a Maya
+    # GROUP; the rig's node-type stamps say what each Empty stands for, and Maya's
+    # ``_manifest_empty_rules`` lets a stamp win outright.
+    from blendertk.rig_utils._rig_utils import RigUtils
+
+    # A ring-drawn group is a CIRCLE Empty with children -- unstamped, the display rule
+    # would send it as a deliberate locator.
+    for _look in ("none", "ring"):
+        _prop = bpy.data.objects.new("Prop", bpy.data.meshes.new("Prop"))
+        bpy.context.scene.collection.objects.link(_prop)
+        _rig_loc = RigUtils.create_locator_at_object(
+            _prop,
+            grp_suffix="_GRP",
+            loc_suffix="_LOC",
+            obj_suffix="_GEO",
+            group_display=_look,
+        )[0]
+        _rig_grp = _rig_loc.parent
+        _sent = {
+            e["name"]: e.get("maya_node_type")
+            for e in MayaBridge._manifest_empties([_rig_grp, _rig_loc, _prop])
+        }
+        check(
+            f"empties manifest: a locator rig's group and locator go to Maya typed "
+            f"(group_display={_look!r})",
+            _sent == {_rig_grp.name: "group", _rig_loc.name: "locator"},
+            f"{_sent}",
+        )
+        for _o in (_prop, _rig_loc, _rig_grp):
+            bpy.data.objects.remove(_o, do_unlink=True)
+
+    # ---- a hand-off ships ONE whole take, never a per-shot split (2026-10-13) -----
+    # Bug: the send armed the scene's declared shots as takes, so the FBX carried a
+    # stack per shot beside the scene stack. Maya's importer plays one take and the
+    # shots cross as manifest data, so the split is nothing the receiver reads.
+    import pythontk as ptk
+    from blendertk.node_utils.data_nodes import DataNodes
+    from blendertk.env_utils.unity_bridge._unity_bridge import UnityBridge
+    from blendertk.env_utils.webxr_preview import WebXrPreview
+
+    reset()
+    _scene = bpy.context.scene
+    _range = (_scene.frame_start, _scene.frame_end)
+    _scene.frame_start, _scene.frame_end = 1, 100
+    bpy.ops.mesh.primitive_cube_add()
+    _whole = bpy.context.active_object
+    _whole.name = "WholeTakeCube"
+    for _frame, _x in ((1, 0.0), (40, 4.0), (100, 10.0)):
+        _whole.location.x = _x
+        _whole.keyframe_insert("location", frame=_frame)
+    ptk.SceneRecords.SHOTS.save(
+        DataNodes,
+        {
+            "shots": [
+                {"clip": "Shot_A", "start": 10, "end": 30, "objects": []},
+                {"clip": "Shot_B", "start": 50, "end": 70, "objects": []},
+            ]
+        },
+    )
+    _tmp = ptk.TempArtifacts("btk_maya_bridge_whole_take", policy="scoped")
+    try:
+        _out = _tmp.path(extension=".fbx")
+        MayaBridge(maya_path="C:/fake/maya.exe")._export_fbx(
+            [_whole], _out, {"INCLUDE_ANIMATION": True}
+        )
+        _fbx = ptk.FbxFile.load(_out, raw_payloads=False, span_arrays=("KeyTime",))
+        _takes = _fbx.take_names()
+        _spans = {
+            name: tuple(round(t * _scene.render.fps, 3) for t in span)
+            for name, span in _fbx.take_spans().items()
+        }
+        check(
+            "hand-off: a scene with shots ships ONE take holding the whole animation",
+            len(_takes) == 1 and list(_spans.values()) == [(1.0, 100.0)],
+            f"takes={_takes} spans={_spans}",
+        )
+        check(
+            "hand-off: no take stays armed after the write",
+            btk.FbxUtils._pending_takes is None,
+        )
+        # The twin of mayatk's TestStaticHandoffShipsNoAnimation: a send with
+        # INCLUDE_ANIMATION off carries no animation -- no take, no curve.
+        _static = _tmp.path(extension=".fbx")
+        MayaBridge(maya_path="C:/fake/maya.exe")._export_fbx(
+            [_whole], _static, {"INCLUDE_ANIMATION": False}
+        )
+        _sfbx = ptk.FbxFile.load(_static, raw_payloads=False)
+        _anim_objects = {
+            kind: _sfbx.object_names(kind)
+            for kind in (
+                "AnimationStack",
+                "AnimationLayer",
+                "AnimationCurveNode",
+                "AnimationCurve",
+            )
+        }
+        check(
+            "hand-off: a static send of a keyed object ships no take and no curve",
+            _sfbx.take_names() == [] and not any(_anim_objects.values()),
+            f"takes={_sfbx.take_names()} objects={_anim_objects}",
+        )
+    finally:
+        _tmp.cleanup()
+        for _spec in (ptk.SceneRecords.SHOTS,):
+            _spec.clear(DataNodes)
+        _scene.frame_start, _scene.frame_end = _range
+    check(
+        "hand-off: only the bridges whose far side plays takes split them",
+        MayaBridge.split_takes is False
+        and UnityBridge.split_takes is True
+        and WebXrPreview.split_takes is True,
+    )
+
+except Exception as e:
+    lines.append(f"FAIL setup: {e!r}")
+    lines.append(traceback.format_exc())
+
+ok = all(line.startswith("OK") for line in lines)
+for line in lines:
+    print(line)
+print(f"===RESULT: {'PASS' if ok else 'FAIL'}===")

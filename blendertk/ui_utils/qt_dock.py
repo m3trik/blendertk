@@ -22,7 +22,7 @@ parenting) glued to a docked area's content region:
   selection in the embedded widget instead (see :meth:`QtDock._expose_resize_edge`);
 * the child **stays embedded through native size/move loops** (window drag / frame
   resize / Win11 snap) — measured safe across edge drags, rapid resize storms, and
-  snap releases (``tentacle/test/blender/console_frame_resize_check.py``). Do NOT
+  snap releases (``tentacle/tests/blender/console_frame_resize_check.py``). Do NOT
   "protect" it by un-/re-embedding around the loop: a reverted 2026-07 modal guard did
   exactly that from a bpy timer, hid the console for every drag's duration, and its
   unbalanced-suspend path stranded the widget hidden over a bare Info Log area — a

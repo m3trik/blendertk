@@ -1,0 +1,236 @@
+"""blendertk.anim_utils._anim_utils.AnimUtils -- headless test.
+Run: blender --background --factory-startup --python blendertk/tests/test_anim_utils.py
+
+The primitives other suites lean on through feature tests get their own
+checks here (one test file per module).
+"""
+
+import os
+import sys
+import traceback
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path[:0] = [
+    os.path.dirname(HERE),
+    os.path.join(os.path.dirname(os.path.dirname(HERE)), "pythontk"),
+]
+
+lines = []
+passed = 0
+
+
+def check(name, cond, detail=""):
+    global passed
+    ok = bool(cond)
+    passed += ok
+    lines.append(
+        ("OK   " if ok else "FAIL ")
+        + name
+        + ((" | " + detail) if detail and not ok else "")
+    )
+
+
+try:
+    import bpy
+    from blendertk.anim_utils._anim_utils import AnimUtils
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    coll = bpy.context.scene.collection
+
+    def empty(name, loc=(0, 0, 0)):
+        o = bpy.data.objects.new(name, None)
+        o.location = loc
+        coll.objects.link(o)
+        return o
+
+    # ---- evaluable_override: a hidden object with KEYED visibility is not
+    # evaluated by the depsgraph, so its matrix_world freezes at the last frame
+    # it was seen; inside the scope it moves with its keys, and the hide state
+    # is back afterwards.
+    mover = empty("mover")
+    for f, loc in ((1, (0, 0, 0)), (10, (5, 0, 0))):
+        mover.location = loc
+        mover.keyframe_insert("location", frame=f)
+    mover.hide_viewport = True
+    mover.keyframe_insert("hide_viewport", frame=1)
+    bpy.context.scene.frame_set(1)
+    bpy.context.view_layer.update()
+    bpy.context.scene.frame_set(10)
+    bpy.context.view_layer.update()
+    frozen = tuple(mover.matrix_world.translation)
+    check(
+        "precondition: a hide-keyed object freezes (Blender does not evaluate it)",
+        abs(frozen[0] - 5.0) > 1e-3,
+        f"frozen={frozen}",
+    )
+    bpy.context.scene.frame_set(1)
+    with AnimUtils.evaluable_override([mover]):
+        bpy.context.scene.frame_set(10)
+        moved = tuple(mover.matrix_world.translation)
+    check(
+        "evaluable_override: the object evaluates at another frame",
+        abs(moved[0] - 5.0) < 1e-4,
+        f"moved={moved}",
+    )
+    check(
+        "evaluable_override: hide keys are unmuted and the flag restored on exit",
+        all(
+            not fc.mute
+            for fc in AnimUtils.get_fcurves(mover)
+            if fc.data_path == "hide_viewport"
+        )
+        and mover.hide_viewport is True,
+        f"hide_viewport={mover.hide_viewport}",
+    )
+
+    # ---- the removed "unbake" optimize level (renamed "extremes" 2026-09-02;
+    # resolved with a notice until 0.23.0) is an unknown level now: refused by
+    # name like any other, never standing in for "extremes" (mirror of mayatk).
+    for _call in (AnimUtils.normalize_optimize_level, AnimUtils.resolve_optimize_level):
+        try:
+            _call("  Unbake ")
+            _refusal = None
+        except ValueError as e:
+            _refusal = str(e)
+        check(
+            f"removed 'unbake' level: {_call.__name__} refuses it by name",
+            _refusal is not None
+            and "Unknown optimize level '  Unbake '" in _refusal
+            and "extremes" in _refusal
+            and "unbake" not in AnimUtils.OPTIMIZE_LEVELS,
+            f"refusal={_refusal!r}",
+        )
+    check(
+        "retired AnimUtils.unbake_keys alias stays removed (2026-09-21)",
+        not hasattr(AnimUtils, "unbake_keys"),
+    )
+
+    # ---- a slotted action animates an ID only through its ASSIGNED slot.
+    # Assigning an action whose one slot is already another object's leaves
+    # the new holder with no slot, and Blender does not animate it -- but the
+    # object-scoped readers took "no slot" as "every channelbag", so snap /
+    # tie / optimize on the holder edited the OWNER's keys (measured
+    # 2026-09-27: optimize counted a 4-curve action on two objects as 7).
+    # Added: 2026-09-27
+    import blendertk as btk
+
+    owner = empty("slot_owner")
+    for f, x in ((1.5, 0.0), (10, 2.0)):
+        owner.location = (x, 0, 0)
+        owner.keyframe_insert("location", index=0, frame=f)
+    shared = owner.animation_data.action
+    holder = empty("slotless_holder")
+    holder.animation_data_create()
+    holder.animation_data.action = shared
+    check(
+        "precondition: the second holder gets no slot",
+        holder.animation_data.action_slot is None,
+        f"slot={holder.animation_data.action_slot}",
+    )
+    bpy.context.scene.frame_set(10)
+    check(
+        "precondition: Blender does not animate a slotless holder",
+        abs(holder.location[0]) < 1e-6 and abs(owner.location[0] - 2.0) < 1e-6,
+        f"holder={tuple(holder.location)} owner={tuple(owner.location)}",
+    )
+    check(
+        "get_fcurves: a slotless holder has no fcurves",
+        AnimUtils.get_fcurves([holder]) == [],
+        f"{[fc.data_path for fc in AnimUtils.get_fcurves([holder])]}",
+    )
+    check(
+        "get_animated_extent: a slotless holder has no animated extent",
+        AnimUtils.get_animated_extent([holder]) is None,
+        f"{AnimUtils.get_animated_extent([holder])}",
+    )
+    check(
+        "get_animation_info: a slotless holder is not reported",
+        AnimUtils.get_animation_info([holder]) == [],
+        f"{AnimUtils.get_animation_info([holder])}",
+    )
+    snapped = AnimUtils.snap_keys([holder])
+    btk.scale_keys([holder], factor=2.0)
+    AnimUtils.tie_keyframes([holder], frame_range=(0, 20))
+    check(
+        "snap / scale / tie through a slotless holder leave the owner's keys alone",
+        snapped == 0
+        and AnimUtils.key_times(AnimUtils.get_fcurves([owner])[0]) == [1.5, 10.0],
+        f"snapped={snapped} "
+        f"owner={AnimUtils.key_times(AnimUtils.get_fcurves([owner])[0])}",
+    )
+
+    # ---- remove_fcurve (public, slot-aware): True when it removed the curve,
+    # False when it was not there.
+    gone = empty("remove_fcurve_case")
+    gone.keyframe_insert("location", index=0, frame=1)
+    fc = AnimUtils.get_fcurves([gone])[0]
+    data = gone.animation_data
+    first = AnimUtils.remove_fcurve(data.action, getattr(data, "action_slot", None), fc)
+    check(
+        "remove_fcurve removes a keyed curve, and reports it",
+        first is True and AnimUtils.get_fcurves([gone]) == [],
+        f"first={first} left={len(AnimUtils.get_fcurves([gone]))}",
+    )
+
+    # ---- two objects on ONE slot are one set of curves: a per-object pass
+    # visited them twice (optimize's stats doubled; a lossy level would thin
+    # the same curve twice). Added: 2026-09-27
+    twin = empty("slot_twin")
+    twin.animation_data_create()
+    twin.animation_data.action = shared
+    twin.animation_data.action_slot = owner.animation_data.action_slot
+    stats = AnimUtils.optimize_keys(
+        [owner, twin], remove_static_curves=False, remove_flat_keys=False
+    )
+    check(
+        "optimize_keys: a slot shared by two objects is counted once",
+        stats["curves_before"] == 1 and stats["keys_before"] == 2,
+        f"{stats}",
+    )
+
+    # ---- replay_visibility: the ONE landing every carrier's visibility takes
+    # (the bridge manifest, an FBX's own Visibility curves, a USD stage): both
+    # hide channels, stepped, a falsy value hiding -- Maya/FBX values pass
+    # straight through. Added: 2026-10-17
+    blink = empty("replay_blink")
+    written = AnimUtils.replay_visibility(
+        blink, [(1, 1.0), (5, 0.0), (9, 1)], frame_offset=1.0
+    )
+    curves = {
+        fc.data_path: fc
+        for fc in AnimUtils.get_fcurves([blink])
+        if fc.data_path in ("hide_viewport", "hide_render")
+    }
+    check(
+        "replay_visibility: every key on both hide channels, offset, stepped",
+        written == 3
+        and sorted(curves) == ["hide_render", "hide_viewport"]
+        and all(
+            [(k.co.x, k.co.y, k.interpolation) for k in fc.keyframe_points]
+            == [(2.0, 0.0, "CONSTANT"), (6.0, 1.0, "CONSTANT"), (10.0, 0.0, "CONSTANT")]
+            for fc in curves.values()
+        ),
+        f"written={written} "
+        + str(
+            {
+                p: [(k.co.x, k.co.y, k.interpolation) for k in fc.keyframe_points]
+                for p, fc in curves.items()
+            }
+        ),
+    )
+    check(
+        "replay_visibility: no keys, no curve",
+        AnimUtils.replay_visibility(empty("replay_none"), []) == 0
+        and not AnimUtils.get_fcurves([bpy.data.objects["replay_none"]]),
+    )
+except Exception as e:  # noqa: BLE001
+    traceback.print_exc()
+    lines.append("FAIL test raised | " + repr(e))
+
+for line in lines:
+    print(line)
+print(
+    f"===RESULT: {'PASS' if all(ln.startswith('OK') for ln in lines) else 'FAIL'}=== "
+    f"({passed}/{len(lines)})"
+)
+sys.stdout.flush()

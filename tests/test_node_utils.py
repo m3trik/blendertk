@@ -1,0 +1,567 @@
+"""blendertk.node_utils headless test — instancing via shared object data (no viewport).
+Run: blender --background --factory-startup --python blendertk/tests/test_node_utils.py
+"""
+
+import sys
+import os
+import math
+import traceback
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(HERE)  # blendertk/
+MONO = os.path.dirname(REPO)  # _scripts/
+for p in (REPO, os.path.join(MONO, "pythontk")):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+lines = []
+
+
+def check(name, cond, detail=""):
+    lines.append(
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
+    )
+
+
+try:
+    import bpy
+    import blendertk as btk
+
+    def reset():
+        bpy.ops.object.select_all(action="DESELECT")
+        for o in list(bpy.data.objects):
+            bpy.data.objects.remove(o, do_unlink=True)
+
+    def cube(name, loc):
+        bpy.ops.mesh.primitive_cube_add(location=loc)
+        o = bpy.context.active_object
+        o.name = name
+        return o
+
+    # replace_with_instances: A(source) + B,C targets -> B,C share A's data
+    reset()
+    A, B, C = cube("A", (0, 0, 0)), cube("B", (3, 0, 0)), cube("C", (6, 0, 0))
+    out = btk.replace_with_instances([A, B, C])
+    check(
+        "replace_with_instances -> 2 targets instanced", len(out) == 2, f"n={len(out)}"
+    )
+    check("replace_with_instances -> B shares A data", B.data is A.data)
+    check("replace_with_instances -> C shares A data", C.data is A.data)
+    check(
+        "replace_with_instances -> data.users == 3",
+        A.data.users == 3,
+        f"users={A.data.users}",
+    )
+
+    # guard: <2 objects -> no-op, returns []
+    try:
+        btk.replace_with_instances([A])
+        raised = False
+    except ValueError:
+        raised = True
+    check("replace_with_instances <2 -> ValueError (mayatk's twin)", raised)
+
+    # get_instances(None): scene-wide shared datablocks (A,B,C all share -> all 3)
+    inst = btk.get_instances(objects=None)
+    check("get_instances(None) -> 3 instanced", len(inst) == 3, f"n={len(inst)}")
+    # add a lone cube D -> not instanced, not returned
+    D = cube("D", (9, 0, 0))
+    inst = btk.get_instances(objects=None)
+    check(
+        "get_instances ignores single-user D",
+        D not in inst and len(inst) == 3,
+        f"n={len(inst)}",
+    )
+    # get_instances(subset) -> instances sharing data with B (= A,B,C)
+    inst_b = btk.get_instances([B])
+    check(
+        "get_instances([B]) -> the A/B/C group",
+        len(inst_b) == 3 and D not in inst_b,
+        f"n={len(inst_b)}",
+    )
+
+    # uninstance B -> B gets its own copy, users drop to 2
+    changed = btk.uninstance([B])
+    check("uninstance -> 1 changed", len(changed) == 1, f"n={len(changed)}")
+    check("uninstance -> B distinct from A", B.data is not A.data)
+    check("uninstance -> A data.users == 2", A.data.users == 2, f"users={A.data.users}")
+    # uninstancing a single-user object is a no-op
+    check("uninstance single-user D -> []", btk.uninstance([D]) == [])
+
+    # --- preserved_instances: instancing survives a destructive op (mirror of
+    # mtk.NodeUtils.preserved_instances) ---
+    def make_group(prefix, n=3):
+        objs = [cube(f"{prefix}0", (0, 0, 0))]
+        for i in range(1, n):
+            o = cube(f"{prefix}{i}", (0, 0, 0))
+            o.data = objs[0].data
+            objs.append(o)
+        for i, o in enumerate(objs):
+            o.location = (3.0 * (i + 1), 1.0 * (i + 1), -2.0 * (i + 1))
+            o.rotation_euler[2] = math.radians(20.0 * (i + 1))
+            s = 1.0 + 0.15 * (i + 1)
+            o.scale = (s, s, s)
+        bpy.context.view_layer.update()
+        return objs
+
+    def world_verts(o):
+        return [(o.matrix_world @ v.co).copy() for v in o.data.vertices]
+
+    def verts_close(a, b, tol=1e-4):
+        return all((x - y).length < tol for x, y in zip(a, b))
+
+    reset()
+    g = make_group("pg")
+    before = {o.name: world_verts(o) for o in g}
+    with btk.NodeUtils._preserved_instances(g) as ctx:
+        check("preserved_instances -> yields one master", len(ctx.objects) == 1)
+        check(
+            "preserved_instances -> master fork is unique",
+            sum(1 for o in bpy.data.objects if o.data is ctx.objects[0].data) == 1,
+        )
+        btk.freeze_transforms(ctx.objects, location=True, rotation=True, scale=True)
+    bpy.context.view_layer.update()
+    check(
+        "preserved_instances -> group re-shared (3 users)",
+        sum(1 for o in bpy.data.objects if o.data is g[0].data) == 3,
+    )
+    check(
+        "preserved_instances -> world geometry preserved",
+        all(verts_close(before[o.name], world_verts(o)) for o in g),
+    )
+    check(
+        "preserved_instances -> master frozen to identity",
+        all(abs(v) < 1e-4 for v in g[0].location)
+        and all(abs(v - 1.0) < 1e-4 for v in g[0].scale),
+    )
+    check(
+        "preserved_instances -> map routes siblings to master",
+        ctx.map[g[1]] is g[0] and ctx.map[g[2]] is g[0],
+    )
+
+    # exception mid-block: restore still runs (data re-shared, geometry intact)
+    reset()
+    g = make_group("px")
+    before = {o.name: world_verts(o) for o in g}
+    try:
+        with btk.NodeUtils._preserved_instances(g):
+            raise RuntimeError("interrupted mid-operation")
+    except RuntimeError:
+        pass
+    bpy.context.view_layer.update()
+    check(
+        "preserved_instances exception -> group re-shared",
+        sum(1 for o in bpy.data.objects if o.data is g[0].data) == 3,
+    )
+    check(
+        "preserved_instances exception -> world geometry preserved",
+        all(verts_close(before[o.name], world_verts(o)) for o in g),
+    )
+
+    # driven sibling -> whole group skipped, scene untouched
+    reset()
+    g = make_group("pd", n=2)
+    con = g[1].constraints.new("COPY_LOCATION")
+    con.target = g[0]
+    with btk.NodeUtils._preserved_instances(g) as ctx:
+        check("preserved_instances driven sibling -> no operables", ctx.objects == [])
+        check(
+            "preserved_instances driven sibling -> skip reported", len(ctx.skipped) == 2
+        )
+    check(
+        "preserved_instances driven sibling -> data still shared",
+        g[0].data is g[1].data,
+    )
+
+    # center_pivot flag honored (source origin moves to bbox center) — smoke that it doesn't raise
+    reset()
+    A = cube("A", (5, 0, 0))
+    for v in A.data.vertices:
+        v.co.x += 2.0
+    bpy.context.view_layer.update()
+    B = cube("B", (0, 0, 0))
+    btk.replace_with_instances([A, B], center_pivot=True)
+    check(
+        "replace_with_instances center_pivot -> A origin re-centered to 7",
+        abs(A.location.x - 7.0) < 1e-3,
+        f"x={A.location.x:.3f}",
+    )
+    check("replace_with_instances center_pivot -> B shares A data", B.data is A.data)
+
+    # regression: freeze_transforms pre-cleans only the SOURCE -> the target keeps its world
+    # position (a naive whole-list freeze would zero the target's location, relocating it).
+    reset()
+    A = cube("A", (0, 0, 0))
+    B = cube("B", (4, 0, 0))
+    btk.replace_with_instances([A, B], freeze_transforms=True)
+    check(
+        "freeze flag leaves target B in place (world x=4)",
+        abs(B.matrix_world.translation.x - 4.0) < 1e-3,
+        f"x={B.matrix_world.translation.x:.3f}",
+    )
+    check("freeze flag -> B still shares A data", B.data is A.data)
+
+    # retain_bbox_scale: target's size lives in its GEOMETRY (scale channels stay 1), so
+    # adopting the source's smaller data would shrink it -> rescale back to its own bbox size.
+    def world_size_x(o):
+        bpy.context.view_layer.update()  # bound_box/matrix_world are lazily evaluated
+        mn, mx = btk.get_world_bbox(o)
+        return (mx - mn).x
+
+    reset()
+    A = cube("A", (0, 0, 0))  # 2 units (default cube)
+    B = cube("B", (10, 0, 0))
+    for v in B.data.vertices:  # 6 units, scale channels still 1
+        v.co *= 3.0
+    bpy.context.view_layer.update()
+    btk.replace_with_instances([A, B])  # off (default): B takes A's size
+    check(
+        "retain_bbox_scale off -> B shrinks to source size",
+        abs(world_size_x(B) - world_size_x(A)) < 1e-3,
+        f"x={world_size_x(B):.3f}",
+    )
+
+    reset()
+    A = cube("A", (0, 0, 0))
+    B = cube("B", (10, 0, 0))
+    for v in B.data.vertices:
+        v.co *= 3.0
+    bpy.context.view_layer.update()
+    want = world_size_x(B)
+    btk.replace_with_instances([A, B], retain_bbox_scale=True)
+    check(
+        "retain_bbox_scale -> B keeps its own world bbox size",
+        abs(world_size_x(B) - want) < 1e-3,
+        f"x={world_size_x(B):.3f} want={want:.3f}",
+    )
+    check("retain_bbox_scale -> B still shares A data", B.data is A.data)
+    check(
+        "retain_bbox_scale -> uniform scale factor",
+        abs(B.scale.x - B.scale.y) < 1e-6 and abs(B.scale.x - B.scale.z) < 1e-6,
+        f"scale={tuple(round(v, 4) for v in B.scale)}",
+    )
+
+    # retain_bbox_per_axis: fits each axis independently, measured in the LOCAL frame -> a
+    # ROTATED target still lands on its own proportions (a world-axis ratio would not).
+    reset()
+    A = cube("A", (0, 0, 0))  # 2 x 2 x 2
+    B = cube("B", (10, 0, 0))
+    for v in B.data.vertices:  # 2 x 4 x 8, baked into the mesh
+        v.co.y *= 2.0
+        v.co.z *= 4.0
+    B.rotation_euler = (0.0, math.radians(45.0), 0.0)
+    bpy.context.view_layer.update()
+    want_world = [
+        round(v, 4) for v in (btk.get_world_bbox(B)[1] - btk.get_world_bbox(B)[0])
+    ]
+    btk.replace_with_instances(
+        [A, B], retain_bbox_scale=True, retain_bbox_per_axis=True
+    )
+    bpy.context.view_layer.update()
+    got_world = [
+        round(v, 4) for v in (btk.get_world_bbox(B)[1] - btk.get_world_bbox(B)[0])
+    ]
+    check(
+        "retain_bbox_per_axis -> rotated target keeps its world bbox",
+        all(abs(g - w) < 1e-3 for g, w in zip(got_world, want_world)),
+        f"got={got_world} want={want_world}",
+    )
+    check(
+        "retain_bbox_per_axis -> non-uniform local scale 1:2:4",
+        abs(B.scale.y / B.scale.x - 2.0) < 1e-3
+        and abs(B.scale.z / B.scale.x - 4.0) < 1e-3,
+        f"scale={tuple(round(v, 4) for v in B.scale)}",
+    )
+
+    # a mirrored target (negative scale) stays mirrored: bbox extents are unsigned, so the
+    # ratio is always positive and the sign of each channel survives the fit untouched.
+    for per_axis in (False, True):
+        reset()
+        A = cube("A", (0, 0, 0))  # 2 units
+        B = cube("B", (10, 0, 0))
+        for v in B.data.vertices:
+            v.co *= 3.0  # 6 units
+        B.scale.x = -1.0  # mirrored
+        bpy.context.view_layer.update()
+        btk.replace_with_instances(
+            [A, B], retain_bbox_scale=True, retain_bbox_per_axis=per_axis
+        )
+        check(
+            f"retain_bbox_scale(per_axis={per_axis}) -> mirror preserved",
+            B.scale.x < 0 and B.scale.y > 0 and B.scale.z > 0,
+            f"scale={tuple(round(v, 4) for v in B.scale)}",
+        )
+        check(
+            f"retain_bbox_scale(per_axis={per_axis}) -> mirrored target keeps its size",
+            abs(world_size_x(B) - 6.0) < 1e-3,
+            f"x={world_size_x(B):.3f}",
+        )
+        check(
+            f"retain_bbox_scale(per_axis={per_axis}) -> source not mirrored",
+            A.scale.x > 0,
+        )
+
+    # a degenerate axis (flat target vs. solid source) has no reproducible ratio -> left alone
+    reset()
+    A = cube("A", (0, 0, 0))
+    bpy.ops.mesh.primitive_plane_add(location=(10, 0, 0))  # 2 x 2 x 0
+    B = bpy.context.active_object
+    B.name = "B"
+    for v in B.data.vertices:
+        v.co *= 3.0  # 6 x 6 x 0
+    bpy.context.view_layer.update()
+    btk.replace_with_instances(
+        [A, B], retain_bbox_scale=True, retain_bbox_per_axis=True
+    )
+    check(
+        "retain_bbox_per_axis -> flat axis keeps scale 1 (no collapse)",
+        abs(B.scale.x - 3.0) < 1e-3
+        and abs(B.scale.y - 3.0) < 1e-3
+        and abs(B.scale.z - 1.0) < 1e-3,
+        f"scale={tuple(round(v, 4) for v in B.scale)}",
+    )
+
+    # regression: fake-user mesh with a single object is NOT reported as an instance
+    reset()
+    A = cube("A", (0, 0, 0))
+    A.data.use_fake_user = True  # data.users == 2, but only ONE object references it
+    check(
+        "get_instances ignores fake-user single object",
+        A not in btk.get_instances(objects=None),
+        f"data.users={A.data.users}",
+    )
+    check(
+        "uninstance fake-user single object -> no copy",
+        btk.uninstance([A]) == [] and A.data.use_fake_user,
+        f"data.users={A.data.users}",
+    )
+
+    # --- hierarchy helpers: get_parent / get_children / get_shape / set_parent ---
+    reset()
+    p = cube("Parent", (0, 0, 0))
+    c1 = cube("Child1", (5, 0, 0))
+    c2 = cube("Child2", (0, 5, 0))
+    w1 = tuple(round(v, 3) for v in c1.matrix_world.translation)
+    out = btk.NodeUtils.set_parent([c1, c2], p)
+    check(
+        "set_parent sets parent + keeps world transform",
+        out == [c1, c2]
+        and c1.parent is p
+        and tuple(round(v, 3) for v in c1.matrix_world.translation) == w1,
+        f"{w1}",
+    )
+    check("get_parent immediate", btk.get_parent(c1) is p)
+    check("get_children", set(btk.get_children(p)) == {c1, c2})
+    g = cube("Grand", (5, 5, 0))
+    btk.NodeUtils.set_parent(g, c1)
+    check(
+        "get_children recursive",
+        set(btk.get_children(p, recursive=True)) == {c1, c2, g},
+    )
+    check("get_parent all -> ancestor chain", btk.get_parent(g, all=True) == [c1, p])
+    check("get_shape returns object data", btk.get_shape(c1) is c1.data)
+    btk.NodeUtils.set_parent(c1, None)  # unparent, keep transform
+    check(
+        "set_parent to None unparents",
+        c1.parent is None
+        and tuple(round(v, 3) for v in c1.matrix_world.translation) == w1,
+    )
+    check("set_parent skips self-parent", btk.NodeUtils.set_parent([p], p) == [])
+    # Named set_parent so it no longer reads as mayatk's reparent (a decorator).
+    try:
+        btk.reparent
+        _moved = False
+    except AttributeError as _e:  # MovedNameError names the new home
+        _moved = "NodeUtils.set_parent" in str(_e)
+    check("btk.reparent is a moved name (NodeUtils.set_parent)",
+          _moved and not hasattr(btk.NodeUtils, "reparent"))
+
+    # _transforms_driven read the flat ``action.fcurves``, which Blender 5.x
+    # removed (slotted actions) -- so it raised AttributeError on any KEYED
+    # object, the exact case it exists to detect.
+    reset()
+    keyed = cube("keyed", (0, 0, 0))
+    check(
+        "an unkeyed, unconstrained cube is not driven",
+        not btk.NodeUtils._transforms_driven(keyed),
+    )
+    keyed.keyframe_insert("location", frame=1)
+    check("a keyed transform IS driven", btk.NodeUtils._transforms_driven(keyed))
+    # An NLA strip with no active action, or keys on the DELTA channels, re-write the
+    # transform just the same.
+    strip = cube("strip", (0, 0, 0))
+    strip.keyframe_insert("location", frame=1)
+    strip.animation_data.nla_tracks.new().strips.new(
+        "take", 1, strip.animation_data.action
+    )
+    strip.animation_data.action = None
+    check("an NLA-animated transform IS driven", btk.NodeUtils._transforms_driven(strip))
+    delta = cube("delta", (0, 0, 0))
+    delta.keyframe_insert("delta_location", frame=1)
+    check("a keyed delta transform IS driven", btk.NodeUtils._transforms_driven(delta))
+
+    # ---- is_locator / is_group / set_maya_node_type: the Maya node an Empty stands for --
+    # Maya has a locator SHAPE; Blender only the Empty. So the node type is read off the
+    # bridge's ``maya_node_type`` stamp when one is there, and off the hierarchy when not
+    # (a parent is a group, a leaf a locator -- the send direction's own rule). An image
+    # Empty is neither: it is Blender's image plane.
+    reset()
+
+    def empty(name, display="PLAIN_AXES"):
+        e = bpy.data.objects.new(name, None)
+        e.empty_display_type = display
+        bpy.context.collection.objects.link(e)
+        return e
+
+    leaf = empty("leaf")
+    holder = empty("holder")
+    cube("held", (0, 0, 0)).parent = holder
+    rig_loc = empty("rig_LOC")
+    cube("rigged", (0, 0, 0)).parent = rig_loc
+    btk.NodeUtils.set_maya_node_type(rig_loc, "locator")
+    bare_grp = empty("bare_GRP")
+    btk.NodeUtils.set_maya_node_type(bare_grp, "group")
+    plane = empty("plane", display="IMAGE")
+    mesh = bpy.data.objects["held"]
+    pool = [leaf, holder, rig_loc, bare_grp, plane, mesh]
+    check(
+        "is_locator: a leaf Empty, or one stamped a locator even with children",
+        btk.NodeUtils.is_locator(pool) == [True, False, True, False, False, False],
+        f"{btk.NodeUtils.is_locator(pool)}",
+    )
+    check(
+        "is_group: a parent Empty, or one stamped a group even childless",
+        btk.NodeUtils.is_group(pool) == [False, True, False, True, False, False],
+        f"{btk.NodeUtils.is_group(pool)}",
+    )
+    check(
+        "is_locator(filter=True) keeps the locators; a name resolves",
+        btk.NodeUtils.is_locator(pool, filter=True) == [leaf, rig_loc]
+        and btk.NodeUtils.is_locator("rig_LOC") is True,
+    )
+    check(
+        "set_maya_node_type: stamps the type; a group draws nothing, a locator keeps its look",
+        rig_loc["maya_node_type"] == "locator"
+        and bare_grp["maya_node_type"] == "group"
+        and abs(bare_grp.empty_display_size - btk.NodeUtils.MAYA_GROUP_DISPLAY_SIZE) < 1e-9
+        and rig_loc.empty_display_size == 1.0,
+        f"{bare_grp.empty_display_size} / {rig_loc.empty_display_size}",
+    )
+    kept = empty("kept_GRP", display="ARROWS")
+    btk.NodeUtils.set_maya_node_type(kept, "group", look=False)
+    check(
+        "set_maya_node_type(look=False): the type alone, the Empty's own display kept",
+        kept["maya_node_type"] == "group"
+        and kept.empty_display_type == "ARROWS"
+        and kept.empty_display_size == 1.0,
+        f"{kept.empty_display_size}",
+    )
+
+    # --- the selection paths the Duplicate menu calls (tentacle, through self.tk) ---
+    reset()
+    S1, S2 = cube("S1", (0, 0, 0)), cube("S2", (3, 0, 0))
+    btk.CoreUtils.select([])
+    check("replace_with_instances(None), nothing selected -> []",
+          btk.NodeUtils.replace_with_instances() == [])
+    btk.CoreUtils.select([S2, S1])
+    bpy.context.view_layer.objects.active = S1  # the active object is the source
+    made = btk.NodeUtils.replace_with_instances()
+    check("replace_with_instances(None): the active object is the source",
+          made == [S2] and S2.data == S1.data, str(made))
+    S3 = cube("S3", (6, 0, 0))
+    btk.CoreUtils.select([S3])
+    check("select_instances: a lone object -> [], selection kept",
+          btk.NodeUtils.select_instances() == [] and S3.select_get())
+    btk.CoreUtils.select([S1])
+    picked = btk.NodeUtils.select_instances()
+    check("select_instances: the object and its instances",
+          set(picked) == {S1, S2} and S2.select_get(), str(picked))
+    btk.CoreUtils.select([S3])
+    picked = btk.NodeUtils.select_instances(whole_scene=True)
+    check("select_instances(whole_scene=True): every instanced object",
+          set(picked) == {S1, S2} and not S3.select_get(), str(picked))
+    btk.CoreUtils.select([])
+    check("uninstance(None), nothing selected -> []", btk.NodeUtils.uninstance() == [])
+    btk.CoreUtils.select([S2])
+    check("uninstance(None) takes the selection",
+          btk.NodeUtils.uninstance() == [S2] and S2.data != S1.data)
+
+    # --- selection_summary: what tentacle's HUD lists -----------------------------
+    reset()
+    H1, H2 = cube("H1", (0, 0, 0)), cube("H2", (3, 0, 0))
+    btk.CoreUtils.select([])
+    check("selection_summary: nothing selected -> None", btk.NodeUtils.selection_summary() is None)
+    btk.CoreUtils.select([H1])
+    summary = btk.NodeUtils.selection_summary()
+    check(
+        "selection_summary: a cube's counts",
+        summary["mode"] == "object" and summary["count"] == 1
+        and summary["objects"] == [("H1", "mesh")]
+        and (summary["faces"], summary["tris"], summary["uvs"]) == (6, 12, 24)
+        and summary["instances"] == 0,
+        str(summary),
+    )
+    H2.data = H1.data
+    check("selection_summary: instances share the data",
+          btk.NodeUtils.selection_summary()["instances"] == 2)
+    btk.CoreUtils.select([H1, H2])
+    check("selection_summary: past the limit, no names",
+          btk.NodeUtils.selection_summary(limit=1)["objects"] == [])
+    bpy.ops.object.empty_add()
+    btk.CoreUtils.select([bpy.context.view_layer.objects.active])
+    summary = btk.NodeUtils.selection_summary()
+    check("selection_summary: no mesh -> no counts",
+          summary["faces"] is None and summary["uvs"] is None, str(summary))
+    btk.CoreUtils.select([H1])
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_mode(type="VERT")
+    bpy.ops.mesh.select_all(action="DESELECT")
+    import bmesh
+
+    edit = bmesh.from_edit_mesh(H1.data)
+    edit.verts.ensure_lookup_table()
+    for i in range(3):
+        edit.verts[i].select = True
+    bmesh.update_edit_mesh(H1.data)
+    summary = btk.NodeUtils.selection_summary()
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check(
+        "selection_summary: Edit Mode counts the components",
+        (summary["mode"], summary["component"], summary["selected"], summary["total"])
+        == ("component", "Verts", 3, 8),
+        str(summary),
+    )
+
+    # ---- lock_nodes: the shared Edit panel's Lock / Unlock (hide_select)
+    for _o in list(bpy.data.objects):
+        bpy.data.objects.remove(_o, do_unlink=True)
+    bpy.ops.mesh.primitive_cube_add()
+    _a = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    _b = bpy.context.active_object
+    btk.CoreUtils.select([_a])
+    check(
+        "lock_nodes(None, lock=True): the selection, made unselectable",
+        btk.NodeUtils.lock_nodes(None, lock=True) == [_a]
+        and _a.hide_select and not _b.hide_select,
+    )
+    _b.hide_select = True
+    check(
+        "lock_nodes(None, lock=False): every object unlocked",
+        len(btk.NodeUtils.lock_nodes(None, lock=False)) == 2
+        and not (_a.hide_select or _b.hide_select),
+    )
+    btk.CoreUtils.select([])
+    check(
+        "lock_nodes(None) locking with nothing selected is []",
+        btk.NodeUtils.lock_nodes(None, lock=True) == [],
+    )
+
+except Exception as e:
+    lines.append(f"FAIL setup: {e!r}")
+    lines.append(traceback.format_exc())
+
+ok = all(ln.startswith("OK") for ln in lines)
+print("\n===NODE-UTILS===")
+print("\n".join(lines))
+print(f"===RESULT: {'PASS' if ok else 'FAIL'}===")

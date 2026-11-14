@@ -1,0 +1,631 @@
+"""blendertk core_utils.preview headless test — snapshot/rollback/commit semantics with a
+stub operation + duck-typed widgets (no Qt needed).
+Run: blender --background --factory-startup --python blendertk/tests/test_preview.py
+"""
+
+import sys
+import os
+import traceback
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(HERE)
+MONO = os.path.dirname(REPO)
+# uitk: the Preview is its PreviewController bound to blendertk's session (Qt-free).
+for p in (REPO, os.path.join(MONO, "pythontk"), os.path.join(MONO, "uitk")):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+lines = []
+
+
+def check(name, cond, detail=""):
+    lines.append(
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
+    )
+
+
+class _Sig:
+    def __init__(self):
+        self._subs = []
+
+    def connect(self, fn):
+        self._subs.append(fn)
+
+    def emit(self, *a):
+        for fn in self._subs:
+            fn(*a)
+
+
+class FakeCheck:
+    """Mimics QCheckBox: setChecked fires toggled (like real Qt) so the guard is exercised."""
+
+    def __init__(self):
+        self.toggled = _Sig()
+        self._c = False
+
+    def setChecked(self, v):
+        if v != self._c:
+            self._c = v
+            self.toggled.emit(v)
+
+    def isChecked(self):
+        return self._c
+
+
+class FakeButton:
+    def __init__(self):
+        self.clicked = _Sig()
+        self._enabled = False  # mimics the .ui's enabled=false default
+
+    def setEnabled(self, v):
+        self._enabled = bool(v)
+
+    def isEnabled(self):
+        return self._enabled
+
+    def click(self):
+        self.clicked.emit()
+
+
+try:
+    import bpy
+    import blendertk as btk
+
+    def reset():
+        bpy.ops.object.select_all(action="DESELECT")
+        for o in list(bpy.data.objects):
+            bpy.data.objects.remove(o, do_unlink=True)
+        for m in [m for m in bpy.data.meshes if m.users == 0]:
+            bpy.data.meshes.remove(m)
+
+    def cube(name=None, x=0.0):
+        bpy.ops.mesh.primitive_cube_add(size=2.0, location=(x, 0, 0))
+        o = bpy.context.active_object
+        if name:
+            o.name = name
+        o.select_set(True)
+        return o
+
+    msgs = []
+
+    class CreatorOp:
+        """Creates 3 linked copies (the duplicate-panel shape)."""
+
+        def perform_operation(self, objects):
+            btk.DuplicateLinear.duplicate_linear(
+                objects[0], 3, translate=(6, 0, 0), calculation_mode="linear"
+            )
+
+    class MutatorOp:
+        """Mutates the source mesh in place (the mirror merge-mode 0/1 shape)."""
+
+        def perform_operation(self, objects):
+            btk.mirror(objects, axis="x", pivot="world", mergeMode=0)
+
+    class DeleterOp:
+        """Deletes the source (the radial keep_original=False shape)."""
+
+        def perform_operation(self, objects):
+            btk.DuplicateRadial.duplicate_radial(
+                objects[0], 2, end_angle=90, rotate_axis="z", pivot="world"
+            )
+
+    class FailerOp:
+        def perform_operation(self, objects):
+            raise ValueError("intentional failure")
+
+    # ---- the commit button is enabled at construction (the .ui ships it disabled; a panel
+    #      whose Create stays dead can never commit — the bug this guards against)
+    reset()
+    o = cube("Src")
+    chk, btn = FakeCheck(), FakeButton()
+    check("commit button starts disabled in the .ui", not btn.isEnabled())
+    pv = btk.Preview(CreatorOp(), chk, btn, message_func=msgs.append)
+    check("Preview enables the commit button so Create works", btn.isEnabled())
+    # Regression: the checkbox was a plain field -- Save as Defaults (Shift+Click on the
+    # panel's Reset) captured it ON, so a later Reset turned the preview on and ran the op,
+    # and a session restore reopened the panel previewing. mayatk's Preview tags it too.
+    check(
+        "the preview checkbox is outside reset + restore",
+        getattr(chk, "exclude_from_reset", False) is True
+        and getattr(chk, "restore_state", True) is False,
+    )
+
+    # ---- enable creates, refresh doesn't accumulate, disable rolls all back
+    chk.setChecked(True)
+    check(
+        "enable runs the op (3 copies)",
+        len(bpy.data.objects) == 4,
+        f"n={len(bpy.data.objects)}",
+    )
+    check("is_enabled", pv.is_enabled)
+    pv.refresh()
+    pv.refresh()
+    check(
+        "refresh doesn't accumulate",
+        len(bpy.data.objects) == 4,
+        f"n={len(bpy.data.objects)}",
+    )
+    n_meshes = len(bpy.data.meshes)
+    pv.refresh()
+    check(
+        "refresh doesn't leak datablocks",
+        len(bpy.data.meshes) == n_meshes,
+        f"{n_meshes}->{len(bpy.data.meshes)}",
+    )
+    chk.setChecked(False)
+    check(
+        "disable rolls back to just the source",
+        len(bpy.data.objects) == 1,
+        f"n={len(bpy.data.objects)}",
+    )
+    check("disable drops preview state", not pv.is_enabled)
+
+    # ---- commit keeps the result
+    reset()
+    o = cube("Src")
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(CreatorOp(), chk, btn, message_func=msgs.append)
+    chk.setChecked(True)
+    btn.click()
+    check(
+        "commit keeps the copies",
+        len(bpy.data.objects) == 4,
+        f"n={len(bpy.data.objects)}",
+    )
+    check("commit unchecks + disables", not chk.isChecked() and not pv.is_enabled)
+
+    # ---- commit with preview OFF runs once directly
+    reset()
+    o = cube("Src")
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(CreatorOp(), chk, btn, message_func=msgs.append)
+    btn.click()
+    check(
+        "commit-without-preview runs once",
+        len(bpy.data.objects) == 4,
+        f"n={len(bpy.data.objects)}",
+    )
+
+    # ---- mesh mutation is restored on rollback
+    reset()
+    o = cube("Src")
+    v0 = len(o.data.vertices)
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(MutatorOp(), chk, btn, message_func=msgs.append)
+    chk.setChecked(True)
+    check(
+        "mutator doubles verts while enabled",
+        len(bpy.data.objects["Src"].data.vertices) == v0 * 2,
+    )
+    pv.refresh()
+    check(
+        "mutator refresh doesn't stack",
+        len(bpy.data.objects["Src"].data.vertices) == v0 * 2,
+        f"v={len(bpy.data.objects['Src'].data.vertices)}",
+    )
+    chk.setChecked(False)
+    check(
+        "mutator rollback restores the mesh",
+        len(bpy.data.objects["Src"].data.vertices) == v0,
+        f"v={len(bpy.data.objects['Src'].data.vertices)}",
+    )
+
+    # ---- a deleted source is recreated on rollback (matrix + name + collection)
+    reset()
+    o = cube("Src", x=3.0)
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(DeleterOp(), chk, btn, message_func=msgs.append)
+    chk.setChecked(True)
+    check(
+        "deleter removed the source while enabled",
+        "Src" not in bpy.data.objects or bpy.data.objects["Src"].type == "EMPTY",
+    )
+    pv.refresh()  # exercises recreate-then-delete-again
+    chk.setChecked(False)
+    restored = bpy.data.objects.get("Src")
+    check(
+        "deleted source recreated on rollback",
+        restored is not None and restored.type == "MESH",
+    )
+    check(
+        "recreated source keeps its transform",
+        restored is not None and abs(restored.matrix_world.translation.x - 3.0) < 1e-5,
+    )
+    check(
+        "recreated source is back in the view layer",
+        restored is not None and restored.name in bpy.context.view_layer.objects,
+    )
+
+    # ---- failure: message lands + preview switches itself off + scene is clean
+    reset()
+    o = cube("Src")
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(FailerOp(), chk, btn, message_func=msgs.append)
+    n_msgs = len(msgs)
+    chk.setChecked(True)
+    check(
+        "failure reports a message",
+        len(msgs) > n_msgs and "intentional" in msgs[-1],
+        f"{msgs[-n_msgs:]}",
+    )
+    check("failure disables the preview", not pv.is_enabled and not chk.isChecked())
+    check("failure leaves the scene intact", len(bpy.data.objects) == 1)
+
+    # ---- empty selection: message + stays unchecked
+    reset()
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(CreatorOp(), chk, btn, message_func=msgs.append)
+    n_msgs = len(msgs)
+    chk.setChecked(True)
+    check(
+        "empty selection refuses to enable", not pv.is_enabled and not chk.isChecked()
+    )
+    check("empty selection reports", len(msgs) > n_msgs)
+
+    # ---- enabling from EDIT mode is safe: rollback replaces datablocks and runs
+    #      object-selection ops, so the preview must establish OBJECT mode first
+    reset()
+    o = cube("Src")
+    v0 = len(o.data.vertices)
+    bpy.context.view_layer.objects.active = o
+    bpy.ops.object.mode_set(mode="EDIT")
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(MutatorOp(), chk, btn, message_func=msgs.append)
+    chk.setChecked(True)
+    check("edit-mode enable forces OBJECT mode", o.mode == "OBJECT", f"mode={o.mode}")
+    pv.refresh()
+    chk.setChecked(False)
+    check(
+        "edit-mode enable still rolls back cleanly",
+        len(bpy.data.objects["Src"].data.vertices) == v0,
+        f"v={len(bpy.data.objects['Src'].data.vertices)}",
+    )
+
+    # ---- prepare_operation: one-shot precondition, run BEFORE every capture.
+    # The mirror case: forking linked data must happen outside the rollback's view,
+    # or the fresh datablock is purged as "new" and strips the object's mesh.
+    class PrepareOp:
+        def __init__(self):
+            self.prepared = 0
+
+        def prepare_operation(self, objects):
+            self.prepared += 1
+            btk.uninstance(objects)
+
+        def perform_operation(self, objects):
+            btk.mirror(objects, axis="x", pivot="world", mergeMode=0)
+
+    reset()
+    src = cube("Src")
+    linked = src.copy()  # linked duplicate: shares src.data
+    for coll in src.users_collection:
+        coll.objects.link(linked)
+    linked.location.x += 10.0
+    bpy.context.view_layer.update()
+    src_verts, linked_verts = len(src.data.vertices), len(linked.data.vertices)
+
+    op = PrepareOp()
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(op, chk, btn, message_func=msgs.append)
+    bpy.ops.object.select_all(action="DESELECT")
+    src.select_set(True)
+    bpy.context.view_layer.objects.active = src
+
+    chk.setChecked(True)  # enable -> prepare + first preview build
+    check("prepare_operation ran once at enable", op.prepared == 1, f"n={op.prepared}")
+    check("prepare_operation broke the link", src.data is not linked.data)
+    pv.refresh()
+    check("prepare_operation does NOT re-run on refresh", op.prepared == 1, f"n={op.prepared}")
+
+    chk.setChecked(False)  # rollback
+    src_after = bpy.data.objects.get("Src")
+    check("rollback keeps the prepared object's mesh intact",
+          src_after is not None and src_after.data is not None
+          and len(src_after.data.vertices) == src_verts,
+          f"v={len(src_after.data.vertices) if src_after and src_after.data else '<none>'} (was {src_verts})")
+    check("rollback leaves the linked sibling untouched",
+          len(linked.data.vertices) == linked_verts,
+          f"v={len(linked.data.vertices)} (was {linked_verts})")
+
+    # ---- a failing precondition aborts the enable (the op never runs)
+    class BoomPrepareOp:
+        def __init__(self):
+            self.ran = 0
+
+        def prepare_operation(self, objects):
+            raise RuntimeError("precondition failed")
+
+        def perform_operation(self, objects):
+            self.ran += 1
+
+    reset()
+    o = cube("Src")
+    boom = BoomPrepareOp()
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(boom, chk, btn, message_func=msgs.append)
+    bpy.ops.object.select_all(action="DESELECT")
+    o.select_set(True)
+    bpy.context.view_layer.objects.active = o
+    chk.setChecked(True)
+    check("failing prepare_operation aborts the enable", not chk.isChecked())
+    check("failing prepare_operation prevents the operation", boom.ran == 0, f"n={boom.ran}")
+
+    # ---- the SAME precondition must run on the commit-without-preview path. It used to
+    #      be skipped there, so a bypassed Mirror never broke linked-data sharing and
+    #      rewrote every linked duplicate — the exact corruption the hook exists to stop.
+    reset()
+    src = cube("Src")
+    linked = src.copy()  # linked duplicate: shares src.data
+    for coll in src.users_collection:
+        coll.objects.link(linked)
+    linked.location.x += 10.0
+    bpy.context.view_layer.update()
+    linked_verts = len(linked.data.vertices)
+
+    op = PrepareOp()
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(op, chk, btn, message_func=msgs.append)
+    bpy.ops.object.select_all(action="DESELECT")
+    src.select_set(True)
+    bpy.context.view_layer.objects.active = src
+    btn.click()  # commit with the preview OFF
+    check("bypassed commit runs prepare_operation once", op.prepared == 1, f"n={op.prepared}")
+    check("bypassed commit broke the link", src.data is not linked.data)
+    check("bypassed commit left the linked sibling untouched",
+          len(linked.data.vertices) == linked_verts,
+          f"v={len(linked.data.vertices)} (was {linked_verts})")
+
+    # ---- a failing precondition must also abort the bypassed commit
+    reset()
+    o = cube("Src")
+    boom = BoomPrepareOp()
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(boom, chk, btn, message_func=msgs.append)
+    bpy.ops.object.select_all(action="DESELECT")
+    o.select_set(True)
+    bpy.context.view_layer.objects.active = o
+    btn.click()
+    check("failing prepare_operation aborts the bypassed commit", boom.ran == 0, f"n={boom.ran}")
+
+    # ---- restore_func: called once when a rollback DISCARDS the preview
+    #      (un-check / failure), never on enable/refresh/commit — the hook for
+    #      out-of-snapshot state (shared-carrier props, files on disk).
+    restores = []
+    reset()
+    o = cube("Src")
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(CreatorOp(), chk, btn,
+                     restore_func=lambda: restores.append(1),
+                     message_func=msgs.append)
+    chk.setChecked(True)
+    pv.refresh()
+    check("restore_func not called on enable/refresh", not restores, f"n={len(restores)}")
+    chk.setChecked(False)
+    check("restore_func called once on discard", len(restores) == 1, f"n={len(restores)}")
+    chk.setChecked(False)  # already off — no rollback, no restore
+    check("restore_func not re-called when already off", len(restores) == 1, f"n={len(restores)}")
+
+    restores.clear()
+    reset()
+    o = cube("Src")
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(CreatorOp(), chk, btn,
+                     restore_func=lambda: restores.append(1),
+                     message_func=msgs.append)
+    chk.setChecked(True)
+    btn.click()  # commit keeps the result — nothing to restore
+    check("restore_func not called on commit", not restores, f"n={len(restores)}")
+
+    restores.clear()
+    reset()
+    o = cube("Src")
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(FailerOp(), chk, btn,
+                     restore_func=lambda: restores.append(1),
+                     message_func=msgs.append)
+    chk.setChecked(True)  # op raises -> self-disable path
+    check("restore_func called on the failure-disable path", len(restores) == 1,
+          f"n={len(restores)}")
+
+    # ---- require_preview=True: the opt-in gate (mirrors mayatk). Commit stays dead
+    #      until a preview is running, and a blind commit is a no-op.
+    reset()
+    o = cube("Src")
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(CreatorOp(), chk, btn, message_func=msgs.append,
+                     require_preview=True)
+    check("require_preview leaves the commit button disabled", not btn.isEnabled())
+    n_before = len(bpy.data.objects)
+    btn.click()  # blind commit -> no-op
+    check("require_preview refuses a commit with no preview",
+          len(bpy.data.objects) == n_before, f"n={len(bpy.data.objects)}")
+    chk.setChecked(True)
+    check("require_preview enables commit once previewing", btn.isEnabled())
+    btn.click()
+    check("require_preview commit keeps the result",
+          len(bpy.data.objects) == 4, f"n={len(bpy.data.objects)}")
+    check("require_preview re-disables commit after the commit", not btn.isEnabled())
+
+    # ---- Select Result (mayatk's select_result_checkbox + result_provider): the result is
+    #      selected after each build and on commit, deselected with the box off, and a live
+    #      toggle applies at once without re-running the operation.
+    class ResultOp:
+        """Copies the source and hands the copy back as its result."""
+
+        def __init__(self):
+            self.result, self.runs = None, 0
+
+        def perform_operation(self, objects):
+            self.runs += 1
+            self.result = objects[0].copy()
+            bpy.context.scene.collection.objects.link(self.result)
+
+    reset()
+    o = cube("Src")
+    op, chk, btn, pick = ResultOp(), FakeCheck(), FakeButton(), FakeCheck()
+    pick.setChecked(True)
+    pv = btk.Preview(op, chk, btn, message_func=msgs.append,
+                     select_result_checkbox=pick, result_provider=lambda: [op.result])
+    chk.setChecked(True)
+    check("Select Result selects the built result (not the source)",
+          op.result.select_get() and not o.select_get()
+          and bpy.context.view_layer.objects.active == op.result)
+    runs = op.runs
+    pick.setChecked(False)
+    check("unchecking Select Result deselects the result without a re-run",
+          not op.result.select_get() and op.runs == runs, f"runs={op.runs}")
+    pick.setChecked(True)
+    btn.click()
+    check("commit leaves the result selected", op.result.select_get())
+
+    reset()
+    o = cube("Src")
+    op, chk, btn, pick = ResultOp(), FakeCheck(), FakeButton(), FakeCheck()
+    pick.setChecked(True)
+    pv = btk.Preview(op, chk, btn, message_func=msgs.append,
+                     select_result_checkbox=pick, result_provider=lambda: [op.result])
+    chk.setChecked(True)
+    chk.setChecked(False)  # rollback removes the result
+    pick.setChecked(False)  # a toggle over a removed result is harmless
+    check("a toggle after the rollback leaves the source alone",
+          "Src" in bpy.data.objects and len(bpy.data.objects) == 1, f"n={len(bpy.data.objects)}")
+
+    # ---- one undo step per commit (Maya's one chunk): a commit -- previewed or straight
+    #      from the selection -- pushes ONE step named for the panel, its finalize step
+    #      inside it; a preview pass, a refresh and a discard push none.
+    from blendertk.core_utils._core_utils import CoreUtils as _CoreUtils
+
+    events = []
+    _real_push = _CoreUtils.__dict__["undo_push"]
+    _CoreUtils.undo_push = staticmethod(lambda message="": events.append(("push", message)))
+    try:
+        reset()
+        o = cube("Src")
+        chk, btn = FakeCheck(), FakeButton()
+        pv = btk.Preview(CreatorOp(), chk, btn, message_func=msgs.append,
+                         undo_message="Creator", finalize_func=lambda: events.append("finalize"))
+        chk.setChecked(True)
+        pv.refresh()
+        chk.setChecked(False)
+        check("a preview pass, a refresh and a discard push no undo step", not events,
+              f"{events}")
+        chk.setChecked(True)
+        btn.click()
+        check("a previewed commit is one undo step, its finalize step inside",
+              events == ["finalize", ("push", "Creator")], f"{events}")
+
+        events.clear()
+        reset()
+        o = cube("Src")
+        chk, btn = FakeCheck(), FakeButton()
+        pv = btk.Preview(CreatorOp(), chk, btn, message_func=msgs.append,
+                         finalize_func=lambda: events.append("finalize"))
+        btn.click()
+        check("a commit with no preview is one undo step named for the operation",
+              events == ["finalize", ("push", "CreatorOp")], f"{events}")
+
+        # A refused commit (its precondition raised) changed nothing: no empty step.
+        events.clear()
+        reset()
+        o = cube("Src")
+        boom = BoomPrepareOp()
+        chk, btn = FakeCheck(), FakeButton()
+        pv = btk.Preview(boom, chk, btn, message_func=msgs.append)
+        btn.click()
+        check("a refused commit pushes no undo step", boom.ran == 0 and not events,
+              f"ran={boom.ran} {events}")
+    finally:
+        _CoreUtils.undo_push = _real_push
+
+    # ---- the panel window's show / hide hooks (mayatk's enable_on_show / disable_on_hide,
+    #      one controller now): a show previews when asked, a hide discards by default.
+    class FakeWindow:
+        def __init__(self):
+            self.on_show, self.on_hide = _Sig(), _Sig()
+
+    class WindowedButton(FakeButton):
+        def __init__(self, window):
+            super().__init__()
+            self._window = window
+
+        def window(self):
+            return self._window
+
+    reset()
+    o = cube("Src")
+    win = FakeWindow()
+    chk, btn = FakeCheck(), WindowedButton(win)
+    pv = btk.Preview(CreatorOp(), chk, btn, message_func=msgs.append, enable_on_show=True)
+    win.on_show.emit()
+    check("enable_on_show previews as the window shows",
+          pv.is_enabled and chk.isChecked() and len(bpy.data.objects) == 4,
+          f"n={len(bpy.data.objects)}")
+    win.on_show.emit()
+    check("a second show builds no second pass", len(bpy.data.objects) == 4,
+          f"n={len(bpy.data.objects)}")
+    win.on_hide.emit()
+    check("a hide discards the preview", not pv.is_enabled and len(bpy.data.objects) == 1,
+          f"n={len(bpy.data.objects)}")
+
+    reset()
+    o = cube("Src")
+    win = FakeWindow()
+    chk, btn = FakeCheck(), WindowedButton(win)
+    pv = btk.Preview(CreatorOp(), chk, btn, message_func=msgs.append, disable_on_hide=False)
+    win.on_show.emit()
+    check("a show previews nothing by default", not pv.is_enabled)
+    chk.setChecked(True)
+    win.on_hide.emit()
+    check("disable_on_hide=False keeps the preview through a hide",
+          pv.is_enabled and len(bpy.data.objects) == 4, f"n={len(bpy.data.objects)}")
+    chk.setChecked(False)
+
+    # ---- validation_func gates a preview and a commit alike
+    reset()
+    o = cube("Src")
+    chk, btn = FakeCheck(), FakeButton()
+    n_msgs = len(msgs)
+    pv = btk.Preview(CreatorOp(), chk, btn, message_func=msgs.append,
+                     validation_func=lambda objects: False)
+    chk.setChecked(True)
+    btn.click()
+    check("validation_func refuses the preview and the commit",
+          not pv.is_enabled and not chk.isChecked() and len(bpy.data.objects) == 1,
+          f"n={len(bpy.data.objects)}")
+    check("a refused validation reports", len(msgs) > n_msgs and "validation" in msgs[-1].lower(),
+          f"{msgs[n_msgs:]}")
+
+    # ---- reselect_on_disable: a discard selects the captured objects again (the
+    #      default), or leaves the selection the operation made
+    class SelectsCopyOp:
+        def perform_operation(self, objects):
+            copy = objects[0].copy()
+            bpy.context.scene.collection.objects.link(copy)
+            bpy.ops.object.select_all(action="DESELECT")
+            copy.select_set(True)
+
+    for reselect in (True, False):
+        reset()
+        o = cube("Src")
+        other = cube("Other", x=4.0)
+        bpy.ops.object.select_all(action="DESELECT")
+        o.select_set(True)
+        chk, btn = FakeCheck(), FakeButton()
+        pv = btk.Preview(SelectsCopyOp(), chk, btn, message_func=msgs.append,
+                         reselect_on_disable=reselect)
+        chk.setChecked(True)
+        chk.setChecked(False)
+        selected = sorted(ob.name for ob in bpy.context.view_layer.objects if ob.select_get())
+        check(f"reselect_on_disable={reselect}: the discard's selection",
+              selected == (["Src"] if reselect else []), f"{selected}")
+
+except Exception:
+    traceback.print_exc()
+    lines.append("FAIL unhandled exception")
+
+print("\n".join(lines))
+ok = all(l.startswith("OK") for l in lines) and lines
+print(
+    f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({sum(1 for l in lines if l.startswith('OK'))}/{len(lines)})"
+)

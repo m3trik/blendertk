@@ -41,5 +41,5 @@ venv/
 API_RUNTIME.json
 
 # Test artifacts (regenerated each run)
-test/temp_tests/
-test/logs/
+tests/temp_tests/
+tests/logs/

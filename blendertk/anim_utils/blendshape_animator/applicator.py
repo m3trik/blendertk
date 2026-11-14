@@ -32,7 +32,7 @@ points ``w_k`` and ``w_(k+1)``:
 — algebraically identical to Maya's piecewise-linear in-between blend (``P`` is itself affine
 in ``v``, so interpolating its argument commutes with interpolating its value; expand and the
 ``P`` terms cancel to exactly the lerp of the two sculpted shapes). Verified in
-``test/test_blendshape_animator.py``. Every corrective's tent must be rebuilt whenever the set
+``tests/test_blendshape_animator.py``. Every corrective's tent must be rebuilt whenever the set
 of applied weights changes (adding/removing a tween shifts its neighbours' spans) — see
 :meth:`Applicator._rebuild_all_tents`, called once per :meth:`apply_tweens` batch.
 
@@ -41,7 +41,7 @@ plumbing rather than re-deriving it (the "script-built driver needs a forced rec
 gotcha documented there applies here too).
 
 **Known Blender 5.1 limitation — multiple independently-keyed master keys sharing one mesh.**
-Confirmed by direct investigation (see ``test/test_blendshape_animator.py``'s cross-session
+Confirmed by direct investigation (see ``tests/test_blendshape_animator.py``'s cross-session
 section): once a SECOND master shape key gets its own keyframed ``value`` on the same base
 mesh's ``Key`` ID (a normal multi-blend-shape rig — e.g. "Smile" + "Frown" on one face mesh),
 Blender's dependency graph can silently stop re-evaluating EITHER key's own mix contribution

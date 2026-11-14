@@ -1,7 +1,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 [![PyPI](https://img.shields.io/pypi/v/blendertk.svg)](https://pypi.org/project/blendertk/)
 [![Blender](https://img.shields.io/badge/Blender-4.x+-orange.svg)](https://www.blender.org/)
-[![Tests](https://img.shields.io/badge/Tests-7971%20passed-brightgreen.svg)](../test/)
+[![Tests](https://img.shields.io/badge/Tests-7971%20passed-brightgreen.svg)](../tests/)
 ![Platform](https://img.shields.io/badge/Platform-Windows%2C%20Linux-lightgrey.svg)
 
 # blendertk
@@ -90,7 +90,7 @@ Nothing in blendertk attaches to a running Blender. Tests and headless tooling a
 
 - **Full API:** `python -m pythontk ops run api.search "query=<words>"` (the installed source, searched)
 - **Structure / parity map:** [`STRUCTURE.md`](STRUCTURE.md)
-- **Test suite:** [`test/README.md`](../test/README.md) — suite layout, sentinel conventions, fresh-instance runner
+- **Test suite:** [`tests/README.md`](../tests/README.md) — suite layout, sentinel conventions, fresh-instance runner
 - **Changelog:** [`CHANGELOG.md`](../CHANGELOG.md)
 - **Contributor / AI-agent guide:** [`AGENTS.md`](../AGENTS.md)
 - **PyPI:** https://pypi.org/project/blendertk/
