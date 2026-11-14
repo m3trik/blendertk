@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.25.1"
+__version__ = "0.26.0"
 
 """blendertk — the Blender host library: each tool's API half (its operations and record
 rows), as mayatk is Maya's. tentacle holds the panels and their Slots, shared by both

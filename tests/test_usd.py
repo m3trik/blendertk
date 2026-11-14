@@ -3,7 +3,7 @@ round-trip over Blender's native USD runtime (mirror of mayatk's ``env_utils.usd
 plus cross-validation of pythontk's zero-dep USD author/packager against Blender's
 bundled ``pxr`` and importer.
 
-Run: blender --background --factory-startup --python blendertk/test/test_usd.py
+Run: blender --background --factory-startup --python blendertk/tests/test_usd.py
 """
 
 import sys
@@ -1082,6 +1082,140 @@ try:
         packed[0].endswith(".usda")
         and any(name.endswith("pkg_albedo.png") for name in packed),
         str(packed),
+    )
+
+    # ---- a deliverable under ONE root prim: whole through a reference ----------
+    # A reference takes the layer's default prim alone. The writer leaves each
+    # root object at the top and every material in a root /_materials scope, so
+    # a stage referencing the file lost objects and all materials (measured
+    # 2026-11-13: 2 of 3 meshes, 0 bound). The deliverable set is what writes
+    # that layout (root_prim_path ""); single_root sets the exporter's own
+    # root_prim_path to a root named after the file, over whatever the set says.
+    deliverable = dict(UsdUtils.DELIVERABLE_EXPORT_OPTIONS)
+    from pxr import Sdf, Usd, UsdGeom, UsdShade
+
+    def through_a_reference(path):
+        stage = Usd.Stage.CreateInMemory()
+        stage.DefinePrim("/placed").GetReferences().AddReference(path.replace("\\", "/"))
+        meshes = [p for p in stage.Traverse() if p.GetTypeName() == "Mesh"]
+        bound = [
+            m for m in meshes if UsdShade.MaterialBindingAPI(m).ComputeBoundMaterial()[0]
+        ]
+        return len(meshes), len(bound)
+
+    reset()
+    kit = []
+    for index in range(2):
+        bpy.ops.mesh.primitive_cube_add(location=(index * 3, 0, 0))
+        part = bpy.context.active_object
+        part.name = f"kit_part{index}"
+        paint = bpy.data.materials.new(f"kit_paint{index}")
+        btk.MatUtils.get_node_tree(paint, create=True)
+        part.data.materials.append(paint)
+        kit.append(part)
+    bpy.ops.mesh.primitive_cube_add(location=(0, 3, 0))
+    child = bpy.context.active_object
+    child.name = "kit_child"
+    child.data.materials.append(bpy.data.materials["kit_paint0"])
+    child.parent = kit[0]
+    kit.append(child)
+
+    flat_out = os.path.join(tmp, "flat_kit.usda")
+    UsdUtils.export(filepath=flat_out, objects=kit, **deliverable)
+    lost = through_a_reference(flat_out)
+    check(
+        "a flat export loses roots and materials through a reference (the defect)",
+        lost[0] < 3 and lost[1] == 0,
+        str(lost),
+    )
+    root_out = os.path.join(tmp, "wall_kit.usda")
+    UsdUtils.export(filepath=root_out, objects=kit, single_root=True, **deliverable)
+    root_layer = Sdf.Layer.FindOrOpen(root_out)
+    check(
+        "single_root: one root prim named after the file, the default prim",
+        [spec.name for spec in root_layer.rootPrims] == ["wall_kit"]
+        and root_layer.defaultPrim == "wall_kit",
+        f"{[spec.name for spec in root_layer.rootPrims]} default={root_layer.defaultPrim!r}",
+    )
+    check(
+        "single_root: every mesh and its material arrive through a reference",
+        through_a_reference(root_out) == (3, 3),
+        str(through_a_reference(root_out)),
+    )
+    whole = Usd.Stage.Open(root_out)
+    opened = [p for p in whole.Traverse() if p.GetTypeName() == "Mesh"]
+    check(
+        "single_root: the opened file keeps every binding",
+        len(opened) == 3
+        and all(UsdShade.MaterialBindingAPI(m).ComputeBoundMaterial()[0] for m in opened),
+        str([str(p.GetPath()) for p in opened]),
+    )
+    reset()
+    back = UsdUtils.import_usd(root_out)
+    check(
+        "single_root: the import brings every mesh back with its material",
+        sum(1 for o in back if o.type == "MESH") == 3
+        and all(o.data.materials and o.data.materials[0] for o in back if o.type == "MESH"),
+        str([(o.name, o.type) for o in back]),
+    )
+
+    # A hidden object's stamp and the root: the passes address prims where the
+    # writer put them, so the wrap runs last.
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    shown = bpy.context.active_object
+    shown.name = "kit_shown"
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    hidden_part = bpy.context.active_object
+    hidden_part.name = "kit_hidden"
+    hidden_part.hide_viewport = True
+    hidden_out = os.path.join(tmp, "hidden_kit.usda")
+    UsdUtils.export(
+        filepath=hidden_out, objects=[shown, hidden_part], single_root=True, **deliverable
+    )
+    stamped = Usd.Stage.Open(hidden_out)
+    hidden_prim = stamped.GetPrimAtPath("/hidden_kit/kit_hidden")
+    check(
+        "single_root: a hidden object is still stamped invisible under the root",
+        bool(hidden_prim)
+        and UsdGeom.Imageable(hidden_prim).GetVisibilityAttr().Get() == "invisible",
+        str([str(p.GetPath()) for p in stamped.Traverse()]),
+    )
+
+    # A package takes its root's name from the package, and the wrap runs on
+    # the scratch layer (pxr cannot save into a .usdz).
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    boxed_a = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    boxed_b = bpy.context.active_object
+    boxed_out = os.path.join(tmp, "boxed.usdz")
+    UsdUtils.export(
+        filepath=boxed_out, objects=[boxed_a, boxed_b], single_root=True, **deliverable
+    )
+    default_out = os.path.join(tmp, "default_root.usda")
+    UsdUtils.export(filepath=default_out, objects=[boxed_a, boxed_b], single_root=True)
+    default_layer = Sdf.Layer.FindOrOpen(default_out)
+    check(
+        "single_root: the root bears the file's name whatever root the options name",
+        [spec.name for spec in default_layer.rootPrims] == ["default_root"]
+        and default_layer.defaultPrim == "default_root",
+        f"{[spec.name for spec in default_layer.rootPrims]} "
+        f"default={default_layer.defaultPrim!r}",
+    )
+    spelled_out = os.path.join(tmp, "2 wall-kit.usda")
+    UsdUtils.export(filepath=spelled_out, objects=[boxed_a, boxed_b], single_root=True)
+    spelled_layer = Sdf.Layer.FindOrOpen(spelled_out)
+    check(
+        "single_root: the root's name is spelled as a prim may be",
+        [spec.name for spec in spelled_layer.rootPrims] == ["_2_wall_kit"],
+        str([spec.name for spec in spelled_layer.rootPrims]),
+    )
+    boxed = Usd.Stage.Open(boxed_out)
+    check(
+        "single_root: a .usdz stands under a root named after the package",
+        [p.GetName() for p in boxed.GetPseudoRoot().GetChildren()] == ["boxed"],
+        str([p.GetName() for p in boxed.GetPseudoRoot().GetChildren()]),
     )
 
     import shutil

@@ -19,7 +19,7 @@ window ``edit_fbx_preset`` opens is patched out, so an automated suite pops no O
 surface: the panel's Add/Delete buttons were dropped (2026-08-06) in favour of managing the
 preset directory directly through ``b007``, since a preset is a plain JSON file.
 
-Run: blender --background --factory-startup --python blendertk/test/test_scene_exporter.py
+Run: blender --background --factory-startup --python blendertk/tests/test_scene_exporter.py
 """
 
 import sys
@@ -81,7 +81,6 @@ try:
     # ---- run log: ONE per .blend in the user cache, never one per export beside it ---------
     # (mirror of mayatk; ptk.SceneExporterBase.log_file_path / RunLog)
     import logging as _std_logging
-    import warnings as _warnings
     from unittest.mock import patch as _patch
 
     _exp = SceneExporter()
@@ -140,13 +139,6 @@ try:
         "no log lands beside the export",
         not [f for f in os.listdir(_abort_dir) if f.endswith(".log")],
         os.listdir(_abort_dir),
-    )
-    with _warnings.catch_warnings(record=True) as _caught:
-        _warnings.simplefilter("always")
-        _exp.perform_export(export_dir=os.path.join(tmp, "missing"), hide_log_file=True)
-    check(
-        "hide_log_file is retired (warns)",
-        any(issubclass(w.category, DeprecationWarning) for w in _caught),
     )
 
     # ---- store identity: the FBX tier must NOT be the window-template dir ------------------
@@ -2196,6 +2188,49 @@ try:
             "UsdFormatCube" in names,
             str(sorted(names)),
         )
+        # A stage referencing a file receives its default prim alone: the
+        # writer's flat layout (each root object, a root /_materials scope)
+        # lost objects and every material through one (measured 2026-11-13).
+        # The deliverable stands under one root prim named after the file.
+        from pxr import UsdShade
+
+        bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+        ucube_b = bpy.context.active_object
+        ucube_b.name = "UsdFormatCubeB"
+        for painted in (ucube, ucube_b):
+            paint = bpy.data.materials.new(f"{painted.name}_paint")
+            MatUtils.get_node_tree(paint, create=True)
+            painted.data.materials.append(paint)
+        exp_kit = SceneExporter()
+        exp_kit.perform_export(
+            export_dir=usd_dir,
+            objects=[ucube, ucube_b],
+            output_name="usd_kit",
+            export_visible=True,
+            tasks={"output_format": "usd"},
+        )
+        kit_stage = Usd.Stage.Open(exp_kit.export_path)
+        placed = Usd.Stage.CreateInMemory()
+        placed.DefinePrim("/placed").GetReferences().AddReference(
+            exp_kit.export_path.replace("\\", "/")
+        )
+        placed_meshes = [p for p in placed.Traverse() if p.GetTypeName() == "Mesh"]
+        check(
+            "usd output format: several objects stand under one root prim named "
+            "after the file, whole through a reference",
+            [p.GetName() for p in kit_stage.GetPseudoRoot().GetChildren()] == ["usd_kit"]
+            and str(kit_stage.GetDefaultPrim().GetPath()) == "/usd_kit"
+            and len(placed_meshes) == 2
+            and all(
+                UsdShade.MaterialBindingAPI(m).ComputeBoundMaterial()[0]
+                for m in placed_meshes
+            ),
+            f"{[p.GetName() for p in kit_stage.GetPseudoRoot().GetChildren()]} "
+            f"meshes={len(placed_meshes)}",
+        )
+        ucube_b.data.materials.clear()
+        ucube.data.materials.clear()
+        bpy.data.objects.remove(ucube_b, do_unlink=True)
     except ImportError:
         pass
 

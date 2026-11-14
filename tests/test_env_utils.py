@@ -1,6 +1,6 @@
 """blendertk EnvUtils scene-export feature test (headless Blender — bpy present, NO Qt).
 
-Run: blender --background --factory-startup --python blendertk/test/test_env_utils.py
+Run: blender --background --factory-startup --python blendertk/tests/test_env_utils.py
 
 Mirror of the ``TestExportSceneAsObj`` block in mayatk's ``test_env_utils.py``: the two
 ``export_scene_as_obj`` twins share parameter names and meanings so the Scene panel's
@@ -429,6 +429,21 @@ try:
         except ValueError:
             _bad = True
         check("export_scene: an unknown format is a ValueError", _bad)
+        # A stage referencing the file receives its default prim alone, so the
+        # scene's objects are written under one root prim named after the file.
+        from pxr import Sdf as _Sdf
+
+        _usd_out = btk.EnvUtils.export_scene(
+            os.path.join(_export_dir, "scene_kit.usda"), "usd"
+        )
+        _usd_layer = _Sdf.Layer.FindOrOpen(_usd_out)
+        check(
+            "export_scene: a USD stands under one root prim named after the file",
+            [spec.name for spec in _usd_layer.rootPrims] == ["scene_kit"]
+            and _usd_layer.defaultPrim == "scene_kit",
+            f"{[spec.name for spec in _usd_layer.rootPrims]} "
+            f"default={_usd_layer.defaultPrim!r}",
+        )
     finally:
         shutil.rmtree(_export_dir, ignore_errors=True)
 
