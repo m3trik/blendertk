@@ -787,6 +787,215 @@ try:
     except FileNotFoundError:
         check("guard: unknown preset -> FileNotFoundError", True)
 
+    # -----------------------------------------------------------------------------
+    # 8) Review 2026-11-14: the ACTIVE UV layer is the one RizomUV must edit.
+    # RizomUV works on a mesh's FIRST UV set and the transfer back writes the
+    # active layer: with a second layer active, the first layer's result was
+    # written over the layer being worked on.
+    # -----------------------------------------------------------------------------
+    import logging
+
+    class _Said(logging.Handler):
+        """What a bridge logged, by level."""
+
+        def __init__(self):
+            super().__init__()
+            self.records = []
+
+        def emit(self, record):
+            self.records.append((record.levelname, record.getMessage()))
+
+        def text(self, level=None):
+            return "\n".join(m for lv, m in self.records if level in (None, lv))
+
+    def listen(bridge):
+        said = _Said()
+        bridge.logger.addHandler(said)
+        bridge.logger.setLevel("DEBUG")
+        return said
+
+    def layer_uvs(obj, name):
+        return [tuple(round(c, 5) for c in d.uv) for d in obj.data.uv_layers[name].data]
+
+    def first_layer_rizom(bridge, delta):
+        """RizomUV as it behaves: it moves the FIRST UV set of each mesh it loads."""
+
+        def run():
+            objs = FbxUtils.import_fbx(bridge.export_path)
+            meshes = [o for o in objs if getattr(o, "type", None) == "MESH"]
+            for o in meshes:
+                for d in o.data.uv_layers[0].data:
+                    d.uv = (d.uv[0] + delta[0], d.uv[1] + delta[1])
+                o.data.update()
+            FbxUtils.export(filepath=bridge.export_path, objects=meshes, selection_only=True)
+            for o in meshes:
+                m = o.data
+                bpy.data.objects.remove(o, do_unlink=True)
+                if getattr(m, "users", 1) == 0:
+                    bpy.data.meshes.remove(m)
+
+        return run
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    two = bpy.context.active_object
+    two.name = "RZ_TwoLayers"
+    seed_unique_uvs(two)
+    second = two.data.uv_layers.new(name="Lightmap")
+    for i, d in enumerate(second.data):
+        d.uv = ((i * 7 % 23) / 23.0 * 0.4, (i * 5 % 19) / 19.0 * 0.4)
+    two.data.uv_layers.active = two.data.uv_layers["Lightmap"]
+    first_name = two.data.uv_layers[0].name
+    first_before = layer_uvs(two, first_name)
+    worked_before = layer_uvs(two, "Lightmap")
+
+    bridge = RizomUVBridge(rizom_path="not-used.exe")
+    bridge._execute_uv_script = first_layer_rizom(bridge, (0.25, 0.125))
+    bridge.process_with_rizomuv([two], preset="pack")
+
+    moved = [(round(u + 0.25, 5), round(v + 0.125, 5)) for u, v in worked_before]
+    worked_after = layer_uvs(two, "Lightmap")
+    off = max(abs(a - b) for pa, pb in zip(worked_after, moved) for a, b in zip(pa, pb))
+    check("active layer: RizomUV's result lands on the layer being worked on", off < 1e-4, f"max diff {off:.3g}")
+    check("active layer: the first layer is left as it was", layer_uvs(two, first_name) == first_before)
+    check("active layer: both layers remain, the same one active",
+          [l.name for l in two.data.uv_layers] == [first_name, "Lightmap"]
+          and two.data.uv_layers.active.name == "Lightmap")
+
+    # -----------------------------------------------------------------------------
+    # 9) The summary says what LANDED, and a run that landed nothing keeps its payloads.
+    # -----------------------------------------------------------------------------
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    lost = bpy.context.active_object
+    lost.name = "RZ_Lost"
+    seed_unique_uvs(lost)
+    bridge = RizomUVBridge(rizom_path="not-used.exe")
+    said = listen(bridge)
+    bridge._execute_uv_script = lambda: None
+    bridge._import_objects = lambda: []  # the re-import read nothing back
+    bridge.process_with_rizomuv([lost], preset="pack")
+    check("summary: a run whose UVs reached nothing does not say 'applied'",
+          "applied to 1 object" not in said.text(), said.text("INFO")[-200:])
+    check("summary: it says how many came back", "0 of 1" in said.text("WARNING"), said.text("WARNING")[-200:])
+    check("summary: its payload stays, to look at", os.path.isfile(bridge.export_path))
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    bare = bpy.context.active_object
+    bare.name = "RZ_Bare"
+    seed_unique_uvs(bare)
+    bridge = RizomUVBridge(rizom_path="not-used.exe")
+    said = listen(bridge)
+    bridge._execute_uv_script = lambda: None
+    _imports = bridge._import_objects
+
+    def without_uvs():  # the FBX came back with no UV layer on its mesh
+        new = _imports()
+        for o in new:
+            if getattr(o, "type", None) == "MESH":
+                while o.data.uv_layers:
+                    o.data.uv_layers.remove(o.data.uv_layers[0])
+        return new
+
+    bridge._import_objects = without_uvs
+    bridge.process_with_rizomuv([bare], preset="pack")
+    check("summary: a mesh that came back with no UVs is not counted as applied",
+          "applied to 1 object" not in said.text() and "0 of 1" in said.text("WARNING"),
+          said.text()[-300:])
+    check("summary: that run's payload stays too", os.path.isfile(bridge.export_path))
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    same = bpy.context.active_object
+    same.name = "RZ_Same"
+    seed_unique_uvs(same)
+    bridge = RizomUVBridge(rizom_path="not-used.exe")
+    said = listen(bridge)
+    bridge._execute_uv_script = lambda: None  # RizomUV changed nothing
+    bridge.process_with_rizomuv([same], preset="pack")
+    check("summary: UVs back exactly as they left are named", "UNCHANGED" in said.text("WARNING"),
+          said.text("WARNING")[-200:])
+
+    # -----------------------------------------------------------------------------
+    # 10) A layout member the person hid still reaches RizomUV (mayatk exports hidden
+    # meshes too): dropped, its shells were no obstacle and the new ones were packed
+    # over them, with the run reporting success.
+    # -----------------------------------------------------------------------------
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    shown = bpy.context.active_object
+    shown.name = "RZ_Shown"
+    bpy.ops.mesh.primitive_cube_add()
+    hidden = bpy.context.active_object
+    hidden.name = "RZ_Hidden"
+    seed_unique_uvs(shown)
+    seed_unique_uvs(hidden)
+    hidden.hide_set(True)
+    hidden.hide_select = True
+    bridge = RizomUVBridge(rizom_path="not-used.exe")
+    bridge._export_objects([shown, hidden])
+    back = [o for o in FbxUtils.import_fbx(bridge.export_path) if getattr(o, "type", None) == "MESH"]
+    check("hidden member: both meshes are in the FBX", len(back) == 2, [o.name for o in back])
+    check("hidden member: the original stays hidden and locked", hidden.hide_get() and hidden.hide_select)
+    for o in back:
+        bpy.data.objects.remove(o, do_unlink=True)
+
+    # -----------------------------------------------------------------------------
+    # 11) An export that fails before the FBX is written leaves no copy behind.
+    # -----------------------------------------------------------------------------
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    kept = bpy.context.active_object
+    kept.name = "RZ_Kept"
+    blocker = os.path.join(os.path.dirname(RizomUVBridge(rizom_path="x.exe").export_path), "rz_not_a_folder")
+    with open(blocker, "w") as fh:
+        fh.write("a file where the export folder should be")
+    bridge = RizomUVBridge(rizom_path="not-used.exe")
+    bridge.export_path = os.path.join(blocker, "inside.fbx")
+    try:
+        bridge._export_objects([kept])
+        check("failed export: raises", False)
+    except Exception:
+        check("failed export: raises", True)
+    finally:
+        os.remove(blocker)
+    check("failed export: no __RZTMP copy is left in the scene", not temp_leftovers(), str(temp_leftovers()))
+
+    # -----------------------------------------------------------------------------
+    # 12) A run that fails before anything landed pushes no undo step.
+    # -----------------------------------------------------------------------------
+    import contextlib
+    from blendertk.core_utils._core_utils import CoreUtils
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    unlucky = bpy.context.active_object
+    handles = []
+
+    @contextlib.contextmanager
+    def spy_chunk(name=""):
+        with real_chunk(name) as handle:
+            handles.append(handle)
+            yield handle
+
+    real_chunk = CoreUtils.undo_chunk
+    CoreUtils.undo_chunk = staticmethod(spy_chunk)
+    try:
+        bridge = RizomUVBridge(rizom_path="not-used.exe")
+
+        def died():
+            raise RuntimeError("RizomUV died")
+
+        bridge._execute_uv_script = died
+        try:
+            bridge.process_with_rizomuv([unlucky], preset="pack")
+        except RuntimeError:
+            pass
+    finally:
+        CoreUtils.undo_chunk = staticmethod(real_chunk)
+    check("failed run: no undo step for a run that changed nothing", bool(handles) and handles[0].cancelled)
+
 except Exception as e:
     # Environmental skip: process_with_rizomuv pulls the shared uitk.bridge
     # parameter framework, which needs a Qt binding to import. Headless
