@@ -8,7 +8,7 @@ Blender has no persistent command-port protocol and its Python is embedded, so �
 port / standalone / interactive modes — the only model is a **fresh subprocess per run**
 (``blender --background --factory-startup --python …``). Session safety is therefore *structural*:
 every run is a brand-new process, so this **never attaches to a running Blender** (the package's
-hard rule). This formalizes the ``test/Run-Tests.ps1`` harness as a reusable Python class.
+hard rule). This formalizes the ``tests/Run-Tests.ps1`` harness as a reusable Python class.
 
 The actual launch+wait+capture is delegated to :meth:`pythontk.AppLauncher.run` (no raw
 subprocess); only Blender-executable *discovery* is Blender-specific. No ``bpy`` import — this is
@@ -20,7 +20,7 @@ from typing import List, Optional
 
 import pythontk as ptk
 
-#: stdout sentinel a suite prints (the ``test/Run-Tests.ps1`` convention).
+#: stdout sentinel a suite prints (the ``tests/Run-Tests.ps1`` convention).
 RESULT_PASS = "===RESULT: PASS==="
 
 

@@ -46,7 +46,7 @@ Blender 5.x renamed the VSE's old ``frame_start`` / ``frame_final_start`` /
 strip properties to ``content_start`` / ``left_handle`` / ``right_handle`` / ``duration`` /
 ``left_handle_offset`` / ``right_handle_offset`` and flagged the old names "expected to be
 removed in Blender 6.0" (confirmed live against Blender 5.1.2 — see
-``test/test_audio_utils.py``). This module uses only the new names throughout so it keeps
+``tests/test_audio_utils.py``). This module uses only the new names throughout so it keeps
 working past that removal.
 
 ``import bpy`` is deferred into every call body (no import side effects; this module must be

@@ -132,7 +132,7 @@ class SceneAnalyzer:
     """Get Scene Info in Blender -- mirror of ``mtk.SceneAnalyzer``'s sectioned report."""
 
     #: Budgets: ``mtk.AuditProfile``'s defaults, mirrored -- blendertk cannot import
-    #: mayatk, and ``test/test_scene_audit.py`` fails the moment the two drift. Adaptive
+    #: mayatk, and ``tests/test_scene_audit.py`` fails the moment the two drift. Adaptive
     #: scales :attr:`MAX_TRIS` linearly with the world-space diagonal of a mesh's largest
     #: instance up to :attr:`REFERENCE_DIAG_CM`, floored at :attr:`MIN_TRIS`; Generic is a
     #: flat :attr:`MAX_TRIS` per mesh.

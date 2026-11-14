@@ -205,6 +205,7 @@ class _EnvUtilsInternal(object):
             filepath=file_path,
             selection_only=options["selection_only"],
             frame_range=frame_range,
+            single_root=True,  # a deliverable: whole through a reference
             **usd_options,
         )
 

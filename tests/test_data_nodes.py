@@ -1,0 +1,1055 @@
+"""blendertk.node_utils.data_nodes headless test -- the scene store (no viewport).
+Run: blender --background --factory-startup --python blendertk/tests/test_data_nodes.py
+
+One suite per module (root CLAUDE.md): mirror of mayatk/tests/test_data_nodes.py at the
+behaviour level.  Covers the two carriers (the ``data_internal`` scene property group,
+the ``data_export`` Empty), the ``ptk.SceneStoreBase`` contract, the fold of a file saved
+before the group, the record layer, and the retired channel methods.
+"""
+
+import json as _json
+import os
+import pathlib as _pathlib
+import sys
+import traceback
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(HERE)  # blendertk/
+MONO = os.path.dirname(REPO)  # _scripts/
+for p in (REPO, os.path.join(MONO, "pythontk")):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+lines = []
+
+
+def check(name, cond, detail=""):
+    lines.append(
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
+    )
+
+
+try:
+    import bpy
+    import pythontk as ptk
+
+    from blendertk.node_utils.data_nodes import DataNodes
+
+    PRIVATE, DELIVERABLE = ptk.Scope.PRIVATE, ptk.Scope.DELIVERABLE
+
+    def reset():
+        bpy.ops.object.select_all(action="DESELECT")
+        for o in list(bpy.data.objects):
+            bpy.data.objects.remove(o, do_unlink=True)
+        scene = bpy.context.scene
+        for key in list(scene.keys()):
+            del scene[key]
+
+    # --- the store contract: read / write / values per scope ---------------------
+    reset()
+    check("read on an empty scene -> None", DataNodes.read(PRIVATE, "x") is None)
+    check(
+        "clear never creates the private group",
+        DataNodes.write(PRIVATE, "x", "") is None
+        and bpy.context.scene.get(DataNodes.INTERNAL) is None,
+    )
+    check(
+        "clear never creates the export Empty",
+        DataNodes.write(DELIVERABLE, "x", None) is None
+        and bpy.data.objects.get(DataNodes.EXPORT) is None,
+    )
+    check(
+        "private write creates the scene group and round-trips",
+        DataNodes.write(PRIVATE, "app_state", '{"open": true}') == DataNodes.INTERNAL
+        and DataNodes.read(PRIVATE, "app_state") == '{"open": true}'
+        and bpy.context.scene.get(DataNodes.INTERNAL) is not None,
+    )
+    check(
+        "the private carrier is NOT an object",
+        bpy.data.objects.get(DataNodes.INTERNAL) is None,
+    )
+    check(
+        "deliverable write creates the Empty and round-trips",
+        DataNodes.write(DELIVERABLE, "wire", "abc") == DataNodes.EXPORT
+        and DataNodes.read(DELIVERABLE, "wire") == "abc"
+        and bpy.data.objects.get(DataNodes.EXPORT) is not None,
+    )
+    check(
+        "scopes do not mix",
+        DataNodes.read(DELIVERABLE, "app_state") is None
+        and DataNodes.read(PRIVATE, "wire") is None,
+    )
+    check(
+        "clear an existing key -> carrier name; reads back None",
+        DataNodes.write(DELIVERABLE, "wire", "") == DataNodes.EXPORT
+        and DataNodes.read(DELIVERABLE, "wire") is None
+        and "wire" in DataNodes.get_export_node(create=False).keys(),
+    )
+    check(
+        "clear a key the carrier does not hold -> None",
+        DataNodes.write(DELIVERABLE, "probe", "") is None,
+    )
+
+    # non-string props (the audio tool's per-track flags) are values, not channels
+    DataNodes.get_internal_node()["audio_clip_voice"] = 1
+    check(
+        "a non-string property is not a channel",
+        DataNodes.read(PRIVATE, "audio_clip_voice") is None,
+    )
+    check(
+        "values reports every property",
+        DataNodes.values(PRIVATE)
+        == {"app_state": '{"open": true}', "audio_clip_voice": 1},
+        f"{DataNodes.values(PRIVATE)}",
+    )
+
+    # --- dump / format_dump (inherited from ptk.SceneStoreBase) -------------------
+    data = DataNodes.dump()
+    check(
+        "dump groups by carrier name + decodes JSON",
+        data[DataNodes.INTERNAL] == {"app_state": {"open": True}, "audio_clip_voice": 1}
+        and data[DataNodes.EXPORT] == {},
+        f"{data}",
+    )
+    DataNodes.write(PRIVATE, "dead", "y")
+    DataNodes.write(PRIVATE, "dead", "")
+    check(
+        "dump skips a cleared channel",
+        "dead" not in DataNodes.dump()[DataNodes.INTERNAL],
+    )
+    check(
+        "dump decode=False keeps the raw string",
+        DataNodes.dump(decode=False)[DataNodes.INTERNAL]["app_state"]
+        == '{"open": true}',
+    )
+    parsed = _json.loads(DataNodes.format_dump())
+    check(
+        "format_dump -> valid JSON (mixed types)",
+        parsed[DataNodes.INTERNAL]["audio_clip_voice"] == 1
+        and parsed[DataNodes.INTERNAL]["app_state"] == {"open": True},
+    )
+    reset()
+    check(
+        "format_dump empty -> ''",
+        DataNodes.format_dump() == ""
+        and DataNodes.dump() == {DataNodes.INTERNAL: {}, DataNodes.EXPORT: {}},
+    )
+
+    # --- dump_export_nodes (mirror of mayatk's per-carrier dump) -------------------
+    check(
+        "dump_export_nodes: no carrier -> {} and nothing created",
+        DataNodes.dump_export_nodes() == {}
+        and bpy.data.objects.get(DataNodes.EXPORT) is None,
+    )
+    DataNodes.write(DELIVERABLE, "own", '{"a": [1, 2]}')
+    DataNodes.write(PRIVATE, "private_probe", "x")
+    check(
+        "dump_export_nodes: the carrier's channels, decoded, no private records",
+        DataNodes.dump_export_nodes() == {DataNodes.EXPORT: {"own": {"a": [1, 2]}}},
+        f"{DataNodes.dump_export_nodes()}",
+    )
+    reset()
+
+    # --- the fold: a file saved before the scene group -----------------------------
+    reset()
+    legacy = bpy.data.objects.new(DataNodes.INTERNAL, None)
+    bpy.context.scene.collection.objects.link(legacy)
+    legacy["smart_bake_sessions"] = "[1]"
+    legacy["hierarchy_baseline"] = '{"format": 1}'
+    bpy.context.scene["shot_store"] = '{"shots": []}'
+    bpy.context.scene["key_stash"] = '{"clips": []}'
+    check(
+        "unfolded file: records read through the store, from the old locations",
+        DataNodes.read(PRIVATE, "smart_bake_sessions") == "[1]"
+        and DataNodes.read(PRIVATE, "hierarchy_baseline") == '{"format": 1}'
+        and DataNodes.read(PRIVATE, "shot_store") == '{"shots": []}'
+        and DataNodes.read(PRIVATE, "key_stash") == '{"clips": []}'
+        and set(DataNodes.values(PRIVATE))
+        == {"smart_bake_sessions", "hierarchy_baseline", "shot_store", "key_stash"},
+    )
+    check(
+        "a read never migrates (it may run where Blender forbids data edits)",
+        bpy.data.objects.get(DataNodes.INTERNAL) is not None
+        and "shot_store" in bpy.context.scene.keys()
+        and bpy.context.scene.get(DataNodes.INTERNAL) is None,
+    )
+    DataNodes.write(PRIVATE, "probe", "x")
+    check(
+        "the first write folds: the Empty is gone, the scene props moved in",
+        bpy.data.objects.get(DataNodes.INTERNAL) is None
+        and "shot_store" not in bpy.context.scene.keys()
+        and "key_stash" not in bpy.context.scene.keys()
+        and DataNodes.read(PRIVATE, "smart_bake_sessions") == "[1]"
+        and DataNodes.read(PRIVATE, "shot_store") == '{"shots": []}'
+        and DataNodes.read(PRIVATE, "probe") == "x",
+    )
+    check(
+        "fold: nothing else in the scene was touched",
+        bpy.data.objects.get(DataNodes.EXPORT) is None,
+    )
+    reset()
+    legacy = bpy.data.objects.new(DataNodes.INTERNAL, None)
+    bpy.context.scene.collection.objects.link(legacy)
+    legacy["stale"] = "old"
+    DataNodes.write(PRIVATE, "stale", None)
+    check(
+        "a clear of a legacy-only record folds first, so the old copy is gone too",
+        DataNodes.read(PRIVATE, "stale") is None
+        and bpy.data.objects.get(DataNodes.INTERNAL) is None,
+    )
+
+    # A fold removes every LOCAL legacy source, so one found beside the group was
+    # written AFTER the group existed -- by an older blendertk that reopened the
+    # file. Its value is the newer one, for the read and the fold alike.
+    reset()
+    DataNodes.write(PRIVATE, "hierarchy_baseline", "group-old")
+    DataNodes.write(PRIVATE, "shot_store", "group-old")
+    DataNodes.write(PRIVATE, "untouched", "kept")
+    legacy = bpy.data.objects.new(DataNodes.INTERNAL, None)
+    bpy.context.scene.collection.objects.link(legacy)
+    legacy["hierarchy_baseline"] = "legacy-new"
+    bpy.context.scene["shot_store"] = "legacy-new"
+    check(
+        "a legacy source beside the group reads as the newer value",
+        DataNodes.read(PRIVATE, "hierarchy_baseline") == "legacy-new"
+        and DataNodes.read(PRIVATE, "shot_store") == "legacy-new"
+        and DataNodes.values(PRIVATE).get("shot_store") == "legacy-new",
+        f"{DataNodes.values(PRIVATE)}",
+    )
+    DataNodes.write(PRIVATE, "probe", "x")
+    check(
+        "the fold keeps the legacy value over the group's older one",
+        DataNodes.get_internal_node(create=False).get("hierarchy_baseline")
+        == "legacy-new"
+        and DataNodes.get_internal_node(create=False).get("shot_store") == "legacy-new"
+        and DataNodes.read(PRIVATE, "untouched") == "kept"
+        and bpy.data.objects.get(DataNodes.INTERNAL) is None
+        and "shot_store" not in bpy.context.scene.keys(),
+    )
+
+    # --- a LINKED module's carriers are the library's, never this file's -----------
+    # Measured 2026-09-18: bpy.data.objects.get(name) returns a library object when
+    # the file has no local one, so the fold adopted a linked module's private
+    # records (its bake-restore manifests) as this file's own.
+    reset()
+    _lib_file = os.path.join(HERE, "temp_tests", "btk_data_nodes_lib.blend")
+    os.makedirs(os.path.dirname(_lib_file), exist_ok=True)
+    _coll = bpy.data.collections.new("DataNodesLib")
+    _lib_internal = bpy.data.objects.new(DataNodes.INTERNAL, None)
+    _lib_internal["smart_bake_sessions"] = '["lib"]'
+    _lib_export = bpy.data.objects.new(DataNodes.EXPORT, None)
+    _lib_export["lightmaps"] = '{"lib": 1}'
+    _coll.objects.link(_lib_internal)
+    _coll.objects.link(_lib_export)
+    bpy.data.libraries.write(_lib_file, {_coll})
+    for _o in (_lib_internal, _lib_export):
+        bpy.data.objects.remove(_o, do_unlink=True)
+    bpy.data.collections.remove(_coll)
+    with bpy.data.libraries.load(_lib_file, link=True) as (_src, _dst):
+        _dst.collections = ["DataNodesLib"]
+    bpy.context.scene.collection.children.link(_dst.collections[0])
+    _linked_internal = next(
+        o for o in bpy.data.objects if o.name == DataNodes.INTERNAL and o.library
+    )
+    try:
+        check(
+            "a linked data_internal Empty is not read as this file's records",
+            DataNodes.read(PRIVATE, "smart_bake_sessions") is None
+            and "smart_bake_sessions" not in DataNodes.values(PRIVATE),
+        )
+        DataNodes.write(PRIVATE, "probe", "x")
+        check(
+            "the fold adopts nothing from a linked Empty and leaves it in place",
+            "smart_bake_sessions" not in DataNodes.get_internal_node(create=False)
+            and _linked_internal.get("smart_bake_sessions") == '["lib"]',
+        )
+        check(
+            "get_export_node resolves the file's OWN carrier, never a linked one",
+            DataNodes.get_export_node(create=False) is None,
+        )
+        DataNodes.write(DELIVERABLE, "own", '{"own": 1}')
+        _nodes = DataNodes.get_export_nodes()
+        check(
+            "get_export_nodes: the file's own carrier first, then a linked module's",
+            [o.library is None for o in _nodes] == [True, False]
+            and all(o.name == DataNodes.EXPORT for o in _nodes)
+            and _nodes[0] is DataNodes.get_export_node(create=False),
+            f"{[o.name_full for o in _nodes]}",
+        )
+        _dumped = DataNodes.dump_export_nodes()
+        check(
+            "dump_export_nodes: every carrier, keyed by its full name",
+            _dumped.get(DataNodes.EXPORT) == {"own": {"own": 1}}
+            and _dumped.get(_nodes[1].name_full) == {"lightmaps": {"lib": 1}},
+            f"{_dumped}",
+        )
+    finally:
+        for _lib in list(bpy.data.libraries):
+            bpy.data.libraries.remove(_lib)
+        try:
+            os.remove(_lib_file)
+        except OSError:
+            pass
+    reset()
+    check(
+        "get_export_nodes: none in an empty scene", DataNodes.get_export_nodes() == []
+    )
+
+    # --- the export carrier: unlinked-carrier heal, node access ----------------------
+    reset()
+    check(
+        "get_export_node(create=False) on an empty scene -> None",
+        DataNodes.get_export_node(create=False) is None,
+    )
+    DataNodes.write(DELIVERABLE, "wire", "abc")
+    carrier = DataNodes.get_export_node(create=False)
+    bpy.context.scene.collection.objects.unlink(carrier)
+    check("unlinked carrier setup", carrier.name not in bpy.context.scene.objects)
+    DataNodes.write(DELIVERABLE, "wire2", "def")
+    check(
+        "a write relinks an unlinked carrier into the scene",
+        carrier.name in bpy.context.scene.objects
+        and DataNodes.read(DELIVERABLE, "wire2") == "def",
+    )
+    check("ensure_export is idempotent", DataNodes.ensure_export() is carrier)
+    import warnings as _warnings
+
+    # The old name of the shot record's key: an alias, retired (removed in
+    # 0.21.0). Added: 2026-10-20
+    with _warnings.catch_warnings(record=True) as _caught:
+        _warnings.simplefilter("always")
+        _shot_key = DataNodes.SHOT_METADATA
+    check(
+        "SHOT_METADATA: a deprecated alias of the shot record's key (mtk parity)",
+        _shot_key == ptk.SceneRecords.SHOTS.key == "animation"
+        and any("SHOT_METADATA" in str(w.message) for w in _caught),
+        [str(w.message) for w in _caught],
+    )
+    with _warnings.catch_warnings(record=True) as _caught:
+        _warnings.simplefilter("always")
+        _retired = DataNodes.FBX_TAKES
+    check(
+        "...and FBX_TAKES a deprecated alias of the retired key",
+        _retired == "fbx_takes"
+        and any(issubclass(w.category, DeprecationWarning) for w in _caught),
+        [str(w.message) for w in _caught],
+    )
+    # remove() deletes the property outright -- write(None) only clears it --
+    # so a migration leaves no emptied old key behind. Added: 2026-10-20
+    DataNodes.write(DELIVERABLE, "gone", "x")
+    check(
+        "remove deletes a channel's property outright",
+        DataNodes.remove(DELIVERABLE, "gone") is True
+        and "gone" not in DataNodes.get_export_node(create=False).keys(),
+    )
+    check(
+        "...and says when there was none",
+        DataNodes.remove(DELIVERABLE, "gone") is False,
+    )
+    # migrate(): a record stored under a renamed key moves to its key, and a
+    # retired one goes -- what a commit runs first.
+    DataNodes.write(DELIVERABLE, "lightmap_metadata", '{"version": 2, "objects": []}')
+    DataNodes.write(DELIVERABLE, "fbx_takes", "[]")
+    _moved = DataNodes.migrate()
+    _held = DataNodes.get_export_node(create=False).keys()
+    check(
+        "migrate moves a renamed record to its key and removes a retired one",
+        DataNodes.read(DELIVERABLE, ptk.SceneRecords.LIGHTMAPS.key)
+        == '{"version": 2, "objects": []}'
+        and "lightmap_metadata" not in _held
+        and "fbx_takes" not in _held
+        and {"lightmap_metadata", "fbx_takes"} <= set(_moved),
+        (_moved, list(_held)),
+    )
+    check("...and a migrated file has nothing left to move", DataNodes.migrate() == [])
+    DataNodes.remove(DELIVERABLE, ptk.SceneRecords.LIGHTMAPS.key)
+    # A carrier a plain append numbered beside the file's own
+    # (``data_export.001``) is refreshed by nothing: holding no record a
+    # reader takes (an old key) it goes at the migration; holding a value
+    # beside its records, it stays. REGRESSION (2026-10-28, mayatk's
+    # ``data_export1`` failed a production deliverable). Added: 2026-10-28
+    def _appended_copy(**props):
+        obj = bpy.data.objects.new("data_export.001", None)
+        bpy.context.scene.collection.objects.link(obj)
+        for key, value in props.items():
+            obj[key] = value
+        return obj
+
+    _appended_copy(
+        lightmap_metadata='{"version": 1, "objects": []}', handoff='{"version": 1}'
+    )
+    DataNodes.migrate()
+    check(
+        "migrate removes a copy an append left holding nothing a reader takes",
+        bpy.data.objects.get("data_export.001") is None
+        and DataNodes.get_export_node(create=False) is not None,
+    )
+    _kept = _appended_copy(handoff='{"version": 1}', emissive_glow=0.5)
+    DataNodes.migrate()
+    check(
+        "...and keeps one holding a value beside its records",
+        bpy.data.objects.get("data_export.001") is not None,
+    )
+    bpy.data.objects.remove(_kept, do_unlink=True)
+    # A copy is a carrier by its shape, not its name alone: a user's mesh
+    # named as a numbered copy survives, while the real copy (an Empty) beside
+    # it goes. REGRESSION (review, 2026-11-03): ``_leftover_carriers`` took
+    # every local object named ``data_export.<N>``, and holding no record, a
+    # MESH ``data_export.001`` was deleted at load and at every export commit.
+    # Added: 2026-11-03
+    _mesh_obj = bpy.data.objects.new(
+        "data_export.001", bpy.data.meshes.new("data_export_mesh")
+    )
+    bpy.context.scene.collection.objects.link(_mesh_obj)
+    _copy = _appended_copy(lightmap_metadata='{"version": 1, "objects": []}')
+    _copy_name = _copy.name
+    DataNodes.migrate()
+    check(
+        "migrate keeps a mesh named like a copy and removes the real copy beside it",
+        bpy.data.objects.get("data_export.001") is not None
+        and bpy.data.objects.get("data_export.001").type == "MESH"
+        and bpy.data.objects.get(_copy_name) is None,
+        (_copy_name, [o.name for o in bpy.data.objects]),
+    )
+    bpy.data.objects.remove(_mesh_obj, do_unlink=True)
+
+    # --- the record layer over the store --------------------------------------------
+    reset()
+    ptk.SceneRecords.LIGHTMAPS.save(DataNodes, {"objects": [{"name": "a"}]})
+    payload = ptk.SceneRecords.LIGHTMAPS.load(DataNodes)
+    check(
+        "record save/load round-trips with the declared version",
+        payload["objects"] == [{"name": "a"}]
+        and payload["version"] == ptk.SceneRecords.LIGHTMAPS.version
+        and _json.loads(DataNodes.get_export_node(create=False)[ptk.SceneRecords.LIGHTMAPS.key])[
+            "version"
+        ]
+        == ptk.SceneRecords.LIGHTMAPS.version,
+    )
+    check(
+        "a falsy payload clears; a clear never creates",
+        ptk.SceneRecords.LIGHTMAPS.save(DataNodes, None) == DataNodes.EXPORT
+        and ptk.SceneRecords.LIGHTMAPS.load(DataNodes) is None
+        and ptk.SceneRecords.SHADOWS.save(DataNodes, {}) is None,
+    )
+    ptk.SceneRecords.EMISSIVE_REGISTRY.save(DataNodes, {"slots": {"a": 0}})
+    check(
+        "a private record stays on the private carrier",
+        DataNodes.read(ptk.Scope.DELIVERABLE, ptk.SceneRecords.EMISSIVE_REGISTRY.key) is None
+        and ptk.SceneRecords.EMISSIVE_REGISTRY.load(DataNodes)["slots"] == {"a": 0},
+    )
+    ptk.SceneRecords.LIGHTMAPS.save(
+        DataNodes,
+        {"objects": [{"name": "a", "map": _pathlib.PurePosixPath("a/b.exr")}]},
+    )
+    check(
+        "a non-JSON-native value is recorded as its string (default=str)",
+        ptk.SceneRecords.LIGHTMAPS.load(DataNodes)["objects"][0]["map"] == "a/b.exr",
+    )
+    reset()
+    ptk.ExportSnapshot.publish(
+        DataNodes,
+        {ptk.SceneRecords.LIGHTMAPS: {"objects": []}, ptk.SceneRecords.SHADOWS: None},
+    )
+    handoff = ptk.SceneRecords.HANDOFF.load(DataNodes) or {}
+    # Handoff v3: the approved scene part by part, each with the data it is
+    # built from -- the lightmaps record's own row, and the lighting rows that
+    # read it -- and only a source under ``extras`` (none given here).
+    parts = [(row.get("part"), row.get("data")) for row in handoff.get("assembly") or []]
+    lightmaps = "data_export.lightmaps"
+    check(
+        "publish commits and stamps the handoff: each part at its data's address",
+        parts
+        == [
+            ("geometry", []),
+            ("lightmaps", [lightmaps]),
+            ("environment", ["rendering.environment", lightmaps]),
+            ("key_light", ["rendering.keyLight"]),
+            ("lightmapped_materials", ["rendering.lightmappedMaterials", lightmaps]),
+            ("renderer", ["rendering.renderer"]),
+        ],
+        parts,
+    )
+    check(
+        "...and no extras: no source was given, and a source is all it holds",
+        "extras" not in handoff,
+        handoff.get("extras"),
+    )
+    ptk.ExportSnapshot.publish(DataNodes, {ptk.SceneRecords.LIGHTMAPS: None})
+    check(
+        "a handoff describing nothing is cleared",
+        not ptk.SceneRecords.HANDOFF.is_present(DataNodes),
+    )
+
+    # --- the fold reaches EVERY scene: the legacy Empty was file-global ------------
+    reset()
+    _other_scene = bpy.data.scenes.new("Other")
+    _legacy = bpy.data.objects.new(DataNodes.INTERNAL, None)
+    bpy.context.scene.collection.objects.link(_legacy)
+    _legacy[ptk.SceneRecords.EMISSIVE_REGISTRY.key] = _json.dumps(
+        {"schema": 1, "groups": {"g": {"slot": 0}}}
+    )
+    DataNodes.write(PRIVATE, "probe", "1")  # the first private write folds
+    check(
+        "fold: the Empty's records reach every local scene, not the current one only",
+        all(
+            (s.get(DataNodes.INTERNAL) or {}).get(
+                ptk.SceneRecords.EMISSIVE_REGISTRY.key
+            )
+            for s in bpy.data.scenes
+        ),
+        str(
+            [
+                (s.name, list((s.get(DataNodes.INTERNAL) or {}).keys()))
+                for s in bpy.data.scenes
+            ]
+        ),
+    )
+    check(
+        "fold: the Empty is gone",
+        DataNodes._local_object(DataNodes.INTERNAL) is None,
+    )
+    bpy.data.scenes.remove(_other_scene)
+
+    # --- crossings: a library made local merges its records into this file's --------
+    from blendertk.env_utils._env_utils import EnvUtils
+
+    _store = ptk.TempArtifacts("btk_dn_crossing", policy="scoped")
+    _SR = ptk.SceneRecords
+
+    def _author_library(path, legacy_groups=None):
+        """A library whose objects link by the object fallback (no collection),
+        with an object named like the host's (``geo``) and records of its own."""
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        geo = bpy.data.objects.new("geo", bpy.data.meshes.new("m"))
+        bpy.context.scene.collection.objects.link(geo)
+        _SR.AUDIO_FILE_MAP.save(DataNodes, {"2": "b.wav"})
+        _SR.SHOT_STORE.save(
+            DataNodes,
+            {
+                "shots": [
+                    {
+                        "shot_id": 1,
+                        "name": "Intro",
+                        "start": 0,
+                        "end": 5,
+                        "objects": ["geo"],
+                    }
+                ]
+            },
+        )
+        ptk.ExportSnapshot.publish(
+            DataNodes, {_SR.LIGHTMAPS: {"objects": [{"name": "geo", "map": "l.exr"}]}}
+        )
+        if legacy_groups:
+            empty = bpy.data.objects.new(DataNodes.INTERNAL, None)
+            bpy.context.scene.collection.objects.link(empty)
+            empty[_SR.EMISSIVE_REGISTRY.key] = _json.dumps(
+                {"schema": 1, "groups": legacy_groups}
+            )
+        bpy.ops.wm.save_as_mainfile(filepath=path)
+
+    def _host_linking(path):
+        """A host with its own ``geo``, audio clips, emissive group and export
+        carrier, the library linked; returns the library."""
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        geo = bpy.data.objects.new("geo", bpy.data.meshes.new("h"))
+        bpy.context.scene.collection.objects.link(geo)
+        _SR.AUDIO_FILE_MAP.save(DataNodes, {"1": "a.wav"})
+        _SR.EMISSIVE_REGISTRY.save(
+            DataNodes, {"schema": 1, "groups": {"rim": {"slot": 0, "default": 1.0}}}
+        )
+        ptk.ExportSnapshot.publish(
+            DataNodes, {_SR.SHADOWS: {"planes": [{"name": "p"}]}}
+        )
+        EnvUtils.link_blend_file(path)
+        return next(iter(bpy.data.libraries))
+
+    _lib_path = os.path.join(_store.dir_path(), "lib.blend")
+    _author_library(_lib_path, legacy_groups={"glow": {"slot": 0, "default": 0.5}})
+    _lib = _host_linking(_lib_path)
+    _made = EnvUtils.make_library_local(_lib)
+    check("make local: the datablocks came local", _made > 0, str(_made))
+    _audio = _SR.AUDIO_FILE_MAP.load(DataNodes) or {}
+    check(
+        "merge: a mapping record unites (this file's entry kept), the library's "
+        "path spelled from ITS project and landed from this file's -- absolute "
+        "while this one is unsaved (2026-09-23)",
+        _audio.get("1") == "a.wav"
+        and os.path.normcase(_audio.get("2", ""))
+        == os.path.normcase(
+            os.path.join(os.path.dirname(_lib_path), "b.wav").replace("\\", "/")
+        ),
+        str(_audio),
+    )
+    _shots = (_SR.SHOT_STORE.load(DataNodes) or {}).get("shots") or [{}]
+    check(
+        "merge: the shot's member respells to where the move put it",
+        _shots[0].get("objects") == ["geo.001"],
+        str(_shots),
+    )
+    _groups = (_SR.EMISSIVE_REGISTRY.load(DataNodes) or {}).get("groups") or {}
+    check(
+        "merge: the library's pre-group Empty never replaces this file's registry "
+        "(the old tool's, merged by key: this file's wins)",
+        _groups.get("rim", {}).get("slot") == 0,
+        str(_groups),
+    )
+    check(
+        "merge: no carrier is left holding records nothing reads",
+        [o.name for o in bpy.data.objects if o.name.startswith("data_")]
+        == [DataNodes.EXPORT],
+        str([o.name for o in bpy.data.objects]),
+    )
+    check(
+        "merge: this file's own deliverable stands",
+        _SR.SHADOWS.is_present(DataNodes),
+    )
+
+    _author_library(_lib_path)
+    _lib = _host_linking(_lib_path)
+    _asked = []
+    _made = EnvUtils.make_library_local(
+        _lib, scene_data=lambda summary, name: _asked.append((summary, name)) or None
+    )
+    check(
+        "decide: asked with what arrives; None leaves the library linked",
+        _made == 0
+        and len(bpy.data.libraries) == 1
+        and any("Audio Clips" in line for line in (_asked[0][0] if _asked else [])),
+        str(_asked),
+    )
+    EnvUtils.make_library_local(bpy.data.libraries[0], scene_data="discard")
+    check(
+        "discard: the library's records go with its carriers",
+        _SR.AUDIO_FILE_MAP.load(DataNodes) == {"1": "a.wav"}
+        and _SR.SHOT_STORE.load(DataNodes) is None
+        and not any(o.name.startswith("data_export.") for o in bpy.data.objects),
+        str(_SR.AUDIO_FILE_MAP.load(DataNodes)),
+    )
+
+    # A library whose own ``data_export`` sits under a group, made local into a
+    # file with none: the made-local carrier is the module's (parented), never
+    # this file's (``is_scene_carrier``), so its records MERGE into a root-level
+    # carrier and the module's goes, said in the log. Measured before: it was
+    # taken for this file's own (by name alone) and left as it was, its records
+    # on a node no reader takes -- silently. Added: 2026-11-08
+    import logging as _logging
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _nested_geo = bpy.data.objects.new("geo", bpy.data.meshes.new("m"))
+    bpy.context.scene.collection.objects.link(_nested_geo)
+    ptk.ExportSnapshot.publish(
+        DataNodes, {_SR.LIGHTMAPS: {"objects": [{"name": "geo", "map": "l.exr"}]}}
+    )
+    _group = bpy.data.objects.new("Module", None)
+    bpy.context.scene.collection.objects.link(_group)
+    bpy.data.objects[DataNodes.EXPORT].parent = _group
+    bpy.data.objects[DataNodes.EXPORT]["emissive_glow"] = 0.5  # beside its records
+    bpy.ops.wm.save_as_mainfile(filepath=_lib_path)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    EnvUtils.link_blend_file(_lib_path)
+    _said = []
+
+    class _Said(_logging.Handler):
+        def emit(self, record):
+            _said.append(record.getMessage())
+
+    _handler = _Said(level=_logging.INFO)
+    _logging.getLogger("blendertk").addHandler(_handler)
+    _logging.getLogger("pythontk").addHandler(_handler)
+    try:
+        EnvUtils.make_library_local(next(iter(bpy.data.libraries)))
+    finally:
+        _logging.getLogger("blendertk").removeHandler(_handler)
+        _logging.getLogger("pythontk").removeHandler(_handler)
+    _scene_carrier = DataNodes.get_export_node(create=False)
+    check(
+        "make local: a module's parented carrier merges into a root-level one",
+        _scene_carrier is not None
+        and _scene_carrier.parent is None
+        and _scene_carrier.get("emissive_glow") == 0.5
+        and not any(
+            o.name.startswith(DataNodes.EXPORT) and o.parent is not None
+            for o in bpy.data.objects
+        ),
+        [(o.name, getattr(o.parent, "name", None), dict(o.items())) for o in bpy.data.objects],
+    )
+    check(
+        "...and the merge says what it did",
+        any("Module" in line and DataNodes.EXPORT in line for line in _said),
+        _said,
+    )
+
+    # A GUI session writes the shot store on a timer, so a script that adds a
+    # shot and makes a library local in one go still holds it unwritten: the
+    # move stores it first, and the merge keeps it beside the library's.
+    from unittest import mock as _mock
+
+    from blendertk.anim_utils.shots._shots import BlenderShotStore
+
+    _author_library(_lib_path)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    BlenderShotStore.clear_active()
+    with _mock.patch.object(BlenderShotStore, "_schedule_flush", lambda self: None):
+        BlenderShotStore.active().define_shot("HostShot", 10.0, 20.0)
+        EnvUtils.link_blend_file(_lib_path)
+        EnvUtils.make_library_local(next(iter(bpy.data.libraries)))
+    BlenderShotStore.flush_pending()  # the timer write the session held
+    BlenderShotStore.clear_active()
+    _names = sorted(s.name for s in BlenderShotStore.active().shots)
+    check(
+        "merge: a shot the host held unwritten is kept beside the library's",
+        _names == ["HostShot", "Intro"],
+        str(_names),
+    )
+    BlenderShotStore.clear_active()
+
+    # --- crossings: the portable records as a hand-off's sections ---------------------
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    from blendertk.mat_utils.emissive_groups import EmissiveGroups
+
+    def _glowing_cube(copy=None):
+        bpy.ops.mesh.primitive_cube_add()
+        cube = bpy.context.active_object
+        base = bpy.data.materials.new("glowMat")
+        from blendertk.mat_utils._mat_utils import MatUtils as _GlowMatUtils
+
+        next(n for n in _GlowMatUtils.get_node_tree(base, create=True).nodes if n.type == "BSDF_PRINCIPLED").inputs[
+            "Emission Strength"
+        ].default_value = 1.0
+        cube.data.materials.append(base)
+        if copy:  # what an FBX brings: the copy as a plain material on its faces
+            cube.data.materials.append(base.copy())
+            cube.data.materials[1].name = copy
+            for _i in (1, 3):
+                cube.data.polygons[_i].material_index = 1
+        return cube
+
+    _cube = _glowing_cube()
+    EmissiveGroups.add_group("glow", {_cube.name: [1, 3]})
+    EmissiveGroups.key_weight("glow", 0.5, frame=4)
+    _sections = _json.loads(
+        _json.dumps(DataNodes.transfer_sections(objects=[_cube.name]))
+    )
+    _cube_name = _cube.name
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _cube = _glowing_cube(copy="glowMat_glow")
+    _ctx = DataNodes.receive_sections(_sections, resolve={_cube_name: _cube.name}.get)
+    _landed = EmissiveGroups.list_groups().get("glow", {})
+    check(
+        "hand-off: an emissive group lands as its copies, tagged and keyed",
+        _landed.get("faces") == 2 and _landed.get("keyed") is True,
+        str((_landed, _ctx.notes)),
+    )
+
+    class _Named:
+        def __init__(self, name):
+            self.name = name
+
+    # After the move: the object "Cube" became Cube.001; of two datablocks named
+    # "Walk", the action was renamed and the object kept its name.
+    _a, _b, _c = _Named("Cube.001"), _Named("Walk.001"), _Named("Walk")
+    _rename = DataNodes.library_renames([(_a, "Cube"), (_b, "Walk"), (_c, "Walk")])
+    check(
+        "renames: a renamed object maps, its ledger key maps through it, an "
+        "ambiguous name maps to nothing",
+        _rename("Cube") == "Cube.001"
+        and _rename("Cube|location|0") == "Cube.001|location|0"
+        and _rename("Walk") is None,
+        str((_rename("Cube"), _rename("Walk"))),
+    )
+    _store.cleanup()
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+    # --- project-relative paths follow the file (mirror of mayatk) -----------------
+    # BACKLOG 2026-09-22, decided 2026-09-23: a path record is spelled from the
+    # FILE's own project, ``../`` chains included, so a Save As into another
+    # project re-spells it (``save_pre`` gets the target while bpy.data.filepath
+    # is still the old one), and a Save COPY leaves the open file's alone.
+    _paths = ptk.TempArtifacts("btk_dn_paths", policy="scoped")
+    _root = _paths.dir_path()
+    _proj_a = os.path.join(_root, "shows", "a")
+    _proj_b = os.path.join(_root, "shows", "deeper", "b")
+    for _proj in (_proj_a, _proj_b):
+        os.makedirs(os.path.join(_proj, "scenes"), exist_ok=True)
+        with open(os.path.join(_proj, "workspace.mel"), "w") as _fh:
+            _fh.write("//Maya 2025 Project Definition\n")
+    _lib = os.path.join(_root, "library", "lm")
+    _maps = os.path.join(_proj_a, "sourceimages", "lm")
+    for _d in (_lib, _maps):
+        os.makedirs(_d, exist_ok=True)
+
+    def _abs(base, spelled):
+        return os.path.normcase(os.path.normpath(os.path.join(base, spelled)))
+
+    DataNodes.install_path_rebase()
+    DataNodes.install_path_rebase()  # idempotent: one pair, not two
+    _pre = [
+        f
+        for f in bpy.app.handlers.save_pre
+        if getattr(f, "__name__", "") == "_rebase_before_save"
+    ]
+    check("the re-base installs one persistent pair", len(_pre) == 1, str(_pre))
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_proj_a, "scenes", "shot.blend"))
+    check(
+        "the file's own project is the project it lives in",
+        os.path.normcase(DataNodes.project_root() or "") == os.path.normcase(_proj_a),
+        str(DataNodes.project_root()),
+    )
+    ptk.SceneRecords.LIGHTMAP_DIRS.save(
+        DataNodes,
+        {
+            "in.exr": ptk.FileUtils.portable_path(_maps, _proj_a),
+            "lib.exr": ptk.FileUtils.portable_path(_lib, _proj_a),
+        },
+    )
+    _stored = ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)
+    check(
+        "spelled from the project: inside it, and a ../ chain beside it",
+        _stored == {"in.exr": "sourceimages/lm", "lib.exr": "../../library/lm"},
+        str(_stored),
+    )
+    # The hierarchy baseline names the file that recorded it (2026-09-24), and
+    # that stamp is a path: left spelled from the source's project, a copy at
+    # the SAME relative path in another project resolved it to ITSELF and owned
+    # its source's baseline.
+    from blendertk.env_utils.hierarchy_sync.hierarchy_baseline import (
+        HierarchyBaseline as _HB,
+    )
+
+    _HB.write({"GRP"})
+    check("the source owns its baseline", _HB.inherited_from() is None)
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_proj_b, "scenes", "shot.blend"))
+    _from = _HB.inherited_from()
+    check(
+        "a copy saved into another project still names the baseline's source",
+        _from is not None
+        and _abs(_proj_b, _from)
+        == os.path.normcase(os.path.join(_proj_a, "scenes", "shot.blend")),
+        repr(_from),
+    )
+    _moved = ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)
+    check(
+        "a Save As into another project re-spells every entry, same folders",
+        _moved["lib.exr"] == "../../../library/lm"
+        and _abs(_proj_b, _moved["in.exr"]) == os.path.normcase(_maps)
+        and _abs(_proj_b, _moved["lib.exr"]) == os.path.normcase(_lib),
+        str(_moved),
+    )
+    bpy.ops.wm.save_as_mainfile(
+        filepath=os.path.join(_proj_a, "scenes", "copy.blend"), copy=True
+    )
+    check(
+        "a Save Copy leaves the open file's spellings as they were",
+        ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes) == _moved,
+        str(ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)),
+    )
+    bpy.ops.wm.open_mainfile(filepath=os.path.join(_proj_a, "scenes", "copy.blend"))
+    _copied = ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)
+    check(
+        "...and the copy on disk carries its own project's spellings",
+        _copied == {"in.exr": "sourceimages/lm", "lib.exr": "../../library/lm"},
+        str(_copied),
+    )
+    # A save that FAILS moves nothing: save_pre re-spelled the records for its
+    # target, and the file still open is spelled back (save_post_fail).
+    _before_fail = ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)
+    _blocked = os.path.join(_proj_b, "scenes", "blocked.blend")
+    os.makedirs(_blocked)  # a folder where the file would go: the write fails
+    try:
+        bpy.ops.wm.save_as_mainfile(filepath=_blocked)
+    except RuntimeError:
+        pass
+    check(
+        "a Save As that fails leaves the open file's spellings as they were",
+        os.path.basename(bpy.data.filepath) == "copy.blend"
+        and ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes) == _before_fail,
+        f"{bpy.data.filepath} {ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)}",
+    )
+    # A Save Copy of a file NEVER saved: the open file has no project, so its
+    # spellings stay absolute -- a copy's must not stay behind in it.
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    DataNodes.install_path_rebase()
+    _lib_abs = ptk.FileUtils.portable_path(_lib, None)
+    ptk.SceneRecords.LIGHTMAP_DIRS.save(DataNodes, {"lib.exr": _lib_abs})
+    _unsaved_copy = os.path.join(_proj_a, "scenes", "unsaved_copy.blend")
+    bpy.ops.wm.save_as_mainfile(filepath=_unsaved_copy, copy=True)
+    check(
+        "a Save Copy of an unsaved file leaves its spellings absolute",
+        not bpy.data.filepath
+        and ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes) == {"lib.exr": _lib_abs},
+        str(ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)),
+    )
+    bpy.ops.wm.open_mainfile(filepath=_unsaved_copy)
+    check(
+        "...and that copy on disk is spelled from its own project",
+        ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)
+        == {"lib.exr": "../../library/lm"},
+        str(ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)),
+    )
+    # BACKLOG 2026-09-23: a writer stamp made while the file was unsaved
+    # (``""``) is its own only while it still is, so everything stamped before
+    # the first save -- a bake's maps, a baseline -- was nobody's after it.
+    # The first save stamps the file it writes.
+    _writers = ptk.SceneRecords.LIGHTMAP_WRITERS
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _writers.save(DataNodes, {"a.exr": ""})
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_proj_a, "scenes", "first.blend"))
+    check(
+        "a first save stamps what was made unsaved with the file written",
+        _writers.load(DataNodes) == {"a.exr": "scenes/first.blend"}
+        and DataNodes.written_here("scenes/first.blend"),
+        str(_writers.load(DataNodes)),
+    )
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_proj_a, "scenes", "later.blend"))
+    check(
+        "...and a later Save As copy names its source",
+        _writers.load(DataNodes) == {"a.exr": "scenes/first.blend"}
+        and not DataNodes.written_here("scenes/first.blend"),
+        str(_writers.load(DataNodes)),
+    )
+    # A Save COPY of a file never saved: the open file stays unsaved, so its
+    # stamps stay ``""`` -- put back exactly once the copy is written. Blender
+    # cannot tell a Save Copy from a Save As before the write (``save_pre`` gets
+    # the same arguments, ``bpy.data.filepath`` unchanged in both; measured
+    # 5.1), so the copy on disk is stamped as its own writer.
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _writers.save(DataNodes, {"a.exr": ""})
+    _stamped_copy = os.path.join(_proj_a, "scenes", "stamped_copy.blend")
+    bpy.ops.wm.save_as_mainfile(filepath=_stamped_copy, copy=True)
+    check(
+        "a Save Copy of an unsaved file leaves its stamps unsaved",
+        not bpy.data.filepath and _writers.load(DataNodes) == {"a.exr": ""},
+        str(_writers.load(DataNodes)),
+    )
+    bpy.ops.wm.open_mainfile(filepath=_stamped_copy)
+    check(
+        "...and the copy on disk names itself",
+        _writers.load(DataNodes) == {"a.exr": "scenes/stamped_copy.blend"},
+        str(_writers.load(DataNodes)),
+    )
+    # BACKLOG 2026-09-23: only the UI handler installed the hook, so a
+    # ``blender --background`` script saving into another project left every
+    # entry spelled from the old one. The private carrier's first touch
+    # installs it now.
+    DataNodes.remove_path_rebase()
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_proj_a, "scenes", "bg.blend"))
+    ptk.SceneRecords.LIGHTMAP_DIRS.save(DataNodes, {"in.exr": "sourceimages/lm"})
+    check(
+        "a headless session's first record installs the hook",
+        any(
+            getattr(f, "__name__", "") == "_rebase_before_save"
+            for f in bpy.app.handlers.save_pre
+        ),
+    )
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_proj_b, "scenes", "bg.blend"))
+    _bg = ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)
+    check(
+        "...so its Save As into another project re-spells the entry",
+        _abs(_proj_b, _bg["in.exr"]) == os.path.normcase(_maps),
+        str(_bg),
+    )
+    # A loaded file's records move to their current keys at the load
+    # (load_post), as mayatk's kAfterOpen moves a scene's. Only an export's
+    # commit migrated, so until one every panel and preview read an empty
+    # record -- and a tool's first write under the new key made that
+    # commit's migrate drop the old record whole. Added: 2026-10-24
+    _old_text = '{"version": 1, "shots": []}'
+    _old_file = os.path.join(_proj_a, "scenes", "old_keys.blend")
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    DataNodes.remove_path_rebase()  # the file must reach disk unmigrated
+    DataNodes.write(DELIVERABLE, "shot_metadata", _old_text)
+    bpy.ops.wm.save_as_mainfile(filepath=_old_file)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    DataNodes.install_path_rebase()
+    bpy.ops.wm.open_mainfile(filepath=_old_file)
+    _held = list((DataNodes.get_export_node(create=False) or {}).keys())
+    check(
+        "opening a file moves its records to their current keys, no export first",
+        DataNodes.read(DELIVERABLE, ptk.SceneRecords.SHOTS.key) == _old_text
+        and "shot_metadata" not in _held,
+        _held,
+    )
+    check("...and leaves the file unmodified", not bpy.data.is_dirty)
+    DataNodes.remove_path_rebase()
+    check(
+        "remove takes the pair out",
+        not any(
+            getattr(f, "__name__", "") == "_rebase_before_save"
+            for f in bpy.app.handlers.save_pre
+        )
+        and not any(
+            "DataNodes" in getattr(f, "__qualname__", "")
+            for f in bpy.app.handlers.load_post
+        ),
+    )
+    # A module's own-named ``data_export`` parented under its group is the
+    # module's, never the scene's (``ptk.SceneStoreBase.is_scene_carrier``,
+    # mayatk's ``DataNodes._resolve``). Blender's names are unique, so with no
+    # root-level carrier the scene's cannot be made beside it: the write is
+    # REFUSED, said with its fix, and the module's node is never written.
+    # Measured before (Blender 5.1): ``write(DELIVERABLE, "probe", "scene")``
+    # wrote onto the module's carrier, its probe then "scene".
+    # Added: 2026-11-08
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _module = bpy.data.objects.new("Module", None)
+    _modules_carrier = bpy.data.objects.new(DataNodes.EXPORT, None)
+    for _o in (_module, _modules_carrier):
+        bpy.context.scene.collection.objects.link(_o)
+    _modules_carrier.parent = _module
+    _modules_carrier["probe"] = "module"
+    check(
+        "a module's parented data_export is not the scene's carrier",
+        DataNodes.get_export_node(create=False) is None
+        and DataNodes.read(DELIVERABLE, "probe") is None,
+    )
+    _refusal = None
+    try:
+        DataNodes.write(DELIVERABLE, "probe", "scene")
+    except DataNodes.WriteRefused as _e:
+        _refusal = str(_e)
+    except Exception as _e:  # noqa: BLE001 -- any other raise is the failure
+        _refusal = f"wrong error: {_e!r}"
+    check(
+        "...a write is refused, saying the fix",
+        bool(_refusal)
+        and "Module" in _refusal
+        and "rename or unparent" in _refusal.lower(),
+        _refusal,
+    )
+    check(
+        "...and the module's carrier is never written",
+        _modules_carrier.get("probe") == "module"
+        and len([o for o in bpy.data.objects if o.name.startswith(DataNodes.EXPORT)]) == 1,
+        _modules_carrier.get("probe"),
+    )
+    _snap = ptk.ExportSnapshot.publish(
+        DataNodes,
+        {ptk.SceneRecords.SHOTS: {"fps": 24.0, "shots": []}},
+        ptk.ExportContext(mode=ptk.ExportContext.AUTHORING),
+    )
+    check(
+        "...a publish says it as a note, never raises, writes nothing",
+        ptk.SceneRecords.SHOTS.key in _snap.failed
+        and any("rename or unparent" in n.lower() for ns in _snap.noted.values() for n in ns)
+        and set(_modules_carrier.keys()) == {"probe"},
+        f"failed={_snap.failed} noted={_snap.noted} keys={list(_modules_carrier.keys())}",
+    )
+    check(
+        "...and nothing discards the module's carrier",
+        DataNodes.discard_if_empty(DELIVERABLE) is False
+        and bpy.data.objects.get(DataNodes.EXPORT) is _modules_carrier,
+    )
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _paths.cleanup()
+
+except Exception as e:
+    lines.append(f"FAIL setup: {e!r}")
+    lines.append(traceback.format_exc())
+
+ok = all(ln.startswith("OK") for ln in lines)
+print("\n===DATA-NODES===")
+print("\n".join(lines))
+print(f"===RESULT: {'PASS' if ok else 'FAIL'}===")

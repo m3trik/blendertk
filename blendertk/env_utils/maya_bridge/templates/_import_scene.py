@@ -82,7 +82,7 @@ MODERN_SHADER_TYPES = ("standardSurface", "aiStandardSurface", "openPBRSurface")
 # dependency-free by contract. Its rows for the modern surfaces only:
 # StingrayPBS's weight (emissive_intensity) is read in _translate_stingray,
 # where an unreadable one lets the map ride. Both tables are held to the SSoT
-# by m3trik/test/test_check_dcc_twins.py (MayaBridgeTemplateTablesTest).
+# by m3trik/tests/test_check_dcc_twins.py (MayaBridgeTemplateTablesTest).
 EMISSION_WEIGHT_ATTRS = {
     "aiStandardSurface": ("emission", "multiply"),
     "standardSurface": ("emission", "multiply"),
@@ -681,7 +681,7 @@ def scene_node_types(cmds):
 
     Dependency-free copy of ``mtk.BlenderBridge._manifest_node_types`` (the send
     direction's in-process collector), drift-guarded by
-    ``mayatk/test/test_blender_bridge.py::TestPullTemplateCopiesMatchTheirSource``.
+    ``mayatk/tests/test_blender_bridge.py::TestPullTemplateCopiesMatchTheirSource``.
     NOT "kept in step by hand", which is what this said while it was wrong twice over:
 
     * the leaf keeps its NAMESPACE. Maya's exporter writes ``ns:x`` literally and
@@ -723,7 +723,7 @@ def scene_settings(cmds):
     ast/aet) and ``frame_current``. Dependency-free copy of
     ``mtk.EnvUtils.scene_settings`` (the send direction's in-process reader),
     drift-guarded by
-    ``mayatk/test/test_blender_bridge.py::TestPullTemplateCopiesMatchTheirSource``.
+    ``mayatk/tests/test_blender_bridge.py::TestPullTemplateCopiesMatchTheirSource``.
     """
     import maya.api.OpenMaya as om
 

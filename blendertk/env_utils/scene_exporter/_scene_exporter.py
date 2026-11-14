@@ -209,13 +209,6 @@ class SceneExporter(ptk.SceneExporterBase):
         self.logger.info(f"{len(objs)} object(s) prepared for export.")
         return objs
 
-    @ptk.Deprecation.parameter(
-        "hide_log_file",
-        drop=True,
-        remove_in="0.21.0",
-        since="2026-10-14",
-        reason="The run log lives in the per-user cache, never beside the export.",
-    )
     def perform_export(
         self,
         export_dir: str,
@@ -262,8 +255,6 @@ class SceneExporter(ptk.SceneExporterBase):
         (``ptk.SceneExporterBase.log_file_path``) -- never a file beside the
         export, recording down to DEBUG whatever *log_level* shows; the
         panel always sets it.
-        *hide_log_file* is retired
-        (warns; removed in 0.21.0): nothing lands in the export folder to hide.
 
         *preset_file* is the FBX preset the write loads -- a value of
         :attr:`presets`, so a preset NAME here (mayatk's keyword, where it is a
@@ -760,7 +751,8 @@ class SceneExporter(ptk.SceneExporterBase):
 
         Samples animation only across the frames that carry motion
         (:meth:`UsdUtils.sampling_frame_range`); the scene range is set for the
-        call and restored. Custom properties ride as ``userProperties`` so the
+        call and restored. The objects and their materials stand under one root
+        prim named after the file. Custom properties ride as ``userProperties`` so the
         ``data_export`` carrier ships readable, as the FBX path forces
         ``use_custom_props`` (consumers reading them are not yet verified).
         """
@@ -794,11 +786,14 @@ class SceneExporter(ptk.SceneExporterBase):
         # Shown for the write, as the FBX write shows it: a carrier in a hidden
         # or excluded collection could not be selected otherwise.
         with FbxUtils._carriers_shippable(export_objects):
+            # One root prim, so a stage referencing the deliverable receives every
+            # object and the materials scope beside them (UsdUtils.single_root).
             written = UsdUtils.export(
                 filepath=usd_path,
                 objects=export_objects,
                 selection_only=True,
                 frame_range=frame_range,
+                single_root=True,
                 **options,
             )
         self.logger.info(f"USD written: {written}")

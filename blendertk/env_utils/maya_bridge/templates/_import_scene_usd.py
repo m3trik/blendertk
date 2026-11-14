@@ -369,7 +369,7 @@ def export_usd(cmds, frame_range=None):
     # These flags ARE ``UsdUtils.INTERCHANGE_EXPORT_OPTIONS`` -- the shared hand-off
     # set mayatk adopted FROM this route, reason by measured reason. Drift-guarded
     # against it by
-    # ``mayatk/test/test_blender_bridge.py::TestPullTemplateCopiesMatchTheirSource``.
+    # ``mayatk/tests/test_blender_bridge.py::TestPullTemplateCopiesMatchTheirSource``.
     kwargs = {
         "file": OUT_USD,
         "shadingMode": "useRegistry",
@@ -898,7 +898,7 @@ def scene_settings(cmds):
     ast/aet) and ``frame_current``. Dependency-free copy of
     ``mtk.EnvUtils.scene_settings`` (the send direction's in-process reader),
     drift-guarded by
-    ``mayatk/test/test_blender_bridge.py::TestPullTemplateCopiesMatchTheirSource``.
+    ``mayatk/tests/test_blender_bridge.py::TestPullTemplateCopiesMatchTheirSource``.
     """
     import maya.api.OpenMaya as om
 

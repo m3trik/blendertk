@@ -1,0 +1,603 @@
+# !/usr/bin/python
+# coding=utf-8
+"""``run_tests.py`` (the Blender test harness): what it hands each child.
+
+A suite child must never be able to wait on a human. ``SceneExporter.confirm``
+answers a ``[y/N]`` on the console whenever ``sys.stdin.isatty()`` is true, and
+a Blender launched by the harness inherits the launching console -- so
+``test_smart_bake``'s deliberate failed-check export sat on
+``sys.stdin.readline()`` until the suite timer killed it (2026-09-04: TIMEOUT
+after 600 s in the full run, 2.3 s of CPU in 100 s when re-run alone, and a
+PASS in under 75 s when the same module was run by hand with no console). The
+harness therefore hands every child ``stdin=subprocess.DEVNULL``: ``isatty()``
+is then false and the consent seam answers no, exactly as its docstring
+promises for "nobody there to ask".
+
+Nor may a child work out its own temp dir: :class:`TestChildTempRoot`; nor
+reach the developer's live uitk settings: :class:`TestChildSettingsSandbox`.
+
+Run (the temp-root and settings cases launch a real Blender when one is
+installed)::
+
+    .venv/Scripts/python.exe blendertk/tests/test_run_tests.py
+"""
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+import unittest
+from pathlib import Path
+from unittest import mock
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+
+import run_tests  # noqa: E402
+
+
+class TestChildStdin(unittest.TestCase):
+    """Every child the harness launches gets a closed stdin."""
+
+    def _launch(self, **kwargs):
+        runner = run_tests.BlenderTestRunner(blender="blender.exe")
+        calls = []
+
+        def fake_run(cmd, **run_kwargs):
+            calls.append((cmd, run_kwargs))
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="===RESULT: PASS=== (1/1)\n", stderr=""
+            )
+
+        with mock.patch.object(run_tests.subprocess, "run", side_effect=fake_run):
+            result = runner.run_suite(Path(HERE, "test_fake.py"), **kwargs)
+        self.assertEqual(len(calls), 1, "one child per suite")
+        self.assertTrue(result[0], result)
+        return calls[0]
+
+    def test_blender_child_cannot_read_the_console(self):
+        cmd, kwargs = self._launch()
+        self.assertEqual(cmd[0], "blender.exe")
+        self.assertIs(kwargs.get("stdin"), subprocess.DEVNULL)
+
+    def test_venv_child_cannot_read_the_console(self):
+        cmd, kwargs = self._launch(python=sys.executable)
+        self.assertEqual(cmd[0], sys.executable)
+        self.assertIs(kwargs.get("stdin"), subprocess.DEVNULL)
+
+    def test_capture_and_kill_timer_are_kept(self):
+        """The stdin change must not displace the capture the sentinel parse
+        reads, nor the kill timer that turns a hung suite into a failure."""
+        _, kwargs = self._launch()
+        self.assertTrue(kwargs.get("capture_output"))
+        self.assertEqual(kwargs.get("timeout"), 600)
+
+    def test_every_child_is_headless_by_default(self):
+        """A Qt suite (the .venv leg, a panel in a background Blender) must not
+        put a window on the desktop."""
+        with mock.patch.dict(os.environ):
+            os.environ.pop("QT_QPA_PLATFORM", None)
+            for python in (None, sys.executable):
+                with self.subTest(python=python):
+                    _, kwargs = self._launch(python=python)
+                    self.assertEqual(kwargs["env"].get("QT_QPA_PLATFORM"), "offscreen")
+
+    def test_an_explicit_platform_is_honored(self):
+        with mock.patch.dict(os.environ, {"QT_QPA_PLATFORM": "windows"}):
+            _, kwargs = self._launch()
+        self.assertEqual(kwargs["env"]["QT_QPA_PLATFORM"], "windows")
+
+
+class TestUnknownSuiteName(unittest.TestCase):
+    """A name no suite answers to is a usage error, not "No suites matched." + 0."""
+
+    def test_a_typo_exits_two_before_any_blender_starts(self):
+        argv = ["run_tests.py", "definitely_not_a_suite"]
+        with mock.patch.object(sys, "argv", argv), \
+                mock.patch.object(run_tests, "find_blender", return_value="blender.exe"), \
+                mock.patch.object(run_tests.BlenderTestRunner, "run") as ran, \
+                mock.patch("builtins.print"):
+            self.assertEqual(run_tests.main(), 2)
+        ran.assert_not_called()
+
+
+class TestChildTempRoot(unittest.TestCase):
+    """Every child is handed the run's temp root outright, never left to derive it.
+
+    The runner routes the whole run's temp into one throwaway root, and a child
+    used to receive it only as ``TMPDIR``/``TEMP``/``TMP``. A fresh interpreter
+    re-derives its temp dir from those: ``tempfile`` probes each with a
+    throwaway write and, on any failure but ``FileExistsError``, moves on --
+    past all three (they name the same root) to ``~\\AppData\\Local\\Temp``,
+    without a word. Measured in a fresh Blender 5.1 and in the venv: a root
+    that is gone, an ``OSError`` on three probes in a row, or a refused create
+    each resolved the user's real temp dir. One full run did exactly that
+    (2026-09-26, caught by ``test_scene_import``'s isolation canary), and a
+    suite there that cleans up by prefix deletes whatever else matches -- how a
+    cached production conversion was lost once.
+
+    Real children, not a mocked ``subprocess.run``: the defect lives in the
+    child interpreter's own startup, which a fake never reaches. Each case runs
+    under both hosts: a headless Blender (when one is installed) and a plain
+    interpreter, the ``.venv`` route.
+    """
+
+    #: The suite each child runs. It refuses every write into the root, as a
+    #: lock or a full volume would, then asks where temp files go. It also
+    #: checks it runs as ``python <suite>`` would run it: the pinned route
+    #: starts a plain interpreter through ``-c``.
+    PROBE = r"""
+import errno, os, sys, tempfile
+
+here = os.path.dirname(os.path.abspath(__file__))
+root = os.environ["TEMP"]
+open(os.path.join(here, "ran"), "w").close()
+pinned = tempfile.tempdir  # before any suite code asks
+# Blender's --python leaves sys.path alone; a script run puts its own dir first.
+as_script = __name__ == "__main__" and (
+    "bpy" in sys.modules or os.path.normcase(sys.path[0]) == os.path.normcase(here)
+)
+real_open = os.open
+
+
+def refuse(path, *args, **kwargs):
+    if os.path.normcase(os.path.dirname(os.path.abspath(path))) == os.path.normcase(
+        os.path.abspath(root)
+    ):
+        raise OSError(errno.EIO, "probe write refused", path)
+    return real_open(path, *args, **kwargs)
+
+
+os.open = refuse
+try:
+    got = tempfile.gettempdir()
+finally:
+    os.open = real_open
+ok = pinned is not None and os.path.normcase(got) == os.path.normcase(root)
+print(f"{'OK  ' if ok else 'FAIL'} temp root | pinned={pinned!r} resolved={got!r}")
+print(f"{'OK  ' if as_script else 'FAIL'} run as a script | {__name__} {sys.path[0]!r}")
+passed = int(ok) + int(as_script)
+print(f"===RESULT: {'PASS' if passed == 2 else 'FAIL'}=== ({passed}/2)")
+"""
+
+    def setUp(self):
+        self.work = os.path.join(HERE, "temp_tests", f"child_temp_{os.getpid()}")
+        os.makedirs(self.work, exist_ok=True)
+        self.addCleanup(shutil.rmtree, self.work, True)
+        self.root = os.path.join(self.work, "root")
+        self.suite = Path(self.work, "probe_suite.py")
+        self.suite.write_text(self.PROBE, encoding="utf-8")
+        self.ran = os.path.join(self.work, "ran")
+
+    @staticmethod
+    def _blender() -> str:
+        """This Blender when hosted by one, else the harness's own lookup."""
+        try:
+            import bpy
+
+            return bpy.app.binary_path
+        except ImportError:
+            pythontk = os.path.join(os.path.dirname(os.path.dirname(HERE)), "pythontk")
+            if os.path.isdir(pythontk) and pythontk not in sys.path:
+                sys.path.insert(0, pythontk)
+            return run_tests.find_blender() or ""
+
+    def _hosts(self):
+        """(label, run_suite kwargs) per host this machine can launch."""
+        hosts = [("python", {"python": sys.executable})]
+        if self._blender():
+            hosts.insert(0, ("blender", {}))
+        return hosts
+
+    def _run(self, **kwargs):
+        """One suite child, launched the way a real run launches it: the env
+        names the root (as :meth:`TestSandbox.temp` leaves it) and the runner
+        holds it."""
+        if os.path.exists(self.ran):
+            os.remove(self.ran)
+        runner = run_tests.BlenderTestRunner(blender=self._blender() or "blender")
+        runner.temp_root = self.root
+        env = {name: self.root for name in ("TMPDIR", "TEMP", "TMP")}
+        with mock.patch.dict(os.environ, env):
+            return runner.run_suite(self.suite, **kwargs)
+
+    def test_a_refused_probe_write_never_reaches_the_real_temp(self):
+        os.makedirs(self.root, exist_ok=True)
+        for label, kwargs in self._hosts():
+            with self.subTest(host=label):
+                passed, ok, failed, _ = self._run(**kwargs)
+                self.assertTrue(passed, f"{label}: {ok} ok / {failed} failed")
+
+    def test_a_root_that_vanished_is_recreated_not_swapped_for_the_real_temp(self):
+        for label, kwargs in self._hosts():
+            with self.subTest(host=label):
+                shutil.rmtree(self.root, ignore_errors=True)
+                passed, ok, failed, _ = self._run(**kwargs)
+                self.assertTrue(passed, f"{label}: {ok} ok / {failed} failed")
+                self.assertTrue(os.path.isdir(self.root))
+
+    def test_a_root_that_cannot_be_used_stops_the_child_before_the_suite(self):
+        """Loud, not quiet: an unpinned suite is the defect, so it must not run."""
+        with open(self.root, "w") as fh:  # a FILE where the root should be
+            fh.write("not a directory")
+        for label, kwargs in self._hosts():
+            with self.subTest(host=label):
+                passed, _, failed, _ = self._run(**kwargs)
+                self.assertFalse(passed)
+                self.assertEqual(failed, 1)
+                self.assertFalse(os.path.exists(self.ran), "the suite ran unpinned")
+
+    def test_a_run_without_a_root_launches_the_suite_unchanged(self):
+        """An unimportable pythontk leaves no root: the suite must then fail on
+        its own, not on a pin that has nothing to pin."""
+        runner = run_tests.BlenderTestRunner(blender="blender.exe")
+        # The pin alone: the settings prelude has its own cases.
+        runner.sandbox_settings = False
+        calls = []
+
+        def fake_run(cmd, **run_kwargs):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with mock.patch.object(run_tests.subprocess, "run", side_effect=fake_run):
+            runner.run_suite(self.suite)
+            runner.run_suite(self.suite, python="py.exe")
+        self.assertEqual(
+            calls,
+            [
+                ["blender.exe", "--background", "--factory-startup", "--python"]
+                + [str(self.suite)],
+                ["py.exe", str(self.suite)],
+            ],
+        )
+
+
+class TestChildSettingsSandbox(unittest.TestCase):
+    """Every child resolves uitk's settings stores inside the run's temp root.
+
+    A panel persists through two per-user stores: ``QSettings`` (the registry's
+    ``HKCU\\Software\\uitk`` on Windows) and the presets root. The runner
+    isolated only the temp dir, so a suite was kept off the developer's live
+    stores only if it happened to load uitk's conftest, and every other suite
+    that reached a ``SettingsManager`` -- the Shot Manifest controller builds
+    two -- wrote them. Headless Blender is no exception: it imports the PySide6
+    tentacle provisions into its addons/modules. So each child is handed uitk's
+    sandbox before its suite's first line, as it is handed the temp root.
+
+    Probed, never written: the child reports where ``QSettings("uitk",
+    "shared")`` and the presets root resolve, and a ``QSettings`` that is only
+    constructed and asked its file name reads and writes nothing.
+    """
+
+    PROBE = r"""
+import json, os
+
+report = {"presets": os.environ.get("UITK_PRESETS_ROOT")}
+try:
+    from qtpy import QtCore
+except ImportError:  # no binding in this host: no QSettings store to reach
+    report["qt"] = False
+else:
+    store = QtCore.QSettings("uitk", "shared")
+    report.update(
+        qt=True, ini=store.format() == QtCore.QSettings.IniFormat, file=store.fileName()
+    )
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "report.json"), "w") as fh:
+    json.dump(report, fh)
+print("OK   probed")
+print("===RESULT: PASS=== (1/1)")
+"""
+
+    def setUp(self):
+        self.work = os.path.join(HERE, "temp_tests", f"child_settings_{os.getpid()}")
+        os.makedirs(self.work, exist_ok=True)
+        self.addCleanup(shutil.rmtree, self.work, True)
+        self.root = os.path.join(self.work, "root")
+        os.makedirs(self.root, exist_ok=True)
+        self.suite = Path(self.work, "probe_suite.py")
+        self.suite.write_text(self.PROBE, encoding="utf-8")
+        self.report = os.path.join(self.work, "report.json")
+
+    _hosts = TestChildTempRoot._hosts
+    _blender = staticmethod(TestChildTempRoot._blender)
+
+    def _run(self, **kwargs):
+        """One suite child, launched as a real run launches it, with none of
+        this process's own redirects for it to inherit; returns its report."""
+        if os.path.exists(self.report):
+            os.remove(self.report)
+        runner = run_tests.BlenderTestRunner(blender=self._blender() or "blender")
+        runner.temp_root = self.root
+        env = {name: self.root for name in ("TMPDIR", "TEMP", "TMP")}
+        with mock.patch.dict(os.environ, env):
+            os.environ.pop("UITK_PRESETS_ROOT", None)
+            passed, ok, failed, _ = runner.run_suite(self.suite, **kwargs)
+        self.assertTrue(passed, f"the probe failed: {ok} ok / {failed} failed")
+        with open(self.report, encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def _assert_inside_root(self, path, what):
+        root = os.path.normcase(os.path.abspath(self.root)) + os.sep
+        self.assertTrue(
+            path and os.path.normcase(os.path.abspath(path)).startswith(root),
+            f"{what} resolved outside the run's temp root: {path!r}",
+        )
+
+    def test_each_child_resolves_the_settings_stores_inside_the_run(self):
+        probed_qsettings = []
+        for label, kwargs in self._hosts():
+            report = self._run(**kwargs)
+            with self.subTest(host=label, store="presets"):
+                self._assert_inside_root(report["presets"], "the presets root")
+            if report["qt"]:
+                probed_qsettings.append(label)
+                with self.subTest(host=label, store="QSettings"):
+                    self.assertTrue(report["ini"], f"a registry store: {report}")
+                    self._assert_inside_root(report["file"], "QSettings('uitk')")
+        if not probed_qsettings:
+            self.skipTest("no host here has a Qt binding: QSettings went unprobed")
+
+    def test_a_child_that_cannot_import_uitk_still_runs_its_suite(self):
+        """Best-effort: a pure-bpy suite runs where uitk does not import."""
+        fake = os.path.join(self.work, "no_uitk")
+        os.makedirs(os.path.join(fake, "uitk"))
+        with open(os.path.join(fake, "uitk", "__init__.py"), "w") as fh:
+            fh.write("raise ImportError('no uitk in this child')\n")
+        with mock.patch.object(
+            run_tests.BlenderTestRunner, "_SANDBOX_ROOTS", [fake], create=True
+        ):
+            for label, kwargs in self._hosts():
+                with self.subTest(host=label):
+                    self._run(**kwargs)  # asserts the suite ran and passed
+
+    def test_without_a_root_the_prelude_still_runs_and_nothing_stops_the_suite(self):
+        """No temp root (pythontk unimportable in the runner) leaves the
+        settings prelude in place, and only the pin may stop a child."""
+        runner = run_tests.BlenderTestRunner(blender="blender.exe")
+        blender_cmd = runner._child_command(self.suite)
+        python_cmd = runner._child_command(self.suite, python="py.exe")
+
+        self.assertNotIn("--python-exit-code", blender_cmd)
+        self.assertEqual(blender_cmd[-2:], ["--python", str(self.suite)])
+        prelude = blender_cmd[blender_cmd.index("--python-expr") + 1]
+        self.assertIn("TestSandbox.qsettings()", prelude)
+        self.assertNotIn("tempfile.tempdir", prelude)
+        self.assertEqual(python_cmd[:2], ["py.exe", "-c"])
+        self.assertIn(prelude, python_cmd[2])
+        self.assertEqual(python_cmd[-1], str(self.suite))
+
+
+class TestChildPackagesSandbox(unittest.TestCase):
+    """Every child provisions packages inside the run's temp root.
+
+    ``CoreUtils.ensure_packages`` pip-installs what a tool needs (Pillow, the
+    xatlas packer Texture Combine drives) into Blender's per-version
+    ``scripts/addons/modules`` -- the user's real profile, so a test run
+    installed into it (2026-10-17: xatlas, by test_texture_combine). The
+    child is handed ``BLENDERTK_PACKAGES_DIR`` inside the root before its
+    suite's first line, and the install target honours it; what the profile
+    already holds stays importable, read-only.
+    """
+
+    PROBE = r"""
+import json, os, sys
+
+report = {{"env": os.environ.get("BLENDERTK_PACKAGES_DIR")}}
+try:
+    import bpy  # noqa: F401
+except ImportError:
+    pass
+else:
+    sys.path[:0] = {roots!r}
+    from blendertk.core_utils._core_utils import _CoreUtilsInternal
+
+    report["target"] = _CoreUtilsInternal._engine_install_dirs()[0]
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "report.json"), "w") as fh:
+    json.dump(report, fh)
+print("OK   probed")
+print("===RESULT: PASS=== (1/1)")
+"""
+
+    def setUp(self):
+        self.work = os.path.join(HERE, "temp_tests", f"child_packages_{os.getpid()}")
+        os.makedirs(self.work, exist_ok=True)
+        self.addCleanup(shutil.rmtree, self.work, True)
+        self.root = os.path.join(self.work, "root")
+        os.makedirs(self.root, exist_ok=True)
+        repo = os.path.dirname(HERE)
+        roots = [repo, os.path.join(os.path.dirname(repo), "pythontk")]
+        self.suite = Path(self.work, "probe_suite.py")
+        self.suite.write_text(self.PROBE.format(roots=roots), encoding="utf-8")
+        self.report = os.path.join(self.work, "report.json")
+
+    _hosts = TestChildTempRoot._hosts
+    _blender = staticmethod(TestChildTempRoot._blender)
+
+    def test_each_child_installs_packages_inside_the_run(self):
+        root = os.path.normcase(os.path.abspath(self.root)) + os.sep
+        for label, kwargs in self._hosts():
+            with self.subTest(host=label):
+                if os.path.exists(self.report):
+                    os.remove(self.report)
+                runner = run_tests.BlenderTestRunner(
+                    blender=self._blender() or "blender"
+                )
+                runner.temp_root = self.root
+                env = {name: self.root for name in ("TMPDIR", "TEMP", "TMP")}
+                with mock.patch.dict(os.environ, env):
+                    os.environ.pop("BLENDERTK_PACKAGES_DIR", None)
+                    passed, ok, failed, _ = runner.run_suite(self.suite, **kwargs)
+                self.assertTrue(passed, f"the probe failed: {ok} ok / {failed} failed")
+                with open(self.report, encoding="utf-8") as fh:
+                    report = json.load(fh)
+                for key in ("env", "target") if label == "blender" else ("env",):
+                    path = report.get(key)
+                    self.assertTrue(
+                        path
+                        and os.path.normcase(os.path.abspath(path)).startswith(root),
+                        f"{label} {key} resolved outside the run's temp root: {path!r}",
+                    )
+
+
+class _StubSession:
+    """A kept Blender that answers each call with what a suite printed."""
+
+    TEMP_FOLDER = "temp"
+
+    def __init__(self, folder, stdout="", outcome=None):
+        self.folder = Path(folder)
+        self.stdout = stdout
+        self.outcome = outcome
+        self.calls = []
+
+    def run(self, entry, request, scope=None):
+        import ast
+
+        from pythontk import Outcome
+
+        self.calls.append((entry, request))
+        call = next(
+            node
+            for node in ast.walk(ast.parse(request.args["code"]))
+            if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "run_kept_suite"
+        )
+        suite, out, err, prelude = (ast.literal_eval(a) for a in call.args)
+        if self.outcome is not None:
+            return self.outcome
+        Path(out).write_text(self.stdout, encoding="utf-8")
+        Path(err).write_text("", encoding="utf-8")
+        return Outcome(op=entry["id"], status="done", result={"value": 0})
+
+
+class TestReuseRunsSuitesInAKeptBlender(unittest.TestCase):
+    """``--reuse``: each Blender suite is a call in one background Blender this
+    tooling launched and keeps between runs (pythontk's
+    ``SessionOperationHost``), never a Blender a person opened; a Qt-only suite
+    still runs in a fresh ``.venv`` interpreter."""
+
+    def setUp(self):
+        self.work = os.path.join(HERE, "temp_tests", f"kept_{os.getpid()}")
+        os.makedirs(self.work, exist_ok=True)
+        self.addCleanup(shutil.rmtree, self.work, True)
+        # The runner drives the kept Blender through pythontk; inside a harness
+        # Blender this checkout's copy is not on the path by itself.
+        pythontk = os.path.join(os.path.dirname(os.path.dirname(HERE)), "pythontk")
+        if os.path.isdir(pythontk) and pythontk not in sys.path:
+            sys.path.insert(0, pythontk)
+
+    def _runner(self, session):
+        runner = run_tests.BlenderTestRunner(blender="blender.exe", reuse=True)
+        runner._session = session
+        runner.temp_root = self.work
+        return runner
+
+    def test_a_blender_suite_is_a_call_in_the_kept_blender(self):
+        session = _StubSession(self.work, stdout="OK one\n===RESULT: PASS=== (1/1)\n")
+        with mock.patch.object(run_tests.subprocess, "run") as fresh:
+            result = self._runner(session).run_suite(Path(HERE, "test_fake.py"))
+        fresh.assert_not_called()
+        self.assertEqual(result, (True, 1, 0, False))
+        (entry, request), = session.calls
+        self.assertEqual((entry["id"], request.dry_run), ("blender.python.exec", False))
+        self.assertIn("test_fake.py", request.args["code"])
+
+    def test_the_suite_is_pinned_to_the_kept_blenders_own_temp(self):
+        """The run's root goes with the run; the kept Blender outlives it."""
+        import ast
+
+        session = _StubSession(self.work, stdout="===RESULT: PASS=== (1/1)\n")
+        self._runner(session).run_suite(Path(HERE, "test_fake.py"))
+        code = session.calls[0][1].args["code"]
+        call = next(
+            n for n in ast.walk(ast.parse(code))
+            if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "run_kept_suite"
+        )
+        prelude = ast.literal_eval(call.args[3])
+        own = str(Path(self.work) / _StubSession.TEMP_FOLDER)
+        self.assertIn(repr(own), prelude)
+        self.assertIn("BLENDERTK_TEST_TEMP_ROOT", prelude)
+
+    def test_a_qt_only_suite_still_runs_in_a_fresh_interpreter(self):
+        session = _StubSession(self.work)
+        done = subprocess.CompletedProcess([], 0, stdout="===RESULT: PASS=== (1/1)\n", stderr="")
+        with mock.patch.object(run_tests.subprocess, "run", return_value=done) as fresh:
+            result = self._runner(session).run_suite(
+                Path(HERE, "test_fake.py"), python=sys.executable
+            )
+        self.assertEqual(fresh.call_count, 1)
+        self.assertEqual(session.calls, [])
+        self.assertTrue(result[0])
+
+    def test_a_kept_call_that_times_out_costs_one_failure(self):
+        from pythontk import Outcome
+
+        timed_out = Outcome(
+            op="blender.python.exec",
+            status="failed",
+            error="blender session: it timed out after 600 s, so its instance was stopped",
+        )
+        session = _StubSession(self.work, outcome=timed_out)
+        with mock.patch("sys.stdout", new_callable=lambda: __import__("io").StringIO()):
+            result = self._runner(session).run_suite(Path(HERE, "test_fake.py"))
+        self.assertEqual(result, (False, 0, 1, False))
+
+    def test_the_session_is_made_before_the_runs_temp_is_isolated(self):
+        runner = run_tests.BlenderTestRunner(blender="blender.exe", reuse=True)
+        order = []
+        with mock.patch.object(
+            runner, "_keep_session", side_effect=lambda: order.append("keep")
+        ), mock.patch.object(
+            runner, "_isolate_temp", side_effect=lambda: order.append("isolate")
+        ), mock.patch.object(runner, "discover", return_value=[]), mock.patch(
+            "sys.stdout", new_callable=lambda: __import__("io").StringIO()
+        ):
+            runner.run()
+        self.assertEqual(order, ["keep", "isolate"])
+
+    def test_two_suites_share_one_kept_blender_each_from_a_fresh_scene(self):
+        blender = TestChildTempRoot._blender()
+        if not blender:
+            self.skipTest("no Blender installed")
+        suite = Path(self.work, "probe_kept.py")
+        suite.write_text(
+            "import os, bpy\n"
+            "fresh = 'LEFT_BY_A_SUITE' not in bpy.data.objects and 'Cube' in bpy.data.objects\n"
+            "bpy.data.objects.new('LEFT_BY_A_SUITE', None)\n"
+            "print(f\"{'OK  ' if fresh else 'FAIL'} a factory scene | {os.getpid()}\")\n"
+            "print(f\"===RESULT: {'PASS' if fresh else 'FAIL'}=== ({int(fresh)}/1)\")\n",
+            encoding="utf-8",
+        )
+        runner = run_tests.BlenderTestRunner(blender=blender, reuse=True)
+        runner.KEEP_SECONDS = 30
+        runner._session = runner._keep_session(tag=f"test-{os.getpid()}")  # never a run's
+        self.addCleanup(runner._session._kill)
+        first = runner.run_suite(suite)
+        pid = (runner._session.queue.worker() or {}).get("pid")
+        second = runner.run_suite(suite)
+        self.assertEqual((first, second), ((True, 1, 0, False),) * 2)
+        self.assertEqual((runner._session.queue.worker() or {}).get("pid"), pid)
+
+    def test_a_second_run_on_this_checkout_takes_another_kept_blender(self):
+        tag = f"claim-{os.getpid()}"
+        first = run_tests.BlenderTestRunner(blender=sys.executable, reuse=True)
+        second = run_tests.BlenderTestRunner(blender=sys.executable, reuse=True)
+        mine = first._keep_session(tag=tag)  # nothing is launched until a call
+        self.addCleanup(mine.close)
+        theirs = second._keep_session(tag=tag)
+        self.assertIsNotNone(theirs)
+        self.addCleanup(theirs.close)
+        self.assertNotEqual(mine.session, theirs.session)
+
+
+if __name__ == "__main__":
+    argv = [sys.argv[0]] + (
+        sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
+    )
+    result = unittest.main(argv=argv, exit=False, verbosity=2).result
+    passed = result.testsRun - len(result.failures) - len(result.errors)
+    print(
+        f"===RESULT: {'PASS' if result.wasSuccessful() else 'FAIL'}=== ({passed}/{result.testsRun})"
+    )
+    sys.exit(0 if result.wasSuccessful() else 1)

@@ -52,7 +52,7 @@ and blendertk holds the host operations, no UI. Blender specifics:
   `import bpy` is deferred).
 - `BlenderUiHandler` (`ui_utils/blender_ui_handler.py`, mirror of `MayaUiHandler`) registers no UI
   source of its own; it wraps Blender's native menus, and `BlenderMarkingMenuHost.ui_handler` names
-  it to the marking menu. Verify with `test/test_blender_ui_handler.py` (needs Qt, not bpy → runs under
+  it to the marking menu. Verify with `tests/test_blender_ui_handler.py` (needs Qt, not bpy → runs under
   the workspace `.venv`; skips→PASS under the Blender harness).
 
 - **Hosting a marking menu**: `BlenderMarkingMenuHost` (`ui_utils/marking_menu_host/`, a
@@ -76,10 +76,10 @@ Headless smoke / unit tests require the Blender runtime (`bpy`):
 
 ```powershell
 & "C:\Program Files\Blender Foundation\Blender 5.1\blender.exe" --background --factory-startup `
-  --python blendertk\test\blender_smoke_test.py
+  --python blendertk\tests\blender_smoke_test.py
 ```
 
-Pointed: `python blendertk/test/run_tests.py test_smart_bake` (a typo exits 2); no names = all
+Pointed: `python blendertk/tests/run_tests.py test_smart_bake` (a typo exits 2); no names = all
 suites, for review / release. Fresh instance per suite (Qt suites offscreen); `Run-Tests.ps1`
 wraps it.
 (Pure-logic helpers with no `bpy` dep may also run under the workspace `.venv`.)

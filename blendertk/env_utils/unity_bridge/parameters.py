@@ -10,7 +10,7 @@ here. The delivery's rows -- the Assets subfolder, the asset name -- and the
 scripts' are the app's. Never substituted into a template.
 
 mayatk's copy is the SSoT: this file is the same text, host names in prose
-aside, and ``extapps/test/test_vendor_sync.py`` fails the moment the two
+aside, and ``extapps/tests/test_vendor_sync.py`` fails the moment the two
 differ. Edit mayatk's, then mirror.
 """
 

@@ -287,7 +287,7 @@ class BlenderWindow:
         loop (WM_TIMER), but pumping Qt from there is destructive: Qt's dispatcher PeekMessages
         the *whole thread queue*, stealing the loop's WM_MOUSEMOVE/WM_LBUTTONUP — the window can't
         be repositioned and the loop never sees the mouse-up (Blender wedges; reproduced by
-        tentacle's ``test/blender/native_drag_check.py``). The pump and the key watcher skip their tick
+        tentacle's ``tests/blender/native_drag_check.py``). The pump and the key watcher skip their tick
         while this is true.
 
         ``cooldown`` (seconds) adds hysteresis: keep answering True until the probe has read
@@ -295,7 +295,7 @@ class BlenderWindow:
         per-monitor DPI transition mid-drag re-enters ``wglSwapBuffers``/wndproc layers where
         ``GetGUIThreadInfo`` reports no modal loop, a WM_TIMER fires there, and one
         ``processEvents`` from that context livelocks Blender for good (py-spy stack:
-        tentacle's ``test/temp_tests/dpi_drag_latched_stack.txt``; repro: ``console_dpi_drag_check``).
+        tentacle's ``tests/temp_tests/dpi_drag_latched_stack.txt``; repro: ``console_dpi_drag_check``).
         Since every dangerous nested context sits within ~ms of a True reading, a short
         cooldown bridges the lie. The pump passes one; instantaneous callers (key watcher —
         chord menus must resume the instant a native menu closes) leave it 0."""

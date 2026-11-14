@@ -1,0 +1,367 @@
+"""blendertk RizomUV script-construction + version-gating test (Qt/venv side — no bpy).
+
+Run under the workspace venv:  python blendertk/tests/test_rizom_construction.py
+
+Covers the DCC-agnostic half of the round-trip that the Blender-side plumbing test
+(``test_rizom_roundtrip.py``) deliberately stubs out: preset resolution, the
+ZomLoad/ZomSave/ZomQuit wrapper substitution, placeholder resolution, and the RizomUV-version
+gating (older Rizom access-violates on newer ZomPack fields, so gated lines must be stripped).
+
+This needs ``uitk.bridge`` (``parameters.py`` builds its registry from ``AttributeSpec``), which
+pulls in a Qt binding — present under the workspace venv, absent under headless Blender. When run
+under the Blender harness (no ``qtpy``) it SKIPs cleanly so the aggregate stays green. The bpy-side
+export/import/transfer is verified separately by ``test_rizom_roundtrip.py``.
+"""
+import os
+import sys
+import traceback
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(HERE)
+MONO = os.path.dirname(REPO)
+for p in (REPO, os.path.join(MONO, "pythontk"), os.path.join(MONO, "uitk")):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+lines = []
+
+
+def check(name, cond, detail=""):
+    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}")
+
+
+try:
+    try:
+        from blendertk.uv_utils.rizom_bridge import parameters as P  # noqa: F401 (needs qtpy)
+    except ModuleNotFoundError as e:
+        if "qtpy" in str(e) or "PySide" in str(e):
+            print("SKIP: needs a Qt binding (run under the workspace venv, not headless Blender).")
+            # Tag the sentinel so the harness reports SKIP rather than counting
+            # this as a green suite that silently contributed zero checks.
+            print("===RESULT: PASS=== (skipped)")
+            raise SystemExit(0)
+        raise
+
+    from blendertk.uv_utils.rizom_bridge._rizom_bridge import RizomUVBridge, _SCRIPT_DIR
+
+    V2020 = r"C:/Program Files/Rizom Lab/RizomUV VS RS 2020.1/Rizomuv_VS.exe"
+    V2022 = r"C:/Program Files/Rizom Lab/RizomUV 2022.2/Rizomuv_VS.exe"
+
+    # ---- preset resolution -------------------------------------------------------
+    b = RizomUVBridge(rizom_path=V2022)
+    b.export_path = "C:/tmp/x.fbx"
+    for preset in ("pack", "unwrap_hard", "unwrap_organic", "optimize", "send"):
+        body = b._resolve_script(preset=preset)
+        check(f"resolve preset '{preset}'", isinstance(body, str) and len(body) > 0)
+    try:
+        b._resolve_script(preset="nope")
+        check("unknown preset -> FileNotFoundError", False)
+    except FileNotFoundError:
+        check("unknown preset -> FileNotFoundError", True)
+    try:
+        b._resolve_script(uv_script="x", preset="pack")
+        check("both uv_script+preset -> ValueError", False)
+    except ValueError:
+        check("both uv_script+preset -> ValueError", True)
+
+    # ---- wrapper substitution (2022: all placeholders resolve) -------------------
+    import re
+
+    # Field-presence checks must ignore Lua comments: the shared pack_block.lua
+    # header discusses the gated fields BY NAME (why Resolution is sent on
+    # 2020.1 and MaxMutations is not), and a raw substring scan reads that prose
+    # as code. Same hazard the zom_lines() helper below exists for.
+    def code_lines(script):
+        return "\n".join(
+            ln for ln in script.splitlines() if not ln.lstrip().startswith("--")
+        )
+
+    pack = (_SCRIPT_DIR / "pack.lua").read_text(encoding="utf-8")
+    full22 = b._construct_full_script(pack)
+    leftover = re.findall(r"__[A-Z][A-Z_]*__", full22)  # unresolved __KEY__ tokens
+    check("2022: wrapper adds ZomLoad/ZomSave/ZomQuit",
+          all(z in full22 for z in ("ZomLoad", "ZomSave", "ZomQuit")))
+    check("2022: no unresolved __KEY__ placeholders left", not leftover, str(leftover))
+    check("2022: gated pack fields kept (MaxMutations/Resolution)",
+          "MaxMutations" in full22 and "Resolution" in full22)
+    check("2022: Rotate.Enable kept above the gate", "Enable=" in code_lines(full22))
+    check("2022: export path inlined into ZomLoad/ZomSave",
+          full22.count('Path="C:/tmp/x.fbx"') >= 2)
+
+    # ---- version gating (2020.1 must strip the gated lines) ----------------------
+    # The FBX flag rides on the ZomLoad/ZomSave *code* lines; check those, not the whole script
+    # (wrapper.lua's header comment mentions "UseUVSetNames" and would false-positive a raw scan).
+    def zom_lines(script):
+        return "\n".join(
+            ln for ln in script.splitlines() if ln.lstrip().startswith(("ZomLoad", "ZomSave"))
+        )
+
+    b20 = RizomUVBridge(rizom_path=V2020)
+    b20.export_path = "C:/tmp/x.fbx"
+    full20 = b20._construct_full_script(pack)
+    check("2020.1: gated ZomPack fields stripped (no MaxMutations/Scaling.Mix/Rotate.Enable)",
+          "MaxMutations" not in code_lines(full20)
+          and "__PACK_MAX_MUTATIONS__" not in full20
+          and "Mix=" not in code_lines(full20)
+          and "Enable=" not in code_lines(full20))
+    # Resolution is deliberately NOT gated: probed safe on 2020.1, and sending it
+    # is what makes a single send converge instead of needing a second one.
+    check("2020.1: Resolution survives (ungated -- converges the pack in one send)",
+          "Resolution=" in code_lines(full20)
+          and "__PACK_RESOLUTION__" not in full20)
+    # Pinned, not a knob: the bridge never builds nested island groups, so depths
+    # 1/2/5 saved byte-identical layouts (probed through the real bridge).
+    check("RecursionDepth pinned to 1 (no bundled preset shows the dead knob)",
+          "RecursionDepth=1," in code_lines(full20)
+          and not any("RECURSION_DEPTH" in P.Parameters.referenced_keys(
+              s.read_text(encoding="utf-8")) for s in _SCRIPT_DIR.glob("*.lua")))
+    shown20 = P.Parameters.referenced_keys(P.Parameters.strip_unsupported(
+        P.Parameters.expand_includes(pack), (2020, 1)))
+    check("2020.1: Mix Scale hidden (no effect there), Rotate shown (works via Mode/Step)",
+          "SCALING_MIX" not in shown20 and "PACK_ROTATE_ENABLE" in shown20)
+    b20._params = {"PACK_ROTATE_ENABLE": False, "ROTATE_STEP": 45}
+    rot_off = code_lines(b20._construct_full_script(pack))
+    b20._params = {}
+    check("rotate off renders Mode 0 + Step 0 (keeps every island's angle on 2020.1)",
+          "local rotate = false" in rot_off
+          and "Step=rotate and 45 or 0," in rot_off
+          and "Mode=(not rotate) and 0 or nil," in rot_off
+          and "Enable=" not in rot_off)
+    check("shell subset token renders nil unless the host sets it",
+          P.Parameters.render_context({})["PACK_SUBSET"] == "nil"
+          and "PACK_SUBSET = nil" in full20)
+    check("2020.1: no FBX={UseUVSetNames} flag on the ZomLoad/ZomSave lines (below the gate)",
+          "UseUVSetNames" not in zom_lines(full20), zom_lines(full20))
+    check("2022.2: FBX={UseUVSetNames=true} flag on the ZomLoad/ZomSave lines (above the gate)",
+          "FBX={UseUVSetNames=true}" in zom_lines(full22))
+
+    # ---- pack gutter is DERIVED, not a user knob ---------------------------------
+    # Island spacing / tile margin come off the shared UV-padding rule so a Rizom
+    # round-trip and an in-Blender repack agree on the gutter.
+    from blendertk.uv_utils._uv_utils import UvUtils
+
+    pad = UvUtils.calculate_uv_padding(1024, normalize=True)
+    check("gutter tokens are not UI knobs",
+          not any(k in P.PARAMS for k in P.DERIVED_KEYS), str(P.DERIVED_KEYS))
+    derived = P.Parameters.derived_values({"PACK_RESOLUTION": 1024})
+    check("derived spacing == normalized padding", derived["PACK_SPACING"] == pad)
+    check("derived margin == half the spacing", derived["PACK_MARGIN"] == pad / 2)
+    check("padding is map-size-invariant",
+          P.Parameters.derived_values({"PACK_RESOLUTION": 4096})["PACK_SPACING"] == pad)
+    stale = P.Parameters.render_context(
+        {"PACK_RESOLUTION": 1024, "PACK_SPACING": 0.5, "PACK_MARGIN": 0.5}
+    )
+    check("stale preset values lose to the derived gutter",
+          float(stale["PACK_SPACING"]) == pad and float(stale["PACK_MARGIN"]) == pad / 2)
+    check("2022: gutter substituted into the pack block",
+          f"MarginSize={pad / 2}" in full22 and f"PaddingSize={pad}" in full22)
+    # "PaddingSize=" (with the assignment) — pack_block.lua's header comment names the
+    # field, so a bare substring scan would false-positive.
+    check("2020.1: gutter uses the pre-rename SpacingSize field",
+          f"SpacingSize={pad}" in full20 and "PaddingSize=" not in full20)
+
+    # ---- param overrides flow into the script ------------------------------------
+    full_ovr = b._construct_full_script(pack)  # defaults
+    b._params = {"PACK_RESOLUTION": 4096}
+    full_ovr2 = b._construct_full_script(pack)
+    b._params = {}
+    check("param override changes the rendered script",
+          "Resolution=4096" in full_ovr2 and "Resolution=4096" not in full_ovr)
+
+    # ---- keep-stacked: pack-only opt-in behind a Lua literal, Lua vendored from mayatk ----
+    keys = lambda name: P.Parameters.referenced_keys(  # noqa: E731
+        (_SCRIPT_DIR / f"{name}.lua").read_text(encoding="utf-8"))
+    check("PACK_KEEP_STACKED is a bool knob, off by default",
+          P.PARAMS["PACK_KEEP_STACKED"].kind == "bool"
+          and P.PARAMS["PACK_KEEP_STACKED"].default is False)
+    check("keep-stacked shows for the pack-type presets only",
+          all("PACK_KEEP_STACKED" in keys(n) for n in ("pack", "optimize"))
+          and not any("PACK_KEEP_STACKED" in keys(n)
+                      for n in ("unwrap_hard", "unwrap_organic", "unwrap_hybrid")))
+    b._params = {"PACK_KEEP_STACKED": True}
+    on = code_lines(b._construct_full_script(pack))
+    b._params = {"PACK_KEEP_STACKED": False}
+    off = code_lines(b._construct_full_script(pack))
+    check("keep-stacked renders the overlap grouping gated by the knob",
+          'Mode="DefineGroupsByOverlapness"' in on and "if true then" in on
+          and "Properties={Pack={Stacked=true}}" in on
+          and "if false then" in off and "__KEEP_STACKED_BLOCK__" not in on + off)
+    check("keep-stacked grouping precedes the pack",
+          on.index('Mode="DefineGroupsByOverlapness"') < on.index("ZomPack("))
+    _grp = on.index('Mode="DefineGroupsByOverlapness"')
+    check("keep-stacked brackets the grouping with the MultiCOG shrink / unshrink",
+          on.index('CenterMode="MultiCOG"') < _grp < on.index('CenterMode="MultiCOG"', _grp)
+          and "Transform={0.001, 0, 0, 0, 0.001, 0, 0, 0, 1}" in on
+          and "Transform={1000, 0, 0, 0, 1000, 0, 0, 0, 1}" in on)
+    b._params = {}
+
+    # ---- optimize repacks in-tile instead of rescaling to the 3D metric -----------
+    # Backlog 2026-08-05: the preset shipped KeepMetric=true (which rescales the
+    # optimised result to the mesh's 3D metric) on top of a hand-rolled
+    # ZomIslandGroups + ZomPack tail that no-opped for want of an island selection --
+    # so its hardcoded preserve-scale invariants never reached the packer. Measured
+    # through a real 2020.1 on three projection-UV spheres: UV area 0.8100 in-tile ->
+    # 29.0800 spanning u[0.004,5.686] v[0.004,6.835] (~6x7 UDIM tiles; 84x / ~9x9
+    # through the Maya path). With pack.lua's selection opener, the shared pack block
+    # and KeepMetric=false the same input lands at area 0.6142 inside u[0.002,0.828]
+    # v[0.002,0.998], and the optimisation itself is unchanged (per-face UV/3D area
+    # spread, coefficient of variation 0.9301 -> 0.4269, identical either way).
+    optimize = (_SCRIPT_DIR / "optimize.lua").read_text(encoding="utf-8")
+    opt_code = code_lines(optimize)
+    check("optimize drops the 3D-metric rescale that inflated the layout",
+          "KeepMetric=false" in opt_code and "KeepMetric=true" not in opt_code)
+    check("optimize selects islands BEFORE ZomOptimize (after it access-violates 2020.1)",
+          "ZomSelect(" in opt_code and "ZomOptimize(" in opt_code
+          and opt_code.index("ZomSelect(") < opt_code.index("ZomOptimize("))
+    check("optimize pulls the shared pack block instead of inlining its own pack",
+          "__PACK_BLOCK__" in optimize and "ZomPack(" not in opt_code
+          and "ZomIslandGroups(" not in opt_code)
+    opt_full = b._construct_full_script(optimize)
+    opt_left = re.findall(r"__[A-Z][A-Z0-9_]*__", opt_full)
+    check("optimize: no unresolved __KEY__ placeholders left", not opt_left, str(opt_left))
+    # The shared block's pack() sends its two arguments as Scaling.Mode and
+    # LayoutScalingMode; the plain call carries the panel's values.
+    check("optimize: pack knobs come from the panel, not hardcoded invariants",
+          f"pack({P.PARAMS['SCALING_MODE'].default}, "
+          f"{P.PARAMS['LAYOUT_SCALING_MODE'].default})" in opt_full
+          and "LayoutScalingMode=layout_mode," in opt_full)
+
+    import filecmp
+    _maya_rb = _SCRIPT_DIR.parents[4] / "mayatk" / "mayatk" / "uv_utils" / "rizom_bridge"
+    if _maya_rb.is_dir():
+        vendored = ("scripts/pack.lua", "scripts/optimize.lua",
+                    "scripts/pack_into_existing.lua",
+                    "templates/pack_block.lua", "templates/keep_stacked_block.lua")
+        stale = [f for f in vendored
+                 if not filecmp.cmp(_maya_rb / f, _SCRIPT_DIR.parent / f, shallow=False)]
+        check("pack-side Lua stays byte-identical to mayatk's", not stale, str(stale))
+
+    # ---- pack_into_existing: ungated, subset-tag driven, ignored knobs hidden -------
+    # Rebuilt 2026-09-27 on the shell-subset path: its old island-GROUP-name selection
+    # was a silent no-op on 2020.1 (0 of 19 islands moved), hidden behind a >= 2022.2 gate.
+    into = (_SCRIPT_DIR / "pack_into_existing.lua").read_text(encoding="utf-8")
+    check("pack_into_existing carries no version gate",
+          P.Parameters.preset_min_version(into) is None)
+    into_keys = P.Parameters.referenced_keys(into)
+    check("pack_into_existing hides the knobs its match-density branch overrides",
+          not into_keys & {"SCALING_MODE", "LAYOUT_SCALING_MODE", "UV_AREA", "PACK_TRANSLATE"},
+          str(sorted(into_keys)))
+    check("pack_into_existing still offers the knobs it honours",
+          {"TARGET_UDIM", "PACK_ROTATE_ENABLE", "ROTATE_STEP", "PACK_RESOLUTION",
+           "PACK_KEEP_STACKED"} <= into_keys, str(sorted(into_keys)))
+    old = RizomUVBridge(rizom_path=V2020)
+    old.export_path = "C:/tmp/x.fbx"
+    old._params = {"PACK_SELECT_NAMES": '{"tag"}'}
+    into_full = old._construct_full_script(into)
+    into_left = re.findall(r"__[A-Z][A-Z0-9_]*__", into_full)
+    check("pack_into_existing resolves fully on 2020.1", not into_left, str(into_left))
+    check("pack_into_existing hands the tag to the subset path",
+          'PACK_SUBSET = {"tag"}' in into_full and "PACK_MATCH_DENSITY = true" in into_full)
+    _margin = P.Parameters.derived_values({"PACK_RESOLUTION": 1024})["PACK_MARGIN"]
+    check("the subset fit keeps the tile margin",
+          f"local fit = 1.0 - {_margin}" in into_full)
+    old._params = {}
+
+    # ---- a script that carries its own ZomLoad/ZomSave bypasses the wrapper -------
+    custom = 'ZomLoad({File={Path="p"}})\nZomSave({File={Path="p"}})\n'
+    passthru = b._construct_full_script(custom)
+    check("self-managed ZomLoad/ZomSave script passes through (no double wrapper)",
+          passthru.count("ZomLoad") == 1 and "ZomQuit" not in passthru)
+
+    # ---- round-trip temp payloads are unique per bridge ---------------------------
+    # Regression: the FBX and the -cfi Lua were fixed tempdir names -- the SAME two the
+    # Maya bridge used, so the twin panels raced for one script file. RizomUV re-reads
+    # the script after launch, so a mid-run overwrite made it exit 0 without reaching
+    # ZomSave. Lifecycle is now ptk.TempArtifacts (unique tag per allocation).
+    from pathlib import Path as _Path
+
+    one = RizomUVBridge(rizom_path="not-used.exe")
+    two = RizomUVBridge(rizom_path="not-used.exe")
+    for br in (one, two):
+        br.script_path = 'ZomSelect({PrimType="Edge"})'
+    check("two bridges get different round-trip FBX paths", one.export_path != two.export_path,
+          one.export_path)
+    check("two bridges get different round-trip Lua paths", one.script_path != two.script_path,
+          one.script_path)
+    check("payloads are prefix-scoped for the stale sweep",
+          all(_Path(p).name.startswith("rizom_roundtrip_")
+              for p in (one.export_path, one.script_path)))
+
+    # ---- the no-save error diagnoses a clobber instead of promising a traceback ---
+    script_text = _Path(one.script_path).read_text(encoding="utf-8")
+    intact = one._no_save_diagnosis(script_text)
+    clobbered = one._no_save_diagnosis(script_text + "-- not what we wrote\n")
+    check("no-save error names the script path", str(_Path(one.script_path)) in intact)
+    check("no-save error names the FBX path", str(_Path(one.export_path)) in intact)
+    check("intact script -> no clobber claim", "no longer matches" not in intact)
+    check("changed script -> clobber reported", "no longer matches" in clobbered)
+    check("no-save error drops the impossible traceback advice",
+          "enable debug logging" not in intact)
+
+    # ---- the panel's surface (tentacle's RizomUV Bridge reads these) ---------------
+    check(
+        "SCRIPT_DIR is the bundled preset folder",
+        RizomUVBridge.SCRIPT_DIR == _SCRIPT_DIR,
+    )
+    check(
+        "params_registry is the parameters registry",
+        RizomUVBridge.params_registry() is P.Parameters,
+    )
+    listed20 = dict(b20.list_template_modes())
+    listed22 = dict(b.list_template_modes())
+    check(
+        "list_template_modes: unwrap_hybrid only above its 2022 gate, one '' mode each",
+        "unwrap_hybrid" not in listed20
+        and "unwrap_hybrid" in listed22
+        and set(listed22) == {p.stem for p in _SCRIPT_DIR.glob("*.lua")}
+        and not any(listed22.values()),
+        f"{sorted(listed20)} / {sorted(listed22)}",
+    )
+    check(
+        "referenced_keys: the rows the installed version keeps (2020.1 hides Mix Scale)",
+        b20.referenced_keys(pack) == shown20,
+        f"{sorted(b20.referenced_keys(pack) ^ shown20)}",
+    )
+    from unittest import mock as _mock
+
+    _ran = []
+
+    def _recorder(name):
+        return _mock.MagicMock(side_effect=lambda *a, **k: _ran.append((name, a, k)))
+
+    _rb = RizomUVBridge(rizom_path="not-used.exe")
+    _rb.process_with_rizomuv = _recorder("round_trip")
+    _rb.send_to_rizomuv = _recorder("send")
+    _rb.pack_into_existing = _recorder("into")
+    for _preset in ("pack", "send", "pack_into_existing"):
+        _rb.run_preset(["obj"], _preset, params={"K": 1})
+    check(
+        "run_preset: send opens one way, pack_into_existing packs in, the rest round-trip",
+        [r[0] for r in _ran] == ["round_trip", "send", "into"]
+        and _ran[0][2] == {"preset": "pack", "params": {"K": 1}}
+        and _ran[1][2] == {"params": {"K": 1}},
+        str(_ran),
+    )
+
+    # ---- a reused bridge re-allocates, or run 2's payloads leak untracked ---------
+    first_lua = one.script_path
+    one._release_temp_payloads()
+    check("clean run removes the Lua payload", not _Path(first_lua).exists())
+    one.script_path = 'ZomSelect({PrimType="Edge"})'
+    check("a second run allocates a fresh Lua path", one.script_path != first_lua)
+    one._release_temp_payloads()
+    two._release_temp_payloads()
+
+except SystemExit:
+    raise
+except Exception as e:
+    lines.append(f"FAIL setup: {e!r}")
+    lines.append(traceback.format_exc())
+
+ok = all(line.startswith("OK") for line in lines) and bool(lines)
+for line in lines:
+    print(line)
+# Carry the tally: without it the suite counts for zero checks in run_tests.py's
+# totals, and a run that asserted nothing reads as green.
+_ok = sum(1 for line in lines if line.startswith("OK"))
+print(f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({_ok}/{len(lines)})")

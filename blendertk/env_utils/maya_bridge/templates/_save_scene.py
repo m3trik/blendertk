@@ -119,7 +119,7 @@ def restore_usd_locators(cmds, engine, new_nodes):
     engine honors the manifest; the fallback keeps the children heuristic.
     Dependency-free copy of ``mayatk.BlenderSceneImport._restore_usd_locators``;
     its fallback loop is held token-identical across the three templates that
-    carry it by ``mayatk/test/test_scene_import.py::TestUsdPullRouteContracts::
+    carry it by ``mayatk/tests/test_scene_import.py::TestUsdPullRouteContracts::
     test_locator_fallback_loops_are_one_copy_across_the_three_templates``."""
     if engine is not None:
         try:

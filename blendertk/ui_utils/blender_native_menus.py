@@ -34,7 +34,7 @@ class BlenderNativeMenus(ptk.LoggingMixin):
     bare ``uv`` / ``normals`` targets (``materials#submenu``, ``uv#submenu``, ``normals#submenu``),
     and ``can_resolve`` is global — a bare ``uv`` entry here would hijack those. Maya faces the same
     and disambiguates the same way (``edit_mesh`` / ``mesh_display`` / ``mesh_tools`` vs the bare
-    ``mesh``). Every id is checked against a live Blender by ``test/blender/blender_menus_check.py``.
+    ``mesh``). Every id is checked against a live Blender by ``tests/blender/blender_menus_check.py``.
     """
 
     # node name -> Blender menu idname (fixed). Select is mode-adaptive -> SELECT_BY_MODE.

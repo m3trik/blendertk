@@ -297,7 +297,7 @@ class QtRuntime:
         ``processEvents -> DispatchMessage -> GHOST wndproc -> wglSwapBuffers -> nested dispatch ->
         WM_TIMER -> pump`` several layers deep until the innermost dispatch never returns. Every bpy
         timer then stops forever while the window still answers ``WM_NULL``, so the OS never even
-        flags Not Responding. Deterministic repros: ``test/blender/console_frame_resize_check.py``
+        flags Not Responding. Deterministic repros: ``tests/blender/console_frame_resize_check.py``
         (snap legs) and ``console_dpi_drag_check.py`` (cross-DPI drag); a WM_TIMER can arrive inside
         the nest with ``GUI_INMOVESIZE`` reading False and any cooldown already starved out, so no
         gate on ``processEvents`` closes the hole — not dispatching native messages at all does.

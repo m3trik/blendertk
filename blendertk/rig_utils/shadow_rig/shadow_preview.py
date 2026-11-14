@@ -38,7 +38,7 @@ or off; only the plane's viewport visibility is borrowed, and the
 **Never headless.** ``--background`` has no GPU backend
 (``SystemError: GPU functions for drawing are not available``), so the
 overlay cannot be compiled or drawn in the test runner; ``enable`` reports
-that as a refusal, and the windowed ``test/shadow_preview_gui_check.py`` is
+that as a refusal, and the windowed ``tests/shadow_preview_gui_check.py`` is
 the only place the shader is proven.
 """
 

@@ -238,6 +238,7 @@ class UsdUtils(_UsdUtilsInternal):
         selection_only=True,
         frame_range=None,
         include_hidden=True,
+        single_root=False,
         **usd_opts,
     ):
         """Export to a USD file — the counterpart of mayatk's ``UsdUtils.export``.
@@ -271,6 +272,18 @@ class UsdUtils(_UsdUtilsInternal):
                 is the exporter's own behavior: hidden objects are left out.
                 Object flags only: an object hidden through its COLLECTION
                 (excluded or hidden in the view layer) is not revealed.
+            single_root: ``True`` writes everything under ONE root prim named
+                after the file (:meth:`sanitize_prim_name`), the layer's default
+                prim, so a stage that references the file receives all of it. A
+                reference takes the default prim alone, and the flat layout
+                (``root_prim_path=""``: each root object at the top, every
+                material in a root ``/_materials`` scope) lost objects and all
+                materials through one (measured 2026-11-13: 2 of 3 meshes, none
+                bound). It is the exporter's own ``root_prim_path``, set here so
+                it wins over the flat one the hand-off sets carry. For a
+                deliverable; a bridge payload keeps its flat layout. Mirror of
+                mayatk's, which has no such option that keeps its sampled export
+                and moves the roots afterwards (``UsdUtils.single_root``).
             **usd_opts: overrides merged over the defaults, forwarded to
                 ``bpy.ops.wm.usd_export`` (unknown-to-this-Blender names are
                 dropped with a log line).
@@ -307,6 +320,7 @@ class UsdUtils(_UsdUtilsInternal):
                     selection_only=selection_only,
                     frame_range=frame_range,
                     include_hidden=include_hidden,
+                    single_root=single_root,  # the scratch layer bears the package's stem
                     **usd_opts,
                 )
                 return ptk.UsdzPackager.from_layer(layer, filepath)
@@ -314,6 +328,9 @@ class UsdUtils(_UsdUtilsInternal):
         opts = dict(_EXPORT_DEFAULTS)
         opts["selected_objects_only"] = selection_only
         opts.update(usd_opts)
+        if single_root:
+            stem = os.path.splitext(os.path.basename(filepath))[0]
+            opts["root_prim_path"] = "/" + UsdUtils.sanitize_prim_name(stem)
         # Blender 5.1 drops an animated object's Mesh when merge_parent_xform and
         # export_animation are both on (see fold_single_mesh_xforms): an animated
         # export runs unmerged and is folded back to the merged shape afterwards.
@@ -1313,7 +1330,7 @@ class UsdUtils(_UsdUtilsInternal):
 
         layer = Sdf.Layer.Find(str(usd_path))
         if layer is not None:
-            layer.Reload()
+            layer.Reload(True)  # forced: an unforced reload trusts the file's time stamp
         else:
             layer = Sdf.Layer.FindOrOpen(str(usd_path))
         if layer is None:

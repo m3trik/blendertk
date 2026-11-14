@@ -1,0 +1,152 @@
+"""blendertk ImageToPlane (btk.ImageToPlane) headless test.
+Run: blender --background --factory-startup --python blendertk/tests/test_image_to_plane.py
+
+Writes a couple of real images to a temp dir, then exercises the engine (aspect-sized plane, image
+wired into a Principled material, alpha detection, grouping, remove cleanup, the selected result)
+and the affix resolution the shared panel (tentacle's ``slots/tools/image_to_plane.py``) relies on.
+"""
+import sys, os, tempfile, traceback
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(HERE)
+MONO = os.path.dirname(REPO)
+for p in (REPO, os.path.join(MONO, "pythontk")):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+lines = []
+def check(name, cond, detail=""):
+    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}")
+
+
+try:
+    import bpy
+    import pythontk as ptk
+    from blendertk.mat_utils.image_to_plane._image_to_plane import ImageToPlane
+
+    tmp = tempfile.mkdtemp(prefix="itp_test_")
+
+    def write_png(name, w, h, alpha=True):
+        """Write a real RGBA/RGB image file and return its path."""
+        path = os.path.join(tmp, name)
+        img = bpy.data.images.new(name, width=w, height=h, alpha=alpha)
+        img.filepath_raw = path
+        img.file_format = "PNG"
+        img.save()
+        bpy.data.images.remove(img)  # drop the authoring copy; engine reloads from disk
+        return path
+
+    def reset():
+        bpy.ops.object.select_all(action="DESELECT")
+        for o in list(bpy.data.objects):
+            bpy.data.objects.remove(o, do_unlink=True)
+
+    wide = write_png("wide.png", 4, 2, alpha=True)   # aspect 2.0, RGBA
+    tall = write_png("tall.png", 2, 4, alpha=True)    # aspect 0.5, RGBA
+
+    # ---- engine: one plane per image, sized to aspect, with an image-wired material -----------
+    reset()
+    results = ImageToPlane.create([wide], plane_height=10.0)
+    check("create returns one plane keyed by stem", set(results) == {"wide"}, str(list(results)))
+    plane = results["wide"]
+    xs = [v.co.x for v in plane.data.vertices]
+    zs = [v.co.z for v in plane.data.vertices]
+    width = round(max(xs) - min(xs), 4)
+    height = round(max(zs) - min(zs), 4)
+    check("plane height matches request", height == 10.0, f"h={height}")
+    check("plane width = height × aspect (2.0)", width == 20.0, f"w={width}")
+    check("plane has a material", len(plane.data.materials) == 1)
+    mat = plane.data.materials[0]
+    img_nodes = [n for n in mat.node_tree.nodes if n.type == "TEX_IMAGE"]
+    check("material has an image-texture node", len(img_nodes) == 1)
+    # Compare by socket/node TYPE, not `is` — bpy hands back fresh Python wrappers per access, so
+    # node identity (`is`) is unreliable.
+    base_linked = any(
+        l.from_node.type == "TEX_IMAGE" and l.to_socket.name == "Base Color"
+        for l in mat.node_tree.links
+    )
+    alpha_linked = any(
+        l.from_node.type == "TEX_IMAGE" and l.to_socket.name == "Alpha"
+        for l in mat.node_tree.links
+    )
+    check("image color → Base Color", base_linked)
+    check("RGBA image → Alpha linked", alpha_linked)
+    check("material named with the _MAT suffix", mat.name.startswith("wide_MAT"), mat.name)
+    bsdf = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    check("default roughness is 0", bsdf is not None and bsdf.inputs["Roughness"].default_value == 0.0,
+          "" if bsdf is None else str(bsdf.inputs["Roughness"].default_value))
+
+    # ---- explicit roughness is honored --------------------------------------------------------
+    reset()
+    mat2 = ImageToPlane.create([wide], roughness=0.5)["wide"].data.materials[0]
+    bsdf2 = next((n for n in mat2.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    check("custom roughness applied", bsdf2 is not None and bsdf2.inputs["Roughness"].default_value == 0.5,
+          "" if bsdf2 is None else str(bsdf2.inputs["Roughness"].default_value))
+
+    # ---- aspect for a tall image (0.5) --------------------------------------------------------
+    reset()
+    plane = ImageToPlane.create([tall], plane_height=10.0)["tall"]
+    xs = [v.co.x for v in plane.data.vertices]
+    width = round(max(xs) - min(xs), 4)
+    check("tall image → width = height × 0.5 = 5", width == 5.0, f"w={width}")
+
+    # ---- prefix naming + grouping under an Empty ----------------------------------------------
+    reset()
+    results = ImageToPlane.create([wide, tall], prefix="MAT_", suffix="", group=True)
+    check("two planes created", {"wide", "tall"} <= set(results))
+    check("group Empty created", "__group__" in results and results["__group__"].type == "EMPTY")
+    grp = results["__group__"]
+    check("planes parented under the group", all(
+        results[s].parent is grp for s in ("wide", "tall")
+    ))
+    check("prefix applied to material name",
+          results["wide"].data.materials[0].name.startswith("MAT_wide"),
+          results["wide"].data.materials[0].name)
+
+    # ---- missing path is skipped, not fatal ---------------------------------------------------
+    reset()
+    results = ImageToPlane.create([os.path.join(tmp, "nope.png"), wide])
+    check("missing image skipped, valid one still created", set(results) == {"wide"}, str(list(results)))
+
+    # ---- remove: deletes planes + orphaned material/image -------------------------------------
+    reset()
+    plane = ImageToPlane.create([wide])["wide"]
+    mat_name = plane.data.materials[0].name
+    n = ImageToPlane.remove([plane])
+    check("remove returns the count", n == 1, f"n={n}")
+    check("plane object gone", "wide" not in bpy.data.objects)
+    check("orphaned material cleaned up", mat_name not in bpy.data.materials)
+
+    # ---- affix resolution: the slot delegates to pythontk's split_affix primitive -------------
+    # (the Qt option-box wiring itself is covered by uitk's test_affix_option; here we assert the
+    # library behaviour the slot relies on, so this stays runnable in the no-Qt Blender harness).
+    check("affix '_MAT' → suffix", ptk.StrUtils.split_affix("_MAT", mode="auto", default="suffix") == ("", "_MAT"))
+    check("affix 'MAT_' → prefix", ptk.StrUtils.split_affix("MAT_", mode="auto", default="suffix") == ("MAT_", ""))
+    check("affix empty → no split", ptk.StrUtils.split_affix("", mode="auto", default="suffix") == ("", ""))
+
+    # ---- the shared panel's contract: material types, the selected result, undo ------------
+    check("MAT_TYPES lists Blender's one material type",
+          ImageToPlane.MAT_TYPES == (("Principled BSDF", "standard"),), str(ImageToPlane.MAT_TYPES))
+
+    def selected():
+        return sorted(o.name for o in bpy.context.view_layer.objects if o.select_get())
+
+    reset()
+    results = ImageToPlane.create([wide, tall])
+    check("create leaves the planes selected", selected() == ["tall", "wide"], str(selected()))
+    check("create makes a plane active",
+          bpy.context.view_layer.objects.active in (results["wide"], results["tall"]))
+    reset()
+    results = ImageToPlane.create([wide, tall], group=True)
+    check("grouped create leaves the group alone selected",
+          selected() == [results["__group__"].name], str(selected()))
+    check("create and remove are one undo step each (undoable wrappers)",
+          hasattr(ImageToPlane.create, "__wrapped__") and hasattr(ImageToPlane.remove, "__wrapped__"))
+
+except Exception:
+    traceback.print_exc()
+    lines.append("FAIL unhandled exception")
+
+print("\n".join(lines))
+ok = all(l.startswith("OK") for l in lines) and lines
+print(f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({sum(1 for l in lines if l.startswith('OK'))}/{len(lines)})")
