@@ -44,6 +44,64 @@ try:
 
     from blendertk.uv_utils.rizom_bridge._rizom_bridge import RizomUVBridge, _SCRIPT_DIR
 
+    # ---- review 2026-11-14: failures that say what to do -------------------------
+    import logging
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    import pythontk as ptk
+
+    def crash_message(code):
+        """What a run says when RizomUV exits *code* without output."""
+        bridge = RizomUVBridge(rizom_path="not-used.exe")
+        fbx = Path(tempfile.mkdtemp(prefix="rz_crash_")) / "crash.fbx"
+        fbx.write_bytes(b"pre-run FBX")
+        bridge.export_path = str(fbx)
+        bridge.script_path = "ZomPack({})"
+        ended = subprocess.CompletedProcess(args=["x"], returncode=code, stdout="", stderr="")
+        real = ptk.AppLauncher.run
+        ptk.AppLauncher.run = staticmethod(lambda *a, **k: ended)
+        try:
+            bridge._execute_uv_script()
+        except RuntimeError as error:
+            return str(error)
+        finally:
+            ptk.AppLauncher.run = real
+        return ""
+
+    crashed = crash_message(3221225727)
+    check("crash: the code reads as Windows prints it", "0xC00000FF" in crashed and "3221225727" not in crashed, crashed[:120])
+    check("crash: its known causes are named", "collapsed onto one point" in crashed)
+    check("crash: a plain failure is not called one", "Known causes" not in crash_message(1))
+
+    tokens = RizomUVBridge(rizom_path=r"C:/Program Files/Rizom Lab/RizomUV 2022.2/Rizomuv_VS.exe")
+    tokens.export_path = "C:/tmp/x.fbx"
+    try:
+        tokens._construct_full_script("ZomUnfold({Iterations=__ITERATION__})")
+        check("tokens: one nothing provides is refused", False)
+    except ValueError as error:
+        check("tokens: one nothing provides is refused", "__ITERATION__" in str(error) and "__ITERATIONS__" in str(error))
+    check("tokens: a comment may name one",
+          "ZomUnfold" in tokens._construct_full_script("-- see __NOT_A_SETTING__\nZomUnfold({Iterations=__ITERATIONS__})"))
+
+    class _Warned(logging.Handler):
+        def __init__(self):
+            super().__init__(level=logging.WARNING)
+            self.messages = []
+
+        def emit(self, record):
+            self.messages.append(record.getMessage())
+
+    RizomUVBridge._VERSION_WARNED.discard("D:/tools/rizomuv.exe")
+    unknown = RizomUVBridge(rizom_path="D:/tools/rizomuv.exe")
+    warned = _Warned()
+    unknown.logger.addHandler(warned)
+    first, second = unknown.rizom_version, unknown.rizom_version
+    check("version: one that cannot be read is said, once",
+          first == second == (0, 0) and len([m for m in warned.messages if "version cannot be read" in m]) == 1,
+          warned.messages)
+
     V2020 = r"C:/Program Files/Rizom Lab/RizomUV VS RS 2020.1/Rizomuv_VS.exe"
     V2022 = r"C:/Program Files/Rizom Lab/RizomUV 2022.2/Rizomuv_VS.exe"
 

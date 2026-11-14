@@ -134,6 +134,19 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
     # the originals (and never collides with a real object name).
     _TEMP_SUFFIX = "__RZTMP"
 
+    #: Exit codes of a RizomUV that died rather than ended, and what is known to cause one
+    #: (mirror of mayatk; ``mayatk/tests/rizom_headless_probe.py`` holds the measurements).
+    _CRASH_CODES = (0xC00000FF, 0xC0000005)
+    _CRASH_HINT = (
+        "RizomUV crashed. Known causes: input UVs collapsed onto one point "
+        "(unwrap or lay them out first, or run an unwrap preset); a field this "
+        "RizomUV version does not have; a Lua syntax error in a custom script."
+    )
+    #: Executables whose version could not be read, already said.
+    _VERSION_WARNED: set = set()
+    #: A placeholder as a script spells one: ``__PACK_SPACING__``.
+    _TOKEN_RE = re.compile(r"__[A-Z][A-Z0-9_]*__")
+
     def __init__(self, rizom_path=None, timeout=600, hidden=True):
         """Initialize the RizomUV bridge.
 
@@ -194,10 +207,15 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
             self.logger.debug("rizom_version: no executable resolved yet -> (0, 0).")
             return (0, 0)
         version = _RizomUVBridgeInternal._parse_rizom_version(path)
-        if version == (0, 0):
-            self.logger.debug(
-                f"rizom_version: could not parse version from {path!r}; "
-                f"gating all version-flagged params off -> (0, 0)."
+        if version == (0, 0) and path not in self._VERSION_WARNED:
+            # Once per executable: every gated knob is then off and the
+            # presets needing a newer RizomUV are hidden, which reads as the
+            # panel missing features unless it says why.
+            self._VERSION_WARNED.add(path)
+            self.logger.warning(
+                f"RizomUV's version cannot be read from {path!r} (no 'RizomUV <year>.<n>' "
+                "folder in it): it is treated as the oldest, so newer presets and "
+                "settings are off."
             )
         return version
 
@@ -513,6 +531,8 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
 
         self._params = params or {}
 
+        landed = {"transfer": False, "count": 0}
+
         def round_trip():
             subset_tag = self._export_objects(originals, moving)
             if subset_tag:
@@ -521,23 +541,33 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
                 self._params[token] = f'{{"{subset_tag}"}}'
             self._execute_uv_script()
             imported = self._import_objects()
-            self._transfer_uvs_and_cleanup(imported, originals)
+            landed["transfer"] = True
+            landed["count"] = self._transfer_uvs_and_cleanup(
+                imported, originals, None if not moving else set(moving)
+            )
 
-        with CoreUtils.undo_chunk(f"RizomUV: {preset or 'script'}"):
-            # Object Mode for the whole trip: from Edit Mode the export's selection operators
-            # poll-failed (measured: the run raised and nothing moved), and a UV write into a
-            # mesh in Edit Mode is overwritten by its edit mesh on the way out.
-            if any(obj.mode == "EDIT" for obj in originals):
-                CoreUtils._object_mode(round_trip)()
-            else:
-                round_trip()
+        with CoreUtils.undo_chunk(f"RizomUV: {preset or 'script'}") as chunk:
+            try:
+                # Object Mode for the whole trip: from Edit Mode the export's selection operators
+                # poll-failed (measured: the run raised and nothing moved), and a UV write into a
+                # mesh in Edit Mode is overwritten by its edit mesh on the way out.
+                if any(obj.mode == "EDIT" for obj in originals):
+                    CoreUtils._object_mode(round_trip)()
+                else:
+                    round_trip()
+            except BaseException:
+                if not landed["transfer"]:
+                    chunk.cancel()  # nothing of the scene changed: no step to undo
+                raise
 
-        self._announce_handoff(preset or "script", len(originals))
+        self._announce_handoff(preset or "script", landed["count"], len(originals))
 
         # The FBX has been consumed and its UVs are on the originals, so both payloads can go. A
         # raise above skips this on purpose: the scoped policy keeps them so a failure stays
         # debuggable -- the no-save error tells the user to open that very script in RizomUV.
-        self._release_temp_payloads()
+        # A run whose UVs reached nothing keeps them too.
+        if landed["count"]:
+            self._release_temp_payloads()
 
     @staticmethod
     def _check_pack_into(moving, originals) -> None:
@@ -782,9 +812,10 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         """Export unique-suffixed *copies* of *originals* to :attr:`export_path`.
 
         Copies (not the originals) are exported so the FBX carries ``__RZTMP`` names the re-import
-        maps back to originals; the user's objects are never renamed. Each copy is linked into its
-        original's collections (so it's in the export set / view layer), exported, then removed
-        along with its copied mesh data. Populates :attr:`_export_name_map`.
+        maps back to originals; the user's objects are never renamed. Each copy is linked into the
+        scene's own collection, shown and selectable whatever its original is (the exporter drops
+        what it cannot select), exported, then removed along with its copied mesh data. Populates
+        :attr:`_export_name_map`.
 
         With *moving* (see :meth:`_moving_shells`), the faces that may move carry one throwaway
         material on the copies: the FBX writes it per polygon and the preset's ``Materials``
@@ -800,63 +831,70 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         self._export_name_map = {}
         copies = []
         tag = keep = None
-        for i, orig in enumerate(originals):
-            copy = orig.copy()
-            copy.data = (
-                orig.data.copy()
-            )  # independent mesh data so removing it can't touch orig
-            safe = re.sub(r"[^0-9A-Za-z_]", "_", orig.name)
-            copy.name = f"{safe}_{i}{self._TEMP_SUFFIX}"
-            collections = list(orig.users_collection) or [bpy.context.scene.collection]
-            for coll in collections:
-                coll.objects.link(copy)
-            # Key on the name Blender ACTUALLY assigned — link() uniquifies on a stale collision
-            # (a copy left over from a crashed run), so a map keyed on the requested name would
-            # silently skip that object's UV transfer on re-import.
-            self._export_name_map[copy.name] = orig
-            copies.append(copy)
+        try:
+            for i, orig in enumerate(originals):
+                copy = orig.copy()
+                copies.append(copy)  # at once: the finally removes whatever was made
+                copy.data = (
+                    orig.data.copy()
+                )  # independent mesh data so removing it can't touch orig
+                safe = re.sub(r"[^0-9A-Za-z_]", "_", orig.name)
+                copy.name = f"{safe}_{i}{self._TEMP_SUFFIX}"
+                # In the scene's own collection, shown and selectable, whatever the original
+                # is: the exporter drops what it cannot select, so a layout member the person
+                # hid (or whose collection is excluded) never reached RizomUV -- its shells
+                # were no obstacle, and the new ones were packed over them (mayatk exports
+                # hidden meshes too). The original's own flags are never touched.
+                bpy.context.scene.collection.objects.link(copy)
+                copy.hide_viewport = copy.hide_select = False
+                with CoreUtils.window_context_override():  # the layer the exporter selects in
+                    copy.hide_set(False)
+                self._keep_active_uv_layer(copy.data)
+                # Key on the name Blender ACTUALLY assigned — it uniquifies on a stale collision
+                # (a copy left over from a crashed run), so a map keyed on the requested name would
+                # silently skip that object's UV transfer on re-import.
+                self._export_name_map[copy.name] = orig
 
-        if not copies:
-            raise RuntimeError("Failed to create any export copies.")
+            if not copies:
+                raise RuntimeError("Failed to create any export copies.")
 
-        if moving:
-            tag = bpy.data.materials.new(f"rizomSubset{self._TEMP_SUFFIX}")
-            for copy in copies:
-                faces = moving.get(self._export_name_map[copy.name].data, set())
-                if faces is not None and not faces:
-                    continue  # fixed
-                # The copy owns its mesh data (copied above), so the slots and the per-face
-                # material index never reach the original. A face that stays must name a REAL
-                # material: the FBX exporter drops an empty slot and renumbers the rest, so a
-                # slotless cube's fixed faces came back carrying the tag (measured).
-                if faces is not None:
-                    slots = copy.data.materials
-                    for i, mat in enumerate(list(slots)):
-                        if mat is None:
+            if moving:
+                tag = bpy.data.materials.new(f"rizomSubset{self._TEMP_SUFFIX}")
+                for copy in copies:
+                    faces = moving.get(self._export_name_map[copy.name].data, set())
+                    if faces is not None and not faces:
+                        continue  # fixed
+                    # The copy owns its mesh data (copied above), so the slots and the per-face
+                    # material index never reach the original. A face that stays must name a REAL
+                    # material: the FBX exporter drops an empty slot and renumbers the rest, so a
+                    # slotless cube's fixed faces came back carrying the tag (measured).
+                    if faces is not None:
+                        slots = copy.data.materials
+                        for i, mat in enumerate(list(slots)):
+                            if mat is None:
+                                keep = keep or bpy.data.materials.new(
+                                    f"rizomFixed{self._TEMP_SUFFIX}"
+                                )
+                                slots[i] = keep
+                        if not len(slots):
                             keep = keep or bpy.data.materials.new(
                                 f"rizomFixed{self._TEMP_SUFFIX}"
                             )
-                            slots[i] = keep
-                    if not len(slots):
-                        keep = keep or bpy.data.materials.new(
-                            f"rizomFixed{self._TEMP_SUFFIX}"
-                        )
-                        slots.append(keep)
-                copy.data.materials.append(tag)
-                index = len(copy.data.materials) - 1
-                polygons = copy.data.polygons
-                indices = [0] * len(polygons)
-                polygons.foreach_get("material_index", indices)
-                for face in range(len(polygons)) if faces is None else faces:
-                    indices[face] = index
-                polygons.foreach_set("material_index", indices)
+                            slots.append(keep)
+                    copy.data.materials.append(tag)
+                    index = len(copy.data.materials) - 1
+                    polygons = copy.data.polygons
+                    indices = [0] * len(polygons)
+                    polygons.foreach_get("material_index", indices)
+                    for face in range(len(polygons)) if faces is None else faces:
+                        indices[face] = index
+                    polygons.foreach_set("material_index", indices)
 
-        Path(self.export_path).parent.mkdir(parents=True, exist_ok=True)
-        self.logger.info(
-            f"Exporting {len(copies)} object(s) to "
-            f'<a href="action://open?path={self.export_path}">{self.export_path}</a>'
-        )
-        try:
+            Path(self.export_path).parent.mkdir(parents=True, exist_ok=True)
+            self.logger.info(
+                f"Exporting {len(copies)} object(s) to "
+                f'<a href="action://open?path={self.export_path}">{self.export_path}</a>'
+            )
             # use_mesh_modifiers=False: round-trip the BASE topology, not the modifier-evaluated
             # mesh. UVs are authored on the base cage; exporting an evaluated Subsurf/Mirror result
             # would re-import a denser mesh whose loop count no longer matches the original, forcing
@@ -867,6 +905,7 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
                 objects=copies,
                 selection_only=True,
                 use_mesh_modifiers=False,
+                strict=True,  # a copy the exporter would drop is an error, never a thinner FBX
             )
             self.logger.debug("FBX export completed successfully")
             # Read before the finally removes the datablock.
@@ -890,6 +929,25 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
                 if mat is not None and mat.users == 0:
                     bpy.data.materials.remove(mat)
         return tag_name
+
+    @staticmethod
+    def _keep_active_uv_layer(mesh) -> None:
+        """Leave *mesh* (an export copy's own data) its ACTIVE UV layer alone.
+
+        RizomUV works on the first UV set of each mesh it loads, and the transfer back writes
+        the original's active layer: with a second layer active, the FIRST layer's result was
+        written over the layer being worked on (measured: max UV error 0.82). The copy is
+        throwaway, so every other layer is dropped -- what RizomUV edits is what the artist
+        is looking at, and the re-import's only layer is the one the transfer reads. Mirror
+        of mayatk's ``_keep_current_uv_set``.
+        """
+        layers = mesh.uv_layers
+        active = layers.active
+        if active is None or len(layers) < 2:
+            return
+        keep = active.name
+        for name in [layer.name for layer in layers if layer.name != keep]:
+            layers.remove(layers[name])  # by name: a removal invalidates the other wrappers
 
     def _execute_uv_script(self):
         """Wrap the resolved script, run RizomUV headlessly, and verify it rewrote the FBX.
@@ -969,10 +1027,13 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
                 return (s or "")[-n:].rstrip()
 
             stdout_tail, stderr_tail = tail(result.stdout), tail(result.stderr)
+            code = result.returncode & 0xFFFFFFFF
             msg = [
-                f"RizomUV exited with code {result.returncode} "
+                f"RizomUV exited with code 0x{code:08X} "
                 f"(version detected: {self.rizom_version}, script: {self._script_path})."
             ]
+            if code in self._CRASH_CODES:
+                msg.append(self._CRASH_HINT)
             if stdout_tail:
                 msg.append(f"--- stdout (tail) ---\n{stdout_tail}")
             if stderr_tail:
@@ -997,7 +1058,7 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
 
         RizomUV writes nothing to stdout/stderr in ``-cfi`` mode, so there is no Lua traceback to
         enable -- the script itself is the only evidence. The first thing worth ruling out is a
-        mid-run overwrite of that script (see :meth:`_process_tag`), so compare what's on disk
+        mid-run overwrite of that script (see :attr:`_temp_store`), so compare what's on disk
         against what we handed RizomUV instead of guessing.
         """
         # Both rendered OS-native: ``export_path`` is a POSIX string (Rizom's
@@ -1048,19 +1109,30 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         )
         return new_objs
 
-    def _transfer_uvs_and_cleanup(self, imported, originals):
+    def _transfer_uvs_and_cleanup(self, imported, originals, moving=None) -> int:
         """Transfer UVs from *imported* back onto the mapped *originals*, then remove the imports.
 
         Cleanup runs in a ``finally`` so a failed transfer never strands the temporary import
         objects in the scene. Mirror of mayatk's ``_transfer_uvs_and_cleanup``.
+
+        Parameters:
+            imported: The objects the FBX re-import made.
+            originals: The objects the run was asked to process.
+            moving: In a subset pack, the mesh datablocks with shells that may move; the
+                others come back unchanged by design. ``None``: every mesh was meant to move.
+
+        Returns:
+            How many originals received UVs: a pair that could not be mapped or transferred
+            is skipped, so this can be short of what was asked (see :meth:`_announce_handoff`).
         """
         import bpy
 
+        transferred = 0
         try:
             meshes = [o for o in imported if getattr(o, "type", None) == "MESH"]
             if not meshes or not originals:
                 self.logger.warning("No mesh objects to transfer UVs between!")
-                return
+                return 0
 
             pairs = []
             for imp in meshes:
@@ -1074,17 +1146,26 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
 
             if not pairs:
                 self.logger.warning("No valid mapped object pairs for UV transfer.")
-                return
+                return 0
 
             self.logger.info(f"Transferring UVs to {len(pairs)} object(s).")
+            before = {
+                dst: self._uv_fingerprint(dst)
+                for _, dst in pairs
+                if moving is None or dst.data in moving
+            }
             for src, dst in pairs:
                 try:
-                    self._transfer_uv_pair(src, dst)
+                    if not self._transfer_uv_pair(src, dst):
+                        continue  # nothing landed (said by the wrapper)
+                    transferred += 1
                     self.logger.debug(f"UV transfer success: {src.name} -> {dst.name}")
                 except Exception as error:  # noqa: BLE001
                     self.logger.error(
                         f"UV transfer failed for {src.name} -> {dst.name}: {error}"
                     )
+            self._warn_unchanged(before)
+            return transferred
         finally:
             # Remove EVERY imported object (not just the mapped meshes) + its orphaned mesh data.
             for imp in imported:
@@ -1101,6 +1182,29 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
                         pass
             self._purge_import_orphans()
             self.logger.debug("Cleanup completed.")
+
+    @staticmethod
+    def _uv_fingerprint(obj):
+        """Hash of every coordinate of *obj*'s active UV layer, or None when it has none."""
+        layer = obj.data.uv_layers.active
+        if layer is None:
+            return None
+        flat = [0.0] * (2 * len(layer.data))
+        layer.data.foreach_get("uv", flat)
+        return hash(tuple(flat))
+
+    def _warn_unchanged(self, before) -> None:
+        """Name the objects whose UVs came back exactly as they left: RizomUV's result did
+        not reach them (mirror of mayatk's)."""
+        unchanged = [obj.name for obj, digest in before.items() if self._uv_fingerprint(obj) == digest]
+        if not unchanged:
+            return
+        listed = ", ".join(unchanged[:5]) + (f", +{len(unchanged) - 5} more" if len(unchanged) > 5 else "")
+        self.logger.warning(
+            f"UVs came back UNCHANGED for {len(unchanged)} of {len(before)} object(s): {listed}. "
+            "RizomUV's result did not reach them -- see the errors above, and re-send them alone "
+            "to see the per-object failure."
+        )
 
     def _purge_import_orphans(self):
         """Remove the material/image datablocks the FBX import created that are now unused.
@@ -1154,7 +1258,9 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
 
         Delegates to :meth:`blendertk.UvUtils.transfer_uvs`, which owns the
         exact-copy / spatial-fallback pair logic shared with the auto-unwrap
-        round-trip; this wrapper only adds the bridge's logging.
+        round-trip; this wrapper only adds the bridge's logging. True when UVs
+        landed: the count is what ``transfer_uvs`` reports doing (mirror of
+        mayatk's ``len(done)``).
         """
         from blendertk.uv_utils._uv_utils import UvUtils
 
@@ -1162,14 +1268,14 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
             self.logger.warning(
                 f"{src.name} has no active UV layer; nothing to transfer."
             )
-            return
+            return False
         src_loops, dst_loops = len(src.data.loops), len(dst.data.loops)
         if src_loops != dst_loops:
             self.logger.warning(
                 f"Loop-count mismatch ({src_loops} vs {dst_loops}) for "
                 f"{src.name} -> {dst.name}; falling back to spatial data_transfer."
             )
-        UvUtils.transfer_uvs(src, dst, match_by_similarity=False)
+        return bool(UvUtils.transfer_uvs(src, dst, match_by_similarity=False))
 
     # ------------------------------------------------------------------
     # script resolution / construction (DCC-agnostic — mirror of mayatk)
@@ -1223,6 +1329,7 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         # User-script substitution first, so its placeholders see the resolved values before the
         # wrapper inlines the (already-substituted) body.
         user_script = ptk.StrUtils.replace_delimited(user_script, param_context)
+        self._refuse_unresolved_tokens(user_script, param_context)
 
         if "ZomLoad" in user_script and "ZomSave" in user_script:
             self.logger.debug("User script contains ZomLoad/ZomSave; using as-is.")
@@ -1248,6 +1355,25 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         self.logger.debug(f"Constructed full script:\n{full_script}")
         return full_script
 
+    @classmethod
+    def _refuse_unresolved_tokens(cls, script: str, known) -> None:
+        """Raise when *script* still holds a ``__TOKEN__`` after substitution (mirror of mayatk).
+
+        Lua reads one as a global nobody set: nil. A field given it silently vanishes, so a
+        misspelt token in a custom script ran with that setting dropped and said nothing.
+        Comment lines are not code and may name tokens.
+
+        Raises:
+            ValueError: naming the tokens and the ones that exist.
+        """
+        code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("--"))
+        unknown = sorted(set(cls._TOKEN_RE.findall(code)))
+        if unknown:
+            raise ValueError(
+                f"The script uses {', '.join(unknown)}, which no setting provides "
+                f"(RizomUV would read each as nil). Known: {', '.join(f'__{k}__' for k in sorted(known))}."
+            )
+
     def _prepare_script_file(self, script_contents) -> Path:
         """Save the Lua script for RizomUV; store + return its Path (kept a Path for script_path).
 
@@ -1261,6 +1387,12 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         self._script_path = self._lua_path
         return self._lua_path
 
-    def _announce_handoff(self, preset: str, count: int) -> None:
-        """Log the round-trip success summary (parallel to the send announce)."""
-        self.logger.info(f"RizomUV '{preset}' applied to {count} object(s).")
+    def _announce_handoff(self, preset: str, transferred: int, requested: int) -> None:
+        """Log the round trip's summary: what LANDED, not what was asked for (mirror of mayatk)."""
+        if transferred < requested:
+            self.logger.warning(
+                f"RizomUV '{preset}': UVs came back for {transferred} of "
+                f"{requested} object(s) -- see the errors above for the rest."
+            )
+            return
+        self.logger.info(f"RizomUV '{preset}' applied to {transferred} object(s).")
