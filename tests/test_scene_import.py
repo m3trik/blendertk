@@ -1118,7 +1118,7 @@ try:
 
     # ---- stepped keys: a Maya hold arrives CONSTANT (2026-10-12) --------------
     # Bug: Blender's FBX importer makes every key LINEAR, so a Maya stepped key
-    # (SOL_REPLACE_ASSEMBLY's SCREWDRIVER: steps at 12, holds to 731) arrived as
+    # (a production scene's SCREWDRIVER: steps at 12, holds to 731) arrived as
     # a ramp to the next key, and the reduction refit it as a bezier.  The
     # conversion now carries the steps (``stepped_keys``) and the import makes
     # those keys CONSTANT before the reduction -- a baked curve, which holds
@@ -2171,10 +2171,10 @@ try:
         MayaSceneImport.bake_source(_legacy) == "C:/proj/a.ma",
     )
     # No project at all: refuse rather than write a bake to temp.
-    from blendertk.env_utils._env_utils import EnvUtils as _EnvBake
+    from blendertk.node_utils.data_nodes import DataNodes as _DNBake
 
-    _orig_spr = _EnvBake.scene_project_root
-    _EnvBake.scene_project_root = staticmethod(lambda: None)
+    _orig_spr = _DNBake.__dict__["scene_project_root"]
+    _DNBake.scene_project_root = staticmethod(lambda: None)
     _bake_cap.clear()
     try:
         BakeCapture().bake_scene(_key_src)
@@ -2185,7 +2185,7 @@ try:
             "script" not in _bake_cap,
         )
     finally:
-        _EnvBake.scene_project_root = _orig_spr
+        _DNBake.scene_project_root = _orig_spr
     # rig_mode applies to BOTH routes (schema 15.1): the same helper surfaces it
     # into the cache key and render context from import_scene AND bake_scene,
     # and the old FBX-only gating of the alias is gone.
@@ -4627,7 +4627,7 @@ try:
     # its pivot), and every light's ground line orange. Maya opens a scene with
     # nothing selected. A real child bake of a parented pair, read back by append
     # (which keeps the saved bases' select / active state).
-    # Production (2026-10-12, SOL_REPLACE_ASSEMBLY): the import removed 80 rig
+    # Production (2026-10-12, a production scene): the import removed 80 rig
     # objects through ``bpy.data.objects.remove``, which leaves each view layer a
     # base with no object until it resyncs -- and a ``view_layer.objects`` walk does
     # not resync, so the selection clear met ``None`` and no .blend was saved. The

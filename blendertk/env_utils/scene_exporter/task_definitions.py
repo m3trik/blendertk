@@ -48,6 +48,9 @@ class _TaskDefinitionsMixin:
     _lod_output_options: Dict[str, Any] = ptk.ExportProfile.LOD_OUTPUT_OPTIONS
     _bake_range_options: Dict[str, Any] = ptk.ExportProfile.BAKE_RANGE_OPTIONS
     _optimize_keys_options: Dict[str, Any] = ptk.ExportProfile.OPTIMIZE_KEYS_OPTIONS
+    _hierarchy_check_options: Dict[str, Any] = (
+        ptk.ExportProfile.HIERARCHY_CHECK_OPTIONS
+    )
     _secondary_max_size_options: Dict[str, Any] = (
         ptk.ExportProfile.SECONDARY_MAX_SIZE_OPTIONS
     )
@@ -110,10 +113,13 @@ class _TaskDefinitionsMixin:
                 ),
                 "add": self._scene_unit_options,
             },
+            # The Exclude rows read under their section's title (the panel's
+            # Settings layout), so each names only what it leaves out; the
+            # tooltip titles keep the whole name (mirror of mayatk's).
             "exclude_hdr": {
                 "widget_type": "QCheckBox",
                 "panel": "settings",
-                "setText": "Exclude HDR Environment",
+                "setText": "HDR Environment",
                 "setToolTip": TooltipFormat.fmt(
                     title="Exclude HDR Environment",
                     body="Drop image-based environment lighting from the export "
@@ -136,7 +142,7 @@ class _TaskDefinitionsMixin:
             "drop_rig_apparatus": {
                 "widget_type": "QCheckBox",
                 "panel": "settings",
-                "setText": "Exclude Rig Helpers",
+                "setText": "Rig Helpers",
                 "setToolTip": TooltipFormat.fmt(
                     title="Exclude Rig Helpers",
                     body="Write only the armature bones that deform a mesh: the "
@@ -155,6 +161,29 @@ class _TaskDefinitionsMixin:
                     ],
                 ),
                 "setChecked": True,
+            },
+            # A mode, not a task: ``ExportRun.from_tasks`` pops it and the
+            # publish leaves the audio record out (``ExportRun.excluded_records``;
+            # mirror of mayatk's). Blender's FBX writer adds no audio of its own.
+            "exclude_audio": {
+                "widget_type": "QCheckBox",
+                "panel": "settings",
+                "setText": "Audio",
+                "setToolTip": TooltipFormat.fmt(
+                    title="Exclude Audio",
+                    body="Ship no audio: the deliverable carries none of the "
+                    "scene's sounds, nor the cues that play them.",
+                    notes=[
+                        "Leaves the <b>audio</b> record (each sound strip's cues, "
+                        "clip by clip) off the data_export carrier, and with it "
+                        "the sound files the FBX embeds for those cues: the FBX "
+                        "and the GLB built from it carry none.",
+                        "Blender's FBX writer adds no audio of its own.",
+                        "The scene is not changed: the strips and their record "
+                        "stay for the next export.",
+                    ],
+                ),
+                "setChecked": False,
             },
             # A mode, not a task: ``ExportRun.from_tasks`` pops it and hands it to
             # ``prepare_lods``, armed on every export (mirror of mayatk's).
@@ -724,10 +753,11 @@ class _TaskDefinitionsMixin:
             "ignore_groups": {
                 "widget_type": "QLineEdit",
                 "panel": "settings",
-                "set_row_label": "Ignore",
-                "setPlaceholderText": "Group names to ignore (comma-separated, wildcards ok)",
+                "set_row_label": "Groups",
+                "setPlaceholderText": "Group names to leave out "
+                "(comma-separated, wildcards ok)",
                 "setToolTip": TooltipFormat.fmt(
-                    title="Ignore Groups",
+                    title="Exclude Groups",
                     body="Comma-separated name patterns of top-level objects to "
                     "drop from the export set.",
                     notes=[
@@ -842,17 +872,18 @@ class _TaskDefinitionsMixin:
                 "setChecked": True,
             },
             "check_hierarchy_vs_existing_fbx": {
-                "widget_type": "QCheckBox",
+                "widget_type": "ComboBox",
                 "group": "Hierarchy & Naming",
-                "setText": "Check Hierarchy vs Existing FBX",
+                "set_row_label": "Hierarchy vs Previous",
                 "setToolTip": TooltipFormat.fmt(
                     title="Check Hierarchy vs Existing FBX",
-                    body="Would fail the export when the hierarchy differs from "
-                    "the previous export — nodes that went missing or appeared, "
-                    "the signature of an accidental change.",
+                    body="Would fail the export when the hierarchy changed since "
+                    "the previous export: Strict fails any change; New Nodes "
+                    "Pass fails a node gone, renamed or moved, and lets new "
+                    "ones through.",
                     notes=[_NEEDS_HIERARCHY_MANAGER],
                 ),
-                "setChecked": False,
+                "add": self._hierarchy_check_options,
                 "setEnabled": False,
             },
             "check_hidden_geometry": {

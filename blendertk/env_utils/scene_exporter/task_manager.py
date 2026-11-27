@@ -64,6 +64,10 @@ class TaskManager(
             "no Blender analogue: no transform/shape pair to conform, and "
             "mesh-data names never reach the FBX"
         ),
+        "repair_orig_shapes": (
+            "no Blender analogue: an object holds one mesh, and modifiers keep "
+            "no hidden copy of it beside the object"
+        ),
         "flatten_sheared_chains": (
             "no Blender analogue: an object's local matrix is loc/rot/scale, "
             "so a sheared chain cannot be authored, and every object inherits "

@@ -487,6 +487,51 @@ try:
         got,
     )
 
+    # Exclude Audio (a Settings mode, off by default; mirror of mayatk's
+    # TestAudioClipsRealExport): the FBX carries no audio record and embeds
+    # no sound, the GLB no extras.audio, and the scene keeps its strips and the
+    # record it stored. Added: 2026-11-25
+    from blendertk.node_utils.data_nodes import DataNodes
+
+    _xa_spec = SceneExporter().task_manager.task_definitions["exclude_audio"]
+    check(
+        "Exclude Audio is an off-by-default Settings row named for what it drops",
+        (_xa_spec["panel"], _xa_spec["setText"], _xa_spec["setChecked"])
+        == ("settings", "Audio", False),
+        _xa_spec,
+    )
+    with open(os.path.join(export_dir, "s2.fbx"), "rb") as fh:
+        _xa_kept = fh.read().count(b"RIFF")
+    _xa_stored = ptk.SceneRecords.AUDIO.read_text(DataNodes)
+    _xa_written = SceneExporter().perform_export(
+        export_dir=export_dir,
+        objects=[box],
+        output_name="s2_no_audio",
+        export_visible=True,
+        tasks={"output_format": "fbx_glb", "export_data_node": True, "exclude_audio": True},
+    )
+    _xa_fbx = os.path.join(export_dir, "s2_no_audio.fbx")
+    with open(_xa_fbx, "rb") as fh:
+        _xa_riff = fh.read().count(b"RIFF") if _xa_written else -1
+    with ptk.MeshConvert.open_glb(os.path.join(export_dir, "s2_no_audio.glb")) as edit:
+        _xa_extras = edit.gltf.get("extras") or {}
+    check(
+        "Exclude Audio: no cue and no sound ship (the default embeds the sound)",
+        _xa_written is True
+        and _xa_kept > 0
+        and _xa_riff == 0
+        and ptk.FbxMedia.record(_xa_fbx, ptk.SceneRecords.AUDIO.key) is None
+        and ptk.SceneRecords.AUDIO.key not in _xa_extras,
+        f"written={_xa_written} kept={_xa_kept} riff={_xa_riff} extras={sorted(_xa_extras)}",
+    )
+    check(
+        "Exclude Audio: the scene keeps its strips and the record it stored",
+        bool(_xa_stored)
+        and ptk.SceneRecords.AUDIO.read_text(DataNodes) == _xa_stored
+        and "hit" in [s.name for s in scene.sequence_editor.strips_all],
+        ptk.SceneRecords.AUDIO.read_text(DataNodes),
+    )
+
     # The same scene under Bake Range "keys": the range task runs LAST, after
     # the records publish, and sets 0-100; the producer reads the range the
     # run predicts (TaskManager._predicted_bake_range). Measured before that

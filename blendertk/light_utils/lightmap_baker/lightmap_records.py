@@ -76,23 +76,8 @@ class LightmapRecords(ptk.LoggingMixin):
     # ``data_export`` channel: a scene-wide JSON manifest of every lighting-only
     # lightmap, regenerated from the per-object markers and ridden into the FBX
     # (informational; the unitytk package's Lightmaps importer reads it and binds
-    # Unity's native slots): the
-    # ``ptk.SceneRecords.LIGHTMAPS`` record. Its key under its old name, retired
-    # here: read the declaration's (``ptk.SceneRecords.LIGHTMAPS.key``).
-    LIGHTMAP_METADATA = ptk.Deprecation.class_attribute(
-        ptk.SceneRecords.LIGHTMAPS.key,
-        "ptk.SceneRecords.LIGHTMAPS.key",
-        remove_in="0.21.0",
-        since="2026-10-24",
-    )
-    #: The record's schema version -- the registry's
-    #: (``ptk.SceneRecords.LIGHTMAPS.version``), retired here.
-    LIGHTMAP_METADATA_VERSION = ptk.Deprecation.class_attribute(
-        ptk.SceneRecords.LIGHTMAPS.version,
-        "ptk.SceneRecords.LIGHTMAPS.version",
-        remove_in="0.21.0",
-        since="2026-10-24",
-    )
+    # Unity's native slots): the ``ptk.SceneRecords.LIGHTMAPS`` record, its key
+    # and version the declaration's.
 
     # ------------------------------------------------------------------
     # Markers
@@ -532,7 +517,9 @@ class LightmapRecords(ptk.LoggingMixin):
                 shade an object.
 
         Returns:
-            ``{name: {"state", "role", "marker"}}`` (see ``ptk.BakeBaseline``).
+            ``{name: {"state", "role", "marker"}}`` (see ``ptk.BakeBaseline``),
+            each object read as the file rests (``XformUtils.at_rest``), as a bake
+            renders it.
         """
         import bpy
 
@@ -541,8 +528,22 @@ class LightmapRecords(ptk.LoggingMixin):
         Role = ptk.BakeBaseline.Role
         markers = {obj.name: info for obj, info in cls._marker_records()}
         excluded = {obj.name for obj in LightmapExcludeSet.meshes()}
-        isolated = {obj.name for obj in LightmapIsolateSet.meshes()}
+        groups = LightmapIsolateSet.groups()
+        isolated = {obj.name for group in groups for obj in group}
+        # An isolated part's carriers render in its pass, so their changes
+        # reach it (``ptk.BakeBaseline.carriers``). Mirror of mayatk's.
+        carriers = {
+            obj.name: [c.name for c in carried]
+            for group, carried in zip(groups, LightmapIsolateSet.carried_by(groups))
+            for obj in group
+            if carried
+        }
         names = list(markers) + sorted((excluded | isolated) - set(markers))
+        # What the animation moves is no part of the room -- mirror of mayatk's.
+        from blendertk.xform_utils._xform_utils import XformUtils
+
+        moving = set(XformUtils.moving(names)) if names else set()
+        names = [n for n in names if n not in moving]
         if objects is not None:
             scoped: set = set()
             for o in ptk.make_iterable(objects):
@@ -554,13 +555,18 @@ class LightmapRecords(ptk.LoggingMixin):
         from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
 
         rendered = LightmapBaker._rendered_collections()
-        # The window's layer, as the bake renders: windowless, the context's
-        # depsgraph is the default layer's and skips what is excluded there.
-        depsgraph = CoreUtils._evaluated_depsgraph()
+        with XformUtils.at_rest():  # as the bake rendered it
+            # The window's layer, as the bake renders: windowless, the context's
+            # depsgraph is the default layer's and skips what is excluded there.
+            depsgraph = CoreUtils._evaluated_depsgraph()
+            states = {
+                name: cls._object_state(obj, rendered, depsgraph)
+                for name, obj in ((n, bpy.data.objects.get(n)) for n in names)
+                if obj is not None
+            }
         scene: Dict[str, Any] = {}
         for name in names:
-            obj = bpy.data.objects.get(name)
-            state = cls._object_state(obj, rendered, depsgraph) if obj else None
+            state = states.get(name)
             if state is None:
                 continue
             info = markers.get(name)
@@ -582,6 +588,8 @@ class LightmapRecords(ptk.LoggingMixin):
                 if info
                 else None,
             }
+            if name in carriers and name not in excluded:
+                scene[name]["carriers"] = carriers[name]
         return scene
 
     @classmethod

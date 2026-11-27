@@ -55,48 +55,15 @@ class _AnimUtilsInternal(object):
 
     @staticmethod
     def _slot_fcurves(action, slot=None):
-        """The fcurves of ``action`` (slot-aware).
-
-        Blender 4.4+ actions are *slotted/layered* — 5.x drops the legacy flat ``action.fcurves``
-        entirely, so keys live in per-slot channelbags (``layers → strips → channelbag(slot)``).
-        The layers are read first: on 4.4-5.0 ``action.fcurves`` survives only as a proxy
-        for the FIRST slot, so read first it handed every slot of a multi-slot action the
-        first slot's curves. The legacy accessor serves an action with no layers (pre-4.4).
-        """
-        layers = getattr(action, "layers", None)
-        if not layers:
-            legacy = getattr(action, "fcurves", None)
-            return list(legacy) if legacy is not None else []
-        out = []
-        for layer in layers:
-            for strip in layer.strips:
-                if slot is not None:
-                    cb = strip.channelbag(slot)
-                    if cb is not None:
-                        out.extend(cb.fcurves)
-                else:
-                    out.extend(fc for cb in strip.channelbags for fc in cb.fcurves)
-        return out
+        """The fcurves of ``action`` (slot-aware): the kernel's reader
+        (``CoreUtils``), which every layer reads an action through."""
+        return CoreUtils._slot_fcurves(action, slot)
 
     @staticmethod
     def _animating(ad):
-        """``(action, slot)`` that animates the ID owning *ad*, or ``(None, None)``.
-
-        A slotted action (Blender 4.4+) animates an ID only through the slot
-        assigned to it. Assigning an action whose slots all belong to other
-        IDs leaves the new holder with NO slot, and Blender does not animate
-        it -- so reading "no slot" as "every channelbag" (what
-        :meth:`_slot_fcurves` does for an action-wide read) reached other
-        IDs' channels: key edits through the holder moved the owner's keys.
-        A legacy action has no slots and animates as before.
-        """
-        action = getattr(ad, "action", None) if ad is not None else None
-        if action is None:
-            return None, None
-        slot = getattr(ad, "action_slot", None)
-        if slot is None and len(getattr(action, "slots", None) or ()):
-            return None, None
-        return action, slot
+        """``(action, slot)`` that animates the ID owning *ad*, or ``(None, None)``:
+        the kernel's (``CoreUtils``), a slotted action through its assigned slot."""
+        return CoreUtils._animating(ad)
 
     @staticmethod
     def _owned_actions(objects):
@@ -689,28 +656,10 @@ class _AnimUtilsInternal(object):
 
         Returns ``True`` when the curve was found and removed, ``False`` when it was
         not there: a caller reporting "did anything change" has to tell those apart,
-        and a bare ``return`` cannot. Layers first, as :meth:`_slot_fcurves` reads
-        them (4.4-5.0's ``action.fcurves`` is a first-slot proxy).
+        and a bare ``return`` cannot. The kernel's remover (``CoreUtils``), beside
+        the reader every layer reads an action through.
         """
-        layers = getattr(action, "layers", None)
-        if not layers:
-            legacy = getattr(action, "fcurves", None)
-            if legacy is None or fc not in list(legacy):
-                return False
-            legacy.remove(fc)
-            return True
-        for layer in layers:
-            for strip in layer.strips:
-                bags = (
-                    [strip.channelbag(slot)]
-                    if slot is not None
-                    else list(strip.channelbags)
-                )
-                for cb in bags:
-                    if cb is not None and fc in list(cb.fcurves):
-                        cb.fcurves.remove(fc)
-                        return True
-        return False
+        return CoreUtils._remove_fcurve(action, slot, fc)
 
     @staticmethod
     def _resolve_prop_container(obj, data_path):

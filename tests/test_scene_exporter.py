@@ -134,6 +134,22 @@ try:
             _raised = True
     check("a preset that will not load raises", _raised)
     check("a preset that will not load closes the run log", not _file_handlers(_exp))
+    # An export writes the file as it rests (AnimUtils.at_rest), whatever frame it was saved on: a production export
+    # ran at frame 1054 and delivered its doors swung open as their rest pose. Mirror of mayatk's TestExportAtRest.
+    _scene = bpy.context.scene
+    _scene.frame_start, _scene.frame_end = 1, 1200
+    _scene.frame_set(1054)
+    _frames = []
+
+    def _at(objects=None, *args, **kwargs):
+        _frames.append(_scene.frame_current)
+        return []
+
+    with _patch.object(_exp, "_initialize_objects", side_effect=_at):
+        _exp.perform_export(export_dir=_abort_dir, objects=[_cube])
+    check("an export runs at the first frame, and the frame is put back", _frames == [1] and _scene.frame_current == 1054,
+          f"{_frames} {_scene.frame_current}")
+    _scene.frame_set(1)
     _exp.close_file_handlers()
     check(
         "no log lands beside the export",
@@ -3195,6 +3211,26 @@ try:
         and _RhPreview.drop_rig_apparatus is True
         and _RhMixin.drop_rig_apparatus is False,
     )
+    # The panel lays these out under one Exclude title, so each row names what
+    # it leaves out alone (mirror of mayatk's). Added: 2026-11-25
+    _xr_defs = SceneExporter().task_manager.task_definitions
+    _xr_labels = {
+        # A line edit's setText is its default text; its label is the row's.
+        _n: _xr_defs[_n].get("set_row_label") or _xr_defs[_n].get("setText")
+        for _n in ("ignore_groups", "exclude_hdr", "drop_rig_apparatus", "exclude_audio")
+    }
+    check(
+        "the Exclude rows name only what they drop",
+        _xr_labels
+        == {
+            "ignore_groups": "Groups",
+            "exclude_hdr": "HDR Environment",
+            "drop_rig_apparatus": "Rig Helpers",
+            "exclude_audio": "Audio",
+        }
+        and "exclude_audio" in ptk.ExportRun.MODE_KEYS,
+        _xr_labels,
+    )
     _rh_preview_fbx = os.path.join(_rh_dir, "preview.fbx")
     _RhPreview()._export_fbx(
         [_rh_mesh, _rh_arm], _rh_preview_fbx, dict(_RhPreview().params_defaults())
@@ -4951,7 +4987,7 @@ try:
     ShotStore.clear_active()
     ShotStore._prefs_dir_override = None
 
-    # ---- ignore_groups match mode: the Ignore row's option-box "Aa" toggle -----------
+    # ---- ignore_groups match mode: the Groups row's option-box "Aa" toggle -----------
     # Insensitive is the default and the behavior the task shipped with, so the
     # first check pins the contract every existing caller relies on. The dict form
     # is how the panel arms the toggle: TaskFactory unpacks a dict value into the
@@ -5021,7 +5057,7 @@ try:
 
     _spec = _tm.task_definitions["ignore_groups"]
     check(
-        "the Ignore row stays a QLineEdit -- the option box hangs off it",
+        "the Groups row stays a QLineEdit -- the option box hangs off it",
         _spec["widget_type"] == "QLineEdit"
         and _spec["value_method"] == "text"
         and _spec["panel"] == "settings",

@@ -46,22 +46,6 @@ try:
     from blendertk.mat_utils.texture_baker import TextureBaker
     from unittest import mock as _mock
 
-    # The old names of the lightmaps record's key: aliases, retired (removed
-    # in 0.21.0). Added: 2026-10-20
-    import warnings as _lm_warnings
-
-    for _lm_owner in (LightmapRecords, LightmapBaker):
-        with _lm_warnings.catch_warnings(record=True) as _lm_caught:
-            _lm_warnings.simplefilter("always")
-            _lm_key = _lm_owner.LIGHTMAP_METADATA
-        check(
-            f"{_lm_owner.__name__}.LIGHTMAP_METADATA: a deprecated alias of "
-            "the lightmaps record's key",
-            _lm_key == ptk.SceneRecords.LIGHTMAPS.key
-            and any("LIGHTMAP_METADATA" in str(w.message) for w in _lm_caught),
-            [str(w.message) for w in _lm_caught],
-        )
-
     # A re-bake sets the maps it superseded aside -- into this machine's
     # Recycle Bin wherever the volume has one. Pinned for the whole script to a
     # volume with none, so every bake here sets its leftovers beside them in
@@ -1425,6 +1409,45 @@ try:
         and min(min(r1 - r0, c1 - c0) for r0, r1, c0, c1 in cells) >= 2,
         f"worst gap {worst}, gutter {low._atlas_gutter()}",
     )
+    # --- a fresh pack re-lays the layers it made to fill the atlas (twin of mayatk's) ---
+    if ptk.UvPack.available():
+        refit_mat = btk.create_mat("standard", name="refit_shared_mat")
+        refit_objs = []
+        for i, (name, size) in enumerate(
+            (("RefitBody", 6.0), ("RefitGray", 2.5), ("RefitRed", 1.55), ("RefitLocker", 0.3))
+        ):
+            bpy.ops.mesh.primitive_cube_add(size=size, location=(0, 80 + i * 10, 0))
+            obj = bpy.context.active_object
+            obj.name = name
+            btk.assign_mat(obj, refit_mat)
+            refit_objs.append(obj)
+        _UvUtils.create_lightmap_uvs(refit_objs, force=True)
+        refit_baker = LightmapBaker(resolution=512)
+        names = [o.name for o in refit_objs]
+
+        def fill(plan):
+            return sum(r[0] * r[1] for _n, r in next(iter(plan.values())))
+
+        fixed_fill = fill(refit_baker.atlas_plan(names))
+        check(
+            "refit: a layer made here is the baker's to re-lay; an unmarked one is not",
+            all(refit_baker._refittable(o) for o in refit_objs)
+            and not refit_baker._refittable(gutter_objs[0]),
+        )
+        planned = refit_baker.atlas_plan(names, refit=True)
+        refit_baker._fit_layouts(planned)
+        after_fill = fill(refit_baker.atlas_plan(names))
+        check(
+            "refit: the re-laid layers' cells fill no less of the atlas",
+            fill(planned) > fixed_fill and after_fill >= fixed_fill - 1e-6,
+            f"fixed {fixed_fill:.3f} planned {fill(planned):.3f} after {after_fill:.3f}",
+        )
+        refit_baker.refit_layouts = False
+        check(
+            "refit: off when asked",
+            refit_baker.atlas_plan(names, refit=True) == refit_baker.atlas_plan(names),
+        )
+
     bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0, -30, 0))
     copy_a = bpy.context.active_object
     copy_a.name = "CopyA"
@@ -2849,6 +2872,22 @@ try:
         LightmapBaker.bake_targets([ex_a, ex_b, ex_c]) == ["ex_a"],
         f"{LightmapBaker.bake_targets([ex_a, ex_b, ex_c])}",
     )
+    # A mesh the animation moves: no map, out of the render and the room (a production bake lightmapped its doors
+    # shut; opened, each showed the cabinet's dark inside). Mirror of mayatk's TestBakeLeavesOutWhatMoves.
+    mv_hinge = bpy.data.objects.new("mv_hinge", None)
+    bpy.context.scene.collection.objects.link(mv_hinge)
+    mv_hinge.keyframe_insert("rotation_euler", index=2, frame=1)
+    mv_hinge.rotation_euler[2] = -1.2
+    mv_hinge.keyframe_insert("rotation_euler", index=2, frame=24)
+    mv_door = _par_cube("mv_door", (72, 0, 0))
+    mv_door.parent = mv_hinge
+    mv_targets = LightmapBaker._targets([ex_a, mv_door])
+    check(
+        "a mesh the animation moves is no bake target, and is said",
+        mv_targets == (["ex_a"], [], ["mv_door"]),
+        f"{mv_targets}",
+    )
+    check("what moves is no room", LightmapBaker._staying({"ex_a", "mv_door"}) == {"ex_a"})
     ex_col = LightmapExcludeSet.collection()
     check(
         "the set is a stamped collection, disabled in viewports and renders",
@@ -4361,6 +4400,59 @@ try:
         iso_passes == [(["iso_cabinet", "iso_door"], ["iso_glass", "iso_lid"])],
         iso_passes,
     )
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+    # --- a part bakes with the part that carries it --------------------------
+    # Mirror of mayatk's (production 2026-11-24: a locker door set in a gray
+    # door read darker than the doors beside it, its pass had no gray door).
+    # The door that carries it stays in its render; it stays out of the door's;
+    # a door beside them is in neither.
+    def _hinged(name, location, parent=None):
+        hinge = bpy.data.objects.new(f"{name}_hinge", None)
+        bpy.context.scene.collection.objects.link(hinge)
+        hinge.parent = parent
+        hinge.location = location
+        for frame, angle in ((1, 0.0), (10, 1.5)):
+            hinge.rotation_euler = (0.0, 0.0, angle)
+            hinge.keyframe_insert("rotation_euler", frame=frame)
+        hinge.rotation_euler = (0.0, 0.0, 0.0)
+        geo = _iso_cube(name, (0, 0, 0), parent=hinge)
+        btk.assign_mat(geo, nest_mat)
+        return geo
+
+    nest_mat = btk.create_mat("standard", name="nest_shared_mat")
+    nest_body = _iso_cube("nest_body", (0, 0, 0))
+    btk.assign_mat(nest_body, nest_mat)
+    nest_gate = _hinged("nest_gate", (2, 0, 0))
+    nest_hatch = _hinged("nest_hatch", (0, 1, 0), parent=nest_gate.parent)
+    nest_other = _hinged("nest_other", (5, 0, 0))
+    LightmapIsolateSet.define([nest_gate, nest_hatch, nest_other])
+    _iso_bake([nest_body, nest_gate, nest_hatch, nest_other])
+    # The bake's own pass planning, handed the parts (a bake's entry leaves out what moves since 2026-11-26).
+    check(
+        "a part bakes with the part that carries it, never the reverse",
+        iso_passes
+        == [
+            (["nest_body"], ["nest_gate", "nest_hatch", "nest_other"]),
+            (["nest_gate"], ["nest_hatch", "nest_other"]),
+            (["nest_hatch"], ["nest_other"]),
+            (["nest_other"], ["nest_gate", "nest_hatch"]),
+        ],
+        iso_passes,
+    )
+    check(
+        "...and a bake's entry leaves them out: they move",
+        LightmapBaker._targets([nest_body, nest_gate, nest_hatch, nest_other])
+        == (["nest_body"], [], ["nest_gate", "nest_hatch", "nest_other"]),
+        LightmapBaker._targets([nest_body, nest_gate, nest_hatch, nest_other]),
+    )
+    nest_scene = LightmapRecords.scene_state()
+    check(
+        "...and no part of the room a re-bake diffs",
+        not {"nest_gate", "nest_hatch", "nest_other"} & set(nest_scene),
+        sorted(nest_scene),
+    )
+    LightmapIsolateSet.clear()
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
     # --- ProbePlacement: where the reflection probe stands -----------------
@@ -6457,6 +6549,104 @@ try:
                 for k in ("baked_at", "cell", "lighting", "packing")
             ),
             {k: (state.get("rcTwin", {}).get(k), state[a][k]) for k in ("cell",)},
+        )
+
+        # A bake renders the file as it rests (mirror of mayatk's): a direct
+        # bake_separated too, the frame put back after; and the lighting it
+        # records -- a keyed lamp's -- is the rest frame's, so a dry run from
+        # any frame reads no lighting change.
+        rc_reset()
+        (rest_crate,) = rc_crates(names=("rcRest",))
+        rest_obj = bpy.data.objects[rest_crate]
+        rest_scene = bpy.context.scene
+        rest_scene.frame_start, rest_scene.frame_end = 1, 20
+        bpy.ops.object.light_add(type="POINT", location=(0.0, 0.0, 4.0))
+        rest_lamp = bpy.context.active_object
+        rest_lamp.data.energy = 100.0
+        rest_lamp.data.keyframe_insert("energy", frame=1)
+        rest_lamp.data.energy = 500.0
+        rest_lamp.data.keyframe_insert("energy", frame=8)
+        rest_scene.frame_set(8)
+        rest_seen = []
+
+        def rest_render(_self, objects=None, **kw):
+            rest_seen.append((bpy.context.scene.frame_current, round(rest_lamp.data.energy, 3)))
+            return rc_render(_self, objects, **kw)
+
+        with _mock.patch.object(TextureBaker, "bake", rest_render):
+            rc_baker().bake_separated([rest_crate], output_dir=rc_out)
+        check(
+            "a direct bake_separated renders the file at rest, and puts the frame back",
+            rest_seen == [(1, 100.0)] and rest_scene.frame_current == 8,
+            (rest_seen, rest_scene.frame_current),
+        )
+        rc_baker().bake([rest_crate], packing="per_object", output_dir=rc_out)
+        rest_lit = []
+        for frame in (8, 1):
+            rest_scene.frame_set(frame)
+            rest_lit.append((rc_report().lighting, rest_scene.frame_current))
+        check(
+            "...and the lighting a bake records is the rest frame's: no frame "
+            "reads a lighting change, and each stays where it was",
+            rest_lit == [((), 8), ((), 1)],
+            rest_lit,
+        )
+
+        # A layer re-laid for a render that never lands goes back to the layer
+        # its map was baked on; one whose map landed keeps its new one (mirror
+        # of mayatk's: an object the bake does not finish keeps its map intact).
+        rc_reset()
+        lost = rc_crates(names=("rcLost0", "rcLost1", "rcLost2"))
+        for lost_name, lost_size in zip(lost, (5.0, 1.5, 0.4)):
+            bpy.data.objects[lost_name].scale = (lost_size,) * 3
+        bpy.context.view_layer.update()
+        _UvUtils.create_lightmap_uvs([bpy.data.objects[n] for n in lost], quiet=True)
+
+        def lost_layer(name):
+            obj = bpy.data.objects[name]
+            layer = obj.data.uv_layers[_UvUtils.find_lightmap_uv_set(obj)]
+            buf = np.empty(len(layer.data) * 2, np.float32)
+            layer.data.foreach_get("uv", buf)
+            return layer, buf
+
+        for lost_name in lost:  # sparse -- shrunk, one face off in the far corner
+            lost_lm, lost_uv = lost_layer(lost_name)
+            lost_uv = lost_uv.reshape(-1, 2) * 0.3
+            lost_uv[list(bpy.data.objects[lost_name].data.polygons[0].loop_indices)] += 0.65
+            lost_lm.data.foreach_set("uv", lost_uv.reshape(-1))
+        lost_before = {n: lost_layer(n)[1] for n in lost}
+        lost_refit = []
+        lost_fit = LightmapBaker._fit_layouts
+
+        def lost_spy(_self, plan, held=None):
+            fitted = lost_fit(_self, plan, held=held)
+            lost_refit.extend(fitted)
+            return fitted
+
+        def first_only(_self, objects=None, **kw):
+            return rc_render(_self, TextureBaker.resolve_meshes(objects)[:1], **kw)
+
+        with (
+            _mock.patch.object(TextureBaker, "bake", first_only),
+            _mock.patch.object(LightmapBaker, "_fit_layouts", lost_spy),
+        ):
+            lost_done = rc_baker()._bake_atlas(lost, output_dir=rc_out)
+        lost_unbaked = [n for n in lost if n not in lost_done.packed]
+        check(
+            "a layer re-laid for a render that never lands is put back; one whose "
+            "map landed keeps its new layer",
+            bool(set(lost_refit) & set(lost_unbaked))
+            and all(np.allclose(lost_layer(n)[1], lost_before[n]) for n in lost_unbaked)
+            and all(
+                not np.allclose(lost_layer(n)[1], lost_before[n])
+                for n in set(lost_refit) - set(lost_unbaked)
+            ),
+            (
+                lost_refit,
+                lost_unbaked,
+                sorted(lost_done.packed),
+                [rc_baker()._refittable(bpy.data.objects[n]) for n in lost],
+            ),
         )
 
         # The Maya bridge's template bakes through whatever blendertk the other

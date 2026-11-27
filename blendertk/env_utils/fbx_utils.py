@@ -1409,8 +1409,8 @@ class _FbxUtilsInternal(object):
             },
         )
         logger.info(
-            f"Split animation into {n} take(s), one per shot, in place of the "
-            "whole timeline: " + ", ".join(name for name, _s, _e in takes)
+            f"Split animation into {n} take(s), the ones the shots hold, in place "
+            "of the whole timeline: " + ", ".join(name for name, _s, _e in takes)
         )
         return n
 
@@ -2199,7 +2199,11 @@ class FbxUtils(_FbxUtilsInternal):
         (``animated``: ``bake_anim``, which Blender's writer defaults on);
         ``None`` when no options are given. A write that ships a record as
         stored (a hand-off) is told which stored copies it must ship none of
-        (``withheld``: the ``"withheld_records"`` hook; mirror of mayatk's)."""
+        (``withheld``: the ``"withheld_records"`` hook; mirror of mayatk's).
+        *omit* names objects under the scope the write leaves out (the Scene
+        Exporter's Most Detailed Only levels), and *excluded* the records it
+        ships none of, by key (its Exclude Audio, ``ExportRun.
+        excluded_records``: ``ptk.ExportContext.excluded``, never produced)."""
         try:
             import bpy
 
@@ -2210,8 +2214,6 @@ class FbxUtils(_FbxUtilsInternal):
             }
         except ImportError:
             source = {"application": "blender"}
-        # *omit*: objects under the scope the write leaves out (the Scene
-        # Exporter's Most Detailed Only levels) -- mirror of mayatk's.
         omit = frozenset(decisions.pop("omit", None) or ())
         if decisions.get("scope") is not None and "nodes" not in decisions:
             decisions["nodes"] = cls._shipped_nodes(decisions["scope"])

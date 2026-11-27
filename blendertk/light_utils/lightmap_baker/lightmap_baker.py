@@ -56,7 +56,8 @@ from blendertk.light_utils._light_utils import LightUtils
 from blendertk.mat_utils.bake_sets import LightmapExcludeSet, LightmapIsolateSet
 from blendertk.light_utils.lightmap_baker.lightmap_records import LightmapRecords
 from blendertk.light_utils.lightmap_baker._probe_placement import ProbePlacement
-from blendertk.uv_utils._uv_utils import UvUtils, LIGHTMAP_UV_SET
+from blendertk.xform_utils._xform_utils import XformUtils
+from blendertk.uv_utils._uv_utils import UvUtils, LIGHTMAP_UV_SET, LIGHTMAP_UV_TAG
 from blendertk.mat_utils.texture_baker import TextureBaker
 
 
@@ -76,6 +77,11 @@ class LightmapBakeResult:
             one that has to leave them out.
         unbaked: Objects the bake was asked for and produced nothing for (a
             cancel, a failed render). They keep any map they already had.
+        moving: Objects left out because the scene's animation moves them
+            (``XformUtils.moving``): a map baked in one pose is wrong in every
+            other (a door baked shut shows the cabinet's dark on its inside
+            once it opens). They are out of the bake's render and the probe's
+            room, the room's probe lights them, and a map one had is dropped.
         retired: Map files the bake superseded and set aside (the Recycle
             Bin, or the ``superseded`` temp store) -- what its objects
             read before, that nothing reads now
@@ -105,6 +111,7 @@ class LightmapBakeResult:
     excluded: List[str] = field(default_factory=list)
     hidden: List[str] = field(default_factory=list)
     unbaked: List[str] = field(default_factory=list)
+    moving: List[str] = field(default_factory=list)
     retired: List[str] = field(default_factory=list)
     refused: Optional[str] = None
     verdict: Optional[str] = None
@@ -244,22 +251,6 @@ class LightmapBaker(ptk.LoggingMixin):
     OUTPUT_SUBDIR: str = "lightmaps"
     LIGHTMAP_INFO_PROP: str = LightmapRecords.LIGHTMAP_INFO_PROP
     LIGHTMAP_INFO_ATTR: str = LightmapRecords.LIGHTMAP_INFO_ATTR  # mayatk's name
-    #: The lightmaps record's key under its old name, retired here: read the
-    #: declaration's (``ptk.SceneRecords.LIGHTMAPS.key``).
-    LIGHTMAP_METADATA = ptk.Deprecation.class_attribute(
-        ptk.SceneRecords.LIGHTMAPS.key,
-        "ptk.SceneRecords.LIGHTMAPS.key",
-        remove_in="0.21.0",
-        since="2026-10-24",
-    )
-    #: The record's schema version -- the registry's
-    #: (``ptk.SceneRecords.LIGHTMAPS.version``), retired here.
-    LIGHTMAP_METADATA_VERSION = ptk.Deprecation.class_attribute(
-        ptk.SceneRecords.LIGHTMAPS.version,
-        "ptk.SceneRecords.LIGHTMAPS.version",
-        remove_in="0.21.0",
-        since="2026-10-24",
-    )
     FOUND_BY_HINT: str = LightmapRecords.FOUND_BY_HINT
     FOUND_BY_SEARCH: str = LightmapRecords.FOUND_BY_SEARCH
 
@@ -534,19 +525,20 @@ class LightmapBaker(ptk.LoggingMixin):
 
         Unlike mayatk's, a HIDDEN mesh is not left out: Arnold renders no hidden
         object, but :meth:`TextureBaker.bake` reveals each object for its own bake,
-        so here a hidden mesh bakes like any other.
+        so here a hidden mesh bakes like any other. A mesh the file's animation
+        moves (``XformUtils.moving``) is left out altogether, as in mayatk.
         """
         return cls._targets(objects)[0]
 
     @classmethod
-    def _targets(cls, objects=None) -> Tuple[List[str], List[str]]:
-        """``(targets, excluded)`` names for *objects*: the one scoping every
+    def _targets(cls, objects=None) -> Tuple[List[str], List[str], List[str]]:
+        """``(targets, excluded, moving)`` names for *objects*: the one scoping every
         bake entry runs -- :meth:`TextureBaker.resolve_meshes` (sets, groups,
-        anything not a mesh), minus the Exclude set (mirror of mayatk's, which
-        also partitions out the hidden)."""
+        anything not a mesh), minus the Exclude set and what the animation moves
+        (mirror of mayatk's, which also partitions out the hidden)."""
         meshes = TextureBaker.resolve_meshes(objects, descendants=True)
         if not meshes:
-            return [], []
+            return [], [], []
         in_set = set(LightmapExcludeSet.meshes())
         excluded = [obj.name for obj in meshes if obj in in_set]
         if excluded:
@@ -557,7 +549,47 @@ class LightmapBaker(ptk.LoggingMixin):
                 LightmapExcludeSet.SET_NAME,
                 ", ".join(excluded[:8]) + (" ..." if len(excluded) > 8 else ""),
             )
-        return [obj.name for obj in meshes if obj not in in_set], excluded
+        rest = [obj.name for obj in meshes if obj not in in_set]
+        moving = cls._moving(rest)
+        if moving:
+            cls.logger.info(
+                "Leaving out %d mesh(es) the animation moves: a map baked in one "
+                "pose is wrong in every other, so they are out of the bake and its "
+                "render, and the room's probe lights them: %s",
+                len(moving),
+                ", ".join(moving[:8]) + (" ..." if len(moving) > 8 else ""),
+            )
+        return [n for n in rest if n not in set(moving)], excluded, moving
+
+    @staticmethod
+    def _moving(names) -> List[str]:
+        """The names among *names* the animation moves (``XformUtils.moving``)."""
+        if not names:
+            return []
+        return XformUtils.moving(list(names))
+
+    @classmethod
+    def _staying(cls, names) -> set:
+        """*names* without those the animation moves: the room, as the bake's render and probe read it."""
+        names = set(names)
+        return names - set(cls._moving(sorted(names)))
+
+    def _drop_moving(self, moving) -> List[str]:
+        """Drop the maps the objects among *moving* were baked with before (a recording bake only) -- mirror of
+        mayatk's. Returns those dropped."""
+        if not moving or not self.record:
+            return []
+        baked = set(LightmapRecords.baked_objects())
+        dropped = [n for n in moving if n in baked]
+        if dropped:
+            LightmapRecords.revert(dropped)
+            self.logger.info(
+                "Dropped the maps of %d mesh(es) the animation moves (baked in one pose, "
+                "wrong in every other); the room's probe lights them: %s",
+                len(dropped),
+                ", ".join(dropped[:8]) + (" ..." if len(dropped) > 8 else ""),
+            )
+        return dropped
 
     # ------------------------------------------------------------------
     # The workflow -- what the panel runs, and what a script should
@@ -657,16 +689,22 @@ class LightmapBaker(ptk.LoggingMixin):
 
             objects = CoreUtils.selected_objects()
         # The Exclude set comes off BEFORE anything else touches the scene.
-        targets, result.excluded = self._targets(objects)
-        if not (targets or result.excluded):
+        targets, result.excluded, result.moving = self._targets(objects)
+        if not (targets or result.excluded or result.moving):
             result.refused = "Nothing to bake: no mesh among the given objects."
             return result
+        self._drop_moving(result.moving)
         if not targets:
-            count = len(result.excluded)
+            count = len(result.excluded) or len(result.moving)
             result.refused = (
                 "Nothing to bake: "
                 + ("the object is" if count == 1 else f"all {count} objects are")
-                + " in the Exclude set."
+                + (
+                    " in the Exclude set."
+                    if result.excluded
+                    else " moved by the animation, and a map baked in one pose is wrong in "
+                    "every other; the room's probe lights them."
+                )
             )
             return result
         result.refused = self.preflight(objects)
@@ -691,33 +729,37 @@ class LightmapBaker(ptk.LoggingMixin):
             on_progress=tick if on_progress is not None else None,
             **kwargs,
         )
-        # The lighting the maps are about to see, as the baseline records it
-        # (:meth:`_lighting_state`): read as authored, before the bake
-        # switches anything.
-        try:
-            lighting = self._lighting_state(objects)
-        except Exception as e:  # the baseline is never what loses a bake
-            self.logger.warning("Bake lighting not recorded: %s", e)
-            lighting = None
-        # Lit for what the bake was HANDED: the mechanisms below see meshes
-        # alone, and keep this (re-entrant) rather than re-reading the Scope.
-        # Recorded below: every map waits in the session until the file is
-        # saved (LightmapRecords._stage) -- an unsaved bake changes no file the
-        # saved .blend reads.
-        with self._lighting(objects), self._staged():
-            if packing == "atlas":
-                atlas = self._bake_atlas(targets, intensity=intensity, **common)
-                packed, cells = atlas.packed, atlas.cells
-                result.in_place, result.repacked = atlas.in_place, atlas.repacked
-            else:
-                packed = {
-                    n: (path, None)
-                    for n, path in self.bake_separated(targets, **common).items()
-                }
-                cells = {
-                    n: {"packing": "per_object", "size": int(self.resolution)}
-                    for n in packed
-                }
+        # Posed as the file rests, whatever frame it was saved on
+        # (XformUtils.at_rest), for the lighting read and the renders
+        # alike: one bracket, so the frame moves once (mirror of mayatk's).
+        with XformUtils.at_rest():
+            # The lighting the maps are about to see, as the baseline records
+            # it (:meth:`_lighting_state`): read as authored, before the bake
+            # switches anything.
+            try:
+                lighting = self._lighting_state(objects)
+            except Exception as e:  # the baseline is never what loses a bake
+                self.logger.warning("Bake lighting not recorded: %s", e)
+                lighting = None
+            # Lit for what the bake was HANDED: the mechanisms below see meshes
+            # alone, and keep this (re-entrant) rather than re-reading the
+            # Scope. Recorded below: every map waits in the session until the
+            # file is saved (LightmapRecords._stage) -- an unsaved bake changes
+            # no file the saved .blend reads.
+            with self._lighting(objects), self._staged():
+                if packing == "atlas":
+                    atlas = self._bake_atlas(targets, intensity=intensity, **common)
+                    packed, cells = atlas.packed, atlas.cells
+                    result.in_place, result.repacked = atlas.in_place, atlas.repacked
+                else:
+                    packed = {
+                        n: (path, None)
+                        for n, path in self.bake_separated(targets, **common).items()
+                    }
+                    cells = {
+                        n: {"packing": "per_object", "size": int(self.resolution)}
+                        for n in packed
+                    }
         result.maps = {n: path for n, (path, _rect) in packed.items()}
         result.rects = {
             n: [float(v) for v in (rect or self._IDENTITY_SCALE_OFFSET)]
@@ -844,15 +886,18 @@ class LightmapBaker(ptk.LoggingMixin):
             with self._lit_as(rule):
                 return self._lighting_state(scope)
 
-        current = LightmapRecords.scene_state()
-        report = ptk.BakeBaseline.assess(
-            LightmapRecords.bake_state(),
-            current,
-            lighting=lit if lighting else None,
-            missing=LightmapRecords._missing_maps(),
-            reach=1.0 if reach is None else float(reach),
-            objects=ids,
-        )
+        # The file and its lighting read as the bake rendered them, at rest
+        # (XformUtils.at_rest): one bracket, the frame moved once.
+        with XformUtils.at_rest():
+            current = LightmapRecords.scene_state()
+            report = ptk.BakeBaseline.assess(
+                LightmapRecords.bake_state(),
+                current,
+                lighting=lit if lighting else None,
+                missing=LightmapRecords._missing_maps(),
+                reach=1.0 if reach is None else float(reach),
+                objects=ids,
+            )
         report = replace(
             report, out_of_bake=tuple(self._out_of_bake(ids)), **self._split_fields()
         )
@@ -887,9 +932,9 @@ class LightmapBaker(ptk.LoggingMixin):
         Under *ids* (names) when given. Mirror of mayatk's."""
         import bpy
 
-        stay = set(LightmapRecords.baked_objects()) | {
-            obj.name for obj in LightmapExcludeSet.meshes()
-        }
+        stay = self._staying(
+            set(LightmapRecords.baked_objects()) | {obj.name for obj in LightmapExcludeSet.meshes()}
+        )
         rendered = self._rendered_collections()
         names = [
             obj.name
@@ -952,6 +997,9 @@ class LightmapBaker(ptk.LoggingMixin):
                 ``"per_object"``.
         """
         self._check_rebake_packing(packing)
+        # A baked mesh the animation now moves leaves the room first: its map
+        # dropped, the baseline reads it gone, and what it shaded re-bakes.
+        self._drop_moving(self._moving(LightmapRecords.baked_objects()))
         with self._keeping_folders(not relocate):
             report = self._stale_report(
                 reach=reach,
@@ -1239,7 +1287,7 @@ class LightmapBaker(ptk.LoggingMixin):
         """Fold one of :meth:`rebake_changed`'s bakes into its result."""
         into.maps.update(part.maps)
         into.rects.update(part.rects)
-        for name in ("excluded", "hidden", "unbaked", "retired", "in_place"):
+        for name in ("excluded", "hidden", "unbaked", "moving", "retired", "in_place"):
             getattr(into, name).extend(getattr(part, name))
         into.repacked.update(part.repacked)
         into.refused = into.refused or part.refused
@@ -1260,33 +1308,34 @@ class LightmapBaker(ptk.LoggingMixin):
         :attr:`include_environment` takes it in (:meth:`_world_state`); beside
         them the setting that changes the light, :attr:`bounces`, and the rule
         that chose the lights (:meth:`_light_rule`). Read as authored -- call
-        it outside :meth:`_lighting`, which switches lights for the bake.
+        it outside :meth:`_lighting`, which switches lights for the bake -- and
+        as the file rests (``XformUtils.at_rest``), where the bake
+        renders: a keyed light reads as the maps saw it, whatever the frame.
         """
         import bpy
 
-        plan = self._bake_lights(scope)
         settings = {"bounces": int(self.bounces)}
         scene = bpy.context.scene
         if scene is None:
             return ptk.BakeBaseline.lighting_state(
                 {}, None, settings, rule=self._light_rule([])
             )
-        rendered = self._rendered_collections()
         lights: Dict[str, Any] = {}
-        for name in plan.lights:
-            obj = bpy.data.objects.get(name)
-            if obj is None:
-                continue
-            lit = self._renders(obj, rendered) or (
-                name in plan.hidden and obj.library is None
-            )
-            key, state = self._light_state(obj, lit)
-            lights[key] = state
+        with XformUtils.at_rest():
+            plan = self._bake_lights(scope)
+            rendered = self._rendered_collections()
+            for name in plan.lights:
+                obj = bpy.data.objects.get(name)
+                if obj is None:
+                    continue
+                lit = self._renders(obj, rendered) or (
+                    name in plan.hidden and obj.library is None
+                )
+                key, state = self._light_state(obj, lit)
+                lights[key] = state
+            world = self._world_state(scene.world) if self.include_environment else None
         return ptk.BakeBaseline.lighting_state(
-            lights,
-            self._world_state(scene.world) if self.include_environment else None,
-            settings,
-            rule=self._light_rule(lights),
+            lights, world, settings, rule=self._light_rule(lights)
         )
 
     #: The lighting switches a recorded rule carries, by attribute name.
@@ -1592,7 +1641,8 @@ class LightmapBaker(ptk.LoggingMixin):
             for obj in LightmapExcludeSet.meshes()
             if obj.name not in baked and obj.name not in isolated and shows(obj)
         ]
-        room = set(baked)
+        room = self._staying(baked)  # what moves is no room: the probe is placed over it
+        baked = [n for n in baked if n in room]
         # Every other mesh the render shows is unbaked: what moves, or what
         # surrounds the bake (ProbePlacement tells them apart). A linked
         # duplicate of a baked mesh is an object of its own here -- the render
@@ -2280,6 +2330,7 @@ class LightmapBaker(ptk.LoggingMixin):
         with (
             self._lighting(scope),
             ptk.TempArtifacts("lightmap_bake", policy="scoped") as tmp,
+            contextlib.ExitStack() as held,
         ):
             # Part of a group already in an atlas goes back into the cells it
             # owns there; a group that cannot re-bakes whole (_in_place_plan).
@@ -2291,7 +2342,8 @@ class LightmapBaker(ptk.LoggingMixin):
             for name, why in placing.repack.items():
                 self.logger.info("%s: re-packed whole -- %s", name, why)
             if placing.expand:
-                extra, excluded = self._targets(placing.expand)
+                extra, excluded, moving = self._targets(placing.expand)
+                excluded = excluded + moving
                 if excluded:
                     self.logger.warning(
                         "%d member(s) of an atlas that re-packs whole cannot bake "
@@ -2308,7 +2360,19 @@ class LightmapBaker(ptk.LoggingMixin):
             done.repacked = dict(placing.repack)
             in_place = set(placing.placed)
             rest = [t for t in targets if t not in in_place]
-            plan = self.atlas_plan(rest) if rest else {}
+            # Laid out anew, the layers that are this bake's to move are re-laid to
+            # their cells first, then planned again from the layers as they now are
+            # (twin of mayatk's): a layer of few islands fills fewer pages than its
+            # cell holds, and one left as it was never took its planned shape.
+            plan = self.atlas_plan(rest, refit=True) if rest else {}
+            if plan:
+                # Each re-laid layer's snapshot is held until the bake ends: one
+                # whose map did not land (a cancel, a failed render) goes back to
+                # the layer the map it keeps was baked on (mirror of mayatk's).
+                snapshots: Dict[str, Any] = {}
+                held.callback(self._settle_layouts, snapshots, done.packed)
+                self._fit_layouts(plan, held=snapshots)
+                plan = self.atlas_plan(rest)
             planned = [name for entries in plan.values() for name, _rect in entries]
             planned += placing.placed
             cells = self.plan_sizes(plan)
@@ -2515,6 +2579,9 @@ class LightmapBaker(ptk.LoggingMixin):
                     + ", ".join(os.path.basename(spelled[f]) for f in files)
                     + ")"
                 )
+            elif set(by_file[files[0]]) <= chosen:
+                # In place pays only for a partial re-bake (twin of mayatk's).
+                why = "every object reading it re-bakes: laid out afresh"
             else:
                 why = self._in_place_refusal(
                     spelled[files[0]],
@@ -2897,7 +2964,9 @@ class LightmapBaker(ptk.LoggingMixin):
                 reloaded.append(image.name)
         return reloaded
 
-    def atlas_plan(self, objects) -> Dict[str, List[Tuple[str, List[float]]]]:
+    def atlas_plan(
+        self, objects, refit: bool = False
+    ) -> Dict[str, List[Tuple[str, List[float]]]]:
         """``{material: [(object_name, rect), ...]}`` — the atlas layout, decided before baking.
 
         Groups the meshes by primary material -- a duplicate material with the one it
@@ -2922,6 +2991,11 @@ class LightmapBaker(ptk.LoggingMixin):
         Pure bookkeeping: nothing is baked, read from disk or written, which is what lets
         :meth:`bake_atlas` size each bake from it. The meshes come from
         :meth:`bake_targets`, so an excluded one takes no cell.
+
+        *refit* (twin of mayatk's): plan for re-laying the layouts that are this bake's
+        to move (:meth:`_refittable`), as a fresh pack does before it renders
+        (:meth:`_fit_layouts`): each takes the whole-number shape that packs the group
+        densest (``ptk.ImgUtils.pack_atlas_shapes``). Never for maps already rendered.
         """
         import bpy
 
@@ -2941,13 +3015,28 @@ class LightmapBaker(ptk.LoggingMixin):
             # The gutter is the room the pack's dilation fills, so mip levels / bilinear
             # taps can't bleed across neighbours; cells are whole texels, so the
             # assembler's placement and the published rect agree. Twin of mayatk's.
-            rects = ptk.ImgUtils.pack_atlas_rects(
-                [self._atlas_extent(bpy.data.objects.get(n)) for n in group],
-                self.resolution,
-                gutter=gutter,
-                min_texels=self._ATLAS_MIN_TEXELS,
-                align=self._ATLAS_BLOCK,
-            )
+            objs = [bpy.data.objects.get(n) for n in group]
+            flexible = {n for n, o in zip(group, objs) if refit and self._refittable(o)}
+            if flexible:
+                rects = ptk.ImgUtils.pack_atlas_shapes(
+                    [
+                        None if n in flexible else self._atlas_extent(o)
+                        for n, o in zip(group, objs)
+                    ],
+                    [self._surface_area(o) for o in objs],
+                    self.resolution,
+                    gutter=gutter,
+                    min_texels=self._ATLAS_MIN_TEXELS,
+                    align=self._ATLAS_BLOCK,
+                )
+            else:
+                rects = ptk.ImgUtils.pack_atlas_rects(
+                    [self._atlas_extent(o) for o in objs],
+                    self.resolution,
+                    gutter=gutter,
+                    min_texels=self._ATLAS_MIN_TEXELS,
+                    align=self._ATLAS_BLOCK,
+                )
             if rects is None:
                 self.logger.warning(
                     "Atlas: the %d objects of %s do not fit a %d px atlas even at %d "
@@ -2980,6 +3069,133 @@ class LightmapBaker(ptk.LoggingMixin):
 
     #: Island coverage assumed for an object with no lightmap layer yet.
     _UNWRAP_FILL: float = 0.75
+
+    #: A fresh pack re-lays the lightmap layers that are its own to move
+    #: (:meth:`_refittable`) to the cells it plans for them (twin of mayatk's).
+    #: Off: every layer keeps its shape.
+    refit_layouts: bool = True
+
+    def _refittable(self, obj) -> bool:
+        """Whether *obj*'s lightmap layer is this baker's to re-lay (twin of
+        mayatk's): one marked as made here (:data:`LIGHTMAP_UV_TAG`, stamped by
+        ``create_lightmap_uvs`` and a layout applied from the Maya bridge), on a
+        mesh no other object shares and no library holds -- with
+        :attr:`refit_layouts` on and the xatlas engine installed."""
+        if obj is None or not self.refit_layouts or not ptk.UvPack.available():
+            return False
+        mesh = getattr(obj, "data", None)
+        layer = UvUtils.find_lightmap_uv_set(obj)
+        if not layer or mesh is None or mesh.get(LIGHTMAP_UV_TAG) != layer:
+            return False
+        if mesh.users > 1 or obj.library is not None or mesh.library is not None:
+            return False
+        return True
+
+    def _fit_layouts(
+        self,
+        plan: Dict[str, List[Tuple[str, List[float]]]],
+        held: Optional[Dict[str, Any]] = None,
+    ) -> List[str]:
+        """Re-lay each :meth:`_refittable` member's lightmap layer to the cell *plan*
+        gives it (twin of mayatk's): ``UvUtils.pack_uvs(engine="xatlas")`` as
+        ``ptk.UvPack.cell_box`` says -- the whole number of square pages nearest the
+        cell's shape, the rest of the shape the layer's stretch (its u scaled first,
+        rotation then off), the box's gutter between islands -- one density from
+        world areas. One the pack refuses, or that it would not make denser by
+        ``ptk.UvPack.CELL_GAIN``, keeps its layer, warned. Returns the objects
+        re-laid. *held*: each re-laid layer's snapshot (its name and loop UVs) goes
+        in it by object, for :meth:`_settle_layouts` once the caller knows which
+        maps landed.
+        """
+        import bpy
+        import numpy as np
+
+        fitted: List[str] = []
+        for entries in plan.values():
+            solo = len(entries) == 1
+            cells = ptk.ImgUtils.atlas_pixel_rects(
+                [rect for _name, rect in entries], self.resolution
+            )
+            for (name, _rect), (row0, row1, col0, col1) in zip(entries, cells):
+                obj = bpy.data.objects.get(name)
+                if not self._refittable(obj):
+                    continue
+                box = ptk.UvPack.cell_box(
+                    *((self.resolution,) * 2 if solo else (col1 - col0, row1 - row0)),
+                    self.resolution,
+                )
+                stretched = box.stretch != 1.0
+                mesh = obj.data
+                layer = mesh.uv_layers[UvUtils.find_lightmap_uv_set(obj)]
+                active = mesh.uv_layers.active
+                before = float(np.prod(self._atlas_extent(obj)))
+                mesh.uv_layers.active = layer
+                original = UvUtils._loop_uvs(obj).copy()
+                why = "no result"
+                kept = False
+                try:
+                    if stretched:
+                        uv = original.copy()
+                        uv[:, 0] *= box.stretch
+                        UvUtils._set_loop_uvs(obj, uv)
+                    result = UvUtils.pack_uvs(
+                        [obj],
+                        engine="xatlas",
+                        map_size=box.map_size,
+                        coverage=box.coverage,
+                        rotate=not stretched,
+                        preserve_3d=True,
+                        padding=box.padding,
+                    )
+                    if not result.succeeded:
+                        why = "; ".join(r for _n, r in result.failed) or why
+                    elif float(np.prod(self._atlas_extent(obj))) > before * ptk.UvPack.CELL_GAIN:
+                        why = "no denser than the layer it has"
+                    else:
+                        kept = True
+                except Exception as error:  # noqa: BLE001 - keeps its layer
+                    why = str(error)
+                finally:
+                    if not kept:
+                        UvUtils._set_loop_uvs(obj, original)
+                    elif held is not None:
+                        held[name] = (layer.name, original)
+                    if active is not None:
+                        mesh.uv_layers.active = active
+                if kept:
+                    fitted.append(name)
+                    continue
+                self.logger.warning(
+                    "%s: its lightmap layer could not be re-laid to its cell (%s); it "
+                    "keeps the one it has.",
+                    name,
+                    why,
+                )
+        return fitted
+
+    def _settle_layouts(self, held: Dict[str, Any], landed: Dict[str, Any]) -> None:
+        """Put back each re-laid layer (:meth:`_fit_layouts` *held*) whose map did
+        not land -- a render cancelled or failed -- which keeps the map it had, and
+        so the layer it was baked on (:meth:`bake`: that map is intact); the rest
+        keep their new layer. Mirror of mayatk's."""
+        import bpy
+
+        back = []
+        for name, (layer_name, uv) in held.items():
+            obj = bpy.data.objects.get(name)
+            layer = obj.data.uv_layers.get(layer_name) if obj is not None else None
+            if name in landed or layer is None:
+                continue
+            layer.data.foreach_set("uv", uv.reshape(-1))
+            obj.data.update()
+            back.append(name)
+        if back:
+            self.logger.info(
+                "Put back %d re-laid lightmap layer(s) whose map did not land; they "
+                "keep the map they had: %s",
+                len(back),
+                ", ".join(back),
+            )
 
     def _atlas_extent(self, obj) -> Tuple[float, float]:
         """*obj*'s natural atlas extent -- the group's texel density (twin of mayatk's).
@@ -4919,21 +5135,27 @@ class LightmapBaker(ptk.LoggingMixin):
         :meth:`bake` sets it from what it was HANDED -- lights and Empties
         included -- and the mechanisms below it, which see meshes alone, keep
         that. Yields the :class:`_BakeLights` in force.
+
+        The file is posed as it rests for the block
+        (``XformUtils.at_rest``): every render passes here -- the
+        bake's, a direct :meth:`bake_atlas`, :meth:`bake_separated` or
+        :meth:`bake_probe` -- so none renders the frame the file was left on.
         """
         if getattr(self, "_lit", None) is not None:
             yield self._lit
             return
-        plan = self._bake_lights(scope)
-        self._lit = self._last_lit = plan
-        try:
-            with (
-                self._muted_environment(),
-                self._out_of_the_render(plan.outside),
-                self._switched_on(plan.hidden),
-            ):
-                yield plan
-        finally:
-            self._lit = None
+        with XformUtils.at_rest():
+            plan = self._bake_lights(scope)
+            self._lit = self._last_lit = plan
+            try:
+                with (
+                    self._muted_environment(),
+                    self._out_of_the_render(plan.outside),
+                    self._switched_on(plan.hidden),
+                ):
+                    yield plan
+            finally:
+                self._lit = None
 
     @contextlib.contextmanager
     def _out_of_the_render(self, names: List[str]):
@@ -5038,19 +5260,22 @@ class LightmapBaker(ptk.LoggingMixin):
         :class:`LightmapIsolateSet` member covers go together, then those of
         each member alone, with every mesh of that member in the render
         (:meth:`LightmapIsolateSet.groups` -- a door with the glass under it,
-        baked or not). One pass, *targets* as given, when none of them is
-        isolated. *isolated* holds the names of the set's meshes, targets or
-        not: :meth:`_out_of_render` takes each pass's others out. Mirror of
+        baked or not) and the members that carry it
+        (:meth:`LightmapIsolateSet.carried_by` -- the door a small door is set
+        in). One pass, *targets* as given, when none of them is isolated.
+        *isolated* holds the names of the set's meshes, targets or not:
+        :meth:`_out_of_render` takes each pass's others out. Mirror of
         mayatk's.
         """
         groups = LightmapIsolateSet.groups()
+        carried = LightmapIsolateSet.carried_by(groups)
         isolated = {obj.name for group in groups for obj in group}
         alone = []
-        for group in groups:
+        for group, carriers in zip(groups, carried):
             names = {obj.name for obj in group}
             bake = [t for t in targets if t.name in names]
             if bake:
-                alone.append((bake, group))
+                alone.append((bake, list(group) + list(carriers)))
         # By name: a collection's member order is its link order, and a log
         # should repeat.
         alone.sort(key=lambda pair: [obj.name for obj in pair[0]])
@@ -5110,11 +5335,12 @@ class LightmapBaker(ptk.LoggingMixin):
 
         kept = {obj.name for obj in keep}
         others = set(isolated) - kept
+        # What it is handed stays (the entry point left out what moves); of the
+        # rest of the room, what the animation moves does not. Mirror of mayatk's.
         stay = (
             {obj.name for obj in targets}
             | kept
-            | set(LightmapRecords.baked_objects())
-            | {obj.name for obj in LightmapExcludeSet.meshes()}
+            | self._staying(set(LightmapRecords.baked_objects()) | {obj.name for obj in LightmapExcludeSet.meshes()})
         ) - others
         movers = [
             obj.name

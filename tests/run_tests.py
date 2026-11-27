@@ -226,6 +226,10 @@ class BlenderTestRunner:
         ``test_bridges`` asserts -- where per-suite activation would have torn
         it down with the suite.
 
+        Then the run's start ages out ``tests/temp_tests``
+        (``TestSandbox.sweep_scratch``), a step of its own: a sweep that fails
+        is said as that, and never keeps the root from being announced.
+
         Best-effort by design: an unimportable pythontk is already a failing
         run, and it must fail on its own suites rather than here.
         """
@@ -242,6 +246,10 @@ class BlenderTestRunner:
         # nothing complains, which is exactly how the cached conversion went.
         os.environ["BLENDERTK_TEST_TEMP_ROOT"] = root
         print(f"Temp:    {root}")
+        try:
+            TestSandbox.sweep_scratch(os.path.dirname(os.path.abspath(__file__)))
+        except Exception as error:  # noqa: BLE001
+            print(f"[WARN] scratch sweep failed ({error}); tests/temp_tests left as it is.")
         return root
 
     def _child_command(self, suite: Path, python: Optional[str] = None) -> List[str]:

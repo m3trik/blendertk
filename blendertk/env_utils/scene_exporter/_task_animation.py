@@ -407,6 +407,8 @@ class _AnimationTasksMixin(_TaskDataMixin):
                 animated=FbxUtils._writer_animates(
                     "fbx", getattr(self, "write_options", None)
                 ),
+                # Exclude Audio: the deliverable carries no audio record.
+                excluded=self.run.excluded_records,
             )
             if not FbxUtils._export_depth:
                 staged = dict(FbxUtils._session_stagers)
@@ -431,6 +433,7 @@ class _AnimationTasksMixin(_TaskDataMixin):
                     key
                     for key in snapshot.scene_wide
                     if not ptk.SceneRecords.resolve(key).transient
+                    and key not in ctx.excluded
                 ]
                 if narrowed:
                     self.logger.info(

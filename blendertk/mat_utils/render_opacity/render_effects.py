@@ -935,7 +935,8 @@ class RenderEffects(ptk.LoggingMixin):
         own values at each frame inside it, linear between. ``visibility`` is
         ``hide_render`` inverted (the contract's 1 is shown), stepped. Each
         animated emissive-group copy's weight rides as its material's
-        ``emission`` (``EmissiveGroups.weight_curves``).
+        ``emission`` (``EmissiveGroups.weight_curves``), a keyed tint as its
+        ``tint_r``, ``tint_g`` and ``tint_b`` (``EmissiveGroups.tint_curves``).
 
         ``start`` is the frame an animated write puts at its clip's t=0: the
         start of the range Blender's writer bakes (``FbxUtils.bake_range``:
@@ -970,6 +971,7 @@ class RenderEffects(ptk.LoggingMixin):
             return cls._segment_keys(fc) if fc is not None else []
 
         curves += EmissiveGroups.weight_curves(copy_keys, ctx)
+        curves += EmissiveGroups.tint_curves(lambda fc: cls._segment_keys(fc) if fc is not None else [], ctx)
         if not curves:
             return {}
         span = FbxUtils.bake_range()

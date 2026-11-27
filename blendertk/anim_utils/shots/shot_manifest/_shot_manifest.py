@@ -47,6 +47,7 @@ import functools
 import logging
 from typing import Dict, List, Optional, Tuple
 
+import pythontk as ptk
 from pythontk import ShotManifest, BuilderObject
 
 from blendertk.anim_utils._anim_utils import AnimUtils
@@ -294,6 +295,136 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
 
         return Behaviors.apply_behavior(node, behavior, start, end, **kwargs)
 
+    def _ensure_state(self, target: str, state: str) -> Tuple[str, str]:
+        """Make sure the emissive groups *target* wears have the state *state*:
+        ``EmissiveGroups.ensure_state`` of the groups whose faces lie on
+        *target* or under it (``EmissiveGroups.groups_on``) -- mirror of
+        mayatk's.
+
+        Returns:
+            ``EmissiveGroups.ensure_state``'s ``(outcome, why)``, or
+            ``("skipped", why)`` where *target* is not one object of the scene.
+        """
+        try:
+            import bpy
+        except ImportError:
+            return super()._ensure_state(target, state)
+        from blendertk.mat_utils.emissive_groups import EmissiveGroups
+
+        node, reason = self._resolve_object(target)
+        part = bpy.data.objects.get(node) if reason == "found" else None
+        if part is None:
+            return "skipped", "it is not one object of the scene"
+        under = [part.name] + [o.name for o in part.children_recursive]
+        return EmissiveGroups.ensure_state(EmissiveGroups.groups_on(under), state)
+
+    def _make_helper(self, name: str, purpose: str, target: str, frame: Optional[float]) -> Optional[str]:
+        """A camera (a picture's) or an empty (a viewpoint's, an arrow's) named
+        *name*, made by *target* as the scene stands at *frame* -- mirror of
+        mayatk's (name + behavior).
+
+        Its first pose is ``ptk.ManifestPlacement.first_pose`` of the target's
+        and its delivery's (its topmost parent's) world bounds, ``Z`` up -- a
+        target with no shape under it (an empty) a point where it stands --
+        over rays through every mesh the scene shows at *frame*
+        (``ptk.SpotPlacement``: a picture stands where its part is seen, never
+        behind what hides it); its forward -- an empty's ``+Z``, a camera's
+        view -- is turned to the pose's aim; it is parented with that pose
+        kept, under what ``ManifestPlacement.RIDES`` says.  A camera's lens
+        gives ``ManifestPlacement.VIEW_ANGLE`` over its sensor's height.  The
+        frame is left as it was, and a helper it could not finish is removed.
+
+        Returns:
+            The helper's name, or ``None`` where *target* is no object of the
+            scene.
+        """
+        try:
+            import bpy
+        except ImportError:
+            return None
+        from mathutils import Matrix, Vector
+
+        from blendertk.core_utils._core_utils import CoreUtils
+        from blendertk.core_utils.units import Units
+        from blendertk.core_utils.mesh_rays import MeshRays
+        from blendertk.rig_utils._rig_utils import RigUtils
+        from blendertk.xform_utils._xform_utils import XformUtils
+
+        node, reason = self._resolve_object(target)
+        part = bpy.data.objects.get(node) if reason == "found" else None
+        if part is None:
+            return None
+        delivery = part
+        while delivery.parent is not None:
+            delivery = delivery.parent
+
+        def bounds(obj):
+            shaped = [o for o in [obj] + list(obj.children_recursive) if o.type in ("MESH", "CURVE", "SURFACE", "FONT", "META")]
+            box = XformUtils.get_bounding_box(shaped) if shaped else None
+            return None if box is None else (tuple(box["min"]), tuple(box["max"]))
+
+        scene = bpy.context.scene
+        was = scene.frame_current
+        made = lens = None
+        try:
+            if frame is not None:
+                scene.frame_set(int(round(frame)))
+            here = tuple(part.matrix_world.translation)
+            box = bounds(part) or (here, here)
+            whole = bounds(delivery) or box
+            unit = 1.0 / Units.metres_per("working")
+            # The floor is the scene's: the lowest point of everything it shows (a part's own group may start above it).
+            shown = [o for o in scene.objects if o.type in ("MESH", "CURVE", "SURFACE", "FONT", "META")]
+            floor = XformUtils.get_bounding_box(shown, "zmin") if shown else None
+            # What the scene shows at its step blocks a line of sight; the part's own meshes are what is looked at.
+            # The layer on screen: the window's (windowless, a bare visible_get reads the scene's default layer).
+            layer = CoreUtils._active_view_layer()
+            meshes = [o.name for o in scene.objects if o.type == "MESH" and o.visible_get(view_layer=layer)]
+            mine = {part.name} | {o.name for o in part.children_recursive}
+            position, aim = ptk.ManifestPlacement.first_pose(
+                purpose,
+                box,
+                whole,
+                up=2,
+                unit=unit,
+                floor=floor,
+                rays=MeshRays().rays(meshes) if meshes else None,
+                owners=[m for m in meshes if m in mine],
+            )
+            home = part.users_collection[0] if part.users_collection else scene.collection
+            if ptk.ManifestPlacement.KINDS[purpose] == "camera":
+                lens = bpy.data.cameras.new(name)
+                lens.sensor_fit = "VERTICAL"
+                lens.lens = ptk.ManifestPlacement.focal_length(lens.sensor_height)
+                made, forward = bpy.data.objects.new(name, lens), "-Z"
+                home.objects.link(made)
+            else:
+                made = RigUtils.create_locator(name, display_type="ARROWS", size=0.1 * unit, collection=home)
+                forward = "Z"
+            # Its forward to the aim; where that is straight up or down (an arrow over its part), its up lies level.
+            way = Vector(aim) - Vector(position)
+            turned = way.to_track_quat(forward, "Y")
+            if way.to_2d().length < 1e-9:
+                level = Vector(ptk.ManifestPlacement.outer(box, whole, 2))
+                side = level.cross(way.normalized() if forward == "Z" else -way.normalized())
+                axes = Matrix((side, level, way.normalized() if forward == "Z" else -way.normalized())).transposed()
+                turned = axes.to_quaternion()
+            world = Matrix.LocRotScale(Vector(position), turned, None)
+            # Parented as the scene stands at its step: it rides its part from there.
+            parent = part if ptk.ManifestPlacement.RIDES[purpose] == "target" else delivery
+            made.parent = parent
+            made.matrix_parent_inverse = parent.matrix_world.inverted()
+            made.matrix_world = world
+        except Exception:
+            if made is not None:
+                bpy.data.objects.remove(made, do_unlink=True)
+            if lens is not None:
+                bpy.data.cameras.remove(lens)
+            raise
+        finally:
+            scene.frame_set(was)
+        return made.name
+
     # ---- scene walks (fcurve acquisition) ---------------------------------
 
     def _discover_scene_objects(
@@ -306,6 +437,12 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
         keys or animated exclusively on custom properties are treated as
         boundary markers and excluded — the same rule as Maya.
 
+        What *exclude_names* -- the step's doc names and its shot's members
+        as stored -- names is left out, as mayatk's (``ShotStore.name_pairs``
+        through the store's host): a bare name the objects of it, a path's
+        tail the objects whose parents it ends (an object's name holds no
+        path: ``BlenderShotsHost.member_lineage``).
+
         The object → transform-fcurve map is built once per assess/update
         cycle and cached on ``self._animated_transforms``.
         """
@@ -313,12 +450,12 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
             import bpy  # noqa: F401 — availability probe
         except ImportError:
             return []
-        exclude = set(exclude_names or ())
         animated = self._transform_curve_map()
+        known = {member for _name, member in ShotStore.name_pairs(exclude_names or (), animated, self.store.host)}
         return [
             name
             for name in sorted(animated)
-            if ShotStore.member_key(name) not in exclude
+            if name not in known
             and any(
                 self._curve_varies_in_range(crv, start, end) for crv in animated[name]
             )

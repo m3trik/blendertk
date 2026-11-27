@@ -738,6 +738,58 @@ def _run_shots_adapter_checks():
     for ns_name in ("AC:door_geo", "AC:twin", "BC:twin"):
         bpy.data.objects.remove(bpy.data.objects[ns_name], do_unlink=True)
 
+    # (h) a path's tail (ptk.NodeNames.ends): two nodes an FBX names alike arrive as LIGHTS and LIGHTS.001, told apart
+    #     by the names above them, as Maya's ls reads a partial path (2026-11-26: the real task's solenoid lights).
+    made = []
+    for parent_name, child_name in (("SOLENOID_LOC", "LIGHTS"), ("SPARE", "LIGHTS")):
+        parent = bpy.data.objects.new(parent_name, None)
+        child = bpy.data.objects.new(child_name, None)
+        child.parent = parent
+        bpy.context.scene.collection.objects.link(parent)
+        bpy.context.scene.collection.objects.link(child)
+        made += [parent, child]
+    spare_lights = made[3].name
+    # A shot keeps a bare object name: a step listing SOLENOID_LOC|LIGHTS read its own LIGHTS as unlisted (2026-11-26).
+    host = ns_store.host
+    check(
+        "member_lineage: a member's path is its parents, compared by the one rule (ShotStore.names_member)",
+        host.member_lineage("LIGHTS") == ["SOLENOID_LOC", "LIGHTS"]
+        and host.member_lineage(spare_lights) == ["SPARE", "LIGHTS"]
+        and host.member_lineage("NONE|GONE") == ["NONE", "GONE"]
+        and ShotStore.names_member("SOLENOID_LOC|LIGHTS", "LIGHTS", host)
+        and not ShotStore.names_member("SPARE|LIGHTS", "LIGHTS", host)
+        and ShotStore.names_member("SPARE|LIGHTS", spare_lights, host)
+        and not ShotStore.names_member("LIGHTS", spare_lights, host)
+        and ShotStore.name_pairs(["SOLENOID_LOC|LIGHTS"], ["LIGHTS", spare_lights], host) == [("SOLENOID_LOC|LIGHTS", "LIGHTS")],
+        f"{host.member_lineage('LIGHTS')} {host.member_lineage(spare_lights)}",
+    )
+    check(
+        "member_nodes: a path's tail names the one object whose parents end with it",
+        ns_store.member_nodes("SOLENOID_LOC|LIGHTS") == ["LIGHTS"]
+        and ns_store.member_nodes("SPARE|LIGHTS") == [spare_lights] and spare_lights != "LIGHTS"
+        and ns_store.resolve_member("SPARE|LIGHTS") == (spare_lights, "found")
+        and ns_store.member_nodes("NONE|LIGHTS") == [],
+        f"{ns_store.member_nodes('SOLENOID_LOC|LIGHTS')} {ns_store.member_nodes('SPARE|LIGHTS')}",
+    )
+    # A tail read in a namespace (an FBX from Maya: AC:SOLENOID_LOC|AC:LIGHTS), and the node it names exactly first, as
+    # Maya's ls reads a partial path (mayatk's test_a_path_tail_finds_its_node_in_a_namespace_an_exact_one_first).
+    ns_parent = bpy.data.objects.new("AC:SOLENOID_LOC", None)
+    ns_child = bpy.data.objects.new("AC:LIGHTS", None)
+    ns_child.parent = ns_parent
+    for obj in (ns_parent, ns_child):
+        bpy.context.scene.collection.objects.link(obj)
+    made += [ns_parent, ns_child]
+    exact_first = ns_store.member_nodes("SOLENOID_LOC|LIGHTS")
+    bpy.data.objects.remove(made[1], do_unlink=True)  # the plain LIGHTS
+    del made[1]
+    check(
+        "member_nodes: a path's tail names its node exactly first, else in a namespace",
+        exact_first == ["LIGHTS"] and ns_store.member_nodes("SOLENOID_LOC|LIGHTS") == ["AC:LIGHTS"],
+        f"{exact_first} {ns_store.member_nodes('SOLENOID_LOC|LIGHTS')}",
+    )
+    for obj in made:
+        bpy.data.objects.remove(obj, do_unlink=True)
+
     # ---- hand-off transfer: export_transfer / apply_transfer ----------------
     #     (mirror of mayatk's; the codec is pythontk's ShotTransfer)
     ShotStore.clear_active()

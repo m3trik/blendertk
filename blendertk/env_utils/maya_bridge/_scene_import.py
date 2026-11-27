@@ -2753,7 +2753,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         conversion off the authored curves).
 
         Blender's FBX importer makes every key LINEAR, so a Maya hold arrived
-        as a ramp to the next key: SOL_REPLACE_ASSEMBLY's SCREWDRIVER steps at
+        as a ramp to the next key: a production scene's SCREWDRIVER steps at
         12 and holds to 731, and pulled it moved the whole way (then the key
         reduction refit the ramp as a bezier).  Runs before the reduction,
         which leaves a curve with a stepped key as it is.  Only a key whose

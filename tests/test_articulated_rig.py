@@ -2566,7 +2566,9 @@ try:
     store = ptk.TempArtifacts("btk_articulated_rig_test", policy="session")
     out_dir = store.dir_path()
     shipped = [ob("ASSET")] + list(ob("ASSET").children_recursive)
-    exported_state = rig.state()  # the pose the file's nodes stand in
+    # The pose the file's nodes stand in: an export runs at rest, the scene's first frame, whatever frame
+    # the scene stands on (XformUtils.at_rest; this one stands on the last keyed).
+    exported_state = expected[scene.frame_start]
     exp = SceneExporter()
     ok = exp.perform_export(
         export_dir=out_dir,

@@ -92,14 +92,6 @@ class ShadowRig(ptk.LoggingMixin):
     GROUND_OFFSET = 0.01
     # The plane's fade channel — Maya's RenderOpacity attr of the same name.
     OPACITY_ATTR = "opacity"
-    #: The shadows record's key under its old name, retired here: read the
-    #: declaration's (``ptk.SceneRecords.SHADOWS.key``).
-    SHADOW_METADATA = ptk.Deprecation.class_attribute(
-        ptk.SceneRecords.SHADOWS.key,
-        "ptk.SceneRecords.SHADOWS.key",
-        remove_in="0.21.0",
-        since="2026-10-24",
-    )
     # Rename-proof handles the re-attach paths need once the instance is gone.
     _TARGETS_PROP = "shadowRigTargets"  # JSON list of target object names
     _SOURCE_PROP = "shadowRigSource"  # ID pointer to the source object

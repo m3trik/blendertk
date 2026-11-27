@@ -291,10 +291,8 @@ try:
     # --- the scene-source family has one owner -----------------------------------------------
     # EnvUtils' copies forwarded to DataNodes, except set_scene_source, which also armed the
     # twin's save -- and the flat btk.set_scene_source reached the record-only DataNodes one
-    # by module order. DataNodes owns all six; EnvUtils' names forward, with a warning, until
-    # 0.23.0. Consolidated: 2026-10-25.
-    import warnings
-
+    # by module order. DataNodes owns all six (consolidated 2026-10-25; EnvUtils' retired
+    # doors removed 2026-11-26).
     for name in (
         "set_scene_source",
         "scene_source",
@@ -304,14 +302,7 @@ try:
         "twin_save_target",
     ):
         check(f"btk.{name} is DataNodes'", getattr(btk, name) == getattr(btk.DataNodes, name))
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        forwarded = btk.EnvUtils.scene_source(os.path.join(os.sep, "nowhere", "twin.blend"))
-    check(
-        "the retired EnvUtils.scene_source warns and forwards",
-        forwarded is None and any(issubclass(w.category, DeprecationWarning) for w in caught),
-        [str(w.message) for w in caught],
-    )
+        check(f"EnvUtils.{name} is gone", not hasattr(btk.EnvUtils, name))
 
     # --- bpy-dependent integration (skipped under the .venv) ---------------------------------
     if HAS_BPY:

@@ -10,6 +10,9 @@ public names (``btk.freeze_transforms`` ↔ ``mtk.freeze_transforms``, etc.).
 ``import bpy`` / ``mathutils`` are deferred into call bodies (no import side effects).
 """
 
+from contextlib import contextmanager
+from typing import List
+
 import pythontk as ptk
 
 from blendertk.core_utils._core_utils import (
@@ -261,6 +264,147 @@ class _XformUtilsInternal(object):
 
 class XformUtils(_XformUtilsInternal):
     """Namespace mirror of mayatk's ``XformUtils`` (helpers also exposed module-level)."""
+
+    @staticmethod
+    @contextmanager
+    def at_rest():
+        """The file posed as it rests for the block, then the frame it stood at put back -- mirror of mayatk's.
+
+        The scene's first frame (``frame_start``, the range an export reads),
+        whatever frame the file was saved on: a lightmap bake renders there and
+        its record is read there, and an export writes its rest transforms
+        there. Nested, it stays put. As a decorator it brackets each call.
+
+        A playing timeline is left playing, unlike mayatk's, which stops it:
+        Blender steps playback only on its window manager's timer events, which
+        it never handles while a Python call runs, so no frame moves in the
+        block, and playback goes on from the frame put back.
+        """
+        import bpy
+
+        scene = bpy.context.scene
+        if scene is None:
+            yield
+            return
+        now, sub = scene.frame_current, scene.frame_subframe
+        rest = scene.frame_start
+        if now == rest and not sub:
+            yield
+            return
+        scene.frame_set(rest)
+        try:
+            yield
+        finally:
+            scene.frame_set(now, subframe=sub)
+
+    #: The channels whose animation moves an object, and everything parented to it.
+    MOVING_CHANNELS = frozenset(
+        (
+            "location", "rotation_euler", "rotation_quaternion", "rotation_axis_angle", "scale",
+            "delta_location", "delta_rotation_euler", "delta_rotation_quaternion", "delta_scale",
+        )
+    )
+
+    @staticmethod
+    def moving(objects=None) -> List[str]:
+        """The objects among *objects* the file's animation moves, by name -- mirror of mayatk's.
+
+        One moves where it or anything it hangs under is moved -- an object, or
+        the bone it is parented to and the bones over that: a channel of
+        :attr:`MOVING_CHANNELS` animated by a curve whose value changes (its
+        action's, through the slot that animates it, or an NLA strip's), or
+        driven, or an enabled constraint; or where its mesh is deformed under
+        it: its shape keys or a modifier's settings animated, or a modifier's
+        object moving (an armature, or any of its bones; a hook, a lattice). An
+        ``ArticulatedRig``'s parts hang on driven bones, so each moves. What a
+        lightmap bake leaves out: a map baked in one pose is wrong in every
+        other, so a moving part is lit by the room's probe instead.
+
+        Parameters:
+            objects: Objects or names. ``None``: every mesh object in the scene.
+        """
+        import bpy
+
+        if objects is None:
+            pool = [o for o in bpy.context.scene.objects if o.type == "MESH"]
+        else:
+            pool = [o for o in CoreUtils.get_objects(objects) if o is not None]
+        read, driven = {}, {}
+
+        def curves(owner) -> list:
+            # The drivers, the action through its slot (the kernel's reader), and each playing NLA strip's.
+            key = owner.as_pointer()
+            if key not in read:
+                ad = getattr(owner, "animation_data", None)
+                found = [] if ad is None else list(ad.drivers) + CoreUtils.animating_fcurves(owner)
+                for track in ad.nla_tracks if ad is not None else ():
+                    for strip in track.strips if not track.mute else ():
+                        action, slot = CoreUtils._animating(strip)
+                        if action is not None and not strip.mute:
+                            found += CoreUtils._slot_fcurves(action, slot)
+                read[key] = found
+            return read[key]
+
+        def animated(owner, prefix="", channels=XformUtils.MOVING_CHANNELS) -> bool:
+            # A curve under *prefix* on one of *channels* (``None``: any) whose value changes, or a driver.
+            for fc in curves(owner):
+                path = fc.data_path
+                if not path.startswith(prefix):
+                    continue
+                if channels is not None and path.rpartition(".")[2] not in channels:
+                    continue
+                values = [k.co[1] for k in fc.keyframe_points]
+                if values and max(values) - min(values) <= 1e-6 and not fc.driver:
+                    continue  # holds one value: moves nothing
+                return True
+            return False
+
+        def drives(obj) -> bool:
+            key = obj.as_pointer()
+            if key not in driven:
+                driven[key] = any(c.enabled for c in obj.constraints) or animated(obj)
+            return driven[key]
+
+        def bone_moves(rig, bone) -> bool:
+            # The pose bone, or a bone it hangs under: animated, driven or constrained.
+            while bone is not None:
+                key = (rig.as_pointer(), bone.name)
+                if key not in driven:
+                    prefix = f'pose.bones["{bpy.utils.escape_identifier(bone.name)}"].'
+                    driven[key] = any(c.enabled for c in bone.constraints) or animated(rig, prefix)
+                if driven[key]:
+                    return True
+                bone = bone.parent
+            return False
+
+        def carried(obj) -> bool:
+            while obj is not None:
+                if drives(obj):
+                    return True
+                parent = obj.parent
+                if parent is not None and obj.parent_type == "BONE" and parent.pose is not None:
+                    bone = parent.pose.bones.get(obj.parent_bone)
+                    if bone is not None and bone_moves(parent, bone):
+                        return True
+                obj = parent
+            return False
+
+        def deformed(obj) -> bool:
+            keys = getattr(getattr(obj, "data", None), "shape_keys", None)
+            if keys is not None and animated(keys, channels=None):
+                return True
+            if animated(obj, "modifiers[", channels=None):
+                return True
+            for modifier in obj.modifiers:
+                rig = getattr(modifier, "object", None)
+                if rig is None:
+                    continue
+                if carried(rig) or (rig.pose is not None and any(bone_moves(rig, b) for b in rig.pose.bones)):
+                    return True
+            return False
+
+        return [obj.name for obj in pool if carried(obj) or deformed(obj)]
+
 
     @staticmethod
     def get_world_bbox(obj):

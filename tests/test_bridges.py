@@ -464,15 +464,15 @@ try:
     bpy.ops.wm.save_as_mainfile(filepath=_blend)
     # The file project's texture folder, mayatk's rule (its sourceImages rule,
     # else an existing sourceimages/ or textures/ folder) + "baked".
-    from blendertk.env_utils._env_utils import EnvUtils as _Env
+    from blendertk.node_utils.data_nodes import DataNodes as _DN
 
     check(
         "baked_texture_dir is <file project texture folder>/baked once saved",
         _MarBridge.BAKED_TEXTURE_SUBDIR == "baked"
         and os.path.normcase(os.path.normpath(_MarBridge.baked_texture_dir()))
-        == os.path.normcase(os.path.join(_Env.scene_source_images_dir(), "baked"))
-        and _Env.scene_project_root() is not None
-        and os.path.normcase(_Env.scene_project_root()) == os.path.normcase(tmp),
+        == os.path.normcase(os.path.join(_DN.scene_source_images_dir(), "baked"))
+        and _DN.scene_project_root() is not None
+        and os.path.normcase(_DN.scene_project_root()) == os.path.normcase(tmp),
         _MarBridge.baked_texture_dir(),
     )
     # A roundtrip's saved Toolbag scene outlives its scratch hand-off: the

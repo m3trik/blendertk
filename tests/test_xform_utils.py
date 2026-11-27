@@ -873,6 +873,170 @@ try:
     check("get_rotate_order(None), nothing selected -> {}",
           btk.XformUtils.get_rotate_order() == {})
 
+    # --- What the animation moves (btk.XformUtils.moving: what a lightmap bake leaves out), and the rest pose
+    # (btk.XformUtils.at_rest: what a bake and an export read). Mirror of mayatk's TestMovingAndAtRest.
+    scene = bpy.context.scene
+    scene.frame_start, scene.frame_end = 1, 48
+    door = bpy.data.objects.new("mv_door", None)
+    scene.collection.objects.link(door)
+    door.rotation_euler = (0.0, 0.0, 0.0)
+    door.keyframe_insert("rotation_euler", index=2, frame=1)
+    door.rotation_euler = (0.0, 0.0, -1.2)
+    door.keyframe_insert("rotation_euler", index=2, frame=24)
+
+    def mv_cube(name, parent=None):
+        bpy.ops.mesh.primitive_cube_add()
+        made = bpy.context.active_object
+        made.name = name
+        made.parent = parent
+        return made
+
+    panel = mv_cube("mv_panel", door)
+    wall = mv_cube("mv_wall")
+    flat = mv_cube("mv_flat")
+    flat.location.x = 2.0
+    flat.keyframe_insert("location", index=0, frame=1)
+    flat.keyframe_insert("location", index=0, frame=24)  # keyed, but holds one value
+    follower = mv_cube("mv_follower")
+    follower.constraints.new("COPY_LOCATION").target = panel
+    found = btk.XformUtils.moving([panel, wall, flat, follower])
+    check(
+        "moving: what a keyed parent carries and what a constraint drives, not a static or single-valued mesh",
+        sorted(found) == ["mv_follower", "mv_panel"],
+        f"{found}",
+    )
+    scene.frame_set(20)
+    with btk.XformUtils.at_rest():
+        inside = scene.frame_current
+    check("at_rest: the first frame inside, the frame put back after", (inside, scene.frame_current) == (1, 20),
+          f"{inside} {scene.frame_current}")
+
+    # at_rest: a subframe put back, and the frame put back when the block raises (Added: 2026-11-26).
+    scene.frame_set(20, subframe=0.25)
+    raised = False
+    try:
+        with btk.XformUtils.at_rest():
+            inside = (scene.frame_current, scene.frame_subframe)
+            raise ValueError("the block failed")
+    except ValueError:
+        raised = True
+    check("at_rest: the subframe it stood at put back, the block's error passed on",
+          raised and inside == (1, 0.0) and (scene.frame_current, round(scene.frame_subframe, 6)) == (20, 0.25),
+          f"{raised} {inside} {scene.frame_current} {scene.frame_subframe}")
+    scene.frame_set(1)
+
+    # moving: what an ArticulatedRig moves -- each part hangs on a deform bone (parent_type BONE) the armature
+    # drives from its control (pose.bones["..."] drivers). REGRESSION: bone parents were never read, so a rigged
+    # door was baked shut (Added: 2026-11-26).
+    from blendertk.rig_utils.articulated_rig import ArticulatedRig
+
+    rig_base = mv_cube("mv_rig_base")
+    rig_base.scale = (1.0, 1.0, 0.1)
+    rig_door = mv_cube("mv_rig_door")
+    rig_door.location = (0.0, 0.0, 1.2)
+    rig_door.scale = (1.0, 0.1, 1.0)
+    bpy.context.view_layer.update()
+    rigged = ArticulatedRig.create(
+        [[rig_base], [rig_door]],
+        [{"link": 1, "parent": 0, "type": "hinge", "position": [0.0, 0.0, 0.1], "aim": [0.0, 0.0, 1.0],
+          "normal": [1.0, 0.0, 0.0], "limits": {}, "weights": {}, "size": 1.0}],
+        name="mv_rig", end_control=False,
+    )
+    check("moving: a part on a rig's driven deform bone moves; the rig's root link does not",
+          rig_door.parent_type == "BONE" and btk.XformUtils.moving([rig_base, rig_door]) == ["mv_rig_door"],
+          f"{rig_door.parent_type} {btk.XformUtils.moving([rig_base, rig_door])}")
+
+    # A bone-parented part on a plain armature: its bone keyed, a bone it hangs under keyed, a constraint on its bone.
+    def mv_armature(name, bones):
+        data = bpy.data.armatures.new(name)
+        arm = bpy.data.objects.new(name, data)
+        scene.collection.objects.link(arm)
+        bpy.context.view_layer.objects.active = arm
+        bpy.ops.object.mode_set(mode="EDIT")
+        made = {}
+        for bone, parent in bones:
+            eb = data.edit_bones.new(bone)
+            eb.head, eb.tail = (0.0, 0.0, len(made)), (0.0, 0.0, len(made) + 1.0)
+            eb.parent = made.get(parent)
+            made[bone] = eb
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return arm
+
+    def on_bone(name, arm, bone):
+        part = mv_cube(name)
+        part.parent, part.parent_type, part.parent_bone = arm, "BONE", bone
+        return part
+
+    keyed_arm = mv_armature("mv_keyed_arm", [("upper", None), ("lower", "upper")])
+    upper = keyed_arm.pose.bones["upper"]
+    upper.rotation_mode = "XYZ"
+    upper.keyframe_insert("rotation_euler", index=0, frame=1)
+    upper.rotation_euler.x = 0.8
+    upper.keyframe_insert("rotation_euler", index=0, frame=24)
+    static_arm = mv_armature("mv_static_arm", [("held", None), ("pinned", None)])
+    static_arm.pose.bones["pinned"].constraints.new("COPY_ROTATION").target = door
+    on_upper, on_lower = on_bone("mv_on_upper", keyed_arm, "upper"), on_bone("mv_on_lower", keyed_arm, "lower")
+    on_held, on_pinned = on_bone("mv_on_held", static_arm, "held"), on_bone("mv_on_pinned", static_arm, "pinned")
+    found = btk.XformUtils.moving([on_upper, on_lower, on_held, on_pinned])
+    check("moving: a part on a keyed bone, on a bone under it, on a constrained bone; not one on a still bone",
+          sorted(found) == ["mv_on_lower", "mv_on_pinned", "mv_on_upper"], f"{found}")
+
+    # The kernel's reader (CoreUtils.animating_fcurves): an action in the NLA alone still plays; one assigned
+    # without a slot of its own plays nothing. A driver moves as a Maya expression does (Added: 2026-11-26).
+    pushed = mv_cube("mv_nla")
+    pushed.keyframe_insert("location", index=2, frame=1)
+    pushed.location.z = 3.0
+    pushed.keyframe_insert("location", index=2, frame=24)
+    action = pushed.animation_data.action
+    strip_slot = getattr(pushed.animation_data, "action_slot", None)
+    strip = pushed.animation_data.nla_tracks.new().strips.new("mv_nla", 1, action)
+    if strip_slot is not None and hasattr(strip, "action_slot"):
+        strip.action_slot = strip_slot
+    pushed.animation_data.action = None
+    borrower = mv_cube("mv_borrower")
+    borrower.animation_data_create()
+    borrower.animation_data.action = action  # its one slot is the NLA cube's
+    driven_cube = mv_cube("mv_driven")
+    driven_cube.driver_add("location", 0).driver.expression = "frame * 0.1"
+    found = btk.XformUtils.moving([pushed, borrower, driven_cube])
+    check("moving: an NLA-only action and a driver move; an action with no slot of this object's does not",
+          sorted(found) == ["mv_driven", "mv_nla"],
+          f"{found} slot={getattr(borrower.animation_data, 'action_slot', None)}")
+
+    # Deformed under a still transform (mirror of mayatk's deformers): keyed shape keys, a keyed modifier
+    # property, a lattice whose object moves; a shape key and a lattice at rest move nothing (Added: 2026-11-26).
+    keyed_keys = mv_cube("mv_shape_keys")
+    keyed_keys.shape_key_add(name="Basis")
+    smile = keyed_keys.shape_key_add(name="Smile")
+    smile.value = 0.0
+    smile.keyframe_insert("value", frame=1)
+    smile.value = 1.0
+    smile.keyframe_insert("value", frame=24)
+    still_keys = mv_cube("mv_still_keys")
+    still_keys.shape_key_add(name="Basis")
+    still_keys.shape_key_add(name="Held").value = 0.5
+    bent = mv_cube("mv_bent")
+    bend = bent.modifiers.new("Bend", "SIMPLE_DEFORM")
+    bend.angle = 0.0
+    bent.keyframe_insert('modifiers["Bend"].angle', frame=1)
+    bend.angle = 1.0
+    bent.keyframe_insert('modifiers["Bend"].angle', frame=24)
+
+    def mv_lattice(name, keyed):
+        lat = bpy.data.objects.new(name, bpy.data.lattices.new(name))
+        scene.collection.objects.link(lat)
+        if keyed:
+            lat.keyframe_insert("rotation_euler", index=2, frame=1)
+            lat.rotation_euler.z = 0.5
+            lat.keyframe_insert("rotation_euler", index=2, frame=24)
+        return lat
+
+    latticed, still_latticed = mv_cube("mv_latticed"), mv_cube("mv_still_latticed")
+    latticed.modifiers.new("Lattice", "LATTICE").object = mv_lattice("mv_lattice", True)
+    still_latticed.modifiers.new("Lattice", "LATTICE").object = mv_lattice("mv_still_lattice", False)
+    found = btk.XformUtils.moving([keyed_keys, still_keys, bent, latticed, still_latticed])
+    check("moving: keyed shape keys, a keyed modifier, a moving lattice; not still ones",
+          sorted(found) == ["mv_bent", "mv_latticed", "mv_shape_keys"], f"{found}")
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

@@ -60,20 +60,6 @@ try:
     import pythontk as ptk
     from blendertk.env_utils._env_utils import EnvUtils
 
-    # The old name of the shadows record's key: an alias, retired (removed
-    # in 0.21.0). Added: 2026-10-20
-    import warnings as _sm_warnings
-
-    with _sm_warnings.catch_warnings(record=True) as _sm_caught:
-        _sm_warnings.simplefilter("always")
-        _sm_key = ShadowRig.SHADOW_METADATA
-    check(
-        "SHADOW_METADATA: a deprecated alias of the shadows record's key",
-        _sm_key == ptk.SceneRecords.SHADOWS.key
-        and any("SHADOW_METADATA" in str(w.message) for w in _sm_caught),
-        [str(w.message) for w in _sm_caught],
-    )
-
     # Every map this suite writes lands in a throwaway project: an unsaved
     # file has no project of its own, and the rig never falls back to temp.
     _workspace_store = ptk.TempArtifacts("btk_shadow_ws", policy="session")

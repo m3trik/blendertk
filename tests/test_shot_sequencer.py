@@ -20,9 +20,9 @@ through (``SequencerHost``).  The panel's own checks -- its drag, delete, key
 menu, undo and scene-event handlers over this engine -- are tentacle's
 ``tests/blender/shot_sequencer_panel_check.py``.
 
-Run headless (fresh instance — session-safety rule):
-  & "C:\\Program Files\\Blender Foundation\\Blender 5.1\\blender.exe" --background \\
-    --factory-startup --python blendertk/tests/test_shot_sequencer.py
+Run headless (fresh instance — session-safety rule), through the runner, which
+puts the sibling repos (uitk) on Blender's path:
+  python blendertk/tests/run_tests.py test_shot_sequencer
 """
 
 import os
@@ -1473,7 +1473,7 @@ def _run_sequencer_checks():
     # ShotTransfer carries the ledger verbatim, so a scene pulled through the
     # bridge holds claims naming Maya tangent types; written straight onto
     # kp.interpolation, "auto" raised TypeError on the first edit that moved a
-    # seam (2026-10-11, SOL_REPLACE_ASSEMBLY pulled into Blender 5.1).
+    # seam (2026-10-11, a production scene pulled into Blender 5.1).
     _o, _st, _sq = _seam_scene(
         "ForeignHold",
         [("A", 0, 50), ("B", 60, 100)],
@@ -3872,7 +3872,7 @@ def _run_sequencer_checks():
     )
 
     # A curve holding only behavior claims was swept by neither the hold nor
-    # the boundary pass, so its claims outlived it (SOL_REPLACE_ASSEMBLY, Maya:
+    # the boundary pass, so its claims outlived it (a production scene, Maya:
     # 399 on 24 curves the scene no longer had).  A deleted owner's claims go;
     # a renamed owner's are re-keyed first, not forgotten.
     st, sq, obs = fresh({"dcGone": {0: 0.0, 10: 1.0}, "dcOld": {0: 0.0, 10: 1.0}})
@@ -4717,6 +4717,111 @@ def _run_sequencer_checks():
         and sq.ledger.curves == {ar_key},
         f"followed={ar_follows} {sq.ledger.to_dict()}",
     )
+
+    # ---- a shared-cut gap opened, closed and opened again (the user,
+    # 2026-11-22: "a gap of 0 that could be adjusted to 20 then back to 0 and
+    # then to 10 without breaking any shot members or animation"; mayatk's
+    # twin: test_sequencer.py test_a_shared_cut_gap_opened_closed_and_opened_
+    # again_plays_the_same).  Every shot keeps its members and plays the same
+    # at each step; back at 0 the whole timeline plays as before, the only new
+    # keys on cut frames (the pins a seam gets as it opens).
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    rt_len = 40
+
+    def rt_keyed(name, index, keys, interpolation="BEZIER", path="location"):
+        obj = bpy.data.objects.get(name)
+        if obj is None:
+            bpy.ops.object.empty_add()
+            obj = bpy.context.active_object
+            obj.name = name
+        for t, v in keys:
+            getattr(obj, path)[index] = v
+            obj.keyframe_insert(data_path=path, index=index, frame=t)
+        for fc in AnimUtils.get_fcurves(obj):
+            if fc.data_path == path and fc.array_index == index:
+                for kp in fc.keyframe_points:
+                    kp.interpolation = interpolation
+        return (name, path, index)
+
+    def rt_curve(key):
+        name, path, index = key
+        return next(
+            fc
+            for fc in AnimUtils.get_fcurves(bpy.data.objects[name])
+            if fc.data_path == path and fc.array_index == index
+        )
+
+    rt_keys = [
+        rt_keyed("ramp", 0, [(0, 0), (40, 4), (80, 1), (120, 7), (160, 2)]),
+        rt_keyed("held", 1, [(10, 0), (30, 3), (40, 3), (70, 9), (80, 9)]),
+        rt_keyed("jump", 2, [(0, 0), (40, 5), (80, 5)], "CONSTANT"),
+        rt_keyed("cross", 2, [(10, 0), (70, 0.7), (150, -0.4)], path="rotation_euler"),
+        rt_keyed("loose", 0, [(20, 0), (60, 5), (100, 1)]),
+    ]
+    rt_members = {
+        "A": ["ramp", "held", "jump", "cross"],
+        "B": ["ramp", "held", "jump", "cross"],
+        "C": ["ramp", "cross"],
+        "D": ["ramp", "cross"],
+    }
+    ShotStore.clear_active()
+    rt_store = ShotStore()
+    for i, n in enumerate("ABCD"):
+        rt_store.define_shot(n, i * rt_len, (i + 1) * rt_len, objects=list(rt_members[n]))
+    rt_store.gap = 0.0
+    rt_seq = ShotSequencer(rt_store)
+
+    def rt_plays():
+        return {
+            s.name: {
+                k: [rt_curve(k).evaluate(s.start + f) for f in range(rt_len + 1)]
+                for k in rt_keys
+                if k[0] in s.objects or k[0] == "loose"
+            }
+            for s in rt_store.sorted_shots()
+        }
+
+    def rt_timeline():
+        return {k: [rt_curve(k).evaluate(f) for f in range(4 * rt_len + 1)] for k in rt_keys}
+
+    def rt_times():
+        return {k: {round(kp.co[0], 3) for kp in rt_curve(k).keyframe_points} for k in rt_keys}
+
+    def rt_worst(a, b):
+        if isinstance(a, dict):
+            if set(a) != set(b):
+                return float("inf")
+            return max((rt_worst(a[k], b[k]) for k in a), default=0.0)
+        if len(a) != len(b):
+            return float("inf")
+        return max((abs(x - y) for x, y in zip(a, b)), default=0.0)
+
+    rt_before, rt_whole, rt_keys0 = rt_plays(), rt_timeline(), rt_times()
+    rt_cuts = {float(rt_len), 2.0 * rt_len, 3.0 * rt_len}
+    for gap in (20, 0, 10, 0):
+        rt_store.gap = float(gap)
+        rt_seq.apply_gap(float(gap), scope="all")
+        layout = [(s.name, s.start, s.end) for s in rt_store.sorted_shots()]
+        want = [(n, i * (rt_len + gap), i * (rt_len + gap) + rt_len) for i, n in enumerate("ABCD")]
+        held = {s.name: sorted(s.objects) for s in rt_store.sorted_shots()}
+        off = rt_worst(rt_plays(), rt_before)
+        check(
+            f"gap round trip: at {gap} every shot keeps its bounds, members and playback",
+            layout == want
+            and held == {n: sorted(m) for n, m in rt_members.items()}
+            and off < 1e-4,
+            f"layout={layout} members={held} worst={off}",
+        )
+        if gap == 0:
+            off = rt_worst(rt_timeline(), rt_whole)
+            now = rt_times()
+            lost = {k: rt_keys0[k] - now[k] for k in rt_keys if rt_keys0[k] - now[k]}
+            stray = {k: (now[k] - rt_keys0[k]) - rt_cuts for k in rt_keys if (now[k] - rt_keys0[k]) - rt_cuts}
+            check(
+                "gap round trip: back at 0 the timeline plays as before, no key lost, new keys only on cuts",
+                off < 1e-4 and not lost and not stray,
+                f"worst={off} lost={lost} stray={stray}",
+            )
 
     ShotStore.clear_active()
     ShotStore._prefs_dir_override = None
