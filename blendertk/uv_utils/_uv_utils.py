@@ -64,6 +64,10 @@ class PackUvsResult:
     targets: List = field(default_factory=list)
     # The UDIM tile grid packed into: Blender's packer has no grid.
     tiles: Tuple[int, int] = (1, 1)
+    # The meshes another engine packed instead, and why (mirror of mayatk's):
+    # neither of Blender's packers hands off, so always empty.
+    fallbacks: List[str] = field(default_factory=list)
+    fallback_reason: str = ""
 
     def __bool__(self) -> bool:
         return bool(self.succeeded)
@@ -100,6 +104,10 @@ class UnfoldResult:
 # ``UvDiagnostics.find_lightmap_uv_set`` so a pre-existing / artist lightmap layer is REUSED
 # (not duplicated) — real scenes don't name it uniformly.
 LIGHTMAP_UV_SET = "Lightmap"
+#: The mesh property naming a lightmap layer this pipeline made, the key of
+#: mayatk's shape tag (``UvDiagnostics.LIGHTMAP_UV_TAG``): the baker may re-lay
+#: such a layer to fill its atlas cell (``LightmapBaker._refittable``).
+LIGHTMAP_UV_TAG = "lightmapUVSet"
 _LIGHTMAP_UV_NAMES = ("lightmap", "lightmapuv", "uv2", "uvchannel_2", "uvmap.001")
 #: Overlapping texels a lightmap layout may carry and still count as clean: a sample
 #: lying exactly on the boundary two islands share is claimed by both.
@@ -111,6 +119,142 @@ LIGHTMAP_OVERLAP_TOLERANCE: float = 1e-3
 
 class _UvUtilsInternal(object):
     """Internal helpers for UvUtils."""
+
+    #: Blender's pack footprints, tightest first: ``pack_uvs`` takes the first
+    #: whose layout leaves no island on another. CONCAVE (the default) can miss
+    #: a folded face (measured, Blender 5.1: a cube with one folded face after
+    #: ``average_islands_scale``, 10,585 texels on another island); its hull
+    #: (CONVEX) and its box (AABB) cover it.
+    PACK_SHAPES = ("CONCAVE", "CONVEX", "AABB")
+
+    @staticmethod
+    def _loop_uvs(obj):
+        """The active UV layer's per-loop coordinates, ``(loops, 2)`` float32
+        (object mode: in edit mode the mesh's layer reads empty)."""
+        import numpy as np
+
+        data = obj.data.uv_layers.active.data
+        uv = np.empty(len(data) * 2, dtype=np.float32)
+        data.foreach_get("uv", uv)
+        return uv.reshape(-1, 2)
+
+    @staticmethod
+    def _set_loop_uvs(obj, uv) -> None:
+        obj.data.uv_layers.active.data.foreach_set("uv", uv.reshape(-1))
+        obj.data.update()
+
+    @classmethod
+    def _loop_layout(cls, obj, areas: bool = False):
+        """*obj*'s active UV layer as ``ptk.UvPack`` takes a layout: ``(uvs,
+        triangles, loop ids, triangle world areas or None)`` -- a UV per vertex
+        and coordinate, so faces sharing both are one island (as Blender's own
+        island linking makes them), *loop ids* mapping each loop onto its UV.
+        ``None`` without a layer or a triangle."""
+        import numpy as np
+
+        mesh = obj.data
+        if mesh.uv_layers.active is None:
+            return None
+        mesh.calc_loop_triangles()
+        count = len(mesh.loop_triangles)
+        if not count:
+            return None
+        uv = cls._loop_uvs(obj).astype(np.float64)
+        vert = np.empty(len(mesh.loops), dtype=np.int64)
+        mesh.loops.foreach_get("vertex_index", vert)
+        loops = np.empty(count * 3, dtype=np.int64)
+        mesh.loop_triangles.foreach_get("loops", loops)
+        key = np.column_stack([vert, np.round(uv * 1e6).astype(np.int64)])
+        _, first, ids = np.unique(key, axis=0, return_index=True, return_inverse=True)
+        ids = ids.reshape(-1)
+        world = None
+        if areas:
+            co = np.empty(len(mesh.vertices) * 3, dtype=np.float32)
+            mesh.vertices.foreach_get("co", co)
+            m = np.asarray(obj.matrix_world, dtype=np.float64)
+            pts = co.astype(np.float64).reshape(-1, 3) @ m[:3, :3].T + m[:3, 3]
+            p = pts[vert[loops]].reshape(-1, 3, 3)
+            world = np.linalg.norm(np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]), axis=1) / 2
+        return uv[first], ids[loops].reshape(-1, 3), ids, world
+
+    @classmethod
+    def _island_overlaps(cls, meshes, map_size: int, corner=(0.0, 0.0)) -> int:
+        """Texels where two islands of *meshes*' active UV layers meet, across
+        all of them (``ptk.UvPack.island_overlaps``, the check mayatk holds its
+        packs to); *corner* the UDIM tile's lower-left (:meth:`_loop_layout`'s
+        islands). Linked duplicates share one mesh, so one layout: read once."""
+        import numpy as np
+
+        layouts, seen = [], set()
+        for obj in meshes:
+            if obj.data.name_full in seen:
+                continue
+            seen.add(obj.data.name_full)
+            layout = cls._loop_layout(obj)
+            if layout is not None:
+                uvs, tris, _ids, _areas = layout
+                layouts.append((uvs - np.asarray(corner, dtype=np.float64), tris))
+        return ptk.UvPack.island_overlaps(layouts, map_size)
+
+    @classmethod
+    def _xatlas_pack(
+        cls, meshes, map_size, udim, coverage, rotate, brute_force, preserve_3d, padding
+    ):
+        """:meth:`UvUtils.pack_uvs`' xatlas engine (mirror of mayatk's)."""
+        import numpy as np
+
+        ptk.UvPack.resolve(required=True)
+        shared = {}  # a mesh several objects share packs once
+        for obj in meshes:
+            if obj.data.uv_layers.active is not None:
+                shared.setdefault(obj.data.name_full, obj)
+        layouts, owners = [], []
+        failed = [(o.name, "no UV map") for o in meshes if o.data.uv_layers.active is None]
+        for obj in shared.values():
+            layout = cls._loop_layout(obj, areas=preserve_3d)
+            if layout is None:
+                failed.append((obj.name, "no UV-mapped faces"))
+                continue
+            layouts.append(layout)
+            owners.append(obj)
+        if not layouts:
+            return PackUvsResult(engine="xatlas", failed=failed)
+        pages, resolution, place = ptk.UvPack.box_pages(
+            map_size, coverage, ptk.MathUtils.uv_tile_margin(map_size)
+        )
+        if padding is None:
+            padding = cls.calculate_uv_padding(map_size)
+        packed = ptk.UvPack.pack_islands(
+            [(uvs, tris) for uvs, tris, _ids, _a in layouts],
+            padding=int(round(padding)),
+            rotate=rotate,
+            brute_force=brute_force,
+            resolution=resolution,
+            pages=pages,
+            **({"surface_areas": [a for *_r, a in layouts]} if preserve_3d else {}),
+        )
+        placed = [place(uvs, page) for uvs, page in zip(packed.uvs, packed.pages)]
+        overlap = ptk.UvPack.island_overlaps(
+            [(p, tris) for p, (_u, tris, _i, _a) in zip(placed, layouts)], map_size
+        )
+        if overlap:
+            why = f"the pack put {overlap} texel(s) of islands on each other; nothing written"
+            return PackUvsResult(
+                engine="xatlas", failed=failed + [(o.name, why) for o in owners]
+            )
+        corner = np.asarray(ptk.MathUtils.udim_to_tile(udim), dtype=np.float64)
+        for obj, uvs, (_u, _t, ids, _a) in zip(owners, placed, layouts):
+            cls._set_loop_uvs(obj, (uvs[ids] + corner).astype(np.float32))
+        packed_names = {o.data.name_full for o in owners}
+        done = [o for o in meshes if o.data.name_full in packed_names]
+        return PackUvsResult(
+            engine="xatlas",
+            succeeded=[o.name for o in done],
+            failed=failed,
+            atlas_width=int(packed.width),
+            atlas_height=int(packed.height),
+            targets=done,
+        )
 
     @staticmethod
     def _uv_edit(obj, fn):
@@ -547,9 +691,14 @@ class UvUtils(_UvUtilsInternal):
 
     #: The :meth:`pack_uvs` options each packer honors beyond the shared ones
     #: (``map_size``, ``udim``, ``coverage``, ``preserve_3d``): a panel offers,
-    #: and sends, an option only while the chosen packer takes it. Blender has
-    #: one, ``uv.pack_islands``. Mirror of mayatk's.
-    PACK_ENGINES = {"standard": ("rotate", "margin")}
+    #: and sends, an option only while the chosen packer takes it: Blender's
+    #: ``uv.pack_islands`` and xatlas. Mirror of mayatk's, but for Skip
+    #: Instances: linked duplicates always share one map, which a pack edits
+    #: once, so there is nothing for it to switch.
+    PACK_ENGINES = {
+        "standard": ("rotate", "margin"),
+        "xatlas": ("rotate", "brute_force"),
+    }
 
     @staticmethod
     def calculate_uv_padding(map_size: int, normalize: bool = False, factor: int = 256):
@@ -1522,6 +1671,10 @@ class UvUtils(_UvUtilsInternal):
                     me.uv_layers.active = active
             layer.data.foreach_set("uv", buf)
             me.update()
+            if layer.name == UvUtils.find_lightmap_uv_set(obj):
+                # Mirror of mayatk's: a lightmap that arrived is marked as a
+                # lightmap made here, indistinguishable downstream.
+                me[LIGHTMAP_UV_TAG] = layer.name
             applied[key] = layer.name
             if not quiet:
                 print(
@@ -1625,6 +1778,9 @@ class UvUtils(_UvUtilsInternal):
                             )
                         finally:
                             bpy.ops.object.mode_set(mode="OBJECT")
+                    # Marked as made here (mayatk's ``lightmapUVSet`` tag, its
+                    # key): the baker may re-lay it to fill its atlas cell.
+                    me[LIGHTMAP_UV_TAG] = name
                     # The regenerated layout answers to the check that sent it
                     # here (mirror of mayatk's): an unwrap can still overlap, and
                     # faces sharing texels mix each other's light. Named loudly.
@@ -2184,6 +2340,7 @@ class UvUtils(_UvUtilsInternal):
     @classmethod
     @CoreUtils.undoable
     @CoreUtils.selected
+    @CoreUtils._object_mode  # the layout is read and checked between the packs
     def pack_uvs(
         cls,
         objects=None,
@@ -2195,13 +2352,21 @@ class UvUtils(_UvUtilsInternal):
         padding=None,
         engine: str = "standard",
         margin=None,
+        brute_force: bool = False,
     ):
         """Pack the meshes' UV islands into a UDIM tile: Blender's
         ``uv.pack_islands`` over every face, then the map moved into the target
         tile and shrunk to its coverage. One undo step. Mirror of mayatk's
-        ``UvUtils.pack_uvs``; Blender has one packer, whose options are
-        :attr:`PACK_ENGINES`' (mayatk's u3dLayout / xatlas options have no
-        counterpart in ``pack_islands``).
+        ``UvUtils.pack_uvs``; :attr:`PACK_ENGINES` names each packer's options.
+
+        ``engine="xatlas"`` packs as mayatk's xatlas engine does
+        (``ptk.UvPack``): the box is square pages of exactly its cells' pixel
+        size (``ptk.UvPack.box_pages``), density evened from each triangle's
+        world area under *preserve_3d*, every island moved as one piece, the
+        layout checked for islands on each other before anything is written
+        (``ptk.UvPack.island_overlaps``; nothing written when it fails). A
+        mesh several objects share is packed once, by either packer: its
+        objects read one map (mayatk's *skip_instances*, so always on here).
 
         Parameters:
             objects: Mesh object(s). None uses the selection.
@@ -2219,12 +2384,19 @@ class UvUtils(_UvUtilsInternal):
                 (``uv.average_islands_scale``).
             padding (float): Island gutter in pixels (mayatk's); None derives it
                 from *map_size*.
-            engine (str): ``"standard"``, the one packer (any name packs with it).
-            margin (float): Island gutter in UV units; wins over *padding*.
+            engine (str): ``"standard"`` (Blender's packer) or ``"xatlas"``;
+                any other name packs with the standard one.
+            margin (float): Island gutter in UV units; wins over *padding*
+                (standard only).
+            brute_force (bool): xatlas only -- its exhaustive placement.
 
         Returns:
             (PackUvsResult): ``succeeded`` the meshes' names, ``targets`` the
-            meshes; ``[]`` with nothing selected.
+            meshes; ``[]`` with nothing selected. Every layout is held to the
+            check mayatk holds its packs to (no texel where two islands meet,
+            across the meshes): one that fails is packed again by each
+            island's hull, then its box (:attr:`PACK_SHAPES`), and put back as
+            it was, every mesh in ``failed``, if none passes.
 
         Raises:
             ValueError: No mesh among *objects*.
@@ -2237,32 +2409,54 @@ class UvUtils(_UvUtilsInternal):
         meshes = list(EditUtils._meshes(objects))
         if not meshes:
             raise ValueError("No mesh objects to pack.")
+        if engine == "xatlas":
+            return cls._xatlas_pack(
+                meshes, map_size, udim, coverage, rotate, brute_force, preserve_3d, padding
+            )
         if margin is None:
             margin = (
                 cls.calculate_uv_padding(map_size, normalize=True)
                 if padding is None
                 else padding / float(map_size)
             )
-        try:
-            with CoreUtils.edit_mode(meshes):
-                bpy.ops.mesh.select_all(action="SELECT")
-                if preserve_3d:
-                    bpy.ops.uv.average_islands_scale()
-                bpy.ops.uv.pack_islands(margin=margin, rotate=rotate)
-        except RuntimeError as error:  # a poll failure without a UV map
-            raise RuntimeError("No UVs found on the selection.") from error
+        original = {
+            o: cls._loop_uvs(o) for o in meshes if o.data.uv_layers.active is not None
+        }
         u_tile, v_tile = ptk.MathUtils.udim_to_tile(udim)
-        box = cls.get_uv_bounds(meshes)
-        if box is not None:
-            du, dv = u_tile - math.floor(box[0]), v_tile - math.floor(box[1])
-            if du or dv:
-                cls.move_uvs(meshes, du=float(du), dv=float(dv))
-            cu, cv = coverage
-            if cu != 1.0 or cv != 1.0:
-                cls.scale_uvs(meshes, su=cu, sv=cv, pivot=(float(u_tile), float(v_tile)))
-        return PackUvsResult(
-            engine="standard", succeeded=[o.name for o in meshes], targets=meshes
+        overlap = 0
+        for attempt, shape in enumerate(cls.PACK_SHAPES):
+            try:
+                with CoreUtils.edit_mode(meshes):
+                    bpy.ops.mesh.select_all(action="SELECT")
+                    if preserve_3d and not attempt:
+                        bpy.ops.uv.average_islands_scale()
+                    bpy.ops.uv.pack_islands(
+                        margin=margin, rotate=rotate, shape_method=shape
+                    )
+            except RuntimeError as error:  # a poll failure without a UV map
+                raise RuntimeError("No UVs found on the selection.") from error
+            box = cls.get_uv_bounds(meshes)
+            if box is not None:
+                du, dv = u_tile - math.floor(box[0]), v_tile - math.floor(box[1])
+                if du or dv:
+                    cls.move_uvs(meshes, du=float(du), dv=float(dv))
+                cu, cv = coverage
+                if cu != 1.0 or cv != 1.0:
+                    cls.scale_uvs(
+                        meshes, su=cu, sv=cv, pivot=(float(u_tile), float(v_tile))
+                    )
+            overlap = cls._island_overlaps(meshes, map_size, (u_tile, v_tile))
+            if not overlap:
+                return PackUvsResult(
+                    engine="standard", succeeded=[o.name for o in meshes], targets=meshes
+                )
+        for obj, uv in original.items():
+            cls._set_loop_uvs(obj, uv)
+        why = (
+            f"Blender's packer left {overlap} texel(s) of islands on each other "
+            f"with every footprint; restored"
         )
+        return PackUvsResult(engine="standard", failed=[(o.name, why) for o in meshes])
 
     @classmethod
     @CoreUtils.undoable

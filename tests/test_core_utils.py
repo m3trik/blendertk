@@ -1152,6 +1152,8 @@ try:
         "bmesh, not an Object's view-layer state",
         ("core_utils/diagnostics/mesh_diag.py", "_reselect_faces"): "BMFace.select_set "
         "on an edit bmesh, not an Object's view-layer state",
+        ("mat_utils/emissive_groups.py", "select"): "BMFace.select_set on an edit "
+        "bmesh (its objects' select_set passes view_layer=)",
         ("core_utils/_core_utils.py", "visible_override"): "reveals on the context's "
         "AND the window's layer on purpose",
         ("core_utils/diagnostics/scene_audit.py", "_visible"): "explicit view_layer "
@@ -1423,6 +1425,38 @@ try:
         "ensure_component_mode / ensure_object_mode work windowless (the Qt-pump state)",
         got is cm_mesh and pump_mode == "EDIT" and left is True and cm_mesh.mode == "OBJECT",
         f"got={getattr(got, 'name', got)} inside={pump_mode} after={cm_mesh.mode}",
+    )
+
+    # ---- animating_fcurves: the fcurves animating one ID, through the slot
+    # assigned to it (the kernel's reader, for a part below anim_utils: Emissive
+    # Groups reads a node tree's). A slotted action holding two IDs' channels
+    # hands each owner its own; a holder it gave no slot, none. Added: 2026-11-26
+    _owners = [bpy.data.objects.new(n, None) for n in ("anim_owner_a", "anim_owner_b", "anim_slotless")]
+    for _o in _owners:
+        bpy.context.scene.collection.objects.link(_o)
+    _a, _b, _c = _owners
+    _a.keyframe_insert("location", index=0, frame=1)
+    _shared = _a.animation_data.action
+    _b.animation_data_create()
+    _b.animation_data.action = _shared
+    _b.animation_data.action_slot = _shared.slots.new(id_type="OBJECT", name="anim_owner_b")
+    _b.keyframe_insert("rotation_euler", index=2, frame=1)
+    _c.animation_data_create()
+    _c.animation_data.action = _shared
+
+    def _channels(owner):
+        return sorted((fc.data_path, fc.array_index) for fc in btk.CoreUtils.animating_fcurves(owner))
+
+    check(
+        "animating_fcurves: each owner of one slotted action reads only its own channels",
+        len(_shared.slots) == 2
+        and (_channels(_a), _channels(_b), _channels(_c))
+        == ([("location", 0)], [("rotation_euler", 2)], []),
+        (len(_shared.slots), _channels(_a), _channels(_b), _channels(_c)),
+    )
+    check(
+        "animating_fcurves: an ID nothing animates has none",
+        btk.CoreUtils.animating_fcurves(bpy.data.objects.new("anim_none", None)) == [],
     )
 
     # ---- purge_unused_data: the shared Edit panel's Optimize (Blender)

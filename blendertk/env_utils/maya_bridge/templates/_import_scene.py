@@ -1133,7 +1133,7 @@ def stepped_keys(spell):
     ``MayaExportMixin.stepped_keys``, the one collector the Blender bridge's
     send uses too), read off the ORIGINAL scene before a bake rewrites the
     curves.  FBX carries the key but Blender's importer makes every key
-    LINEAR, so a hold arrived as a ramp to the next key (SOL_REPLACE_ASSEMBLY:
+    LINEAR, so a hold arrived as a ramp to the next key (a production scene:
     SCREWDRIVER steps at 12 and holds to 731; pulled, it moved the whole way).
     Guarded like :func:`scene_data_sections`: without mayatk on
     ``PYTHONPATH`` nothing is carried, and a printed line says so.

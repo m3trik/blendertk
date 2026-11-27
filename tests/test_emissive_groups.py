@@ -140,6 +140,103 @@ try:
         round(HOST.emission("hullMat_signal"), 6) == 2.0 and HOST.copies()["hullMat_signal"]["strength"] == 4.0,
     )
 
+    # --- what a check reads: a node's own settings too (reviewed 2026-11-24) ---
+    hull, panel = reset()
+    EmissiveGroups.add_group("signal", {"hull": [0]})
+    _base = bpy.data.materials["hullMat"]
+    _base.node_tree.nodes["glow"].interpolation = "Closest"
+    _ramp = _base.node_tree.nodes.new("ShaderNodeValToRGB")
+    _ramp.name = "ramp"
+    _found = EmissiveGroups.sync(check_only=True)
+    check(
+        "a check sees an image node's interpolation and a new colour ramp",
+        len(_found) == 1 and "glow:interpolation" in _found[0],
+        _found,
+    )
+    EmissiveGroups.sync()
+    _ramp.color_ramp.elements[0].position = 0.3
+    _found = EmissiveGroups.sync(check_only=True)
+    check("... and a ramp's stop moved", len(_found) == 1 and "ramp:color_ramp" in _found[0], _found)
+
+    # --- the selection, as Maya reads it (reviewed 2026-11-24) ---------------
+    hull, panel = reset()
+    for _p in hull.data.polygons:
+        _p.select = _p.index in (0, 1)  # flags an earlier edit left
+    for _o in bpy.context.view_layer.objects:
+        _o.select_set(_o == hull)
+    bpy.context.view_layer.objects.active = hull
+    EmissiveGroups.add_group("whole")
+    check(
+        "a selected object in Object Mode is all its faces, whatever flags an edit left",
+        EmissiveGroups.list_groups()["whole"]["faces"] == len(hull.data.polygons),
+        EmissiveGroups.list_groups(),
+    )
+    EmissiveGroups.remove_group("whole")
+    EmissiveGroups.add_group("part", {"hull": [2, 3]})
+    bpy.ops.object.mode_set(mode="EDIT")
+    EmissiveGroups.select_group("part")
+    import bmesh as _bmesh
+
+    _picked = sorted(f.index for f in _bmesh.from_edit_mesh(hull.data).faces if f.select)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check("Select in Edit Mode selects the group's faces there", _picked == [2, 3], _picked)
+
+    # --- an object outside the view layer still wears its copy ---------------
+    hull, panel = reset()
+    _away = bpy.data.collections.new("away")
+    bpy.context.scene.collection.children.link(_away)
+    bpy.ops.mesh.primitive_cube_add(location=(6, 0, 0))
+    _other = bpy.context.active_object
+    _other.name = "other"
+    _other.data.materials.append(bpy.data.materials["hullMat"])
+    for _col in list(_other.users_collection):
+        _col.objects.unlink(_other)
+    _away.objects.link(_other)
+    EmissiveGroups.add_group("signal", {"hull": [0], "other": [0]})
+    bpy.context.view_layer.layer_collection.children["away"].exclude = True
+    EmissiveGroups.remove_faces({"hull": [0]})
+    check(
+        "a copy an excluded collection's object wears is kept",
+        "hullMat_signal" in bpy.data.materials and wears(_other, 0) == "hullMat_signal",
+    )
+
+    def _select(group):
+        """Select *group*: the error it raised, or ``None``."""
+        try:
+            EmissiveGroups.select_group(group)
+        except Exception as error:  # the check names it
+            return repr(error)
+        return None
+
+    # Review (2026-11-26): Select made the group's first object active, and
+    # the layer refuses one it does not hold (an excluded collection's).
+    _error = _select("signal")
+    check(
+        "Select on a group only an excluded collection's object wears leaves no object active",
+        _error is None and bpy.context.view_layer.objects.active is None,
+        _error or bpy.context.view_layer.objects.active,
+    )
+    EmissiveGroups.add_group("signal", {"panel": [0]})  # after 'other' in the group's faces
+    _error = _select("signal")
+    _active = bpy.context.view_layer.objects.active
+    check(
+        "... and with one on the layer too, that one is made active",
+        _error is None and _active is not None and _active.name == "panel",
+        _error or _active,
+    )
+
+    # --- linked duplicates: one mesh's faces counted once --------------------
+    hull, panel = reset()
+    _twin = hull.copy()  # linked: one mesh
+    _twin.name = "twin"
+    bpy.context.scene.collection.objects.link(_twin)
+    EmissiveGroups.add_group("signal", {"hull": [0, 1]})
+    check(
+        "linked duplicates count a face once",
+        EmissiveGroups.list_groups()["signal"]["faces"] == 2,
+        EmissiveGroups.list_groups()["signal"],
+    )
+
     # --- remove restores the base; slots re-index ---------------------------
     hull, panel = reset()
     EmissiveGroups.add_group("a", {"hull": [0]})
@@ -554,6 +651,104 @@ try:
         and "error" not in _lc_seen,
         _lc_seen,
     )
+
+    # --- an indicator light's states (2026-11-24) ----------------------------
+    # Each state a tint (multiplying the base's Emission Color, keyed per
+    # channel) and a weight, keyed stepped; the copy in step while tinted; an
+    # export ships the tint channels, the states and the tint it shows, and
+    # the GLB plays weight x tint on the factor.
+    hull, panel = reset()
+    EmissiveGroups.add_group("led", {"panel": [0]})
+    EmissiveGroups.set_states("led")
+    for _frame, _state in ((1, "off"), (10, "green"), (20, "amber")):
+        EmissiveGroups.key_state("led", _state, frame=_frame)
+    _fcs = HOST._tint_fcurves("panelMat_led")
+    _at = lambda f: [round(fc.evaluate(f), 4) for fc in _fcs]
+    check("green: the base's colour times its tint", _at(15) == [0.0, 0.6, 0.0], _at(15))
+    check("amber", _at(25) == [0.2, 0.3, 0.0], _at(25))
+    check(
+        "a state switches, it never fades",
+        all(k.interpolation == "CONSTANT" for fc in _fcs + [HOST._fcurve("panelMat_led")] for k in fc.keyframe_points),
+    )
+    _tk = HOST.emission_tint_keys("panelMat_led")
+    check("the tint keys read back", [k[0] for k in _tk] == [1.0, 10.0, 20.0] and all(k[2] for k in _tk), _tk)
+    check("the base's colour is kept", [round(c, 4) for c in HOST.emission_color("panelMat_led")] == [0.2, 0.6, 1.0])
+    check("a tinted copy is in step", EmissiveGroups.sync(check_only=True) == [], EmissiveGroups.sync(check_only=True))
+    bpy.context.scene.frame_set(25)
+    check("the state it shows", EmissiveGroups.list_groups()["led"]["state"] == "amber", EmissiveGroups.list_groups())
+    _bsdf = next(n for n in bpy.data.materials["panelMat"].node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+    _bsdf.inputs["Emission Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+    _found = EmissiveGroups.sync(check_only=True)
+    check("a changed base colour is out of step", len(_found) == 1 and "emission colour" in _found[0], _found)
+    EmissiveGroups.sync()
+    _fcs = HOST._tint_fcurves("panelMat_led")
+    check("synced: amber against the new colour", _at(25) == [1.0, 0.5, 0.0], _at(25))
+    check("synced: the states kept", sorted(HOST.emission_states("panelMat_led")) == sorted(EmissiveGroups.DEFAULT_STATES))
+    check("in step after", EmissiveGroups.sync(check_only=True) == [], EmissiveGroups.sync(check_only=True))
+    _refused = ""
+    EmissiveGroups.add_group("lamp", {"hull": [0]})
+    try:
+        EmissiveGroups.set_tint("lamp", [1.0, 0.0, 0.0])
+    except ValueError as e:
+        _refused = str(e)
+    check("a mapped emission colour is refused a tint by name", "map" in _refused, _refused)
+    check("its defaults are its weight's", sorted(EmissiveGroups.set_states("lamp")) == ["off", "on"])
+    # A colour with a black channel: no tint lights it (review 2026-11-24: an
+    # amber base read a stored 0 as 1, so a joining copy glowed cyan).
+    _amber = material("amberMat", color=(1.0, 0.5, 0.0))
+    panel.data.materials.append(_amber)
+    HOST.assign("amberMat", {"panel": [3]})
+    EmissiveGroups.add_group("amber_led", {"panel": [3]})
+    check(
+        "a black channel is refused a tint by name",
+        "black channel" in (HOST.tint_refusal("amberMat_amber_led") or ""),
+        HOST.tint_refusal("amberMat_amber_led"),
+    )
+
+    _fbx = os.path.join(_out, "states.fbx")
+    with FbxUtils.export_prepared(FbxUtils.export_context(), stagers=("render_effects",)):
+        _staged = sorted(o.name for o in bpy.data.objects if o.get("emissiveGroupProxy"))
+        FbxUtils.apply_takes([("ShotA", 1, 24)])
+        FbxUtils.export(
+            filepath=_fbx,
+            objects=[hull, panel, DataNodes.EXPORT],
+            selection_only=True,
+            bake_anim=True,
+            object_types={"MESH", "EMPTY"},
+        )
+    check(
+        "the weight and each tint channel are staged",
+        _staged == [f"panelMat_led__{c}" for c in ("emission", "tint_b", "tint_g", "tint_r")],
+        _staged,
+    )
+    _file = ptk.FbxFile.load(_fbx, decode_arrays=ptk.FbxFile.CURVE_ARRAYS)
+    _raw = [v for _o, k, v in _file.user_property_items() if k == ptk.SceneRecords.VISIBILITY.key]
+    _entry = next((e for e in json.loads(bytes(_raw[0]).decode("utf-8"))["materials"] if e["material"] == "panelMat_led"), {})
+    check(
+        "the record names the tint channels, the states and the tint it shows",
+        _entry.get("channels") == ["emission", "tint_r", "tint_g", "tint_b"]
+        and [s["name"] for s in _entry.get("states", [])] == ["off", "green", "blue", "amber", "red"]
+        and len(_entry.get("tint") or []) == 3,
+        _entry,
+    )
+    _curves = ptk.MeshConvert.render_effect_curves(_file).get("ShotA", {})
+    _g = [round(v, 3) for _t, v, _i in _curves.get(("panelMat_led", "tint_g"), [])]
+    check("the tint rides its proxy, as the tint", 1.0 in _g and 0.5 in _g, _g)
+    _verdict = ptk.ExportVerifier(fbx=_fbx, sidecar=None).run(["check_fbx_render_effects", "check_fbx_records"])
+    check("the record and the tint proxies agree", _verdict.ok, _verdict.summary())
+    _glb = os.path.join(_out, "states.glb")
+    ptk.MeshConvert.fbx_to_glb(_fbx, dst=_glb, overwrite=True, prompt=False, lightmaps=False)
+    with ptk.MeshConvert.open_glb(_glb) as _edit:
+        _gltf = _edit.gltf
+    _names = [m.get("name") for m in _gltf.get("materials", [])]
+    _index = _names.index("panelMat_led") if "panelMat_led" in _names else -1
+    _ptrs = [
+        c["target"]["extensions"]["KHR_animation_pointer"]["pointer"]
+        for a in _gltf.get("animations", [])
+        for c in a["channels"]
+        if c["target"].get("path") == "pointer"
+    ]
+    check("the GLB plays the states on the factor, once", _ptrs.count(f"/materials/{_index}/emissiveFactor") == 1, _ptrs)
 
 except Exception:
     traceback.print_exc()

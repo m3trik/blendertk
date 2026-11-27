@@ -312,28 +312,6 @@ try:
         and DataNodes.read(DELIVERABLE, "wire2") == "def",
     )
     check("ensure_export is idempotent", DataNodes.ensure_export() is carrier)
-    import warnings as _warnings
-
-    # The old name of the shot record's key: an alias, retired (removed in
-    # 0.21.0). Added: 2026-10-20
-    with _warnings.catch_warnings(record=True) as _caught:
-        _warnings.simplefilter("always")
-        _shot_key = DataNodes.SHOT_METADATA
-    check(
-        "SHOT_METADATA: a deprecated alias of the shot record's key (mtk parity)",
-        _shot_key == ptk.SceneRecords.SHOTS.key == "animation"
-        and any("SHOT_METADATA" in str(w.message) for w in _caught),
-        [str(w.message) for w in _caught],
-    )
-    with _warnings.catch_warnings(record=True) as _caught:
-        _warnings.simplefilter("always")
-        _retired = DataNodes.FBX_TAKES
-    check(
-        "...and FBX_TAKES a deprecated alias of the retired key",
-        _retired == "fbx_takes"
-        and any(issubclass(w.category, DeprecationWarning) for w in _caught),
-        [str(w.message) for w in _caught],
-    )
     # remove() deletes the property outright -- write(None) only clears it --
     # so a migration leaves no emptied old key behind. Added: 2026-10-20
     DataNodes.write(DELIVERABLE, "gone", "x")

@@ -23,10 +23,17 @@ stages each animated copy's weight on a ``<material>__emission`` Empty under
 the ``data_export`` carrier (``FbxUtils.stage_curve_proxy``), removed after
 the write.
 
+A tint multiplies the Principled BSDF's unlinked ``Emission Color``: the copy
+keeps the base's colour (``emissiveGroupColour`` on its tree) and its colour
+channels are that colour times the tint, keyed per channel in its tree's
+action; ``emissiveGroupStates`` holds its named states as JSON. A colour with
+a black channel is refused a tint: no tint lights it.
+
 ``import bpy`` is deferred into the call bodies (no import side effects).
 """
 
-from typing import Any, Dict, List, Optional
+import json
+from typing import Any, Dict, List, Optional, Sequence
 
 import pythontk as ptk
 
@@ -42,18 +49,67 @@ class _BlenderEmissiveGroupsInternal:
     TAG_GROUP = "emissiveGroup"
     TAG_BASE = "emissiveGroupBase"
     TAG_STRENGTH = "emissiveGroupStrength"
+    #: A tinted copy's base emission colour: what its tint multiplies.
+    TAG_COLOUR = "emissiveGroupColour"
+    #: A copy's named states, ``{name: {"tint", "weight"}}`` as JSON.
+    TAG_STATES = "emissiveGroupStates"
     #: Marks the weight proxies this tool stages (beside the transport's own
     #: marker), so its cleanup takes only its own.
     PROXY_MARKER = "emissiveGroupProxy"
     #: Material settings a copy keeps in step with its base, beside its nodes.
     SETTINGS = ("surface_render_method", "blend_method", "use_backface_culling", "alpha_threshold")
+    #: Node properties that are the editor's (where a node sits, how it is
+    #: drawn), never the material's: left out of what a copy keeps in step.
+    EDITOR_PROPS = frozenset(
+        {
+            "name", "label", "location", "width", "width_hidden", "height",
+            "dimensions", "select", "show_options", "show_preview",
+            "show_texture", "hide", "color", "use_custom_color", "parent",
+            "location_absolute", "warning_propagation", "is_active_output",
+        }
+    )
+
+    @classmethod
+    def _node_settings(cls, node) -> Dict[str, Any]:
+        """*node*'s own settings, generically: every editable plain property
+        (an image node's interpolation and extension, a math node's
+        operation, ``mute``) and a colour ramp's stops. A base whose ramp or
+        interpolation changed read as in step when only sockets, images and
+        links were compared."""
+        out: Dict[str, Any] = {}
+        for prop in node.bl_rna.properties:
+            key = prop.identifier
+            if key in cls.EDITOR_PROPS or key.startswith("bl_") or prop.is_readonly:
+                continue
+            if prop.type not in ("BOOLEAN", "INT", "FLOAT", "STRING", "ENUM"):
+                continue
+            value = getattr(node, key, None)
+            if isinstance(value, set):
+                value = sorted(value)
+            elif hasattr(value, "__len__") and not isinstance(value, str):
+                value = [float(v) for v in value]
+            out[key] = value
+        ramp = getattr(node, "color_ramp", None)
+        if ramp is not None:
+            out["color_ramp"] = [ramp.interpolation, ramp.color_mode] + [
+                [float(e.position)] + [float(c) for c in e.color] for e in ramp.elements
+            ]
+        return out
 
     @staticmethod
-    def _mesh_objects():
-        """Every mesh object the view layer holds (window-independent: the Qt
-        pump runs the panel where ``bpy.context.window`` is ``None``)."""
-        layer = CoreUtils.active_view_layer()
-        return [o for o in layer.objects if o and o.type == "MESH"] if layer else []
+    def _mesh_objects(editable: bool = False):
+        """Every mesh object in the file: one in an excluded collection or
+        another scene still wears its materials (counted on the view layer
+        alone, a copy only it wore was deleted from under it). *editable*:
+        only those whose object and mesh no library holds."""
+        import bpy
+
+        return [
+            o
+            for o in bpy.data.objects
+            if o.type == "MESH"
+            and not (editable and (o.library is not None or o.data.library is not None))
+        ]
 
     @staticmethod
     def _carrier():
@@ -124,24 +180,70 @@ class _BlenderEmissiveGroupsInternal:
     @classmethod
     def _fcurve(cls, material: str):
         """The fcurve keying *material*'s emission scalar, or ``None``: its node
-        tree's, read slot-aware and legacy-safe (``AnimUtils.get_fcurves``)."""
-        from blendertk.anim_utils._anim_utils import AnimUtils
-
+        tree's, read slot-aware and legacy-safe (``CoreUtils.animating_fcurves``)."""
         mat = cls._mat(material)
         socket = cls._socket(material)
         tree = getattr(mat, "node_tree", None)
         if socket is None or tree is None:
             return None
         path = cls._path(socket)
-        return next((f for f in AnimUtils.get_fcurves([tree]) if f.data_path == path), None)
+        return next((f for f in CoreUtils.animating_fcurves(tree) if f.data_path == path), None)
+
+    @classmethod
+    def _colour_socket(cls, material: str):
+        """*material*'s Principled ``Emission Color`` socket, or ``None``."""
+        found = cls._surface(cls._mat(material))
+        return found[2] if found else None
+
+    @classmethod
+    def _tint_fcurves(cls, material: str) -> List[Any]:
+        """The fcurves keying *material*'s emission colour, r, g and b
+        (``None`` for a channel not keyed); empty when it has no colour."""
+        mat = cls._mat(material)
+        socket = cls._colour_socket(material)
+        tree = getattr(mat, "node_tree", None)
+        if socket is None or tree is None:
+            return []
+        path = cls._path(socket)
+        found = {f.array_index: f for f in CoreUtils.animating_fcurves(tree) if f.data_path == path}
+        return [found.get(c) for c in range(3)]
+
+    @classmethod
+    def _tint_reference(cls, material: str) -> List[float]:
+        """What a tint multiplies: a tinted copy's stored base colour, else
+        (a base, a copy never tinted) its own emission colour now."""
+        tree = cls._mat(material).node_tree
+        if cls.TAG_COLOUR in tree:
+            return [float(c) for c in tree[cls.TAG_COLOUR]][:3]
+        return [float(c) for c in list(cls._colour_socket(material).default_value)[:3]]
+
+    @staticmethod
+    def _over(values: Sequence[float], reference: Sequence[float]) -> List[float]:
+        """*values* over *reference* per channel; a channel the reference
+        leaves black shows no tint, and reads 1."""
+        return [float(v) / r if r > 1e-9 else 1.0 for v, r in zip(values, reference)]
+
+    @classmethod
+    def _ensure_tint_reference(cls, material: str) -> None:
+        """Keep *material*'s colour as what its tint multiplies, once."""
+        tree = cls._mat(material).node_tree
+        if cls.TAG_COLOUR not in tree:
+            tree[cls.TAG_COLOUR] = cls._tint_reference(material)
+
+    @staticmethod
+    def _step_key(fc, frame: float) -> None:
+        """Hold *fc*'s key at *frame* until the next (a state's switch)."""
+        for point in fc.keyframe_points if fc is not None else ():
+            if abs(point.co[0] - frame) < 1e-4:
+                point.interpolation = "CONSTANT"
+        if fc is not None:
+            fc.update()
 
     @classmethod
     def _remove_fcurve(cls, material: str, fc) -> None:
-        """Remove *fc* from *material*'s node tree's action (``AnimUtils.remove_fcurve``)."""
-        from blendertk.anim_utils._anim_utils import AnimUtils
-
-        ad = cls._mat(material).node_tree.animation_data
-        AnimUtils.remove_fcurve(ad.action, getattr(ad, "action_slot", None), fc)
+        """Remove *fc* from *material*'s node tree's action (the kernel's
+        ``CoreUtils.remove_animating_fcurve``)."""
+        CoreUtils.remove_animating_fcurve(cls._mat(material).node_tree, fc)
 
     @classmethod
     def _fresh_copy(cls, base, name: str):
@@ -151,7 +253,7 @@ class _BlenderEmissiveGroupsInternal:
         copy = base.copy()
         copy.name = name
         tree = getattr(copy, "node_tree", None)
-        for key in (cls.TAG_GROUP, cls.TAG_BASE, cls.TAG_STRENGTH):
+        for key in (cls.TAG_GROUP, cls.TAG_BASE, cls.TAG_STRENGTH, cls.TAG_COLOUR, cls.TAG_STATES):
             if tree is not None and key in tree:
                 del tree[key]
         ad = getattr(tree, "animation_data", None)
@@ -160,6 +262,13 @@ class _BlenderEmissiveGroupsInternal:
             fc = cls._fcurve(copy.name)
             if fc is not None:
                 cls._remove_fcurve(copy.name, fc)
+            # A keyed base colour stays its base's: the copy's colour channels
+            # are its tint's to key, at the value they show now.
+            socket = cls._colour_socket(copy.name)
+            for fc in [f for f in cls._tint_fcurves(copy.name) if f is not None]:
+                value = list(socket.default_value)
+                cls._remove_fcurve(copy.name, fc)
+                socket.default_value = value
         return copy
 
     @classmethod
@@ -204,9 +313,12 @@ class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal, ptk.PureEmissiveGrou
             for obj in CoreUtils.selected_objects():
                 if obj.type != "MESH":
                     continue
-                obj.update_from_editmode()
-                selected = [p.index for p in obj.data.polygons if p.select]
-                if not selected and obj.mode == "OBJECT":
+                if obj.mode == "EDIT":
+                    obj.update_from_editmode()
+                    selected = [p.index for p in obj.data.polygons if p.select]
+                else:
+                    # A selected object is all its faces: the polygons' select
+                    # flags are what an earlier edit left (Maya takes the mesh).
                     selected = list(range(len(obj.data.polygons)))
                 if selected:
                     out[obj.name] = selected
@@ -248,6 +360,17 @@ class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal, ptk.PureEmissiveGrou
                 out[obj.name] = hit.tolist()
         return out
 
+    def face_count(self, face_map: FaceMap) -> int:
+        """Faces by mesh: linked duplicates show one mesh's faces twice."""
+        import bpy
+
+        seen = set()
+        for name, indices in face_map.items():
+            obj = bpy.data.objects.get(name)
+            mesh = obj.data.name_full if obj is not None else name
+            seen.update((mesh, int(i)) for i in indices)
+        return len(seen)
+
     def material(self, name: str) -> Optional[str]:
         mat = self._mat(name) if name else None
         return mat.name if mat is not None else None
@@ -274,10 +397,36 @@ class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal, ptk.PureEmissiveGrou
             obj.select_set(obj.name in face_map, view_layer=layer)
         for name, indices in face_map.items():
             wanted = set(indices)
-            for poly in bpy.data.objects[name].data.polygons:
+            obj = bpy.data.objects[name]
+            if obj.mode == "EDIT":
+                # The edit-mesh is what Edit Mode shows; the mesh's flags are
+                # overwritten from it.
+                import bmesh
+
+                bm = bmesh.from_edit_mesh(obj.data)
+                # Every face off first: turning one off after a wanted
+                # neighbour takes their shared vertices with it.
+                for face in bm.faces:
+                    face.select_set(False)
+                for face in bm.faces:
+                    if face.index in wanted:
+                        face.select_set(True)
+                bm.select_flush_mode()
+                bmesh.update_edit_mesh(obj.data)
+                continue
+            mesh = obj.data
+            verts = {v for p in mesh.polygons if p.index in wanted for v in p.vertices}
+            for poly in mesh.polygons:
                 poly.select = poly.index in wanted
+            for edge in mesh.edges:
+                edge.select = edge.vertices[0] in verts and edge.vertices[1] in verts
+            for vert in mesh.vertices:
+                vert.select = vert.index in verts
         if layer is not None:
-            layer.objects.active = bpy.data.objects[next(iter(face_map))]
+            # The first of them the layer holds: one in another scene or an
+            # excluded collection wears a group, but is no object of this layer.
+            held = (layer.objects.get(name) for name in face_map)
+            layer.objects.active = next((obj for obj in held if obj is not None), None)
 
     # Copies --------------------------------------------------------------
 
@@ -314,7 +463,7 @@ class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal, ptk.PureEmissiveGrou
         mat = self._mat(material)
         if mat is None:
             return
-        for obj in self._mesh_objects():
+        for obj in self._mesh_objects(editable=True):
             for index in reversed([i for i, s in enumerate(obj.material_slots) if s.material == mat]):
                 if obj.mode == "EDIT":
                     obj.update_from_editmode()
@@ -333,16 +482,24 @@ class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal, ptk.PureEmissiveGrou
         if tree is None:
             return state
         surface = self._surface(mat)
-        skip = surface[1].path_from_id() if surface else None
+        skip = {surface[1].path_from_id()} if surface else set()
+        colour = surface[2] if surface else None
+        if colour is not None and not colour.is_linked:
+            # The colour a tint multiplies: a tinted copy's own is its base's
+            # colour times its tint, never a value out of step.
+            state["emission colour"] = self._tint_reference(material)
+            skip.add(colour.path_from_id())
         for node in tree.nodes:
             state[f"{node.name}:type"] = node.bl_idname
             image = getattr(node, "image", None)
             if image is not None:
                 state[f"{node.name}:image"] = image.name
+            for key, value in self._node_settings(node).items():
+                state[f"{node.name}:{key}"] = value
             for socket in node.inputs:
                 if socket.is_linked or not hasattr(socket, "default_value"):
                     continue
-                if socket.path_from_id() == skip:
+                if socket.path_from_id() in skip:
                     continue
                 value = socket.default_value
                 state[f"{node.name}.{socket.identifier}"] = (
@@ -355,6 +512,11 @@ class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal, ptk.PureEmissiveGrou
     def sync_copy(self, copy: str, base: str) -> None:
         old = self._mat(copy)
         info = self.copies().get(copy) or {}
+        # Its own: the weight, the states, and a tint -- kept, re-keyed
+        # against the base's colour now.
+        tinted = self.TAG_COLOUR in old.node_tree
+        tint_keys, tint = self.emission_tint_keys(copy), self.emission_tint(copy)
+        states = self.emission_states(copy)
         fresh = self._fresh_copy(self._mat(base), f"{copy}.sync")
         name = old.name
         self.copy_emission(copy, fresh.name, 1.0)
@@ -364,6 +526,13 @@ class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal, ptk.PureEmissiveGrou
         bpy.data.materials.remove(old)
         fresh.name = name
         self.tag(fresh.name, info.get("group", ""), base, info.get("strength", 0.0))
+        if states:
+            self.set_emission_states(fresh.name, states)
+        if tinted and self._colour_socket(fresh.name) is not None:
+            for frame, value, stepped in tint_keys:
+                self.key_emission_tint(fresh.name, value, frame, stepped)
+            if not tint_keys:
+                self.set_emission_tint(fresh.name, tint)
 
     # Emission ------------------------------------------------------------
 
@@ -378,7 +547,7 @@ class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal, ptk.PureEmissiveGrou
         colour = surface[2] if surface else None
         if colour is None or colour.is_linked:
             return None
-        return [float(c) for c in list(colour.default_value)[:3]]
+        return self._tint_reference(material)  # a tinted copy's: what its tint multiplies
 
     def set_emission(self, material: str, value: float) -> None:
         socket = self._socket(material)
@@ -394,10 +563,19 @@ class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal, ptk.PureEmissiveGrou
         fc = self._fcurve(material)
         return [(float(k.co[0]), float(k.co[1])) for k in fc.keyframe_points] if fc else []
 
-    def key_emission(self, material: str, value: float, frame: Optional[float] = None) -> None:
+    def key_emission(
+        self, material: str, value: float, frame: Optional[float] = None, stepped: bool = False
+    ) -> None:
         socket = self._socket(material)
+        frame = self._scene_frame() if frame is None else float(frame)
         socket.default_value = float(value)
-        socket.keyframe_insert("default_value", frame=self._scene_frame() if frame is None else frame)
+        socket.keyframe_insert("default_value", frame=frame)
+        if stepped:
+            self._step_key(self._fcurve(material), frame)
+
+    def stepped_emission_frames(self, material: str) -> List[float]:
+        fc = self._fcurve(material)
+        return [float(k.co[0]) for k in fc.keyframe_points if k.interpolation == "CONSTANT"] if fc else []
 
     def clear_emission_keys(self, material: str) -> None:
         fc = self._fcurve(material)
@@ -427,12 +605,114 @@ class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal, ptk.PureEmissiveGrou
             k.handle_right[1] *= factor
         fc.update()
 
+    # Tint ----------------------------------------------------------------
+
+    def tint_refusal(self, material: str) -> Optional[str]:
+        mat = self._mat(material)
+        if mat is None:
+            return f"{material!r} is in no scene"
+        socket = self._colour_socket(material)
+        if socket is None:
+            return "it has no Principled BSDF emission colour to tint"
+        if socket.is_linked:
+            return "its emission colour is a map (a link), which no tint multiplies here"
+        if min(self._tint_reference(material)) <= 0.0:
+            # A tint multiplies it: a black channel shows no tint, and the tint
+            # it was given could never be read back.
+            return (
+                "its emission colour has a black channel, which no tint can light "
+                "(white shows each tint as named)"
+            )
+        return None
+
+    def emission_tint(self, material: str) -> List[float]:
+        socket = self._colour_socket(material) if self._mat(material) is not None else None
+        if socket is None or socket.is_linked:
+            return [1.0, 1.0, 1.0]
+        return self._over(list(socket.default_value)[:3], self._tint_reference(material))
+
+    def emission_tint_channels(self, material: str) -> List[Any]:
+        """What keys each channel of *material*'s tint: its colour's fcurves
+        (``None`` for one not keyed; mayatk's twin names its plugs), in the
+        colour's units -- over :meth:`emission_color`, the tint."""
+        return self._tint_fcurves(material)
+
+    def set_emission_tint(self, material: str, tint: Sequence[float]) -> None:
+        self._ensure_tint_reference(material)
+        socket = self._colour_socket(material)
+        value = list(socket.default_value)
+        for c, (ref, t) in enumerate(zip(self._tint_reference(material), tint)):
+            value[c] = ref * float(t)
+        socket.default_value = value
+
+    def key_emission_tint(
+        self, material: str, tint: Sequence[float], frame: Optional[float] = None, stepped: bool = False
+    ) -> None:
+        self._ensure_tint_reference(material)
+        frame = self._scene_frame() if frame is None else float(frame)
+        socket = self._colour_socket(material)
+        self.set_emission_tint(material, tint)
+        for c in range(3):
+            socket.keyframe_insert("default_value", index=c, frame=frame)
+        if stepped:
+            for fc in self._tint_fcurves(material):
+                self._step_key(fc, frame)
+
+    def emission_tint_keys(self, material: str):
+        curves = self._tint_fcurves(material) if self._mat(material) is not None else []
+        keyed = [fc for fc in curves if fc is not None and len(fc.keyframe_points)]
+        if not keyed:
+            return []
+        socket = self._colour_socket(material)
+        reference = self._tint_reference(material)
+        frames = sorted({round(float(k.co[0]), 4) for fc in keyed for k in fc.keyframe_points})
+        out = []
+        for frame in frames:
+            values = [
+                fc.evaluate(frame) if fc is not None and len(fc.keyframe_points) else socket.default_value[c]
+                for c, fc in enumerate(curves)
+            ]
+            point = next(
+                (k for fc in keyed for k in fc.keyframe_points if abs(k.co[0] - frame) < 1e-4), None
+            )
+            stepped = point is not None and point.interpolation == "CONSTANT"
+            out.append((frame, self._over(values, reference), stepped))
+        return out
+
+    def clear_emission_tint_keys(self, material: str) -> None:
+        curves = [fc for fc in self._tint_fcurves(material) if fc is not None]
+        if not curves:
+            return
+        socket = self._colour_socket(material)
+        value = list(socket.default_value)
+        for fc in curves:
+            self._remove_fcurve(material, fc)
+        socket.default_value = value
+
+    def emission_states(self, material: str) -> Dict[str, Dict[str, Any]]:
+        mat = self._mat(material)
+        tree = getattr(mat, "node_tree", None) if mat is not None else None
+        if tree is None or self.TAG_STATES not in tree:
+            return {}
+        try:
+            found = json.loads(str(tree[self.TAG_STATES]) or "{}")
+        except ValueError:
+            return {}
+        return found if isinstance(found, dict) else {}
+
+    def set_emission_states(self, material: str, states: Dict[str, Dict[str, Any]]) -> None:
+        self._mat(material).node_tree[self.TAG_STATES] = json.dumps(states)
+
     # Export --------------------------------------------------------------
 
-    def stage_emission_proxy(self, material: str, name: str, factor: float):
+    def stage_emission_proxy(self, material: str, name: str, factor: float, tint: Optional[int] = None):
         from blendertk.env_utils.fbx_utils import FbxUtils
 
-        fc = self._fcurve(material)
+        if tint is None:
+            fc = self._fcurve(material)
+        else:  # the tint's channel: its colour channel over the base's
+            fc = self._tint_fcurves(material)[tint]
+            factor = factor / self._tint_reference(material)[tint]
         if fc is None:
             return None
         try:
@@ -504,13 +784,11 @@ class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal, ptk.PureEmissiveGrou
         return out
 
     def adopt_legacy_weight(self, attr: str, copy: str, factor: float) -> bool:
-        from blendertk.anim_utils._anim_utils import AnimUtils
-
         carrier = self._carrier()
         if carrier is None or attr not in carrier:
             return False
         path = f'["{attr}"]'
-        fc = next((f for f in AnimUtils.get_fcurves([carrier]) if f.data_path == path), None)
+        fc = next((f for f in CoreUtils.animating_fcurves(carrier) if f.data_path == path), None)
         if fc is None or not len(fc.keyframe_points):
             return False
         self.clear_emission_keys(copy)
@@ -518,10 +796,8 @@ class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal, ptk.PureEmissiveGrou
         return True
 
     def remove_legacy(self, stores: List[str], attrs: List[str], color_set: str) -> List[str]:
-        from blendertk.anim_utils._anim_utils import AnimUtils
-
         removed = []
-        for obj in self._mesh_objects():
+        for obj in self._mesh_objects(editable=True):
             for store in stores:
                 attr = obj.data.attributes.get(store)
                 if attr is not None:
@@ -532,15 +808,14 @@ class BlenderEmissiveGroups(_BlenderEmissiveGroupsInternal, ptk.PureEmissiveGrou
                 obj.data.color_attributes.remove(colours)
                 removed.append(f"{obj.name}: {color_set}")
         carrier = self._carrier()
-        data = getattr(carrier, "animation_data", None) if carrier is not None else None
         for attr in attrs:
             if carrier is None or attr not in carrier:
                 continue
             path = f'["{attr}"]'
-            fc = next((f for f in AnimUtils.get_fcurves([carrier]) if f.data_path == path), None)
-            if fc is not None and data is not None and data.action is not None:
+            fc = next((f for f in CoreUtils.animating_fcurves(carrier) if f.data_path == path), None)
+            if fc is not None:
                 try:
-                    AnimUtils.remove_fcurve(data.action, getattr(data, "action_slot", None), fc)
+                    CoreUtils.remove_animating_fcurve(carrier, fc)
                 except (RuntimeError, ReferenceError, ValueError):
                     pass
             del carrier[attr]

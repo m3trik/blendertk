@@ -68,7 +68,7 @@ A03.),Fuselage fades out,fuselage_geo,
     os.remove(path)
 
     store = ShotStore()
-    mani = BlenderShotManifest(store)
+    mani = BlenderShotManifest(store, disabled_behaviors=())  # every behavior keyed
     actions, beh_result, assessment = mani.sync(steps, initial_shot_length=100)
 
     # ---- shots created ---------------------------------------------------
@@ -192,7 +192,7 @@ A03.),Fuselage fades out,fuselage_geo,
     )
 
     store2 = ShotStore()
-    mani2 = BlenderShotManifest(store2)
+    mani2 = BlenderShotManifest(store2, disabled_behaviors=())
     audio_step = [
         _BS(
             "V01",
@@ -413,6 +413,38 @@ A03.),Fuselage fades out,fuselage_geo,
         "discover: out-of-range window finds nothing",
         not walk._discover_scene_objects(2000, 2010, set()),
     )
+    # What a shot holds was left out of its discovery by leaf (ShotStore.member_key): naming PANEL|LATCH left out
+    # nothing. By what a name names (mayatk's test_discovery_leaves_out_only_the_members_a_name_names): a path's tail
+    # the member it ends (the door's latch arrives as LATCH.001), a bare name the members of its key. 2026-11-26
+    latches = []
+    for parent_name in ("DISC_PANEL", "DISC_DOOR"):
+        holder = bpy.data.objects.new(parent_name, None)
+        latch = bpy.data.objects.new("DISC_LATCH", None)
+        latch.parent = holder
+        for o in (holder, latch):
+            bpy.context.scene.collection.objects.link(o)
+        _key(latch, 9000, (0, 0, 0))
+        _key(latch, 9010, (5, 0, 0))
+        latches.append(latch.name)
+    tails = BlenderShotManifest(ShotStore())._discover_scene_objects(9000, 9010, {"DISC_PANEL|DISC_LATCH"})
+    bare = BlenderShotManifest(ShotStore())._discover_scene_objects(9000, 9010, {"DISC_LATCH"})
+    check(
+        "discover: a path's tail leaves out the member it ends, a bare name the members of its key",
+        tails == [latches[1]] and bare == [latches[1]] and latches[1] != "DISC_LATCH",
+        f"{tails} {bare} {latches}",
+    )
+    # A step listing a path's tail owns its bare-named member (Blender keeps a member by its object's name), and the
+    # shot's members reach discovery as names, never leaves: the door's latch is still said. 2026-11-26
+    owned_store = ShotStore()
+    owned_store.define_shot("A01", 9000, 9010, objects=["DISC_LATCH"], metadata={"step": "A01"})
+    (owned,) = BlenderShotManifest(owned_store, disabled_behaviors=()).assess(
+        [_BS("A01", "A", "t", "", [_BO("DISC_PANEL|DISC_LATCH")])]
+    )
+    check(
+        "assess: a path's tail owns its bare-named member; the other latch is still unlisted",
+        owned.objects[0].status != "not_in_shot" and owned.additional_objects == [latches[1]],
+        f"{owned.objects[0].status} {owned.additional_objects}",
+    )
     filt = walk._filter_to_animated(["walk_moving", "walk_flat", "ghost"], 1000, 1010)
     check(
         "filter_to_animated: keeps only varying, existing objects",
@@ -556,7 +588,7 @@ A03.),Fuselage fades out,fuselage_geo,
     bpy.context.active_object.name = "door_geo"
     door = bpy.data.objects["door_geo"]
     rt_store = ShotStore()
-    rt = BlenderShotManifest(rt_store)
+    rt = BlenderShotManifest(rt_store, disabled_behaviors=())
     rt_range = {"D01": (1000.0, 1240.0)}
     hl_path = '["highlight"]'
 
@@ -699,7 +731,7 @@ def _insert_in_sheet_order_checks(check, _BS, _BO):
         store = ShotStore()
         ShotStore.set_active(store)
         store.gap = 10.0
-        mani = BlenderShotManifest(store)
+        mani = BlenderShotManifest(store, disabled_behaviors=())  # every behavior keyed: the clip is placed
         step_a = _BS("A", "A", "t", "", [_BO("ins_a")])
         step_b = _BS(
             "B",
@@ -769,6 +801,195 @@ def _insert_in_sheet_order_checks(check, _BS, _BO):
         )
     finally:
         tmp.cleanup()
+
+    # --- A build makes the helper a placing row names (`where`) where the scene has none: a camera for a picture,
+    # an empty for a viewpoint or an arrow, at ptk.ManifestPlacement's plain first pose, riding what it is for.
+    # Mirror of mayatk's PlacingHelpersTest. A delivery in metres, Z up: a cabinet 2 m tall, a latch on its front (-Y).
+    import math
+
+    from mathutils import Vector
+    from pythontk.core_utils.engines.shots.manifest.manifest_placement import ManifestPlacement
+
+    def cube(name, size, at, parent=None):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=at)
+        made = bpy.context.active_object
+        made.name = name
+        made.scale = size
+        if parent is not None:
+            made.parent = parent
+        return made
+
+    delivery = bpy.data.objects.new("DELIVERY", None)
+    bpy.context.scene.collection.objects.link(delivery)
+    cube("BODY", (1.0, 0.6, 2.0), (0.0, 0.0, 1.0), delivery)
+    latch = cube("PLACE_LATCH", (0.1, 0.04, 0.1), (0.2, -0.32, 1.1), delivery)
+    bpy.context.view_layer.update()
+    rows = [
+        {"word": "teleport", "places": "stand", "assets": ["BODY"], "settings": {"where": "VIEW_A01"}},
+        {"word": "indicate", "places": "point", "assets": ["PLACE_LATCH"], "settings": {"where": "ARROW_LATCH"}},
+        {"word": "pip", "places": "view", "assets": ["PLACE_LATCH"], "settings": {"where": "CAM_A01"}},
+        {"word": "pip", "places": "view", "assets": ["NO_SUCH_PART"], "settings": {"where": "CAM_NONE"}},
+    ]
+    # The floor a viewpoint stands on is the scene's: the lowest point of everything it shows (the cubes the checks
+    # above left reach below this delivery).
+    scene_floor = min((o.matrix_world @ Vector(c)).z for o in bpy.context.scene.objects if o.type == "MESH" for c in o.bound_box)
+    store3 = ShotStore()
+    mani3 = BlenderShotManifest(store3)
+    placed = mani3.place_helpers([_BS("P01", "A", "t", "", rows=rows)])
+    bpy.context.view_layer.update()
+    check(
+        "place: each named helper is made once, and a part the scene lacks is said",
+        placed["made"] == ["VIEW_A01", "ARROW_LATCH", "CAM_A01"] and [n for n, _ in placed["skipped"]] == ["CAM_NONE"],
+        f"{placed}",
+    )
+    view, arrow, cam = (bpy.data.objects.get(n) for n in ("VIEW_A01", "ARROW_LATCH", "CAM_A01"))
+    if view and arrow and cam:
+        at = view.matrix_world.translation
+        facing = view.matrix_world.to_quaternion() @ Vector((0.0, 0.0, 1.0))
+        check(
+            "place: a viewpoint is an empty under the delivery, on the floor 1.5 m out of its body's front (-Y), its +Z facing it",
+            view.type == "EMPTY" and view.parent is delivery and abs(at.z - scene_floor) < 1e-4 and abs(at.y + (0.3 + ManifestPlacement.STAND_OFF)) < 0.02
+            and facing.y > 0.99,
+            f"type={view.type} parent={view.parent} at={tuple(at)} facing={tuple(facing)}",
+        )
+        tip = arrow.matrix_world.translation
+        down = arrow.matrix_world.to_quaternion() @ Vector((0.0, 0.0, 1.0))
+        at_latch = (Vector((0.2, -0.32, 1.1)) - tip).normalized()
+        check(
+            "place: an arrow's tip is an empty riding its part, its +Z pointing at it, clear of the body's face by its room",
+            arrow.parent is latch and down.dot(at_latch) > 0.999 and tip.y < -0.3 - ManifestPlacement.ARROW * 0.3,
+            f"parent={arrow.parent} tip={tuple(tip)} down={tuple(down)}",
+        )
+        eye = cam.matrix_world.translation
+        look = cam.matrix_world.to_quaternion() @ Vector((0.0, 0.0, -1.0))
+        to = Vector((0.2, -0.32, 1.1)) - eye
+        angle = math.degrees(2 * math.atan(cam.data.sensor_height / 2 / cam.data.lens)) if cam.type == "CAMERA" else 0.0
+        check(
+            "place: a picture's camera rides its part, looks at it from far enough to frame it, with the picture's lens",
+            cam.type == "CAMERA" and cam.parent is latch and look.dot(to.normalized()) > 0.999 and to.length > 0.2
+            and cam.data.sensor_fit == "VERTICAL" and abs(angle - ManifestPlacement.VIEW_ANGLE) < 0.01,
+            f"type={cam.type} parent={cam.parent} dot={look.dot(to.normalized()):.4f} far={to.length:.3f} angle={angle:.2f}",
+        )
+        cam.matrix_world.translation = Vector((0.6, -0.9, 1.2))
+        bpy.context.view_layer.update()
+        again = mani3.place_helpers([_BS("P01", "A", "t", "", rows=rows)])
+        check(
+            "place: a helper is the truth once made: a second build neither makes nor moves it",
+            again["made"] == [] and sorted(again["kept"]) == ["ARROW_LATCH", "CAM_A01", "VIEW_A01"]
+            and (cam.matrix_world.translation - Vector((0.6, -0.9, 1.2))).length < 1e-5,
+            f"{again} {tuple(cam.matrix_world.translation)}",
+        )
+
+    # Dials on the back of a panel behind a door, the delivery reaching out behind them (-Y): by bounds alone the
+    # outer side for the dials is the door's, where the panel and the door hide them. Clear of the cubes above (+50 X).
+    cabinet = bpy.data.objects.new("PLACE_CABINET", None)
+    bpy.context.scene.collection.objects.link(cabinet)
+    cube("PLACE_DOOR", (1.0, 0.06, 2.0), (50.0, 0.0, 1.0), cabinet)
+    cube("PLACE_PANEL", (0.8, 0.03, 0.6), (50.0, -0.415, 1.5), cabinet)
+    cube("PLACE_DIALS", (0.1, 0.03, 0.1), (50.0, -0.445, 1.5), cabinet)
+    line = bpy.data.curves.new("PLACE_REACH", "CURVE")
+    spline = line.splines.new("POLY")
+    spline.points.add(1)
+    spline.points[0].co, spline.points[1].co = (47.0, -6.0, 0.0, 1.0), (53.0, -0.6, 2.5, 1.0)
+    reach = bpy.data.objects.new("PLACE_REACH", line)  # a curve: it spans the delivery's bounds, and no ray stops at it
+    bpy.context.scene.collection.objects.link(reach)
+    reach.parent = cabinet
+    bpy.context.view_layer.update()
+    dials_rows = [{"word": "pip", "places": "view", "assets": ["PLACE_DIALS"], "settings": {"where": "CAM_D01"}}]
+    made = mani3.place_helpers([_BS("D01", "D", "t", "", rows=dials_rows)])["made"]
+    bpy.context.view_layer.update()
+    dials_cam = bpy.data.objects.get("CAM_D01")
+    eye = dials_cam.matrix_world.translation if dials_cam else Vector()
+    to = Vector((50.0, -0.445, 1.5)) - eye
+    look = dials_cam.matrix_world.to_quaternion() @ Vector((0.0, 0.0, -1.0)) if dials_cam else Vector()
+    check(
+        "place: a picture stands where its part is seen, never behind what hides it",
+        made == ["CAM_D01"] and eye.y < -0.46 and look.dot(to.normalized()) > 0.999,
+        f"made={made} eye={tuple(eye)} dot={look.dot(to.normalized()) if to.length else 0:.4f}",
+    )
+
+    # A Target with no shape under it (an empty) is placed by where it stands, as mayatk's: none was made.
+    mark = bpy.data.objects.new("PLACE_MARK", None)
+    bpy.context.scene.collection.objects.link(mark)
+    mark.parent = delivery
+    mark.location = (0.2, -0.32, 1.5)
+    bpy.context.view_layer.update()
+    mark_rows = [{"word": "pip", "places": "view", "assets": ["PLACE_MARK"], "settings": {"where": "CAM_MARK"}}]
+    made = mani3.place_helpers([_BS("M01", "M", "t", "", rows=mark_rows)])["made"]
+    bpy.context.view_layer.update()
+    mark_cam = bpy.data.objects.get("CAM_MARK")
+    eye = mark_cam.matrix_world.translation if mark_cam else Vector()
+    to = Vector((0.2, -0.32, 1.5)) - eye
+    look = mark_cam.matrix_world.to_quaternion() @ Vector((0.0, 0.0, -1.0)) if mark_cam else Vector()
+    check(
+        "place: a Target with no geometry is placed by where it stands",
+        made == ["CAM_MARK"] and mark_cam.parent is mark and 0.0 < to.length < 3.0 and look.dot(to.normalized()) > 0.999,
+        f"made={made} eye={tuple(eye)}",
+    )
+
+    # A helper it could not finish is removed (mayatk's mirror): a failure after it is made, before it is parented.
+    from unittest import mock
+
+    fail_rows = [{"word": "pip", "places": "view", "assets": ["BODY"], "settings": {"where": "CAM_FAIL"}}]
+    with mock.patch.object(ptk.ManifestPlacement, "RIDES", {}):
+        try:
+            mani3.place_helpers([_BS("F01", "F", "t", "", rows=fail_rows)])
+            raised = False
+        except KeyError:
+            raised = True
+    check(
+        "place: a helper it could not finish is removed",
+        raised and "CAM_FAIL" not in bpy.data.objects and "CAM_FAIL" not in bpy.data.cameras,
+        f"raised={raised} objects={'CAM_FAIL' in bpy.data.objects} cameras={'CAM_FAIL' in bpy.data.cameras}",
+    )
+
+    # A `set` row's Target is given the state it names (mirror of mayatk's SetStatesTest): the emissive group worn on it
+    # or under it takes the tool's defaults where it has none. Before, Blender's build skipped every one ("this host
+    # keeps no emission states").
+    from blendertk.mat_utils._mat_utils import MatUtils
+    from blendertk.mat_utils.emissive_groups import EmissiveGroups
+
+    def glowing(obj):
+        mat = bpy.data.materials.new(obj.name + "Mat")
+        bsdf = next(n for n in MatUtils.get_node_tree(mat, create=True).nodes if n.type == "BSDF_PRINCIPLED")
+        bsdf.inputs["Emission Strength"].default_value = 1.0
+        bsdf.inputs["Emission Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+        obj.data.materials.append(mat)
+        return obj
+
+    def board(name, *parts):
+        top = bpy.data.objects.new(name, None)
+        bpy.context.scene.collection.objects.link(top)
+        for i, part in enumerate(parts):
+            cube(part, (0.1, 0.1, 0.1), (100.0 + i, 0.0, 0.0), top)
+        return top
+
+    board("STATE_BOARD", "STATE_LED", "STATE_PLAIN")
+    EmissiveGroups.add_group("state_led", {glowing(bpy.data.objects["STATE_LED"]).name: []})
+    set_rows = [
+        {"word": "set", "assets": ["STATE_LED"], "settings": {"state": "off"}},
+        {"word": "set", "assets": ["STATE_BOARD"], "settings": {"state": "green"}},  # a group above the indicator
+        {"word": "set", "assets": ["STATE_LED"], "settings": {"state": "purple"}},
+        {"word": "set", "assets": ["STATE_PLAIN"], "settings": {"state": "off"}},
+    ]
+    states = mani3.set_states([_BS("S01", "S", "t", "", rows=set_rows)])
+    check(
+        "states: a set row's group takes the tool's default states, found by the faces worn under its Target",
+        states["given"] == [("STATE_LED", "off")] and states["kept"] == [("STATE_BOARD", "green")]
+        and [(t, s) for t, s, _ in states["skipped"]] == [("STATE_LED", "purple"), ("STATE_PLAIN", "off")]
+        and list(EmissiveGroups.states("state_led")) == ["off", "green", "blue", "amber", "red"],
+        f"{states}",
+    )
+    board("STATE_PAIR", "STATE_BARE", "STATE_ONOFF")
+    EmissiveGroups.add_group("state_bare", {glowing(bpy.data.objects["STATE_BARE"]).name: []})
+    EmissiveGroups.add_group("state_onoff", {glowing(bpy.data.objects["STATE_ONOFF"]).name: []})
+    EmissiveGroups.set_states("state_onoff", {"off": {"weight": 0.0}, "on": {"weight": 1.0}})
+    pair = mani3.set_states([_BS("S02", "S", "t", "", rows=[{"word": "set", "assets": ["STATE_PAIR"], "settings": {"state": "green"}}])])
+    check(
+        "states: a Target whose groups cannot all take the state changes none",
+        [(t, s) for t, s, _ in pair["skipped"]] == [("STATE_PAIR", "green")] and EmissiveGroups.states("state_bare") == {},
+        f"{pair} {EmissiveGroups.states('state_bare')}",
+    )
 
 
 if __name__ == "__main__":

@@ -1281,6 +1281,95 @@ try:
     b = uv_bounds(o)
     check("pack_uvs coverage Half (U) packs into u 0-0.5", b[1] <= 0.5 + 1e-3, f"bounds={b}")
 
+    # pack_uvs: islands stacked on each other come apart; a fold stays its own
+    # (the Maya twin's check, ptk.UvPack.island_overlaps; measured on production
+    # layouts 2026-11-24: 4,885,969 stacked texels -> 0).
+    import numpy as _np
+
+    square = [(0.1, 0.1), (0.6, 0.1), (0.6, 0.6), (0.1, 0.6)]
+
+    def _stack(obj):
+        layer = obj.data.uv_layers.active
+        for face in obj.data.polygons:  # every face its own island, one square
+            for corner, loop in enumerate(face.loop_indices):
+                layer.data[loop].uv = square[corner]
+        # One face folded: a corner inside its first triangle.
+        layer.data[obj.data.polygons[0].loop_indices[3]].uv = (0.4, 0.25)
+
+    reset()
+    o = _panel_cube("Stacked")
+    _stack(o)
+
+    def _islands_on_islands(obj):
+        mesh = obj.data
+        mesh.calc_loop_triangles()
+        uv = _np.array([d.uv[:] for d in mesh.uv_layers.active.data], dtype=float)
+        vert = _np.array([lp.vertex_index for lp in mesh.loops])
+        key = _np.column_stack([vert, _np.round(uv * 1e6).astype(_np.int64)])
+        _, first, ids = _np.unique(key, axis=0, return_index=True, return_inverse=True)
+        tris = ids.reshape(-1)[_np.array([t.loops[:] for t in mesh.loop_triangles])]
+        return ptk.UvPack.island_overlaps([(uv[first], tris)], 1024)
+
+    stacked = _islands_on_islands(o)
+    _Uv.pack_uvs(o, udim=1001)
+    check(
+        "pack_uvs leaves no island on another",
+        stacked > 0 and _islands_on_islands(o) == 0,
+        f"before {stacked} after {_islands_on_islands(o)}",
+    )
+    # The xatlas engine (mirror of mayatk's): the same stacked cube, packed into
+    # a half tile of UDIM 1002, nothing on anything.
+    if ptk.UvPack.available():
+        _stack(o)
+        packed = _Uv.pack_uvs(o, engine="xatlas", udim=1002, coverage=(0.5, 1.0))
+        b = uv_bounds(o)
+        check(
+            "pack_uvs xatlas: every island apart, in its half of UDIM 1002",
+            packed.engine == "xatlas"
+            and packed.succeeded == [o.name]
+            and _islands_on_islands(o) == 0
+            and 1.0 - 1e-4 <= b[0] and b[1] <= 1.5 + 1e-4
+            and -1e-4 <= b[2] and b[3] <= 1.0 + 1e-4,
+            f"{packed} bounds={b} after {_islands_on_islands(o)}",
+        )
+    # From Edit Mode, where a mesh's UV layer reads empty: still judged.
+    _stack(o)
+    bpy.context.view_layer.objects.active = o
+    bpy.ops.object.mode_set(mode="EDIT")
+    packed = _Uv.pack_uvs(o, udim=1001)
+    mode = o.mode
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check(
+        "pack_uvs from Edit Mode: judged, and the mode kept",
+        bool(packed) and mode == "EDIT" and _islands_on_islands(o) == 0,
+        f"{packed} mode={mode} after {_islands_on_islands(o)}",
+    )
+    # Linked duplicates share one mesh, so one layout: judged once. Read twice,
+    # every footprint "failed" (its islands on their own copy) and the UVs were
+    # put back.
+    reset()
+    o = _panel_cube("Linked")
+    twin = o.copy()  # a linked duplicate: the same mesh
+    bpy.context.scene.collection.objects.link(twin)
+    check(
+        "pack_uvs: linked duplicates are one layout to the check",
+        _Uv._island_overlaps([o, twin], 256) == 0,
+        _Uv._island_overlaps([o, twin], 256),
+    )
+    packed = _Uv.pack_uvs([o, twin], udim=1001)
+    check(
+        "pack_uvs: linked duplicates pack",
+        sorted(packed.succeeded) == sorted([o.name, twin.name]) and not packed.failed,
+        f"{packed}",
+    )
+    # Skip Instances has nothing to do here (linked duplicates always share
+    # one map), so neither packer offers it.
+    check(
+        "pack_uvs offers no Skip Instances",
+        all("skip_instances" not in options for options in _Uv.PACK_ENGINES.values()),
+        _Uv.PACK_ENGINES,
+    )
+
     # auto_project / unfold_uvs
     reset()
     o = _panel_cube("Projected")

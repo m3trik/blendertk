@@ -383,6 +383,19 @@ class _BlenderShotsHostInternal(object):
     """Internal helpers for BlenderShotsHost."""
 
     @staticmethod
+    def _lineage(obj) -> List[str]:
+        """*obj*'s names from its topmost parent down, each read without
+        Blender's ``.001`` suffix (two nodes an FBX names alike arrive so): the
+        path a doc name's tail is compared with (``ptk.NodeNames.ends``)."""
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        names = []
+        while obj is not None:
+            names.append(CoreUtils.strip_dup_suffix(obj.name))
+            obj = obj.parent
+        return names[::-1]
+
+    @staticmethod
     def _get_scene_fps() -> float:
         """Effective scene framerate ``render.fps / render.fps_base``, or 24.0 outside Blender."""
         try:
@@ -1235,8 +1248,14 @@ class BlenderShotsHost(_BlenderShotsHostInternal):
         Exact first; then, for a name written without a namespace, the objects
         whose :meth:`~pythontk.ShotStore.member_key` it is -- an FBX from Maya
         names its objects ``AC:door_geo`` for the doc's ``door_geo`` (mirror
-        of mayatk's).  :meth:`~pythontk.ShotStore.resolve_member` reads one
-        hit as found, several as ambiguous.
+        of mayatk's).  A name with ``|`` is a path's tail
+        (``SOLENOID_LOC|PCB_LIGHTS_GRP``, ``ptk.NodeNames.ends``): the objects
+        whose parent chain ends with those names, each read without Blender's
+        ``.001`` suffix (two nodes an FBX names alike arrive so), as Maya's
+        ``ls`` reads a partial path -- those it names exactly first, else
+        those it names namespace-blind (``AC:SOLENOID_LOC|AC:PCB_LIGHTS_GRP``).
+        :meth:`~pythontk.ShotStore.resolve_member` reads one hit as found,
+        several as ambiguous.
         """
         try:
             import bpy
@@ -1245,11 +1264,39 @@ class BlenderShotsHost(_BlenderShotsHostInternal):
         name = str(name)
         if name in bpy.data.objects:
             return [name]
+        if "|" in name:
+            from blendertk.core_utils._core_utils import CoreUtils
+
+            tail = [n for n in name.split("|") if n]
+            leaf = ptk.NodeNames.leaf(tail[-1]) if tail else ""
+            hits = {
+                o.name: BlenderShotsHost._lineage(o)
+                for o in bpy.data.objects
+                if ptk.NodeNames.leaf(CoreUtils.strip_dup_suffix(o.name)) == leaf
+            }
+            hits = {n: line for n, line in hits.items() if ptk.NodeNames.ends(name, line)}
+            exact = [n for n, line in hits.items() if line[-len(tail):] == tail]
+            return exact or list(hits)
         if ":" in name:
             return []
         return [
             o.name for o in bpy.data.objects if ShotStore.member_key(o.name) == name
         ]
+
+    @staticmethod
+    def member_lineage(member: str) -> List[str]:
+        """The names of *member*'s object from its topmost parent down
+        (:meth:`_lineage`): a member is stored as its object's bare name, so
+        its path is its parents -- what ``ptk.ShotStore.names_member`` compares
+        a doc name's tail with (``SOLENOID_LOC|LIGHTS`` names the ``LIGHTS``
+        under a ``SOLENOID_LOC``), as :meth:`member_nodes` reads one.  A name
+        no object bears is its own path (mayatk's twin: a long name)."""
+        try:
+            import bpy
+        except ImportError:
+            return str(member).split("|")
+        obj = bpy.data.objects.get(str(member))
+        return BlenderShotsHost._lineage(obj) if obj is not None else str(member).split("|")
 
     @staticmethod
     def existing_objects(store, names) -> set:

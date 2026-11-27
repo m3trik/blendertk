@@ -533,49 +533,23 @@ try:
         and ptk.SceneRecords.problems(ptk.SceneRecords.LIGHTMAPS, manifest) == [],
         (manifest, fbx_route),
     )
-    # Retired 2026-10-20 (removed in 0.21.0): the key is the record's.
+    # Retired 2026-11-07: wired_for_export's carrier is dropped, with a warning.
+    # (EXTRAS_KEY, MANIFEST_VERSION and build_manifest went in 0.27.0.)
     import warnings as _warnings
 
     with _warnings.catch_warnings(record=True) as _caught:
         _warnings.simplefilter("always")
-        _extras_key = LightmapWebExport.EXTRAS_KEY
         with web.wired_for_export(carrier="occlusion") as _carried:
             pass
     _notes = [str(w.message) for w in _caught if w.category is DeprecationWarning]
     check(
-        "EXTRAS_KEY still answers the record's key, with a warning",
-        _extras_key == KEY and any("EXTRAS_KEY" in n for n in _notes),
-        _notes,
-    )
-    check(
-        "...and wired_for_export's carrier is dropped, with a warning (2026-11-07)",
+        "wired_for_export's carrier is dropped, with a warning (2026-11-07)",
         _carried == manifest_token and any("'carrier'" in n for n in _notes),
         _notes,
     )
-    # Held until 0.25.0 (noticed for 0.21.0 on 2026-10-24, the window closing
-    # 2026-11-23): the retired block's version and builder still answer, with
-    # a warning. Restored: 2026-11-08
-    with _warnings.catch_warnings(record=True) as _caught:
-        _warnings.simplefilter("always")
-        _held_version = getattr(LightmapWebExport, "MANIFEST_VERSION", None)
-        try:
-            _held_block = web.build_manifest(
-                {"floor": ("floor_lm.png", 1.5)}, "occlusion", lighting={"x": 1}
-            )
-        except Exception as _e:  # noqa: BLE001 -- the check reports it
-            _held_block = repr(_e)
-    _notes = [str(w.message) for w in _caught if w.category is DeprecationWarning]
     check(
-        "MANIFEST_VERSION and build_manifest(lighting=) still answer, with warnings",
-        _held_version == 2
-        and isinstance(_held_block, dict)
-        and _held_block.get("version") == 2
-        and _held_block.get("carrier") == "occlusion"
-        and _held_block.get("materials")
-        and all(m == {"intensity": 1.5} for m in _held_block["materials"].values())
-        and any("MANIFEST_VERSION" in n for n in _notes)
-        and any("'lighting'" in n for n in _notes),
-        (_held_version, _held_block, _notes),
+        "the retired EXTRAS_KEY, MANIFEST_VERSION and build_manifest are gone",
+        not any(hasattr(LightmapWebExport, n) for n in ("EXTRAS_KEY", "MANIFEST_VERSION", "build_manifest")),
     )
 
     # The GLB states its lightmaps once, in its ``lightmaps`` record: each

@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.26.1"
+__version__ = "0.27.0"
 
 """blendertk — the Blender host library: each tool's API half (its operations and record
 rows), as mayatk is Maya's. tentacle holds the panels and their Slots, shared by both
@@ -40,6 +40,8 @@ DEFAULT_INCLUDE = {
     # Lengths and angles by the kind of value -- mirror of mayatk's ``core_utils.units``
     # (``btk.Units`` ↔ ``mtk.Units``): Blender units and radians to what a record ships.
     "core_utils.units": "Units",
+    # Rays through the scene's meshes (a ptk.ProbeRays), for what any tool asks by sight.
+    "core_utils.mesh_rays": "MeshRays",
     # Diagnostics subpackage — mirror of mayatk's ``core_utils.diagnostics``. Class-only (a submodule,
     # not a ``_*_utils`` root — kept out of the flat namespace). The ``->Diagnostics`` alias
     # multi-inherits the per-module diag classes into one ``btk.Diagnostics`` namespace; the
@@ -1055,16 +1057,30 @@ MOVED_NAMES = {
     "LightmapWebExport.wire_lightmaps": ("blendertk.LightmapWebExport.wired_for_export", "0.24.0"),
     "LightmapWebExport.unwire_lightmaps": ("blendertk.LightmapWebExport.wired_for_export", "0.24.0"),
     "LightmapWebExport.embed_probe": ("blendertk.LightmapWebExport.embed_media", "0.24.0"),
-}
-
-#: Held until 0.25.0: names v0.23.1 noticed for removal in 0.21.0 on
-#: 2026-10-24, whose window closes 2026-11-23 -- restored as working deprecated
-#: aliases (``LightmapWebExport.MANIFEST_VERSION``, ``build_manifest`` for its
-#: ``lighting`` notice; ``test_web_export.py``'s "still answer" check). At 0.25.0
-#: delete them and move these rows into MOVED_NAMES.
-HELD_UNTIL_0_25 = {
-    "LightmapWebExport.MANIFEST_VERSION": ("pythontk.SceneRecords.LIGHTMAPS", "0.25.0"),
-    "LightmapWebExport.build_manifest": ("blendertk.LightmapWebExport.native_record", "0.25.0"),
+    # Retired aliases whose window closed (2026-11-26). The flat names
+    # (``btk.scene_source``, ``btk.update_materials``) reach the owners still.
+    "EnvUtils.set_scene_source": ("blendertk.DataNodes.set_scene_source", "0.27.0"),
+    "EnvUtils.twin_save_target": ("blendertk.DataNodes.twin_save_target", "0.27.0"),
+    "EnvUtils.scene_source": ("blendertk.DataNodes.scene_source", "0.27.0"),
+    "EnvUtils.scene_project_root": ("blendertk.DataNodes.scene_project_root", "0.27.0"),
+    "EnvUtils.scene_workspace": ("blendertk.DataNodes.scene_workspace", "0.27.0"),
+    "EnvUtils.scene_source_images_dir": ("blendertk.DataNodes.scene_source_images_dir", "0.27.0"),
+    "MatUtils.update_materials": ("blendertk.MatUpdater.update_materials", "0.27.0"),
+    # A record's key and version are its declaration's.
+    "DataNodes.SHOT_METADATA": ("pythontk.SceneRecords.SHOTS.key", "0.27.0"),
+    "DataNodes.FBX_TAKES": ("pythontk.SceneRecords.SHOTS (each shot's range rides its clip)", "0.27.0"),
+    "ShadowRig.SHADOW_METADATA": ("pythontk.SceneRecords.SHADOWS.key", "0.27.0"),
+    "LightmapBaker.LIGHTMAP_METADATA": ("pythontk.SceneRecords.LIGHTMAPS.key", "0.27.0"),
+    "LightmapBaker.LIGHTMAP_METADATA_VERSION": ("pythontk.SceneRecords.LIGHTMAPS.version", "0.27.0"),
+    "LightmapRecords.LIGHTMAP_METADATA": ("pythontk.SceneRecords.LIGHTMAPS.key", "0.27.0"),
+    "LightmapRecords.LIGHTMAP_METADATA_VERSION": ("pythontk.SceneRecords.LIGHTMAPS.version", "0.27.0"),
+    "LightmapWebExport.EXTRAS_KEY": ("pythontk.SceneRecords.LIGHTMAPS.key", "0.27.0"),
+    "LightmapWebExport.MANIFEST_VERSION": ("pythontk.SceneRecords.LIGHTMAPS (a GLB carries the record as it stands)", "0.27.0"),
+    "LightmapWebExport.build_manifest": ("blendertk.LightmapWebExport.native_record", "0.27.0"),
+    # The table that held those two until their window closed.
+    "HELD_UNTIL_0_25": ("blendertk.MOVED_NAMES (its rows moved there)", "0.27.0"),
+    # The Lightmap Baker saves no Bake Set (2026-10-22).
+    "LightmapBakeSet": ("blendertk.LightmapBaker (its Manage page selects and re-bakes each map's objects)", "0.27.0"),
 }
 
 bootstrap_package(

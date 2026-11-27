@@ -4222,19 +4222,3 @@ class MatUtils(_MatUtilsInternal):
             )
             for set_name, files in sets.items()
         }
-
-    @staticmethod
-    @ptk.Deprecation.symbol(
-        "MatUpdater.update_materials", remove_in="0.23.0", since="2026-10-25"
-    )
-    def update_materials(
-        materials=None, config=None, verbose=False, progress_callback=None
-    ):
-        """Moved to :meth:`MatUpdater.update_materials`, its one owner (also the
-        flat ``btk.update_materials``)."""
-        return MatUpdater.update_materials(
-            materials=materials,
-            config=config,
-            verbose=verbose,
-            progress_callback=progress_callback,
-        )

@@ -58,6 +58,7 @@ from typing import List, Dict, Optional, Callable, Union, Any
 
 import pythontk as ptk
 
+from blendertk.xform_utils._xform_utils import XformUtils
 from blendertk.env_utils.scene_exporter.task_manager import TaskManager
 from blendertk.node_utils.data_nodes import DataNodes
 from blendertk.env_utils.usd import UsdUtils
@@ -209,6 +210,7 @@ class SceneExporter(ptk.SceneExporterBase):
         self.logger.info(f"{len(objs)} object(s) prepared for export.")
         return objs
 
+    @XformUtils.at_rest()  # rest transforms as the file rests, whatever frame it was saved on
     def perform_export(
         self,
         export_dir: str,

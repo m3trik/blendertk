@@ -20,9 +20,9 @@ subclass is one question the file answers:
   their own, while they stay in the render and light the rest.
 * :class:`LightmapIsolateSet` -- the objects (moving parts) that bake in a
   pass of their own and stay out of every other object's bake.
-* ``LightmapBakeSet`` -- retired (a deprecated alias of the private
-  ``_LightmapBakeSet``): the Lightmap Baker's Manage page re-runs past work
-  by map, so no bake saves a set any more.
+* ``_LightmapBakeSet`` -- retired (``LightmapBakeSet`` until 0.27.0): the
+  Lightmap Baker's Manage page re-runs past work by map, so no bake saves a
+  set any more.
 
 A set is found by its stamp, so its collection's NAME is free: plain
 (:attr:`BakeSet.SET_NAME`) or the naming convention's spelling of it (the
@@ -367,10 +367,12 @@ class LightmapIsolateSet(BakeSet):
     its cabinet, a lid, a drawer: it still gets a map, lit by the static scene
     at its authored pose, but it casts no shadow or bounce into another
     object's map (the cabinet's would keep a door-shaped shadow wherever the
-    door swung), and no other isolated object casts into its own. Each member
-    -- with the meshes under it (:meth:`groups`) -- bakes alone
-    (``LightmapBaker._bake``, its ``hide_render`` switched off for every other
-    pass) and still packs into its material's atlas. A member of
+    door swung), and no other isolated object casts into its own -- but the
+    members that carry it (:meth:`carried_by`: a small door set in a door
+    bakes with that door around it). Each member -- with the meshes under it
+    (:meth:`groups`) -- bakes alone (``LightmapBaker._bake``, its
+    ``hide_render`` switched off for every other pass) and still packs into
+    its material's atlas. A member of
     :class:`LightmapExcludeSet` as well gets no map, and is out of the render
     like any other isolated object. Mirror of mayatk's ``LightmapIsolateSet``
     (the same set name).
@@ -418,10 +420,61 @@ class LightmapIsolateSet(BakeSet):
         """Every mesh :meth:`groups` holds: each member with all it carries."""
         return [mesh for group in cls.groups() for mesh in group]
 
+    #: The transform channels a key or a driver moves an object by.
+    MOTION_PATHS = (
+        "location",
+        "rotation_euler",
+        "rotation_quaternion",
+        "rotation_axis_angle",
+        "scale",
+        "delta_location",
+        "delta_rotation_euler",
+        "delta_rotation_quaternion",
+        "delta_scale",
+    )
+
+    @classmethod
+    def movers(cls, obj) -> List[str]:
+        """The objects that move *obj*: it and each parent whose transform is
+        keyed or driven, or that has a constraint -- names, nearest first.
+        Mirror of mayatk's."""
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        found: List[str] = []
+        current = obj
+        while current is not None:
+            anim = current.animation_data
+            curves = []
+            if anim is not None:
+                # Slot-aware: Blender 5's layered actions have no flat fcurves.
+                curves.extend(CoreUtils.animating_fcurves(current))
+                curves.extend(anim.drivers)
+            if len(current.constraints) or any(
+                fc.data_path in cls.MOTION_PATHS for fc in curves
+            ):
+                found.append(current.name)
+            current = current.parent
+        return found
+
+    @classmethod
+    def carried_by(cls, groups: Optional[List[List[Any]]] = None) -> List[List[Any]]:
+        """For each of :meth:`groups` (aligned with it), the meshes of the
+        members that carry it, which render in its pass
+        (``ptk.BakeBaseline.carriers``): a small door set in a door is carried
+        by that door, so its map sees the door around it; the door is not
+        carried by the small door. A group moves by what moves all of its
+        meshes. Mirror of mayatk's.
+
+        Parameters:
+            groups: :meth:`groups`, when the caller has read it already.
+        """
+        groups = cls.groups() if groups is None else groups
+        return ptk.BakeBaseline.group_carriers(groups, cls.movers)
+
 
 class _LightmapBakeSet(BakeSet):
     """The objects a lightmap bake acted on -- retired with the panel's
-    Bake Set row (``LightmapBakeSet`` is its deprecated alias).
+    Bake Set row (``LightmapBakeSet`` until 0.27.0).
 
     Mirror of mayatk's (the same set name). Written by the Lightmap Baker
     panel after a bake while its *Save After Bake* switch was on: every
@@ -432,17 +485,3 @@ class _LightmapBakeSet(BakeSet):
 
     SET_NAME = "lightmapBaker_baked"
     STAMP = "btk_lightmap_baked"
-
-
-# Retired 2026-10-22: the Lightmap Baker's Manage page selects and re-bakes
-# each map's objects, so no bake saves a set. Kept, warning, for scripts.
-ptk.Deprecation.attributes(
-    globals(),
-    {"LightmapBakeSet": "blendertk.mat_utils.bake_sets._LightmapBakeSet"},
-    remove_in="0.23.0",
-    reason=(
-        "The Lightmap Baker no longer saves a Bake Set: its Manage page "
-        "selects and re-bakes each map's objects."
-    ),
-    since="2026-10-22",
-)

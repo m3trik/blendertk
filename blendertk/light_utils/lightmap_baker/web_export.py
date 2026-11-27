@@ -66,27 +66,6 @@ class LightmapWebExport(ptk.LoggingMixin):
             web.export_glb("C:/out/office.glb", manifest=record)
     """
 
-    #: The key the ``lightmaps`` record rides under: the record's own
-    #: (``ptk.SceneRecords.LIGHTMAPS.key``), a scene custom property the native exporter
-    #: writes into the first scene's ``extras``, which ``ptk.MeshConvert.finish_glb``
-    #: moves into the file's root ``extras``, where every reader looks. Retired here: it
-    #: restated the key.
-    EXTRAS_KEY = ptk.Deprecation.class_attribute(
-        ptk.SceneRecords.LIGHTMAPS.key,
-        "ptk.SceneRecords.LIGHTMAPS.key",
-        remove_in="0.21.0",
-        since="2026-10-24",
-    )
-    #: Held until 0.25.0 (``blendertk/__init__.py``, "Held until 0.25.0"): the
-    #: retired ``lightmaps`` block's schema version, which :meth:`build_manifest`
-    #: stamps. A GLB carries the record as it stands (:meth:`native_record`).
-    MANIFEST_VERSION = ptk.Deprecation.class_attribute(
-        2,
-        "ptk.SceneRecords.LIGHTMAPS.version -- a GLB carries the record as it stands",
-        remove_in="0.21.0",
-        since="2026-10-24",
-    )
-
     #: The floor of the encode divisor, as a percentile of a map's lit values: pythontk's
     #: ``ImgUtils.HDR_WEB_PERCENTILE``, whose encode this is (see :meth:`encode_for_web`).
     DEFAULT_PERCENTILE: float = ptk.ImgUtils.HDR_WEB_PERCENTILE
@@ -321,61 +300,6 @@ class LightmapWebExport(ptk.LoggingMixin):
         return dict(record.payload) if record is not None else None
 
     # ------------------------------------------------------------------ export
-
-    # Held until 0.25.0 (``blendertk/__init__.py``, "Held until 0.25.0"): the
-    # retired block builder, as v0.23.1 had it, for its ``lighting`` notice.
-    @ptk.Deprecation.parameter(
-        "lighting",
-        drop=True,
-        remove_in="0.21.0",
-        since="2026-10-24",
-        reason="The block states no lighting: the file's handoff states the lighting "
-        "it was approved under.",
-    )
-    def build_manifest(
-        self,
-        encoded: Dict[str, Tuple[str, float]],
-        carrier: str,
-    ) -> Dict[str, Any]:
-        """Retired 2026-11-07 (removed after 0.23.x): a GLB carries the
-        ``lightmaps`` record as it stands (:meth:`native_record`).
-
-        The retired ``lightmaps`` block, as v0.23.1 built it: each lightmapped
-        material's intensity -- its objects' in *encoded* (``{object: (map,
-        intensity)}``), the first map a material carries -- under the *carrier*
-        slot, at :attr:`MANIFEST_VERSION`."""
-        import bpy
-
-        maps: Dict[str, str] = {}
-        intensities: Dict[str, float] = {}
-        for name, (png, scalar) in encoded.items():
-            obj = bpy.data.objects.get(name)
-            if obj is None:
-                continue
-            for slot in getattr(obj, "material_slots", []) or []:
-                if slot.material is None:
-                    continue
-                material, map_name = slot.material.name, os.path.basename(png)
-                claimed = maps.setdefault(material, map_name)
-                if claimed == map_name:
-                    intensities.setdefault(material, scalar)
-                    continue
-                self.logger.warning(
-                    "Material %r already carries %s, so %s (from %s) cannot be "
-                    "published -- that object will sample the first map.",
-                    material,
-                    claimed,
-                    map_name,
-                    name,
-                )
-        return {
-            "version": 2,
-            "carrier": carrier,
-            "materials": {
-                name: {"intensity": round(float(level), 6)}
-                for name, level in intensities.items()
-            },
-        }
 
     def export_glb(
         self,

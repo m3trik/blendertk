@@ -395,9 +395,9 @@ class _SceneTasksMixin(_TaskDataMixin):
                 catches ``hull_proxy``. A pattern with no wildcard character
                 still matches only that exact name, as before.
             case_sensitive: Match names exactly. Off by default, so ``"temp"``
-                catches ``TEMP``. The UI arms it from the Ignore row's option-box
-                toggle; a headless caller passes the pair as the dict the task
-                dispatcher unpacks -- ``{"names": "Temp", "case_sensitive": True}``
+                catches ``TEMP``. The UI arms it from the Exclude ▸ Groups row's
+                option-box toggle; a headless caller passes the pair as the dict the
+                task dispatcher unpacks -- ``{"names": "Temp", "case_sensitive": True}``
                 -- while a bare string still selects the insensitive default.
         """
         if not names or not str(names).strip() or not self.objects:

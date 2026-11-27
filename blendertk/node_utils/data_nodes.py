@@ -71,23 +71,6 @@ class DataNodes(ptk.SceneStoreBase):
     #: lowest part that owns the scene path.
     _session_root: ClassVar[Optional[str]] = None
 
-    #: The shot record's key under its old name, retired here: read the
-    #: declaration's (``ptk.SceneRecords.SHOTS.key``).
-    SHOT_METADATA = ptk.Deprecation.class_attribute(
-        ptk.SceneRecords.SHOTS.key,
-        "ptk.SceneRecords.SHOTS.key",
-        remove_in="0.21.0",
-        since="2026-10-24",
-    )
-    #: The retired take list's key (``ptk.SceneRecords.RETIRED``): an
-    #: export's commit removes the channel (``migrate``), and nothing reads it.
-    FBX_TAKES = ptk.Deprecation.class_attribute(
-        "fbx_takes",
-        "ptk.SceneRecords.SHOTS -- each shot's range rides its clip",
-        remove_in="0.21.0",
-        since="2026-10-24",
-    )
-
     #: Top-level scene properties the shots and key-stash records lived under
     #: before the group; folded into it on the first write.
     _LEGACY_SCENE_KEYS = (
