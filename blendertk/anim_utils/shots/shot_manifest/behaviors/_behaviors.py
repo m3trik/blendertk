@@ -281,7 +281,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
 
         Parameters:
             obj: Blender object name.
-            behavior_name: Template stem name (e.g. ``"fade_in"``).
+            behavior_name: Template stem name (e.g. ``"show"``).
             start: First frame of the range.
             end: Last frame of the range.
             attrs: If given, only key these attributes. Otherwise key all
@@ -419,7 +419,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
 
         Parameters:
             obj: Blender object name (or strip name for ``audio_clip``).
-            behavior_name: Template stem name (e.g. ``"fade_in"``).
+            behavior_name: Template stem name (e.g. ``"show"``).
             start: First frame of the scene range.
             end: Last frame of the scene range.
             search_path: Optional custom behaviors directory.

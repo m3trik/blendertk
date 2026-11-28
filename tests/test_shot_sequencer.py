@@ -2428,7 +2428,7 @@ def _run_sequencer_checks():
     st, sq, obs = fresh({"owA": {0: 0, 10: 5, 20: 9}})
     ow_fc = fc_of(obs["owA"])
     ow_key = _SSI._fc_key("owA", ow_fc)
-    sq.ledger.record_authored(ow_key, 10.0, 0, "fade_in", "owA", "stamp")
+    sq.ledger.record_authored(ow_key, 10.0, 0, "show", "owA", "stamp")
     sq.ledger.record_step(ow_key, 10.0, "BEZIER", "BEZIER")
     ShotSequencer.move_curve_keys(
         ow_fc, [0.0, 20.0], 10.0, ledger=sq.ledger, ledger_key=ow_key
@@ -4263,7 +4263,7 @@ def _run_sequencer_checks():
     st, sq, obs = fresh({"nsA": {0: 0, 10: 5, 20: 9}})
     ns_shot = sq.define_shot("NS", 0, 30, objects=["nsA"])
     ns_key = BlenderShotsHost.curve_key("nsA", "location", 0)
-    st.edit_ledger.record_authored(ns_key, 10.0, 0, "fade_in", "nsA")
+    st.edit_ledger.record_authored(ns_key, 10.0, 0, "show", "nsA")
     bpy.ops.ed.undo_push(message="baseline")
     with st.scene_edit("Shots Window End"):
         st.update_shot(ns_shot.shot_id, end=40.0)
@@ -4672,7 +4672,7 @@ def _run_sequencer_checks():
             "v1A|location|0": [[10.0, v1_a.shot_id, "end"]],
             "v1Link|location|0": [[1.0, v1_a.shot_id, "start"]],
         },
-        "authored": {"v1Gone|location|0": [[5.0, 0, "fade_in", "v1Gone"]]},
+        "authored": {"v1Gone|location|0": [[5.0, 0, "show", "v1Gone"]]},
     }
     v1_store = ShotStore.from_dict(v1_data)
     v1_led = v1_store.edit_ledger

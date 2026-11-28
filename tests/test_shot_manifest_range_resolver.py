@@ -73,7 +73,7 @@ def _run_checks():
             ],
         ),
         BuilderStep(
-            "A01", "A", "fade", "", [BuilderObject("g", behaviors=["fade_in"])]
+            "A01", "A", "fade", "", [BuilderObject("g", behaviors=["show"])]
         ),
     ]
 
@@ -98,7 +98,7 @@ def _run_checks():
         f"{resolved}",
     )
     check(
-        "facade: template-driven step still sized by phase durations (fade_in = 15)",
+        "facade: template-driven step still sized by phase durations (show = 15)",
         "A01" in by_id and by_id["A01"][2] - by_id["A01"][1] == 15.0,
         f"{resolved}",
     )

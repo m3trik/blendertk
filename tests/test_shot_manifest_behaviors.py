@@ -86,11 +86,11 @@ def _run_checks():
     VIS = RenderEffects.VIS_PATH
 
     # ---- apply_behavior: dual-keyed opacity + stepped hide_render ---------
-    Behaviors.apply_behavior("fade_geo", "fade_in", 10, 100)
+    Behaviors.apply_behavior("fade_geo", "show", 10, 100)
     op = keys("fade_geo", OP)
     vis = keys("fade_geo", VIS)
     check(
-        "apply_behavior: fade_in keys opacity 0->1 over the template duration",
+        "apply_behavior: show keys opacity 0->1 over the template duration",
         [(t, v) for t, v, _ in op] == [(10.0, 0.0), (25.0, 1.0)],
         f"{op}",
     )
@@ -110,17 +110,17 @@ def _run_checks():
     )
 
     # anchor_override places the block relative to the range end
-    Behaviors.apply_behavior("plain_geo", "fade_in", 10, 100, anchor_override=1.0)
+    Behaviors.apply_behavior("plain_geo", "show", 10, 100, anchor_override=1.0)
     op = [(t, v) for t, v, _ in keys("plain_geo", OP)]
     check(
-        "apply_behavior: anchor_override=1.0 anchors fade_in at the range end",
+        "apply_behavior: anchor_override=1.0 anchors show at the range end",
         op == [(85.0, 0.0), (100.0, 1.0)],
         f"{op}",
     )
 
     # missing object -> RuntimeError (recorded as a failure by apply_to_shots)
     try:
-        Behaviors.apply_behavior("nope_geo", "fade_in", 0, 10)
+        Behaviors.apply_behavior("nope_geo", "show", 0, 10)
         raised = False
     except RuntimeError:
         raised = True
@@ -129,19 +129,19 @@ def _run_checks():
     # ---- verify_behavior: values_in_range / missing / exact ---------------
     check(
         "verify_behavior: values_in_range passes on the keyed object",
-        Behaviors.verify_behavior("fade_geo", "fade_in", 10, 100),
+        Behaviors.verify_behavior("fade_geo", "show", 10, 100),
     )
     check(
         "verify_behavior: values_in_range fails outside the keyed window",
-        not Behaviors.verify_behavior("fade_geo", "fade_in", 200, 300),
+        not Behaviors.verify_behavior("fade_geo", "show", 200, 300),
     )
     check(
         "verify_behavior: unkeyed object fails",
-        not Behaviors.verify_behavior("both_geo", "fade_in", 10, 100),
+        not Behaviors.verify_behavior("both_geo", "show", 10, 100),
     )
     check(
         "verify_behavior: missing object fails (no raise)",
-        not Behaviors.verify_behavior("nope_geo", "fade_in", 10, 100),
+        not Behaviors.verify_behavior("nope_geo", "show", 10, 100),
     )
 
     # exact mode via a custom template dir: keys must sit at the modelled anchor
@@ -275,22 +275,22 @@ def _run_checks():
     )
     check(
         "compute_duration: template-only entry uses phase durations",
-        Behaviors.compute_duration([{"behavior": "fade_in"}], fallback=30) == 15.0,
+        Behaviors.compute_duration([{"behavior": "show"}], fallback=30) == 15.0,
     )
 
     # ---- apply_to_shots: anchors distributed, audio-first, failures recorded
     store = ShotStore()
     s1 = store.define_shot("S1", 100, 200, objects=["both_geo"])
     s1.metadata["behaviors"] = [
-        {"name": "both_geo", "behavior": "fade_in", "kind": "scene"},
-        {"name": "both_geo", "behavior": "fade_out", "kind": "scene"},
+        {"name": "both_geo", "behavior": "show", "kind": "scene"},
+        {"name": "both_geo", "behavior": "hide", "kind": "scene"},
         {"name": "vo2", "behavior": "set_clip", "kind": "audio", "source_path": wav},
-        {"name": "nope_geo", "behavior": "fade_in", "kind": "scene"},
+        {"name": "nope_geo", "behavior": "show", "kind": "scene"},
     ]
     res = Behaviors.apply_to_shots([s1], apply_fn=Behaviors.apply_behavior)
     op = [(t, v) for t, v, _ in keys("both_geo", OP)]
     check(
-        "apply_to_shots: 2 behaviors distribute to start (fade_in) and end (fade_out)",
+        "apply_to_shots: 2 behaviors distribute to start (show) and end (hide)",
         op == [(100.0, 0.0), (115.0, 1.0), (185.0, 1.0), (200.0, 0.0)],
         f"{op}",
     )
@@ -303,8 +303,8 @@ def _run_checks():
         "apply_to_shots: applied records carry object/behavior/shot",
         {(r["object"], r["behavior"], r["shot"]) for r in res["applied"]}
         == {
-            ("both_geo", "fade_in", "S1"),
-            ("both_geo", "fade_out", "S1"),
+            ("both_geo", "show", "S1"),
+            ("both_geo", "hide", "S1"),
             ("vo2", "set_clip", "S1"),
         },
         f"{res['applied']}",
@@ -328,7 +328,7 @@ def _run_checks():
 
     s2 = store.define_shot("S2", 300, 400, objects=["plain_geo"])
     s2.metadata["behaviors"] = [
-        {"name": "fade_geo", "behavior": "fade_in", "kind": "scene"}
+        {"name": "fade_geo", "behavior": "show", "kind": "scene"}
     ]
     res3 = Behaviors.apply_to_shots([s2], apply_fn=_boom)
     check(
@@ -355,7 +355,7 @@ def _run_checks():
     )
     check(
         "apply_to_shots: legacy 3-arg apply/exists/has_keys seams bind",
-        ("both_geo", "fade_in") in seen and ("nope_geo", "fade_in") in seen,
+        ("both_geo", "show") in seen and ("nope_geo", "show") in seen,
         f"{seen}",
     )
 

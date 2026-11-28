@@ -1082,7 +1082,7 @@ def _run_shots_adapter_checks():
     led = rel_store.edit_ledger
     align_obj = keyed_x("ClaimAlign", (10, 20, 30))
     align_key = BlenderShotsHost.curve_key(align_obj.name, "location", 0)
-    led.record_authored(align_key, 20.0, 0, "fade_in", align_obj.name)
+    led.record_authored(align_key, 20.0, 0, "show", align_obj.name)
     led.record_step(align_key, 20.0, "AUTO", "BEZIER")
     select_keys(align_obj, (10,))
     btk.align_selected_keyframes(
@@ -1096,7 +1096,7 @@ def _run_shots_adapter_checks():
 
     invert_obj = keyed_x("ClaimInvert", (10, 20, 30))
     invert_key = BlenderShotsHost.curve_key(invert_obj.name, "location", 0)
-    led.record_authored(invert_key, 20.0, 0, "fade_in", invert_obj.name)
+    led.record_authored(invert_key, 20.0, 0, "show", invert_obj.name)
     # The reversed copy at 0 (absolute): t' = 30 - t, so 10's copy lands on 20.
     btk.invert_keys(
         invert_obj,
@@ -1120,7 +1120,7 @@ def _run_shots_adapter_checks():
         BlenderShotsHost.curve_key("ClaimOldName", "location", 0),
         20.0,
         0,
-        "fade_in",
+        "show",
         "ClaimOldName",
     )
     renamed.name = "ClaimNewName"
@@ -1145,7 +1145,7 @@ def _run_shots_adapter_checks():
 
     moving = keyed_x("ClaimMoved", (10, 15, 25, 30))
     moving_key = BlenderShotsHost.curve_key(moving.name, "location", 0)
-    led.record_authored(moving_key, 15.0, 0, "fade_in", moving.name)
+    led.record_authored(moving_key, 15.0, 0, "show", moving.name)
     btk.invert_keys(
         moving,
         mode="time",
@@ -1160,7 +1160,7 @@ def _run_shots_adapter_checks():
     )
     aligned = keyed_x("ClaimAligned", (10, 30))
     aligned_key = BlenderShotsHost.curve_key(aligned.name, "location", 0)
-    led.record_authored(aligned_key, 10.0, 0, "fade_in", aligned.name)
+    led.record_authored(aligned_key, 10.0, 0, "show", aligned.name)
     select_keys(aligned, (10,))
     btk.align_selected_keyframes(
         aligned,
@@ -1180,7 +1180,7 @@ def _run_shots_adapter_checks():
     lazy = keyed_x("ClaimLazy", (10, 20))
     lazy_key = BlenderShotsHost.curve_key(lazy.name, "location", 0)
     lazy_store = ShotStore()
-    lazy_store.edit_ledger.record_authored(lazy_key, 10.0, 0, "fade_in", lazy.name)
+    lazy_store.edit_ledger.record_authored(lazy_key, 10.0, 0, "show", lazy.name)
     scans = []
     real_follow = lazy_store.follow_renames
     lazy_store.follow_renames = lambda: scans.append(1) or real_follow()

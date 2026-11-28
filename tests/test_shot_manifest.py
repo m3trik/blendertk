@@ -95,9 +95,9 @@ A03.),Fuselage fades out,fuselage_geo,
 
     # ---- behaviors detected + applied Blender-natively -------------------
     check(
-        "A01 metadata records fade_in behavior",
+        "A01 metadata records show behavior",
         any(
-            e.get("behavior") == "fade_in"
+            e.get("behavior") == "show"
             for e in shots["A01"].metadata.get("behaviors", [])
         ),
     )
@@ -137,7 +137,7 @@ A03.),Fuselage fades out,fuselage_geo,
     check("fuselage_geo has fade keys", bool(fade_key_paths("fuselage_geo")))
     check("wing_geo (no behavior) has NO fade keys", not fade_key_paths("wing_geo"))
 
-    # fade_in keys ascend 0->1 over the fade window inside the shot
+    # show keys ascend 0->1 over the fade window inside the shot
     ail = bpy.data.objects.get("aileron_geo")
     op_fc = next(
         (
@@ -153,7 +153,7 @@ A03.),Fuselage fades out,fuselage_geo,
             for kp in sorted(op_fc.keyframe_points, key=lambda k: k.co[0])
         ]
         check(
-            "aileron opacity fades 0->1 (fade_in)",
+            "aileron opacity fades 0->1 (show)",
             vals and vals[0] == 0.0 and vals[-1] == 1.0,
             f"{vals}",
         )
@@ -293,7 +293,7 @@ A03.),Fuselage fades out,fuselage_geo,
     # are never modified" — the panel help's promise).
     shots["A02"].locked = True
     shots["A02"].metadata["behaviors"] = [
-        {"name": "wing_geo", "behavior": "fade_in", "kind": "scene"}
+        {"name": "wing_geo", "behavior": "show", "kind": "scene"}
     ]
     locked_result = mani.apply_behaviors()
     check(
@@ -310,7 +310,7 @@ A03.),Fuselage fades out,fuselage_geo,
     # zero-duration shot: nothing to key over -> skipped entirely.
     z = store.define_shot("Z0", 500, 500, objects=["wing_geo"])
     z.metadata["behaviors"] = [
-        {"name": "wing_geo", "behavior": "fade_in", "kind": "scene"}
+        {"name": "wing_geo", "behavior": "show", "kind": "scene"}
     ]
     zero_result = mani.apply_behaviors()
     check(
@@ -544,7 +544,7 @@ A03.),Fuselage fades out,fuselage_geo,
     )
 
     # ---- reapply_object: explicit user action re-keys WITHOUT the guard ----
-    both = _BO("wing_geo", behaviors=["fade_in", "fade_out"])
+    both = _BO("wing_geo", behaviors=["show", "hide"])
     re_shot = store.define_shot("R1", 700, 800, objects=["wing_geo"])
     check("reapply_object: applies", mani.reapply_object(re_shot, both))
     wing = bpy.data.objects["wing_geo"]
@@ -555,7 +555,7 @@ A03.),Fuselage fades out,fuselage_geo,
         for kp in fc.keyframe_points
     )
     check(
-        "reapply_object: fade_in at start + fade_out at end (distributed anchors)",
+        "reapply_object: show at start + hide at end (distributed anchors)",
         op_times == [700, 715, 785, 800],
         f"{op_times}",
     )
@@ -634,17 +634,17 @@ A03.),Fuselage fades out,fuselage_geo,
         door_keys(hl_path) == pulse_plan() and rebuilt[0].objects[0].status == "valid",
         f"{rebuilt[0].objects[0].status}",
     )
-    rt.sync(rt_steps("highlight", "fade_in"), ranges=rt_range)
+    rt.sync(rt_steps("highlight", "show"), ranges=rt_range)
     door["highlight"] = 0.5
     door.keyframe_insert(data_path=hl_path, frame=2000)  # the animator's
-    dropped = rt.assess(rt_steps("fade_in"))
+    dropped = rt.assess(rt_steps("show"))
     check(
         "recipe: assess names a behavior the doc dropped",
         dropped[0].dropped_behaviors == [["door_geo", "highlight"]]
         and dropped[0].needs_build,
         f"{dropped[0].dropped_behaviors}",
     )
-    rt.sync(rt_steps("fade_in"), ranges=rt_range)
+    rt.sync(rt_steps("show"), ranges=rt_range)
     check(
         "recipe: Build takes a dropped behavior's keys, never the animator's",
         door_keys(hl_path) == [(2000.0, 0.5)]
@@ -660,7 +660,7 @@ A03.),Fuselage fades out,fuselage_geo,
     for _frame, _value in ((_d01.start, 0.0), (_d01.start + 130, 5.0), (_d01.end + 800, 5.0)):
         door.location.x = _value
         door.keyframe_insert(data_path="location", index=0, frame=_frame)
-    [_tail] = rt.assess(rt_steps("fade_in"))
+    [_tail] = rt.assess(rt_steps("show"))
     check(
         "assess: the unused tail ends at a faded member's own keys",
         _tail.shrinkable_frames == _d01.end - (_d01.start + 130),
@@ -803,7 +803,7 @@ def _insert_in_sheet_order_checks(check, _BS, _BO):
         tmp.cleanup()
 
     # --- A build makes the helper a placing row names (`where`) where the scene has none: a camera for a picture,
-    # an empty for a viewpoint or an arrow, at ptk.ManifestPlacement's plain first pose, riding what it is for.
+    # an empty for a viewpoint or a pointer's tip, at ptk.ManifestPlacement's plain first pose, riding what it is for.
     # Mirror of mayatk's PlacingHelpersTest. A delivery in metres, Z up: a cabinet 2 m tall, a latch on its front (-Y).
     import math
 
@@ -825,10 +825,10 @@ def _insert_in_sheet_order_checks(check, _BS, _BO):
     latch = cube("PLACE_LATCH", (0.1, 0.04, 0.1), (0.2, -0.32, 1.1), delivery)
     bpy.context.view_layer.update()
     rows = [
-        {"word": "teleport", "places": "stand", "assets": ["BODY"], "settings": {"where": "VIEW_A01"}},
-        {"word": "indicate", "places": "point", "assets": ["PLACE_LATCH"], "settings": {"where": "ARROW_LATCH"}},
-        {"word": "pip", "places": "view", "assets": ["PLACE_LATCH"], "settings": {"where": "CAM_A01"}},
-        {"word": "pip", "places": "view", "assets": ["NO_SUCH_PART"], "settings": {"where": "CAM_NONE"}},
+        {"word": "travel", "places": "stand", "assets": ["BODY"], "settings": {"where": "VIEW_A01"}},
+        {"word": "indicate", "places": "point", "assets": ["PLACE_LATCH"], "settings": {"where": "POINT_LATCH"}},
+        {"word": "picture", "places": "view", "assets": ["PLACE_LATCH"], "settings": {"where": "CAM_A01"}},
+        {"word": "picture", "places": "view", "assets": ["NO_SUCH_PART"], "settings": {"where": "CAM_NONE"}},
     ]
     # The floor a viewpoint stands on is the scene's: the lowest point of everything it shows (the cubes the checks
     # above left reach below this delivery).
@@ -839,11 +839,11 @@ def _insert_in_sheet_order_checks(check, _BS, _BO):
     bpy.context.view_layer.update()
     check(
         "place: each named helper is made once, and a part the scene lacks is said",
-        placed["made"] == ["VIEW_A01", "ARROW_LATCH", "CAM_A01"] and [n for n, _ in placed["skipped"]] == ["CAM_NONE"],
+        placed["made"] == ["VIEW_A01", "POINT_LATCH", "CAM_A01"] and [n for n, _ in placed["skipped"]] == ["CAM_NONE"],
         f"{placed}",
     )
-    view, arrow, cam = (bpy.data.objects.get(n) for n in ("VIEW_A01", "ARROW_LATCH", "CAM_A01"))
-    if view and arrow and cam:
+    view, pointer, cam = (bpy.data.objects.get(n) for n in ("VIEW_A01", "POINT_LATCH", "CAM_A01"))
+    if view and pointer and cam:
         at = view.matrix_world.translation
         facing = view.matrix_world.to_quaternion() @ Vector((0.0, 0.0, 1.0))
         check(
@@ -852,13 +852,13 @@ def _insert_in_sheet_order_checks(check, _BS, _BO):
             and facing.y > 0.99,
             f"type={view.type} parent={view.parent} at={tuple(at)} facing={tuple(facing)}",
         )
-        tip = arrow.matrix_world.translation
-        down = arrow.matrix_world.to_quaternion() @ Vector((0.0, 0.0, 1.0))
+        tip = pointer.matrix_world.translation
+        down = pointer.matrix_world.to_quaternion() @ Vector((0.0, 0.0, 1.0))
         at_latch = (Vector((0.2, -0.32, 1.1)) - tip).normalized()
         check(
-            "place: an arrow's tip is an empty riding its part, its +Z pointing at it, clear of the body's face by its room",
-            arrow.parent is latch and down.dot(at_latch) > 0.999 and tip.y < -0.3 - ManifestPlacement.ARROW * 0.3,
-            f"parent={arrow.parent} tip={tuple(tip)} down={tuple(down)}",
+            "place: a pointer's tip is an empty riding its part, its +Z pointing at it, clear of the body's face by its room",
+            pointer.parent is latch and down.dot(at_latch) > 0.999 and tip.y < -0.3 - ManifestPlacement.POINTER * 0.3,
+            f"parent={pointer.parent} tip={tuple(tip)} down={tuple(down)}",
         )
         eye = cam.matrix_world.translation
         look = cam.matrix_world.to_quaternion() @ Vector((0.0, 0.0, -1.0))
@@ -875,7 +875,7 @@ def _insert_in_sheet_order_checks(check, _BS, _BO):
         again = mani3.place_helpers([_BS("P01", "A", "t", "", rows=rows)])
         check(
             "place: a helper is the truth once made: a second build neither makes nor moves it",
-            again["made"] == [] and sorted(again["kept"]) == ["ARROW_LATCH", "CAM_A01", "VIEW_A01"]
+            again["made"] == [] and sorted(again["kept"]) == ["POINT_LATCH", "CAM_A01", "VIEW_A01"]
             and (cam.matrix_world.translation - Vector((0.6, -0.9, 1.2))).length < 1e-5,
             f"{again} {tuple(cam.matrix_world.translation)}",
         )
@@ -895,7 +895,7 @@ def _insert_in_sheet_order_checks(check, _BS, _BO):
     bpy.context.scene.collection.objects.link(reach)
     reach.parent = cabinet
     bpy.context.view_layer.update()
-    dials_rows = [{"word": "pip", "places": "view", "assets": ["PLACE_DIALS"], "settings": {"where": "CAM_D01"}}]
+    dials_rows = [{"word": "picture", "places": "view", "assets": ["PLACE_DIALS"], "settings": {"where": "CAM_D01"}}]
     made = mani3.place_helpers([_BS("D01", "D", "t", "", rows=dials_rows)])["made"]
     bpy.context.view_layer.update()
     dials_cam = bpy.data.objects.get("CAM_D01")
@@ -914,7 +914,7 @@ def _insert_in_sheet_order_checks(check, _BS, _BO):
     mark.parent = delivery
     mark.location = (0.2, -0.32, 1.5)
     bpy.context.view_layer.update()
-    mark_rows = [{"word": "pip", "places": "view", "assets": ["PLACE_MARK"], "settings": {"where": "CAM_MARK"}}]
+    mark_rows = [{"word": "picture", "places": "view", "assets": ["PLACE_MARK"], "settings": {"where": "CAM_MARK"}}]
     made = mani3.place_helpers([_BS("M01", "M", "t", "", rows=mark_rows)])["made"]
     bpy.context.view_layer.update()
     mark_cam = bpy.data.objects.get("CAM_MARK")
@@ -930,7 +930,7 @@ def _insert_in_sheet_order_checks(check, _BS, _BO):
     # A helper it could not finish is removed (mayatk's mirror): a failure after it is made, before it is parented.
     from unittest import mock
 
-    fail_rows = [{"word": "pip", "places": "view", "assets": ["BODY"], "settings": {"where": "CAM_FAIL"}}]
+    fail_rows = [{"word": "picture", "places": "view", "assets": ["BODY"], "settings": {"where": "CAM_FAIL"}}]
     with mock.patch.object(ptk.ManifestPlacement, "RIDES", {}):
         try:
             mani3.place_helpers([_BS("F01", "F", "t", "", rows=fail_rows)])

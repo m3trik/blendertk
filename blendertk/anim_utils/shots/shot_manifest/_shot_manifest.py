@@ -319,7 +319,7 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
         return EmissiveGroups.ensure_state(EmissiveGroups.groups_on(under), state)
 
     def _make_helper(self, name: str, purpose: str, target: str, frame: Optional[float]) -> Optional[str]:
-        """A camera (a picture's) or an empty (a viewpoint's, an arrow's) named
+        """A camera (a picture's) or an empty (a viewpoint's, a pointer's) named
         *name*, made by *target* as the scene stands at *frame* -- mirror of
         mayatk's (name + behavior).
 
@@ -401,7 +401,7 @@ class BlenderShotManifest(ShotManifest, _ShotManifestInternal):
             else:
                 made = RigUtils.create_locator(name, display_type="ARROWS", size=0.1 * unit, collection=home)
                 forward = "Z"
-            # Its forward to the aim; where that is straight up or down (an arrow over its part), its up lies level.
+            # Its forward to the aim; where that is straight up or down (a pointer over its part), its up lies level.
             way = Vector(aim) - Vector(position)
             turned = way.to_track_quat(forward, "Y")
             if way.to_2d().length < 1e-9:

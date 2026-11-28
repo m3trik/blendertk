@@ -1081,6 +1081,9 @@ MOVED_NAMES = {
     "HELD_UNTIL_0_25": ("blendertk.MOVED_NAMES (its rows moved there)", "0.27.0"),
     # The Lightmap Baker saves no Bake Set (2026-10-22).
     "LightmapBakeSet": ("blendertk.LightmapBaker (its Manage page selects and re-bakes each map's objects)", "0.27.0"),
+    # Each effect is declared once, in pythontk's recipe (2026-11-28): the
+    # channel it keys is ``EffectRecipe.channel_of`` (mirror of mayatk's).
+    "RenderEffects.EFFECT_CHANNELS": ("pythontk.EffectRecipe.channel_of", "0.28.0"),
 }
 
 bootstrap_package(
